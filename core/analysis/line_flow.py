@@ -1,141 +1,109 @@
-# core/analysis/load_flow.py
+# core/analysis/line_flow.py
 
 """
-GridForge Load Flow Solver (v0.7)
+GridForge Line Flow Calculation (v0.7)
 
-Newton-Raphson based power flow solver.
+Computes:
+- Pij, Qij (from → to)
+- Pji, Qji (to → from)
+- Line losses
 
-Outputs:
-- Vm (voltage magnitudes, pu)
-- Va (voltage angles, radians)
+Uses π-model:
+- Series admittance
+- Shunt charging (B/2 each side)
 """
 
 import numpy as np
 
 
-class LoadFlowSolver:
+class LineFlowCalculator:
     def __init__(self, network):
         self.network = network
 
-        # --- VALIDATION ---
-        if not hasattr(network, "buses"):
-            raise ValueError("Network missing buses")
-
-        if not hasattr(network, "lines"):
-            raise ValueError("Network missing lines")
+        # --- REQUIRED CORE ATTRIBUTES ---
+        if not hasattr(network, "per_unit"):
+            raise ValueError("Network missing 'per_unit' system (required for v0.7)")
 
         if not hasattr(network, "bus_index"):
-            raise ValueError("Network missing bus_index")
+            raise ValueError("Network missing 'bus_index' mapping")
 
-        if not hasattr(network, "per_unit"):
-            raise ValueError("Network missing per_unit system")
-
-        self.buses = network.buses
-        self.lines = network.lines
+        self.pu = network.per_unit
         self.bus_index = network.bus_index
-        self.n = len(self.buses)
-
-        # Build Ybus
-        self.Ybus = self._build_ybus()
 
     # ------------------------------------------------------------------
-    # PUBLIC API
+    # MAIN ENTRY
     # ------------------------------------------------------------------
 
-    def solve(self, max_iter=20, tol=1e-6):
-        Vm = np.array([bus.Vm for bus in self.buses])
-        Va = np.array([bus.Va for bus in self.buses])
+    def compute(self, Vm, Va):
+        """
+        Vm: voltage magnitudes (pu)
+        Va: voltage angles (rad)
 
-        for _ in range(max_iter):
-            P, Q = self._calc_power(Vm, Va)
-            mismatch = self._mismatch(P, Q)
+        Returns:
+            list of dicts per line
+        """
+        results = []
 
-            if np.max(np.abs(mismatch)) < tol:
-                return Vm, Va
+        for line in self.network.lines:
+            res = self._line_flow(line, Vm, Va)
+            results.append(res)
 
-            J = self._jacobian(Vm, Va)
-            dx = np.linalg.solve(J, mismatch)
-
-            Va += dx[:self.n]
-            Vm += dx[self.n:]
-
-        raise RuntimeError("Load flow did not converge")
+        return results
 
     # ------------------------------------------------------------------
-    # YBUS
+    # CORE FORMULATION
     # ------------------------------------------------------------------
 
-    def _build_ybus(self):
-        Y = np.zeros((self.n, self.n), dtype=complex)
-
-        for line in self.lines:
+    def _line_flow(self, line, Vm, Va):
+        # --- BUS LOOKUP SAFETY ---
+        try:
             i = self.bus_index[line.from_bus.id]
             j = self.bus_index[line.to_bus.id]
+        except KeyError as e:
+            raise ValueError(f"Bus index missing for line: {e}")
 
-            z = complex(line.r_ohm, line.x_ohm)
-            z_pu = self.network.per_unit.to_pu_impedance(z, line.base_kv)
+        Vi = Vm[i] * np.exp(1j * Va[i])
+        Vj = Vm[j] * np.exp(1j * Va[j])
 
-            if abs(z_pu) == 0:
-                raise ValueError(f"Zero impedance in line {line}")
+        # --- VALIDATE LINE DATA ---
+        if not hasattr(line, "base_kv"):
+            raise ValueError(f"Line {line} missing base_kv")
 
-            y = 1 / z_pu
+        # Series impedance
+        z = complex(line.r_ohm, line.x_ohm)
+        z_pu = self.pu.to_pu_impedance(z, line.base_kv)
 
-            Y[i, i] += y
-            Y[j, j] += y
-            Y[i, j] -= y
-            Y[j, i] -= y
+        if abs(z_pu) == 0:
+            raise ValueError(f"Zero impedance line detected: {line}")
 
-        return Y
+        y = 1 / z_pu
 
-    # ------------------------------------------------------------------
-    # POWER CALCULATION
-    # ------------------------------------------------------------------
+        # Shunt charging
+        b = getattr(line, "b_siemens", 0.0)
+        b_pu = self.pu.to_pu_admittance(1j * b, line.base_kv)
 
-    def _calc_power(self, Vm, Va):
-        P = np.zeros(self.n)
-        Q = np.zeros(self.n)
+        # --- CURRENT CALCULATIONS ---
+        Iij = (Vi - Vj) * y + Vi * (b_pu / 2)
+        Iji = (Vj - Vi) * y + Vj * (b_pu / 2)
 
-        for i in range(self.n):
-            for j in range(self.n):
-                Yij = self.Ybus[i, j]
-                angle = Va[i] - Va[j]
+        # --- POWER ---
+        Sij = Vi * np.conj(Iij)
+        Sji = Vj * np.conj(Iji)
 
-                P[i] += Vm[i] * Vm[j] * (
-                    Yij.real * np.cos(angle) +
-                    Yij.imag * np.sin(angle)
-                )
+        Pij, Qij = Sij.real, Sij.imag
+        Pji, Qji = Sji.real, Sji.imag
 
-                Q[i] += Vm[i] * Vm[j] * (
-                    Yij.real * np.sin(angle) -
-                    Yij.imag * np.cos(angle)
-                )
+        # --- LOSSES ---
+        Ploss = Pij + Pji
+        Qloss = Qij + Qji
 
-        return P, Q
-
-    # ------------------------------------------------------------------
-    # MISMATCH
-    # ------------------------------------------------------------------
-
-    def _mismatch(self, P_calc, Q_calc):
-        mismatch = []
-
-        for i, bus in enumerate(self.buses):
-            if bus.type == "Slack":
-                continue
-
-            dP = bus.P - P_calc[i]
-            mismatch.append(dP)
-
-            if bus.type == "PQ":
-                dQ = bus.Q - Q_calc[i]
-                mismatch.append(dQ)
-
-        return np.array(mismatch)
-
-    # ------------------------------------------------------------------
-    # JACOBIAN (SIMPLIFIED)
-    # ------------------------------------------------------------------
-
-    def _jacobian(self, Vm, Va):
-        size = 2 * self.n
-        return np.eye(size)
+        return {
+            "from_bus": line.from_bus.id,
+            "to_bus": line.to_bus.id,
+            "P_from_to": Pij,
+            "Q_from_to": Qij,
+            "P_to_from": Pji,
+            "Q_to_from": Qji,
+            "P_loss": Ploss,
+            "Q_loss": Qloss,
+        }
