@@ -1,52 +1,75 @@
 """
-GridForge Network Core
-
-System orchestration layer.
+GridForge Core Network Engine v0.6
 
 Responsibilities:
 
-- Manage network components
-- Build Ybus
-- Execute analysis
-- Coordinate protection
-- Handle switching events
-- Interface with dynamics
+- Network topology management
+- Equipment containers
+- Ybus construction
+- Analysis orchestration
+- Protection coordination interface
+- Dynamic simulation interface
+
 
 Does NOT:
 
-- Solve equations directly
-- Contain relay algorithms
-- Contain GUI state
+- Perform numerical solving
+- Calculate faults directly
+- Make protection decisions
+
 
 """
-
 
 import numpy as np
 
 
-# ==========================================================
-# ANALYSIS
-# ==========================================================
+# =====================================================
+# ANALYSIS MODULES
+# =====================================================
 
-from core.analysis.load_flow import LoadFlowSolver
-from core.analysis.line_flow import LineFlowCalculator
-from core.analysis.transformer_flow import TransformerFlowCalculator
-from core.analysis.contingency import ContingencyAnalyzer
-from core.analysis.short_circuit import ShortCircuitAnalyzer
-from core.analysis.unbalanced_fault import UnbalancedFaultAnalyzer
+from core.analysis.load_flow import (
+    LoadFlowSolver
+)
+
+from core.analysis.short_circuit import (
+    ShortCircuitAnalyzer
+)
+
+from core.analysis.line_flow import (
+    LineFlowCalculator
+)
+
+from core.analysis.transformer_flow import (
+    TransformerFlowCalculator
+)
+
+from core.analysis.contingency import (
+    ContingencyAnalyzer
+)
+
+from core.analysis.unbalanced_fault import (
+    UnbalancedFaultAnalyzer
+)
 
 
-# ==========================================================
+
+# =====================================================
 # PROTECTION
-# ==========================================================
+# =====================================================
 
-from core.protection.protection_system import ProtectionSystem
-from core.protection.breaker_manager import BreakerManager
+from core.protection.protection import (
+    ProtectionSystem
+)
+
+from core.protection.breaker import (
+    BreakerManager
+)
 
 
-# ==========================================================
+
+# =====================================================
 # DYNAMICS
-# ==========================================================
+# =====================================================
 
 from core.dynamics.transient_stability import (
     TransientStabilitySolver
@@ -57,6 +80,7 @@ from core.dynamics.multi_machine import (
 )
 
 
+
 class Network:
 
 
@@ -65,17 +89,17 @@ class Network:
             base_mva=100.0):
 
 
-        # --------------------------------------------------
-        # Base
-        # --------------------------------------------------
+        # ---------------------------------
+        # Base system
+        # ---------------------------------
 
         self.base_mva = base_mva
 
 
 
-        # --------------------------------------------------
+        # ---------------------------------
         # Equipment containers
-        # --------------------------------------------------
+        # ---------------------------------
 
         self.buses = []
 
@@ -85,13 +109,11 @@ class Network:
 
         self.generators = []
 
-        self.breakers = []
 
 
-
-        # --------------------------------------------------
-        # Internal structures
-        # --------------------------------------------------
+        # ---------------------------------
+        # Internal indexing
+        # ---------------------------------
 
         self.bus_index = {}
 
@@ -99,9 +121,17 @@ class Network:
 
 
 
-        # --------------------------------------------------
+        # ---------------------------------
+        # Sequence data
+        # ---------------------------------
+
+        self.sequence_network = None
+
+
+
+        # ---------------------------------
         # Analysis results
-        # --------------------------------------------------
+        # ---------------------------------
 
         self.lf_result = None
 
@@ -109,77 +139,83 @@ class Network:
 
 
 
-        # --------------------------------------------------
+        # ---------------------------------
         # Protection
-        # --------------------------------------------------
+        # ---------------------------------
 
-        self.breaker_manager = BreakerManager()
+        self.protection_system = (
+
+            ProtectionSystem()
+
+        )
 
 
-        self.protection_system = ProtectionSystem(
-            self.breaker_manager
+        self.breaker_manager = (
+
+            BreakerManager()
+
         )
 
 
 
-        # --------------------------------------------------
-        # Fault state
-        # --------------------------------------------------
+        # ---------------------------------
+        # Event state
+        # ---------------------------------
 
         self.active_fault = None
 
 
 
-
-    # ======================================================
+    # =================================================
     # ADD ELEMENTS
-    # ======================================================
+    # =================================================
 
-    def add_bus(self, bus):
+
+    def add_bus(
+            self,
+            bus):
 
         self.buses.append(bus)
 
 
 
-    def add_line(self, line):
+    def add_line(
+            self,
+            line):
 
         self.lines.append(line)
 
 
 
-    def add_transformer(self, transformer):
+    def add_transformer(
+            self,
+            trafo):
 
-        self.transformers.append(transformer)
-
-
-
-    def add_generator(self, generator):
-
-        self.generators.append(generator)
+        self.transformers.append(trafo)
 
 
 
-    def add_breaker(self, breaker):
+    def add_generator(
+            self,
+            gen):
 
-        self.breakers.append(breaker)
-
-        self.breaker_manager.add_breaker(
-            breaker
-        )
+        self.generators.append(gen)
 
 
 
-    # ======================================================
+    # =================================================
     # INDEXING
-    # ======================================================
+    # =================================================
+
 
     def _build_bus_index(self):
 
+
         self.bus_index = {
 
-            bus.id:index
+            bus.id: idx
 
-            for index,bus
+            for idx, bus
 
             in enumerate(self.buses)
 
@@ -187,10 +223,10 @@ class Network:
 
 
 
+    # =================================================
+    # YBUS
+    # =================================================
 
-    # ======================================================
-    # YBUS BUILD
-    # ======================================================
 
     def build_ybus(self):
 
@@ -211,28 +247,27 @@ class Network:
 
 
 
-        # ------------------------------
+        # -------------------------------
         # Lines
-        # ------------------------------
+        # -------------------------------
+
 
         for line in self.lines:
 
 
             if not self.breaker_manager.is_closed(
-                line.name
-            ):
+                    line.id):
 
                 continue
 
 
 
             i = self.bus_index[
-                line.from_bus
+                line.from_bus.id
             ]
 
-
             j = self.bus_index[
-                line.to_bus
+                line.to_bus.id
             ]
 
 
@@ -250,7 +285,15 @@ class Network:
 
 
 
-            b = 1j*line.b_pu/2
+            b = (
+
+                1j *
+
+                line.b_pu /
+
+                2
+
+            )
 
 
 
@@ -264,25 +307,36 @@ class Network:
 
 
 
-        # ------------------------------
+        # -------------------------------
         # Transformers
-        # ------------------------------
+        # -------------------------------
+
 
         for trafo in self.transformers:
 
 
             i = self.bus_index[
-                trafo.from_bus
+                trafo.from_bus.id
             ]
 
 
             j = self.bus_index[
-                trafo.to_bus
+                trafo.to_bus.id
             ]
 
 
 
-            y = trafo.y_pu
+            z = complex(
+
+                trafo.r_pu,
+
+                trafo.x_pu
+
+            )
+
+
+            y = 1/z
+
 
 
             tap = getattr(
@@ -296,15 +350,43 @@ class Network:
             )
 
 
+            shift = np.deg2rad(
 
-            Y[i,i] += y/(tap*tap)
+                getattr(
+
+                    trafo,
+
+                    "phase_shift_deg",
+
+                    0.0
+
+                )
+
+            )
+
+
+
+            a = (
+
+                tap *
+
+                np.exp(
+
+                    1j*shift
+
+                )
+
+            )
+
+
+
+            Y[i,i] += y/(a*np.conj(a))
 
             Y[j,j] += y
 
-            Y[i,j] -= y/tap
+            Y[i,j] -= y/np.conj(a)
 
-            Y[j,i] -= y/tap
-
+            Y[j,i] -= y/a
 
 
 
@@ -315,15 +397,19 @@ class Network:
 
 
 
-
-    # ======================================================
+    # =================================================
     # LOAD FLOW
-    # ======================================================
+    # =================================================
+
 
     def run_load_flow(self):
 
 
-        solver = LoadFlowSolver(self)
+        solver = LoadFlowSolver(
+
+            self
+
+        )
 
 
         self.lf_result = solver.solve()
@@ -333,10 +419,10 @@ class Network:
 
 
 
+    # =================================================
+    # POWER FLOW RESULTS
+    # =================================================
 
-    # ======================================================
-    # FLOWS
-    # ======================================================
 
     def compute_line_flows(self):
 
@@ -351,7 +437,6 @@ class Network:
             self.lf_result["Va"]
 
         )
-
 
 
 
@@ -371,36 +456,19 @@ class Network:
 
 
 
+    # =================================================
+    # SHORT CIRCUIT
+    # =================================================
 
-    # ======================================================
-    # CONTINGENCY
-    # ======================================================
-
-    def run_contingency(self):
-
-
-        analyzer = ContingencyAnalyzer(
-
-            self,
-
-            LoadFlowSolver
-
-        )
-
-
-        return analyzer.run_n_minus_1()
-
-
-
-
-    # ======================================================
-    # FAULT
-    # ======================================================
 
     def apply_fault(
+
             self,
+
             bus_id,
-            fault_type="3PH",
+
+            fault_type,
+
             Zf=0.0):
 
 
@@ -425,16 +493,31 @@ class Network:
 
 
 
+    def run_short_circuit(
 
-    def run_short_circuit(self):
+            self,
+
+            fault_bus,
+
+            Zf=0.0):
 
 
-        solver = ShortCircuitAnalyzer(self)
+        analyzer = ShortCircuitAnalyzer(
+
+            self
+
+        )
 
 
         self.fault_result = (
 
-            solver.run_three_phase_faults()
+            analyzer.run_three_phase_fault(
+
+                fault_bus,
+
+                Zf
+
+            )
 
         )
 
@@ -444,77 +527,103 @@ class Network:
 
 
 
-    def run_unbalanced_faults(self):
+    def run_unbalanced_faults(
 
-
-        solver = UnbalancedFaultAnalyzer(self)
-
-
-        self.fault_result = solver.run(
-
-            fault_type=self.active_fault["type"],
-
-            Zf=self.active_fault["Zf"],
-
-            lf_result=self.lf_result
-
-        )
-
-
-        return self.fault_result
-
-
-
-
-    # ======================================================
-    # PROTECTION
-    # ======================================================
-
-    def run_protection(
             self,
-            measurements,
-            time=0.0):
+
+            fault_type,
+
+            fault_bus,
+
+            Zf=0.0):
 
 
-        return self.protection_system.process_fault(
+        analyzer = ShortCircuitAnalyzer(
 
-            measurements,
+            self,
 
-            time
+            self.sequence_network
+
+        )
+
+
+        self.fault_result = analyzer.run(
+
+            fault_type,
+
+            fault_bus,
+
+            Zf
+
+        )
+
+
+        return self.fault_result
+
+
+
+    # =================================================
+    # PROTECTION
+    # =================================================
+
+
+    def run_protection(self):
+
+
+        actions = (
+
+            self.protection_system.evaluate(
+
+                self.fault_result,
+
+                self.lines,
+
+                self.generators
+
+            )
+
+        )
+
+
+        self.breaker_manager.apply(
+
+            actions
 
         )
 
 
 
-
-    # ======================================================
+    # =================================================
     # NETWORK UPDATE
-    # ======================================================
+    # =================================================
+
 
     def reconfigure(self):
 
 
-        """
-        Rebuild topology after breaker operations.
-        """
-
-
-        return self.build_ybus()
+        self.build_ybus()
 
 
 
-
-    # ======================================================
+    # =================================================
     # DYNAMICS
-    # ======================================================
+    # =================================================
+
 
     def run_transient_stability(
+
             self,
+
             t_end=5.0,
+
             dt=0.01):
 
 
-        solver = TransientStabilitySolver(self)
+        solver = TransientStabilitySolver(
+
+            self
+
+        )
 
 
         return solver.run(
@@ -529,14 +638,20 @@ class Network:
 
 
 
-
     def run_multi_machine(
+
             self,
+
             t_end=5.0,
+
             dt=0.01):
 
 
-        simulator = MultiMachineSimulator(self)
+        simulator = MultiMachineSimulator(
+
+            self
+
+        )
 
 
         return simulator.run(
@@ -549,15 +664,16 @@ class Network:
 
 
 
+    # =================================================
+    # FULL PIPELINE
+    # =================================================
 
-    # ======================================================
-    # COMPLETE SIMULATION PIPELINE
-    # ======================================================
 
     def simulate(
+
             self,
-            fault_bus,
-            measurements):
+
+            fault_bus):
 
 
         self.build_ybus()
@@ -569,18 +685,24 @@ class Network:
 
 
         self.apply_fault(
+
+            fault_bus,
+
+            "3PH"
+
+        )
+
+
+
+        self.run_short_circuit(
+
             fault_bus
+
         )
 
 
 
-        self.run_short_circuit()
-
-
-
-        self.run_protection(
-            measurements
-        )
+        self.run_protection()
 
 
 
@@ -596,25 +718,28 @@ class Network:
 
 
 
+    # =================================================
+    # UTILITIES
+    # =================================================
 
-    # ======================================================
-    # VALIDATION
-    # ======================================================
 
     def validate(self):
 
 
-        assert len(self.buses)>0
+        assert len(self.buses)>0, (
+
+            "No buses in network"
+
+        )
 
 
-        assert self.Ybus is not None
+        assert self.Ybus is not None, (
+
+            "Ybus not built"
+
+        )
 
 
-
-
-    # ======================================================
-    # SUMMARY
-    # ======================================================
 
     def summary(self):
 
@@ -623,22 +748,22 @@ class Network:
 
 
             "buses":
+
                 len(self.buses),
 
 
             "lines":
+
                 len(self.lines),
 
 
             "transformers":
+
                 len(self.transformers),
 
 
             "generators":
-                len(self.generators),
 
-
-            "breakers":
-                len(self.breakers)
+                len(self.generators)
 
         }
