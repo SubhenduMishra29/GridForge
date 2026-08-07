@@ -1,43 +1,46 @@
 # core/network/network.py
 
+"""
+GridForge Network Core
+
+Responsibilities:
+- Own all grid elements
+- Maintain system consistency
+- Build Y-bus
+- Run power flow
+
+This is the central orchestration layer.
+"""
+
 from core.network.ybus import YBusBuilder
-from core.simulation.load_flow import LoadFlowSolver
+from core.solver.nr import NewtonRaphsonSolver
 
 
 class Network:
-    """
-    GridForge Core Network Engine
+    def __init__(self, per_unit_system):
+        self.per_unit = per_unit_system
 
-    Manages:
-    - Buses
-    - Lines
-    - Transformers
-    - Shunts
-
-    Provides:
-    - Y-bus formation
-    - Load flow execution
-    """
-
-    def __init__(self, base_mva=100.0):
-        self.base_mva = base_mva
-
+        # Element containers
         self.buses = []
         self.lines = []
         self.transformers = []
         self.shunts = []
 
-        self.bus_lookup = {}
+        # Internal state
+        self._bus_map = {}
+        self._Ybus = None
+        self._bus_index = None
 
-    # ---------------------------------------------------------
-    # ADD ELEMENTS
-    # ---------------------------------------------------------
+    # ------------------------------------------------------------------
+    # ELEMENT REGISTRATION
+    # ------------------------------------------------------------------
+
     def add_bus(self, bus):
-        if bus.id in self.bus_lookup:
-            raise ValueError(f"Bus {bus.id} already exists")
+        if bus.id in self._bus_map:
+            raise ValueError(f"Duplicate bus ID: {bus.id}")
 
         self.buses.append(bus)
-        self.bus_lookup[bus.id] = bus
+        self._bus_map[bus.id] = bus
 
     def add_line(self, line):
         self._validate_bus(line.from_bus)
@@ -53,107 +56,72 @@ class Network:
         self._validate_bus(shunt.bus)
         self.shunts.append(shunt)
 
-    # ---------------------------------------------------------
-    # VALIDATION
-    # ---------------------------------------------------------
-    def _validate_bus(self, bus_id):
-        if bus_id not in self.bus_lookup:
-            raise ValueError(f"Bus {bus_id} not found in network")
+    def _validate_bus(self, bus):
+        if bus.id not in self._bus_map:
+            raise ValueError(f"Bus {bus.id} not registered in network")
 
-    # ---------------------------------------------------------
-    # BUILD YBUS
-    # ---------------------------------------------------------
-    def build_ybus(self):
-        builder = YBusBuilder(self.buses)
+    # ------------------------------------------------------------------
+    # BUILD PHASE
+    # ------------------------------------------------------------------
 
-        Y = builder.build(
-            lines=self.lines,
-            transformers=self.transformers,
-            shunts=self.shunts,
-        )
-
-        return Y
-
-    # ---------------------------------------------------------
-    # LOAD FLOW
-    # ---------------------------------------------------------
-    def run_load_flow(self, tol=1e-6, max_iter=20):
-        # Reset buses to specified values
-        for bus in self.buses:
-            bus.reset()
-
-        Ybus = self.build_ybus()
-
-        solver = LoadFlowSolver(
-            self.buses,
-            Ybus,
-            tolerance=tol,
-            max_iter=max_iter
-        )
-
-        V, theta = solver.solve()
-
-        # Update bus states
-        for i, bus in enumerate(self.buses):
-            bus.V = V[i]
-            bus.theta = theta[i]
-
-        return self.get_results()
-
-    # ---------------------------------------------------------
-    # NEW: LINE FLOW + LOSS CALCULATION
-    # ---------------------------------------------------------
-    def get_line_flows(self):
+    def build(self):
         """
-        Uses Line.calculate_flow() to compute:
-        - Power flows
-        - Losses
+        Builds system matrices (Y-bus)
         """
-        Ybus = self.build_ybus()
+        if len(self.buses) == 0:
+            raise RuntimeError("Network has no buses")
 
-        flows = []
+        ybus_builder = YBusBuilder(self)
+        self._Ybus, self._bus_index = ybus_builder.build()
 
-        for line in self.lines:
-            f = line.calculate_flow(self.buses, Ybus)
+        return self._Ybus
 
-            flows.append({
-                "from": line.from_bus,
-                "to": line.to_bus,
-                **f
-            })
+    # ------------------------------------------------------------------
+    # ACCESSORS
+    # ------------------------------------------------------------------
 
-        return flows
+    @property
+    def Ybus(self):
+        if self._Ybus is None:
+            raise RuntimeError("Ybus not built. Call build() first.")
+        return self._Ybus
 
-    # ---------------------------------------------------------
-    # RESULTS
-    # ---------------------------------------------------------
-    def get_results(self):
-        bus_results = []
+    @property
+    def bus_index(self):
+        if self._bus_index is None:
+            raise RuntimeError("Bus index not initialized")
+        return self._bus_index
 
-        for bus in self.buses:
-            bus_results.append({
-                "bus_id": bus.id,
-                "V": bus.V,
-                "theta": bus.theta,
-                "P": bus.P,
-                "Q": bus.Q,
-            })
+    # ------------------------------------------------------------------
+    # SOLVER ENTRYPOINT
+    # ------------------------------------------------------------------
 
-        # 🔥 Include line flows here
-        line_results = self.get_line_flows()
+    def solve_power_flow(self, tol=1e-6, max_iter=20):
+        """
+        Runs Newton-Raphson power flow
+        """
 
-        return {
-            "buses": bus_results,
-            "lines": line_results
-        }
+        if self._Ybus is None:
+            self.build()
 
-    # ---------------------------------------------------------
-    # DEBUG
-    # ---------------------------------------------------------
-    def summary(self):
-        return {
-            "buses": len(self.buses),
-            "lines": len(self.lines),
-            "transformers": len(self.transformers),
-            "shunts": len(self.shunts),
-        }
+        solver = NewtonRaphsonSolver(self)
+        return solver.solve(tol=tol, max_iter=max_iter)
+
+    # ------------------------------------------------------------------
+    # DEBUG / VALIDATION
+    # ------------------------------------------------------------------
+
+    def validate(self):
+        """
+        Basic structural validation
+        """
+        if len(self.buses) == 0:
+            raise ValueError("No buses defined")
+
+        if not any(b.is_slack for b in self.buses):
+            raise ValueError("No slack bus defined")
+
+        if sum(b.is_slack for b in self.buses) > 1:
+            raise ValueError("Multiple slack buses detected")
+
+        return True
