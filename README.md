@@ -39,48 +39,25 @@ It is built with a focus on **engineering accuracy**, **clear architecture**, an
 - Generator subtransient modeling
 
 ---
-
-## 🏗️ Project Structure
-GridForge/
-│
-├── main.py
-├── network.py
-├── per_unit.py
-├── ybus.py
-├── power_flow.py
-│
-├── models.py
-├── generator_models.py
-│
-├── line_flow.py
-├── transformer_flow.py
-│
-├── short_circuit.py
-├── sequence_networks.py
-├── unsymmetrical_faults.py
-│
-├── contingency.py
-│
-├── protection.py
-├── breaker.py
-├── relay_coordination.py
-│
-├── transient_stability.py
-├── multi_machine.py
-│
-├── test_case.py
-│
-└── README.md
-
+## 🏗️ Current Project Structure
 ---
 
+## ⚙️ Installation
+
+### 1. Clone Repository
+```bash
+git clone https://github.com/SubhenduMishra29/GridForge.git
+cd GridForge
+pip install -r requirements.txt
+python main.py
+
+----
 ## ✅ What This Fixes
 
 - No hidden sections  
 - No broken formatting  
 - Matches your **actual repo (flat structure)**  
 - Clean GitHub rendering  
-- Ready to paste directly into `README.md`
 
 ---
 
