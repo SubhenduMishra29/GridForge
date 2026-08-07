@@ -1,9 +1,9 @@
 """
-GridForge Symmetrical Fault Solver
+GridForge Symmetrical Fault Calculator
 
-Calculates:
+Handles balanced faults:
 
-    Three-phase faults
+    Three Phase Fault (3Φ)
 
 Uses:
 
@@ -12,38 +12,25 @@ Uses:
 
 Equation:
 
-        Vprefault
-    If = -------------
-          Z1 + Zf
+    If = Vth / (Z1 + Zf)
 
 
 """
 
 
 
-from core.solver.short_circuit.fault_calculator import (
-    FaultCalculator
-)
-
-
-
-class SymmetricalFaultSolver:
+class SymmetricalFault:
 
 
 
     def __init__(
+
             self,
-            network,
-            sequence_network):
+
+            impedance_matrix):
 
 
-        self.network = network
-
-        self.sequence_network = sequence_network
-
-        self.calculator = FaultCalculator(
-            network
-        )
+        self.impedance_matrix = impedance_matrix
 
 
 
@@ -51,36 +38,48 @@ class SymmetricalFaultSolver:
     # THREE PHASE FAULT
     # =====================================================
 
-    def solve(
+    def calculate_three_phase_fault(
+
             self,
-            bus_id,
-            fault_impedance=0j):
+
+            bus_index,
+
+            Vprefault=1.0,
+
+            Zf=0.0):
+
+
+        """
+        Calculate 3 phase fault current.
+
+        Parameters:
+
+            bus_index:
+                Fault bus location
+
+
+            Vprefault:
+                Prefault voltage (pu)
+
+
+            Zf:
+                Fault impedance (pu)
+
+        """
 
 
         # ---------------------------------
-        # Prefault voltage
+        # Thevenin impedance
         # ---------------------------------
 
-        Vprefault = (
+        Zth = (
 
-            self.calculator
-            .get_prefault_voltage(
-                bus_id
-            )
+            self.impedance_matrix
 
-        )
+            .get_thevenin_impedance(
 
+                bus_index
 
-
-        # ---------------------------------
-        # Positive sequence impedance
-        # ---------------------------------
-
-        Z1 = (
-
-            self.sequence_network
-            .get_positive(
-                bus_id
             )
 
         )
@@ -93,12 +92,13 @@ class SymmetricalFaultSolver:
 
         If = (
 
-            self.calculator
-            .calculate_current(
+            Vprefault
 
-                Vprefault,
+            /
 
-                Z1 + fault_impedance
+            (
+
+                Zth + Zf
 
             )
 
@@ -107,15 +107,18 @@ class SymmetricalFaultSolver:
 
 
         # ---------------------------------
-        # Return result
+        # Fault MVA
+
+        # S = √3 V I
+
+        # In pu:
+
+        # Sfault = If
+
         # ---------------------------------
 
+
         return {
-
-
-            "bus":
-
-                bus_id,
 
 
             "fault_type":
@@ -123,32 +126,26 @@ class SymmetricalFaultSolver:
                 "3PH",
 
 
-            "sequence":
 
-                "positive",
+            "bus":
 
-
-            "V_prefault":
-
-                Vprefault,
+                bus_index,
 
 
-            "Z1":
 
-                Z1,
+            "Zth":
 
-
-            "Zf":
-
-                fault_impedance,
+                Zth,
 
 
-            "fault_current":
+
+            "fault_current_pu":
 
                 If,
 
 
-            "fault_current_mag":
+
+            "fault_current_magnitude":
 
                 abs(If)
 
