@@ -1,5 +1,8 @@
 # core/models/line.py
 
+import numpy as np
+
+
 class Line:
     """
     Transmission Line Model (π-model)
@@ -43,8 +46,74 @@ class Line:
 
     @property
     def y_pu(self):
-        z = self.z_pu
-        return 1 / z
+        return 1 / self.z_pu
+
+    # ---------------------------------------------------------
+    # POWER FLOW CALCULATION (π-model)
+    # ---------------------------------------------------------
+    def calculate_flow(self, buses, Ybus):
+        """
+        Computes:
+        - Forward flow (Pij, Qij)
+        - Reverse flow (Pji, Qji)
+        - Line losses (P_loss, Q_loss)
+        """
+
+        # Map bus IDs → indices
+        bus_index = {bus.id: i for i, bus in enumerate(buses)}
+
+        i = bus_index[self.from_bus]
+        j = bus_index[self.to_bus]
+
+        # Voltages
+        Vi = buses[i].V
+        Vj = buses[j].V
+        thetai = buses[i].theta
+        thetaj = buses[j].theta
+
+        # Series admittance
+        y = self.y_pu
+        G = y.real
+        B = y.imag
+
+        angle = thetai - thetaj
+
+        # -----------------------------------------------------
+        # Forward flow (i → j)
+        # -----------------------------------------------------
+        Pij = Vi**2 * G - Vi * Vj * (G * np.cos(angle) + B * np.sin(angle))
+
+        Qij = (
+            -Vi**2 * B
+            - Vi * Vj * (G * np.sin(angle) - B * np.cos(angle))
+            + (Vi**2 * self.b_pu / 2)  # π-model shunt
+        )
+
+        # -----------------------------------------------------
+        # Reverse flow (j → i)
+        # -----------------------------------------------------
+        Pji = Vj**2 * G - Vi * Vj * (G * np.cos(-angle) + B * np.sin(-angle))
+
+        Qji = (
+            -Vj**2 * B
+            - Vi * Vj * (G * np.sin(-angle) - B * np.cos(-angle))
+            + (Vj**2 * self.b_pu / 2)
+        )
+
+        # -----------------------------------------------------
+        # LOSSES
+        # -----------------------------------------------------
+        P_loss = Pij + Pji
+        Q_loss = Qij + Qji
+
+        return {
+            "Pij": Pij,
+            "Qij": Qij,
+            "Pji": Pji,
+            "Qji": Qji,
+            "P_loss": P_loss,
+            "Q_loss": Q_loss,
+        }
 
     # ---------------------------------------------------------
     # DEBUG
