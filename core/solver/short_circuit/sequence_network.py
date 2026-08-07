@@ -3,29 +3,29 @@ GridForge Sequence Network Model
 
 Handles:
 
-    Positive sequence  Z1
-    Negative sequence  Z2
-    Zero sequence      Z0
+Positive sequence  Z1
+Negative sequence  Z2
+Zero sequence      Z0
 
 
 Used by:
 
-    symmetrical_fault.py
-    unsymmetrical_fault.py
+symmetrical_fault.py
+unsymmetrical_fault.py
 
 
 Sequence impedance convention:
 
-    Z = R + jX
+Z = R + jX
 
 """
-
 
 
 class SequenceNetwork:
 
 
     def __init__(self):
+
 
         # ---------------------------------
         # Element sequence impedances
@@ -81,19 +81,28 @@ class SequenceNetwork:
         # Usually Z2 ≈ Z1
 
         self.negative[element_id] = (
+
             Z2
+
             if Z2 is not None
+
             else Z1
+
         )
 
 
 
-        # Zero sequence may not exist
+        # Zero sequence depends on
+        # grounding and equipment type
 
         self.zero[element_id] = (
+
             Z0
+
             if Z0 is not None
-            else complex(0,0)
+
+            else complex(0, 0)
+
         )
 
 
@@ -106,6 +115,7 @@ class SequenceNetwork:
             self,
             element_id):
 
+
         return self.positive[element_id]
 
 
@@ -114,6 +124,7 @@ class SequenceNetwork:
             self,
             element_id):
 
+
         return self.negative[element_id]
 
 
@@ -121,6 +132,7 @@ class SequenceNetwork:
     def get_zero(
             self,
             element_id):
+
 
         return self.zero[element_id]
 
@@ -139,41 +151,52 @@ class SequenceNetwork:
         """
         Calculates equivalent series impedance.
 
-        Used for fault path calculation.
+        Used for simplified fault path calculation.
 
         """
 
 
         if sequence == "positive":
 
+
             data = self.positive
+
 
 
         elif sequence == "negative":
 
+
             data = self.negative
+
 
 
         elif sequence == "zero":
 
+
             data = self.zero
+
 
 
         else:
 
+
             raise ValueError(
+
                 "Invalid sequence"
+
             )
 
 
 
-        Z = complex(0,0)
+        Z = complex(0, 0)
 
 
 
         for element in elements:
 
+
             Z += data[element]
+
 
 
         return Z
@@ -186,17 +209,24 @@ class SequenceNetwork:
 
     def summary(self):
 
+
         return {
 
+
             "positive_elements":
+
                 len(self.positive),
 
 
+
             "negative_elements":
+
                 len(self.negative),
 
 
+
             "zero_elements":
+
                 len(self.zero)
 
         }
