@@ -41,3 +41,33 @@ It is built with a focus on **engineering accuracy**, **clear architecture**, an
 ---
 
 ## 🏗️ Project Structure
+GridForge/
+│
+├── main.py
+├── network.py
+├── per_unit.py
+├── ybus.py
+├── power_flow.py
+│
+├── models.py
+├── generator_models.py
+│
+├── line_flow.py
+├── transformer_flow.py
+│
+├── short_circuit.py
+├── sequence_networks.py
+├── unsymmetrical_faults.py
+│
+├── contingency.py
+│
+├── protection.py
+├── breaker.py
+├── relay_coordination.py
+│
+├── transient_stability.py
+├── multi_machine.py
+│
+├── test_case.py
+│
+└── README.md
