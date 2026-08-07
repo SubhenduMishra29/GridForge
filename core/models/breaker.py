@@ -1,24 +1,27 @@
 """
 GridForge Circuit Breaker Model
 
-Represents a physical circuit breaker.
+Physical switching equipment model.
 
 Responsibilities:
-    - Maintain breaker state
-    - Open/close operation
-    - Switching timing information
+- Maintain breaker electrical state
+- Open / close operation
+- Switching timing
+- Failure modelling
+- Event logging
 
-Does NOT perform:
-    - Fault detection
-    - Protection decisions
-    - Relay coordination
+Does NOT:
+- Detect faults
+- Calculate protection
+- Coordinate relays
 
-Those belong to:
-    core/protection
+Protection belongs to:
+core/protection
 
 Used by:
-    core/network
-    core/simulation
+core/network
+core/simulation
+core/protection
 """
 
 
@@ -26,17 +29,17 @@ class Breaker:
 
 
     def __init__(
-            self,
+        self,
+        breaker_id: str,
+        connected_element=None,
+        name=None,
 
-            breaker_id: str,
+        voltage_kv=0.0,
+        rated_current=0.0,
+        interrupting_capacity=0.0,
 
-            connected_element=None,
-
-            name=None,
-
-            trip_time=0.05,
-
-            close_time=0.10
+        trip_time=0.05,
+        close_time=0.10
     ):
 
 
@@ -46,24 +49,33 @@ class Breaker:
 
         self.id = breaker_id
 
-        self.name = (
-            name
-            if name
-            else breaker_id
+        self.name = name or breaker_id
+
+
+        # -------------------------
+        # Connection
+        # -------------------------
+
+        self.connected_element = connected_element
+
+
+
+        # -------------------------
+        # Ratings
+        # -------------------------
+
+        self.voltage_kv = voltage_kv
+
+        self.rated_current = rated_current
+
+        self.interrupting_capacity = (
+            interrupting_capacity
         )
 
 
-        # -------------------------
-        # Connected equipment
-        # -------------------------
-
-        self.connected_element = (
-            connected_element
-        )
-
 
         # -------------------------
-        # Timing parameters
+        # Operating times
         # -------------------------
 
         self.trip_time = trip_time
@@ -80,25 +92,32 @@ class Breaker:
 
         self.tripped = False
 
+        self.failed = False
 
 
-        # Event time
+
+        # -------------------------
+        # Event tracking
+        # -------------------------
 
         self.last_operation_time = 0.0
 
+        self.history = []
+
 
 
     # =====================================================
-    # SWITCHING OPERATIONS
+    # OPEN OPERATION
     # =====================================================
 
-    def open(
-            self,
-            time=0.0):
+    def open(self,time=0.0):
 
-        """
-        Open breaker.
-        """
+
+        if self.failed:
+
+            return False
+
+
 
         self.closed = False
 
@@ -108,19 +127,50 @@ class Breaker:
 
 
 
-    def close(
-            self,
-            time=0.0):
+        self.history.append({
 
-        """
-        Close breaker.
-        """
+            "time":time,
+
+            "action":"OPEN"
+
+        })
+
+
+        return True
+
+
+
+    # =====================================================
+    # CLOSE OPERATION
+    # =====================================================
+
+    def close(self,time=0.0):
+
+
+        if self.failed:
+
+            return False
+
+
 
         self.closed = True
 
         self.tripped = False
 
+
         self.last_operation_time = time
+
+
+        self.history.append({
+
+            "time":time,
+
+            "action":"CLOSE"
+
+        })
+
+
+        return True
 
 
 
@@ -141,6 +191,26 @@ class Breaker:
 
 
     # =====================================================
+    # FAILURE MODEL
+    # =====================================================
+
+    def fail(self):
+
+        """
+        Simulates breaker failure.
+        """
+
+        self.failed = True
+
+
+
+    def reset_failure(self):
+
+        self.failed = False
+
+
+
+    # =====================================================
     # RESET
     # =====================================================
 
@@ -150,7 +220,11 @@ class Breaker:
 
         self.tripped = False
 
+        self.failed = False
+
         self.last_operation_time = 0.0
+
+        self.history.clear()
 
 
 
@@ -166,8 +240,9 @@ class Breaker:
             else "OPEN"
         )
 
+
         return (
             f"Breaker("
             f"{self.name}, "
-            f"state={state})"
+            f"{state})"
         )
