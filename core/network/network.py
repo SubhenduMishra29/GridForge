@@ -101,13 +101,37 @@ class Network:
         return self.get_results()
 
     # ---------------------------------------------------------
+    # NEW: LINE FLOW + LOSS CALCULATION
+    # ---------------------------------------------------------
+    def get_line_flows(self):
+        """
+        Uses Line.calculate_flow() to compute:
+        - Power flows
+        - Losses
+        """
+        Ybus = self.build_ybus()
+
+        flows = []
+
+        for line in self.lines:
+            f = line.calculate_flow(self.buses, Ybus)
+
+            flows.append({
+                "from": line.from_bus,
+                "to": line.to_bus,
+                **f
+            })
+
+        return flows
+
+    # ---------------------------------------------------------
     # RESULTS
     # ---------------------------------------------------------
     def get_results(self):
-        results = []
+        bus_results = []
 
         for bus in self.buses:
-            results.append({
+            bus_results.append({
                 "bus_id": bus.id,
                 "V": bus.V,
                 "theta": bus.theta,
@@ -115,7 +139,13 @@ class Network:
                 "Q": bus.Q,
             })
 
-        return results
+        # 🔥 Include line flows here
+        line_results = self.get_line_flows()
+
+        return {
+            "buses": bus_results,
+            "lines": line_results
+        }
 
     # ---------------------------------------------------------
     # DEBUG
