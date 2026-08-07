@@ -1,235 +1,120 @@
 """
-GridForge Unsymmetrical Fault Solver
+GridForge Unsymmetrical Fault Calculator
 
-Calculates:
+Handles:
 
-    SLG  - Single Line Ground
-    LL   - Line Line
-    LLG  - Double Line Ground
+LG  - Single Line Ground Fault
+LL  - Line Line Fault
+LLG - Double Line Ground Fault
 
 
 Uses:
 
-    Positive sequence
-    Negative sequence
-    Zero sequence
+Positive sequence Z1
+Negative sequence Z2
+Zero sequence Z0
 
-
-Based on symmetrical component theory.
 
 """
 
 
+
 import cmath
-import math
-
-
-from core.solver.short_circuit.fault_calculator import (
-    FaultCalculator
-)
 
 
 
-class UnsymmetricalFaultSolver:
+class UnsymmetricalFault:
 
 
 
     def __init__(
+
             self,
-            network,
+
             sequence_network):
 
-
-        self.network = network
 
         self.sequence_network = sequence_network
 
 
-        self.calculator = FaultCalculator(
-            network
-        )
-
 
 
     # =====================================================
-    # SOLVE FAULT
+    # SINGLE LINE TO GROUND FAULT
     # =====================================================
 
-    def solve(
+    def calculate_lg_fault(
+
             self,
-            bus_id,
-            fault_type="SLG",
-            fault_impedance=0j):
+
+            elements,
+
+            Vprefault=1.0,
+
+            Zf=0.0):
 
 
-        V1 = (
+        """
+        LG fault:
 
-            self.calculator
-            .get_prefault_voltage(
-                bus_id
-            )
+        If = 3V /
+        (Z1 + Z2 + Z0 + 3Zf)
 
-        )
-
-
-        Z1 = (
-
-            self.sequence_network
-            .get_positive(
-                bus_id
-            )
-
-        )
+        """
 
 
-        Z2 = (
+        Z1 = self.sequence_network.total_impedance(
 
-            self.sequence_network
-            .get_negative(
-                bus_id
-            )
+            elements,
+
+            "positive"
 
         )
 
 
-        Z0 = (
+        Z2 = self.sequence_network.total_impedance(
 
-            self.sequence_network
-            .get_zero(
-                bus_id
-            )
+            elements,
+
+            "negative"
+
+        )
+
+
+        Z0 = self.sequence_network.total_impedance(
+
+            elements,
+
+            "zero"
 
         )
 
 
 
-        # =================================================
-        # SINGLE LINE TO GROUND
-        # =================================================
+        If = (
 
-        if fault_type.upper() == "SLG":
+            3 * Vprefault
 
+        ) / (
 
-            If = (
+            Z1 +
 
-                3 * V1
-                /
-                (
-                    Z1
-                    +
-                    Z2
-                    +
-                    Z0
-                    +
-                    3*fault_impedance
-                )
+            Z2 +
 
-            )
+            Z0 +
 
+            3 * Zf
 
-
-        # =================================================
-        # LINE TO LINE
-        # =================================================
-
-        elif fault_type.upper() == "LL":
-
-
-            If = (
-
-                math.sqrt(3)
-                *
-                V1
-                /
-                (
-                    Z1
-                    +
-                    Z2
-                    +
-                    fault_impedance
-                )
-
-            )
-
-
-
-        # =================================================
-        # DOUBLE LINE TO GROUND
-        # =================================================
-
-        elif fault_type.upper() == "LLG":
-
-
-            Z_parallel = (
-
-                Z2
-                *
-                Z0
-                /
-                (
-                    Z2
-                    +
-                    Z0
-                    +
-                    3*fault_impedance
-                )
-
-            )
-
-
-            If = (
-
-                V1
-                /
-                (
-                    Z1
-                    +
-                    Z_parallel
-                )
-
-            )
-
-
-
-        else:
-
-            raise ValueError(
-                "Unsupported fault type"
-            )
+        )
 
 
 
         return {
 
 
-            "bus":
-
-                bus_id,
-
-
             "fault_type":
 
-                fault_type.upper(),
-
-
-            "V1":
-
-                V1,
-
-
-            "Z1":
-
-                Z1,
-
-
-            "Z2":
-
-                Z2,
-
-
-            "Z0":
-
-                Z0,
+                "LG",
 
 
             "fault_current":
@@ -237,7 +122,199 @@ class UnsymmetricalFaultSolver:
                 If,
 
 
-            "fault_current_mag":
+            "magnitude":
+
+                abs(If)
+
+        }
+
+
+
+
+    # =====================================================
+    # LINE TO LINE FAULT
+    # =====================================================
+
+    def calculate_ll_fault(
+
+            self,
+
+            elements,
+
+            Vprefault=1.0,
+
+            Zf=0.0):
+
+
+        """
+        LL fault:
+
+        If = √3 V /
+        (Z1 + Z2 + Zf)
+
+        """
+
+
+        Z1 = self.sequence_network.total_impedance(
+
+            elements,
+
+            "positive"
+
+        )
+
+
+        Z2 = self.sequence_network.total_impedance(
+
+            elements,
+
+            "negative"
+
+        )
+
+
+
+        If = (
+
+            cmath.sqrt(3)
+
+            *
+
+            Vprefault
+
+        ) / (
+
+            Z1 +
+
+            Z2 +
+
+            Zf
+
+        )
+
+
+
+        return {
+
+
+            "fault_type":
+
+                "LL",
+
+
+            "fault_current":
+
+                If,
+
+
+            "magnitude":
+
+                abs(If)
+
+        }
+
+
+
+
+    # =====================================================
+    # DOUBLE LINE TO GROUND FAULT
+    # =====================================================
+
+    def calculate_llg_fault(
+
+            self,
+
+            elements,
+
+            Vprefault=1.0,
+
+            Zf=0.0):
+
+
+        """
+        LLG fault calculation.
+
+        Sequence network combination:
+
+        Z2 || (Z0 + 3Zf)
+
+        """
+
+
+        Z1 = self.sequence_network.total_impedance(
+
+            elements,
+
+            "positive"
+
+        )
+
+
+        Z2 = self.sequence_network.total_impedance(
+
+            elements,
+
+            "negative"
+
+        )
+
+
+        Z0 = self.sequence_network.total_impedance(
+
+            elements,
+
+            "zero"
+
+        )
+
+
+
+        Zparallel = (
+
+            Z2 *
+
+            (Z0 + 3*Zf)
+
+        ) / (
+
+            Z2 +
+
+            Z0 +
+
+            3*Zf
+
+        )
+
+
+
+        If = (
+
+            Vprefault
+
+        ) / (
+
+            Z1 +
+
+            Zparallel
+
+        )
+
+
+
+        return {
+
+
+            "fault_type":
+
+                "LLG",
+
+
+            "fault_current":
+
+                If,
+
+
+            "magnitude":
 
                 abs(If)
 
