@@ -1,62 +1,149 @@
-# core/analysis/short_circuit.py
+"""
+GridForge Short Circuit Analysis Interface
+
+High-level API for fault studies.
+
+
+Numerical engine:
+
+core.solver.short_circuit
+
+
+Supported:
+
+- Three phase fault
+- LG fault
+- LL fault
+- LLG fault
+
 
 """
-GridForge Short Circuit Analysis
 
-Balanced 3-phase fault using Zbus method
-"""
 
-import numpy as np
+from core.solver.short_circuit import (
+
+    ShortCircuitSolver,
+
+    FaultType
+
+)
+
+
 
 
 class ShortCircuitAnalyzer:
-    def __init__(self, network):
+
+
+
+    def __init__(
+
+            self,
+
+            network,
+
+            sequence_network=None):
+
+
         self.network = network
 
-    # ------------------------------------------------------------------
-    # MAIN ENTRY
-    # ------------------------------------------------------------------
 
-    def run_three_phase_faults(self):
-        """
-        Run 3-phase faults at all buses
-        """
-        Ybus = self.network.Ybus
-        Zbus = np.linalg.inv(Ybus)
+        self.sequence_network = (
 
-        results = []
+            sequence_network
 
-        for bus in self.network.buses:
-            k = self.network.bus_index[bus.id]
+        )
 
-            fault = self._fault_at_bus(k, Zbus)
 
-            results.append({
-                "bus": bus.id,
-                **fault
-            })
+        self.result = None
 
-        return results
 
-    # ------------------------------------------------------------------
-    # SINGLE BUS FAULT
-    # ------------------------------------------------------------------
 
-    def _fault_at_bus(self, k, Zbus):
-        Zkk = Zbus[k, k]
+    # =====================================================
+    # RUN FAULT STUDY
+    # =====================================================
 
-        # Prefault voltage (assumed 1.0 ∠0)
-        Vk = 1.0 + 0j
+    def run(
 
-        # Fault current
-        If = Vk / Zkk
+            self,
 
-        # Post-fault voltages
-        V_post = -Zbus[:, k] * If
+            fault_type,
 
-        return {
-            "Ik_mag": abs(If),
-            "Ik_angle_deg": np.angle(If, deg=True),
-            "Z_th": Zkk,
-            "voltages_post_fault": V_post
-        }
+            fault_bus,
+
+            Zf=0.0):
+
+
+
+        solver = ShortCircuitSolver(
+
+            self.network,
+
+            self.sequence_network
+
+        )
+
+
+
+        self.result = solver.solve(
+
+            fault_type,
+
+            fault_bus,
+
+            Zf
+
+        )
+
+
+
+        return self.result
+
+
+
+    # =====================================================
+    # COMMON 3 PHASE FAULT
+    # =====================================================
+
+    def run_three_phase_fault(
+
+            self,
+
+            fault_bus,
+
+            Zf=0.0):
+
+
+        return self.run(
+
+            FaultType.THREE_PHASE,
+
+            fault_bus,
+
+            Zf
+
+        )
+
+
+
+    # =====================================================
+    # REPORT
+    # =====================================================
+
+    def summary(self):
+
+
+        if self.result is None:
+
+
+            return {
+
+
+                "status":
+
+                    "NOT_RUN"
+
+            }
+
+
+
+        return self.result
