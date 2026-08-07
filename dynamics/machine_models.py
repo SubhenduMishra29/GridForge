@@ -1,42 +1,73 @@
-import numpy as np
+from dynamics.avr import AVR
+from dynamics.governor import Governor
+from dynamics.pss import PSS
 
 
-class ClassicalMachine:
+
+class DynamicGenerator:
 
 
-    def __init__(self,
-                 bus,
-                 H,
-                 D,
-                 Pm,
-                 E):
+    def __init__(
+        self,
+        bus,
+        H,
+        Efd=1.0
+    ):
 
-        self.bus = bus
+        self.bus=bus
 
-        self.H = H
-        self.D = D
+        self.H=H
 
-        self.Pm = Pm
-        self.E = E
+        self.delta=0
+        self.omega=0
+
+        self.Efd=Efd
+        self.Pm=1.0
 
 
-    def derivatives(self,
-                    delta,
-                    omega,
-                    Pe,
-                    fbase=50):
+        self.avr=AVR()
+        self.gov=Governor()
+        self.pss=PSS()
+
+
+
+    def derivatives(
+        self,
+        Vt,
+        Pe
+    ):
+
+
+        # Rotor equations
+
+        ddelta = self.omega
 
 
         domega = (
-            np.pi*fbase/self.H *
-            (self.Pm-Pe-self.D*omega)
+            self.Pm-Pe
+        )/(2*self.H)
+
+
+
+        # AVR
+
+        dEfd = self.avr.derivative(
+            self.Efd,
+            abs(Vt)
         )
 
 
-        ddelta = (
-            2*np.pi*fbase *
-            omega
+        # Governor
+
+        dPm = self.gov.derivative(
+            self.Pm,
+            self.omega
         )
 
 
-        return ddelta, domega
+        return {
+            "delta":ddelta,
+            "omega":domega,
+            "Efd":dEfd,
+            "Pm":dPm
+        }
