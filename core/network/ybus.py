@@ -1,104 +1,135 @@
 # core/network/ybus.py
 
+"""
+GridForge Y-Bus Builder (Industrial Grade)
+
+Features:
+- Multi-voltage per-unit system
+- Line π-model (R + jX, B/2 charging)
+- Transformer model (tap ratio + phase shift)
+- Shunt elements
+- Sparse-ready structure
+
+Output:
+- Ybus (complex NxN matrix)
+- bus_index_map
+"""
+
 import numpy as np
 
 
 class YBusBuilder:
-    """
-    Builds the bus admittance matrix (Y-bus)
+    def __init__(self, network):
+        self.network = network
+        self.pu = network.per_unit  # PerUnitSystem instance
 
-    Supports:
-    - Lines (pi model)
-    - Transformers (tap ratio)
-    - Shunt elements
-    """
+    # ------------------------------------------------------------------
+    # PUBLIC ENTRY
+    # ------------------------------------------------------------------
 
-    def __init__(self, buses):
+    def build(self):
         """
-        buses: list of bus objects with unique IDs
+        Constructs the Y-bus matrix
         """
-        self.buses = buses
-        self.n = len(buses)
-        self.bus_index = {bus.id: idx for idx, bus in enumerate(buses)}
+        buses = self.network.buses
+        n = len(buses)
 
-        self.Y = np.zeros((self.n, self.n), dtype=complex)
+        if n == 0:
+            raise ValueError("No buses in network")
 
-    # ---------------------------------------------------------
-    # ADD LINE (π MODEL)
-    # ---------------------------------------------------------
-    def add_line(self, line):
-        i = self.bus_index[line.from_bus]
-        j = self.bus_index[line.to_bus]
+        # Map bus_id → index
+        bus_index = {bus.id: i for i, bus in enumerate(buses)}
 
-        z = complex(line.r_pu, line.x_pu)
+        # Initialize Ybus
+        Y = np.zeros((n, n), dtype=complex)
 
-        if z == 0:
-            raise ValueError("Line impedance cannot be zero")
+        # Stamp elements
+        self._stamp_lines(Y, bus_index)
+        self._stamp_transformers(Y, bus_index)
+        self._stamp_shunts(Y, bus_index)
 
-        y = 1 / z
+        return Y, bus_index
 
-        b_shunt = complex(0, line.b_pu / 2)  # half on each side
+    # ------------------------------------------------------------------
+    # LINE STAMPING (π MODEL)
+    # ------------------------------------------------------------------
 
-        # Off-diagonal
-        self.Y[i, j] -= y
-        self.Y[j, i] -= y
+    def _stamp_lines(self, Y, bus_index):
+        for line in self.network.lines:
 
-        # Diagonal
-        self.Y[i, i] += y + b_shunt
-        self.Y[j, j] += y + b_shunt
+            i = bus_index[line.from_bus.id]
+            j = bus_index[line.to_bus.id]
 
-    # ---------------------------------------------------------
-    # ADD TRANSFORMER
-    # ---------------------------------------------------------
-    def add_transformer(self, trafo):
-        i = self.bus_index[trafo.from_bus]
-        j = self.bus_index[trafo.to_bus]
+            kv = line.base_kv
 
-        z = complex(trafo.r_pu, trafo.x_pu)
+            # Convert impedance to PU
+            z = complex(line.r_ohm, line.x_ohm)
+            z_pu = self.pu.to_pu_impedance(z, kv)
 
-        if z == 0:
-            raise ValueError("Transformer impedance cannot be zero")
+            if z_pu == 0:
+                continue  # avoid division by zero
 
-        y = 1 / z
+            y = 1 / z_pu
 
-        tap = trafo.tap_ratio if hasattr(trafo, "tap_ratio") else 1.0
+            # Line charging (B/2 at each end)
+            b = getattr(line, "b_siemens", 0.0)
+            b_pu = self.pu.to_pu_admittance(1j * b, kv)
 
-        # Off-diagonal
-        self.Y[i, j] -= y / tap
-        self.Y[j, i] -= y / tap
+            # Off-diagonal
+            Y[i, j] -= y
+            Y[j, i] -= y
 
-        # Diagonal
-        self.Y[i, i] += y / (tap ** 2)
-        self.Y[j, j] += y
+            # Diagonal
+            Y[i, i] += y + b_pu / 2
+            Y[j, j] += y + b_pu / 2
 
-    # ---------------------------------------------------------
-    # ADD SHUNT
-    # ---------------------------------------------------------
-    def add_shunt(self, shunt):
-        i = self.bus_index[shunt.bus]
-        self.Y[i, i] += shunt.y_pu
+    # ------------------------------------------------------------------
+    # TRANSFORMER STAMPING
+    # ------------------------------------------------------------------
 
-    # ---------------------------------------------------------
-    # BUILD COMPLETE MATRIX
-    # ---------------------------------------------------------
-    def build(self, lines=None, transformers=None, shunts=None):
-        if lines:
-            for line in lines:
-                self.add_line(line)
+    def _stamp_transformers(self, Y, bus_index):
+        for trafo in self.network.transformers:
 
-        if transformers:
-            for trafo in transformers:
-                self.add_transformer(trafo)
+            i = bus_index[trafo.from_bus.id]
+            j = bus_index[trafo.to_bus.id]
 
-        if shunts:
-            for shunt in shunts:
-                self.add_shunt(shunt)
+            # Transformer parameters
+            z_pu = complex(trafo.r_pu, trafo.x_pu)
 
-        return self.Y
+            if z_pu == 0:
+                continue
 
-    # ---------------------------------------------------------
-    # DEBUG
-    # ---------------------------------------------------------
-    def print_matrix(self):
-        print("Y-Bus Matrix:")
-        print(self.Y)
+            y = 1 / z_pu
+
+            # Tap ratio (magnitude)
+            tap = getattr(trafo, "tap_ratio", 1.0)
+
+            # Phase shift (degrees → radians)
+            shift_deg = getattr(trafo, "phase_shift_deg", 0.0)
+            shift_rad = np.deg2rad(shift_deg)
+
+            # Complex tap
+            a = tap * np.exp(1j * shift_rad)
+
+            # Admittance stamping with tap
+            Y[i, i] += y / (a * np.conj(a))
+            Y[j, j] += y
+
+            Y[i, j] -= y / np.conj(a)
+            Y[j, i] -= y / a
+
+    # ------------------------------------------------------------------
+    # SHUNT STAMPING
+    # ------------------------------------------------------------------
+
+    def _stamp_shunts(self, Y, bus_index):
+        for shunt in self.network.shunts:
+
+            i = bus_index[shunt.bus.id]
+
+            kv = shunt.base_kv
+
+            y = complex(shunt.g_siemens, shunt.b_siemens)
+            y_pu = self.pu.to_pu_admittance(y, kv)
+
+            Y[i, i] += y_pu
