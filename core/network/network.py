@@ -2,7 +2,9 @@
 
 import numpy as np
 
-# Analysis modules
+# -------------------------------
+# ANALYSIS MODULES
+# -------------------------------
 from core.analysis.load_flow import LoadFlowSolver
 from core.analysis.line_flow import LineFlowCalculator
 from core.analysis.transformer_flow import TransformerFlowCalculator
@@ -10,18 +12,52 @@ from core.analysis.contingency import ContingencyAnalyzer
 from core.analysis.short_circuit import ShortCircuitAnalyzer
 from core.analysis.unbalanced_fault import UnbalancedFaultAnalyzer
 
+# -------------------------------
+# PROTECTION
+# -------------------------------
+from core.protection.protection import ProtectionSystem
+from core.protection.breaker import BreakerManager
+
+# -------------------------------
+# DYNAMICS
+# -------------------------------
+from core.dynamics.transient_stability import TransientStabilitySolver
+from core.dynamics.multi_machine import MultiMachineSimulator
+
 
 class Network:
+
     def __init__(self):
+        # -------------------------
         # Core containers
+        # -------------------------
         self.buses = []
         self.lines = []
         self.transformers = []
         self.generators = []
 
+        # -------------------------
         # Internal structures
+        # -------------------------
         self.bus_index = {}
         self.Ybus = None
+
+        # -------------------------
+        # State variables
+        # -------------------------
+        self.lf_result = None
+        self.fault_result = None
+
+        # -------------------------
+        # Protection & switching
+        # -------------------------
+        self.protection_system = ProtectionSystem()
+        self.breaker_manager = BreakerManager()
+
+        # -------------------------
+        # Event state
+        # -------------------------
+        self.active_fault = None
 
     # ------------------------------------------------------------------
     # ADD ELEMENTS
@@ -59,9 +95,12 @@ class Network:
         Y = np.zeros((n, n), dtype=complex)
 
         # -------------------------
-        # LINES (π model)
+        # LINES
         # -------------------------
         for line in self.lines:
+            if not self.breaker_manager.is_closed(line.id):
+                continue  # skip tripped lines
+
             i = self.bus_index[line.from_bus.id]
             j = self.bus_index[line.to_bus.id]
 
@@ -76,7 +115,7 @@ class Network:
             Y[j, i] -= y
 
         # -------------------------
-        # TRANSFORMERS (tap + shift)
+        # TRANSFORMERS
         # -------------------------
         for trafo in self.transformers:
             i = self.bus_index[trafo.from_bus.id]
@@ -103,22 +142,23 @@ class Network:
 
     def run_load_flow(self):
         solver = LoadFlowSolver(self)
-        return solver.solve()
+        self.lf_result = solver.solve()
+        return self.lf_result
 
     # ------------------------------------------------------------------
     # FLOWS
     # ------------------------------------------------------------------
 
-    def compute_line_flows(self, lf_result):
+    def compute_line_flows(self):
         calc = LineFlowCalculator(self)
-        return calc.compute(lf_result["Vm"], lf_result["Va"])
+        return calc.compute(self.lf_result["Vm"], self.lf_result["Va"])
 
-    def compute_transformer_flows(self, lf_result):
+    def compute_transformer_flows(self):
         calc = TransformerFlowCalculator(self)
-        return calc.compute(lf_result["Vm"], lf_result["Va"])
+        return calc.compute(self.lf_result["Vm"], self.lf_result["Va"])
 
     # ------------------------------------------------------------------
-    # CONTINGENCY ANALYSIS
+    # CONTINGENCY
     # ------------------------------------------------------------------
 
     def run_contingency(self):
@@ -126,32 +166,106 @@ class Network:
         return analyzer.run_n_minus_1()
 
     # ------------------------------------------------------------------
-    # SHORT CIRCUIT (BALANCED)
+    # FAULT HANDLING
     # ------------------------------------------------------------------
+
+    def apply_fault(self, bus_id, fault_type="3ph", Zf=0.0):
+        self.active_fault = {
+            "bus_id": bus_id,
+            "type": fault_type,
+            "Zf": Zf
+        }
 
     def run_short_circuit(self):
         sc = ShortCircuitAnalyzer(self)
-        return sc.run_three_phase_faults()
+        self.fault_result = sc.run_three_phase_faults()
+        return self.fault_result
 
-    # ------------------------------------------------------------------
-    # UNBALANCED FAULTS (SEQUENCE NETWORKS)
-    # ------------------------------------------------------------------
-
-    def run_unbalanced_faults(self, fault_type="SLG", Zf=0.0, lf_result=None):
+    def run_unbalanced_faults(self):
         analyzer = UnbalancedFaultAnalyzer(self)
-        return analyzer.run(fault_type=fault_type, Zf=Zf, lf_result=lf_result)
+        self.fault_result = analyzer.run(
+            fault_type=self.active_fault["type"],
+            Zf=self.active_fault["Zf"],
+            lf_result=self.lf_result
+        )
+        return self.fault_result
 
     # ------------------------------------------------------------------
-    # VALIDATION
+    # PROTECTION SYSTEM
+    # ------------------------------------------------------------------
+
+    def run_protection(self):
+        actions = self.protection_system.evaluate(
+            self.fault_result,
+            self.lines,
+            self.generators
+        )
+
+        self.breaker_manager.apply(actions)
+
+    # ------------------------------------------------------------------
+    # NETWORK RECONFIGURATION
+    # ------------------------------------------------------------------
+
+    def reconfigure(self):
+        # Rebuild YBus with updated breaker states
+        self.build_ybus()
+
+    # ------------------------------------------------------------------
+    # TRANSIENT STABILITY
+    # ------------------------------------------------------------------
+
+    def run_transient_stability(self, t_end=5.0, dt=0.01):
+        solver = TransientStabilitySolver(self)
+        return solver.run(self.active_fault, t_end, dt)
+
+    # ------------------------------------------------------------------
+    # MULTI-MACHINE
+    # ------------------------------------------------------------------
+
+    def run_multi_machine(self, t_end=5.0, dt=0.01):
+        sim = MultiMachineSimulator(self)
+        return sim.run(t_end, dt)
+
+    # ------------------------------------------------------------------
+    # FULL SIMULATION PIPELINE
+    # ------------------------------------------------------------------
+
+    def simulate(self, fault_bus):
+
+        # 1. Build system
+        self.build_ybus()
+
+        # 2. Pre-fault load flow
+        self.run_load_flow()
+
+        # 3. Apply fault
+        self.apply_fault(fault_bus)
+
+        if self.active_fault["type"] == "3ph":
+            self.run_short_circuit()
+        else:
+            self.run_unbalanced_faults()
+
+        # 4. Protection action
+        self.run_protection()
+
+        # 5. Network update
+        self.reconfigure()
+
+        # 6. Post-fault load flow
+        self.run_load_flow()
+
+        # 7. Stability
+        return self.run_transient_stability()
+
+    # ------------------------------------------------------------------
+    # UTILITIES
     # ------------------------------------------------------------------
 
     def validate(self):
         assert len(self.buses) > 0, "No buses in network"
         assert self.Ybus is not None, "Ybus not built"
-
-    # ------------------------------------------------------------------
-    # SUMMARY
-    # ------------------------------------------------------------------
 
     def summary(self):
         return {
