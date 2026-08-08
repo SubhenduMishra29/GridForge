@@ -1,26 +1,20 @@
 """
 File: ui/main_window.py
-
-Location:
-    gridforge/ui/main_window.py
+Location: gridforge/ui/main_window.py
 
 Purpose:
-    Defines the main application window for GridForge UI.
+    Main application window for GridForge UI.
 
 Responsibilities:
-    - Initializes Scene (visual model) and View (viewport)
-    - Hosts toolbar and global UI controls
-    - Acts as entry point for user interaction
+    - Initializes Scene (model view) and View (viewport)
+    - Hosts toolbar for interaction modes
+    - Routes user commands to scene
 
 Architecture Role:
-    UI Layer (Top Level Container)
-
-Interactions:
-    - Talks to GridScene for mode switching
-    - Does NOT interact with core/network directly
+    Top-level UI container
 
 Critical Rule:
-    No electrical or simulation logic here.
+    No electrical logic here.
 """
 
 from PySide6.QtWidgets import QMainWindow, QToolBar
@@ -29,44 +23,23 @@ from ui.grid_scene import GridScene
 
 
 class MainWindow(QMainWindow):
-    """
-    Root window of GridForge application.
-
-    Composition:
-        [Toolbar]
-        [Graphics View (Canvas)]
-    """
-
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("GridForge")
 
-        # -------------------------------
-        # Scene + View Initialization
-        # -------------------------------
-        # Scene = logical canvas
-        # View  = rendered viewport
+        # Scene + View
         self.scene = GridScene()
         self.view = GridView(self.scene)
-
         self.setCentralWidget(self.view)
 
-        # -------------------------------
-        # Toolbar Setup
-        # -------------------------------
+        # Toolbar
         self.toolbar = QToolBar("Tools")
         self.addToolBar(self.toolbar)
 
         self._create_tools()
 
     def _create_tools(self):
-        """
-        Create toolbar actions.
-
-        These actions DO NOT perform operations directly.
-        They only change interaction mode inside GridScene.
-        """
-
+        """Create mode-switching tools."""
         self.toolbar.addAction("Select", lambda: self.scene.set_mode("select"))
         self.toolbar.addAction("Bus", lambda: self.scene.set_mode("bus"))
