@@ -3,43 +3,92 @@ File: ui/main_window.py
 Location: gridforge/ui/main_window.py
 
 Purpose:
-    Main application window for GridForge UI.
+    Defines the main application window.
+
+Why this file exists:
+    This is the top-level UI container that:
+        - Holds the graphics view
+        - Manages layout
+        - Acts as integration point for all UI components
 
 Responsibilities:
-    - Initializes Scene (model view) and View (viewport)
-    - Hosts toolbar for interaction modes
-    - Routes user commands to scene
+    - Initialize GridScene
+    - Initialize GridView
+    - Embed view into window
+    - Configure window properties
 
 Architecture Role:
-    Top-level UI container
+    UI Root Layer
 
-Critical Rule:
-    No electrical logic here.
+    This is NOT:
+    - Not business logic
+    - Not simulation
+    - Not controller
+
+    This WILL later:
+    - Connect to controller
+    - Add toolbars (modes)
+    - Add menus (file/edit/view)
+    - Manage status bar
+
+Qt Inheritance:
+    QMainWindow → provides:
+        - Central widget system
+        - Menu bar
+        - Toolbars
+        - Docking system
+
+Design Decisions:
+    - Use GridView as central widget
+    - Scene created here (temporary; may move to controller later)
+    - Keep minimal logic → clean separation
+
+Future Extensions:
+    - Toolbar for modes (Bus, Line, Select)
+    - Status bar (coordinates, info)
+    - Dock panels (properties, logs)
 """
 
-from PySide6.QtWidgets import QMainWindow, QToolBar
-from ui.grid_view import GridView
-from ui.grid_scene import GridScene
+from PySide6.QtWidgets import QMainWindow
+
+from ui.scene.grid_scene import GridScene
+from ui.views.grid_view import GridView
 
 
 class MainWindow(QMainWindow):
+    """
+    Main Application Window.
+    """
+
     def __init__(self):
+        """Initialize the main window."""
         super().__init__()
 
-        self.setWindowTitle("GridForge")
+        # --------------------------------------------------
+        # Window Configuration
+        # --------------------------------------------------
+        self.setWindowTitle("GridForge - Power System Designer")
+        self.resize(1000, 700)
 
-        # Scene + View
+        # --------------------------------------------------
+        # Scene Initialization
+        # --------------------------------------------------
         self.scene = GridScene()
+
+        # --------------------------------------------------
+        # View Initialization
+        # --------------------------------------------------
         self.view = GridView(self.scene)
+
+        # --------------------------------------------------
+        # Set Central Widget
+        # --------------------------------------------------
+        # QMainWindow requires a central widget
         self.setCentralWidget(self.view)
 
-        # Toolbar
-        self.toolbar = QToolBar("Tools")
-        self.addToolBar(self.toolbar)
-
-        self._create_tools()
-
-    def _create_tools(self):
-        """Create mode-switching tools."""
-        self.toolbar.addAction("Select", lambda: self.scene.set_mode("select"))
-        self.toolbar.addAction("Bus", lambda: self.scene.set_mode("bus"))
+        # --------------------------------------------------
+        # Future Hooks (DO NOT IMPLEMENT YET)
+        # --------------------------------------------------
+        # self._create_toolbar()
+        # self._create_menus()
+        # self._create_status_bar()
