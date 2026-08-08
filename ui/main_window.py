@@ -1,34 +1,72 @@
-# ui/main_window.py
+"""
+File: ui/main_window.py
 
-from PyQt5.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget
+Location:
+    gridforge/ui/main_window.py
 
-from ui.canvas.grid_canvas import GridCanvas
+Purpose:
+    Defines the main application window for GridForge UI.
+
+Responsibilities:
+    - Initializes Scene (visual model) and View (viewport)
+    - Hosts toolbar and global UI controls
+    - Acts as entry point for user interaction
+
+Architecture Role:
+    UI Layer (Top Level Container)
+
+Interactions:
+    - Talks to GridScene for mode switching
+    - Does NOT interact with core/network directly
+
+Critical Rule:
+    No electrical or simulation logic here.
+"""
+
+from PySide6.QtWidgets import QMainWindow, QToolBar
+from ui.grid_view import GridView
+from ui.grid_scene import GridScene
 
 
 class MainWindow(QMainWindow):
+    """
+    Root window of GridForge application.
+
+    Composition:
+        [Toolbar]
+        [Graphics View (Canvas)]
+    """
+
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("GridForge")
-        self.setGeometry(100, 100, 900, 700)
 
-        self.canvas = GridCanvas()
+        # -------------------------------
+        # Scene + View Initialization
+        # -------------------------------
+        # Scene = logical canvas
+        # View  = rendered viewport
+        self.scene = GridScene()
+        self.view = GridView(self.scene)
 
-        self.run_button = QPushButton("Run Load Flow")
-        self.run_button.clicked.connect(self.run_simulation)
+        self.setCentralWidget(self.view)
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.canvas)
-        layout.addWidget(self.run_button)
+        # -------------------------------
+        # Toolbar Setup
+        # -------------------------------
+        self.toolbar = QToolBar("Tools")
+        self.addToolBar(self.toolbar)
 
-        container = QWidget()
-        container.setLayout(layout)
+        self._create_tools()
 
-        self.setCentralWidget(container)
+    def _create_tools(self):
+        """
+        Create toolbar actions.
 
-    def run_simulation(self):
-        results = self.canvas.controller.run_simulation()
+        These actions DO NOT perform operations directly.
+        They only change interaction mode inside GridScene.
+        """
 
-        print("\n--- RESULTS ---")
-        for r in results:
-            print(r)
+        self.toolbar.addAction("Select", lambda: self.scene.set_mode("select"))
+        self.toolbar.addAction("Bus", lambda: self.scene.set_mode("bus"))
