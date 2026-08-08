@@ -1,20 +1,38 @@
-from PySide6.QtWidgets import QStatusBar, QLabel
+# ============================================================
+# File: ui/status/status_bar.py
+# Displays coordinates, tool state, and system info
+# ============================================================
+
+from PyQt5.QtWidgets import QStatusBar, QLabel
 
 
 class StatusBar(QStatusBar):
-    def __init__(self, controller):
+    """
+    Professional status bar (ETAP-style)
+
+    Sections:
+    - Left: Tool state
+    - Right: Cursor coordinates
+    """
+
+    def __init__(self):
         super().__init__()
 
-        self.coord = QLabel("X:0 Y:0")
-        self.tool = QLabel("Tool: Select")
+        # --- Tool label (left) ---
+        self.tool_label = QLabel("Tool: None")
+        self.addWidget(self.tool_label)
 
-        self.addPermanentWidget(self.coord)
-        self.addPermanentWidget(self.tool)
+        # --- Spacer ---
+        self.addPermanentWidget(QLabel("   "))
 
-        controller.tool_changed.connect(self.set_tool)
+        # --- Coordinates (right) ---
+        self.coord_label = QLabel("X: 0, Y: 0")
+        self.addPermanentWidget(self.coord_label)
 
-    def set_tool(self, name):
-        self.tool.setText(f"Tool: {name.capitalize()}")
+    # --------------------------------------------------
+    def set_tool(self, tool_name: str):
+        self.tool_label.setText(f"Tool: {tool_name}")
 
-    def update_coords(self, x, y):
-        self.coord.setText(f"X:{int(x)} Y:{int(y)}")
+    # --------------------------------------------------
+    def set_coordinates(self, x: float, y: float):
+        self.coord_label.setText(f"X: {x:.1f}, Y: {y:.1f}")
