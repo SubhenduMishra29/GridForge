@@ -1,91 +1,70 @@
 """
 File: ui/grid_scene.py
-
-Location:
-    gridforge/ui/grid_scene.py
+Location: gridforge/ui/grid_scene.py
 
 Purpose:
-    Manages the graphical representation of the network.
+    Manages graphical layout and interaction.
 
 Responsibilities:
-    - Handle mouse interactions
-    - Create and manage graphical objects
-    - Maintain current tool mode
+    - Handle mouse interaction
+    - Maintain mode (select, bus, etc.)
+    - Create UI elements
 
 Architecture Role:
-    UI Interaction Layer (Controller-like behavior inside UI)
-
-Future Evolution:
-    Will delegate all object creation to network_controller
-
-Interactions:
-    - Creates BusItem (UI object)
-    - Later syncs with Core via Controller
-
-Critical Rule:
-    This is NOT the source of truth for network data.
+    UI interaction layer
 """
 
 from PySide6.QtWidgets import QGraphicsScene
-from PySide6.QtCore import Qt
-
+from PySide6.QtGui import QPen, QColor
 from ui.items.bus_item import BusItem
 
 
 class GridScene(QGraphicsScene):
-    """
-    Scene containing all graphical elements.
-
-    Key Concept:
-        Mode-driven interaction system
-    """
-
     def __init__(self):
         super().__init__()
 
-        # -------------------------------
-        # Interaction Mode State
-        # -------------------------------
-        # Controls behavior of mouse events
         self.mode = "select"
 
+    # -------------------------------
+    # Mode Control
+    # -------------------------------
     def set_mode(self, mode):
-        """
-        Change interaction mode.
-
-        Parameters:
-            mode (str):
-                'select' → selection mode
-                'bus'    → create bus on click
-        """
-        print(f"[Scene] Mode changed → {mode}")
+        print(f"[Scene] Mode → {mode}")
         self.mode = mode
 
+    # -------------------------------
+    # Mouse Interaction
+    # -------------------------------
     def mousePressEvent(self, event):
-        """
-        Handle mouse click events.
-
-        Flow:
-            1. Check active mode
-            2. Execute corresponding action
-            3. Pass event to base class
-        """
-
         if self.mode == "bus":
-            # -------------------------------
-            # Get click position
-            # -------------------------------
             pos = event.scenePos()
-
-            # -------------------------------
-            # Create BusItem
-            # -------------------------------
             bus = BusItem(pos.x(), pos.y())
-
-            # -------------------------------
-            # Add to scene
-            # -------------------------------
             self.addItem(bus)
 
-        # Default Qt behavior (selection, etc.)
         super().mousePressEvent(event)
+
+    # -------------------------------
+    # Grid Background
+    # -------------------------------
+    def drawBackground(self, painter, rect):
+        super().drawBackground(painter, rect)
+
+        grid_size = 20
+
+        left = int(rect.left()) - (int(rect.left()) % grid_size)
+        top = int(rect.top()) - (int(rect.top()) % grid_size)
+
+        pen = QPen(QColor(50, 50, 50, 100))
+        painter.setPen(pen)
+
+        # Vertical lines
+        x = left
+        while x < rect.right():
+            painter.drawLine(x, rect.top(), x, rect.bottom())
+            x += grid_size
+
+        # Horizontal lines
+        y = top
+        while y < rect.bottom():
+            painter.drawLine(rect.left(), y, rect.right(), y)
+            y += grid_size
