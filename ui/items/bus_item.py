@@ -1,68 +1,44 @@
 """
 File: ui/items/bus_item.py
-
-Location:
-    gridforge/ui/items/bus_item.py
+Location: gridforge/ui/items/bus_item.py
 
 Purpose:
-    Graphical representation of an electrical bus.
+    Graphical representation of a bus.
 
 Responsibilities:
-    - Draw bus node
+    - Draw node
     - Allow movement and selection
-    - Represent position in UI
+    - Display ID label
 
-Architecture Role:
-    UI Element (Visual Node)
-
-Future Integration:
-    - Will hold reference to core.network.Bus object
-    - Will sync position changes via controller
-
-Critical Rule:
-    No electrical properties stored here permanently.
+Future:
+    Will link to core Bus object
 """
 
-from PySide6.QtWidgets import QGraphicsEllipseItem
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor
 
 
 class BusItem(QGraphicsEllipseItem):
-    """
-    Circular node representing a bus.
-    """
+
+    _id_counter = 1
 
     def __init__(self, x, y):
-        """
-        Initialize graphical bus.
-
-        Parameters:
-            x (float): X coordinate in scene
-            y (float): Y coordinate in scene
-        """
-
-        # -------------------------------
-        # Define Shape
-        # -------------------------------
-        # Circle centered at (0,0)
         super().__init__(QRectF(-10, -10, 20, 20))
 
-        # -------------------------------
-        # Visual Appearance
-        # -------------------------------
-        self.setBrush(QBrush(QColor("yellow")))
+        # Unique ID
+        self.bus_id = BusItem._id_counter
+        BusItem._id_counter += 1
 
-        # -------------------------------
-        # Position in Scene
-        # -------------------------------
+        # Appearance
+        self.setBrush(QBrush(QColor("yellow")))
         self.setPos(x, y)
 
-        # -------------------------------
-        # Interaction Flags
-        # -------------------------------
-        # Allow dragging
+        # Interaction
         self.setFlag(QGraphicsEllipseItem.ItemIsMovable)
-
-        # Allow selection
         self.setFlag(QGraphicsEllipseItem.ItemIsSelectable)
+
+        # Label
+        self.label = QGraphicsTextItem(f"Bus {self.bus_id}", self)
+        self.label.setDefaultTextColor(QColor("white"))
+        self.label.setPos(12, -10)
