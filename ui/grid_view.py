@@ -1,54 +1,61 @@
 """
 File: ui/grid_view.py
-
-Location:
-    gridforge/ui/grid_view.py
+Location: gridforge/ui/grid_view.py
 
 Purpose:
-    Defines the viewport for rendering the electrical network.
+    Viewport for rendering the electrical network.
 
 Responsibilities:
-    - Render QGraphicsScene
-    - Handle zoom, pan, selection
-    - Improve visual quality (anti-aliasing)
+    - Displays scene
+    - Handles zoom and pan
+    - Controls rendering quality
 
 Architecture Role:
-    Pure View Layer (NO business logic)
-
-Interactions:
-    - Receives scene from MainWindow
-    - Displays graphical items (BusItem, LineItem, etc.)
-
-Critical Rule:
-    Never store electrical state here.
+    Pure visualization layer
 """
 
 from PySide6.QtWidgets import QGraphicsView
 from PySide6.QtGui import QPainter
+from PySide6.QtCore import Qt
 
 
 class GridView(QGraphicsView):
-    """
-    Visual viewport for GridScene.
-    """
-
     def __init__(self, scene):
         super().__init__(scene)
 
-        # -------------------------------
-        # Rendering Settings
-        # -------------------------------
-        # Smooth edges for better visuals
+        # Rendering
         self.setRenderHint(QPainter.Antialiasing)
 
-        # -------------------------------
-        # Interaction Mode
-        # -------------------------------
-        # Enables drag-to-select rectangle
+        # Interaction
         self.setDragMode(QGraphicsView.RubberBandDrag)
 
-        # -------------------------------
-        # Performance Mode
-        # -------------------------------
-        # Redraw entire viewport (safe for now)
+        # Performance
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+
+    # -------------------------------
+    # Zoom (Mouse Wheel)
+    # -------------------------------
+    def wheelEvent(self, event):
+        zoom_factor = 1.15
+
+        if event.angleDelta().y() > 0:
+            self.scale(zoom_factor, zoom_factor)
+        else:
+            self.scale(1 / zoom_factor, 1 / zoom_factor)
+
+    # -------------------------------
+    # Pan (Middle Mouse)
+    # -------------------------------
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+            fake_event = event
+            fake_event.button = lambda: Qt.LeftButton
+            super().mousePressEvent(fake_event)
+        else:
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            self.setDragMode(QGraphicsView.RubberBandDrag)
+        super().mouseReleaseEvent(event)
