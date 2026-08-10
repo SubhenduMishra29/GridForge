@@ -29,39 +29,20 @@ class Branch(ElectricalObject):
         b: float = 0.0,
         name: str = ""
     ):
-        """
-        Parameters
-        ----------
-        id : str
-            Unique identifier
-
-        bus_from : Bus
-        bus_to : Bus
-
-        r : float
-            Resistance (pu)
-
-        x : float
-            Reactance (pu)
-
-        b : float
-            Total line charging susceptance (pu)
-        """
-
         super().__init__(id, name)
 
-        # -------------------------
         # Connectivity
-        # -------------------------
         self.from_terminal = Terminal(bus_from)
         self.to_terminal = Terminal(bus_to)
 
-        # -------------------------
         # Electrical parameters
-        # -------------------------
         self.r = float(r)
         self.x = float(x)
         self.b = float(b)
+
+        # Transformer parameters (future support)
+        self.tap = 1.0     # tap ratio
+        self.shift = 0.0   # phase shift (radians)
 
     # -------------------------
     # Derived quantities
