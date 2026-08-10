@@ -1,11 +1,12 @@
+```python
 """
-GridForge AVR Model
-===================
+GridForge Automatic Voltage Regulator Model
+============================================
 
 File:
     core/model/avr.py
 
-Defines the Automatic Voltage Regulator (AVR) model.
+Defines the GridForge Automatic Voltage Regulator (AVR) model.
 
 Purpose
 -------
@@ -46,7 +47,7 @@ The AVR provides:
     - Parameter management
 
 Used by
--------
+--------
     Generator
     PSS
     Dynamic Solver
@@ -64,25 +65,47 @@ The model can later support:
     - Over-excitation limiter
     - Under-excitation limiter
 
+The AVR model deliberately contains no numerical integration
+or simulation-state ownership.
+
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
 """
 
 from __future__ import annotations
 
+import math
+
 
 class AVR:
     """
     First-order Automatic Voltage Regulator.
 
-    The AVR does not integrate its internal state. The dynamic solver
-    supplies the current Efd state and integrates the returned
-    derivative.
+    The AVR does not integrate its internal state. The dynamic
+    solver supplies the current Efd state and integrates the
+    returned derivative.
+
+    Parameters
+    ----------
+    Ka:
+        AVR gain.
+
+    Ta:
+        AVR time constant in seconds.
+
+    Vref:
+        Voltage reference in per-unit.
+
+    Efd_min:
+        Minimum excitation voltage.
+
+    Efd_max:
+        Maximum excitation voltage.
     """
 
-    # =============================================================
+    # =========================================================
     # INITIALIZATION
-    # =============================================================
+    # =========================================================
 
     def __init__(
         self,
@@ -91,63 +114,72 @@ class AVR:
         Vref: float = 1.0,
         Efd_min: float = 0.0,
         Efd_max: float = 5.0,
-    ):
+    ) -> None:
         """
         Initialize the AVR model.
-
-        Parameters
-        ----------
-        Ka:
-            AVR gain.
-
-        Ta:
-            AVR time constant in seconds.
-
-        Vref:
-            Voltage reference in per-unit.
-
-        Efd_min:
-            Minimum excitation voltage.
-
-        Efd_max:
-            Maximum excitation voltage.
         """
 
-        # ---------------------------------------------------------
-        # Validation
-        # ---------------------------------------------------------
+        self.Ka = float(Ka)
+        self.Ta = float(Ta)
+        self.Vref = float(Vref)
 
-        if Ta <= 0.0:
+        self.Efd_min = float(Efd_min)
+        self.Efd_max = float(Efd_max)
+
+        self._validate()
+
+    # =========================================================
+    # VALIDATION
+    # =========================================================
+
+    def _validate(self) -> None:
+        """
+        Validate AVR parameters.
+        """
+
+        if not math.isfinite(self.Ka):
+            raise ValueError(
+                "AVR gain Ka must be finite."
+            )
+
+        if self.Ka <= 0.0:
+            raise ValueError(
+                "AVR gain Ka must be greater than zero."
+            )
+
+        if not math.isfinite(self.Ta):
+            raise ValueError(
+                "AVR time constant Ta must be finite."
+            )
+
+        if self.Ta <= 0.0:
             raise ValueError(
                 "AVR time constant Ta must be greater than zero."
             )
 
-        if Efd_min > Efd_max:
+        if not math.isfinite(self.Vref):
+            raise ValueError(
+                "AVR voltage reference Vref must be finite."
+            )
+
+        if not math.isfinite(self.Efd_min):
+            raise ValueError(
+                "AVR Efd_min must be finite."
+            )
+
+        if not math.isfinite(self.Efd_max):
+            raise ValueError(
+                "AVR Efd_max must be finite."
+            )
+
+        if self.Efd_min > self.Efd_max:
             raise ValueError(
                 "Efd_min must not be greater than Efd_max."
             )
 
-        # ---------------------------------------------------------
-        # Parameters
-        # ---------------------------------------------------------
-
-        self.Ka = float(Ka)
-
-        self.Ta = float(Ta)
-
-        self.Vref = float(Vref)
-
-        # ---------------------------------------------------------
-        # Excitation limits
-        # ---------------------------------------------------------
-
-        self.Efd_min = float(Efd_min)
-
-        self.Efd_max = float(Efd_max)
-
-    # =============================================================
+    # =========================================================
     # DIFFERENTIAL EQUATION
-    # =============================================================
+    # =========================================================
 
     def derivative(
         self,
@@ -180,20 +212,39 @@ class AVR:
             dEfd/dt.
         """
 
+        Efd = float(Efd)
+        Vt = float(Vt)
+        Vpss = float(Vpss)
+
+        if not math.isfinite(Efd):
+            raise ValueError(
+                "AVR Efd state must be finite."
+            )
+
+        if not math.isfinite(Vt):
+            raise ValueError(
+                "AVR terminal voltage Vt must be finite."
+            )
+
+        if not math.isfinite(Vpss):
+            raise ValueError(
+                "AVR PSS input Vpss must be finite."
+            )
+
         error = (
             self.Vref
-            - float(Vt)
-            + float(Vpss)
+            - Vt
+            + Vpss
         )
 
         return (
             self.Ka * error
-            - float(Efd)
+            - Efd
         ) / self.Ta
 
-    # =============================================================
+    # =========================================================
     # OUTPUT
-    # =============================================================
+    # =========================================================
 
     def output(
         self,
@@ -205,7 +256,7 @@ class AVR:
         Parameters
         ----------
         Efd:
-            Current AVR state.
+            Current excitation state.
 
         Returns
         -------
@@ -215,9 +266,9 @@ class AVR:
 
         return self.limit(Efd)
 
-    # =============================================================
+    # =========================================================
     # COMBINED EVALUATION
-    # =============================================================
+    # =========================================================
 
     def evaluate(
         self,
@@ -226,11 +277,11 @@ class AVR:
         Vpss: float = 0.0,
     ) -> tuple[float, float]:
         """
-        Evaluate AVR derivative and limited output.
+        Evaluate the AVR derivative and output.
 
         Returns
         -------
-        tuple
+        tuple[float, float]
             (dEfd_dt, Efd_output)
 
         Notes
@@ -248,9 +299,9 @@ class AVR:
 
         return dEfd_dt, Efd_output
 
-    # =============================================================
+    # =========================================================
     # LIMITER
-    # =============================================================
+    # =========================================================
 
     def limit(
         self,
@@ -258,19 +309,36 @@ class AVR:
     ) -> float:
         """
         Apply excitation-voltage limits.
+
+        Parameters
+        ----------
+        Efd:
+            Excitation state.
+
+        Returns
+        -------
+        float
+            Limited excitation voltage.
         """
+
+        Efd = float(Efd)
+
+        if not math.isfinite(Efd):
+            raise ValueError(
+                "AVR Efd value must be finite."
+            )
 
         return max(
             self.Efd_min,
             min(
-                float(Efd),
+                Efd,
                 self.Efd_max,
             ),
         )
 
-    # =============================================================
+    # =========================================================
     # INITIAL STATE
-    # =============================================================
+    # =========================================================
 
     def initial_state(
         self,
@@ -304,17 +372,30 @@ class AVR:
             Initial excitation state.
         """
 
+        Vt = float(Vt)
+        Vpss = float(Vpss)
+
+        if not math.isfinite(Vt):
+            raise ValueError(
+                "Initial terminal voltage Vt must be finite."
+            )
+
+        if not math.isfinite(Vpss):
+            raise ValueError(
+                "Initial PSS signal Vpss must be finite."
+            )
+
         Efd = self.Ka * (
             self.Vref
-            - float(Vt)
-            + float(Vpss)
+            - Vt
+            + Vpss
         )
 
         return self.limit(Efd)
 
-    # =============================================================
+    # =========================================================
     # RESET
-    # =============================================================
+    # =========================================================
 
     def reset(
         self,
@@ -322,7 +403,7 @@ class AVR:
         Vpss: float = 0.0,
     ) -> float:
         """
-        Return the initial excitation state.
+        Return the steady-state initial excitation value.
 
         The dynamic solver should use this value when resetting
         the simulation.
@@ -333,9 +414,9 @@ class AVR:
             Vpss=Vpss,
         )
 
-    # =============================================================
+    # =========================================================
     # PARAMETER MANAGEMENT
-    # =============================================================
+    # =========================================================
 
     def set_gain(
         self,
@@ -345,7 +426,19 @@ class AVR:
         Update AVR gain.
         """
 
-        self.Ka = float(Ka)
+        Ka = float(Ka)
+
+        if not math.isfinite(Ka):
+            raise ValueError(
+                "AVR gain Ka must be finite."
+            )
+
+        if Ka <= 0.0:
+            raise ValueError(
+                "AVR gain Ka must be greater than zero."
+            )
+
+        self.Ka = Ka
 
     def set_time_constant(
         self,
@@ -355,12 +448,19 @@ class AVR:
         Update AVR time constant.
         """
 
+        Ta = float(Ta)
+
+        if not math.isfinite(Ta):
+            raise ValueError(
+                "AVR time constant Ta must be finite."
+            )
+
         if Ta <= 0.0:
             raise ValueError(
                 "AVR time constant Ta must be greater than zero."
             )
 
-        self.Ta = float(Ta)
+        self.Ta = Ta
 
     def set_reference(
         self,
@@ -370,7 +470,14 @@ class AVR:
         Update voltage reference.
         """
 
-        self.Vref = float(Vref)
+        Vref = float(Vref)
+
+        if not math.isfinite(Vref):
+            raise ValueError(
+                "AVR voltage reference Vref must be finite."
+            )
+
+        self.Vref = Vref
 
     def set_limits(
         self,
@@ -381,17 +488,30 @@ class AVR:
         Update excitation limits.
         """
 
+        Efd_min = float(Efd_min)
+        Efd_max = float(Efd_max)
+
+        if not math.isfinite(Efd_min):
+            raise ValueError(
+                "AVR Efd_min must be finite."
+            )
+
+        if not math.isfinite(Efd_max):
+            raise ValueError(
+                "AVR Efd_max must be finite."
+            )
+
         if Efd_min > Efd_max:
             raise ValueError(
                 "Efd_min must not be greater than Efd_max."
             )
 
-        self.Efd_min = float(Efd_min)
-        self.Efd_max = float(Efd_max)
+        self.Efd_min = Efd_min
+        self.Efd_max = Efd_max
 
-    # =============================================================
+    # =========================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =========================================================
 
     def summary(self) -> dict:
         """
@@ -399,6 +519,8 @@ class AVR:
         """
 
         return {
+            "type": "AVR",
+            "model": "FIRST_ORDER",
             "Ka": self.Ka,
             "Ta": self.Ta,
             "Vref": self.Vref,
@@ -406,9 +528,9 @@ class AVR:
             "Efd_max": self.Efd_max,
         }
 
-    # =============================================================
+    # =========================================================
     # DEBUG
-    # =============================================================
+    # =========================================================
 
     def __repr__(self) -> str:
         """
@@ -420,6 +542,8 @@ class AVR:
             f"Ka={self.Ka:.4f}, "
             f"Ta={self.Ta:.6f}, "
             f"Vref={self.Vref:.4f}, "
-            f"limits=({self.Efd_min:.4f}, "
+            f"limits=("
+            f"{self.Efd_min:.4f}, "
             f"{self.Efd_max:.4f})>"
         )
+```
