@@ -45,7 +45,7 @@ class BusType(Enum):
         Load bus.
 
     PV:
-        Generator/voltage-controlled bus.
+        Generator / voltage-controlled bus.
 
     SLACK:
         Reference bus.
@@ -76,10 +76,10 @@ class Bus(ElectricalObject):
         Initial electrical bus classification.
 
     V:
-        Voltage magnitude in per-unit.
+        Current voltage magnitude in per-unit.
 
     theta:
-        Voltage angle in radians.
+        Current voltage angle in radians.
 
     P_spec:
         Specified active-power injection in per-unit.
@@ -87,24 +87,26 @@ class Bus(ElectricalObject):
     Q_spec:
         Specified reactive-power injection in per-unit.
 
+    V_setpoint:
+        Voltage setpoint for voltage-controlled buses.
+
     Notes
     -----
-    The voltage state:
+    The current electrical state is stored directly on the Bus:
 
         V
         theta
 
-    is intentionally stored on the Bus model.
-
     Newton-Raphson modifies these values during solution.
 
-    The specified powers:
+    P_spec and Q_spec represent the specified power-flow
+    equations associated with the current bus classification.
 
-        P_spec
-        Q_spec
+    Positive P/Q:
+        Injection into the network.
 
-    represent the power-flow equations associated with the
-    current bus classification.
+    Negative P/Q:
+        Consumption from the network.
     """
 
     def __init__(
@@ -115,53 +117,61 @@ class Bus(ElectricalObject):
         V: float = 1.0,
         theta: float = 0.0,
         P_spec: float = 0.0,
-        Q_spec: float = 0.0
+        Q_spec: float = 0.0,
+        V_setpoint: float | None = None
     ):
-        """
-        Initialize a GridForge Bus.
-        """
-
         super().__init__(
             id,
             name
         )
 
-        # -----------------------------------------------------
+        # ---------------------------------------------------------
         # Electrical classification
-        # -----------------------------------------------------
+        # ---------------------------------------------------------
 
-        if not isinstance(
-            type,
-            BusType
-        ):
+        if not isinstance(type, BusType):
             raise TypeError(
                 "Bus type must be a BusType enum value"
             )
 
         self.type = type
 
-        # -----------------------------------------------------
+        # ---------------------------------------------------------
         # Voltage state
         #
         # V:
-        #     per-unit voltage magnitude
+        #     Current voltage magnitude in pu.
         #
         # theta:
-        #     radians
-        # -----------------------------------------------------
+        #     Current voltage angle in radians.
+        # ---------------------------------------------------------
 
         self.V = float(V)
         self.theta = float(theta)
 
-        # -----------------------------------------------------
-        # Specified power injections
+        # ---------------------------------------------------------
+        # Voltage setpoint
         #
-        # Positive convention:
-        #     generation/injection
+        # Used primarily by PV buses.
         #
-        # Negative convention:
-        #     load/consumption
-        # -----------------------------------------------------
+        # If no explicit setpoint is supplied, the initial
+        # voltage magnitude is used.
+        # ---------------------------------------------------------
+
+        if V_setpoint is None:
+            V_setpoint = V
+
+        self.V_setpoint = float(V_setpoint)
+
+        # ---------------------------------------------------------
+        # Specified power injection
+        #
+        # Positive:
+        #     injection into network
+        #
+        # Negative:
+        #     consumption from network
+        # ---------------------------------------------------------
 
         self.P_spec = float(P_spec)
         self.Q_spec = float(Q_spec)
@@ -173,24 +183,15 @@ class Bus(ElectricalObject):
     # =========================================================
 
     def is_pq(self) -> bool:
-        """
-        Return True when this is a PQ bus.
-        """
-
+        """Return True when this is a PQ bus."""
         return self.type is BusType.PQ
 
     def is_pv(self) -> bool:
-        """
-        Return True when this is a PV bus.
-        """
-
+        """Return True when this is a PV bus."""
         return self.type is BusType.PV
 
     def is_slack(self) -> bool:
-        """
-        Return True when this is the slack/reference bus.
-        """
-
+        """Return True when this is the slack/reference bus."""
         return self.type is BusType.SLACK
 
     # =========================================================
@@ -203,17 +204,6 @@ class Bus(ElectricalObject):
     ):
         """
         Change the electrical bus classification.
-
-        Parameters
-        ----------
-        bus_type:
-            New BusType.
-
-        Notes
-        -----
-        This method keeps bus-type changes centralized and
-        prevents accidental assignment of strings such as
-        ``"PQ"`` or ``"PV"``.
         """
 
         if not isinstance(
@@ -225,6 +215,65 @@ class Bus(ElectricalObject):
             )
 
         self.type = bus_type
+
+    # =========================================================
+    # VOLTAGE CONTROL
+    # =========================================================
+
+    def set_voltage(
+        self,
+        V: float,
+        theta: float | None = None
+    ):
+        """
+        Update the current voltage state.
+
+        Parameters
+        ----------
+        V:
+            Voltage magnitude in pu.
+
+        theta:
+            Voltage angle in radians.
+
+            If omitted, the existing angle is retained.
+
+        Notes
+        -----
+        This represents the current electrical state, not the
+        PV voltage setpoint.
+        """
+
+        V = float(V)
+
+        if V <= 0.0:
+            raise ValueError(
+                "Voltage magnitude must be greater than zero"
+            )
+
+        self.V = V
+
+        if theta is not None:
+            self.theta = float(theta)
+
+    def set_voltage_setpoint(
+        self,
+        V_setpoint: float
+    ):
+        """
+        Set the voltage-control target.
+
+        This is primarily used by PV and slack buses.
+        """
+
+        V_setpoint = float(V_setpoint)
+
+        if V_setpoint <= 0.0:
+            raise ValueError(
+                "Voltage setpoint must be greater than zero"
+            )
+
+        self.V_setpoint = V_setpoint
 
     # =========================================================
     # VALIDATION
@@ -245,12 +294,42 @@ class Bus(ElectricalObject):
                 "Bus voltage magnitude must be greater than zero"
             )
 
-        if not isinstance(
-            self.theta,
-            float
+        if self.V_setpoint <= 0.0:
+            raise ValueError(
+                "Voltage setpoint must be greater than zero"
+            )
+
+        if not (
+            float("-inf")
+            <
+            self.theta
+            <
+            float("inf")
         ):
-            self.theta = float(
-                self.theta
+            raise ValueError(
+                "Bus voltage angle must be finite"
+            )
+
+        if not (
+            float("-inf")
+            <
+            self.P_spec
+            <
+            float("inf")
+        ):
+            raise ValueError(
+                "Bus P_spec must be finite"
+            )
+
+        if not (
+            float("-inf")
+            <
+            self.Q_spec
+            <
+            float("inf")
+        ):
+            raise ValueError(
+                "Bus Q_spec must be finite"
             )
 
     # =========================================================
@@ -259,21 +338,34 @@ class Bus(ElectricalObject):
 
     def reset_voltage(
         self,
-        V: float = 1.0,
+        V: float | None = None,
         theta: float = 0.0
     ):
         """
-        Reset the bus voltage state.
+        Reset the current voltage state.
 
-        Useful for starting a new power-flow study.
+        Parameters
+        ----------
+        V:
+            Voltage magnitude in pu.
+
+            If omitted, the bus voltage setpoint is used.
+
+        theta:
+            Voltage angle in radians.
         """
+
+        if V is None:
+            V = self.V_setpoint
+
+        V = float(V)
 
         if V <= 0.0:
             raise ValueError(
                 "Voltage magnitude must be greater than zero"
             )
 
-        self.V = float(V)
+        self.V = V
         self.theta = float(theta)
 
     # =========================================================
@@ -288,28 +380,14 @@ class Bus(ElectricalObject):
         """
         Update specified active/reactive power.
 
-        Parameters
-        ----------
-        P_spec:
-            Active-power injection in pu.
-
-        Q_spec:
-            Reactive-power injection in pu.
-
-        Notes
-        -----
         Only supplied values are changed.
         """
 
         if P_spec is not None:
-            self.P_spec = float(
-                P_spec
-            )
+            self.P_spec = float(P_spec)
 
         if Q_spec is not None:
-            self.Q_spec = float(
-                Q_spec
-            )
+            self.Q_spec = float(Q_spec)
 
     # =========================================================
     # DIAGNOSTICS
@@ -326,6 +404,7 @@ class Bus(ElectricalObject):
             "type": self.type.name,
             "V": self.V,
             "theta": self.theta,
+            "V_setpoint": self.V_setpoint,
             "P_spec": self.P_spec,
             "Q_spec": self.Q_spec
         }
@@ -335,15 +414,12 @@ class Bus(ElectricalObject):
     # =========================================================
 
     def __repr__(self):
-        """
-        Developer-friendly representation.
-        """
-
         return (
             f"<Bus "
             f"id={self.id}, "
             f"type={self.type.name}, "
             f"V={self.V:.6f}, "
-            f"theta={self.theta:.6f}>"
+            f"theta={self.theta:.6f}, "
+            f"Vset={self.V_setpoint:.6f}>"
         )
 ```
