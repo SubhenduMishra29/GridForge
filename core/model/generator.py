@@ -1,3 +1,4 @@
+```python
 """
 GridForge Generator Model
 =========================
@@ -16,8 +17,7 @@ Supports
 - Reactive power injection
 - Voltage setpoint
 - Reactive power limits
-
-The Generator implements the Injection interface.
+- Q-limit status reporting
 
 Sign Convention
 ---------------
@@ -31,7 +31,7 @@ Responsibilities
 This class:
 
 - Stores generator electrical data.
-- Maintains its Bus connection.
+- Maintains its Bus connection through Terminal.
 - Implements the Injection interface.
 - Stores voltage-control setpoint.
 - Stores reactive-power operating limits.
@@ -68,6 +68,31 @@ from .terminal import Terminal
 class Generator(ElectricalObject, Injection):
     """
     Controllable generator model.
+
+    Parameters
+    ----------
+    id:
+        Unique GridForge object identifier.
+
+    bus:
+        Bus to which the generator is connected.
+
+    p:
+        Active power injection in per-unit.
+
+    q:
+        Reactive power injection in per-unit.
+
+    V_setpoint:
+        Voltage magnitude target in per-unit.
+
+    q_limits:
+        Reactive power limits as:
+
+            (Qmin, Qmax)
+
+    name:
+        Human-readable generator name.
     """
 
     def __init__(
@@ -82,37 +107,37 @@ class Generator(ElectricalObject, Injection):
             float("inf"),
         ),
         name: str = "",
-    ) ->
+    ) -> None:
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # =====================================================
+        # =========================================================
         # ELECTRICAL CONNECTION
-        # =====================================================
+        # =========================================================
 
         self.terminal = Terminal(bus)
 
-        # =====================================================
+        # =========================================================
         # GENERATOR POWER
         #
         # Positive P/Q = injection into network.
-        # =====================================================
+        # =========================================================
 
         self.p = float(p)
         self.q = float(q)
 
-        # =====================================================
+        # =========================================================
         # VOLTAGE CONTROL
-        # =====================================================
+        # =========================================================
 
         self.V_setpoint = float(V_setpoint)
 
-        # =====================================================
+        # =========================================================
         # REACTIVE POWER LIMITS
-        # =====================================================
+        # =========================================================
 
         try:
             if len(q_limits) != 2:
@@ -139,22 +164,22 @@ class Generator(ElectricalObject, Injection):
     def _validate(self) -> None:
         """
         Validate generator parameters.
-        """
 
-        if self.V_setpoint <= 0.0:
-            raise ValueError(
-                "Generator voltage setpoint "
-                "must be greater than zero."
-            )
+        Infinite Q limits are permitted.
+
+        NaN values are rejected because they are not valid
+        electrical model states.
+        """
 
         if not math.isfinite(self.V_setpoint):
             raise ValueError(
                 "Generator voltage setpoint must be finite."
             )
 
-        if self.q_min > self.q_max:
+        if self.V_setpoint <= 0.0:
             raise ValueError(
-                "Generator Qmin cannot exceed Qmax."
+                "Generator voltage setpoint "
+                "must be greater than zero."
             )
 
         if math.isnan(self.p):
@@ -175,6 +200,11 @@ class Generator(ElectricalObject, Injection):
         if math.isnan(self.q_max):
             raise ValueError(
                 "Generator Qmax cannot be NaN."
+            )
+
+        if self.q_min > self.q_max:
+            raise ValueError(
+                "Generator Qmin cannot exceed Qmax."
             )
 
     # =========================================================
@@ -218,6 +248,8 @@ class Generator(ElectricalObject, Injection):
     ) -> None:
         """
         Set generator active and reactive power.
+
+        Q-limit enforcement is intentionally not performed here.
         """
 
         p = float(p)
@@ -294,15 +326,15 @@ class Generator(ElectricalObject, Injection):
 
         V_setpoint = float(V_setpoint)
 
+        if not math.isfinite(V_setpoint):
+            raise ValueError(
+                "Voltage setpoint must be finite."
+            )
+
         if V_setpoint <= 0.0:
             raise ValueError(
                 "Voltage setpoint must be "
                 "greater than zero."
-            )
-
-        if not math.isfinite(V_setpoint):
-            raise ValueError(
-                "Voltage setpoint must be finite."
             )
 
         self.V_setpoint = V_setpoint
@@ -331,6 +363,8 @@ class Generator(ElectricalObject, Injection):
     ) -> None:
         """
         Update generator reactive power limits.
+
+        Infinite limits are permitted.
         """
 
         q_min = float(q_min)
@@ -359,10 +393,19 @@ class Generator(ElectricalObject, Injection):
         Returns
         -------
         str
-            "LOW", "HIGH", or "NORMAL".
+            One of:
+
+                "LOW"
+                "HIGH"
+                "NORMAL"
         """
 
         tolerance = float(tolerance)
+
+        if math.isnan(tolerance):
+            raise ValueError(
+                "Q-limit tolerance cannot be NaN."
+            )
 
         if tolerance < 0.0:
             raise ValueError(
@@ -441,3 +484,4 @@ class Generator(ElectricalObject, Injection):
             f"Qmin={self.q_min:.6f}, "
             f"Qmax={self.q_max:.6f}>"
         )
+```
