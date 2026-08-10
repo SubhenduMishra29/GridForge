@@ -32,12 +32,15 @@ Must implement:
 """
 
 from ui.items.line_item import LineItem
+from core.models.line import Line
 
 
 class LineRenderer:
     """
     Renderer for Line model elements.
     """
+    model_type = Line   # 🔥 REQUIRED FOR AUTO LOADER
+
 
     @staticmethod
     def create_item(line, controller):
