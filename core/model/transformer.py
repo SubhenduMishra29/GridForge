@@ -1,207 +1,272 @@
 """
 GridForge Transformer Model
+===========================
 
-Two-winding transformer model.
+File:
+    core/model/transformer.py
 
-Parameters:
-    - Series impedance in pu
-    - Off nominal tap ratio
-    - Phase shift angle
+Defines the GridForge two-winding transformer model.
 
-Used by:
-    core/network/ybus.py
+Architecture
+------------
+Transformer is a specialized Branch.
 
-Does NOT perform:
-    - Power flow
-    - Fault calculation
-    - Voltage regulation
+Common Branch responsibilities:
+    - Two-terminal connectivity
+    - Series impedance
+    - In-service state
+    - Equipment rating
+    - Common electrical interface
 
-Those belong to core/solver.
+Transformer-specific responsibilities:
+    - Off-nominal tap ratio
+    - Phase-shifting angle
+    - Complex transformer ratio
+
+The Transformer model does NOT:
+    - Build Ybus.
+    - Perform power flow.
+    - Perform fault calculations.
+    - Perform voltage regulation.
+    - Perform numerical optimization.
+
+Those responsibilities belong to the solver/analysis layers.
+
+Ybus construction may consume the transformer parameters exposed
+by this model.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
 """
 
+from __future__ import annotations
 
 import numpy as np
 
+from .branch import Branch
 
 
-class Transformer:
+class Transformer(Branch):
+    """
+    Two-winding transformer.
 
+    Parameters
+    ----------
+    id:
+        Unique transformer identifier.
 
-    def __init__(
-            self,
+    bus_from:
+        From-side Bus object.
 
-            from_bus: str,
-            to_bus: str,
+    bus_to:
+        To-side Bus object.
 
-            r_pu: float,
-            x_pu: float,
+    r:
+        Series resistance in per-unit.
 
-            tap_ratio: float = 1.0,
+    x:
+        Series reactance in per-unit.
 
-            phase_shift_deg: float = 0.0,
+    tap_ratio:
+        Off-nominal tap ratio.
 
-            name: str = None,
+        Default:
+            1.0
 
-            rating_mva: float = 100.0
-    ):
+    phase_shift_deg:
+        Phase-shifting angle in degrees.
 
+        Default:
+            0.0
 
-        if from_bus == to_bus:
-            raise ValueError(
-                "Transformer cannot connect a bus to itself"
-            )
+    name:
+        Human-readable transformer name.
 
+    rate_mva:
+        Transformer rating in MVA.
 
-        if r_pu == 0 and x_pu == 0:
-            raise ValueError(
-                "Transformer impedance cannot be zero"
-            )
-
-
-        if tap_ratio <= 0:
-            raise ValueError(
-                "Tap ratio must be positive"
-            )
-
-
-
-        # -------------------------
-        # Connectivity
-        # -------------------------
-
-        self.from_bus = from_bus
-
-        self.to_bus = to_bus
-
-
-
-        # -------------------------
-        # Electrical parameters
-        # -------------------------
-
-        self.r_pu = r_pu
-
-        self.x_pu = x_pu
-
-
-        self.tap_ratio = tap_ratio
-
-
-        self.phase_shift_deg = (
-            phase_shift_deg
-        )
-
-
-
-        # -------------------------
-        # Equipment data
-        # -------------------------
-
-        self.name = (
-            name
-            if name
-            else f"{from_bus}-{to_bus}"
-        )
-
-
-        self.rating_mva = rating_mva
-
-
-
-        # -------------------------
-        # Operational state
-        # -------------------------
-
-        self.in_service = True
-
-
-
-        # -------------------------
-        # Results
-        # -------------------------
-
-        self.loading_mva = 0.0
-
-
-
-    # =====================================================
-    # DERIVED PROPERTIES
-    # =====================================================
-
-
-    @property
-    def z_pu(self):
-
-        return complex(
-            self.r_pu,
-            self.x_pu
-        )
-
-
-
-    @property
-    def y_pu(self):
-
-        return 1 / self.z_pu
-
-
-
-    @property
-    def complex_tap(self):
-
-        """
-        Complex transformer ratio:
+    Notes
+    -----
+    The transformer is represented using the standard complex
+    off-nominal ratio:
 
         a = tap * exp(jθ)
 
-        Used in Ybus stamping.
+    where θ is converted from degrees to radians internally.
+    """
+
+    def __init__(
+        self,
+        id: str,
+        bus_from,
+        bus_to,
+        r: float,
+        x: float,
+        tap_ratio: float = 1.0,
+        phase_shift_deg: float = 0.0,
+        name: str = "",
+        rate_mva: float = 100.0,
+    ):
+
+        # =========================================================
+        # TRANSFORMER-SPECIFIC VALIDATION
+        # =========================================================
+
+        if tap_ratio <= 0.0:
+            raise ValueError(
+                "Transformer tap ratio must be positive"
+            )
+
+        # =========================================================
+        # COMMON BRANCH INITIALIZATION
+        # =========================================================
+
+        super().__init__(
+            id=id,
+            bus_from=bus_from,
+            bus_to=bus_to,
+            r=r,
+            x=x,
+            b=0.0,
+            name=name,
+            rate_mva=rate_mva,
+            tap=tap_ratio,
+            shift=np.deg2rad(
+                phase_shift_deg
+            ),
+        )
+
+        # =========================================================
+        # TRANSFORMER PARAMETERS
+        # =========================================================
+
+        self.tap_ratio = float(
+            tap_ratio
+        )
+
+        self.phase_shift_deg = float(
+            phase_shift_deg
+        )
+
+        # =========================================================
+        # RESULTS
+        # =========================================================
+        #
+        # Numerical solvers may populate these later.
+        # The model itself does not calculate them.
+        # =========================================================
+
+        self.loading_mva = 0.0
+
+    # =============================================================
+    # TAP CONTROL
+    # =============================================================
+
+    def set_tap(
+        self,
+        tap_ratio: float
+    ) -> None:
+        """
+        Set the transformer off-nominal tap ratio.
+
+        Parameters
+        ----------
+        tap_ratio:
+            Positive transformer tap ratio.
         """
 
-        angle = np.deg2rad(
+        if tap_ratio <= 0.0:
+            raise ValueError(
+                "Transformer tap ratio must be positive"
+            )
+
+        self.tap_ratio = float(
+            tap_ratio
+        )
+
+        # Keep the common Branch representation synchronized.
+        self.tap = self.tap_ratio
+
+    # =============================================================
+    # PHASE SHIFT CONTROL
+    # =============================================================
+
+    def set_phase_shift(
+        self,
+        phase_shift_deg: float
+    ) -> None:
+        """
+        Set transformer phase shift in degrees.
+        """
+
+        self.phase_shift_deg = float(
+            phase_shift_deg
+        )
+
+        # Keep the common Branch representation synchronized.
+        self.shift = np.deg2rad(
             self.phase_shift_deg
         )
 
+    # =============================================================
+    # COMPLEX TRANSFORMER RATIO
+    # =============================================================
+
+    @property
+    def complex_tap(self) -> complex:
+        """
+        Return the complex transformer ratio.
+
+        a = tap * exp(jθ)
+
+        where θ is the phase-shift angle in radians.
+
+        This property is intended for Ybus/network stamping.
+        """
+
         return (
-            self.tap_ratio *
+            self.tap_ratio
+            *
             np.exp(
-                1j*angle
+                1j * self.shift
             )
         )
 
+    # =============================================================
+    # SUMMARY
+    # =============================================================
 
+    def summary(self) -> dict:
+        """
+        Return structured transformer information.
+        """
 
-    # =====================================================
-    # STATUS CONTROL
-    # =====================================================
+        data = super().summary()
 
+        data.update(
+            {
+                "type": "transformer",
+                "tap_ratio": self.tap_ratio,
+                "phase_shift_deg": self.phase_shift_deg,
+                "complex_tap": self.complex_tap,
+                "loading_mva": self.loading_mva,
+            }
+        )
 
-    def trip(self):
+        return data
 
-        self.in_service = False
-
-
-
-    def close(self):
-
-        self.in_service = True
-
-
-
-    # =====================================================
+    # =============================================================
     # DEBUG
-    # =====================================================
+    # =============================================================
 
-
-    def __repr__(self):
-
+    def __repr__(self) -> str:
         return (
-            f"Transformer("
-            f"{self.name}: "
-            f"{self.from_bus}"
-            " → "
-            f"{self.to_bus}, "
-            f"Z={self.r_pu}+j{self.x_pu}, "
-            f"tap={self.tap_ratio}, "
-            f"shift={self.phase_shift_deg}°, "
-            f"status={self.in_service})"
+            f"<Transformer "
+            f"id={self.id}, "
+            f"{self.from_bus.id} -> {self.to_bus.id}, "
+            f"r={self.r:.6f}, "
+            f"x={self.x:.6f}, "
+            f"tap={self.tap_ratio:.6f}, "
+            f"shift={self.phase_shift_deg:.3f}°, "
+            f"in_service={self.in_service}>"
         )
