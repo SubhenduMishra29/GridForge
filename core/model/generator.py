@@ -6,50 +6,74 @@ GridForge Generator Model
 File:
     core/model/generator.py
 
-Defines the Generator model.
+Defines the GridForge Generator model.
 
-A Generator represents a controllable electrical power
-injection connected to a Bus.
+Architecture
+------------
 
-Supports
---------
-- Active power injection
-- Reactive power injection
-- Voltage setpoint
-- Reactive power limits
-- Q-limit status reporting
+A Generator represents a controllable electrical power injection
+connected to a Bus.
+
+The Generator also acts as the integration container for optional
+dynamic models:
+
+    Generator
+        ├── SynchronousMachine
+        ├── Governor
+        ├── AVR
+        └── PSS
+
+These dynamic components provide their respective equations and
+parameters. They do NOT perform numerical integration.
+
+The dynamic / DAE solver owns:
+
+    - Dynamic state vector
+    - State initialization
+    - Time integration
+    - Time stepping
+    - Differential-algebraic solution
+
+Generator electrical responsibilities
+--------------------------------------
+
+    - Active power injection
+    - Reactive power injection
+    - Voltage setpoint
+    - Reactive power limits
+    - Q-limit status
+    - Bus connectivity
+
+Dynamic integration responsibilities
+------------------------------------
+
+    - Attach synchronous-machine model
+    - Attach governor model
+    - Attach AVR model
+    - Attach PSS model
+    - Expose attached dynamic models
+
+The Generator does NOT:
+
+    - Perform Newton-Raphson iterations.
+    - Decide PV/PQ bus classification.
+    - Build Ybus.
+    - Perform load-flow calculations.
+    - Perform short-circuit calculations.
+    - Perform contingency analysis.
+    - Perform dynamic integration.
+    - Perform protection calculations.
+
+The power-flow, protection, and dynamic solver layers operate on
+this model through its public interface.
 
 Sign Convention
 ---------------
+
 Generator power is represented as network injection:
 
     +P -> active power injected into network
     +Q -> reactive power injected into network
-
-Responsibilities
-----------------
-This class:
-
-- Stores generator electrical data.
-- Maintains its Bus connection through Terminal.
-- Implements the Injection interface.
-- Stores voltage-control setpoint.
-- Stores reactive-power operating limits.
-- Provides Q-limit status information.
-
-This class does NOT:
-
-- Perform Newton-Raphson iterations.
-- Decide PV/PQ bus classification.
-- Modify Bus type automatically.
-- Build Ybus.
-- Perform load-flow calculations.
-- Perform contingency analysis.
-- Perform protection calculations.
-- Perform dynamic simulation.
-
-The power-flow solver and Q-limit handler operate on this
-model through its public interface.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -67,7 +91,7 @@ from .terminal import Terminal
 
 class Generator(ElectricalObject, Injection):
     """
-    Controllable generator model.
+    GridForge controllable generator model.
 
     Parameters
     ----------
@@ -93,6 +117,20 @@ class Generator(ElectricalObject, Injection):
 
     name:
         Human-readable generator name.
+
+    Notes
+    -----
+    Dynamic models are optional.
+
+    A generator can therefore be used as a conventional load-flow
+    generator without attaching dynamic models.
+
+    Dynamic models may be attached later using:
+
+        attach_machine()
+        attach_governor()
+        attach_avr()
+        attach_pss()
     """
 
     def __init__(
@@ -155,11 +193,26 @@ class Generator(ElectricalObject, Injection):
                 "(Qmin, Qmax)"
             ) from exc
 
+        # =========================================================
+        # DYNAMIC COMPONENTS
+        # =========================================================
+        #
+        # These are model references only.
+        #
+        # The Generator does NOT own their numerical states.
+        # The dynamic solver owns the authoritative state vector.
+        # =========================================================
+
+        self.machine = None
+        self.governor = None
+        self.avr = None
+        self.pss = None
+
         self._validate()
 
-    # =========================================================
+    # =============================================================
     # VALIDATION
-    # =========================================================
+    # =============================================================
 
     def _validate(self) -> None:
         """
@@ -207,9 +260,9 @@ class Generator(ElectricalObject, Injection):
                 "Generator Qmin cannot exceed Qmax."
             )
 
-    # =========================================================
+    # =============================================================
     # INJECTION INTERFACE
-    # =========================================================
+    # =============================================================
 
     def get_power(self) -> tuple[float, float]:
         """
@@ -225,9 +278,9 @@ class Generator(ElectricalObject, Injection):
 
         return self.p, self.q
 
-    # =========================================================
+    # =============================================================
     # CONNECTION
-    # =========================================================
+    # =============================================================
 
     @property
     def bus(self):
@@ -237,9 +290,9 @@ class Generator(ElectricalObject, Injection):
 
         return self.terminal.bus
 
-    # =========================================================
+    # =============================================================
     # POWER CONTROL
-    # =========================================================
+    # =============================================================
 
     def set_power(
         self,
@@ -307,9 +360,9 @@ class Generator(ElectricalObject, Injection):
 
         self.q = q
 
-    # =========================================================
+    # =============================================================
     # VOLTAGE CONTROL
-    # =========================================================
+    # =============================================================
 
     def set_voltage_setpoint(
         self,
@@ -339,9 +392,9 @@ class Generator(ElectricalObject, Injection):
 
         self.V_setpoint = V_setpoint
 
-    # =========================================================
+    # =============================================================
     # REACTIVE POWER LIMITS
-    # =========================================================
+    # =============================================================
 
     @property
     def q_limits(self) -> tuple[float, float]:
@@ -448,13 +501,215 @@ class Generator(ElectricalObject, Injection):
 
         return self.q != original_q
 
-    # =========================================================
+    # =============================================================
+    # DYNAMIC MODEL ATTACHMENT
+    # =============================================================
+
+    def attach_machine(self, machine) -> None:
+        """
+        Attach a synchronous-machine dynamic model.
+
+        The machine object supplies the machine equations and
+        parameters. Dynamic state ownership remains with the
+        dynamic solver.
+        """
+
+        if machine is None:
+            raise ValueError(
+                "Synchronous machine cannot be None."
+            )
+
+        self.machine = machine
+
+    def attach_governor(self, governor) -> None:
+        """
+        Attach a turbine-governor dynamic model.
+
+        The Governor supplies the mechanical-power differential
+        equation. Its dynamic state remains owned by the solver.
+        """
+
+        if governor is None:
+            raise ValueError(
+                "Governor cannot be None."
+            )
+
+        self.governor = governor
+
+    def attach_avr(self, avr) -> None:
+        """
+        Attach an automatic-voltage-regulator model.
+
+        The AVR supplies the excitation differential equation.
+        Its dynamic state remains owned by the solver.
+        """
+
+        if avr is None:
+            raise ValueError(
+                "AVR cannot be None."
+            )
+
+        self.avr = avr
+
+    def attach_pss(self, pss) -> None:
+        """
+        Attach a power-system-stabilizer model.
+
+        The PSS supplies the supplementary stabilizing equation.
+        Its dynamic state remains owned by the solver.
+        """
+
+        if pss is None:
+            raise ValueError(
+                "PSS cannot be None."
+            )
+
+        self.pss = pss
+
+    # =============================================================
+    # DYNAMIC MODEL STATUS
+    # =============================================================
+
+    @property
+    def has_dynamic_model(self) -> bool:
+        """
+        Return True when a synchronous-machine model is attached.
+        """
+
+        return self.machine is not None
+
+    @property
+    def has_governor(self) -> bool:
+        """
+        Return True when a governor is attached.
+        """
+
+        return self.governor is not None
+
+    @property
+    def has_avr(self) -> bool:
+        """
+        Return True when an AVR is attached.
+        """
+
+        return self.avr is not None
+
+    @property
+    def has_pss(self) -> bool:
+        """
+        Return True when a PSS is attached.
+        """
+
+        return self.pss is not None
+
+    @property
+    def is_dynamically_configured(self) -> bool:
+        """
+        Return True when the generator has a synchronous-machine
+        model attached.
+
+        A governor, AVR, and PSS are optional auxiliary models.
+        """
+
+        return self.machine is not None
+
+    # =============================================================
+    # DYNAMIC MODEL DETACHMENT
+    # =============================================================
+
+    def detach_machine(self):
+        """
+        Detach the synchronous-machine model.
+
+        Returns
+        -------
+        object or None
+            Previously attached machine.
+        """
+
+        machine = self.machine
+        self.machine = None
+        return machine
+
+    def detach_governor(self):
+        """
+        Detach the governor model.
+
+        Returns
+        -------
+        object or None
+            Previously attached governor.
+        """
+
+        governor = self.governor
+        self.governor = None
+        return governor
+
+    def detach_avr(self):
+        """
+        Detach the AVR model.
+
+        Returns
+        -------
+        object or None
+            Previously attached AVR.
+        """
+
+        avr = self.avr
+        self.avr = None
+        return avr
+
+    def detach_pss(self):
+        """
+        Detach the PSS model.
+
+        Returns
+        -------
+        object or None
+            Previously attached PSS.
+        """
+
+        pss = self.pss
+        self.pss = None
+        return pss
+
+    # =============================================================
+    # DYNAMIC MODEL COLLECTION
+    # =============================================================
+
+    def dynamic_models(self) -> dict:
+        """
+        Return attached dynamic models.
+
+        Returns
+        -------
+        dict
+            Mapping containing the optional dynamic components.
+
+        Notes
+        -----
+        The returned dictionary contains model references only.
+
+        It does not contain or expose authoritative dynamic state.
+        """
+
+        return {
+            "machine": self.machine,
+            "governor": self.governor,
+            "avr": self.avr,
+            "pss": self.pss,
+        }
+
+    # =============================================================
     # DIAGNOSTICS
-    # =========================================================
+    # =============================================================
 
     def summary(self) -> dict:
         """
         Return generator diagnostic information.
+
+        Dynamic model presence is reported without exposing
+        numerical dynamic states.
         """
 
         return {
@@ -467,11 +722,17 @@ class Generator(ElectricalObject, Injection):
             "Qmin": self.q_min,
             "Qmax": self.q_max,
             "Q_status": self.q_limit_status(),
+            "dynamic": {
+                "machine": self.machine is not None,
+                "governor": self.governor is not None,
+                "avr": self.avr is not None,
+                "pss": self.pss is not None,
+            },
         }
 
-    # =========================================================
+    # =============================================================
     # REPRESENTATION
-    # =========================================================
+    # =============================================================
 
     def __repr__(self) -> str:
         return (
@@ -482,6 +743,7 @@ class Generator(ElectricalObject, Injection):
             f"Q={self.q:.6f}, "
             f"Vset={self.V_setpoint:.6f}, "
             f"Qmin={self.q_min:.6f}, "
-            f"Qmax={self.q_max:.6f}>"
+            f"Qmax={self.q_max:.6f}, "
+            f"dynamic={self.is_dynamically_configured}>"
         )
 ```
