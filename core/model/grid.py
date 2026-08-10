@@ -8,7 +8,7 @@ This is the central registry for all network components.
 
 from typing import Dict, List
 
-from .bus import Bus
+from .bus import Bus, BusType
 from .load import Load
 from .generator import Generator
 from .branch import Branch
@@ -22,9 +22,7 @@ class Grid:
     def __init__(self, name: str = ""):
         self.name = name
 
-        # -------------------------
         # Component storage
-        # -------------------------
         self.buses: Dict[str, Bus] = {}
         self.loads: Dict[str, Load] = {}
         self.generators: Dict[str, Generator] = {}
@@ -84,9 +82,19 @@ class Grid:
 
     def injections(self):
         """
-        Returns all Injection objects (loads + generators)
+        Returns all Injection objects.
         """
-        return list(self.loads.values()) + list(self.generators.values())
+        return [*self.loads.values(), *self.generators.values()]
+
+    # -------------------------
+    # Utilities
+    # -------------------------
+
+    def build_bus_index(self):
+        """
+        Returns mapping: bus_id → index
+        """
+        return {bus.id: i for i, bus in enumerate(self.bus_list)}
 
     # -------------------------
     # Validation
@@ -94,18 +102,27 @@ class Grid:
 
     def validate(self):
         """
-        Basic structural validation.
+        Structural validation.
         """
         if not self.buses:
             raise ValueError("Grid must contain at least one bus.")
 
-        # Ensure all components reference valid buses
+        # Slack bus check
+        slack_buses = [b for b in self.buses.values() if b.type == BusType.SLACK]
+        if len(slack_buses) != 1:
+            raise ValueError("Grid must have exactly one SLACK bus.")
+
+        # Connectivity existence
+        if not self.branches:
+            raise ValueError("Grid must contain at least one branch.")
+
+        # Reference integrity
         for load in self.loads.values():
-            if load.terminal.bus.id not in self.buses:
+            if load.bus.id not in self.buses:
                 raise ValueError(f"Load {load.id} connected to unknown bus.")
 
         for gen in self.generators.values():
-            if gen.terminal.bus.id not in self.buses:
+            if gen.bus.id not in self.buses:
                 raise ValueError(f"Generator {gen.id} connected to unknown bus.")
 
         for br in self.branches.values():
