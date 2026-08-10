@@ -1,72 +1,81 @@
-"""
-Bus Renderer
+# ============================================================
+# File: ui/renderers/bus_renderer.py
+# Bus Renderer (with hover highlighting)
+# ============================================================
 
-Location:
----------
-ui/renderers/bus_renderer.py
-
-Purpose:
---------
-Defines how a Bus model element is converted into a visual QGraphicsItem.
-
-This is a renderer plugin used by the RenderSystem via the RendererRegistry.
-
-Responsibilities:
------------------
-- Accept a Bus model instance
-- Create and return the corresponding QGraphicsItem
-- Apply any required visual configuration
-
-It does NOT:
-------------
-- Modify the model
-- Handle interaction logic
-- Manage scene lifecycle
-
-Contract:
----------
-Must implement:
-    create_item(element, controller) → QGraphicsItem
-"""
-
-from ui.items.bus_item import BusItem
-from core.models.bus import Bus
+from PySide6.QtGui import QPen, QBrush, QColor
+from PySide6.QtCore import QRectF
+from ui.core.renderer_registry import register_renderer
 
 
+@register_renderer("bus")
 class BusRenderer:
     """
-    Renderer for Bus model elements.
+    Renders buses with optional hover highlighting.
+
+    Visual States:
+    --------------
+    - Normal → default style
+    - Hover  → highlighted (snap feedback)
     """
-    model_type = Bus   # 🔥 REQUIRED FOR AUTO LOADER
 
-    @staticmethod
-    def create_item(bus, controller):
+    RADIUS = 6
+
+    def __init__(self, controller):
+        self.controller = controller
+
+    # =====================================================
+    # MAIN DRAW ENTRY
+    # =====================================================
+
+    def render(self, painter):
         """
-        Create a BusItem from a Bus model.
-
-        Parameters:
-        -----------
-        bus : Bus
-            The model instance representing a bus
-
-        controller : Controller
-            Provides access to application state (optional use)
-
-        Returns:
-        --------
-        QGraphicsItem (BusItem)
+        Draw all buses.
         """
 
-        # ------------------------------------------------------
-        # Create the visual item
-        # ------------------------------------------------------
-        item = BusItem(bus)
+        graph = self.controller.model.graph
+        tool = self.controller.active_tool
 
-        # ------------------------------------------------------
-        # Optional: attach controller if needed later
-        # (kept for extensibility, not required now)
-        # ------------------------------------------------------
-        if hasattr(item, "set_controller"):
-            item.set_controller(controller)
+        hover_bus = None
 
-        return item
+        # Ask tool for hover state (if supported)
+        if hasattr(tool, "get_hover_bus"):
+            hover_bus = tool.get_hover_bus()
+
+        for bus in graph.all_buses():
+            self.draw_bus(painter, bus, hover_bus)
+
+    # =====================================================
+    # DRAW SINGLE BUS
+    # =====================================================
+
+    def draw_bus(self, painter, bus, hover_bus):
+        """
+        Draw a single bus with proper styling.
+        """
+
+        x = bus.x
+        y = bus.y
+
+        rect = QRectF(
+            x - self.RADIUS,
+            y - self.RADIUS,
+            self.RADIUS * 2,
+            self.RADIUS * 2
+        )
+
+        # ----------------------------------------------
+        # STYLE SELECTION
+        # ----------------------------------------------
+
+        if bus == hover_bus:
+            pen = QPen(QColor(255, 200, 0), 2)   # yellow border
+            brush = QBrush(QColor(255, 255, 180))  # light fill
+        else:
+            pen = QPen(QColor(0, 0, 0), 1)
+            brush = QBrush(QColor(255, 255, 255))
+
+        painter.setPen(pen)
+        painter.setBrush(brush)
+
+        painter.drawEllipse(rect)
