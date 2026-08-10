@@ -1,21 +1,22 @@
 """
-load.py
+GridForge Load Model
+====================
 
-Defines the Load model.
+File:
+    core/model/load.py
 
-A Load represents a constant-power consumption device
-connected to a Bus.
+Defines the constant-power Load model.
 
-Sign convention
+Sign Convention
 ---------------
-Internally, load demand is stored as positive values:
+Internally, load demand is stored as positive consumption:
 
     p > 0  -> active power consumption
     q > 0  -> reactive power consumption
 
-Through the Injection interface, the load reports:
+Through the Injection interface:
 
-    -P, -Q
+    get_power() -> (-P, -Q)
 
 because negative injection represents consumption from
 the electrical network.
@@ -28,15 +29,17 @@ This class:
 - Maintains its Bus connection through Terminal.
 - Implements the Injection interface.
 - Provides load power information.
+- Validates load demand.
 
 This class does NOT:
 
 - Modify Bus state.
-- Perform power-flow calculations.
 - Build Ybus.
+- Perform power-flow calculations.
 - Perform load-flow iteration.
 - Handle contingencies.
 - Perform protection calculations.
+- Perform dynamic simulation.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -51,29 +54,33 @@ from .terminal import Terminal
 
 class Load(ElectricalObject, Injection):
     """
-    Constant-power load model.
+    Constant-power electrical load.
 
     Parameters
     ----------
-    id : str
+    id:
         Unique GridForge object identifier.
 
-    bus : Bus
+    bus:
         Bus to which the load is connected.
 
-    p : float
-        Active power demand.
+    p:
+        Active-power demand.
 
-        Stored as a positive consumption value.
+        Stored internally as a positive consumption value.
 
-    q : float
-        Reactive power demand.
+    q:
+        Reactive-power demand.
 
-        Stored as a positive consumption value.
+        Stored internally as a positive consumption value.
 
-    name : str, optional
-        Human-readable name.
+    name:
+        Human-readable load name.
     """
+
+    # =========================================================
+    # INITIALIZATION
+    # =========================================================
 
     def __init__(
         self,
@@ -81,64 +88,60 @@ class Load(ElectricalObject, Injection):
         bus,
         p: float,
         q: float,
-        name: str = ""
-    ):
+        name: str = "",
+    ) -> None:
+
         super().__init__(
             id=id,
-            name=name
+            name=name,
         )
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Electrical connection
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
 
         self.terminal = Terminal(bus)
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Load demand
-        #
-        # Internally:
-        #
-        #     +P = consumption
-        #     +Q = consumption
-        #
-        # Injection interface converts these to negative values.
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
 
         self.p = float(p)
         self.q = float(q)
 
         self._validate_power()
 
-    # =============================================================
+    # =========================================================
     # VALIDATION
-    # =============================================================
+    # =========================================================
 
-    def _validate_power(self):
+    def _validate_power(self) -> None:
         """
-        Validate load power values.
+        Validate load demand.
 
         Loads represent consumption, therefore negative demand
         values are rejected at the model level.
         """
 
-        if self.p < 0:
+        if self.p < 0.0:
             raise ValueError(
-                f"Load {self.id}: active power demand must be >= 0"
+                f"Load '{self.id}': "
+                "active power demand must be >= 0."
             )
 
-        if self.q < 0:
+        if self.q < 0.0:
             raise ValueError(
-                f"Load {self.id}: reactive power demand must be >= 0"
+                f"Load '{self.id}': "
+                "reactive power demand must be >= 0."
             )
 
-    # =============================================================
+    # =========================================================
     # INJECTION INTERFACE
-    # =============================================================
+    # =========================================================
 
-    def get_power(self):
+    def get_power(self) -> tuple[float, float]:
         """
-        Return network injection represented by this load.
+        Return the load's network injection.
 
         Returns
         -------
@@ -147,16 +150,15 @@ class Load(ElectricalObject, Injection):
 
         Sign convention
         ----------------
-        Positive values represent injection into the network.
-
-        Therefore a consuming load produces negative injection.
+        +P, +Q -> injection into network
+        -P, -Q -> consumption from network
         """
 
         return -self.p, -self.q
 
-    # =============================================================
+    # =========================================================
     # CONNECTION
-    # =============================================================
+    # =========================================================
 
     @property
     def bus(self):
@@ -166,51 +168,53 @@ class Load(ElectricalObject, Injection):
 
         return self.terminal.bus
 
-    # =============================================================
+    # =========================================================
     # POWER UPDATE
-    # =============================================================
+    # =========================================================
 
     def set_power(
         self,
         p: float,
-        q: float
-    ):
+        q: float,
+    ) -> None:
         """
-        Update the load demand.
+        Update load demand.
 
         Parameters
         ----------
-        p : float
-            Active power demand.
+        p:
+            Active-power demand.
 
-        q : float
-            Reactive power demand.
+        q:
+            Reactive-power demand.
         """
 
         p = float(p)
         q = float(q)
 
-        if p < 0:
+        if p < 0.0:
             raise ValueError(
-                f"Load {self.id}: active power demand must be >= 0"
+                f"Load '{self.id}': "
+                "active power demand must be >= 0."
             )
 
-        if q < 0:
+        if q < 0.0:
             raise ValueError(
-                f"Load {self.id}: reactive power demand must be >= 0"
+                f"Load '{self.id}': "
+                "reactive power demand must be >= 0."
             )
 
         self.p = p
         self.q = q
 
-    # =============================================================
-    # PROPERTIES
-    # =============================================================
+    # =========================================================
+    # POWER PROPERTIES
+    # =========================================================
 
     @property
     def active_power(self) -> float:
         """
-        Return active power demand.
+        Return active-power demand.
         """
 
         return self.p
@@ -218,18 +222,18 @@ class Load(ElectricalObject, Injection):
     @property
     def reactive_power(self) -> float:
         """
-        Return reactive power demand.
+        Return reactive-power demand.
         """
 
         return self.q
 
-    # =============================================================
+    # =========================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =========================================================
 
-    def summary(self):
+    def summary(self) -> dict:
         """
-        Return diagnostic information.
+        Return structured diagnostic information.
         """
 
         return {
@@ -239,18 +243,18 @@ class Load(ElectricalObject, Injection):
             "P_demand": self.p,
             "Q_demand": self.q,
             "P_injection": -self.p,
-            "Q_injection": -self.q
+            "Q_injection": -self.q,
         }
 
-    # =============================================================
+    # =========================================================
     # DEBUG
-    # =============================================================
+    # =========================================================
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<Load "
             f"id={self.id}, "
             f"bus={self.bus.id}, "
-            f"P={self.p:.4f}, "
-            f"Q={self.q:.4f}>"
+            f"P={self.p:.6f}, "
+            f"Q={self.q:.6f}>"
         )
