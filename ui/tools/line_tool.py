@@ -127,3 +127,5 @@ class LineTool:
 
     def mouse_release(self, event):
         pass
+    def get_hover_bus(self):
+        return self.snap_to_bus(self.im.last_scene_pos) if self.im.last_scene_pos else None
