@@ -1,42 +1,12 @@
-"""
-GridForge Network Topology Manager
-
-Responsible for:
-
-    - Electrical connectivity graph
-    - Network islands
-    - Switching topology
-    - Connectivity validation
-
-Does NOT:
-
-    - Build Ybus
-    - Solve power flow
-    - Calculate faults
-
-
-Used by:
-
-    core/network/network.py
-    core/solver/contingency
-    core/simulation
-"""
-
-
 import networkx as nx
-
 
 
 class TopologyManager:
 
-
     def __init__(self, network):
-
         self.network = network
-
-        self.graph = nx.Graph()
-
-
+        self.graph = nx.MultiGraph()
+        self._dirty = True
 
     # =====================================================
     # BUILD GRAPH
@@ -44,271 +14,143 @@ class TopologyManager:
 
     def build(self):
 
-        self.graph.clear()
+        if not self._dirty:
+            return self.graph
 
+        self.graph.clear()
 
         # -------------------------
         # Add buses
         # -------------------------
-
         for bus in self.network.buses:
-
-            self.graph.add_node(
-                bus.id
-            )
-
-
+            self.graph.add_node(bus.id)
 
         # -------------------------
         # Add lines
         # -------------------------
+        for line in getattr(self.network, "lines", []):
 
-        for line in self.network.lines:
+            if not getattr(line, "in_service", True):
+                continue
 
+            u = line.from_bus.id
+            v = line.to_bus.id
 
-            if hasattr(line, "in_service"):
-
-                if not line.in_service:
-
-                    continue
-
+            if u == v:
+                continue
 
             self.graph.add_edge(
-
-                line.from_bus,
-
-                line.to_bus,
-
+                u,
+                v,
                 element=line,
-
                 type="line"
-
             )
-
-
 
         # -------------------------
         # Add transformers
         # -------------------------
+        for trafo in getattr(self.network, "transformers", []):
 
-        for trafo in self.network.transformers:
+            if not getattr(trafo, "in_service", True):
+                continue
 
+            u = trafo.from_bus.id
+            v = trafo.to_bus.id
 
-            if hasattr(trafo, "in_service"):
-
-                if not trafo.in_service:
-
-                    continue
-
-
+            if u == v:
+                continue
 
             self.graph.add_edge(
-
-                trafo.from_bus,
-
-                trafo.to_bus,
-
+                u,
+                v,
                 element=trafo,
-
                 type="transformer"
-
             )
 
+        self._dirty = False
 
         return self.graph
-
-
 
     # =====================================================
     # CONNECTIVITY
     # =====================================================
 
+    def is_connected(self, bus_a, bus_b):
 
-    def is_connected(
-            self,
-            bus_a,
-            bus_b):
+        self.build()
 
+        a = bus_a.id if hasattr(bus_a, "id") else bus_a
+        b = bus_b.id if hasattr(bus_b, "id") else bus_b
 
-        if self.graph.number_of_nodes() == 0:
-
-            self.build()
-
-
-        return nx.has_path(
-
-            self.graph,
-
-            bus_a,
-
-            bus_b
-
-        )
-
-
+        return nx.has_path(self.graph, a, b)
 
     # =====================================================
     # ISLAND DETECTION
     # =====================================================
 
-
     def find_islands(self):
 
+        self.build()
 
-        if self.graph.number_of_nodes() == 0:
-
-            self.build()
-
-
-
-        islands = []
-
-
-        for component in nx.connected_components(
-                self.graph):
-
-
-            islands.append(
-                list(component)
-            )
-
-
-        return islands
-
-
+        return [list(comp) for comp in nx.connected_components(self.graph)]
 
     # =====================================================
     # SINGLE ISLAND CHECK
     # =====================================================
 
-
     def has_islanding(self):
 
-
-        islands = self.find_islands()
-
-
-        return len(islands) > 1
-
-
+        return len(self.find_islands()) > 1
 
     # =====================================================
     # ELEMENT STATUS
     # =====================================================
 
-
-    def open_element(
-            self,
-            element):
-
+    def open_element(self, element):
 
         element.in_service = False
+        self._dirty = True
 
-
-        self.build()
-
-
-
-    def close_element(
-            self,
-            element):
-
+    def close_element(self, element):
 
         element.in_service = True
-
-
-        self.build()
-
-
+        self._dirty = True
 
     # =====================================================
     # CONTINGENCY SUPPORT
     # =====================================================
 
+    def simulate_outage(self, element):
 
-    def simulate_outage(
-            self,
-            element):
-
-
-        original_state = (
-            element.in_service
-            if hasattr(
-                element,
-                "in_service"
-            )
-            else True
-        )
-
+        original = getattr(element, "in_service", True)
 
         element.in_service = False
-
+        self._dirty = True
 
         self.build()
-
-
-
         islands = self.find_islands()
 
-
-
         # restore
-
-        element.in_service = original_state
-
-
+        element.in_service = original
+        self._dirty = True
         self.build()
 
-
-
         return {
-
-            "element":
-                element.name,
-
-            "islanded":
-                len(islands) > 1,
-
-            "islands":
-                islands
-
+            "element": getattr(element, "name", str(element)),
+            "islanded": len(islands) > 1,
+            "islands": islands
         }
-
-
 
     # =====================================================
     # SUMMARY
     # =====================================================
 
-
     def summary(self):
 
-        if self.graph.number_of_nodes() == 0:
-
-            self.build()
-
+        self.build()
 
         return {
-
-
-            "buses":
-
-                self.graph.number_of_nodes(),
-
-
-            "connections":
-
-                self.graph.number_of_edges(),
-
-
-            "islands":
-
-                len(
-                    list(
-                        nx.connected_components(
-                            self.graph
-                        )
-                    )
-                )
-
+            "buses": self.graph.number_of_nodes(),
+            "connections": self.graph.number_of_edges(),
+            "islands": len(list(nx.connected_components(self.graph)))
         }
