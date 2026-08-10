@@ -1,3 +1,7 @@
+# GridForge
+# Copyright © 2026 Subhendu Mishra
+# All Rights Reserved.
+# Proprietary and confidential.
 # core/analysis/line_flow.py
 
 """
