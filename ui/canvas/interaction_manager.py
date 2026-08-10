@@ -34,7 +34,7 @@ Tool switching is controlled via:
 controller.set_tool(...) → event → InteractionManager updates tool
 """
 
-from PySide6.QtCore import QObject
+from ui.core.qt import QObject
 
 
 class InteractionManager(QObject):
