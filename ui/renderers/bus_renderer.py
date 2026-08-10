@@ -1,81 +1,181 @@
 # ============================================================
 # File: ui/renderers/bus_renderer.py
-# Bus Renderer (with hover highlighting)
+# GridForge Bus Renderer
+# ============================================================
+#
+# PURPOSE
+# -------
+# Converts a Core Bus model object into its graphical
+# representation used by the GridForge canvas.
+#
+#
+# ARCHITECTURE
+# ------------
+#
+#     Core Bus Model
+#           │
+#           ▼
+#      BusRenderer
+#           │
+#           ▼
+#        BusItem
+#           │
+#           ▼
+#      QGraphicsScene
+#
+#
+# IMPORTANT
+# ---------
+#
+# This class is a RENDERER.
+#
+# It does NOT:
+#
+#     - modify the Bus model
+#     - handle mouse events
+#     - perform snapping
+#     - determine the active tool
+#     - manage selection state
+#     - manage the graphics scene
+#
+#
+# Hover highlighting belongs to BusItem because hover is a
+# graphics/interaction state, not a rendering-registry concern.
+#
+#
+# Qt IMPORT RULE
+# --------------
+#
+# Qt classes MUST be imported through:
+#
+#     ui.core.qt
+#
+# Never import PySide6/PyQt directly from this file.
+#
+#
+# RENDERER CONTRACT
+# -----------------
+#
+# RenderSystem expects every renderer to provide:
+#
+#     create_item(element, controller)
+#
+# Therefore BusRenderer implements exactly that contract.
+#
 # ============================================================
 
-from PySide6.QtGui import QPen, QBrush, QColor
-from PySide6.QtCore import QRectF
-from ui.core.renderer_registry import register_renderer
+from __future__ import annotations
+
+from typing import Any
 
 
-@register_renderer("bus")
 class BusRenderer:
     """
-    Renders buses with optional hover highlighting.
+    Renderer responsible for converting a Bus model object
+    into a BusItem graphics object.
 
-    Visual States:
-    --------------
-    - Normal → default style
-    - Hover  → highlighted (snap feedback)
+    The renderer itself contains no persistent UI state.
+
+    This is intentional.
+
+    Renderer instances are therefore safe to create whenever
+    RenderSystem requires them.
     """
 
-    RADIUS = 6
+    # ========================================================
+    # ITEM CREATION
+    # ========================================================
 
-    def __init__(self, controller):
-        self.controller = controller
-
-    # =====================================================
-    # MAIN DRAW ENTRY
-    # =====================================================
-
-    def render(self, painter):
+    @staticmethod
+    def create_item(
+        element: Any,
+        controller: Any,
+    ) -> Any:
         """
-        Draw all buses.
+        Create the graphics representation of a Bus.
+
+        Parameters
+        ----------
+        element:
+            GridForge Bus model object.
+
+        controller:
+            GridForge Controller.
+
+            It is passed to the BusItem so that the graphics
+            item can communicate with the application through
+            the Controller when required.
+
+        Returns
+        -------
+        BusItem
+            Graphics representation of the Bus.
+
+        Notes
+        -----
+        The renderer deliberately imports BusItem locally.
+
+        This keeps renderer registration independent from
+        RenderSystem.
+
+        The RenderSystem itself never imports BusItem.
         """
 
-        graph = self.controller.model.graph
-        tool = self.controller.active_tool
+        # ----------------------------------------------------
+        # Local import
+        # ----------------------------------------------------
+        #
+        # The registry/RenderSystem layer must not know about
+        # individual graphics item implementations.
+        #
+        # The renderer is the correct architectural boundary
+        # for this dependency.
+        # ----------------------------------------------------
 
-        hover_bus = None
+        from ui.items.bus_item import BusItem
 
-        # Ask tool for hover state (if supported)
-        if hasattr(tool, "get_hover_bus"):
-            hover_bus = tool.get_hover_bus()
+        # ----------------------------------------------------
+        # Validate the supplied model object at the renderer
+        # boundary.
+        #
+        # We intentionally use attribute validation rather than
+        # importing the concrete Bus model here.
+        #
+        # This keeps the renderer decoupled from the Core model
+        # package structure.
+        # ----------------------------------------------------
 
-        for bus in graph.all_buses():
-            self.draw_bus(painter, bus, hover_bus)
-
-    # =====================================================
-    # DRAW SINGLE BUS
-    # =====================================================
-
-    def draw_bus(self, painter, bus, hover_bus):
-        """
-        Draw a single bus with proper styling.
-        """
-
-        x = bus.x
-        y = bus.y
-
-        rect = QRectF(
-            x - self.RADIUS,
-            y - self.RADIUS,
-            self.RADIUS * 2,
-            self.RADIUS * 2
+        required_attributes = (
+            "id",
+            "x",
+            "y",
         )
 
-        # ----------------------------------------------
-        # STYLE SELECTION
-        # ----------------------------------------------
+        for attribute in required_attributes:
 
-        if bus == hover_bus:
-            pen = QPen(QColor(255, 200, 0), 2)   # yellow border
-            brush = QBrush(QColor(255, 255, 180))  # light fill
-        else:
-            pen = QPen(QColor(0, 0, 0), 1)
-            brush = QBrush(QColor(255, 255, 255))
+            if not hasattr(element, attribute):
+                raise TypeError(
+                    "BusRenderer expected a bus-like model "
+                    f"object containing '{attribute}'"
+                )
 
-        painter.setPen(pen)
-        painter.setBrush(brush)
+        # ----------------------------------------------------
+        # Create the graphical item.
+        # ----------------------------------------------------
 
-        painter.drawEllipse(rect)
+        item = BusItem(
+            element,
+            controller,
+        )
+
+        return item
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
+
+__all__ = [
+    "BusRenderer",
+]
+```
