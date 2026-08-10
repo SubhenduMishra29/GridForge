@@ -1,40 +1,22 @@
 """
 terminal.py
 
-Defines connection points between grid elements and buses.
+Defines the Terminal abstraction.
 
-A Terminal represents a single electrical connection to a bus.
-
-Used by:
-- Lines (2 terminals)
-- Transformers (2 terminals)
-- Loads (1 terminal)
-- Generators (1 terminal)
-- Shunts (1 terminal)
-
-This abstraction decouples:
-- Equipment from Bus
-- Topology from model structure
+A Terminal connects a device (load, generator, branch)
+to a Bus without the device needing to know bus internals.
 """
 
 
 class Terminal:
     """
-    Represents a connection point to a bus.
+    Represents a connection point to a Bus.
     """
 
     def __init__(self, bus):
-        """
-        Parameters
-        ----------
-        bus : Bus
-            The bus this terminal is connected to
-        """
-
         if bus is None:
-            raise ValueError("Terminal must be connected to a Bus")
+            raise ValueError("Terminal must be connected to a valid Bus.")
 
-        # Reference to Bus (no ownership)
         self.bus = bus
 
     def __repr__(self):
