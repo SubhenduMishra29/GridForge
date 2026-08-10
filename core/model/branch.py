@@ -1,62 +1,34 @@
-```python
 """
-branch.py
-
 GridForge Branch Model
 ======================
 
 File:
     core/model/branch.py
 
-Defines the generic two-terminal Branch model.
+Defines the common two-terminal electrical branch model.
 
-A Branch represents a two-terminal electrical network element
-such as:
+A Branch represents a generic two-terminal network element.
 
+Examples:
     - Transmission line
-    - Transformer-compatible branch
-    - Future specialized branch models
+    - Transformer
+    - Future FACTS / series compensation elements
 
-The branch model stores electrical parameters and topology only.
+Responsibilities
+----------------
+- Electrical connectivity.
+- Branch electrical parameters.
+- In-service state.
+- Common impedance/admittance interface.
 
-Numerical analysis such as:
+The Branch model does NOT:
+- Build Ybus.
+- Perform load flow.
+- Calculate Newton-Raphson corrections.
+- Perform short-circuit analysis.
+- Store GUI geometry.
 
-    - Ybus construction
-    - Power-flow calculations
-    - Short-circuit calculations
-    - Contingency analysis
-
-belongs to the solver/network-analysis layers.
-
-Electrical convention
----------------------
-
-Series impedance:
-
-    Z = R + jX
-
-Series admittance:
-
-    Y = 1 / Z
-
-Total shunt susceptance:
-
-    B
-
-The standard π-model interpretation is:
-
-    jB/2 at the from terminal
-    jB/2 at the to terminal
-
-The branch stores the total ``b`` value. Splitting into terminal
-shunts is the responsibility of the Ybus builder.
-
-Transformer-compatible parameters are retained:
-
-    tap
-    shift
-
-These are not applied inside the Branch model.
+Numerical calculations belong to the solver/analysis layers.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -78,10 +50,10 @@ class Branch(ElectricalObject):
         Unique branch identifier.
 
     bus_from:
-        Sending/from Bus.
+        From-side Bus object.
 
     bus_to:
-        Receiving/to Bus.
+        To-side Bus object.
 
     r:
         Series resistance in per-unit.
@@ -92,28 +64,21 @@ class Branch(ElectricalObject):
     b:
         Total shunt susceptance in per-unit.
 
-    tap:
-        Off-nominal transformer tap ratio.
-
-        Default:
-            1.0
-
-    shift:
-        Transformer phase-shift angle in radians.
-
-        Default:
-            0.0
-
     name:
         Human-readable branch name.
 
-    Notes
-    -----
-    ``tap`` and ``shift`` are stored here so that the same Branch
-    abstraction can support transformer-compatible Ybus assembly.
+    rate_mva:
+        Continuous/nominal thermal rating in MVA.
 
-    The Branch class itself does not apply the transformer
-    equations.
+    tap:
+        Transformer tap ratio.
+
+        For an ordinary transmission line this remains 1.0.
+
+    shift:
+        Phase-shifting angle in radians.
+
+        For an ordinary transmission line this remains 0.0.
     """
 
     def __init__(
@@ -124,54 +89,35 @@ class Branch(ElectricalObject):
         r: float,
         x: float,
         b: float = 0.0,
+        name: str = "",
+        rate_mva: float = 100.0,
         tap: float = 1.0,
         shift: float = 0.0,
-        name: str = ""
     ):
+
         super().__init__(
             id,
             name
         )
 
         # =========================================================
-        # BASIC VALIDATION
+        # CONNECTIVITY
         # =========================================================
 
         if bus_from is None:
             raise ValueError(
-                f"Branch '{id}' requires a valid from-bus."
+                "Branch from-bus cannot be None"
             )
 
         if bus_to is None:
             raise ValueError(
-                f"Branch '{id}' requires a valid to-bus."
+                "Branch to-bus cannot be None"
             )
 
         if bus_from is bus_to:
             raise ValueError(
-                f"Branch '{id}' cannot connect a bus to itself."
+                "Branch cannot connect a bus to itself"
             )
-
-        # ---------------------------------------------------------
-        # Electrical parameters
-        # ---------------------------------------------------------
-
-        self.r = float(r)
-        self.x = float(x)
-        self.b = float(b)
-
-        # ---------------------------------------------------------
-        # Transformer-compatible parameters
-        # ---------------------------------------------------------
-
-        self.tap = float(tap)
-        self.shift = float(shift)
-
-        self._validate_parameters()
-
-        # =========================================================
-        # TOPOLOGY
-        # =========================================================
 
         self.from_terminal = Terminal(
             bus_from
@@ -181,39 +127,79 @@ class Branch(ElectricalObject):
             bus_to
         )
 
+        # =========================================================
+        # ELECTRICAL PARAMETERS
+        # =========================================================
+
+        self.r = float(r)
+        self.x = float(x)
+        self.b = float(b)
+
+        # =========================================================
+        # TRANSFORMER-COMPATIBLE PARAMETERS
+        # =========================================================
+
+        self.tap = float(tap)
+        self.shift = float(shift)
+
+        # =========================================================
+        # EQUIPMENT DATA
+        # =========================================================
+
+        self.rate_mva = float(
+            rate_mva
+        )
+
+        # =========================================================
+        # OPERATIONAL STATE
+        # =========================================================
+
+        self.in_service = True
+
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+
+        self._validate_parameters()
+
     # =============================================================
     # VALIDATION
     # =============================================================
 
-    def _validate_parameters(self) -> None:
+    def _validate_parameters(self):
         """
         Validate branch electrical parameters.
         """
 
-        if not (
-            self.r == self.r
-            and self.x == self.x
-            and self.b == self.b
-            and self.tap == self.tap
-            and self.shift == self.shift
-        ):
+        if self.r == 0.0 and self.x == 0.0:
+
             raise ValueError(
-                f"Branch '{self.id}' contains NaN parameters."
+                f"Branch '{self.id}' "
+                "cannot have zero series impedance"
             )
 
-        if self.tap <= 0.0:
+        if self.tap == 0.0:
+
             raise ValueError(
-                f"Branch '{self.id}' tap ratio must be greater than zero."
+                f"Branch '{self.id}' "
+                "tap ratio cannot be zero"
+            )
+
+        if self.rate_mva < 0.0:
+
+            raise ValueError(
+                f"Branch '{self.id}' "
+                "rate_mva cannot be negative"
             )
 
     # =============================================================
-    # BUS ACCESS
+    # CONNECTIVITY
     # =============================================================
 
     @property
     def from_bus(self):
         """
-        Return the from/sending bus.
+        Return the from-side Bus.
         """
 
         return self.from_terminal.bus
@@ -221,19 +207,19 @@ class Branch(ElectricalObject):
     @property
     def to_bus(self):
         """
-        Return the to/receiving bus.
+        Return the to-side Bus.
         """
 
         return self.to_terminal.bus
 
     def buses(self):
         """
-        Return the branch terminal buses.
+        Return the branch endpoints.
 
         Returns
         -------
         tuple
-            ``(from_bus, to_bus)``
+            (from_bus, to_bus)
         """
 
         return (
@@ -242,50 +228,47 @@ class Branch(ElectricalObject):
         )
 
     # =============================================================
-    # ELECTRICAL DERIVED QUANTITIES
+    # ELECTRICAL PROPERTIES
     # =============================================================
 
     @property
     def impedance(self) -> complex:
         """
-        Return the series impedance.
+        Series impedance:
 
-        Z = R + jX
+            Z = R + jX
         """
 
-        z = complex(
+        return complex(
             self.r,
             self.x
         )
 
-        if abs(z) == 0.0:
-            raise ZeroDivisionError(
-                f"Branch '{self.id}' has zero series impedance."
-            )
-
-        return z
-
     @property
     def admittance(self) -> complex:
         """
-        Return the series admittance.
+        Series admittance:
 
-        Y = 1 / Z
+            Y = 1 / Z
         """
 
-        return 1.0 / self.impedance
+        z = self.impedance
+
+        if z == 0:
+
+            raise ZeroDivisionError(
+                f"Branch '{self.id}' "
+                "has zero impedance"
+            )
+
+        return 1.0 / z
 
     @property
     def shunt_admittance(self) -> complex:
         """
-        Return the total branch shunt admittance.
-
-        For the standard π-model:
+        Total shunt admittance.
 
             Y_shunt = jB
-
-        The Ybus builder is responsible for applying B/2 to
-        each terminal.
         """
 
         return complex(
@@ -293,76 +276,35 @@ class Branch(ElectricalObject):
             self.b
         )
 
+    # =============================================================
+    # OPERATIONAL STATE
+    # =============================================================
+
+    def trip(self):
+        """
+        Remove the branch from service.
+        """
+
+        self.in_service = False
+
+    def close(self):
+        """
+        Return the branch to service.
+        """
+
+        self.in_service = True
+
+    # =============================================================
+    # STATUS
+    # =============================================================
+
     @property
-    def half_shunt_admittance(self) -> complex:
+    def is_in_service(self) -> bool:
         """
-        Return the shunt admittance associated with one terminal.
-
-        For a symmetric π-model:
-
-            Y_shunt_terminal = jB / 2
+        Return True if the branch is operational.
         """
 
-        return complex(
-            0.0,
-            self.b / 2.0
-        )
-
-    # =============================================================
-    # PARAMETER UPDATES
-    # =============================================================
-
-    def set_parameters(
-        self,
-        r: float | None = None,
-        x: float | None = None,
-        b: float | None = None
-    ) -> None:
-        """
-        Update branch electrical parameters.
-
-        Only explicitly supplied parameters are changed.
-        """
-
-        if r is not None:
-            self.r = float(r)
-
-        if x is not None:
-            self.x = float(x)
-
-        if b is not None:
-            self.b = float(b)
-
-        self._validate_parameters()
-
-    def set_transformer_parameters(
-        self,
-        tap: float | None = None,
-        shift: float | None = None
-    ) -> None:
-        """
-        Update transformer-compatible parameters.
-
-        These parameters are stored by the model but interpreted
-        by the Ybus/network-analysis layer.
-        """
-
-        if tap is not None:
-            tap = float(tap)
-
-            if tap <= 0.0:
-                raise ValueError(
-                    "Tap ratio must be greater than zero."
-                )
-
-            self.tap = tap
-
-        if shift is not None:
-            self.shift = float(
-                shift
-            )
-
-        self._validate_parameters()
+        return self.in_service
 
     # =============================================================
     # SUMMARY
@@ -382,7 +324,9 @@ class Branch(ElectricalObject):
             "x": self.x,
             "b": self.b,
             "tap": self.tap,
-            "shift": self.shift
+            "shift": self.shift,
+            "rate_mva": self.rate_mva,
+            "in_service": self.in_service,
         }
 
     # =============================================================
@@ -390,10 +334,6 @@ class Branch(ElectricalObject):
     # =============================================================
 
     def __repr__(self) -> str:
-        """
-        Developer-friendly representation.
-        """
-
         return (
             f"<Branch "
             f"id={self.id}, "
@@ -401,7 +341,5 @@ class Branch(ElectricalObject):
             f"r={self.r:.6f}, "
             f"x={self.x:.6f}, "
             f"b={self.b:.6f}, "
-            f"tap={self.tap:.6f}, "
-            f"shift={self.shift:.6f}>"
+            f"in_service={self.in_service}>"
         )
-```
