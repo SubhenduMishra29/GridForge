@@ -17,8 +17,7 @@ Tools are added via:
     toolbar.add_tool(...)
 """
 
-from PySide6.QtWidgets import QToolBar
-from PySide6.QtGui import QAction
+from ui.core.qt import QToolBar, QAction
 
 
 class MainToolbar(QToolBar):
