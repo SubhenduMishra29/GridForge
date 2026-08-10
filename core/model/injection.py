@@ -1,44 +1,40 @@
 """
 injection.py
 
-Defines the abstract interface for all power injections.
+Defines the Injection interface.
 
-An Injection is anything that contributes power (P, Q)
-to a bus in the network.
+All implementations MUST follow the sign convention:
 
-This includes:
-- Generators
-- Loads
-- Future devices (storage, EVs, DERs, etc.)
-
-Design Rules:
--------------
-- No topology
-- No solver logic
-- No state mutation
-- Only returns power values
++P, +Q → injection into the network  
+-P, -Q → consumption from the network
 """
 
+from abc import ABC, abstractmethod
 
-class Injection:
+
+class Injection(ABC):
     """
-    Abstract interface for power injection devices.
+    Abstract base class for power injections.
     """
 
+    @abstractmethod
     def get_power(self):
         """
-        Return the power injection at the connected bus.
-
         Returns
         -------
-        (p, q) : tuple of floats
-            Active and reactive power in per-unit
+        (P, Q) : tuple of floats
 
-        Convention:
-        -----------
-        +P, +Q → injection into the network
-        -P, -Q → consumption from the network
+        Sign Convention:
+        ----------------
+        +P = power injected into network
+        -P = power consumed from network
         """
-        raise NotImplementedError(
-            "Injection subclasses must implement get_power()"
-        )
+        pass
+
+    @property
+    @abstractmethod
+    def bus(self):
+        """
+        Returns the connected bus.
+        """
+        pass
