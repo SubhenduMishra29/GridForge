@@ -1,8 +1,10 @@
 ```python
 """
-core/model/grid.py
-
 GridForge Grid Model
+====================
+
+File:
+    core/model/grid.py
 
 Defines the central electrical-network container.
 
@@ -14,16 +16,27 @@ Responsibilities
 - Bus indexing.
 - Structural/reference validation.
 - Aggregation of connected power injections.
+- Registration of passive network elements.
+
+Supported components
+--------------------
+- Bus
+- Load
+- Generator
+- Branch
+- Line
+- Transformer
+- Shunt
 
 The Grid model does NOT:
 - Build Ybus.
 - Run power-flow calculations.
-- Run short-circuit calculations.
 - Solve numerical systems.
+- Perform short-circuit calculations.
 - Perform protection calculations.
 - Perform dynamic simulation.
 
-Numerical analysis belongs in the solver/analysis layers.
+Numerical analysis belongs in the solver/network/analysis layers.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -31,12 +44,15 @@ All Rights Reserved.
 
 from __future__ import annotations
 
-from typing import Dict, List, Iterable
+from typing import Dict, List
 
 from .bus import Bus, BusType
 from .load import Load
 from .generator import Generator
 from .branch import Branch
+from .line import Line
+from .transformer import Transformer
+from .shunt import Shunt
 
 
 class Grid:
@@ -51,8 +67,12 @@ class Grid:
         load_list
         generator_list
         branch_list
+        line_list
+        transformer_list
+        shunt_list
 
-    rather than depending on the internal dictionary representation.
+    rather than depending on the internal dictionary
+    representation.
     """
 
     def __init__(self, name: str = ""):
@@ -71,20 +91,24 @@ class Grid:
 
         self.branches: Dict[str, Branch] = {}
 
+        self.lines: Dict[str, Line] = {}
+
+        self.transformers: Dict[str, Transformer] = {}
+
+        self.shunts: Dict[str, Shunt] = {}
+
         # =========================================================
         # DERIVED / ANALYSIS STATE
         # =========================================================
+
+        # Grid does not construct Ybus.
         #
-        # These are deliberately initialized as None.
-        #
-        # Grid does not construct Ybus itself.
-        # A dedicated network/Ybus builder may populate these later.
-        #
-        # Keeping the attributes available provides a clean interface
-        # for numerical engines without embedding numerical logic here.
-        # =========================================================
+        # A dedicated network/Ybus builder may populate this
+        # attribute after construction.
 
         self.Ybus = None
+
+        # Stable bus ID -> numerical index mapping.
 
         self.bus_index: Dict[str, int] = {}
 
@@ -107,7 +131,6 @@ class Grid:
             bus
         )
 
-        # Bus ordering has changed.
         self._invalidate_bus_index()
 
     def add_load(self, load: Load) -> None:
@@ -125,7 +148,10 @@ class Grid:
             load
         )
 
-    def add_generator(self, generator: Generator) -> None:
+    def add_generator(
+        self,
+        generator: Generator
+    ) -> None:
         """
         Add a Generator to the grid.
         """
@@ -142,7 +168,10 @@ class Grid:
 
     def add_branch(self, branch: Branch) -> None:
         """
-        Add a Branch to the grid.
+        Add a generic Branch to the grid.
+
+        Branch subclasses such as Line and Transformer can also
+        be represented in the common branch registry.
         """
 
         if not isinstance(branch, Branch):
@@ -155,15 +184,88 @@ class Grid:
             branch
         )
 
+    def add_line(self, line: Line) -> None:
+        """
+        Add a transmission Line.
+
+        The line is registered both in the specialized line
+        registry and in the common branch registry.
+        """
+
+        if not isinstance(line, Line):
+            raise TypeError(
+                "add_line() requires a Line object"
+            )
+
+        self._add(
+            self.lines,
+            line
+        )
+
+        self._add(
+            self.branches,
+            line
+        )
+
+    def add_transformer(
+        self,
+        transformer: Transformer
+    ) -> None:
+        """
+        Add a Transformer.
+
+        Transformer is expected to participate in the common
+        two-terminal network-element interface.
+        """
+
+        if not isinstance(transformer, Transformer):
+            raise TypeError(
+                "add_transformer() requires a Transformer object"
+            )
+
+        self._add(
+            self.transformers,
+            transformer
+        )
+
+        # Transformer is added to the common branch registry only
+        # when it implements the Branch interface.
+        #
+        # This keeps Grid tolerant of the current Transformer model
+        # while allowing the model to evolve toward Branch
+        # inheritance.
+
+        if isinstance(transformer, Branch):
+
+            self._add(
+                self.branches,
+                transformer
+            )
+
+    def add_shunt(self, shunt: Shunt) -> None:
+        """
+        Add a passive Shunt element.
+        """
+
+        if not isinstance(shunt, Shunt):
+            raise TypeError(
+                "add_shunt() requires a Shunt object"
+            )
+
+        self._add(
+            self.shunts,
+            shunt
+        )
+
     @staticmethod
     def _add(
         container: Dict,
         obj
     ) -> None:
         """
-        Add an object to a registry.
+        Add an object to a component registry.
 
-        Object IDs must be unique within the registry.
+        IDs must be unique within the target registry.
         """
 
         if obj.id in container:
@@ -205,7 +307,10 @@ class Grid:
                 f"Load '{id}' does not exist"
             ) from exc
 
-    def get_generator(self, id: str) -> Generator:
+    def get_generator(
+        self,
+        id: str
+    ) -> Generator:
         """
         Return a Generator by ID.
         """
@@ -221,7 +326,7 @@ class Grid:
 
     def get_branch(self, id: str) -> Branch:
         """
-        Return a Branch by ID.
+        Return a common Branch by ID.
         """
 
         try:
@@ -233,6 +338,51 @@ class Grid:
                 f"Branch '{id}' does not exist"
             ) from exc
 
+    def get_line(self, id: str) -> Line:
+        """
+        Return a Line by ID.
+        """
+
+        try:
+            return self.lines[id]
+
+        except KeyError as exc:
+
+            raise KeyError(
+                f"Line '{id}' does not exist"
+            ) from exc
+
+    def get_transformer(
+        self,
+        id: str
+    ) -> Transformer:
+        """
+        Return a Transformer by ID.
+        """
+
+        try:
+            return self.transformers[id]
+
+        except KeyError as exc:
+
+            raise KeyError(
+                f"Transformer '{id}' does not exist"
+            ) from exc
+
+    def get_shunt(self, id: str) -> Shunt:
+        """
+        Return a Shunt by ID.
+        """
+
+        try:
+            return self.shunts[id]
+
+        except KeyError as exc:
+
+            raise KeyError(
+                f"Shunt '{id}' does not exist"
+            ) from exc
+
     # =============================================================
     # ORDERED COMPONENT VIEWS
     # =============================================================
@@ -241,9 +391,6 @@ class Grid:
     def bus_list(self) -> List[Bus]:
         """
         Return buses in stable registry order.
-
-        The returned list represents the bus ordering used when
-        constructing bus-indexed numerical matrices such as Ybus.
         """
 
         return list(
@@ -273,11 +420,44 @@ class Grid:
     @property
     def branch_list(self) -> List[Branch]:
         """
-        Return branches in registry order.
+        Return all common branch elements.
+
+        This is the preferred collection for Ybus and other
+        network-topology algorithms.
         """
 
         return list(
             self.branches.values()
+        )
+
+    @property
+    def line_list(self) -> List[Line]:
+        """
+        Return transmission lines in registry order.
+        """
+
+        return list(
+            self.lines.values()
+        )
+
+    @property
+    def transformer_list(self) -> List[Transformer]:
+        """
+        Return transformers in registry order.
+        """
+
+        return list(
+            self.transformers.values()
+        )
+
+    @property
+    def shunt_list(self) -> List[Shunt]:
+        """
+        Return shunts in registry order.
+        """
+
+        return list(
+            self.shunts.values()
         )
 
     # =============================================================
@@ -289,15 +469,13 @@ class Grid:
         """
         Return all objects implementing the Injection interface.
 
-        Loads and generators are both injections.
+        Ordering:
 
-        The ordering is:
+            Generators
+            Loads
 
-            generators
-            followed by loads
-
-        This ordering is deterministic but should not be interpreted
-        as a bus ordering.
+        This ordering is deterministic but must not be interpreted
+        as bus ordering.
         """
 
         return [
@@ -307,7 +485,7 @@ class Grid:
 
     def injections(self) -> List:
         """
-        Backward-compatible method returning all injections.
+        Backward-compatible access to all injections.
         """
 
         return self.injection_list
@@ -318,20 +496,9 @@ class Grid:
 
     def build_bus_index(self) -> Dict[str, int]:
         """
-        Build and store the bus-ID → numerical-index mapping.
+        Build and store the bus-ID -> numerical-index mapping.
 
         The mapping corresponds exactly to ``bus_list`` ordering.
-
-        Returns
-        -------
-        dict
-            Example:
-
-                {
-                    "BUS1": 0,
-                    "BUS2": 1,
-                    "BUS3": 2
-                }
         """
 
         self.bus_index = {
@@ -343,15 +510,19 @@ class Grid:
 
         return self.bus_index.copy()
 
-    def get_bus_index(self, bus_id: str) -> int:
+    def get_bus_index(
+        self,
+        bus_id: str
+    ) -> int:
         """
         Return the numerical index of a bus.
 
-        The index is generated lazily if necessary.
+        The index is generated lazily when required.
         """
 
         if (
             not self.bus_index
+            or len(self.bus_index) != len(self.buses)
             or set(self.bus_index.keys())
             != set(self.buses.keys())
         ):
@@ -369,8 +540,6 @@ class Grid:
     def _invalidate_bus_index(self) -> None:
         """
         Invalidate the cached bus index.
-
-        Called whenever the bus registry changes.
         """
 
         self.bus_index = {}
@@ -383,14 +552,7 @@ class Grid:
         """
         Attach a calculated Ybus matrix to the grid.
 
-        Ybus construction itself belongs to a dedicated numerical
-        or network-building component.
-
-        Parameters
-        ----------
-        Ybus:
-            Complex bus admittance matrix whose ordering must match
-            ``bus_list``.
+        Ybus construction belongs to the network layer.
         """
 
         if Ybus is None:
@@ -403,19 +565,31 @@ class Grid:
             len(self.buses)
         )
 
-        if not hasattr(Ybus, "shape"):
+        if not hasattr(
+            Ybus,
+            "shape"
+        ):
             raise ValueError(
                 "Ybus must provide a matrix shape"
             )
 
         if Ybus.shape != expected_shape:
+
             raise ValueError(
-                "Ybus dimension does not match grid bus count: "
+                "Ybus dimension does not match grid "
+                "bus count: "
                 f"expected {expected_shape}, "
                 f"received {Ybus.shape}"
             )
 
         self.Ybus = Ybus
+
+    def clear_ybus(self) -> None:
+        """
+        Remove the currently attached Ybus matrix.
+        """
+
+        self.Ybus = None
 
     # =============================================================
     # STRUCTURAL VALIDATION
@@ -425,11 +599,11 @@ class Grid:
         """
         Perform structural and reference-integrity validation.
 
-        This method does not perform numerical convergence checks.
+        This method does not perform numerical calculations.
         """
 
         # ---------------------------------------------------------
-        # At least one bus
+        # Bus existence
         # ---------------------------------------------------------
 
         if not self.buses:
@@ -445,7 +619,7 @@ class Grid:
         slack_buses = [
             bus
             for bus in self.bus_list
-            if bus.type == BusType.SLACK
+            if bus.type is BusType.SLACK
         ]
 
         if len(slack_buses) != 1:
@@ -455,7 +629,7 @@ class Grid:
             )
 
         # ---------------------------------------------------------
-        # Reference integrity: loads
+        # Load references
         # ---------------------------------------------------------
 
         for load in self.load_list:
@@ -463,13 +637,12 @@ class Grid:
             if load.bus.id not in self.buses:
 
                 raise ValueError(
-                    f"Load '{load.id}' "
-                    f"connected to unknown bus "
-                    f"'{load.bus.id}'."
+                    f"Load '{load.id}' connected to "
+                    f"unknown bus '{load.bus.id}'."
                 )
 
         # ---------------------------------------------------------
-        # Reference integrity: generators
+        # Generator references
         # ---------------------------------------------------------
 
         for generator in self.generator_list:
@@ -477,37 +650,55 @@ class Grid:
             if generator.bus.id not in self.buses:
 
                 raise ValueError(
-                    f"Generator '{generator.id}' "
-                    f"connected to unknown bus "
-                    f"'{generator.bus.id}'."
+                    f"Generator '{generator.id}' connected "
+                    f"to unknown bus '{generator.bus.id}'."
                 )
 
         # ---------------------------------------------------------
-        # Reference integrity: branches
+        # Branch references
         # ---------------------------------------------------------
 
         for branch in self.branch_list:
 
-            fb, tb = branch.buses()
+            try:
+                from_bus, to_bus = branch.buses()
 
-            if fb.id not in self.buses:
+            except AttributeError as exc:
 
                 raise ValueError(
-                    f"Branch '{branch.id}' "
-                    f"connected to unknown from-bus "
-                    f"'{fb.id}'."
+                    f"Branch '{branch.id}' does not provide "
+                    f"the required buses() interface."
+                ) from exc
+
+            if from_bus.id not in self.buses:
+
+                raise ValueError(
+                    f"Branch '{branch.id}' connected to "
+                    f"unknown from-bus '{from_bus.id}'."
                 )
 
-            if tb.id not in self.buses:
+            if to_bus.id not in self.buses:
 
                 raise ValueError(
-                    f"Branch '{branch.id}' "
-                    f"connected to unknown to-bus "
-                    f"'{tb.id}'."
+                    f"Branch '{branch.id}' connected to "
+                    f"unknown to-bus '{to_bus.id}'."
                 )
 
         # ---------------------------------------------------------
-        # Refresh bus indexing after validation.
+        # Shunt references
+        # ---------------------------------------------------------
+
+        for shunt in self.shunt_list:
+
+            if shunt.bus.id not in self.buses:
+
+                raise ValueError(
+                    f"Shunt '{shunt.id}' connected to "
+                    f"unknown bus '{shunt.bus.id}'."
+                )
+
+        # ---------------------------------------------------------
+        # Refresh bus indexing.
         # ---------------------------------------------------------
 
         self.build_bus_index()
@@ -534,6 +725,18 @@ class Grid:
     def branch_count(self) -> int:
         return len(self.branches)
 
+    @property
+    def line_count(self) -> int:
+        return len(self.lines)
+
+    @property
+    def transformer_count(self) -> int:
+        return len(self.transformers)
+
+    @property
+    def shunt_count(self) -> int:
+        return len(self.shunts)
+
     # =============================================================
     # SUMMARY
     # =============================================================
@@ -544,31 +747,50 @@ class Grid:
         """
 
         slack_count = sum(
-            bus.type == BusType.SLACK
+            bus.type is BusType.SLACK
             for bus in self.bus_list
         )
 
         pv_count = sum(
-            bus.type == BusType.PV
+            bus.type is BusType.PV
             for bus in self.bus_list
         )
 
         pq_count = sum(
-            bus.type == BusType.PQ
+            bus.type is BusType.PQ
             for bus in self.bus_list
         )
 
         return {
             "name": self.name,
+
             "buses": self.bus_count,
+
             "loads": self.load_count,
+
             "generators": self.generator_count,
+
             "branches": self.branch_count,
+
+            "lines": self.line_count,
+
+            "transformers": self.transformer_count,
+
+            "shunts": self.shunt_count,
+
             "slack_buses": slack_count,
+
             "pv_buses": pv_count,
+
             "pq_buses": pq_count,
-            "ybus_available": self.Ybus is not None,
-            "bus_index_available": bool(self.bus_index),
+
+            "ybus_available": (
+                self.Ybus is not None
+            ),
+
+            "bus_index_available": bool(
+                self.bus_index
+            ),
         }
 
     # =============================================================
@@ -581,10 +803,14 @@ class Grid:
         """
 
         return (
-            f"<Grid name='{self.name}', "
+            f"<Grid "
+            f"name='{self.name}', "
             f"buses={self.bus_count}, "
             f"loads={self.load_count}, "
             f"generators={self.generator_count}, "
-            f"branches={self.branch_count}>"
+            f"branches={self.branch_count}, "
+            f"lines={self.line_count}, "
+            f"transformers={self.transformer_count}, "
+            f"shunts={self.shunt_count}>"
         )
 ```
