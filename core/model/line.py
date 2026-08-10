@@ -1,211 +1,215 @@
-# ============================================================
-# File: core/model/line.py
-# GridForge Transmission Line Model (Topology + Electrical)
-# ============================================================
+```python
+"""
+GridForge Transmission Line Model
+=================================
 
-import numpy as np
+File:
+    core/model/line.py
+
+Defines the GridForge transmission-line model.
+
+Architecture
+------------
+Line is a specialized Branch.
+
+Common Branch responsibilities:
+    - Two-terminal connectivity
+    - Series impedance
+    - Shunt susceptance
+    - Equipment rating
+    - In-service state
+    - Common electrical interface
+
+Line-specific meaning:
+    - Standard transmission-line π-equivalent
+    - Series R + jX
+    - Total shunt susceptance B
+
+The Line model does NOT:
+    - Build Ybus.
+    - Calculate branch power flow.
+    - Calculate losses.
+    - Perform load flow.
+    - Perform short-circuit calculations.
+    - Perform contingency analysis.
+    - Store GUI geometry.
+
+Numerical calculations belong to the network/solver/analysis layers.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
+"""
+
+from __future__ import annotations
+
+from .branch import Branch
 
 
-class Line:
+class Line(Branch):
     """
-    π-equivalent transmission line model.
+    GridForge transmission-line model.
 
-    Hybrid Design:
-    --------------
-    - Solver uses: bus IDs (strings)
-    - UI uses: bus object references
+    The line uses the standard π-equivalent representation.
 
-    This avoids:
-    ❌ Tight coupling with UI
-    ❌ Expensive lookups during rendering
+    Parameters
+    ----------
+    id:
+        Unique line identifier.
+
+    bus_from:
+        From-side Bus object.
+
+    bus_to:
+        To-side Bus object.
+
+    r:
+        Series resistance in per-unit.
+
+    x:
+        Series reactance in per-unit.
+
+    b:
+        Total shunt susceptance in per-unit.
+
+        The Ybus builder is responsible for applying:
+
+            jB / 2
+
+        at each end of the line.
+
+    name:
+        Human-readable line name.
+
+    rate_mva:
+        Thermal/equipment rating in MVA.
+
+    Notes
+    -----
+    ``Line`` deliberately does not calculate power flow itself.
+
+    Power-flow calculations belong to the solver layer so that
+    all electrical elements use a consistent numerical convention.
     """
 
     def __init__(
         self,
-        from_bus: str,
-        to_bus: str,
-        r_pu: float,
-        x_pu: float,
-        b_pu: float = 0.0,
-        name: str = None,
+        id: str,
+        bus_from,
+        bus_to,
+        r: float,
+        x: float,
+        b: float = 0.0,
+        name: str = "",
         rate_mva: float = 100.0,
     ):
-
-        # -------------------------
-        # Validation
-        # -------------------------
-
-        if from_bus == to_bus:
-            raise ValueError("Line cannot connect a bus to itself")
-
-        if r_pu == 0 and x_pu == 0:
-            raise ValueError("Line impedance cannot be zero")
-
-        # -------------------------
-        # Connectivity (Solver Layer)
-        # -------------------------
-
-        self.from_bus = from_bus  # ID (string)
-        self.to_bus = to_bus      # ID (string)
-
-        # -------------------------
-        # Connectivity (UI Layer)
-        # -------------------------
-        # These will be injected by Graph after creation
-
-        self.from_bus_ref = None
-        self.to_bus_ref = None
-
-        # -------------------------
-        # Electrical parameters
-        # -------------------------
-
-        self.r_pu = r_pu
-        self.x_pu = x_pu
-        self.b_pu = b_pu
-
-        # -------------------------
-        # Equipment data
-        # -------------------------
-
-        self.name = name if name else f"{from_bus}-{to_bus}"
-        self.rate_mva = rate_mva
-
-        # -------------------------
-        # Operational state
-        # -------------------------
-
-        self.in_service = True
-
-        # -------------------------
-        # Flow results
-        # -------------------------
-
-        self.Pij = 0.0
-        self.Qij = 0.0
-        self.Pji = 0.0
-        self.Qji = 0.0
-        self.loss_p = 0.0
-        self.loss_q = 0.0
-
-    # =====================================================
-    # TOPOLOGY (UI SUPPORT)
-    # =====================================================
-
-    def bind_buses(self, from_bus_obj, to_bus_obj):
         """
-        Attach actual Bus objects (called by Graph).
+        Initialize a transmission line.
         """
-        self.from_bus_ref = from_bus_obj
-        self.to_bus_ref = to_bus_obj
 
-    def endpoints(self):
-        """
-        UI-safe geometry access.
-        """
-        if not self.from_bus_ref or not self.to_bus_ref:
-            return (0, 0), (0, 0)
-
-        return (
-            (self.from_bus_ref.x, self.from_bus_ref.y),
-            (self.to_bus_ref.x, self.to_bus_ref.y),
+        super().__init__(
+            id=id,
+            bus_from=bus_from,
+            bus_to=bus_to,
+            r=r,
+            x=x,
+            b=b,
+            name=name,
+            rate_mva=rate_mva,
+            tap=1.0,
+            shift=0.0,
         )
 
-    # =====================================================
-    # ELECTRICAL PROPERTIES
-    # =====================================================
+    # =============================================================
+    # LINE-SPECIFIC PROPERTIES
+    # =============================================================
 
     @property
-    def z_pu(self):
-        return complex(self.r_pu, self.x_pu)
+    def r_pu(self) -> float:
+        """
+        Compatibility alias for series resistance.
+
+        Returns
+        -------
+        float
+            Series resistance in per-unit.
+        """
+
+        return self.r
 
     @property
-    def y_pu(self):
-        return 1 / self.z_pu
+    def x_pu(self) -> float:
+        """
+        Compatibility alias for series reactance.
 
-    # =====================================================
-    # STATUS CONTROL
-    # =====================================================
+        Returns
+        -------
+        float
+            Series reactance in per-unit.
+        """
 
-    def trip(self):
-        self.in_service = False
+        return self.x
 
-    def close(self):
-        self.in_service = True
+    @property
+    def b_pu(self) -> float:
+        """
+        Compatibility alias for total shunt susceptance.
 
-    # =====================================================
-    # POWER FLOW
-    # =====================================================
+        Returns
+        -------
+        float
+            Total line shunt susceptance in per-unit.
+        """
 
-    def calculate_flow(self, buses):
+        return self.b
 
-        bus_index = {
-            bus.id: idx
-            for idx, bus in enumerate(buses)
-        }
+    # =============================================================
+    # LINE MODEL
+    # =============================================================
 
-        i = bus_index[self.from_bus]
-        j = bus_index[self.to_bus]
+    @property
+    def is_pi_model(self) -> bool:
+        """
+        Identify the line as a standard π-equivalent element.
+        """
 
-        Vi = buses[i].V
-        Vj = buses[j].V
+        return True
 
-        ti = buses[i].theta
-        tj = buses[j].theta
+    # =============================================================
+    # SUMMARY
+    # =============================================================
 
-        y = self.y_pu
-        G = y.real
-        B = y.imag
+    def summary(self) -> dict:
+        """
+        Return structured line information.
+        """
 
-        angle = ti - tj
+        data = super().summary()
 
-        Pij = (
-            Vi**2 * G
-            - Vi * Vj * (G * np.cos(angle) + B * np.sin(angle))
+        data.update(
+            {
+                "type": "line",
+                "r_pu": self.r,
+                "x_pu": self.x,
+                "b_pu": self.b,
+                "model": "pi",
+            }
         )
 
-        Qij = (
-            -Vi**2 * B
-            - Vi * Vj * (G * np.sin(angle) - B * np.cos(angle))
-            + Vi**2 * self.b_pu / 2
-        )
+        return data
 
-        Pji = (
-            Vj**2 * G
-            - Vi * Vj * (G * np.cos(-angle) + B * np.sin(-angle))
-        )
-
-        Qji = (
-            -Vj**2 * B
-            - Vi * Vj * (G * np.sin(-angle) - B * np.cos(-angle))
-            + Vj**2 * self.b_pu / 2
-        )
-
-        self.Pij = Pij
-        self.Qij = Qij
-        self.Pji = Pji
-        self.Qji = Qji
-
-        self.loss_p = Pij + Pji
-        self.loss_q = Qij + Qji
-
-        return {
-            "Pij": Pij,
-            "Qij": Qij,
-            "Pji": Pji,
-            "Qji": Qji,
-            "P_loss": self.loss_p,
-            "Q_loss": self.loss_q,
-        }
-
-    # =====================================================
+    # =============================================================
     # DEBUG
-    # =====================================================
+    # =============================================================
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
-            f"Line({self.name}: "
-            f"{self.from_bus} → {self.to_bus}, "
-            f"Z={self.r_pu}+j{self.x_pu}, "
-            f"status={self.in_service})"
+            f"<Line "
+            f"id={self.id}, "
+            f"{self.from_bus.id} -> {self.to_bus.id}, "
+            f"r={self.r:.6f}, "
+            f"x={self.x:.6f}, "
+            f"b={self.b:.6f}, "
+            f"rate={self.rate_mva:.2f} MVA, "
+            f"in_service={self.in_service}>"
         )
+```
