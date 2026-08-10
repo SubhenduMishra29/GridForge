@@ -1,5 +1,5 @@
 # ============================================================
-# File: core/models/graph.py
+# File: core/model/graph.py
 # GridForge Network Graph (Topology Manager)
 # ============================================================
 
