@@ -6,27 +6,39 @@ GridForge Governor Model
 File:
     core/model/governor.py
 
-Defines the turbine-governor dynamic model.
+Defines the turbine governor model used by the GridForge
+transient-stability / dynamic simulation framework.
 
 Purpose
 -------
-The Governor represents the primary speed-control dynamics of a
-synchronous generating unit.
+The Governor represents a simplified first-order turbine-governor
+dynamic model.
 
-Basic first-order governor equation:
+The governing equation is:
 
-    dPm/dt =
-        [Pref - Pm - omega / R] / Tg
+    dPm/dt = (Pref - Pm - omega / R) / Tg
 
-Where:
+where:
 
-    Pm    = mechanical power output
-    Pref  = mechanical power reference
-    omega = rotor speed deviation
-    R     = governor droop
-    Tg    = governor time constant
+    Pm:
+        Current mechanical power output in per-unit.
 
-The governor does NOT perform numerical integration.
+    Pref:
+        Mechanical power reference in per-unit.
+
+    omega:
+        Rotor speed deviation in per-unit.
+
+    R:
+        Governor speed-droop coefficient.
+
+    Tg:
+        Governor time constant in seconds.
+
+Architecture
+------------
+The Governor is a dynamic component, but it does NOT perform
+numerical integration.
 
 The dynamic / DAE solver owns:
 
@@ -42,43 +54,35 @@ The Governor provides:
     - Mechanical-power limiting
     - Initial-state calculation
     - Parameter management
+    - Diagnostic information
 
-Architecture
-------------
-The Governor is intentionally independent of the numerical solver.
-
-Typical dynamic chain:
-
-    Rotor speed
-        |
-        v
-    Governor
-        |
-        v
-    Mechanical power Pm
-        |
-        v
-    Synchronous machine
+The Governor deliberately does NOT maintain an authoritative
+dynamic state internally.
 
 Used by
 -------
     Generator
-    Dynamic Solver
     Transient Stability Solver
+    Dynamic Solver
 
 Future Extensions
 -----------------
 The model can later support:
 
-    - Turbine dynamics
-    - Steam turbine models
-    - Hydro turbine models
-    - Gas turbine models
+    - IEEE turbine-governor models
+    - Hydraulic turbine governors
+    - Steam turbine governors
     - Deadband
     - Rate limiting
+    - Servo dynamics
     - Multiple turbine stages
-    - IEEE governor models
-    - Valve position limits
+    - Reheat dynamics
+    - Nonlinear governor characteristics
+
+Sign Convention
+---------------
+Mechanical power is represented as positive generation-side
+mechanical input to the synchronous-machine model.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -89,17 +93,35 @@ from __future__ import annotations
 
 class Governor:
     """
-    First-order turbine-governor model.
+    First-order turbine governor model.
 
-    The Governor does not store an authoritative dynamic state.
+    The Governor does not integrate its internal state.
 
-    The dynamic solver supplies the current mechanical-power state
-    ``Pm`` and integrates the derivative returned by ``derivative()``.
+    The dynamic solver supplies the current mechanical-power
+    state ``Pm`` and rotor-speed deviation ``omega`` and integrates
+    the derivative returned by :meth:`derivative`.
+
+    Parameters
+    ----------
+    Pref:
+        Mechanical power reference in per-unit.
+
+    R:
+        Governor speed-droop coefficient.
+
+    Tg:
+        Governor time constant in seconds.
+
+    Pm_min:
+        Minimum mechanical power output in per-unit.
+
+    Pm_max:
+        Maximum mechanical power output in per-unit.
     """
 
-    # =============================================================
+    # =========================================================
     # INITIALIZATION
-    # =============================================================
+    # =========================================================
 
     def __init__(
         self,
@@ -108,44 +130,38 @@ class Governor:
         Tg: float = 0.2,
         Pm_min: float = 0.0,
         Pm_max: float = 1.2,
-    ):
+    ) -> None:
         """
         Initialize the governor model.
-
-        Parameters
-        ----------
-        Pref:
-            Mechanical power reference in per-unit.
-
-        R:
-            Governor speed-droop coefficient.
-
-        Tg:
-            Governor time constant in seconds.
-
-        Pm_min:
-            Minimum mechanical power output.
-
-        Pm_max:
-            Maximum mechanical power output.
         """
 
-        # ---------------------------------------------------------
-        # Convert parameters
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # Parameters
+        # -----------------------------------------------------
 
         self.Pref = float(Pref)
+
         self.R = float(R)
+
         self.Tg = float(Tg)
 
+        # -----------------------------------------------------
+        # Mechanical-power limits
+        # -----------------------------------------------------
+
         self.Pm_min = float(Pm_min)
+
         self.Pm_max = float(Pm_max)
+
+        # -----------------------------------------------------
+        # Validation
+        # -----------------------------------------------------
 
         self._validate()
 
-    # =============================================================
+    # =========================================================
     # VALIDATION
-    # =============================================================
+    # =========================================================
 
     def _validate(self) -> None:
         """
@@ -154,12 +170,14 @@ class Governor:
 
         if self.R <= 0.0:
             raise ValueError(
-                "Governor droop R must be greater than zero."
+                "Governor droop coefficient R "
+                "must be greater than zero."
             )
 
         if self.Tg <= 0.0:
             raise ValueError(
-                "Governor time constant Tg must be greater than zero."
+                "Governor time constant Tg "
+                "must be greater than zero."
             )
 
         if self.Pm_min > self.Pm_max:
@@ -167,9 +185,9 @@ class Governor:
                 "Pm_min must not be greater than Pm_max."
             )
 
-    # =============================================================
+    # =========================================================
     # DIFFERENTIAL EQUATION
-    # =============================================================
+    # =========================================================
 
     def derivative(
         self,
@@ -179,23 +197,30 @@ class Governor:
         """
         Calculate the mechanical-power state derivative.
 
-        Equation:
-
+        Equation
+        --------
             dPm/dt =
-                [Pref - Pm - omega/R] / Tg
+                (Pref - Pm - omega / R) / Tg
 
         Parameters
         ----------
         Pm:
-            Current mechanical power state.
+            Current mechanical-power state.
 
         omega:
-            Rotor speed deviation in per-unit.
+            Rotor speed deviation.
 
         Returns
         -------
         float
             dPm/dt.
+
+        Notes
+        -----
+        No numerical integration occurs here.
+
+        The dynamic solver is responsible for integrating the
+        returned derivative.
         """
 
         Pm = float(Pm)
@@ -207,39 +232,9 @@ class Governor:
             - omega / self.R
         ) / self.Tg
 
-    # =============================================================
-    # OUTPUT LIMITER
-    # =============================================================
-
-    def limit(
-        self,
-        Pm: float,
-    ) -> float:
-        """
-        Apply mechanical-power limits.
-
-        Parameters
-        ----------
-        Pm:
-            Unrestricted mechanical power.
-
-        Returns
-        -------
-        float
-            Limited mechanical power.
-        """
-
-        return max(
-            self.Pm_min,
-            min(
-                float(Pm),
-                self.Pm_max,
-            ),
-        )
-
-    # =============================================================
+    # =========================================================
     # OUTPUT
-    # =============================================================
+    # =========================================================
 
     def output(
         self,
@@ -248,15 +243,22 @@ class Governor:
         """
         Return the limited mechanical-power output.
 
-        The dynamic solver may use this function when the
-        integrated state must be constrained by governor limits.
+        Parameters
+        ----------
+        Pm:
+            Current mechanical-power state.
+
+        Returns
+        -------
+        float
+            Limited mechanical power.
         """
 
         return self.limit(Pm)
 
-    # =============================================================
+    # =========================================================
     # COMBINED EVALUATION
-    # =============================================================
+    # =========================================================
 
     def evaluate(
         self,
@@ -264,7 +266,7 @@ class Governor:
         omega: float,
     ) -> tuple[float, float]:
         """
-        Evaluate governor derivative and limited output.
+        Evaluate governor derivative and mechanical-power output.
 
         Parameters
         ----------
@@ -293,16 +295,46 @@ class Governor:
 
         return dPm_dt, Pm_output
 
-    # =============================================================
+    # =========================================================
+    # LIMITER
+    # =========================================================
+
+    def limit(
+        self,
+        Pm: float,
+    ) -> float:
+        """
+        Apply mechanical-power limits.
+
+        Parameters
+        ----------
+        Pm:
+            Unrestricted mechanical-power state.
+
+        Returns
+        -------
+        float
+            Limited mechanical power.
+        """
+
+        return max(
+            self.Pm_min,
+            min(
+                float(Pm),
+                self.Pm_max,
+            ),
+        )
+
+    # =========================================================
     # INITIAL STATE
-    # =============================================================
+    # =========================================================
 
     def initial_state(
         self,
         omega: float = 0.0,
     ) -> float:
         """
-        Calculate the steady-state initial mechanical-power state.
+        Calculate the steady-state initial mechanical power.
 
         At steady state:
 
@@ -310,9 +342,10 @@ class Governor:
 
         Therefore:
 
-            Pm = Pref - omega/R
+            Pm = Pref - omega / R
 
-        The result is passed through the mechanical-power limits.
+        The result is passed through the configured mechanical
+        power limits.
 
         Parameters
         ----------
@@ -332,9 +365,9 @@ class Governor:
 
         return self.limit(Pm)
 
-    # =============================================================
+    # =========================================================
     # RESET
-    # =============================================================
+    # =========================================================
 
     def reset(
         self,
@@ -344,23 +377,33 @@ class Governor:
         Return the initial governor state.
 
         The dynamic solver should use this value when resetting
-        the simulation.
+        the dynamic simulation.
+
+        Parameters
+        ----------
+        omega:
+            Initial rotor speed deviation.
+
+        Returns
+        -------
+        float
+            Initial mechanical-power state.
         """
 
         return self.initial_state(
             omega=omega,
         )
 
-    # =============================================================
+    # =========================================================
     # PARAMETER MANAGEMENT
-    # =============================================================
+    # =========================================================
 
     def set_reference(
         self,
         Pref: float,
     ) -> None:
         """
-        Update mechanical-power reference.
+        Update the mechanical-power reference.
         """
 
         self.Pref = float(Pref)
@@ -370,14 +413,15 @@ class Governor:
         R: float,
     ) -> None:
         """
-        Update governor droop coefficient.
+        Update the governor speed-droop coefficient.
         """
 
         R = float(R)
 
         if R <= 0.0:
             raise ValueError(
-                "Governor droop R must be greater than zero."
+                "Governor droop coefficient R "
+                "must be greater than zero."
             )
 
         self.R = R
@@ -387,14 +431,15 @@ class Governor:
         Tg: float,
     ) -> None:
         """
-        Update governor time constant.
+        Update the governor time constant.
         """
 
         Tg = float(Tg)
 
         if Tg <= 0.0:
             raise ValueError(
-                "Governor time constant Tg must be greater than zero."
+                "Governor time constant Tg "
+                "must be greater than zero."
             )
 
         self.Tg = Tg
@@ -419,9 +464,9 @@ class Governor:
         self.Pm_min = Pm_min
         self.Pm_max = Pm_max
 
-    # =============================================================
+    # =========================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =========================================================
 
     def summary(self) -> dict:
         """
@@ -436,9 +481,9 @@ class Governor:
             "Pm_max": self.Pm_max,
         }
 
-    # =============================================================
+    # =========================================================
     # DEBUG
-    # =============================================================
+    # =========================================================
 
     def __repr__(self) -> str:
         """
