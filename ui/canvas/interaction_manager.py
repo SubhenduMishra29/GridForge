@@ -35,7 +35,7 @@ controller.set_tool(...) → event → InteractionManager updates tool
 """
 
 from ui.core.qt import QObject
-
+from ui.core.snap_system import SnapSystem
 
 class InteractionManager(QObject):
     """
