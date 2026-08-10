@@ -22,7 +22,7 @@ Design Notes:
 - Movement updates model → triggers render
 """
 
-from PyQt5.QtCore import QPointF
+from ui.core.qt import QPointF
 
 
 class SelectTool:
