@@ -11,11 +11,14 @@
 #
 #     QGraphicsView
 #          │
-#          │ raw Qt mouse events
+#          │ raw Qt events
 #          ▼
 #     InteractionManager
 #          │
 #          │ delegates
+#          ▼
+#     ToolManager
+#          │
 #          ▼
 #     Active Tool
 #
@@ -25,42 +28,47 @@
 #
 # The InteractionManager:
 #
-#     - receives canvas mouse events
-#     - converts viewport coordinates to scene coordinates
-#     - obtains the active tool from the Controller
-#     - forwards events to that tool
-#     - owns transient interaction state
-#     - owns the preview layer
-#     - tracks the last scene position
+# - receives canvas mouse events
+# - converts viewport coordinates to scene coordinates
+# - forwards events to the active tool
+# - owns transient interaction state
+# - owns the PreviewLayer
+# - tracks the last scene position
+# - provides access to the SnapSystem
+# - delegates tool lifecycle to ToolManager
 #
 #
-# IT DOES NOT:
+# IT DOES NOT
 # ------------
 #
-#     - implement BusTool logic
-#     - implement LineTool logic
-#     - implement SelectTool logic
-#     - modify the electrical model directly
-#     - render permanent model graphics
-#     - know which concrete tools exist
-#     - import individual tools
+# - implement BusTool logic
+# - implement LineTool logic
+# - implement SelectTool logic
+# - modify the electrical model directly
+# - render permanent model graphics
+# - import individual tools
+# - create tool instances
+# - destroy tool instances
 #
 #
-# TOOL ARCHITECTURE
-# -----------------
+# TOOL OWNERSHIP
+# --------------
 #
-# Controller
-#     │
-#     │ current_tool_id
-#     ▼
-# ToolRegistry
-#     │
-#     │ tool instance
-#     ▼
-# InteractionManager
-#     │
-#     ▼
-# Active Tool
+# ToolManager is the SINGLE owner of tool lifecycle.
+#
+# Therefore this class must NEVER do:
+#
+#     create_tool(...)
+#
+# Instead:
+#
+#     ToolManager
+#          │
+#          ▼
+#     current_tool
+#          │
+#          ▼
+#     InteractionManager
 #
 #
 # PREVIEW ARCHITECTURE
@@ -72,34 +80,59 @@
 # They are NOT part of the persistent model.
 #
 #
-# IMPORTANT
-# ---------
+# SNAP ARCHITECTURE
+# -----------------
+#
+# InteractionManager exposes a SnapSystem instance.
+#
+# Tools can use:
+#
+#     self.im.snap_system.snap_to_bus(...)
+#
+# instead of implementing independent snapping algorithms.
+#
+#
+# QT RULE
+# --------
 #
 # This file uses the GridForge Qt abstraction:
 #
 #     ui/core/qt.py
 #
-# It must never import PySide6, PyQt6, or PyQt5 directly.
+# It must NEVER import:
+#
+#     PySide6
+#     PyQt6
+#     PyQt5
+#
+# directly.
 #
 # ============================================================
+
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QObject
+from ui.core.qt import QObject, Qt
 
 from ui.canvas.preview_layer import PreviewLayer
+
+from ui.core.snap_system import SnapSystem
+
+from ui.core.tool_manager import ToolManager
 
 
 class InteractionManager(QObject):
     """
     Central input-routing system for the GridForge canvas.
 
-    The InteractionManager does not implement tool behavior.
+    InteractionManager is deliberately a thin layer.
 
-    It simply determines which tool is active and forwards
-    interaction events to that tool.
+    It receives raw canvas events and forwards them to the
+    active tool managed by ToolManager.
+
+    It does not contain electrical or graphical business logic.
     """
 
     # ========================================================
@@ -119,17 +152,16 @@ class InteractionManager(QObject):
         view:
             GridForge GraphicsView instance.
 
-            The view is used for coordinate conversion and
-            access to the graphics scene.
+            Used for:
+                - coordinate conversion
+                - access to QGraphicsScene
 
         controller:
             GridForge Controller.
 
-            The Controller provides:
-
-                - active tool state
-                - tool registry
-                - application events
+            Used for:
+                - application state
+                - event notifications
         """
 
         super().__init__()
@@ -145,14 +177,10 @@ class InteractionManager(QObject):
         # Active tool
         # ----------------------------------------------------
         #
-        # This stores the actual runtime tool instance.
+        # This is only a reference to the tool owned by
+        # ToolManager.
         #
-        # The Controller remains responsible for deciding which
-        # tool ID is active.
-        #
-        # InteractionManager resolves that ID through:
-        #
-        #     controller.get_current_tool()
+        # InteractionManager does NOT create the tool.
         # ----------------------------------------------------
 
         self.current_tool: Optional[Any] = None
@@ -161,9 +189,9 @@ class InteractionManager(QObject):
         # Interaction state
         # ----------------------------------------------------
         #
-        # These values describe temporary interaction state.
+        # These values are transient UI state.
         #
-        # They must NOT be stored in the domain model.
+        # They must NEVER be stored in the electrical model.
         # ----------------------------------------------------
 
         self.dragging: bool = False
@@ -174,19 +202,24 @@ class InteractionManager(QObject):
         # Preview layer
         # ----------------------------------------------------
         #
-        # Preview graphics are transient.
+        # Preview graphics are temporary interaction feedback.
         #
         # Examples:
         #
-        #     LineTool:
-        #         start bus → mouse cursor
+        #   LineTool:
+        #       start bus → cursor
         #
-        #     BusTool:
-        #         placement preview
+        #   BusTool:
+        #       placement preview
         #
-        #     Future:
-        #         transformer preview
-        #         selection rectangle
+        #   SelectTool:
+        #       selection rectangle
+        #
+        # Future:
+        #
+        #   transformer preview
+        #   measurement preview
+        #   connection preview
         # ----------------------------------------------------
 
         self.preview = PreviewLayer(
@@ -194,7 +227,47 @@ class InteractionManager(QObject):
         )
 
         # ----------------------------------------------------
-        # Subscribe to controller tool changes.
+        # Snap system
+        # ----------------------------------------------------
+        #
+        # Centralized spatial snapping service.
+        #
+        # Tools should use this service instead of duplicating
+        # snap calculations.
+        # ----------------------------------------------------
+
+        self.snap_system = SnapSystem(
+            controller
+        )
+
+        # ----------------------------------------------------
+        # Tool manager
+        # ----------------------------------------------------
+        #
+        # ToolManager owns:
+        #
+        #   - tool creation
+        #   - activation
+        #   - deactivation
+        #   - cancellation
+        #   - tool switching
+        #
+        # InteractionManager only routes events.
+        # ----------------------------------------------------
+
+        self.tool_manager = ToolManager(
+            controller=controller,
+            interaction_manager=self,
+            preview=self.preview,
+        )
+
+        # ----------------------------------------------------
+        # Listen for Controller tool changes.
+        #
+        # Controller remains the source of the requested tool
+        # ID.
+        #
+        # ToolManager owns the actual tool lifecycle.
         # ----------------------------------------------------
 
         self.controller.subscribe(
@@ -203,14 +276,18 @@ class InteractionManager(QObject):
         )
 
         # ----------------------------------------------------
-        # Resolve the initial tool if one was already selected.
+        # If a tool was already selected before this manager
+        # was created, synchronize with it.
         #
-        # This is useful when Controller state is configured
-        # before InteractionManager is created.
+        # We intentionally inspect the Controller's existing
+        # public state instead of requiring Controller to
+        # construct or own tool instances.
         # ----------------------------------------------------
 
-        initial_tool_id = (
-            self.controller.get_current_tool_id()
+        initial_tool_id = getattr(
+            self.controller,
+            "current_tool",
+            None,
         )
 
         if initial_tool_id is not None:
@@ -229,76 +306,83 @@ class InteractionManager(QObject):
         """
         React to a Controller tool-change event.
 
-        The InteractionManager does not construct tools itself.
+        ToolManager is responsible for creating and activating
+        the actual tool.
 
-        It asks the Controller for the active runtime instance.
-
-        This preserves the separation:
-
-            Controller
-                ↓
-            ToolRegistry
-                ↓
-            Tool instance
-                ↓
-            InteractionManager
+        InteractionManager only updates its reference.
         """
 
         # ----------------------------------------------------
-        # Clear state belonging to the previous tool.
+        # Clear transient state from previous interaction.
         # ----------------------------------------------------
 
         self._clear_interaction_state()
 
         # ----------------------------------------------------
-        # Resolve active tool from Controller.
+        # ToolManager owns the tool lifecycle.
         # ----------------------------------------------------
 
         self.current_tool = (
-            self.controller.get_current_tool()
+            self.tool_manager.activate(
+                tool_id
+            )
         )
 
-        # ----------------------------------------------------
-        # Notify the newly activated tool if it provides an
-        # optional activation hook.
-        #
-        # This is intentionally duck-typed.
-        #
-        # Tools do not have to implement activate().
-        # ----------------------------------------------------
+    # ========================================================
+    # ACTIVE TOOL
+    # ========================================================
 
-        if self.current_tool is not None:
+    def get_current_tool(self):
+        """
+        Return the currently active tool instance.
 
-            activate = getattr(
-                self.current_tool,
-                "activate",
-                None,
-            )
+        Returns
+        -------
+        object | None
+            Active tool owned by ToolManager.
+        """
 
-            if callable(activate):
-                activate()
+        return (
+            self.tool_manager
+            .get_current_tool()
+        )
+
+    # --------------------------------------------------------
+
+    def get_current_tool_id(
+        self,
+    ) -> Optional[str]:
+        """
+        Return the ID of the currently active tool.
+        """
+
+        return (
+            self.tool_manager
+            .get_current_tool_id()
+        )
 
     # ========================================================
     # INTERACTION STATE
     # ========================================================
 
-    def _clear_interaction_state(self) -> None:
+    def _clear_interaction_state(
+        self,
+    ) -> None:
         """
-        Clear transient interaction state.
+        Clear temporary interaction state.
 
-        Called whenever the active tool changes.
+        This is called when switching tools.
         """
 
         self.dragging = False
+
         self.last_scene_pos = None
 
         # ----------------------------------------------------
-        # Preview belongs to interaction state and therefore
-        # must disappear when the active tool changes.
+        # Preview graphics are temporary interaction state.
         # ----------------------------------------------------
 
-        if self.preview is not None:
-            self.preview.clear()
+        self.clear_preview()
 
     # ========================================================
     # MOUSE PRESS
@@ -310,37 +394,46 @@ class InteractionManager(QObject):
     ) -> None:
         """
         Route a mouse-press event to the active tool.
-
-        The InteractionManager does not interpret the event.
-
-        Tool-specific behavior belongs entirely to the active
-        tool.
         """
 
         # ----------------------------------------------------
-        # Update scene position.
+        # Update scene position before delegating.
         # ----------------------------------------------------
 
-        self.last_scene_pos = self.map_to_scene(
-            event
+        self.last_scene_pos = (
+            self.map_to_scene(event)
         )
 
         # ----------------------------------------------------
-        # Track interaction state.
+        # Generic interaction state.
         # ----------------------------------------------------
 
         self.dragging = True
 
         # ----------------------------------------------------
-        # Delegate to active tool.
+        # Obtain the active tool from ToolManager.
         # ----------------------------------------------------
 
-        tool = self.current_tool
+        tool = (
+            self.tool_manager
+            .get_current_tool()
+        )
 
         if tool is None:
             return
 
-        tool.mouse_press(event)
+        # ----------------------------------------------------
+        # Delegate event.
+        # ----------------------------------------------------
+
+        mouse_press = getattr(
+            tool,
+            "mouse_press",
+            None,
+        )
+
+        if callable(mouse_press):
+            mouse_press(event)
 
     # ========================================================
     # MOUSE MOVE
@@ -353,26 +446,42 @@ class InteractionManager(QObject):
         """
         Route a mouse-move event to the active tool.
 
-        The last scene position is updated before the tool
-        receives the event.
-
-        This allows tools such as LineTool to implement:
-
-            snap-to-bus
-            hover detection
-            preview lines
+        The scene position is updated before the tool receives
+        the event.
         """
 
-        self.last_scene_pos = self.map_to_scene(
-            event
+        # ----------------------------------------------------
+        # Update scene position.
+        # ----------------------------------------------------
+
+        self.last_scene_pos = (
+            self.map_to_scene(event)
         )
 
-        tool = self.current_tool
+        # ----------------------------------------------------
+        # Obtain active tool.
+        # ----------------------------------------------------
+
+        tool = (
+            self.tool_manager
+            .get_current_tool()
+        )
 
         if tool is None:
             return
 
-        tool.mouse_move(event)
+        # ----------------------------------------------------
+        # Delegate event.
+        # ----------------------------------------------------
+
+        mouse_move = getattr(
+            tool,
+            "mouse_move",
+            None,
+        )
+
+        if callable(mouse_move):
+            mouse_move(event)
 
     # ========================================================
     # MOUSE RELEASE
@@ -386,24 +495,171 @@ class InteractionManager(QObject):
         Route a mouse-release event to the active tool.
         """
 
-        self.last_scene_pos = self.map_to_scene(
-            event
+        # ----------------------------------------------------
+        # Update scene position.
+        # ----------------------------------------------------
+
+        self.last_scene_pos = (
+            self.map_to_scene(event)
         )
 
-        tool = self.current_tool
+        tool = (
+            self.tool_manager
+            .get_current_tool()
+        )
 
         if tool is None:
             self.dragging = False
             return
 
-        tool.mouse_release(event)
+        # ----------------------------------------------------
+        # Delegate event.
+        # ----------------------------------------------------
+
+        mouse_release = getattr(
+            tool,
+            "mouse_release",
+            None,
+        )
+
+        if callable(mouse_release):
+            mouse_release(event)
 
         # ----------------------------------------------------
-        # The tool has received the complete release event.
-        # InteractionManager can now reset generic drag state.
+        # Generic drag state ends after mouse release.
         # ----------------------------------------------------
 
         self.dragging = False
+
+    # ========================================================
+    # KEY PRESS
+    # ========================================================
+
+    def key_press(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route keyboard events.
+
+        ESC is handled centrally by ToolManager.
+
+        Other keys are optionally forwarded to the active
+        tool.
+        """
+
+        # ----------------------------------------------------
+        # ESC → cancel active tool operation.
+        # ----------------------------------------------------
+
+        if event.key() == Qt.Key_Escape:
+
+            return self.cancel_tool()
+
+        # ----------------------------------------------------
+        # Other keyboard events.
+        # ----------------------------------------------------
+
+        tool = (
+            self.tool_manager
+            .get_current_tool()
+        )
+
+        if tool is None:
+            return False
+
+        key_press = getattr(
+            tool,
+            "key_press",
+            None,
+        )
+
+        if not callable(key_press):
+            return False
+
+        result = key_press(event)
+
+        # ----------------------------------------------------
+        # Tools may return:
+        #
+        #     True  → event handled
+        #     False → event not handled
+        #     None  → considered handled
+        # ----------------------------------------------------
+
+        if result is None:
+            return True
+
+        return bool(result)
+
+    # ========================================================
+    # KEY RELEASE
+    # ========================================================
+
+    def key_release(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route keyboard-release events to the active tool.
+
+        This is optional and future-proofing for tools that
+        need keyboard state.
+        """
+
+        tool = (
+            self.tool_manager
+            .get_current_tool()
+        )
+
+        if tool is None:
+            return False
+
+        key_release = getattr(
+            tool,
+            "key_release",
+            None,
+        )
+
+        if not callable(key_release):
+            return False
+
+        result = key_release(event)
+
+        if result is None:
+            return True
+
+        return bool(result)
+
+    # ========================================================
+    # CANCEL TOOL
+    # ========================================================
+
+    def cancel_tool(self) -> bool:
+        """
+        Cancel the current tool operation.
+
+        This is the standard entry point for:
+
+            ESC
+
+        ToolManager performs the actual cancellation and
+        preview cleanup.
+        """
+
+        result = (
+            self.tool_manager.cancel()
+        )
+
+        # ----------------------------------------------------
+        # Generic interaction state must also be reset.
+        # ----------------------------------------------------
+
+        self.dragging = False
+
+        self.last_scene_pos = None
+
+        return result
 
     # ========================================================
     # COORDINATE CONVERSION
@@ -414,16 +670,14 @@ class InteractionManager(QObject):
         event: Any,
     ):
         """
-        Convert a Qt mouse event position from viewport
-        coordinates into scene coordinates.
+        Convert a mouse event position from viewport
+        coordinates to scene coordinates.
 
-        This method centralizes coordinate conversion so tools
-        do not need direct knowledge of QGraphicsView.
+        Tools should use:
 
-        Example
-        -------
+            self.im.map_to_scene(event)
 
-            pos = interaction_manager.map_to_scene(event)
+        instead of directly accessing QGraphicsView.
         """
 
         return self.view.mapToScene(
@@ -431,7 +685,7 @@ class InteractionManager(QObject):
         )
 
     # ========================================================
-    # CURRENT POSITION
+    # CURRENT SCENE POSITION
     # ========================================================
 
     def get_scene_position(self):
@@ -441,7 +695,6 @@ class InteractionManager(QObject):
         Returns
         -------
         QPointF | None
-            Last scene position.
         """
 
         return self.last_scene_pos
@@ -450,56 +703,112 @@ class InteractionManager(QObject):
     # PREVIEW CONTROL
     # ========================================================
 
-    def clear_preview(self) -> None:
+    def clear_preview(
+        self,
+    ) -> None:
         """
-        Clear all temporary preview graphics.
-
-        Tools may use this instead of accessing the PreviewLayer
-        directly when appropriate.
+        Clear all transient preview graphics.
         """
 
-        self.preview.clear()
+        if self.preview is not None:
+            self.preview.clear()
 
     # ========================================================
-    # DEACTIVATE CURRENT TOOL
+    # DEACTIVATE TOOL
     # ========================================================
 
-    def deactivate_tool(self) -> None:
+    def deactivate_tool(
+        self,
+    ) -> None:
         """
-        Deactivate the currently active tool if it provides
-        an optional deactivate() method.
+        Deactivate the current tool through ToolManager.
 
-        This is useful when switching tools or shutting down
-        interaction.
+        Tool lifecycle must NOT be handled directly here.
         """
 
-        tool = self.current_tool
+        self.tool_manager.deactivate()
 
-        if tool is not None:
-
-            deactivate = getattr(
-                tool,
-                "deactivate",
-                None,
-            )
-
-            if callable(deactivate):
-                deactivate()
+        self.current_tool = None
 
         self._clear_interaction_state()
+
+    # ========================================================
+    # RESET
+    # ========================================================
+
+    def reset(
+        self,
+    ) -> None:
+        """
+        Completely reset interaction state.
+
+        Used when:
+
+            - loading a new model
+            - resetting a canvas
+            - closing a workspace
+            - recovering from invalid interaction
+        """
+
+        self.tool_manager.reset()
+
+        self.current_tool = None
+
+        self.dragging = False
+
+        self.last_scene_pos = None
+
+        self.clear_preview()
+
+    # ========================================================
+    # DEBUG STATE
+    # ========================================================
+
+    def get_state(
+        self,
+    ) -> dict:
+        """
+        Return diagnostic interaction state.
+        """
+
+        return {
+            "active_tool": (
+                self.get_current_tool_id()
+            ),
+            "has_active_tool": (
+                self.get_current_tool()
+                is not None
+            ),
+            "dragging": self.dragging,
+            "last_scene_pos": (
+                self.last_scene_pos
+            ),
+            "preview_active": (
+                self.preview is not None
+            ),
+            "snap_system": (
+                self.snap_system is not None
+            ),
+        }
 
     # ========================================================
     # DEBUG REPRESENTATION
     # ========================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
-        Return a concise diagnostic representation.
+        Return concise diagnostic representation.
         """
 
+        tool = (
+            self.get_current_tool()
+        )
+
         tool_name = (
-            type(self.current_tool).__name__
-            if self.current_tool is not None
+            type(tool).__name__
+            if tool is not None
             else "None"
         )
 
@@ -518,4 +827,3 @@ class InteractionManager(QObject):
 __all__ = [
     "InteractionManager",
 ]
-```
