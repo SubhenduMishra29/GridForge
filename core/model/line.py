@@ -1,5 +1,5 @@
 # ============================================================
-# File: core/models/line.py
+# File: core/model/line.py
 # GridForge Transmission Line Model (Topology + Electrical)
 # ============================================================
 
