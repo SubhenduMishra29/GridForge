@@ -1,48 +1,62 @@
 """
-Central registry for UI components.
+Dynamic UI registry using plugin architecture.
 
-Purpose:
-    - Decouple component creation from MainWindow
-    - Allow plug-and-play UI modules
+Responsibilities:
+- Discover registered UI plugins
+- Build and attach them to the MainWindow
+- Return a dictionary of created components
+
+MainWindow MUST only call: build_ui(...)
 """
 
-from ui.toolbars.main_toolbar import MainToolbar
-from ui.docks.properties_dock import PropertiesDock
-from ui.docks.layers_dock import LayersDock
-from ui.status.status_bar import StatusBar
+from ui.core.plugin_registry import get_plugins
 
 
 def build_ui(main_window, controller):
     """
-    Compose all UI components.
+    Build the UI dynamically using registered plugins.
 
-    MainWindow calls ONLY this.
+    Args:
+        main_window: QMainWindow instance
+        controller: Application controller
+
+    Returns:
+        dict: {component_name: instance}
     """
 
-    # ----------------------------------------
-    # Toolbar
-    # ----------------------------------------
-    toolbar = MainToolbar(controller)
-    main_window.addToolBar(toolbar)
+    components = {}
 
-    # ----------------------------------------
-    # Docks
-    # ----------------------------------------
-    properties = PropertiesDock(controller)
-    layers = LayersDock(controller)
+    # Load plugins (optionally sorted by order if defined)
+    plugins = sorted(
+        get_plugins(),
+        key=lambda p: getattr(p, "order", 100)
+    )
 
-    main_window.addDockWidget(main_window.RightDockWidgetArea, properties)
-    main_window.addDockWidget(main_window.LeftDockWidgetArea, layers)
+    for plugin_cls in plugins:
+        plugin = plugin_cls()
 
-    # ----------------------------------------
-    # Status Bar
-    # ----------------------------------------
-    status = StatusBar(controller)
-    main_window.setStatusBar(status)
+        try:
+            result = plugin.build(main_window, controller)
 
-    return {
-        "toolbar": toolbar,
-        "properties": properties,
-        "layers": layers,
-        "status": status,
-    }
+            # Allow flexible return formats
+            if result is None:
+                continue
+
+            if isinstance(result, tuple):
+                name, instance = result
+                components[name] = instance
+
+            elif isinstance(result, dict):
+                components.update(result)
+
+            else:
+                raise TypeError(
+                    f"{plugin_cls.__name__}.build() must return "
+                    "None, (name, instance), or dict"
+                )
+
+        except Exception as e:
+            print(f"[UI Registry] Failed to load plugin: {plugin_cls.__name__}")
+            print(f"Error: {e}")
+
+    return components
