@@ -21,7 +21,7 @@ Design Notes:
 - Rendering handled by RenderSystem
 """
 
-from PyQt5.QtCore import QPointF
+from ui.core.qt import QPointF
 
 
 class BusTool:
