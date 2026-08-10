@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # File: ui/renderers/line_renderer.py
 # GridForge Line Renderer
