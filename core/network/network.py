@@ -1,161 +1,132 @@
+```python
 """
-GridForge Core Network Engine
+GridForge Network
+=================
 
-File:
-    core/network/network.py
+Central assembled-network container for GridForge.
 
-Purpose:
-    Central network model and orchestration layer for GridForge.
+Responsibilities
+----------------
+- Maintain collections of canonical electrical model objects.
+- Maintain the system MVA base.
+- Maintain deterministic bus indexing.
+- Coordinate topology management.
+- Coordinate Y-bus construction.
+- Maintain network-derived state and study state.
+- Provide lightweight network-level utilities.
 
-Responsibilities:
-    - Maintain electrical equipment containers
-    - Maintain network-wide system base
-    - Maintain bus indexing
-    - Coordinate topology management
-    - Coordinate Y-bus construction
-    - Coordinate power-flow analysis
-    - Coordinate short-circuit analysis
-    - Coordinate line and transformer flow calculations
-    - Provide interfaces to protection and dynamic studies
-    - Maintain analysis results and network state
+Does NOT
+--------
+- Implement numerical power-flow algorithms.
+- Implement Newton-Raphson/Jacobian calculations.
+- Implement short-circuit mathematics.
+- Implement protection algorithms.
+- Implement transient/dynamic numerical integration.
+- Implement engineering validation rules.
+- Define electrical equipment models.
 
-Does NOT:
-    - Perform numerical power-flow calculations
-    - Assemble Newton-Raphson Jacobians
-    - Solve numerical linear systems
-    - Directly construct Y-bus internally
-    - Perform short-circuit mathematics
-    - Perform transient numerical integration
-    - Make protection decisions
+Architecture
+------------
 
-Architecture:
+    core/model/
+        Canonical electrical entities
+              |
+              v
+    core/network/
+        Assembled network
+        topology
+        per-unit system
+        Y-bus representation
+              |
+              v
+    core/analysis/
+        Engineering study orchestration
+              |
+              v
+    core/solver/
+        Numerical algorithms
 
-    Network
-       │
-       ├── Elements
-       │     ├── Buses
-       │     ├── Lines
-       │     ├── Transformers
-       │     └── Generators
-       │
-       ├── TopologyManager
-       │
-       ├── YBusBuilder
-       │
-       ├── Power Flow Solver
-       │
-       ├── Short Circuit Solver
-       │
-       ├── Protection
-       │
-       └── Dynamics
+Important
+---------
+core/model is the single source of truth for electrical entities.
 
-Important:
-    Network is the MODEL/ORCHESTRATION boundary.
-
-    Numerical algorithms belong under:
-        core/solver/
-
-    Electrical element models belong under:
-        core/models/
-
-    Network construction and topology belong under:
-        core/network/
+core/network does not define duplicate Bus, Generator, Load,
+Line, Transformer, or other equipment classes.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-import numpy as np
-
-from core.network.ybus import YBusBuilder
-from core.network.topology import TopologyManager
-from core.network.per_unit import PerUnitSystem
+from .per_unit import PerUnitSystem
+from .topology import TopologyManager
+from .ybus import YBusBuilder
 
 
 class Network:
     """
-    Central GridForge electrical network model.
+    Assembled GridForge electrical network.
 
-    The Network object owns the physical model of the electrical
-    system and provides controlled entry points to analysis engines.
+    The Network object contains references to canonical objects
+    defined under ``core.model`` and provides network-level
+    services such as topology and Y-bus construction.
 
     Parameters
     ----------
     base_mva:
-        System-wide MVA base used by the per-unit system.
+        System-wide apparent-power base in MVA.
 
     Notes
     -----
-    The Network does not implement numerical algorithms itself.
-
-    For example:
-
-        network.build_ybus()
-
-    delegates to:
-
-        YBusBuilder
-
-    Similarly:
-
-        network.run_power_flow()
-
-    delegates to the power-flow analysis/solver layer.
+    Network is intentionally independent of specific numerical
+    solver implementations.
     """
 
     # =========================================================
     # INITIALIZATION
     # =========================================================
 
-    def __init__(self, base_mva: float = 100.0):
+    def __init__(self, base_mva: float = 100.0) -> None:
 
-        if base_mva <= 0:
+        if base_mva <= 0.0:
             raise ValueError(
-                "Network base MVA must be positive"
+                "Network base MVA must be positive."
             )
 
-        # -----------------------------------------------------
-        # SYSTEM BASE
-        # -----------------------------------------------------
-
         self.base_mva = float(base_mva)
+
+        # -----------------------------------------------------
+        # SYSTEM SERVICES
+        # -----------------------------------------------------
 
         self.per_unit = PerUnitSystem(
             base_mva=self.base_mva
         )
 
         # -----------------------------------------------------
-        # ELECTRICAL ELEMENT CONTAINERS
+        # CANONICAL MODEL COLLECTIONS
+        #
+        # Objects stored here must originate from core.model.
+        # Network does not redefine those electrical models.
         # -----------------------------------------------------
 
         self.buses: List[Any] = []
-
         self.lines: List[Any] = []
-
         self.transformers: List[Any] = []
-
         self.generators: List[Any] = []
-
         self.loads: List[Any] = []
-
         self.shunts: List[Any] = []
 
         # -----------------------------------------------------
-        # BUS INDEX
+        # DERIVED BUS INDEX
         #
-        # Maps:
-        #
-        #     bus.id → matrix index
-        #
-        # This is used by Y-bus and numerical solvers.
+        # bus.id -> numerical matrix index
         # -----------------------------------------------------
 
         self.bus_index: Dict[Any, int] = {}
 
         # -----------------------------------------------------
-        # NETWORK MATRICES
+        # DERIVED NETWORK REPRESENTATIONS
         # -----------------------------------------------------
 
         self.Ybus = None
@@ -164,54 +135,43 @@ class Network:
         # NETWORK SERVICES
         # -----------------------------------------------------
 
-        self.topology = TopologyManager(
-            self
-        )
-
-        self.ybus_builder = YBusBuilder(
-            self
-        )
+        self.topology = TopologyManager(self)
+        self.ybus_builder = YBusBuilder(self)
 
         # -----------------------------------------------------
-        # ANALYSIS RESULTS
+        # NETWORK STATE
         # -----------------------------------------------------
 
-        self.power_flow_result = None
+        self.active_fault: Optional[Dict[str, Any]] = None
 
-        self.fault_result = None
+        # Network revision counters are preferable to relying
+        # exclusively on loosely coordinated dirty flags.
+        self._topology_revision = 0
+        self._ybus_revision = -1
 
-        self.line_flow_result = None
-
-        self.transformer_flow_result = None
-
-        # -----------------------------------------------------
-        # EVENT / STUDY STATE
-        # -----------------------------------------------------
-
-        self.active_fault = None
-
-        # -----------------------------------------------------
-        # STATE FLAGS
-        # -----------------------------------------------------
-
+        # Backward-compatible dirty flags.
         self._topology_dirty = True
-
         self._ybus_dirty = True
 
     # =========================================================
     # ELEMENT MANAGEMENT
     # =========================================================
 
-    def add_bus(self, bus):
+    def add_bus(self, bus: Any) -> None:
         """
-        Add a bus to the network.
+        Add a canonical Bus model to the network.
 
         Bus IDs must be unique.
         """
 
         if bus is None:
             raise ValueError(
-                "Cannot add None as a bus"
+                "Cannot add None as a bus."
+            )
+
+        if not hasattr(bus, "id"):
+            raise TypeError(
+                "Bus object must provide an 'id' attribute."
             )
 
         if bus.id in self.bus_index:
@@ -219,119 +179,160 @@ class Network:
                 f"Duplicate bus ID: {bus.id}"
             )
 
-        self.buses.append(bus)
+        for existing in self.buses:
+            if existing.id == bus.id:
+                raise ValueError(
+                    f"Duplicate bus ID: {bus.id}"
+                )
 
-        self._topology_dirty = True
-        self._ybus_dirty = True
+        self.buses.append(bus)
+        self._invalidate_topology()
 
     # ---------------------------------------------------------
 
-    def add_line(self, line):
+    def add_line(self, line: Any) -> None:
         """
-        Add a transmission/distribution line.
+        Add a canonical Line model to the network.
         """
 
-        if line is None:
-            raise ValueError(
-                "Cannot add None as a line"
-            )
+        self._require_element(line, "line")
 
         self.lines.append(line)
+        self._invalidate_topology()
+
+    # ---------------------------------------------------------
+
+    def add_transformer(self, transformer: Any) -> None:
+        """
+        Add a canonical Transformer model to the network.
+        """
+
+        self._require_element(
+            transformer,
+            "transformer"
+        )
+
+        self.transformers.append(transformer)
+        self._invalidate_topology()
+
+    # ---------------------------------------------------------
+
+    def add_generator(self, generator: Any) -> None:
+        """
+        Add a canonical Generator model to the network.
+        """
+
+        self._require_element(
+            generator,
+            "generator"
+        )
+
+        self.generators.append(generator)
+
+    # ---------------------------------------------------------
+
+    def add_load(self, load: Any) -> None:
+        """
+        Add a canonical Load model to the network.
+        """
+
+        self._require_element(load, "load")
+
+        self.loads.append(load)
+
+    # ---------------------------------------------------------
+
+    def add_shunt(self, shunt: Any) -> None:
+        """
+        Add a canonical Shunt model to the network.
+        """
+
+        self._require_element(shunt, "shunt")
+
+        self.shunts.append(shunt)
+        self._invalidate_ybus()
+
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _require_element(
+        element: Any,
+        element_type: str
+    ) -> None:
+        """
+        Perform minimal structural validation.
+
+        Detailed engineering validation belongs to
+        core/validation/.
+        """
+
+        if element is None:
+            raise ValueError(
+                f"Cannot add None as a {element_type}."
+            )
+
+    # =========================================================
+    # INVALIDATION
+    # =========================================================
+
+    def _invalidate_topology(self) -> None:
+        """
+        Mark topology and all topology-dependent representations
+        as invalid.
+        """
+
+        self._topology_revision += 1
 
         self._topology_dirty = True
         self._ybus_dirty = True
 
-    # ---------------------------------------------------------
+        self._ybus_revision = -1
 
-    def add_transformer(self, transformer):
-        """
-        Add a transformer.
-        """
-
-        if transformer is None:
-            raise ValueError(
-                "Cannot add None as a transformer"
-            )
-
-        self.transformers.append(
-            transformer
-        )
-
-        self._topology_dirty = True
-        self._ybus_dirty = True
+        if hasattr(self.topology, "_dirty"):
+            self.topology._dirty = True
 
     # ---------------------------------------------------------
 
-    def add_generator(self, generator):
+    def _invalidate_ybus(self) -> None:
         """
-        Add a generator.
+        Mark Y-bus as invalid without necessarily changing
+        network topology.
         """
-
-        if generator is None:
-            raise ValueError(
-                "Cannot add None as a generator"
-            )
-
-        self.generators.append(
-            generator
-        )
-
-    # ---------------------------------------------------------
-
-    def add_load(self, load):
-        """
-        Add a load model.
-        """
-
-        if load is None:
-            raise ValueError(
-                "Cannot add None as a load"
-            )
-
-        self.loads.append(
-            load
-        )
-
-    # ---------------------------------------------------------
-
-    def add_shunt(self, shunt):
-        """
-        Add a shunt element.
-        """
-
-        if shunt is None:
-            raise ValueError(
-                "Cannot add None as a shunt"
-            )
-
-        self.shunts.append(
-            shunt
-        )
 
         self._ybus_dirty = True
+        self._ybus_revision = -1
 
     # =========================================================
     # BUS INDEXING
     # =========================================================
 
-    def rebuild_bus_index(self):
+    def rebuild_bus_index(self) -> Dict[Any, int]:
         """
-        Rebuild the bus ID → matrix index mapping.
+        Rebuild the deterministic bus-ID to matrix-index mapping.
 
-        The mapping is deterministic and follows the order
-        of self.buses.
+        Returns
+        -------
+        dict
+            Mapping ``bus.id -> numerical index``.
         """
 
-        self.bus_index.clear()
+        index: Dict[Any, int] = {}
 
-        for index, bus in enumerate(self.buses):
+        for position, bus in enumerate(self.buses):
 
-            if bus.id in self.bus_index:
+            if not hasattr(bus, "id"):
+                raise TypeError(
+                    "Every bus must provide an 'id' attribute."
+                )
+
+            if bus.id in index:
                 raise ValueError(
                     f"Duplicate bus ID: {bus.id}"
                 )
 
-            self.bus_index[bus.id] = index
+            index[bus.id] = position
+
+        self.bus_index = index
 
         return self.bus_index
 
@@ -341,10 +342,8 @@ class Network:
 
     def rebuild_topology(self):
         """
-        Rebuild the electrical connectivity graph.
+        Rebuild and return the network topology graph.
         """
-
-        self.topology._dirty = True
 
         graph = self.topology.build()
 
@@ -356,16 +355,23 @@ class Network:
 
     def find_islands(self):
         """
-        Return electrical network islands.
+        Return the electrical network islands.
+
+        Island detection itself is implemented by
+        TopologyManager.
         """
 
         return self.topology.find_islands()
 
     # ---------------------------------------------------------
 
-    def is_connected(self, bus_a, bus_b):
+    def is_connected(
+        self,
+        bus_a: Any,
+        bus_b: Any
+    ) -> bool:
         """
-        Check whether two buses are electrically connected.
+        Determine whether two buses are electrically connected.
         """
 
         return self.topology.is_connected(
@@ -379,271 +385,45 @@ class Network:
 
     def build_ybus(self):
         """
-        Build the network Y-bus.
+        Build and return the network Y-bus.
 
-        IMPORTANT:
-            Y-bus mathematics belongs exclusively to
-            core/network/ybus.py.
+        Y-bus mathematics is implemented exclusively by
+        YBusBuilder.
 
-        This method is only the Network-level API.
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            Network admittance matrix.
         """
 
         self.rebuild_bus_index()
 
-        self.Ybus = self.ybus_builder.build()
+        ybus = self.ybus_builder.build()
+
+        self.Ybus = ybus
 
         self._ybus_dirty = False
+        self._ybus_revision = self._topology_revision
 
         return self.Ybus
 
-    # =========================================================
-    # POWER FLOW
-    # =========================================================
-
-    def run_power_flow(
-        self,
-        options=None
-    ):
-        """
-        Run the AC power-flow analysis.
-
-        The numerical solver resides under:
-
-            core/solver/power_flow/
-
-        Network only prepares and delegates the study.
-        """
-
-        # Import here to avoid unnecessary circular imports
-        # during Network model initialization.
-        from core.analysis.power_flow import (
-            PowerFlowSolver
-        )
-
-        if self.Ybus is None or self._ybus_dirty:
-            self.build_ybus()
-
-        solver = PowerFlowSolver(
-            self,
-            options=options
-        )
-
-        self.power_flow_result = solver.solve()
-
-        return self.power_flow_result
-
-    # ---------------------------------------------------------
-    # Backward-compatible alias
     # ---------------------------------------------------------
 
-    def run_load_flow(
-        self,
-        options=None
-    ):
+    def get_ybus(self):
         """
-        Backward-compatible alias.
+        Return the current Y-bus.
 
-        GridForge now uses the terminology:
-
-            POWER FLOW
-
-        instead of:
-
-            LOAD FLOW
+        Rebuilds it automatically when invalid.
         """
 
-        return self.run_power_flow(
-            options=options
-        )
+        if (
+            self.Ybus is None
+            or self._ybus_dirty
+            or self._ybus_revision != self._topology_revision
+        ):
+            return self.build_ybus()
 
-    # =========================================================
-    # LINE FLOWS
-    # =========================================================
-
-    def compute_line_flows(self):
-        """
-        Calculate line power flows from the solved power-flow state.
-        """
-
-        if self.power_flow_result is None:
-            raise RuntimeError(
-                "Power flow must be solved before "
-                "line flows can be calculated"
-            )
-
-        from core.analysis.line_flow import (
-            LineFlowCalculator
-        )
-
-        calculator = LineFlowCalculator(
-            self
-        )
-
-        self.line_flow_result = calculator.compute(
-            self.power_flow_result["Vm"],
-            self.power_flow_result["Va"]
-        )
-
-        return self.line_flow_result
-
-    # =========================================================
-    # TRANSFORMER FLOWS
-    # =========================================================
-
-    def compute_transformer_flows(self):
-        """
-        Calculate transformer power flows from the solved
-        power-flow state.
-        """
-
-        if self.power_flow_result is None:
-            raise RuntimeError(
-                "Power flow must be solved before "
-                "transformer flows can be calculated"
-            )
-
-        from core.analysis.transformer_flow import (
-            TransformerFlowCalculator
-        )
-
-        calculator = TransformerFlowCalculator(
-            self
-        )
-
-        self.transformer_flow_result = (
-            calculator.compute(
-                self.power_flow_result["Vm"],
-                self.power_flow_result["Va"]
-            )
-        )
-
-        return self.transformer_flow_result
-
-    # =========================================================
-    # SHORT CIRCUIT
-    # =========================================================
-
-    def apply_fault(
-        self,
-        bus_id,
-        fault_type,
-        Zf=0.0
-    ):
-        """
-        Store the currently active fault condition.
-
-        This does not perform fault calculations.
-        """
-
-        if bus_id not in self.bus_index:
-            self.rebuild_bus_index()
-
-        if bus_id not in self.bus_index:
-            raise KeyError(
-                f"Unknown fault bus: {bus_id}"
-            )
-
-        if Zf < 0:
-            raise ValueError(
-                "Fault impedance cannot be negative"
-            )
-
-        self.active_fault = {
-            "bus_id": bus_id,
-            "type": fault_type,
-            "Zf": Zf
-        }
-
-    # ---------------------------------------------------------
-
-    def run_short_circuit(
-        self,
-        fault_bus,
-        Zf=0.0
-    ):
-        """
-        Run a balanced three-phase short-circuit study.
-        """
-
-        from core.analysis.short_circuit import (
-            ShortCircuitAnalyzer
-        )
-
-        if self.Ybus is None or self._ybus_dirty:
-            self.build_ybus()
-
-        analyzer = ShortCircuitAnalyzer(
-            self
-        )
-
-        self.fault_result = (
-            analyzer.run_three_phase_fault(
-                fault_bus,
-                Zf
-            )
-        )
-
-        return self.fault_result
-
-    # ---------------------------------------------------------
-
-    def run_unbalanced_faults(
-        self,
-        fault_type,
-        fault_bus,
-        Zf=0.0
-    ):
-        """
-        Run an unbalanced fault study using sequence networks.
-        """
-
-        from core.analysis.unbalanced_fault import (
-            UnbalancedFaultAnalyzer
-        )
-
-        analyzer = UnbalancedFaultAnalyzer(
-            self,
-            self.sequence_network
-            if hasattr(self, "sequence_network")
-            else None
-        )
-
-        self.fault_result = analyzer.run(
-            fault_type,
-            fault_bus,
-            Zf
-        )
-
-        return self.fault_result
-
-    # =========================================================
-    # PROTECTION
-    # =========================================================
-
-    def run_protection(self):
-        """
-        Execute the protection analysis interface.
-
-        Protection logic remains outside Network.
-        """
-
-        if self.fault_result is None:
-            raise RuntimeError(
-                "Fault study must be completed before "
-                "protection evaluation"
-            )
-
-        from core.protection.protection import (
-            ProtectionSystem
-        )
-
-        protection_system = ProtectionSystem()
-
-        return protection_system.evaluate(
-            self.fault_result,
-            self.lines,
-            self.generators
-        )
+        return self.Ybus
 
     # =========================================================
     # NETWORK RECONFIGURATION
@@ -652,164 +432,127 @@ class Network:
     def reconfigure(self):
         """
         Rebuild topology and Y-bus after network changes.
+
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            Updated Y-bus.
         """
 
-        self._topology_dirty = True
-        self._ybus_dirty = True
+        self._invalidate_topology()
 
         self.rebuild_topology()
-        self.build_ybus()
 
-        return self.Ybus
+        return self.build_ybus()
 
     # =========================================================
-    # DYNAMIC SIMULATION
+    # ELEMENT STATUS
     # =========================================================
 
-    def run_transient_stability(
+    def set_element_status(
         self,
-        t_end=5.0,
-        dt=0.01
-    ):
+        element: Any,
+        in_service: bool
+    ) -> None:
         """
-        Run transient-stability simulation.
+        Change the service state of a topology-affecting element.
 
-        Dynamic numerical implementation belongs under:
-
-            core/solver/dynamics/
+        This method does not perform engineering validation.
         """
 
-        from core.solver.dynamics.transient_stability import (
-            TransientStabilitySolver
-        )
+        if element is None:
+            raise ValueError(
+                "Element cannot be None."
+            )
 
-        solver = TransientStabilitySolver(
-            self
-        )
+        if not hasattr(element, "in_service"):
+            raise AttributeError(
+                "Element does not provide an 'in_service' state."
+            )
 
-        return solver.run(
-            self.active_fault,
-            t_end,
-            dt
-        )
+        element.in_service = bool(in_service)
+
+        self._invalidate_topology()
+
+    # =========================================================
+    # FAULT STATE
+    # =========================================================
+
+    def apply_fault(
+        self,
+        bus_id: Any,
+        fault_type: str,
+        Zf: complex = 0.0
+    ) -> None:
+        """
+        Store an active fault condition.
+
+        This method only stores network state.
+
+        Fault-current calculations belong to the analysis/solver
+        layers.
+        """
+
+        if not self.bus_index:
+            self.rebuild_bus_index()
+
+        if bus_id not in self.bus_index:
+            raise KeyError(
+                f"Unknown fault bus: {bus_id}"
+            )
+
+        if isinstance(Zf, (int, float)) and Zf < 0:
+            raise ValueError(
+                "Fault impedance cannot be negative."
+            )
+
+        if not isinstance(fault_type, str):
+            raise TypeError(
+                "fault_type must be a string."
+            )
+
+        self.active_fault = {
+            "bus_id": bus_id,
+            "type": fault_type,
+            "Zf": Zf,
+        }
 
     # ---------------------------------------------------------
 
-    def run_multi_machine(
-        self,
-        t_end=5.0,
-        dt=0.01
-    ):
+    def clear_fault(self) -> None:
         """
-        Run multi-machine dynamic simulation.
+        Clear the currently stored fault condition.
         """
 
-        from core.solver.dynamics.multi_machine import (
-            MultiMachineSimulator
-        )
-
-        simulator = MultiMachineSimulator(
-            self
-        )
-
-        return simulator.run(
-            t_end,
-            dt
-        )
+        self.active_fault = None
 
     # =========================================================
-    # VALIDATION
+    # VALIDATION HOOK
     # =========================================================
 
     def validate(self):
         """
-        Validate the minimum requirements of the network.
+        Delegate structural/engineering validation to the
+        validation layer when available.
 
-        This method performs structural validation only.
+        Network itself does not implement engineering validation.
+
+        Returns
+        -------
+        Validation result
         """
 
-        if len(self.buses) == 0:
-            raise ValueError(
-                "Network contains no buses"
-            )
+        from core.validation import validate_network
 
-        self.rebuild_bus_index()
-
-        bus_ids = set(
-            self.bus_index.keys()
-        )
-
-        # -----------------------------------------------------
-        # Validate line terminals
-        # -----------------------------------------------------
-
-        for line in self.lines:
-
-            from_bus = (
-                line.from_bus.id
-                if hasattr(line.from_bus, "id")
-                else line.from_bus
-            )
-
-            to_bus = (
-                line.to_bus.id
-                if hasattr(line.to_bus, "id")
-                else line.to_bus
-            )
-
-            if from_bus not in bus_ids:
-                raise ValueError(
-                    f"Line {getattr(line, 'id', line)} "
-                    f"references unknown from-bus {from_bus}"
-                )
-
-            if to_bus not in bus_ids:
-                raise ValueError(
-                    f"Line {getattr(line, 'id', line)} "
-                    f"references unknown to-bus {to_bus}"
-                )
-
-        # -----------------------------------------------------
-        # Validate transformer terminals
-        # -----------------------------------------------------
-
-        for transformer in self.transformers:
-
-            from_bus = (
-                transformer.from_bus.id
-                if hasattr(transformer.from_bus, "id")
-                else transformer.from_bus
-            )
-
-            to_bus = (
-                transformer.to_bus.id
-                if hasattr(transformer.to_bus, "id")
-                else transformer.to_bus
-            )
-
-            if from_bus not in bus_ids:
-                raise ValueError(
-                    f"Transformer "
-                    f"{getattr(transformer, 'id', transformer)} "
-                    f"references unknown from-bus {from_bus}"
-                )
-
-            if to_bus not in bus_ids:
-                raise ValueError(
-                    f"Transformer "
-                    f"{getattr(transformer, 'id', transformer)} "
-                    f"references unknown to-bus {to_bus}"
-                )
-
-        return True
+        return validate_network(self)
 
     # =========================================================
     # SUMMARY
     # =========================================================
 
-    def summary(self):
+    def summary(self) -> Dict[str, Any]:
         """
-        Return a concise network summary.
+        Return a concise network-state summary.
         """
 
         return {
@@ -823,4 +566,25 @@ class Network:
             "ybus_built": self.Ybus is not None,
             "ybus_dirty": self._ybus_dirty,
             "topology_dirty": self._topology_dirty,
+            "topology_revision": self._topology_revision,
+            "ybus_revision": self._ybus_revision,
+            "active_fault": self.active_fault is not None,
         }
+
+    # =========================================================
+    # REPRESENTATION
+    # =========================================================
+
+    def __repr__(self) -> str:
+        return (
+            f"Network("
+            f"base_mva={self.base_mva}, "
+            f"buses={len(self.buses)}, "
+            f"lines={len(self.lines)}, "
+            f"transformers={len(self.transformers)}, "
+            f"generators={len(self.generators)}, "
+            f"loads={len(self.loads)}, "
+            f"shunts={len(self.shunts)}"
+            f")"
+        )
+```
