@@ -7,47 +7,42 @@ ui/canvas/render_system.py
 
 Purpose:
 --------
-Responsible for translating the data model into visual QGraphicsItems.
+Synchronizes the model (data) with the QGraphicsScene (visuals).
 
-This system:
--------------
-- Clears and rebuilds the scene
-- Delegates rendering to registered renderers
-- Does NOT know about specific item types (bus, line, etc.)
+This is a FULL REBUILD renderer:
+- Clears scene
+- Recreates all items from model
 
-Architecture:
--------------
-Model → RenderSystem → Renderer Plugins → QGraphicsItems → Scene
+Responsibilities:
+-----------------
+1. Convert model objects → QGraphicsItems
+2. Ensure visual state matches model state
+3. Restore selection after rebuild
 
-Extensibility:
---------------
-To support new element types:
-1. Create a renderer plugin
-2. Register it in the renderer registry
-3. NO changes required here
+Important Design Rule:
+----------------------
+RenderSystem NEVER modifies the model.
+It is strictly one-way: MODEL → VIEW
 """
+
+from ui.items.bus_item import BusItem
+from ui.items.line_item import LineItem
+
 
 class RenderSystem:
     """
-    Rebuilds the scene using registered renderers.
+    Rebuilds scene from model.
     """
 
-    def __init__(self, scene, controller, renderer_registry):
+    def __init__(self, scene, controller):
         """
         Parameters:
         -----------
         scene : QGraphicsScene
-            The scene where items are rendered
-
         controller : Controller
-            Provides access to the model
-
-        renderer_registry : RendererRegistry
-            Maps model types → renderer classes
         """
         self.scene = scene
         self.controller = controller
-        self.renderer_registry = renderer_registry
 
     # ==========================================================
     # MAIN ENTRY POINT
@@ -55,51 +50,55 @@ class RenderSystem:
 
     def rebuild(self):
         """
-        Clears and rebuilds the entire scene from the model.
+        Rebuild the entire scene from the model.
+
+        Triggered by:
+        -------------
+        - model_changed
+        - selection_changed (optional but recommended)
+
+        Steps:
+        ------
+        1. Clear scene
+        2. Draw buses
+        3. Draw lines
+        4. Restore selection
         """
 
         # ------------------------------------------------------
-        # Clear existing visuals
+        # 1. Clear scene
         # ------------------------------------------------------
         self.scene.clear()
 
         model = self.controller.model
 
         # ------------------------------------------------------
-        # Iterate over all model elements generically
+        # 2. Draw BUSES
         # ------------------------------------------------------
-        for element in self._iterate_model(model):
-            self._render_element(element)
+        for bus in model.graph.buses.values():
 
-    # ==========================================================
-    # INTERNAL HELPERS
-    # ==========================================================
+            item = BusItem(bus)
 
-    def _iterate_model(self, model):
-        """
-        Yields all drawable elements from the model.
+            # Restore selection state
+            if bus.id in self.controller.selected_ids:
+                item.setSelected(True)
 
-        This isolates knowledge of model structure.
-        """
-
-        # Example structure — extend ONLY here if model changes
-        yield from model.graph.buses.values()
-        yield from model.graph.lines.values()
-
-    # ----------------------------------------------------------
-
-    def _render_element(self, element):
-        """
-        Uses the renderer registry to create a visual item.
-        """
-
-        renderer = self.renderer_registry.get_renderer(type(element))
-
-        if not renderer:
-            print(f"[RenderSystem] No renderer for {type(element).__name__}")
-            return
-
-        item = renderer.create_item(element, self.controller)
-
-        if item:
             self.scene.addItem(item)
+
+        # ------------------------------------------------------
+        # 3. Draw LINES
+        # ------------------------------------------------------
+        for line in model.graph.lines.values():
+
+            item = LineItem(line, model)
+
+            # Restore selection state
+            if line.id in self.controller.selected_ids:
+                item.setSelected(True)
+
+            self.scene.addItem(item)
+
+        # ------------------------------------------------------
+        # DONE
+        # ------------------------------------------------------
+        print("[RenderSystem] Scene rebuilt")
