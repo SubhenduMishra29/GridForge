@@ -6,54 +6,37 @@ GridForge Synchronous Machine Model
 File:
     core/model/synchronous_machine.py
 
-Defines the GridForge synchronous-machine dynamic model.
+Defines the synchronous-machine dynamic model used by the
+GridForge transient-stability / dynamic simulation framework.
 
 Purpose
 -------
-The SynchronousMachine represents the electromechanical dynamics of
-a synchronous generator.
+The SynchronousMachine represents the electrical and mechanical
+dynamics of a synchronous generator.
 
-Current model
--------------
-Classical second-order synchronous-machine model.
-
-Dynamic states:
-
-    delta
-        Rotor electrical angle in radians.
-
-    omega
-        Rotor speed deviation in per-unit.
-
-The machine equations are:
-
-    d(delta)/dt = omega_base * omega
-
-    d(omega)/dt =
-        [Pm - Pe - D * omega] / (2H)
-
-Where:
+The present implementation uses a fourth-order transient
+synchronous-machine model with the following dynamic states:
 
     delta
         Rotor electrical angle.
 
     omega
-        Rotor speed deviation from synchronous speed.
+        Rotor speed deviation.
 
-    Pm
-        Mechanical input power.
+    Eq_prime
+        q-axis transient internal EMF.
 
-    Pe
-        Electrical air-gap/output power.
+    Ed_prime
+        d-axis transient internal EMF.
 
-    H
-        Inertia constant in seconds.
+The model is intended to interface with:
 
-    D
-        Damping coefficient.
-
-    omega_base
-        Electrical synchronous angular frequency in rad/s.
+    - Generator
+    - Governor
+    - AVR
+    - PSS
+    - Network algebraic equations
+    - Dynamic / DAE solver
 
 Architecture
 ------------
@@ -65,95 +48,98 @@ The dynamic / DAE solver owns:
     - State integration
     - Time stepping
     - Initial conditions
+    - Algebraic network solution
     - Differential-algebraic solution
 
-The SynchronousMachine provides:
+The machine model provides:
 
     - Differential equations
-    - Electrical power input interface
-    - Mechanical power input interface
+    - Electrical power calculations
+    - Electrical torque calculations
+    - Internal EMF calculations
     - Initial-state calculation
-    - Parameter management
-    - Basic machine limits
-    - Machine diagnostics
+    - Parameter validation
+    - Diagnostic information
 
-The machine model does NOT:
-
-    - Build Ybus.
-    - Solve load flow.
-    - Solve network algebraic equations.
-    - Perform Newton-Raphson iterations.
-    - Perform short-circuit calculations.
-    - Perform transient-stability integration.
-    - Control the AVR.
-    - Control the governor.
-    - Perform protection calculations.
-
-Those responsibilities belong to the appropriate solver,
-analysis, control, or protection layers.
-
-Control-system relationship
+Electrical Sign Convention
 ---------------------------
+Generator-side electrical power is positive when power is
+delivered from the synchronous machine into the electrical
+network.
 
-Typical dynamic chain:
+Mechanical input power is positive when supplied by the turbine
+or prime mover to the synchronous machine.
 
-    Rotor speed
-        |
-        v
-    Governor
-        |
-        v
-       Pm
-        |
-        v
-    +----------------------+
-    | Synchronous Machine  |
-    +----------------------+
-        |
-        +---- delta
-        |
-        +---- omega
-        |
-        v
-       Pe
-        |
-        v
-      Network
+The swing equation is represented as:
 
-Excitation path:
+    d(delta)/dt = omega_b * omega
 
-    Vt
-     |
-     v
-    AVR <---- PSS
-     |
-     v
-    Efd
-     |
-     v
-    Synchronous Machine
+    d(omega)/dt =
+        (Pm - Pe - D * omega) / (2H)
 
-Future extensions
+where:
+
+    H
+        Inertia constant in seconds.
+
+    D
+        Damping coefficient.
+
+    omega_b
+        Electrical base angular frequency.
+
+    Pm
+        Mechanical input power.
+
+    Pe
+        Electrical air-gap/electrical output power.
+
+Rotor Electrical Equations
+---------------------------
+The transient EMF equations are represented as:
+
+    dEq'/dt =
+        [Efd - Eq' - (Xd - Xd') * Id] / Tdo'
+
+    dEd'/dt =
+        [-Ed' + (Xq - Xq') * Iq] / Tqo'
+
+The exact current and sign convention must remain consistent
+between this model and the network/interface transformation used
+by the dynamic solver.
+
+Power-angle transformation
+--------------------------
+The stator currents are represented in the rotor reference frame.
+
+For a network terminal voltage represented by:
+
+    V = Vd + jVq
+
+the dq components are obtained using the rotor angle.
+
+The machine terminal power is calculated from the dq quantities.
+
+This class does NOT solve the terminal algebraic equations.
+The dynamic solver/network solver supplies the terminal voltage
+and obtains the corresponding machine current.
+
+Future Extensions
 -----------------
-The model can later be extended to support:
+The model can later support:
 
-    - 3rd-order models
-    - 4th-order transient models
-    - 5th/6th-order subtransient models
-    - xd / xq
-    - xd' / xq'
-    - xd'' / xq''
-    - Td0'
-    - Tq0'
-    - Td0''
-    - Tq0''
-    - E'q / E'd states
-    - E''q / E''d states
+    - Classical second-order machine
+    - Fifth / sixth-order models
+    - Subtransient EMF states
+    - Salient-pole machines
+    - Round-rotor machines
     - Saturation
     - Damper windings
-    - Saliency
-    - Field-current limits
-    - Machine-specific electrical equations
+    - Frequency-dependent parameters
+    - Negative-sequence models
+    - Zero-sequence models
+    - Detailed stator algebraic equations
+    - IEEE machine models
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -166,293 +152,485 @@ import math
 
 class SynchronousMachine:
     """
-    Classical second-order synchronous-machine model.
+    Fourth-order transient synchronous-machine model.
 
-    The model contains machine parameters only. Dynamic states are
-    supplied by the dynamic solver.
+    The machine does not integrate its dynamic states.
+
+    The dynamic solver supplies the current state and network
+    quantities and integrates the derivatives returned by this
+    model.
 
     Parameters
     ----------
     id:
         Unique machine identifier.
 
-    name:
-        Human-readable machine name.
-
     rated_mva:
-        Machine MVA base/rating.
+        Machine rated apparent power in MVA.
 
     H:
         Inertia constant in seconds.
 
     D:
-        Mechanical damping coefficient.
+        Damping coefficient.
 
-    omega_base:
-        Electrical synchronous angular frequency in rad/s.
+    xd:
+        d-axis synchronous reactance.
 
-    Pm_min:
-        Minimum mechanical input power.
+    xq:
+        q-axis synchronous reactance.
 
-    Pm_max:
-        Maximum mechanical input power.
+    xd_prime:
+        d-axis transient reactance.
 
-    Pe_min:
-        Minimum electrical power.
+    xq_prime:
+        q-axis transient reactance.
 
-    Pe_max:
-        Maximum electrical power.
+    Tdo_prime:
+        d-axis open-circuit transient time constant.
 
-    Efd_min:
-        Minimum excitation voltage.
+    Tqo_prime:
+        q-axis open-circuit transient time constant.
 
-    Efd_max:
-        Maximum excitation voltage.
+    frequency_hz:
+        Electrical system base frequency.
+
+    name:
+        Human-readable machine name.
 
     Notes
     -----
-    ``omega`` is represented as a per-unit speed deviation:
+    All electrical quantities are represented in per-unit unless
+    explicitly stated otherwise.
 
-        omega = (w - w_s) / w_s
-
-    Therefore:
-
-        d(delta)/dt = omega_base * omega
+    The dynamic state is intentionally NOT stored as an
+    authoritative state inside this model.
     """
 
-    # =============================================================
+    # =========================================================
     # INITIALIZATION
-    # =============================================================
+    # =========================================================
 
     def __init__(
         self,
         id: str,
-        name: str = "",
         rated_mva: float = 100.0,
         H: float = 3.5,
         D: float = 0.0,
-        omega_base: float = 2.0 * math.pi * 50.0,
-        Pm_min: float = 0.0,
-        Pm_max: float = 1.2,
-        Pe_min: float = -1.2,
-        Pe_max: float = 1.2,
-        Efd_min: float = 0.0,
-        Efd_max: float = 5.0,
-    ):
+        xd: float = 1.80,
+        xq: float = 1.70,
+        xd_prime: float = 0.30,
+        xq_prime: float = 0.55,
+        Tdo_prime: float = 8.0,
+        Tqo_prime: float = 0.4,
+        frequency_hz: float = 50.0,
+        name: str = "",
+    ) -> None:
         """
-        Initialize a synchronous-machine model.
-
-        Parameters
-        ----------
-        id:
-            Unique machine identifier.
-
-        name:
-            Human-readable machine name.
-
-        rated_mva:
-            Machine MVA rating.
-
-        H:
-            Inertia constant in seconds.
-
-        D:
-            Damping coefficient.
-
-        omega_base:
-            Synchronous electrical angular frequency in rad/s.
-
-        Pm_min:
-            Minimum mechanical input power.
-
-        Pm_max:
-            Maximum mechanical input power.
-
-        Pe_min:
-            Minimum electrical power.
-
-        Pe_max:
-            Maximum electrical power.
-
-        Efd_min:
-            Minimum excitation voltage.
-
-        Efd_max:
-            Maximum excitation voltage.
+        Initialize the synchronous-machine model.
         """
 
         self.id = str(id)
+
         self.name = str(name)
 
-        # ---------------------------------------------------------
-        # Machine base
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # Machine rating
+        # -----------------------------------------------------
 
         self.rated_mva = float(rated_mva)
 
-        # ---------------------------------------------------------
-        # Dynamic parameters
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # Mechanical parameters
+        # -----------------------------------------------------
 
         self.H = float(H)
+
         self.D = float(D)
-        self.omega_base = float(omega_base)
 
-        # ---------------------------------------------------------
-        # Mechanical power limits
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # Synchronous reactances
+        # -----------------------------------------------------
 
-        self.Pm_min = float(Pm_min)
-        self.Pm_max = float(Pm_max)
+        self.xd = float(xd)
 
-        # ---------------------------------------------------------
-        # Electrical power limits
-        # ---------------------------------------------------------
+        self.xq = float(xq)
 
-        self.Pe_min = float(Pe_min)
-        self.Pe_max = float(Pe_max)
+        # -----------------------------------------------------
+        # Transient reactances
+        # -----------------------------------------------------
 
-        # ---------------------------------------------------------
-        # Excitation limits
-        #
-        # These are stored here as machine capability limits.
-        # AVR dynamics remain responsible for regulating Efd.
-        # ---------------------------------------------------------
+        self.xd_prime = float(xd_prime)
 
-        self.Efd_min = float(Efd_min)
-        self.Efd_max = float(Efd_max)
+        self.xq_prime = float(xq_prime)
+
+        # -----------------------------------------------------
+        # Transient time constants
+        # -----------------------------------------------------
+
+        self.Tdo_prime = float(Tdo_prime)
+
+        self.Tqo_prime = float(Tqo_prime)
+
+        # -----------------------------------------------------
+        # System frequency
+        # -----------------------------------------------------
+
+        self.frequency_hz = float(frequency_hz)
+
+        # -----------------------------------------------------
+        # Operational state
+        # -----------------------------------------------------
+
+        self.in_service = True
 
         self._validate()
 
-    # =============================================================
+    # =========================================================
     # VALIDATION
-    # =============================================================
+    # =========================================================
 
     def _validate(self) -> None:
         """
         Validate synchronous-machine parameters.
         """
 
-        if not self.id:
-            raise ValueError(
-                "Synchronous machine id cannot be empty."
-            )
-
         if self.rated_mva <= 0.0:
             raise ValueError(
                 "Machine rated MVA must be greater than zero."
             )
 
-        if not math.isfinite(self.rated_mva):
-            raise ValueError(
-                "Machine rated MVA must be finite."
-            )
-
         if self.H <= 0.0:
             raise ValueError(
-                "Machine inertia constant H must be greater than zero."
-            )
-
-        if not math.isfinite(self.H):
-            raise ValueError(
-                "Machine inertia constant H must be finite."
+                "Machine inertia constant H "
+                "must be greater than zero."
             )
 
         if self.D < 0.0:
             raise ValueError(
-                "Machine damping coefficient D must be >= 0."
+                "Machine damping coefficient D "
+                "must be greater than or equal to zero."
             )
 
-        if self.omega_base <= 0.0:
+        if self.xd <= 0.0:
             raise ValueError(
-                "Machine omega_base must be greater than zero."
+                "d-axis synchronous reactance xd "
+                "must be greater than zero."
             )
 
-        if self.Pm_min > self.Pm_max:
+        if self.xq <= 0.0:
             raise ValueError(
-                "Pm_min must not be greater than Pm_max."
+                "q-axis synchronous reactance xq "
+                "must be greater than zero."
             )
 
-        if self.Pe_min > self.Pe_max:
+        if self.xd_prime <= 0.0:
             raise ValueError(
-                "Pe_min must not be greater than Pe_max."
+                "d-axis transient reactance xd_prime "
+                "must be greater than zero."
             )
 
-        if self.Efd_min > self.Efd_max:
+        if self.xq_prime <= 0.0:
             raise ValueError(
-                "Efd_min must not be greater than Efd_max."
+                "q-axis transient reactance xq_prime "
+                "must be greater than zero."
             )
 
-    # =============================================================
-    # ROTOR ANGLE EQUATION
-    # =============================================================
+        if self.xd_prime > self.xd:
+            raise ValueError(
+                "xd_prime cannot exceed xd."
+            )
 
-    def angle_derivative(
+        if self.xq_prime > self.xq:
+            raise ValueError(
+                "xq_prime cannot exceed xq."
+            )
+
+        if self.Tdo_prime <= 0.0:
+            raise ValueError(
+                "Tdo_prime must be greater than zero."
+            )
+
+        if self.Tqo_prime <= 0.0:
+            raise ValueError(
+                "Tqo_prime must be greater than zero."
+            )
+
+        if self.frequency_hz <= 0.0:
+            raise ValueError(
+                "frequency_hz must be greater than zero."
+            )
+
+    # =========================================================
+    # BASE FREQUENCY
+    # =========================================================
+
+    @property
+    def omega_base(self) -> float:
+        """
+        Return electrical base angular frequency.
+
+        omega_b = 2 * pi * f
+        """
+
+        return (
+            2.0
+            * math.pi
+            * self.frequency_hz
+        )
+
+    # =========================================================
+    # ROTOR REFERENCE TRANSFORMATION
+    # =========================================================
+
+    @staticmethod
+    def terminal_voltage_dq(
+        Vt: float,
+        angle: float,
+    ) -> tuple[float, float]:
+        """
+        Convert terminal-voltage magnitude and rotor angle
+        into rotor-frame d/q components.
+
+        Parameters
+        ----------
+        Vt:
+            Terminal-voltage magnitude in per-unit.
+
+        angle:
+            Rotor electrical angle in radians.
+
+        Returns
+        -------
+        tuple
+            (Vd, Vq)
+
+        Notes
+        -----
+        The convention used here is:
+
+            Vd = Vt * sin(delta)
+
+            Vq = Vt * cos(delta)
+
+        The dynamic solver must use the same convention when
+        transforming currents between network and rotor frames.
+        """
+
+        Vt = float(Vt)
+        angle = float(angle)
+
+        Vd = (
+            Vt
+            * math.sin(angle)
+        )
+
+        Vq = (
+            Vt
+            * math.cos(angle)
+        )
+
+        return Vd, Vq
+
+    # =========================================================
+    # CURRENT FROM TRANSIENT EMF
+    # =========================================================
+
+    def currents_from_terminal_voltage(
         self,
-        omega: float,
+        Eq_prime: float,
+        Ed_prime: float,
+        Vd: float,
+        Vq: float,
+    ) -> tuple[float, float]:
+        """
+        Calculate d/q stator currents from transient internal EMF
+        and terminal voltage.
+
+        The transient voltage relations are represented as:
+
+            Vd = Ed' + Xq' * Iq
+
+            Vq = Eq' - Xd' * Id
+
+        Therefore:
+
+            Id = (Eq' - Vq) / Xd'
+
+            Iq = (Vd - Ed') / Xq'
+
+        Returns
+        -------
+        tuple
+            (Id, Iq)
+        """
+
+        Eq_prime = float(Eq_prime)
+        Ed_prime = float(Ed_prime)
+        Vd = float(Vd)
+        Vq = float(Vq)
+
+        Id = (
+            Eq_prime
+            - Vq
+        ) / self.xd_prime
+
+        Iq = (
+            Vd
+            - Ed_prime
+        ) / self.xq_prime
+
+        return Id, Iq
+
+    # =========================================================
+    # ELECTRICAL POWER
+    # =========================================================
+
+    @staticmethod
+    def electrical_power(
+        Vd: float,
+        Vq: float,
+        Id: float,
+        Iq: float,
     ) -> float:
         """
-        Calculate rotor-angle derivative.
+        Calculate three-phase electrical power in per-unit.
 
         Equation:
 
-            d(delta)/dt = omega_base * omega
+            Pe = Vd * Id + Vq * Iq
+
+        Returns
+        -------
+        float
+            Electrical active-power output in per-unit.
+        """
+
+        return (
+            float(Vd) * float(Id)
+            +
+            float(Vq) * float(Iq)
+        )
+
+    # =========================================================
+    # REACTIVE POWER
+    # =========================================================
+
+    @staticmethod
+    def reactive_power(
+        Vd: float,
+        Vq: float,
+        Id: float,
+        Iq: float,
+    ) -> float:
+        """
+        Calculate reactive power in per-unit.
+
+        Equation:
+
+            Q = Vq * Id - Vd * Iq
+
+        The sign convention follows the dq convention used by
+        this machine model.
+        """
+
+        return (
+            float(Vq) * float(Id)
+            -
+            float(Vd) * float(Iq)
+        )
+
+    # =========================================================
+    # ELECTRICAL TORQUE
+    # =========================================================
+
+    @staticmethod
+    def electrical_torque(
+        Pe: float,
+        omega: float = 0.0,
+    ) -> float:
+        """
+        Return electrical torque approximation.
+
+        For the normalized per-unit dynamic representation,
+        electrical torque is normally represented by electrical
+        power divided by per-unit rotor speed.
+
+        At nominal speed (omega = 0), the per-unit rotor speed is
+        one.
+
+        Therefore:
+
+            Te = Pe / (1 + omega)
+
+        Parameters
+        ----------
+        Pe:
+            Electrical power in per-unit.
+
+        omega:
+            Rotor speed deviation in per-unit.
+        """
+
+        rotor_speed = 1.0 + float(omega)
+
+        if rotor_speed <= 0.0:
+            raise ValueError(
+                "Rotor speed must remain greater than zero."
+            )
+
+        return (
+            float(Pe)
+            / rotor_speed
+        )
+
+    # =========================================================
+    # SWING EQUATION
+    # =========================================================
+
+    def rotor_derivative(
+        self,
+        omega: float,
+        Pm: float,
+        Pe: float,
+    ) -> tuple[float, float]:
+        """
+        Calculate rotor-angle and rotor-speed derivatives.
+
+        Equations:
+
+            d(delta)/dt = omega_b * omega
+
+            d(omega)/dt =
+                (Pm - Pe - D*omega) / (2H)
 
         Parameters
         ----------
         omega:
             Rotor speed deviation in per-unit.
 
-        Returns
-        -------
-        float
-            Rotor electrical-angle derivative in rad/s.
-        """
-
-        omega = float(omega)
-
-        return self.omega_base * omega
-
-    # =============================================================
-    # SPEED EQUATION
-    # =============================================================
-
-    def speed_derivative(
-        self,
-        Pm: float,
-        Pe: float,
-        omega: float,
-    ) -> float:
-        """
-        Calculate rotor-speed derivative.
-
-        Swing equation:
-
-            d(omega)/dt =
-                [Pm - Pe - D * omega] / (2H)
-
-        Parameters
-        ----------
         Pm:
             Mechanical input power in per-unit.
 
         Pe:
-            Electrical output power in per-unit.
-
-        omega:
-            Rotor speed deviation in per-unit.
+            Electrical power output in per-unit.
 
         Returns
         -------
-        float
-            Rotor speed-deviation derivative.
+        tuple
+            (d_delta_dt, d_omega_dt)
         """
 
+        omega = float(omega)
         Pm = float(Pm)
         Pe = float(Pe)
-        omega = float(omega)
 
-        return (
+        d_delta_dt = (
+            self.omega_base
+            * omega
+        )
+
+        d_omega_dt = (
             Pm
             - Pe
             - self.D * omega
@@ -460,19 +638,101 @@ class SynchronousMachine:
             2.0 * self.H
         )
 
-    # =============================================================
-    # COMBINED STATE EQUATION
-    # =============================================================
+        return (
+            d_delta_dt,
+            d_omega_dt,
+        )
 
-    def derivative(
+    # =========================================================
+    # TRANSIENT EMF EQUATIONS
+    # =========================================================
+
+    def emf_derivative(
+        self,
+        Eq_prime: float,
+        Ed_prime: float,
+        Id: float,
+        Iq: float,
+        Efd: float,
+    ) -> tuple[float, float]:
+        """
+        Calculate transient EMF derivatives.
+
+        Equations:
+
+            dEq'/dt =
+                [Efd - Eq' - (xd - xd') * Id] / Tdo'
+
+            dEd'/dt =
+                [-Ed' + (xq - xq') * Iq] / Tqo'
+
+        Parameters
+        ----------
+        Eq_prime:
+            q-axis transient EMF.
+
+        Ed_prime:
+            d-axis transient EMF.
+
+        Id:
+            d-axis stator current.
+
+        Iq:
+            q-axis stator current.
+
+        Efd:
+            Field excitation voltage supplied by the AVR.
+
+        Returns
+        -------
+        tuple
+            (dEq_prime_dt, dEd_prime_dt)
+        """
+
+        Eq_prime = float(Eq_prime)
+        Ed_prime = float(Ed_prime)
+        Id = float(Id)
+        Iq = float(Iq)
+        Efd = float(Efd)
+
+        dEq_prime_dt = (
+            Efd
+            - Eq_prime
+            - (
+                self.xd
+                - self.xd_prime
+            ) * Id
+        ) / self.Tdo_prime
+
+        dEd_prime_dt = (
+            -Ed_prime
+            + (
+                self.xq
+                - self.xq_prime
+            ) * Iq
+        ) / self.Tqo_prime
+
+        return (
+            dEq_prime_dt,
+            dEd_prime_dt,
+        )
+
+    # =========================================================
+    # COMPLETE DYNAMIC EVALUATION
+    # =========================================================
+
+    def evaluate(
         self,
         delta: float,
         omega: float,
+        Eq_prime: float,
+        Ed_prime: float,
+        Vt: float,
         Pm: float,
-        Pe: float,
-    ) -> tuple[float, float]:
+        Efd: float,
+    ) -> dict:
         """
-        Calculate both machine state derivatives.
+        Evaluate the complete fourth-order machine equations.
 
         Parameters
         ----------
@@ -482,186 +742,248 @@ class SynchronousMachine:
         omega:
             Rotor speed deviation in per-unit.
 
+        Eq_prime:
+            q-axis transient EMF.
+
+        Ed_prime:
+            d-axis transient EMF.
+
+        Vt:
+            Terminal-voltage magnitude in per-unit.
+
         Pm:
             Mechanical input power in per-unit.
 
-        Pe:
-            Electrical output power in per-unit.
+        Efd:
+            Field excitation voltage.
 
         Returns
         -------
-        tuple
-            (d_delta_dt, d_omega_dt)
+        dict
+            Machine derivatives and calculated electrical
+            quantities.
 
         Notes
         -----
-        ``delta`` is currently accepted as part of the standard
-        dynamic-state interface even though the classical swing
-        equations do not require its value directly.
+        No numerical integration is performed.
         """
 
-        # Validate that delta is numerically usable.
-        delta = float(delta)
-
-        if not math.isfinite(delta):
-            raise ValueError(
-                "Rotor angle delta must be finite."
-            )
-
-        d_delta_dt = self.angle_derivative(
-            omega=omega
+        Vd, Vq = self.terminal_voltage_dq(
+            Vt=Vt,
+            angle=delta,
         )
 
-        d_omega_dt = self.speed_derivative(
+        Id, Iq = self.currents_from_terminal_voltage(
+            Eq_prime=Eq_prime,
+            Ed_prime=Ed_prime,
+            Vd=Vd,
+            Vq=Vq,
+        )
+
+        Pe = self.electrical_power(
+            Vd=Vd,
+            Vq=Vq,
+            Id=Id,
+            Iq=Iq,
+        )
+
+        Qe = self.reactive_power(
+            Vd=Vd,
+            Vq=Vq,
+            Id=Id,
+            Iq=Iq,
+        )
+
+        d_delta_dt, d_omega_dt = self.rotor_derivative(
+            omega=omega,
             Pm=Pm,
             Pe=Pe,
-            omega=omega,
         )
 
-        return (
-            d_delta_dt,
-            d_omega_dt,
+        dEq_prime_dt, dEd_prime_dt = self.emf_derivative(
+            Eq_prime=Eq_prime,
+            Ed_prime=Ed_prime,
+            Id=Id,
+            Iq=Iq,
+            Efd=Efd,
         )
 
-    # =============================================================
-    # MECHANICAL POWER
-    # =============================================================
+        return {
+            "d_delta_dt": d_delta_dt,
+            "d_omega_dt": d_omega_dt,
+            "dEq_prime_dt": dEq_prime_dt,
+            "dEd_prime_dt": dEd_prime_dt,
+            "Vd": Vd,
+            "Vq": Vq,
+            "Id": Id,
+            "Iq": Iq,
+            "Pe": Pe,
+            "Qe": Qe,
+        }
 
-    def limit_mechanical_power(
-        self,
-        Pm: float,
-    ) -> float:
-        """
-        Apply mechanical-power limits.
-        """
-
-        return max(
-            self.Pm_min,
-            min(
-                float(Pm),
-                self.Pm_max,
-            ),
-        )
-
-    # =============================================================
-    # ELECTRICAL POWER
-    # =============================================================
-
-    def limit_electrical_power(
-        self,
-        Pe: float,
-    ) -> float:
-        """
-        Apply electrical-power capability limits.
-        """
-
-        return max(
-            self.Pe_min,
-            min(
-                float(Pe),
-                self.Pe_max,
-            ),
-        )
-
-    # =============================================================
-    # EXCITATION
-    # =============================================================
-
-    def limit_excitation(
-        self,
-        Efd: float,
-    ) -> float:
-        """
-        Apply machine excitation capability limits.
-
-        The AVR remains responsible for excitation control.
-        """
-
-        return max(
-            self.Efd_min,
-            min(
-                float(Efd),
-                self.Efd_max,
-            ),
-        )
-
-    # =============================================================
+    # =========================================================
     # INITIAL STATE
-    # =============================================================
+    # =========================================================
 
     def initial_state(
         self,
         delta: float = 0.0,
         omega: float = 0.0,
-    ) -> tuple[float, float]:
+        Pm: float = 1.0,
+        Vt: float = 1.0,
+        Efd: float = 1.0,
+    ) -> tuple[float, float, float, float]:
         """
-        Return the initial machine dynamic state.
+        Estimate an initial fourth-order machine state.
 
-        Parameters
-        ----------
-        delta:
-            Initial rotor electrical angle.
+        The initial rotor angle and speed deviation are supplied
+        directly.
 
-        omega:
-            Initial rotor speed deviation.
+        The transient EMFs are estimated from the specified
+        mechanical power, terminal voltage, and excitation.
+
+        This method provides a practical initialization state for
+        the dynamic solver. It does not solve a complete nonlinear
+        machine/network initialization problem.
 
         Returns
         -------
         tuple
-            (delta, omega)
-
-        Notes
-        -----
-        For a machine initialized at synchronous speed:
-
-            omega = 0
-
-        The rotor angle is supplied by the initialization/load-flow
-        layer or defaults to zero.
+            (delta, omega, Eq_prime, Ed_prime)
         """
 
         delta = float(delta)
         omega = float(omega)
+        Pm = float(Pm)
+        Vt = float(Vt)
+        Efd = float(Efd)
 
-        if not math.isfinite(delta):
+        if Vt <= 0.0:
             raise ValueError(
-                "Initial rotor angle delta must be finite."
+                "Initial terminal voltage Vt "
+                "must be greater than zero."
             )
 
-        if not math.isfinite(omega):
+        Vd, Vq = self.terminal_voltage_dq(
+            Vt=Vt,
+            angle=delta,
+        )
+
+        # -----------------------------------------------------
+        # Approximate initial current.
+        #
+        # For initialization, assume electrical power is equal
+        # to mechanical input and reactive power is initially
+        # zero.
+        # -----------------------------------------------------
+
+        Pe = Pm
+
+        S = complex(
+            Pe,
+            0.0,
+        )
+
+        V = complex(
+            Vq,
+            Vd,
+        )
+
+        if abs(V) <= 0.0:
             raise ValueError(
-                "Initial rotor speed deviation must be finite."
+                "Initial terminal voltage cannot be zero."
             )
+
+        I_complex = (
+            S.conjugate()
+            / V.conjugate()
+        )
+
+        Id = I_complex.imag
+
+        Iq = I_complex.real
+
+        # -----------------------------------------------------
+        # Estimate transient EMFs from terminal voltage/current.
+        # -----------------------------------------------------
+
+        Eq_prime = (
+            Vq
+            + self.xd_prime * Id
+        )
+
+        Ed_prime = (
+            Vd
+            - self.xq_prime * Iq
+        )
+
+        # If excitation is explicitly supplied, retain it as
+        # an input to the dynamic model rather than modifying
+        # the state here.
 
         return (
             delta,
             omega,
+            Eq_prime,
+            Ed_prime,
         )
 
-    # =============================================================
+    # =========================================================
     # RESET
-    # =============================================================
+    # =========================================================
 
     def reset(
         self,
         delta: float = 0.0,
         omega: float = 0.0,
-    ) -> tuple[float, float]:
+        Pm: float = 1.0,
+        Vt: float = 1.0,
+        Efd: float = 1.0,
+    ) -> tuple[float, float, float, float]:
         """
-        Return the default/reset machine state.
-
-        The dynamic solver should use this value when resetting
-        the simulation.
+        Return an initial machine state for solver reset.
         """
 
         return self.initial_state(
             delta=delta,
             omega=omega,
+            Pm=Pm,
+            Vt=Vt,
+            Efd=Efd,
         )
 
-    # =============================================================
+    # =========================================================
+    # OPERATIONAL STATE
+    # =========================================================
+
+    def trip(self) -> None:
+        """
+        Remove the machine from service.
+
+        The dynamic/network solver is responsible for deciding
+        how an out-of-service machine is represented electrically.
+        """
+
+        self.in_service = False
+
+    def close(self) -> None:
+        """
+        Return the machine to service.
+        """
+
+        self.in_service = True
+
+    @property
+    def is_in_service(self) -> bool:
+        """
+        Return True when the machine is in service.
+        """
+
+        return self.in_service
+
+    # =========================================================
     # PARAMETER MANAGEMENT
-    # =============================================================
+    # =========================================================
 
     def set_inertia(
         self,
@@ -675,7 +997,8 @@ class SynchronousMachine:
 
         if H <= 0.0:
             raise ValueError(
-                "Machine inertia constant H must be greater than zero."
+                "Machine inertia constant H "
+                "must be greater than zero."
             )
 
         self.H = H
@@ -685,119 +1008,39 @@ class SynchronousMachine:
         D: float,
     ) -> None:
         """
-        Update mechanical damping coefficient.
+        Update machine damping coefficient.
         """
 
         D = float(D)
 
         if D < 0.0:
             raise ValueError(
-                "Machine damping coefficient D must be >= 0."
+                "Machine damping coefficient D "
+                "must be greater than or equal to zero."
             )
 
         self.D = D
 
-    def set_base_frequency(
+    def set_frequency(
         self,
         frequency_hz: float,
     ) -> None:
         """
-        Set synchronous electrical frequency.
-
-        Parameters
-        ----------
-        frequency_hz:
-            System frequency in Hz.
-
-        Notes
-        -----
-        The internal ``omega_base`` value is stored in rad/s.
+        Update system frequency.
         """
 
         frequency_hz = float(frequency_hz)
 
         if frequency_hz <= 0.0:
             raise ValueError(
-                "System frequency must be greater than zero."
+                "frequency_hz must be greater than zero."
             )
 
-        self.omega_base = (
-            2.0
-            * math.pi
-            * frequency_hz
-        )
+        self.frequency_hz = frequency_hz
 
-    def set_power_limits(
-        self,
-        Pm_min: float,
-        Pm_max: float,
-        Pe_min: float | None = None,
-        Pe_max: float | None = None,
-    ) -> None:
-        """
-        Update mechanical and optional electrical power limits.
-        """
-
-        Pm_min = float(Pm_min)
-        Pm_max = float(Pm_max)
-
-        if Pm_min > Pm_max:
-            raise ValueError(
-                "Pm_min must not be greater than Pm_max."
-            )
-
-        self.Pm_min = Pm_min
-        self.Pm_max = Pm_max
-
-        if Pe_min is not None:
-            Pe_min = float(Pe_min)
-
-        if Pe_max is not None:
-            Pe_max = float(Pe_max)
-
-        new_pe_min = (
-            self.Pe_min
-            if Pe_min is None
-            else Pe_min
-        )
-
-        new_pe_max = (
-            self.Pe_max
-            if Pe_max is None
-            else Pe_max
-        )
-
-        if new_pe_min > new_pe_max:
-            raise ValueError(
-                "Pe_min must not be greater than Pe_max."
-            )
-
-        self.Pe_min = new_pe_min
-        self.Pe_max = new_pe_max
-
-    def set_excitation_limits(
-        self,
-        Efd_min: float,
-        Efd_max: float,
-    ) -> None:
-        """
-        Update machine excitation limits.
-        """
-
-        Efd_min = float(Efd_min)
-        Efd_max = float(Efd_max)
-
-        if Efd_min > Efd_max:
-            raise ValueError(
-                "Efd_min must not be greater than Efd_max."
-            )
-
-        self.Efd_min = Efd_min
-        self.Efd_max = Efd_max
-
-    # =============================================================
+    # =========================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =========================================================
 
     def summary(self) -> dict:
         """
@@ -807,34 +1050,42 @@ class SynchronousMachine:
         return {
             "id": self.id,
             "name": self.name,
-            "model": "CLASSICAL_2ND_ORDER",
             "rated_mva": self.rated_mva,
             "H": self.H,
             "D": self.D,
+            "xd": self.xd,
+            "xq": self.xq,
+            "xd_prime": self.xd_prime,
+            "xq_prime": self.xq_prime,
+            "Tdo_prime": self.Tdo_prime,
+            "Tqo_prime": self.Tqo_prime,
+            "frequency_hz": self.frequency_hz,
             "omega_base": self.omega_base,
-            "Pm_min": self.Pm_min,
-            "Pm_max": self.Pm_max,
-            "Pe_min": self.Pe_min,
-            "Pe_max": self.Pe_max,
-            "Efd_min": self.Efd_min,
-            "Efd_max": self.Efd_max,
+            "in_service": self.in_service,
         }
 
-    # =============================================================
+    # =========================================================
     # DEBUG
-    # =============================================================
+    # =========================================================
 
     def __repr__(self) -> str:
         """
         Developer-friendly representation.
         """
 
+        state = (
+            "IN_SERVICE"
+            if self.in_service
+            else "OUT_OF_SERVICE"
+        )
+
         return (
             f"<SynchronousMachine "
             f"id={self.id}, "
-            f"model=CLASSICAL_2ND_ORDER, "
+            f"rated_mva={self.rated_mva:.2f}, "
             f"H={self.H:.4f}, "
-            f"D={self.D:.4f}, "
-            f"omega_base={self.omega_base:.4f}>"
+            f"xd={self.xd:.4f}, "
+            f"xq={self.xq:.4f}, "
+            f"state={state}>"
         )
 ```
