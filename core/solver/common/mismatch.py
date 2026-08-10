@@ -1,25 +1,25 @@
 """
 GridForge Power Mismatch Engine
-===============================
+================================
 
-File:
-    core/solver/common/mismatch.py
+File
+----
+core/solver/common/mismatch.py
 
-Purpose:
-    Compute AC power injections and the Newton-Raphson
-    power mismatch vector.
+Purpose
+-------
+Compute AC bus power injections and the Newton-Raphson
+power mismatch vector.
 
-This module is shared numerical infrastructure and is
-therefore located under:
+This module is shared numerical infrastructure and therefore
+belongs under:
 
     core/solver/common/
 
 It is NOT specific to the Power Flow solver package.
 
------------------------------------------------------------------------
-POWER INJECTION EQUATIONS
------------------------------------------------------------------------
-
+Power Injection Equations
+-------------------------
 For bus i:
 
     P_i = Σ V_i V_j [
@@ -38,30 +38,27 @@ where:
 
     Y_ij = G_ij + j B_ij
 
------------------------------------------------------------------------
-MISMATCH DEFINITION
------------------------------------------------------------------------
-
+Mismatch Definition
+-------------------
     ΔP = P_spec - P_calc
     ΔQ = Q_spec - Q_calc
 
-The Newton-Raphson state vector follows the standard AC
-power-flow formulation:
+Newton-Raphson state vector:
 
-    Δx =
-        [ Δθ for non-SLACK buses,
-          ΔV for PQ buses ]
+    Δx = [
+        Δθ for non-SLACK buses,
+        ΔV for PQ buses
+    ]
 
 Therefore the mismatch vector is:
 
-    mismatch =
-        [ ΔP for non-SLACK buses,
-          ΔQ for PQ buses ]
+    mismatch = [
+        ΔP for non-SLACK buses,
+        ΔQ for PQ buses
+    ]
 
------------------------------------------------------------------------
-BUS TYPE HANDLING
------------------------------------------------------------------------
-
+Bus Type Handling
+-----------------
     SLACK:
         ΔP excluded
         ΔQ excluded
@@ -74,16 +71,15 @@ BUS TYPE HANDLING
         ΔP included
         ΔQ included
 
------------------------------------------------------------------------
-RESPONSIBILITIES
------------------------------------------------------------------------
-
+Responsibilities
+----------------
 This module:
 
-    - Reads the electrical state from the unified Bus model.
+    - Reads electrical state from the unified Bus model.
     - Calculates P and Q injections from Ybus.
     - Builds the Newton-Raphson mismatch vector.
-    - Provides calculated P/Q for other numerical components.
+    - Provides calculated P/Q for numerical components.
+    - Provides mismatch diagnostics.
 
 This module does NOT:
 
@@ -96,9 +92,11 @@ This module does NOT:
     - Perform contingency analysis.
     - Perform short-circuit analysis.
 
------------------------------------------------------------------------
-DEPENDENCIES
------------------------------------------------------------------------
+Dependencies
+------------
+Expected Network interface:
+
+    network.buses
 
 Expected Bus interface:
 
@@ -110,17 +108,11 @@ Expected Bus interface:
     bus.is_slack()
     bus.is_pq()
 
-Expected Network interface:
-
-    network.buses
-
-The supplied Ybus must use exactly the same bus ordering as
+Ybus must use exactly the same bus ordering as
 network.buses.
 
------------------------------------------------------------------------
-NUMERICAL BASELINE
------------------------------------------------------------------------
-
+Numerical Baseline
+------------------
 The implementation intentionally uses the conventional O(n²)
 formulation.
 
@@ -128,13 +120,13 @@ This is the reference implementation for correctness.
 
 Future optimization may introduce:
 
-    - vectorized evaluation
-    - sparse-aware evaluation
+    - Vectorized evaluation
+    - Sparse-aware evaluation
     - GPU evaluation
-    - batched power-flow evaluation
+    - Batched power-flow evaluation
 
-Those optimizations must preserve the numerical behavior of
-this baseline implementation.
+Those implementations must preserve the numerical behavior
+of this reference implementation.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -156,15 +148,16 @@ class PowerMismatch:
         GridForge Network object containing the ordered bus list.
 
     Ybus:
-        Bus admittance matrix corresponding exactly to
-        ``network.buses`` ordering.
+        Complex bus admittance matrix corresponding exactly
+        to ``network.buses`` ordering.
 
     Notes
     -----
     The object does not modify the network.
 
-    The voltage state is read directly from each Bus object
-    every time ``compute_power()`` or ``compute()`` is called.
+    Voltage state is read directly from each Bus object every
+    time ``compute_power()`` or ``compute()`` is called.
+
     This ensures that the mismatch calculation always operates
     on the current Newton-Raphson state.
     """
@@ -184,51 +177,52 @@ class PowerMismatch:
         Raises
         ------
         ValueError
-            If the network has no buses or Ybus dimensions do
-            not match the number of buses.
+            If the network is invalid or Ybus dimensions do not
+            match the number of buses.
         """
 
         if network is None:
             raise ValueError(
-                "Network cannot be None"
+                "Network cannot be None."
             )
 
         if not hasattr(network, "buses"):
             raise ValueError(
-                "Network must provide a 'buses' collection"
+                "Network must provide a 'buses' collection."
             )
 
         self.network = network
         self.Ybus = Ybus
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Bus ordering
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         #
         # Ybus row/column i corresponds to network.buses[i].
         #
-        # This ordering must remain stable during a solver run.
-        # ---------------------------------------------------------
+        # This ordering must remain unchanged while the solver
+        # is operating.
+        # -----------------------------------------------------
 
         self.buses = network.buses
         self.n = len(self.buses)
 
         if self.n == 0:
             raise ValueError(
-                "Network contains no buses"
+                "Network contains no buses."
             )
 
         self._validate_ybus()
 
-    # =============================================================
+    # =========================================================
     # VALIDATION
-    # =============================================================
+    # =========================================================
 
     def _validate_ybus(self):
         """
         Validate the supplied Ybus matrix.
 
-        Both dense NumPy arrays and SciPy sparse matrices are
+        Dense NumPy arrays and SciPy sparse matrices are both
         supported.
 
         Raises
@@ -239,12 +233,12 @@ class PowerMismatch:
 
         if self.Ybus is None:
             raise ValueError(
-                "Ybus cannot be None"
+                "Ybus cannot be None."
             )
 
         if not hasattr(self.Ybus, "shape"):
             raise ValueError(
-                "Ybus must provide a matrix shape"
+                "Ybus must provide a matrix shape."
             )
 
         expected_shape = (
@@ -256,12 +250,12 @@ class PowerMismatch:
             raise ValueError(
                 "Ybus dimension does not match network bus count: "
                 f"expected {expected_shape}, "
-                f"received {self.Ybus.shape}"
+                f"received {self.Ybus.shape}."
             )
 
-    # =============================================================
-    # INTERNAL VOLTAGE STATE
-    # =============================================================
+    # =========================================================
+    # VOLTAGE STATE
+    # =========================================================
 
     def _voltage_state(self):
         """
@@ -269,17 +263,19 @@ class PowerMismatch:
 
         Returns
         -------
-        V : ndarray
-            Voltage magnitudes in per-unit.
+        tuple[np.ndarray, np.ndarray]
+            V:
+                Voltage magnitudes in per-unit.
 
-        theta : ndarray
-            Voltage angles in radians.
+            theta:
+                Voltage angles in radians.
 
         Notes
         -----
-        The values are read every time this method is called.
-        This is intentional because Newton-Raphson modifies the
-        bus state after every iteration.
+        Values are read every time this method is called.
+
+        This is intentional because the Newton-Raphson solver
+        modifies the bus state after every iteration.
         """
 
         V = np.asarray(
@@ -298,44 +294,45 @@ class PowerMismatch:
             dtype=float
         )
 
+        if not np.all(np.isfinite(V)):
+            raise ValueError(
+                "Bus voltage magnitude contains "
+                "non-finite values."
+            )
+
+        if not np.all(np.isfinite(theta)):
+            raise ValueError(
+                "Bus voltage angle contains "
+                "non-finite values."
+            )
+
+        if np.any(V < 0.0):
+            raise ValueError(
+                "Bus voltage magnitude cannot be negative."
+            )
+
         return V, theta
 
-    # =============================================================
-    # POWER CALCULATION
-    # =============================================================
+    # =========================================================
+    # YBUS ARRAY
+    # =========================================================
 
-    def compute_power(self):
+    def _get_ybus_array(self):
         """
-        Calculate active and reactive power injections.
+        Return Ybus as a dense complex NumPy array.
+
+        The reference implementation uses a dense matrix so
+        that the numerical equations remain transparent.
+
+        Sparse/GPU optimized implementations can later replace
+        this internal representation without changing the
+        public PowerMismatch API.
 
         Returns
         -------
-        P : ndarray
-            Calculated active power injection at every bus.
-
-        Q : ndarray
-            Calculated reactive power injection at every bus.
-
-        Notes
-        -----
-        Positive P/Q follow the network injection convention
-        represented by the Ybus equations.
-
-        This method performs no state modification.
+        np.ndarray
+            Dense complex Ybus matrix.
         """
-
-        V, theta = self._voltage_state()
-
-        # ---------------------------------------------------------
-        # Extract conductance and susceptance matrices.
-        #
-        # np.asarray() also allows this implementation to operate
-        # with a normal dense NumPy Ybus.
-        #
-        # Sparse Ybus is converted only for this baseline
-        # implementation. The sparse/GPU optimized implementation
-        # can be introduced later without changing this API.
-        # ---------------------------------------------------------
 
         if hasattr(self.Ybus, "toarray"):
             Y = self.Ybus.toarray()
@@ -344,6 +341,54 @@ class PowerMismatch:
                 self.Ybus,
                 dtype=complex
             )
+
+        if Y.shape != (self.n, self.n):
+            raise ValueError(
+                "Ybus shape changed after initialization: "
+                f"expected {(self.n, self.n)}, "
+                f"received {Y.shape}."
+            )
+
+        if not np.all(np.isfinite(Y.real)):
+            raise ValueError(
+                "Ybus contains non-finite real values."
+            )
+
+        if not np.all(np.isfinite(Y.imag)):
+            raise ValueError(
+                "Ybus contains non-finite imaginary values."
+            )
+
+        return Y
+
+    # =========================================================
+    # POWER CALCULATION
+    # =========================================================
+
+    def compute_power(self):
+        """
+        Calculate active and reactive power injections.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray]
+            P:
+                Calculated active-power injection at every bus.
+
+            Q:
+                Calculated reactive-power injection at every bus.
+
+        Notes
+        -----
+        Positive P/Q follow the network injection convention
+        represented by the supplied Ybus.
+
+        This method does not modify network or bus state.
+        """
+
+        V, theta = self._voltage_state()
+
+        Y = self._get_ybus_array()
 
         G = Y.real
         B = Y.imag
@@ -358,12 +403,12 @@ class PowerMismatch:
             dtype=float
         )
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Conventional AC power-flow equations.
         #
-        # This O(n²) implementation is intentionally kept simple
-        # and transparent as the numerical reference implementation.
-        # ---------------------------------------------------------
+        # This O(n²) implementation is deliberately retained
+        # as the GridForge numerical reference implementation.
+        # -----------------------------------------------------
 
         for i in range(self.n):
 
@@ -385,7 +430,10 @@ class PowerMismatch:
                 sin_angle = np.sin(angle)
 
                 # -------------------------------------------------
-                # Active power injection
+                # Active power:
+                #
+                # P_i = Σ Vi Vj
+                #       (Gij cos θij + Bij sin θij)
                 # -------------------------------------------------
 
                 P[i] += (
@@ -399,7 +447,10 @@ class PowerMismatch:
                 )
 
                 # -------------------------------------------------
-                # Reactive power injection
+                # Reactive power:
+                #
+                # Q_i = Σ Vi Vj
+                #       (Gij sin θij - Bij cos θij)
                 # -------------------------------------------------
 
                 Q[i] += (
@@ -414,9 +465,9 @@ class PowerMismatch:
 
         return P, Q
 
-    # =============================================================
+    # =========================================================
     # MISMATCH VECTOR
-    # =============================================================
+    # =========================================================
 
     def compute(self):
         """
@@ -424,7 +475,7 @@ class PowerMismatch:
 
         Returns
         -------
-        ndarray
+        np.ndarray
             Mismatch vector arranged as:
 
                 [ΔP_non_slack, ΔQ_PQ]
@@ -442,8 +493,9 @@ class PowerMismatch:
 
         Notes
         -----
-        The returned vector ordering MUST match the state-variable
-        ordering used by the Jacobian and Newton-Raphson solver.
+        The returned vector ordering MUST match the state
+        variable ordering used by JacobianBuilder and the
+        Newton-Raphson solver.
         """
 
         P_calc, Q_calc = self.compute_power()
@@ -451,26 +503,13 @@ class PowerMismatch:
         dP = []
         dQ = []
 
-        # ---------------------------------------------------------
-        # Construct ΔP and ΔQ blocks separately.
+        # -----------------------------------------------------
+        # Active-power mismatch block.
         #
-        # Keeping the two blocks separate is important because
-        # the Jacobian uses the same ordering:
-        #
-        #       [ ΔP ]
-        #       [ ΔQ ]
-        #
-        # rather than interleaving P and Q per bus.
-        # ---------------------------------------------------------
+        # All non-slack buses contribute one ΔP equation.
+        # -----------------------------------------------------
 
         for i, bus in enumerate(self.buses):
-
-            # -----------------------------------------------------
-            # Active-power mismatch
-            #
-            # Slack bus has fixed V and theta, therefore it does
-            # not contribute an independent P equation.
-            # -----------------------------------------------------
 
             if not bus.is_slack():
 
@@ -480,13 +519,13 @@ class PowerMismatch:
                     P_calc[i]
                 )
 
-        for i, bus in enumerate(self.buses):
+        # -----------------------------------------------------
+        # Reactive-power mismatch block.
+        #
+        # Only PQ buses contribute one ΔQ equation.
+        # -----------------------------------------------------
 
-            # -----------------------------------------------------
-            # Reactive-power mismatch
-            #
-            # Only PQ buses have independently specified Q.
-            # -----------------------------------------------------
+        for i, bus in enumerate(self.buses):
 
             if bus.is_pq():
 
@@ -495,13 +534,6 @@ class PowerMismatch:
                     -
                     Q_calc[i]
                 )
-
-        # ---------------------------------------------------------
-        # Convert to NumPy arrays.
-        #
-        # np.concatenate() is used instead of np.array(dP + dQ)
-        # so the intended block structure remains explicit.
-        # ---------------------------------------------------------
 
         dp_array = np.asarray(
             dP,
@@ -513,6 +545,18 @@ class PowerMismatch:
             dtype=float
         )
 
+        # -----------------------------------------------------
+        # Explicit block ordering:
+        #
+        #     [ ΔP_non_slack ]
+        #     [ ΔQ_PQ        ]
+        #
+        # This MUST correspond to the Jacobian structure:
+        #
+        #     [ J1  J2 ]
+        #     [ J3  J4 ]
+        # -----------------------------------------------------
+
         return np.concatenate(
             (
                 dp_array,
@@ -520,23 +564,24 @@ class PowerMismatch:
             )
         )
 
-    # =============================================================
+    # =========================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =========================================================
 
     def max_mismatch(self):
         """
-        Return the maximum absolute mismatch.
+        Return the infinity norm of the mismatch vector.
 
         Returns
         -------
         float
-            Infinity norm of the mismatch vector.
+            Maximum absolute mismatch.
 
         Notes
         -----
-        This is useful for convergence monitoring but does not
-        perform convergence checking itself.
+        This method provides a diagnostic quantity only.
+
+        It does not perform convergence control.
         """
 
         mismatch = self.compute()
@@ -550,9 +595,9 @@ class PowerMismatch:
             )
         )
 
-    # =============================================================
+    # =========================================================
     # DEBUG / INTROSPECTION
-    # =============================================================
+    # =========================================================
 
     def summary(self):
         """
@@ -561,7 +606,7 @@ class PowerMismatch:
         Returns
         -------
         dict
-            Basic configuration and network information.
+            Configuration and network information.
         """
 
         slack_count = sum(
