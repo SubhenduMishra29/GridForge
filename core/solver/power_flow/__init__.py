@@ -1,39 +1,135 @@
+# GridForge
+
+# Copyright © 2026 Subhendu Mishra
+
+# All Rights Reserved.
+
+# Proprietary and confidential.
+
 """
 GridForge Power Flow Solver Package
+===================================
 
-Contains numerical AC power flow engine.
+File:
+core/solver/power_flow/**init**.py
 
-Modules:
+## Purpose
 
-options
-    Numerical configuration
+Public interface for the GridForge numerical AC power-flow
+solver package.
 
-sparse_solver
-    Linear system solver
+This package contains the numerical engine used by:
 
-q_limit_handler
-    PV/PQ reactive limit handling
+```
+core/analysis/power_flow.py
+```
 
-nr_solver
-    Newton-Raphson solver
+## Architecture
+
+```
+core/analysis/power_flow.py
+            │
+            ▼
+core/solver/power_flow/
+            │
+    ┌───────┼───────────────────────┐
+    │       │       │       │       │
+    ▼       ▼       ▼       ▼       ▼
+ options  mismatch jacobian sparse  Q-limit
+    │       │       │       │       │
+    └───────┴───────┴───────┴───────┘
+                    │
+                    ▼
+            newton_raphson.py
+```
+
+## Public Components
+
+SolverOptions
+Numerical configuration for the power-flow solver.
+
+PowerMismatch
+Calculates active/reactive power mismatches.
+
+JacobianBuilder
+Builds the Newton-Raphson Jacobian matrix.
+
+SparseLinearSolver
+Solves the Newton-Raphson linear system.
+
+QLimitHandler
+Handles generator reactive-power limits and PV/PQ
+bus conversion.
+
+NewtonRaphsonSolver
+Main numerical AC power-flow engine.
+
+## Design Rule
+
+This **init**.py exposes the public solver API only.
+
+No numerical logic belongs here.
 """
 
-from .options import SolverOptions
+# ============================================================
+
+# NUMERICAL CONFIGURATION
+
+# ============================================================
+
+from .solver_options import SolverOptions
+
+# ============================================================
+
+# POWER MISMATCH
+
+# ============================================================
+
+from .mismatch import PowerMismatch
+
+# ============================================================
+
+# NEWTON-RAPHSON JACOBIAN
+
+# ============================================================
+
+from .jacobian import JacobianBuilder
+
+# ============================================================
+
+# SPARSE LINEAR SOLVER
+
+# ============================================================
 
 from .sparse_solver import SparseLinearSolver
 
+# ============================================================
+
+# GENERATOR REACTIVE POWER LIMITS
+
+# ============================================================
+
 from .q_limit_handler import QLimitHandler
 
-from .nr_solver import NewtonRaphsonSolver
+# ============================================================
 
+# MAIN NEWTON-RAPHSON ENGINE
 
-__all__ = [
+# ============================================================
 
-    "SolverOptions",
+from .newton_raphson import NewtonRaphsonSolver
 
-    "SparseLinearSolver",
+# ============================================================
 
-    "QLimitHandler",
+# PUBLIC PACKAGE API
 
-    "NewtonRaphsonSolver",
+# ============================================================
+
+**all** = [
+"SolverOptions",
+"PowerMismatch",
+"JacobianBuilder",
+"SparseLinearSolver",
+"QLimitHandler",
+"NewtonRaphsonSolver",
 ]
