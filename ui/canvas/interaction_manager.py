@@ -113,3 +113,55 @@ class InteractionManager(QObject):
 
         if self._current_tool:
             self._current_tool.mouse_release(event, self)
+"""
+Interaction Manager (updated)
+
+Now also manages:
+- Preview layer
+"""
+
+from ui.canvas.preview_layer import PreviewLayer
+from ui.core.tool_registry import create_tool
+
+
+class InteractionManager:
+    def __init__(self, view, controller):
+        self.view = view
+        self.controller = controller
+
+        self.current_tool = None
+
+        # ✅ NEW: Preview system
+        self.preview = PreviewLayer(view.scene())
+
+        # Listen for tool changes
+        controller.subscribe("tool_changed", self.on_tool_changed)
+
+    # ----------------------------------------------------------
+
+    def on_tool_changed(self, tool_id):
+        self.current_tool = create_tool(tool_id, self.controller, self)
+
+        # Clear preview when switching tools
+        self.preview.clear()
+
+    # ==========================================================
+    # EVENT FORWARDING
+    # ==========================================================
+
+    def mouse_press(self, event):
+        if self.current_tool:
+            self.current_tool.mouse_press(event)
+
+    def mouse_move(self, event):
+        if self.current_tool:
+            self.current_tool.mouse_move(event)
+
+    def mouse_release(self, event):
+        if self.current_tool:
+            self.current_tool.mouse_release(event)
+
+    # ----------------------------------------------------------
+
+    def map_to_scene(self, event):
+        return self.view.mapToScene(event.pos())
