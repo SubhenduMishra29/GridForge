@@ -34,32 +34,12 @@ class Load(ElectricalObject, Injection):
         q: float,
         name: str = ""
     ):
-        """
-        Parameters
-        ----------
-        id : str
-            Unique identifier
-
-        bus : Bus
-            Bus to which load is connected
-
-        p : float
-            Active power demand (positive value, pu)
-
-        q : float
-            Reactive power demand (positive value, pu)
-        """
-
         super().__init__(id, name)
 
-        # -------------------------
         # Connection
-        # -------------------------
         self.terminal = Terminal(bus)
 
-        # -------------------------
-        # Power demand (positive values)
-        # -------------------------
+        # Power demand (stored as positive values)
         self.p = float(p)
         self.q = float(q)
 
@@ -73,14 +53,15 @@ class Load(ElectricalObject, Injection):
         """
         return -self.p, -self.q
 
+    @property
+    def bus(self):
+        return self.terminal.bus
+
     # -------------------------
     # Update methods
     # -------------------------
 
     def set_power(self, p: float, q: float):
-        """
-        Update load demand.
-        """
         self.p = float(p)
         self.q = float(q)
 
@@ -91,7 +72,7 @@ class Load(ElectricalObject, Injection):
     def __repr__(self):
         return (
             f"<Load id={self.id}, "
-            f"bus={self.terminal.bus.id}, "
+            f"bus={self.bus.id}, "
             f"P={self.p:.4f}, "
             f"Q={self.q:.4f}>"
         )
