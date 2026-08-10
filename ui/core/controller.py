@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # File: ui/core/controller.py
 # GridForge UI Controller
