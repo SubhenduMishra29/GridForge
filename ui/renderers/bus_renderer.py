@@ -30,12 +30,14 @@ Must implement:
 """
 
 from ui.items.bus_item import BusItem
+from core.models.bus import Bus
 
 
 class BusRenderer:
     """
     Renderer for Bus model elements.
     """
+    model_type = Bus   # 🔥 REQUIRED FOR AUTO LOADER
 
     @staticmethod
     def create_item(bus, controller):
