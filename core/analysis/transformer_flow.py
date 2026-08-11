@@ -1,35 +1,39 @@
 ```python
 """
-GridForge Transformer Flow Analysis
+GridForge - Transformer Flow Analysis
+=====================================
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
 Proprietary and confidential.
 
-File:
-    core/analysis/transformer_flow.py
+File
+----
+core/analysis/transformer_flow.py
 
 Purpose
 -------
-Calculate electrical power flow through two-winding transformers.
+Deterministic engineering calculation of transformer terminal power
+flows, losses, and loading.
 
-Supported:
-    - Active/in-service transformers
-    - Off-nominal tap ratio
-    - Phase-shifting transformers
-    - Complex transformer ratio
-    - Bidirectional P/Q flow
-    - Transformer losses
-    - Transformer loading
+Supported
+---------
+- In-service two-winding transformers
+- Off-nominal tap ratio
+- Phase-shifting transformers
+- Complex transformer ratio
+- Bidirectional P/Q flow
+- Transformer losses
+- Transformer loading
 
 Architecture
 ------------
 Network
-    │
-    ▼
+    |
+    v
 TransformerFlowCalculator
-    │
-    └── uses frozen Transformer model
+    |
+    +-- frozen Transformer model
 
 This module is an analysis-level calculation component.
 
@@ -40,17 +44,16 @@ It does NOT:
     - Perform optimization
     - Perform fault calculations
 
-Transformer electrical parameters are taken directly from the
-frozen GridForge Transformer model.
+The transformer series impedance and complex tap ratio are obtained
+directly from the frozen GridForge Transformer model.
 
-The transformer series impedance is already represented in
-per-unit.
+Transformer series impedance is represented in per-unit.
 
 The complex transformer ratio is:
 
-    a = tap * exp(jθ)
+    a = tap * exp(j*theta)
 
-For the standard off-nominal transformer model:
+For the standard off-nominal transformer formulation:
 
     I_from = y / conj(a) * (V_from / a - V_to)
 
@@ -58,21 +61,116 @@ For the standard off-nominal transformer model:
 
 where:
 
-    y = 1 / (r + jx)
+    y = 1 / (r + j*x)
 
-Power is calculated as:
+Complex power is:
 
     S_from = V_from * conj(I_from)
 
     S_to   = V_to * conj(I_to)
 
-All power results are returned in per-unit.
+All electrical power and current quantities are returned in per-unit.
+
+Physical transformer loading is returned in MVA and percent when
+the frozen Transformer model provides rate_mva.
 """
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, Optional
+
 import numpy as np
 
+
+# =====================================================================
+# RESULT
+# =====================================================================
+
+@dataclass
+class TransformerFlowResult:
+    """
+    Result of a single transformer-flow calculation.
+
+    Electrical quantities are in per-unit unless explicitly marked
+    otherwise.
+    """
+
+    transformer_id: Any
+
+    from_bus: Any
+    to_bus: Any
+
+    # Transformer operating point
+    tap_ratio: float
+    phase_shift_deg: float
+
+    # Terminal powers
+    p_from: float
+    q_from: float
+
+    p_to: float
+    q_to: float
+
+    # Losses
+    p_loss: float
+    q_loss: float
+
+    # Apparent power
+    s_from_pu: float
+    s_to_pu: float
+
+    # Terminal current magnitudes
+    i_from_pu: float
+    i_to_pu: float
+
+    # Physical loading
+    loading_mva: Optional[float] = None
+    loading_percent: Optional[float] = None
+
+    in_service: bool = True
+
+    # -----------------------------------------------------------------
+    # Convenience properties
+    # -----------------------------------------------------------------
+
+    @property
+    def s_from(self) -> complex:
+        """Sending-side complex power in pu."""
+        return complex(self.p_from, self.q_from)
+
+    @property
+    def s_to(self) -> complex:
+        """Receiving-side complex power in pu."""
+        return complex(self.p_to, self.q_to)
+
+    # -----------------------------------------------------------------
+    # Serialization
+    # -----------------------------------------------------------------
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the result to a JSON-friendly dictionary.
+        """
+
+        data = asdict(self)
+
+        data["s_from"] = {
+            "real": float(self.s_from.real),
+            "imag": float(self.s_from.imag),
+        }
+
+        data["s_to"] = {
+            "real": float(self.s_to.real),
+            "imag": float(self.s_to.imag),
+        }
+
+        return data
+
+
+# =====================================================================
+# TRANSFORMER FLOW CALCULATOR
+# =====================================================================
 
 class TransformerFlowCalculator:
     """
@@ -85,18 +183,24 @@ class TransformerFlowCalculator:
 
     Notes
     -----
-    The calculator expects the network to expose:
+    The calculator expects:
 
         network.transformers
+        network.buses
         network.bus_index
 
-    Voltage magnitudes are supplied in per-unit.
+    Bus voltage magnitudes are supplied in per-unit.
 
-    Voltage angles are supplied in radians.
+    Bus voltage angles are supplied in radians.
+
+    No Network or Transformer state is modified.
     """
 
-    def __init__(self, network):
-        self.network = network
+    # =================================================================
+    # INITIALIZATION
+    # =================================================================
+
+    def __init__(self, network: Any):
 
         if network is None:
             raise ValueError(
@@ -108,18 +212,28 @@ class TransformerFlowCalculator:
                 "Network missing 'transformers' collection."
             )
 
+        if not hasattr(network, "buses"):
+            raise ValueError(
+                "Network missing 'buses' collection."
+            )
+
         if not hasattr(network, "bus_index"):
             raise ValueError(
                 "Network missing 'bus_index' mapping."
             )
 
-        self.bus_index = network.bus_index
+        self.network = network
 
-    # =========================================================
+    # =================================================================
     # PUBLIC API
-    # =========================================================
+    # =================================================================
 
-    def compute(self, Vm, Va):
+    def calculate(
+        self,
+        Vm: np.ndarray,
+        Va: np.ndarray,
+        include_out_of_service: bool = False,
+    ) -> Dict[Any, TransformerFlowResult]:
         """
         Calculate transformer flows for the complete network.
 
@@ -131,182 +245,240 @@ class TransformerFlowCalculator:
         Va:
             Bus voltage angles in radians.
 
+        include_out_of_service:
+            If False, out-of-service transformers are skipped.
+
         Returns
         -------
-        list[dict]
-            One result dictionary per transformer.
-
-        Notes
-        -----
-        Out-of-service transformers are skipped.
+        dict
+            Results keyed by transformer ID.
         """
 
-        Vm = np.asarray(Vm, dtype=float)
-        Va = np.asarray(Va, dtype=float)
+        Vm = np.asarray(Vm, dtype=float).reshape(-1)
+        Va = np.asarray(Va, dtype=float).reshape(-1)
 
         self._validate_voltage_arrays(Vm, Va)
 
-        results = []
+        results: Dict[Any, TransformerFlowResult] = {}
 
         for transformer in self.network.transformers:
 
-            if not getattr(transformer, "in_service", True):
+            in_service = getattr(
+                transformer,
+                "in_service",
+                True,
+            )
+
+            if not in_service and not include_out_of_service:
                 continue
 
-            results.append(
-                self._transformer_flow(
-                    transformer,
-                    Vm,
-                    Va,
-                )
+            if not in_service:
+                continue
+
+            result = self._calculate_transformer(
+                transformer,
+                Vm,
+                Va,
             )
+
+            results[result.transformer_id] = result
 
         return results
 
-    # =========================================================
+    # =================================================================
+    # SINGLE TRANSFORMER
+    # =================================================================
+
+    def calculate_one(
+        self,
+        transformer: Any,
+        Vm: np.ndarray,
+        Va: np.ndarray,
+    ) -> TransformerFlowResult:
+        """
+        Calculate flow through one transformer.
+        """
+
+        Vm = np.asarray(Vm, dtype=float).reshape(-1)
+        Va = np.asarray(Va, dtype=float).reshape(-1)
+
+        self._validate_voltage_arrays(Vm, Va)
+
+        if not getattr(transformer, "in_service", True):
+            raise ValueError(
+                f"Transformer "
+                f"'{getattr(transformer, 'id', transformer)}' "
+                "is out of service."
+            )
+
+        return self._calculate_transformer(
+            transformer,
+            Vm,
+            Va,
+        )
+
+    # =================================================================
     # CORE CALCULATION
-    # =========================================================
+    # =================================================================
 
-    def _transformer_flow(self, transformer, Vm, Va):
+    def _calculate_transformer(
+        self,
+        transformer: Any,
+        Vm: np.ndarray,
+        Va: np.ndarray,
+    ) -> TransformerFlowResult:
         """
-        Calculate terminal currents and powers for one transformer.
+        Calculate terminal currents, powers, losses and loading for
+        one transformer.
         """
 
-        # -----------------------------------------------------
-        # Validate terminal objects
-        # -----------------------------------------------------
+        transformer_id = getattr(
+            transformer,
+            "id",
+            None,
+        )
+
+        # -------------------------------------------------------------
+        # TERMINALS
+        # -------------------------------------------------------------
 
         if not hasattr(transformer, "bus_from"):
             raise ValueError(
-                f"Transformer '{getattr(transformer, 'id', transformer)}' "
+                f"Transformer '{transformer_id}' "
                 "is missing 'bus_from'."
             )
 
         if not hasattr(transformer, "bus_to"):
             raise ValueError(
-                f"Transformer '{getattr(transformer, 'id', transformer)}' "
+                f"Transformer '{transformer_id}' "
                 "is missing 'bus_to'."
             )
 
         from_bus = transformer.bus_from
         to_bus = transformer.bus_to
 
-        # -----------------------------------------------------
-        # Bus indices
-        # -----------------------------------------------------
+        if from_bus is None or to_bus is None:
+            raise ValueError(
+                f"Transformer '{transformer_id}' "
+                "has an invalid terminal bus."
+            )
+
+        # -------------------------------------------------------------
+        # BUS INDICES
+        # -------------------------------------------------------------
 
         try:
-            i = self.bus_index[from_bus.id]
-            j = self.bus_index[to_bus.id]
+            i = self.network.bus_index[from_bus.id]
+            j = self.network.bus_index[to_bus.id]
 
-        except KeyError as exc:
+        except (KeyError, AttributeError) as exc:
             raise ValueError(
-                f"Transformer '{getattr(transformer, 'id', transformer)}' "
-                f"references a bus missing from network.bus_index: {exc}"
+                f"Transformer '{transformer_id}' references a bus "
+                "missing from network.bus_index."
             ) from exc
 
-        # -----------------------------------------------------
-        # Bus voltages
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # VOLTAGE VECTOR VALIDATION
+        # -------------------------------------------------------------
 
-        V_from = (
-            Vm[i]
-            *
-            np.exp(1j * Va[i])
-        )
+        if i < 0 or i >= len(Vm):
+            raise ValueError(
+                f"Invalid from-bus index {i} for transformer "
+                f"'{transformer_id}'."
+            )
 
-        V_to = (
-            Vm[j]
-            *
-            np.exp(1j * Va[j])
-        )
+        if j < 0 or j >= len(Vm):
+            raise ValueError(
+                f"Invalid to-bus index {j} for transformer "
+                f"'{transformer_id}'."
+            )
 
-        # -----------------------------------------------------
-        # Transformer impedance
-        #
-        # Frozen Transformer model:
-        #
-        #     r
-        #     x
-        #
-        # Both are already in per-unit.
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # COMPLEX BUS VOLTAGES
+        # -------------------------------------------------------------
 
-        r = float(transformer.r)
-        x = float(transformer.x)
+        V_from = Vm[i] * np.exp(1j * Va[i])
+        V_to = Vm[j] * np.exp(1j * Va[j])
+
+        # -------------------------------------------------------------
+        # SERIES IMPEDANCE
+        # -------------------------------------------------------------
+
+        try:
+            r = float(transformer.r)
+            x = float(transformer.x)
+
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Transformer '{transformer_id}' has invalid "
+                "series impedance parameters."
+            ) from exc
 
         z = complex(r, x)
 
         if abs(z) < 1e-12:
             raise ValueError(
-                f"Zero impedance transformer detected: "
-                f"{getattr(transformer, 'id', transformer)}"
+                f"Transformer '{transformer_id}' "
+                "has zero series impedance."
             )
 
         y = 1.0 / z
 
-        # -----------------------------------------------------
-        # Complex transformer ratio
-        #
-        # Frozen Transformer exposes:
-        #
-        #     complex_tap
-        #
-        #     a = tap * exp(jθ)
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # COMPLEX TRANSFORMER RATIO
+        # -------------------------------------------------------------
 
         if not hasattr(transformer, "complex_tap"):
             raise ValueError(
-                f"Transformer '{getattr(transformer, 'id', transformer)}' "
+                f"Transformer '{transformer_id}' "
                 "does not expose 'complex_tap'."
             )
 
-        a = complex(transformer.complex_tap)
+        try:
+            a = complex(transformer.complex_tap)
+
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Transformer '{transformer_id}' "
+                "has an invalid complex tap ratio."
+            ) from exc
 
         if abs(a) < 1e-12:
             raise ValueError(
-                f"Transformer '{getattr(transformer, 'id', transformer)}' "
-                "has an invalid zero complex tap."
+                f"Transformer '{transformer_id}' "
+                "has a zero complex tap ratio."
             )
 
-        # -----------------------------------------------------
-        # Terminal currents
+        # -------------------------------------------------------------
+        # TERMINAL CURRENTS
         #
-        # Standard off-nominal transformer formulation:
+        # Standard complex off-nominal transformer model:
         #
-        # I_from =
-        #     y / conj(a) * (V_from / a - V_to)
+        #     I_from = y/conj(a) * (V_from/a - V_to)
         #
-        # I_to =
-        #     y * (V_to - V_from / a)
-        #
-        # This preserves the correct complex tap behaviour.
-        # -----------------------------------------------------
+        #     I_to   = y * (V_to - V_from/a)
+        # -------------------------------------------------------------
 
         I_from = (
             y
             / np.conj(a)
-            *
-            (
+            * (
                 V_from / a
-                -
-                V_to
+                - V_to
             )
         )
 
         I_to = (
             y
-            *
-            (
+            * (
                 V_to
-                -
-                V_from / a
+                - V_from / a
             )
         )
 
-        # -----------------------------------------------------
-        # Complex power
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # COMPLEX POWER
+        # -------------------------------------------------------------
 
         S_from = V_from * np.conj(I_from)
         S_to = V_to * np.conj(I_to)
@@ -317,24 +489,19 @@ class TransformerFlowCalculator:
         P_to = float(S_to.real)
         Q_to = float(S_to.imag)
 
-        # -----------------------------------------------------
-        # Losses
-        # -----------------------------------------------------
+        S_from_mag = float(abs(S_from))
+        S_to_mag = float(abs(S_to))
+
+        # -------------------------------------------------------------
+        # LOSSES
+        # -------------------------------------------------------------
 
         P_loss = P_from + P_to
         Q_loss = Q_from + Q_to
 
-        S_from_mag = abs(S_from)
-        S_to_mag = abs(S_to)
-
-        # -----------------------------------------------------
-        # Transformer loading
-        #
-        # rate_mva belongs to the frozen Transformer model.
-        #
-        # Loading percentage is based on the maximum terminal
-        # apparent power.
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # TRANSFORMER LOADING
+        # -------------------------------------------------------------
 
         rate_mva = getattr(
             transformer,
@@ -342,17 +509,23 @@ class TransformerFlowCalculator:
             None,
         )
 
-        loading_mva = None
-        loading_percent = None
+        loading_mva: Optional[float] = None
+        loading_percent: Optional[float] = None
 
         if rate_mva is not None:
 
-            rate_mva = float(rate_mva)
+            try:
+                rate_mva = float(rate_mva)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Transformer '{transformer_id}' "
+                    "has an invalid rate_mva."
+                ) from exc
 
             if rate_mva <= 0.0:
                 raise ValueError(
-                    f"Transformer '{getattr(transformer, 'id', transformer)}' "
-                    "has an invalid rate_mva."
+                    f"Transformer '{transformer_id}' "
+                    "has a non-positive rate_mva."
                 )
 
             base_mva = self._get_base_mva()
@@ -362,72 +535,78 @@ class TransformerFlowCalculator:
                     S_from_mag,
                     S_to_mag,
                 )
-                *
-                base_mva
+                * base_mva
             )
 
             loading_percent = (
                 loading_mva
-                /
-                rate_mva
-                *
-                100.0
+                / rate_mva
+                * 100.0
             )
 
-        # -----------------------------------------------------
-        # Result
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # MODEL METADATA
+        # -------------------------------------------------------------
 
-        return {
-            "transformer": getattr(
-                transformer,
-                "id",
-                None,
+        tap_ratio = self._get_optional_float(
+            transformer,
+            "tap_ratio",
+            default=abs(a),
+        )
+
+        phase_shift_deg = self._get_optional_float(
+            transformer,
+            "phase_shift_deg",
+            default=float(
+                np.angle(a, deg=True)
             ),
+        )
 
-            "from_bus": from_bus.id,
+        # -------------------------------------------------------------
+        # RESULT
+        # -------------------------------------------------------------
 
-            "to_bus": to_bus.id,
+        return TransformerFlowResult(
+            transformer_id=transformer_id,
 
-            "tap_ratio": float(
-                transformer.tap_ratio
-            ),
+            from_bus=from_bus.id,
+            to_bus=to_bus.id,
 
-            "phase_shift_deg": float(
-                transformer.phase_shift_deg
-            ),
+            tap_ratio=tap_ratio,
+            phase_shift_deg=phase_shift_deg,
 
-            # Terminal powers in pu
-            "P_from_to": P_from,
-            "Q_from_to": Q_from,
+            p_from=P_from,
+            q_from=Q_from,
 
-            "P_to_from": P_to,
-            "Q_to_from": Q_to,
+            p_to=P_to,
+            q_to=Q_to,
 
-            # Losses in pu
-            "P_loss": P_loss,
-            "Q_loss": Q_loss,
+            p_loss=P_loss,
+            q_loss=Q_loss,
 
-            # Apparent power in pu
-            "S_from_pu": S_from_mag,
-            "S_to_pu": S_to_mag,
+            s_from_pu=S_from_mag,
+            s_to_pu=S_to_mag,
 
-            # Physical loading
-            "loading_mva": loading_mva,
-            "loading_percent": loading_percent,
+            i_from_pu=float(abs(I_from)),
+            i_to_pu=float(abs(I_to)),
 
-            # Terminal currents in pu
-            "I_from_pu": abs(I_from),
-            "I_to_pu": abs(I_to),
-        }
+            loading_mva=loading_mva,
+            loading_percent=loading_percent,
 
-    # =========================================================
+            in_service=True,
+        )
+
+    # =================================================================
     # VALIDATION
-    # =========================================================
+    # =================================================================
 
-    def _validate_voltage_arrays(self, Vm, Va):
+    def _validate_voltage_arrays(
+        self,
+        Vm: np.ndarray,
+        Va: np.ndarray,
+    ) -> None:
         """
-        Validate supplied bus-voltage arrays.
+        Validate bus-voltage arrays against the frozen Network.
         """
 
         expected = len(self.network.buses)
@@ -459,17 +638,14 @@ class TransformerFlowCalculator:
                 "Voltage magnitude cannot be negative."
             )
 
-    # =========================================================
+    # =================================================================
     # BASE MVA
-    # =========================================================
+    # =================================================================
 
-    def _get_base_mva(self):
+    def _get_base_mva(self) -> float:
         """
-        Obtain the system MVA base.
-
-        The frozen Network should expose its PerUnitSystem through:
-
-            network.per_unit.base_mva
+        Obtain the system MVA base from the frozen Network
+        per-unit system.
         """
 
         if not hasattr(self.network, "per_unit"):
@@ -485,37 +661,85 @@ class TransformerFlowCalculator:
                 "Network per-unit system missing 'base_mva'."
             )
 
-        base_mva = float(pu.base_mva)
-
-        if base_mva <= 0.0:
+        try:
+            base_mva = float(pu.base_mva)
+        except (TypeError, ValueError) as exc:
             raise ValueError(
-                "Per-unit base MVA must be positive."
+                "Network per-unit base MVA is invalid."
+            ) from exc
+
+        if not np.isfinite(base_mva) or base_mva <= 0.0:
+            raise ValueError(
+                "Per-unit base MVA must be finite and positive."
             )
 
         return base_mva
 
-    # =========================================================
-    # SUMMARY
-    # =========================================================
+    # =================================================================
+    # OPTIONAL MODEL VALUE
+    # =================================================================
 
-    def summary(self):
+    @staticmethod
+    def _get_optional_float(
+        obj: Any,
+        attribute: str,
+        default: float,
+    ) -> float:
         """
-        Return a structural summary of transformer flow analysis.
+        Return an optional model attribute as a finite float.
+
+        If the attribute is absent, use the supplied default.
         """
+
+        value = getattr(obj, attribute, default)
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Transformer attribute '{attribute}' "
+                "must be numeric."
+            ) from exc
+
+        if not np.isfinite(value):
+            raise ValueError(
+                f"Transformer attribute '{attribute}' "
+                "must be finite."
+            )
+
+        return value
+
+    # =================================================================
+    # SUMMARY
+    # =================================================================
+
+    def summary(self) -> Dict[str, int]:
+        """
+        Return structural information about transformer availability.
+
+        This method does not perform electrical calculations.
+        """
+
+        total = len(self.network.transformers)
+
+        active = sum(
+            1
+            for transformer in self.network.transformers
+            if getattr(
+                transformer,
+                "in_service",
+                True,
+            )
+        )
 
         return {
-            "transformers": len(
-                self.network.transformers
-            ),
-            "active_transformers": sum(
-                1
-                for transformer
-                in self.network.transformers
-                if getattr(
-                    transformer,
-                    "in_service",
-                    True,
-                )
-            ),
+            "transformers": total,
+            "active_transformers": active,
         }
+
+
+__all__ = [
+    "TransformerFlowResult",
+    "TransformerFlowCalculator",
+]
 ```
