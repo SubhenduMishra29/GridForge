@@ -85,9 +85,9 @@ class DirectionalRelay(RelayBase):
     Relay service and trip state remain owned by the Relay model.
     """
 
-    # =============================================================
+    # =========================================================
     # INITIALIZATION
-    # =============================================================
+    # =========================================================
 
     def __init__(
         self,
@@ -112,13 +112,11 @@ class DirectionalRelay(RelayBase):
 
         self._validate_settings()
 
-    # =============================================================
+    # =========================================================
     # VALIDATION
-    # =============================================================
+    # =========================================================
 
-    def _validate_settings(
-        self,
-    ) -> None:
+    def _validate_settings(self) -> None:
         """
         Validate directional protection settings.
         """
@@ -131,31 +129,27 @@ class DirectionalRelay(RelayBase):
                 "between 0 and 180 degrees."
             )
 
-    # =============================================================
+    # =========================================================
     # ANGLE NORMALIZATION
-    # =============================================================
+    # =========================================================
 
     @staticmethod
     def _normalize_angle(
         angle: float,
     ) -> float:
         """
-        Normalize an angle to the range [-180, 180].
+        Normalize an angle to the range [-180, 180).
         """
 
-        normalized = (
+        return (
             float(angle) + 180.0
         ) % 360.0 - 180.0
 
-        return normalized
-
-    # =============================================================
+    # =========================================================
     # CURRENT PICKUP
-    # =============================================================
+    # =========================================================
 
-    def check_pickup(
-        self,
-    ) -> bool:
+    def check_pickup(self) -> bool:
         """
         Evaluate the current pickup condition.
 
@@ -171,12 +165,12 @@ class DirectionalRelay(RelayBase):
 
         return (
             abs(self.relay.current)
-            > self.relay.pickup
+            >= self.relay.pickup
         )
 
-    # =============================================================
+    # =========================================================
     # DIRECTIONAL ELEMENT
-    # =============================================================
+    # =========================================================
 
     def check_direction(
         self,
@@ -201,11 +195,11 @@ class DirectionalRelay(RelayBase):
 
         Notes
         -----
-        The directional criterion is based on the angular
-        relationship between voltage and current.
+        Phase angles are transient evaluation inputs.
 
-        The phase angles are evaluation inputs and are not stored
-        as competing relay-model state.
+        They are deliberately not stored in the authoritative
+        Relay model because core/model/relay.py does not define
+        phase-angle state.
         """
 
         angle_difference = (
@@ -238,9 +232,9 @@ class DirectionalRelay(RelayBase):
 
         return self.direction
 
-    # =============================================================
-    # TRIP PERMISSION
-    # =============================================================
+    # =========================================================
+    # EVALUATION
+    # =========================================================
 
     def evaluate(
         self,
@@ -253,11 +247,17 @@ class DirectionalRelay(RelayBase):
         Returns
         -------
         bool
-            True when current pickup and forward direction
-            conditions are both satisfied.
+            True when both:
 
-        The authoritative Relay.trip state is updated through
+            1. Current pickup is satisfied.
+            2. The measured direction is FORWARD.
+
+        Notes
+        -----
+        The authoritative Relay trip state is updated through
         Relay.set_trip().
+
+        This method does not operate a breaker.
         """
 
         if not self.relay.in_service:
@@ -288,13 +288,11 @@ class DirectionalRelay(RelayBase):
 
         return operates
 
-    # =============================================================
+    # =========================================================
     # RESET
-    # =============================================================
+    # =========================================================
 
-    def reset(
-        self,
-    ) -> None:
+    def reset(self) -> None:
         """
         Reset directional operating state.
 
@@ -303,15 +301,13 @@ class DirectionalRelay(RelayBase):
 
         self.direction = None
 
-        self.relay.reset()
+        super().reset()
 
-    # =============================================================
+    # =========================================================
     # STATUS
-    # =============================================================
+    # =========================================================
 
-    def status(
-        self,
-    ) -> dict:
+    def status(self) -> dict:
         """
         Return directional protection status.
         """
@@ -327,13 +323,11 @@ class DirectionalRelay(RelayBase):
             "tolerance": self.tolerance,
         }
 
-    # =============================================================
+    # =========================================================
     # DEBUG
-    # =============================================================
+    # =========================================================
 
-    def __repr__(
-        self,
-    ) -> str:
+    def __repr__(self) -> str:
         """
         Developer-friendly representation.
         """
