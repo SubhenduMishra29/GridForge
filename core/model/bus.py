@@ -1,59 +1,63 @@
+```python
+# core/model/bus.py
+
 """
 GridForge Bus Model
 ===================
 
-File:
-    core/model/bus.py
+GridForge Model Layer V2
 
-Defines the electrical Bus model and BusType classification.
+Defines the electrical Bus model and the BusType classification used
+throughout the GridForge power-system domain model.
 
-The Bus is the central electrical node of the GridForge network
-model and is shared by:
+The Bus is the central electrical node of the GridForge network model
+and is referenced by:
 
-    - Network topology
-    - Load Flow
-    - Short Circuit
-    - Contingency Analysis
-    - Protection
-    - Dynamic Simulation
-    - GUI / SLD representation
+- Network topology
+- Load-flow studies
+- Short-circuit studies
+- Contingency analysis
+- Protection
+- Dynamic simulation
+- GUI / SLD representation
 
-The current steady-state electrical voltage state is stored
-directly on the Bus:
+The Bus stores the current steady-state electrical voltage state:
 
     V
     theta
 
-Numerical solvers may update this state during solution.
+Numerical solver layers may read and update this state during a study.
 
 Responsibilities
 ----------------
-This class:
+This module is responsible for:
 
-    - Represents an electrical bus.
-    - Stores bus classification.
-    - Stores current voltage state.
-    - Stores specified power-flow quantities.
-    - Stores voltage-control setpoint.
-    - Provides basic state manipulation and validation.
+- Representing an electrical bus.
+- Storing bus classification.
+- Storing current voltage state.
+- Storing specified active/reactive power.
+- Storing voltage-control setpoint.
+- Storing reactive-power limits.
+- Providing controlled state manipulation.
+- Providing local state validation.
+- Providing diagnostic information.
 
-This class does NOT:
+This module does NOT:
 
-    - Build Ybus.
-    - Perform Newton-Raphson iterations.
-    - Solve power flow.
-    - Perform short-circuit calculations.
-    - Perform contingency analysis.
-    - Perform protection calculations.
-    - Perform dynamic integration.
-    - Manage GUI objects.
+- Build Y-bus matrices.
+- Perform Newton-Raphson iterations.
+- Solve power flow.
+- Perform short-circuit calculations.
+- Perform contingency analysis.
+- Perform protection calculations.
+- Perform dynamic integration.
+- Manage network topology.
+- Manage GUI objects.
 
-Those responsibilities belong to the appropriate
-network/solver/analysis/simulation layers.
+Those responsibilities belong to the appropriate GridForge layers.
 
-Sign Convention
----------------
-
+Power Sign Convention
+---------------------
 For specified network power:
 
     +P, +Q
@@ -61,6 +65,22 @@ For specified network power:
 
     -P, -Q
         Consumption from the network.
+
+Units
+-----
+- Voltage magnitude: per-unit
+- Voltage angle: radians
+- Active power: per-unit
+- Reactive power: per-unit
+
+GridForge V2 Status
+-------------------
+This module is part of the frozen GridForge Model Layer V2
+baseline.
+
+Changes to this module require evidence of a genuinely fundamental
+model requirement that cannot be satisfied by the network, solver,
+analysis, protection, simulation, or plugin layers.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -74,25 +94,32 @@ from math import isfinite, isnan
 from .base import ElectricalObject
 
 
-# =============================================================
+# =====================================================================
 # BUS TYPE
-# =============================================================
+# =====================================================================
 
 class BusType(Enum):
     """
     AC power-flow bus classification.
 
     PQ
-        Load bus. Voltage magnitude and angle are solved.
+        Load bus.
+
+        Active and reactive power are specified. Voltage magnitude
+        and voltage angle are solved by the power-flow solver.
 
     PV
-        Generator / voltage-controlled bus. Active power and
-        voltage magnitude are specified; reactive power is solved
-        subject to generator limits.
+        Generator / voltage-controlled bus.
+
+        Active power and voltage magnitude are specified. Reactive
+        power is solved subject to the applicable reactive-power
+        limits.
 
     SLACK
-        Reference bus. Voltage magnitude and angle are specified;
-        active/reactive power balance is determined by the solver.
+        Reference bus.
+
+        Voltage magnitude and voltage angle are specified. Active
+        and reactive power balance is determined by the solver.
     """
 
     PQ = 1
@@ -100,9 +127,9 @@ class BusType(Enum):
     SLACK = 3
 
 
-# =============================================================
+# =====================================================================
 # BUS MODEL
-# =============================================================
+# =====================================================================
 
 class Bus(ElectricalObject):
     """
@@ -131,25 +158,41 @@ class Bus(ElectricalObject):
     Q_spec : float, optional
         Specified reactive-power injection in per-unit.
 
-    V_setpoint : float, optional
+    V_setpoint : float or None, optional
         Voltage-control target in per-unit.
 
-        If omitted, the initial ``V`` value is used.
+        If omitted, the initial voltage magnitude ``V`` is used.
+
+    Q_min : float, optional
+        Minimum reactive-power injection in per-unit.
+
+        Infinite values are permitted and represent an unlimited
+        reactive-power range.
+
+    Q_max : float, optional
+        Maximum reactive-power injection in per-unit.
+
+        Infinite values are permitted and represent an unlimited
+        reactive-power range.
 
     Notes
     -----
     The Bus stores the current steady-state voltage state directly.
 
-    This is intentional because the frozen GridForge Load Flow
-    architecture operates on the Bus electrical state.
+    This is intentional and forms part of the GridForge Model Layer
+    contract used by the frozen load-flow and analysis architecture.
 
-    ``V_setpoint`` is separate from ``V``:
+    ``V`` and ``V_setpoint`` have different meanings:
 
         V
             Current solved voltage magnitude.
 
         V_setpoint
             Desired voltage magnitude for voltage-controlled buses.
+
+    Reactive-power limits are storage properties only. The Bus does
+    not enforce Q limits or perform PV/PQ switching. Those decisions
+    belong to the appropriate power-flow/control layer.
     """
 
     def __init__(
@@ -167,125 +210,133 @@ class Bus(ElectricalObject):
     ):
         super().__init__(
             id=id,
-            name=name
+            name=name,
         )
 
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
         # Electrical classification
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
 
         if not isinstance(type, BusType):
             raise TypeError(
-                "Bus type must be a BusType enum value"
+                "Bus type must be a BusType enum value."
             )
 
         self.type = type
 
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
         # Voltage state
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
 
         self.V = float(V)
         self.theta = float(theta)
 
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
         # Voltage-control setpoint
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
 
         if V_setpoint is None:
             V_setpoint = self.V
 
         self.V_setpoint = float(V_setpoint)
 
-        # ---------------------------------------------------------
-        # Specified power injection
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
+        # Specified network power
+        # -------------------------------------------------------------
 
         self.P_spec = float(P_spec)
         self.Q_spec = float(Q_spec)
 
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
         # Reactive-power limits
         #
-        # These are storage only. They are populated from attached
-        # Generator objects (typically via Network.sync_injections())
-        # and consumed by the power-flow Q-limit handler. Bus does
-        # not enforce or interpret them itself.
+        # These values are storage only.
         #
-        # Infinite limits (the default) mean "unlimited" and are
-        # valid for buses without an attached generator.
-        # ---------------------------------------------------------
+        # They may be populated from attached Generator objects and
+        # consumed by the appropriate power-flow Q-limit handler.
+        #
+        # The Bus itself does not:
+        # - enforce Q limits
+        # - clamp Q_spec
+        # - switch PV/PQ
+        #
+        # Infinite limits represent an unlimited range.
+        # -------------------------------------------------------------
 
         self.Q_min = float(Q_min)
         self.Q_max = float(Q_max)
 
+        # -------------------------------------------------------------
+        # Validate initial state
+        # -------------------------------------------------------------
+
         self._validate_state()
 
-    # =============================================================
+    # =================================================================
     # BUS TYPE HELPERS
-    # =============================================================
+    # =================================================================
 
     def is_pq(self) -> bool:
-        """Return True when this is a PQ bus."""
-
+        """
+        Return True when this is a PQ bus.
+        """
         return self.type is BusType.PQ
 
     def is_pv(self) -> bool:
-        """Return True when this is a PV bus."""
-
+        """
+        Return True when this is a PV bus.
+        """
         return self.type is BusType.PV
 
     def is_slack(self) -> bool:
-        """Return True when this is the reference/slack bus."""
-
+        """
+        Return True when this is the reference/slack bus.
+        """
         return self.type is BusType.SLACK
 
-    # =============================================================
+    # =================================================================
     # BUS TYPE CONTROL
-    # =============================================================
+    # =================================================================
 
     def set_type(
         self,
-        bus_type: BusType
+        bus_type: BusType,
     ) -> None:
         """
         Change the electrical bus classification.
 
-        This method only changes the classification.
+        This method changes classification only.
 
-        It does not perform PV/PQ switching logic or Q-limit
-        handling. Those decisions belong to the power-flow
-        control layer.
+        It does not:
+        - perform PV/PQ switching logic
+        - enforce reactive-power limits
+        - modify Q_spec
+        - perform numerical calculations
         """
 
-        if not isinstance(
-            bus_type,
-            BusType
-        ):
+        if not isinstance(bus_type, BusType):
             raise TypeError(
-                "bus_type must be a BusType enum value"
+                "bus_type must be a BusType enum value."
             )
 
         self.type = bus_type
 
     def set_pq(self) -> None:
         """
-        Convert this bus to PQ classification.
+        Convert the bus to PQ classification.
 
-        Convenience wrapper around ``set_type(BusType.PQ)``.
+        This is a convenience wrapper around:
 
-        This is the conversion method the power-flow Q-limit
-        handler prefers when switching a PV bus to PQ after a
-        reactive-power limit violation. Like ``set_type()``, it
-        only changes classification; it does not clamp Q_spec or
-        perform any numerical calculation.
+            set_type(BusType.PQ)
+
+        The method only changes the classification.
         """
 
         self.set_type(BusType.PQ)
 
-    # =============================================================
-    # REACTIVE POWER LIMITS
-    # =============================================================
+    # =================================================================
+    # REACTIVE-POWER LIMITS
+    # =================================================================
 
     def set_q_limits(
         self,
@@ -297,18 +348,19 @@ class Bus(ElectricalObject):
 
         Parameters
         ----------
-        Q_min:
+        Q_min : float
             Minimum reactive-power injection in per-unit.
 
-        Q_max:
+        Q_max : float
             Maximum reactive-power injection in per-unit.
 
         Notes
         -----
-        Infinite values are permitted and represent "unlimited".
+        Infinite values are permitted and represent an unlimited
+        reactive-power range.
 
-        This method only stores the limits. It does not enforce
-        them or change bus classification.
+        This method only stores the limits. It does not enforce them
+        or change the bus classification.
         """
 
         Q_min = float(Q_min)
@@ -327,24 +379,24 @@ class Bus(ElectricalObject):
         self.Q_min = Q_min
         self.Q_max = Q_max
 
-    # =============================================================
+    # =================================================================
     # VOLTAGE STATE
-    # =============================================================
+    # =================================================================
 
     def set_voltage(
         self,
         V: float,
-        theta: float | None = None
+        theta: float | None = None,
     ) -> None:
         """
         Update the current voltage state.
 
         Parameters
         ----------
-        V:
+        V : float
             Voltage magnitude in per-unit.
 
-        theta:
+        theta : float or None, optional
             Voltage angle in radians.
 
             If omitted, the existing angle is retained.
@@ -354,8 +406,7 @@ class Bus(ElectricalObject):
 
         if not isfinite(V) or V <= 0.0:
             raise ValueError(
-                "Voltage magnitude must be finite and greater "
-                "than zero"
+                "Voltage magnitude must be finite and greater than zero."
             )
 
         self.V = V
@@ -365,126 +416,141 @@ class Bus(ElectricalObject):
 
             if not isfinite(theta):
                 raise ValueError(
-                    "Voltage angle must be finite"
+                    "Voltage angle must be finite."
                 )
 
             self.theta = theta
 
-    # =============================================================
+    # =================================================================
     # VOLTAGE SETPOINT
-    # =============================================================
+    # =================================================================
 
     def set_voltage_setpoint(
         self,
-        V_setpoint: float
+        V_setpoint: float,
     ) -> None:
         """
         Set the voltage-control target in per-unit.
 
-        This is primarily used by PV and SLACK buses.
+        This value is primarily used by PV and SLACK buses.
         """
 
         V_setpoint = float(V_setpoint)
 
-        if (
-            not isfinite(V_setpoint)
-            or V_setpoint <= 0.0
-        ):
+        if not isfinite(V_setpoint) or V_setpoint <= 0.0:
             raise ValueError(
-                "Voltage setpoint must be finite and greater "
-                "than zero"
+                "Voltage setpoint must be finite and greater than zero."
             )
 
         self.V_setpoint = V_setpoint
 
-    # =============================================================
+    # =================================================================
     # VALIDATION
-    # =============================================================
+    # =================================================================
 
     def _validate_state(self) -> None:
         """
-        Validate the complete electrical state.
+        Validate the complete local electrical state.
+
+        This method performs local object validation only.
+
+        System-wide validation, such as:
+        - number of slack buses
+        - network connectivity
+        - generator/bus consistency
+        - topology validity
+
+        belongs to higher-level validation/network layers.
         """
 
-        # ---------------------------------------------------------
-        # Voltage
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
+        # Voltage magnitude
+        # -------------------------------------------------------------
 
         if not isfinite(self.V) or self.V <= 0.0:
             raise ValueError(
-                "Bus voltage magnitude must be finite and "
-                "greater than zero"
+                "Bus voltage magnitude must be finite and greater "
+                "than zero."
             )
+
+        # -------------------------------------------------------------
+        # Voltage angle
+        # -------------------------------------------------------------
 
         if not isfinite(self.theta):
             raise ValueError(
-                "Bus voltage angle must be finite"
+                "Bus voltage angle must be finite."
             )
 
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
         # Voltage setpoint
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
 
         if (
             not isfinite(self.V_setpoint)
             or self.V_setpoint <= 0.0
         ):
             raise ValueError(
-                "Bus voltage setpoint must be finite and "
-                "greater than zero"
+                "Bus voltage setpoint must be finite and greater "
+                "than zero."
             )
 
-        # ---------------------------------------------------------
-        # Specified power
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
+        # Specified active power
+        # -------------------------------------------------------------
 
         if not isfinite(self.P_spec):
             raise ValueError(
-                "Bus P_spec must be finite"
+                "Bus P_spec must be finite."
             )
+
+        # -------------------------------------------------------------
+        # Specified reactive power
+        # -------------------------------------------------------------
 
         if not isfinite(self.Q_spec):
             raise ValueError(
-                "Bus Q_spec must be finite"
+                "Bus Q_spec must be finite."
             )
 
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
         # Reactive-power limits
         #
-        # Infinite values are permitted (they represent "unlimited"),
-        # so this checks for NaN and ordering, not finiteness.
-        # ---------------------------------------------------------
+        # Infinite values are valid and represent an unlimited range.
+        # Therefore we reject NaN and invalid ordering rather than
+        # requiring finite values.
+        # -------------------------------------------------------------
 
         if isnan(self.Q_min) or isnan(self.Q_max):
             raise ValueError(
-                "Bus reactive-power limits cannot be NaN"
+                "Bus reactive-power limits cannot be NaN."
             )
 
         if self.Q_min > self.Q_max:
             raise ValueError(
-                "Bus Q_min cannot be greater than Q_max"
+                "Bus Q_min cannot be greater than Q_max."
             )
 
-    # =============================================================
+    # =================================================================
     # STATE RESET
-    # =============================================================
+    # =================================================================
 
     def reset_voltage(
         self,
         V: float | None = None,
-        theta: float = 0.0
+        theta: float = 0.0,
     ) -> None:
         """
         Reset the current voltage state.
 
         Parameters
         ----------
-        V:
+        V : float or None, optional
             Voltage magnitude in per-unit.
 
             If omitted, ``V_setpoint`` is used.
 
-        theta:
+        theta : float, optional
             Voltage angle in radians.
         """
 
@@ -493,22 +559,22 @@ class Bus(ElectricalObject):
 
         self.set_voltage(
             V=V,
-            theta=theta
+            theta=theta,
         )
 
-    # =============================================================
+    # =================================================================
     # POWER SPECIFICATION
-    # =============================================================
+    # =================================================================
 
     def set_power(
         self,
         P_spec: float | None = None,
-        Q_spec: float | None = None
+        Q_spec: float | None = None,
     ) -> None:
         """
-        Update specified active/reactive power injection.
+        Update specified active and/or reactive power injection.
 
-        Only supplied values are changed.
+        Only values explicitly supplied are changed.
         """
 
         if P_spec is not None:
@@ -516,7 +582,7 @@ class Bus(ElectricalObject):
 
             if not isfinite(P_spec):
                 raise ValueError(
-                    "P_spec must be finite"
+                    "P_spec must be finite."
                 )
 
             self.P_spec = P_spec
@@ -526,18 +592,23 @@ class Bus(ElectricalObject):
 
             if not isfinite(Q_spec):
                 raise ValueError(
-                    "Q_spec must be finite"
+                    "Q_spec must be finite."
                 )
 
             self.Q_spec = Q_spec
 
-    # =============================================================
+    # =================================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =================================================================
 
     def summary(self) -> dict:
         """
         Return a compact electrical summary.
+
+        Returns
+        -------
+        dict
+            Common identity information and the current Bus state.
         """
 
         return {
@@ -550,14 +621,18 @@ class Bus(ElectricalObject):
             "P_spec": self.P_spec,
             "Q_spec": self.Q_spec,
             "Q_min": self.Q_min,
-            "Q_max": self.Q_max
+            "Q_max": self.Q_max,
         }
 
-    # =============================================================
+    # =================================================================
     # REPRESENTATION
-    # =============================================================
+    # =================================================================
 
     def __repr__(self) -> str:
+        """
+        Return a concise developer-facing representation.
+        """
+
         return (
             f"<Bus "
             f"id={self.id}, "
@@ -566,3 +641,4 @@ class Bus(ElectricalObject):
             f"theta={self.theta:.6f}, "
             f"Vset={self.V_setpoint:.6f}>"
         )
+```
