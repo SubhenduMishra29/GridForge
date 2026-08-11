@@ -308,4 +308,17 @@ class SolverOptions:
 __all__ = [
     "SolverOptions",
 ]
-```
+#=======================================================================
+# Not Added 
+#=======================================================================
+# not add advanced options such as:
+
+# line_search
+# trust_region
+# Levenberg-Marquardt
+# flat_start
+# voltage_limits
+# angle_limits
+# adaptive_damping
+# GPU
+# sparse_backend
