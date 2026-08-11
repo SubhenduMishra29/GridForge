@@ -69,7 +69,7 @@ All Rights Reserved.
 from __future__ import annotations
 
 from enum import Enum
-from math import isfinite
+from math import isfinite, isnan
 
 from .base import ElectricalObject
 
@@ -161,7 +161,9 @@ class Bus(ElectricalObject):
         theta: float = 0.0,
         P_spec: float = 0.0,
         Q_spec: float = 0.0,
-        V_setpoint: float | None = None
+        V_setpoint: float | None = None,
+        Q_min: float = float("-inf"),
+        Q_max: float = float("inf"),
     ):
         super().__init__(
             id=id,
@@ -201,6 +203,21 @@ class Bus(ElectricalObject):
 
         self.P_spec = float(P_spec)
         self.Q_spec = float(Q_spec)
+
+        # ---------------------------------------------------------
+        # Reactive-power limits
+        #
+        # These are storage only. They are populated from attached
+        # Generator objects (typically via Network.sync_injections())
+        # and consumed by the power-flow Q-limit handler. Bus does
+        # not enforce or interpret them itself.
+        #
+        # Infinite limits (the default) mean "unlimited" and are
+        # valid for buses without an attached generator.
+        # ---------------------------------------------------------
+
+        self.Q_min = float(Q_min)
+        self.Q_max = float(Q_max)
 
         self._validate_state()
 
@@ -250,6 +267,65 @@ class Bus(ElectricalObject):
             )
 
         self.type = bus_type
+
+    def set_pq(self) -> None:
+        """
+        Convert this bus to PQ classification.
+
+        Convenience wrapper around ``set_type(BusType.PQ)``.
+
+        This is the conversion method the power-flow Q-limit
+        handler prefers when switching a PV bus to PQ after a
+        reactive-power limit violation. Like ``set_type()``, it
+        only changes classification; it does not clamp Q_spec or
+        perform any numerical calculation.
+        """
+
+        self.set_type(BusType.PQ)
+
+    # =============================================================
+    # REACTIVE POWER LIMITS
+    # =============================================================
+
+    def set_q_limits(
+        self,
+        Q_min: float,
+        Q_max: float,
+    ) -> None:
+        """
+        Update reactive-power limits.
+
+        Parameters
+        ----------
+        Q_min:
+            Minimum reactive-power injection in per-unit.
+
+        Q_max:
+            Maximum reactive-power injection in per-unit.
+
+        Notes
+        -----
+        Infinite values are permitted and represent "unlimited".
+
+        This method only stores the limits. It does not enforce
+        them or change bus classification.
+        """
+
+        Q_min = float(Q_min)
+        Q_max = float(Q_max)
+
+        if isnan(Q_min) or isnan(Q_max):
+            raise ValueError(
+                "Bus reactive-power limits cannot be NaN."
+            )
+
+        if Q_min > Q_max:
+            raise ValueError(
+                "Bus Q_min cannot be greater than Q_max."
+            )
+
+        self.Q_min = Q_min
+        self.Q_max = Q_max
 
     # =============================================================
     # VOLTAGE STATE
@@ -372,6 +448,23 @@ class Bus(ElectricalObject):
                 "Bus Q_spec must be finite"
             )
 
+        # ---------------------------------------------------------
+        # Reactive-power limits
+        #
+        # Infinite values are permitted (they represent "unlimited"),
+        # so this checks for NaN and ordering, not finiteness.
+        # ---------------------------------------------------------
+
+        if isnan(self.Q_min) or isnan(self.Q_max):
+            raise ValueError(
+                "Bus reactive-power limits cannot be NaN"
+            )
+
+        if self.Q_min > self.Q_max:
+            raise ValueError(
+                "Bus Q_min cannot be greater than Q_max"
+            )
+
     # =============================================================
     # STATE RESET
     # =============================================================
@@ -455,7 +548,9 @@ class Bus(ElectricalObject):
             "theta": self.theta,
             "V_setpoint": self.V_setpoint,
             "P_spec": self.P_spec,
-            "Q_spec": self.Q_spec
+            "Q_spec": self.Q_spec,
+            "Q_min": self.Q_min,
+            "Q_max": self.Q_max
         }
 
     # =============================================================
