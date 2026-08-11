@@ -1,4 +1,3 @@
-```python
 """
 GridForge TCC Curve Engine
 ==========================
@@ -6,8 +5,10 @@ GridForge TCC Curve Engine
 File:
     core/protection/coordination/tcc_curve.py
 
-Time-current characteristic calculations for protection
-coordination.
+Purpose
+-------
+Pure IEC inverse-time Time-Current Characteristic (TCC)
+calculation engine for protection coordination.
 
 Supported IEC 60255 inverse-time characteristics:
 
@@ -17,23 +18,49 @@ Supported IEC 60255 inverse-time characteristics:
 
 Responsibilities
 ----------------
-- Store IEC inverse-time curve characteristics.
+- Provide IEC inverse-time curve constants.
 - Calculate relay operating time.
-- Generate TCC curve data.
+- Generate TCC curve points.
+- Expose characteristic information.
 
-This module does NOT:
+This module MUST remain a pure calculation layer.
+
+It does NOT:
 - Store relay state.
+- Store relay measurements.
 - Operate relays.
-- Operate breakers.
-- Modify network state.
-- Perform relay coordination.
+- Operate circuit breakers.
+- Modify the network model.
+- Perform fault calculations.
+- Coordinate multiple relays.
 - Execute protection trips.
 
 Relay coordination is implemented by:
 
     core/protection/coordination/relay_coordination.py
 
-The TCC engine is intentionally a pure calculation layer.
+IEC relay protection uses the shared IEC calculation layer:
+
+    core/protection/relay_functions.py
+
+Architecture
+------------
+
+    IEC relay
+        |
+        v
+    relay_functions.py
+        |
+        +----------------+
+        |                |
+        v                v
+    Protection       TCCCurve
+                         |
+                         v
+                 RelayCoordination
+
+The mathematical definition of the IEC curves is kept
+consistent across the protection stack.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -95,7 +122,7 @@ class TCCCurve:
         curve_type: str = "NORMAL_INVERSE",
     ) -> None:
         """
-        Initialize the TCC engine.
+        Initialize the TCC calculation engine.
         """
 
         curve_type = str(
@@ -138,7 +165,8 @@ class TCCCurve:
         """
         Calculate IEC inverse-time operating time.
 
-        Equation:
+        Equation
+        --------
 
             t = TMS * k / (M^alpha - 1)
 
@@ -155,15 +183,15 @@ class TCCCurve:
             Relay pickup current.
 
         TMS:
-            Time Multiplier Setting.
+            IEC Time Multiplier Setting.
 
         Returns
         -------
         float
             Operating time in seconds.
 
-            infinity
-                when current is at or below pickup.
+            infinity:
+                Current is at or below pickup.
         """
 
         pickup_current = float(
@@ -186,7 +214,9 @@ class TCCCurve:
                 "Pickup current must be > 0."
             )
 
-        if not math.isfinite(TMS):
+        if not math.isfinite(
+            TMS
+        ):
             raise ValueError(
                 "TMS must be finite."
             )
@@ -247,7 +277,7 @@ class TCCCurve:
         multiplier_range: Iterable[float] | None = None,
     ) -> list[dict]:
         """
-        Generate TCC points.
+        Generate TCC curve points.
 
         Parameters
         ----------
@@ -255,10 +285,11 @@ class TCCCurve:
             Relay pickup current.
 
         TMS:
-            Time Multiplier Setting.
+            IEC Time Multiplier Setting.
 
         multiplier_range:
-            Iterable of current multiples relative to pickup.
+            Iterable containing current multiples relative
+            to pickup.
 
             Example:
 
@@ -282,6 +313,13 @@ class TCCCurve:
             pickup_current
         )
 
+        if not math.isfinite(
+            pickup_current
+        ):
+            raise ValueError(
+                "Pickup current must be finite."
+            )
+
         if pickup_current <= 0.0:
             raise ValueError(
                 "Pickup current must be > 0."
@@ -302,6 +340,13 @@ class TCCCurve:
             multiplier = float(
                 multiplier
             )
+
+            if not math.isfinite(
+                multiplier
+            ):
+                raise ValueError(
+                    "Current multiplier must be finite."
+                )
 
             if multiplier <= 0.0:
                 raise ValueError(
@@ -337,7 +382,9 @@ class TCCCurve:
     # CHARACTERISTIC INFORMATION
     # =========================================================
 
-    def characteristic(self) -> dict:
+    def characteristic(
+        self,
+    ) -> dict:
         """
         Return the IEC characteristic constants.
         """
@@ -370,4 +417,3 @@ class TCCCurve:
 __all__ = [
     "TCCCurve",
 ]
-```
