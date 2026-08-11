@@ -1,463 +1,396 @@
 ```python
 """
-GridForge Line Flow Analysis
-============================
+GridForge - Line Flow Analysis
+==============================
 
-File:
-    core/analysis/line_flow.py
+Deterministic engineering calculation of branch power flow.
 
-Purpose:
-    Calculate steady-state electrical quantities for network
-    transmission/distribution lines using the same nominal
-    pi-model used by GridForge YBusBuilder.
+Purpose
+-------
+Calculates the electrical quantities at both ends of an in-service
+transmission/distribution line using the solved bus voltages.
 
-Calculates:
+This module is NOT a power-flow solver.
 
-    - Pij
-    - Qij
-    - Pji
-    - Qji
-    - Active-power loss
-    - Reactive-power net balance
+It assumes that bus voltages have already been obtained from:
 
-Architecture:
+    core.analysis.power_flow
+        ->
+    core.solver.power_flow
 
-    Network
-        │
-        ├── frozen Line model
-        │
-        ├── PerUnitSystem
-        │
-        └── solved bus voltages
-                │
-                ▼
-        LineFlowCalculator
+Responsibilities
+----------------
+- Calculate line terminal currents
+- Calculate sending/receiving-end complex power
+- Calculate active-power loss
+- Calculate reactive-power balance
+- Provide engineering-friendly results
 
-This module performs analytical line-flow calculations only.
+Numerical solver responsibilities remain in core/solver/.
 
-It does NOT:
+Units
+-----
+Input:
+    r_pu, x_pu, b_pu : per-unit line parameters
+    bus voltages      : per-unit complex voltages
 
-    - Solve power flow
-    - Build Ybus
-    - Modify the network model
-    - Perform Newton-Raphson iterations
-    - Perform fault calculations
-
-Electrical line parameters are consumed in per-unit form,
-consistent with the frozen GridForge Line model and YBusBuilder.
+Output:
+    P, Q, losses      : per-unit quantities
+    I                 : per-unit current
 """
+
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from dataclasses import dataclass, asdict
+from typing import Any, Dict, Optional
 
 import numpy as np
 
 
+# =====================================================================
+# RESULT
+# =====================================================================
+
+@dataclass
+class LineFlowResult:
+    """
+    Result of a single line-flow calculation.
+
+    All electrical quantities are in per-unit unless otherwise noted.
+    """
+
+    line_id: Any
+
+    from_bus: Any
+    to_bus: Any
+
+    # Terminal currents
+    current_from: complex
+    current_to: complex
+
+    # Sending-end power
+    p_from: float
+    q_from: float
+
+    # Receiving-end power
+    p_to: float
+    q_to: float
+
+    # Losses
+    p_loss: float
+    q_balance: float
+
+    # Network status
+    in_service: bool = True
+
+    # ---------------------------------------------------------------
+    # Convenience properties
+    # ---------------------------------------------------------------
+
+    @property
+    def s_from(self) -> complex:
+        """Sending-end complex power."""
+        return complex(self.p_from, self.q_from)
+
+    @property
+    def s_to(self) -> complex:
+        """Receiving-end complex power."""
+        return complex(self.p_to, self.q_to)
+
+    @property
+    def current_from_magnitude(self) -> float:
+        """Magnitude of sending-end current in pu."""
+        return float(abs(self.current_from))
+
+    @property
+    def current_to_magnitude(self) -> float:
+        """Magnitude of receiving-end current in pu."""
+        return float(abs(self.current_to))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the result into a JSON-friendly dictionary.
+        """
+
+        data = asdict(self)
+
+        data["current_from"] = {
+            "real": float(self.current_from.real),
+            "imag": float(self.current_from.imag),
+        }
+
+        data["current_to"] = {
+            "real": float(self.current_to.real),
+            "imag": float(self.current_to.imag),
+        }
+
+        data["s_from"] = {
+            "real": float(self.s_from.real),
+            "imag": float(self.s_from.imag),
+        }
+
+        data["s_to"] = {
+            "real": float(self.s_to.real),
+            "imag": float(self.s_to.imag),
+        }
+
+        data["current_from_magnitude"] = self.current_from_magnitude
+        data["current_to_magnitude"] = self.current_to_magnitude
+
+        return data
+
+
+# =====================================================================
+# LINE FLOW CALCULATOR
+# =====================================================================
+
 class LineFlowCalculator:
     """
-    Calculate steady-state power flows for network lines.
+    Calculate electrical flow through a single network line.
 
-    Parameters
-    ----------
-    network:
-        GridForge Network instance.
+    The calculation uses the standard nominal-pi line representation.
 
-    Notes
-    -----
-    The calculator uses the same nominal pi-model convention
-    as ``core.network.ybus.YBusBuilder``.
-
-    Line parameters:
-
-        r_pu
-        x_pu
-        b_pu
-
-    Bus voltages:
-
-        Vm -> voltage magnitude in pu
-        Va -> voltage angle in radians
-
-    Returned powers are in per-unit on the Network system base.
+    No Network state is modified by this class.
     """
 
-    # =========================================================
+    # =================================================================
     # INITIALIZATION
-    # =========================================================
+    # =================================================================
 
-    def __init__(self, network: Any) -> None:
+    def __init__(self, network: Any):
 
         if network is None:
             raise ValueError(
-                "LineFlowCalculator requires a valid Network."
+                "LineFlowCalculator requires a valid network."
+            )
+
+        if not hasattr(network, "buses"):
+            raise ValueError(
+                "Network must provide a 'buses' collection."
+            )
+
+        if not hasattr(network, "lines"):
+            raise ValueError(
+                "Network must provide a 'lines' collection."
+            )
+
+        if not hasattr(network, "bus_index"):
+            raise ValueError(
+                "Network must provide an authoritative 'bus_index'."
             )
 
         self.network = network
 
-        # -----------------------------------------------------
-        # Required Network interfaces.
-        # -----------------------------------------------------
+    # =================================================================
+    # SINGLE LINE
+    # =================================================================
 
-        required_attributes = (
-            "buses",
-            "lines",
-            "bus_index",
-            "per_unit",
-        )
-
-        for attribute in required_attributes:
-
-            if not hasattr(network, attribute):
-                raise ValueError(
-                    "Network is missing required "
-                    f"attribute '{attribute}'."
-                )
-
-        self.pu = network.per_unit
-
-    # =========================================================
-    # PUBLIC API
-    # =========================================================
-
-    def compute(
+    def calculate(
         self,
-        Vm,
-        Va,
-    ) -> List[Dict[str, Any]]:
+        line: Any,
+        V: np.ndarray,
+    ) -> LineFlowResult:
         """
-        Calculate line flows for the supplied solved bus state.
+        Calculate flow through one line.
 
         Parameters
         ----------
-        Vm:
-            Array-like voltage magnitudes in pu.
+        line:
+            GridForge line model.
 
-        Va:
-            Array-like voltage angles in radians.
+        V:
+            Complex bus-voltage vector in per-unit.
 
         Returns
         -------
-        list of dict
-            One result dictionary for every in-service line.
-
-        Raises
-        ------
-        ValueError
-            If voltage arrays are inconsistent with the
-            Network bus count.
+        LineFlowResult
+            Calculated terminal currents, power flows and losses.
         """
 
-        Vm = np.asarray(Vm, dtype=float)
-        Va = np.asarray(Va, dtype=float)
+        if line is None:
+            raise ValueError("line cannot be None.")
 
-        self._validate_voltage_state(Vm, Va)
-
-        # -----------------------------------------------------
-        # Network owns the authoritative bus index.
-        # -----------------------------------------------------
-
-        self.network.rebuild_bus_index()
-
-        results: List[Dict[str, Any]] = []
-
-        for line in self.network.lines:
-
-            # Out-of-service lines do not participate in
-            # electrical flow calculations.
-            if not getattr(line, "in_service", True):
-                continue
-
-            results.append(
-                self._line_flow(
-                    line,
-                    Vm,
-                    Va,
-                )
+        if V is None:
+            raise ValueError(
+                "Bus-voltage vector V cannot be None."
             )
 
-        return results
-
-    # =========================================================
-    # LINE CALCULATION
-    # =========================================================
-
-    def _line_flow(
-        self,
-        line: Any,
-        Vm: np.ndarray,
-        Va: np.ndarray,
-    ) -> Dict[str, Any]:
-        """
-        Calculate the two-terminal power flow of one line.
-
-        Uses the nominal pi-model:
-
-                    b/2
-                     │
-            i ───────┴─────── j
-                 series
-               admittance
-                     │
-                    b/2
-        """
-
-        # -----------------------------------------------------
-        # Validate line interface.
-        # -----------------------------------------------------
-
-        required_attributes = (
-            "from_bus",
-            "to_bus",
-            "r_pu",
-            "x_pu",
-        )
-
-        for attribute in required_attributes:
-
-            if not hasattr(line, attribute):
-                raise ValueError(
-                    f"Line is missing required "
-                    f"attribute '{attribute}'."
-                )
-
-        # -----------------------------------------------------
-        # Resolve bus IDs.
-        #
-        # Frozen Network/Line architecture may represent
-        # terminals through Bus objects.
-        # -----------------------------------------------------
-
-        from_bus = line.from_bus
-        to_bus = line.to_bus
-
-        from_bus_id = (
-            from_bus.id
-            if hasattr(from_bus, "id")
-            else from_bus
-        )
-
-        to_bus_id = (
-            to_bus.id
-            if hasattr(to_bus, "id")
-            else to_bus
-        )
-
-        # -----------------------------------------------------
-        # Obtain authoritative Network bus indices.
-        # -----------------------------------------------------
+        if not getattr(line, "in_service", True):
+            raise ValueError(
+                f"Line {getattr(line, 'id', '<unknown>')} "
+                "is out of service."
+            )
 
         try:
-            i = self.network.bus_index[from_bus_id]
-        except KeyError as exc:
+            i = self.network.bus_index[line.from_bus.id]
+            j = self.network.bus_index[line.to_bus.id]
+        except (AttributeError, KeyError) as exc:
             raise ValueError(
-                f"Line references unknown from-bus "
-                f"'{from_bus_id}'."
+                "Line terminals must reference buses present "
+                "in the network bus_index."
             ) from exc
 
-        try:
-            j = self.network.bus_index[to_bus_id]
-        except KeyError as exc:
+        V = np.asarray(V, dtype=complex).reshape(-1)
+
+        if i >= len(V) or j >= len(V):
             raise ValueError(
-                f"Line references unknown to-bus "
-                f"'{to_bus_id}'."
-            ) from exc
+                "Bus-voltage vector does not contain all "
+                "line terminal buses."
+            )
 
-        # -----------------------------------------------------
-        # Bus voltages.
-        # -----------------------------------------------------
+        Vi = V[i]
+        Vj = V[j]
 
-        Vi = Vm[i] * np.exp(1j * Va[i])
-        Vj = Vm[j] * np.exp(1j * Va[j])
+        # -------------------------------------------------------------
+        # LINE PARAMETERS
+        # -------------------------------------------------------------
 
-        # -----------------------------------------------------
-        # Series impedance.
-        #
-        # The frozen Line model stores impedance directly
-        # in per-unit form.
-        # -----------------------------------------------------
-
-        r = float(line.r_pu)
-        x = float(line.x_pu)
+        r = float(getattr(line, "r_pu"))
+        x = float(getattr(line, "x_pu"))
+        b = float(getattr(line, "b_pu", 0.0))
 
         z = complex(r, x)
 
-        if abs(z) < 1e-12:
+        if abs(z) == 0.0:
             raise ValueError(
-                f"Zero impedance line detected: "
-                f"{getattr(line, 'id', line)}"
+                f"Line {getattr(line, 'id', '<unknown>')} "
+                "has zero series impedance."
             )
 
         y_series = 1.0 / z
 
-        # -----------------------------------------------------
-        # Line charging.
-        #
-        # b_pu represents the total line shunt susceptance.
-        # Half is placed at each terminal.
-        # -----------------------------------------------------
+        # Nominal-pi model:
+        # half shunt admittance at each terminal.
+        y_shunt = 1j * b / 2.0
 
-        b_pu = float(
-            getattr(line, "b_pu", 0.0)
-        )
+        # -------------------------------------------------------------
+        # TERMINAL CURRENTS
+        # -------------------------------------------------------------
 
-        y_shunt_half = 1j * (b_pu / 2.0)
+        Iij = (Vi - Vj) * y_series + Vi * y_shunt
 
-        # -----------------------------------------------------
-        # Terminal currents.
-        #
-        # This is identical to the nominal pi-model convention
-        # used by YBusBuilder.
-        # -----------------------------------------------------
+        Iji = (Vj - Vi) * y_series + Vj * y_shunt
 
-        Iij = (
-            (Vi - Vj) * y_series
-            + Vi * y_shunt_half
-        )
-
-        Iji = (
-            (Vj - Vi) * y_series
-            + Vj * y_shunt_half
-        )
-
-        # -----------------------------------------------------
-        # Complex power.
-        #
-        # S = V * conjugate(I)
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # COMPLEX POWER
+        # -------------------------------------------------------------
 
         Sij = Vi * np.conj(Iij)
+
         Sji = Vj * np.conj(Iji)
 
-        Pij = float(Sij.real)
-        Qij = float(Sij.imag)
+        # -------------------------------------------------------------
+        # LOSSES / BALANCE
+        # -------------------------------------------------------------
 
-        Pji = float(Sji.real)
-        Qji = float(Sji.imag)
+        p_loss = float(np.real(Sij + Sji))
 
-        # -----------------------------------------------------
-        # Net line quantities.
-        #
-        # Active loss:
-        #
-        #     Ploss = Pij + Pji
-        #
-        # Reactive balance includes the shunt charging effect,
-        # therefore the quantity is called Q_balance rather
-        # than assuming it is always a positive "loss".
-        # -----------------------------------------------------
+        q_balance = float(np.imag(Sij + Sji))
 
-        P_loss = Pij + Pji
-        Q_balance = Qij + Qji
+        return LineFlowResult(
+            line_id=getattr(line, "id", None),
 
-        return {
-            "line": getattr(
-                line,
-                "id",
-                getattr(line, "name", None),
-            ),
+            from_bus=line.from_bus.id,
+            to_bus=line.to_bus.id,
 
-            "from_bus": from_bus_id,
-            "to_bus": to_bus_id,
+            current_from=complex(Iij),
+            current_to=complex(Iji),
 
-            "P_from_to": Pij,
-            "Q_from_to": Qij,
+            p_from=float(np.real(Sij)),
+            q_from=float(np.imag(Sij)),
 
-            "P_to_from": Pji,
-            "Q_to_from": Qji,
+            p_to=float(np.real(Sji)),
+            q_to=float(np.imag(Sji)),
 
-            "P_loss": P_loss,
-            "Q_balance": Q_balance,
+            p_loss=p_loss,
+            q_balance=q_balance,
 
-            "in_service": True,
-        }
+            in_service=True,
+        )
 
-    # =========================================================
-    # VALIDATION
-    # =========================================================
+    # =================================================================
+    # ALL LINES
+    # =================================================================
 
-    def _validate_voltage_state(
+    def calculate_all(
         self,
-        Vm: np.ndarray,
-        Va: np.ndarray,
-    ) -> None:
+        V: np.ndarray,
+        include_out_of_service: bool = False,
+    ) -> Dict[Any, LineFlowResult]:
         """
-        Validate the supplied solved voltage state.
+        Calculate flow for all network lines.
 
-        Numerical convergence validation belongs to the
-        power-flow solver. This method only checks structural
-        consistency.
+        Parameters
+        ----------
+        V:
+            Complex bus-voltage vector in per-unit.
+
+        include_out_of_service:
+            If False, out-of-service lines are skipped.
+
+        Returns
+        -------
+        Dict[Any, LineFlowResult]
+            Results keyed by line ID.
         """
 
-        n = len(self.network.buses)
+        results: Dict[Any, LineFlowResult] = {}
 
-        if Vm.ndim != 1:
-            raise ValueError(
-                "Voltage magnitude array Vm must be one-dimensional."
+        for line in self.network.lines:
+
+            if not getattr(line, "in_service", True):
+
+                if include_out_of_service:
+                    continue
+
+                continue
+
+            result = self.calculate(
+                line=line,
+                V=V,
             )
 
-        if Va.ndim != 1:
-            raise ValueError(
-                "Voltage angle array Va must be one-dimensional."
-            )
+            results[result.line_id] = result
 
-        if len(Vm) != n:
-            raise ValueError(
-                f"Voltage magnitude array length {len(Vm)} "
-                f"does not match network bus count {n}."
-            )
+        return results
 
-        if len(Va) != n:
-            raise ValueError(
-                f"Voltage angle array length {len(Va)} "
-                f"does not match network bus count {n}."
-            )
-
-        if not np.all(np.isfinite(Vm)):
-            raise ValueError(
-                "Voltage magnitude array contains "
-                "non-finite values."
-            )
-
-        if not np.all(np.isfinite(Va)):
-            raise ValueError(
-                "Voltage angle array contains "
-                "non-finite values."
-            )
-
-        if np.any(Vm <= 0.0):
-            raise ValueError(
-                "Voltage magnitudes must be positive."
-            )
-
-    # =========================================================
+    # =================================================================
     # SUMMARY
-    # =========================================================
+    # =================================================================
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(
+        self,
+        V: np.ndarray,
+    ) -> Dict[str, Any]:
         """
-        Return a concise calculator summary.
+        Calculate all in-service line flows and return an
+        engineering summary.
         """
+
+        results = self.calculate_all(V)
+
+        total_p_loss = float(
+            sum(result.p_loss for result in results.values())
+        )
+
+        total_q_balance = float(
+            sum(result.q_balance for result in results.values())
+        )
 
         return {
-            "lines": len(
-                getattr(
-                    self.network,
-                    "lines",
-                    [],
-                )
-            ),
-            "system_base_mva": getattr(
-                self.network,
-                "base_mva",
-                None,
-            ),
-            "parameter_basis": "per_unit",
-            "model": "nominal_pi",
+            "line_count": len(results),
+            "total_p_loss_pu": total_p_loss,
+            "total_q_balance_pu": total_q_balance,
+            "lines": {
+                line_id: result.to_dict()
+                for line_id, result in results.items()
+            },
         }
 
 
 __all__ = [
+    "LineFlowResult",
     "LineFlowCalculator",
 ]
 ```
