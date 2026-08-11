@@ -1,7 +1,11 @@
 ```python
 """
-GridForge Contingency Analysis
-==============================
+GridForge - Contingency Analysis
+================================
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
+Proprietary and confidential.
 
 File:
     core/analysis/contingency.py
@@ -11,13 +15,12 @@ Purpose:
 
 Scope:
     - N-1 contingency analysis
-    - Extensible architecture for N-k / batch studies
+    - Extensible N-k / batch contingency architecture
     - Non-destructive outage simulation
     - Power-flow based post-contingency assessment
     - Violation-driven results
 
-Architecture
-------------
+Architecture:
 
     Network
         |
@@ -67,10 +70,11 @@ Topology and Y-bus responsibilities remain in:
     core/network/
 
 Canonical GridForge terminology:
-    "Contingency Analysis"
-    "Power Flow"
-    "Line"
-    "Transformer"
+
+    Contingency Analysis
+    Power Flow
+    Line
+    Transformer
 """
 
 from __future__ import annotations
@@ -93,22 +97,23 @@ class ContingencyViolation:
     """
     Single post-contingency engineering violation.
 
-    Attributes
+    Parameters
     ----------
     category:
-        Violation category, e.g. ``"voltage"`` or ``"thermal"``.
+        Violation category, for example ``"voltage_low"`` or
+        ``"thermal"``.
 
     element_id:
-        ID of the affected element, where applicable.
+        ID of the affected bus or branch.
 
     value:
-        Calculated value.
+        Calculated engineering value.
 
     limit:
         Applicable engineering limit.
 
     severity:
-        Optional severity indicator.
+        Optional severity metric.
     """
 
     category: str
@@ -201,9 +206,10 @@ class ContingencyAnalysis:
 
     Notes
     -----
-    The supplied Network is never modified by the contingency study.
+    The supplied Network is never modified by this analysis.
 
-    Each contingency is executed on a deep-copied Network instance.
+    Each contingency is executed on an isolated deep-copied
+    Network instance.
     """
 
     # =================================================================
@@ -250,13 +256,15 @@ class ContingencyAnalysis:
             ``"N-1"`` or ``"N-k"``.
 
         element_types:
-            Optional filter:
+            Optional element-type filter.
+
+            Supported values:
 
                 ``"line"``
                 ``"transformer"``
 
         power_flow_options:
-            Optional SolverOptions instance passed to
+            Optional options object passed directly to
             PowerFlowAnalysis.
 
         voltage_min:
@@ -273,6 +281,12 @@ class ContingencyAnalysis:
         ContingencyResult
             Complete contingency-study result.
         """
+
+        self._validate_limits(
+            voltage_min=voltage_min,
+            voltage_max=voltage_max,
+            thermal_limit=thermal_limit,
+        )
 
         cases = self.prepare(
             elements=elements,
@@ -318,15 +332,17 @@ class ContingencyAnalysis:
 
         N-k produces combinations of k selected elements.
 
-        The actual network is never modified during preparation.
+        The authoritative Network is never modified.
         """
 
-        normalized_type = contingency_type.upper().replace(
-            " ",
-            "",
+        normalized_type = (
+            str(contingency_type)
+            .upper()
+            .replace(" ", "")
         )
 
         if normalized_type == "N-1":
+
             k = 1
 
         elif normalized_type.startswith("N-"):
@@ -335,17 +351,20 @@ class ContingencyAnalysis:
                 k = int(normalized_type[2:])
 
             except ValueError as exc:
+
                 raise ValueError(
                     f"Invalid contingency type: "
                     f"{contingency_type!r}."
                 ) from exc
 
             if k < 1:
+
                 raise ValueError(
                     "Contingency order must be at least 1."
                 )
 
         else:
+
             raise ValueError(
                 "Unsupported contingency type. "
                 "Use 'N-1' or 'N-k'."
@@ -357,6 +376,7 @@ class ContingencyAnalysis:
         )
 
         if len(candidates) < k:
+
             raise ValueError(
                 f"N-{k} contingency analysis requires at least "
                 f"{k} candidate elements; "
@@ -451,9 +471,8 @@ class ContingencyAnalysis:
 
         The authoritative Network is never modified.
 
-        The copied Network uses its own Network.set_element_status()
-        method so that topology/Y-bus invalidation follows the
-        canonical Network lifecycle.
+        Outage state is applied through the Network's canonical
+        set_element_status() lifecycle method.
         """
 
         outage_network = copy.deepcopy(
@@ -468,6 +487,7 @@ class ContingencyAnalysis:
             )
 
             if element is None:
+
                 raise KeyError(
                     f"Contingency element "
                     f"{element_id!r} was not found "
@@ -518,6 +538,7 @@ class ContingencyAnalysis:
             invalid = normalized_types - valid_types
 
             if invalid:
+
                 raise ValueError(
                     "Unsupported contingency element type(s): "
                     f"{sorted(invalid)}"
@@ -537,6 +558,7 @@ class ContingencyAnalysis:
                     "in_service",
                     True,
                 ):
+
                     available[line.id] = "line"
 
         if (
@@ -551,16 +573,30 @@ class ContingencyAnalysis:
                     "in_service",
                     True,
                 ):
+
                     available[transformer.id] = (
                         "transformer"
                     )
 
         if elements is None:
-            return list(available.keys())
+
+            return list(
+                available.keys()
+            )
 
         requested = list(elements)
 
-        if len(requested) != len(set(requested)):
+        try:
+            unique_requested = set(requested)
+
+        except TypeError as exc:
+
+            raise ValueError(
+                "Contingency element IDs must be hashable."
+            ) from exc
+
+        if len(requested) != len(unique_requested):
+
             raise ValueError(
                 "Duplicate contingency element IDs "
                 "are not permitted."
@@ -573,6 +609,7 @@ class ContingencyAnalysis:
         ]
 
         if missing:
+
             raise KeyError(
                 "Unknown or out-of-service contingency "
                 f"element(s): {missing}"
@@ -621,6 +658,13 @@ class ContingencyAnalysis:
             cases=list(cases)
         )
 
+        if not result.cases:
+
+            result.success = False
+            result.converged = False
+
+            return result
+
         result.success = all(
             case.success
             for case in result.cases
@@ -661,9 +705,8 @@ class ContingencyAnalysis:
         """
         Detect post-contingency engineering violations.
 
-        This method intentionally consumes the result of the
-        numerical power-flow solver. It does not perform any
-        power-flow mathematics.
+        This method consumes power-flow results only. It performs
+        no power-flow numerical calculations.
         """
 
         violations: List[
@@ -671,7 +714,7 @@ class ContingencyAnalysis:
         ] = []
 
         # -------------------------------------------------------------
-        # VOLTAGE VIOLATIONS
+        # VOLTAGE
         # -------------------------------------------------------------
 
         voltage = self._extract_result_value(
@@ -691,7 +734,7 @@ class ContingencyAnalysis:
             )
 
         # -------------------------------------------------------------
-        # THERMAL / LINE LOADING VIOLATIONS
+        # LINE THERMAL LOADING
         # -------------------------------------------------------------
 
         loading = self._extract_result_value(
@@ -705,6 +748,31 @@ class ContingencyAnalysis:
                 self._detect_loading_violations(
                     network,
                     loading,
+                    thermal_limit,
+                )
+            )
+
+        # -------------------------------------------------------------
+        # TRANSFORMER LOADING
+        #
+        # Supported when the PowerFlow result exposes a transformer
+        # loading array. No transformer electrical mathematics is
+        # performed here.
+        # -------------------------------------------------------------
+
+        transformer_loading = (
+            self._extract_result_value(
+                power_flow_result,
+                "transformer_loading",
+            )
+        )
+
+        if transformer_loading is not None:
+
+            violations.extend(
+                self._detect_transformer_loading_violations(
+                    network,
+                    transformer_loading,
                     thermal_limit,
                 )
             )
@@ -723,7 +791,7 @@ class ContingencyAnalysis:
         voltage_max: float,
     ) -> List[ContingencyViolation]:
         """
-        Detect bus voltage magnitude violations.
+        Detect bus-voltage magnitude violations.
         """
 
         violations: List[
@@ -753,16 +821,25 @@ class ContingencyAnalysis:
 
             if numeric_value < voltage_min:
 
+                severity = (
+                    voltage_min - numeric_value
+                )
+
                 violations.append(
                     ContingencyViolation(
                         category="voltage_low",
                         element_id=bus.id,
                         value=numeric_value,
                         limit=voltage_min,
+                        severity=severity,
                     )
                 )
 
             elif numeric_value > voltage_max:
+
+                severity = (
+                    numeric_value - voltage_max
+                )
 
                 violations.append(
                     ContingencyViolation(
@@ -770,13 +847,14 @@ class ContingencyAnalysis:
                         element_id=bus.id,
                         value=numeric_value,
                         limit=voltage_max,
+                        severity=severity,
                     )
                 )
 
         return violations
 
     # =================================================================
-    # THERMAL VIOLATIONS
+    # LINE THERMAL VIOLATIONS
     # =================================================================
 
     @staticmethod
@@ -786,10 +864,9 @@ class ContingencyAnalysis:
         thermal_limit: float,
     ) -> List[ContingencyViolation]:
         """
-        Detect line loading violations.
+        Detect line-loading violations.
 
-        The default v1.0 threshold is 100 percent unless a more
-        detailed result/limit is supplied by the solver/model layer.
+        Loading is expected in percent.
         """
 
         violations: List[
@@ -823,14 +900,97 @@ class ContingencyAnalysis:
                 thermal_limit,
             )
 
+            try:
+                limit = float(limit)
+
+            except (TypeError, ValueError):
+                limit = thermal_limit
+
             if numeric_value > limit:
+
+                severity = (
+                    numeric_value - limit
+                )
 
                 violations.append(
                     ContingencyViolation(
                         category="thermal",
                         element_id=line.id,
                         value=numeric_value,
-                        limit=float(limit),
+                        limit=limit,
+                        severity=severity,
+                    )
+                )
+
+        return violations
+
+    # =================================================================
+    # TRANSFORMER THERMAL VIOLATIONS
+    # =================================================================
+
+    @staticmethod
+    def _detect_transformer_loading_violations(
+        network: Any,
+        loading: Any,
+        thermal_limit: float,
+    ) -> List[ContingencyViolation]:
+        """
+        Detect transformer-loading violations from an already
+        calculated PowerFlow result.
+
+        No transformer electrical calculations are performed here.
+        """
+
+        violations: List[
+            ContingencyViolation
+        ] = []
+
+        try:
+            values = list(loading)
+
+        except TypeError:
+            return violations
+
+        transformers = network.transformers
+
+        for index, value in enumerate(values):
+
+            if index >= len(transformers):
+                break
+
+            transformer = transformers[index]
+
+            try:
+                numeric_value = float(value)
+
+            except (TypeError, ValueError):
+                continue
+
+            limit = getattr(
+                transformer,
+                "loading_limit",
+                thermal_limit,
+            )
+
+            try:
+                limit = float(limit)
+
+            except (TypeError, ValueError):
+                limit = thermal_limit
+
+            if numeric_value > limit:
+
+                severity = (
+                    numeric_value - limit
+                )
+
+                violations.append(
+                    ContingencyViolation(
+                        category="transformer_thermal",
+                        element_id=transformer.id,
+                        value=numeric_value,
+                        limit=limit,
+                        severity=severity,
                     )
                 )
 
@@ -847,11 +1007,10 @@ class ContingencyAnalysis:
     ) -> Any:
         """
         Extract a result field from either an object-style or
-        dictionary-style solver result.
+        dictionary-style power-flow result.
 
-        This compatibility boundary allows the analysis layer to
-        consume the current solver result without dictifying the
-        numerical solver interface.
+        This is a compatibility boundary between the analysis and
+        solver/result representations.
         """
 
         if result is None:
@@ -881,9 +1040,6 @@ class ContingencyAnalysis:
         )
 
         if value is None:
-            # If the numerical result does not expose a convergence
-            # flag, successful completion is not automatically
-            # interpreted as convergence.
             return False
 
         return bool(value)
@@ -897,7 +1053,7 @@ class ContingencyAnalysis:
         outages: Tuple[Any, ...],
     ) -> str:
         """
-        Create deterministic contingency case identifier.
+        Create a deterministic contingency case identifier.
         """
 
         return "N-{}:{}".format(
@@ -909,18 +1065,74 @@ class ContingencyAnalysis:
         )
 
     # =================================================================
-    # VALIDATION
+    # LIMIT VALIDATION
+    # =================================================================
+
+    @staticmethod
+    def _validate_limits(
+        *,
+        voltage_min: float,
+        voltage_max: float,
+        thermal_limit: float,
+    ) -> None:
+        """
+        Validate engineering-limit inputs.
+        """
+
+        try:
+            v_min = float(voltage_min)
+            v_max = float(voltage_max)
+            thermal = float(thermal_limit)
+
+        except (TypeError, ValueError) as exc:
+
+            raise ValueError(
+                "Voltage and thermal limits must be numeric."
+            ) from exc
+
+        if not (
+            v_min == v_min
+            and v_max == v_max
+            and thermal == thermal
+        ):
+
+            raise ValueError(
+                "Voltage and thermal limits must be finite."
+            )
+
+        if v_min < 0.0:
+
+            raise ValueError(
+                "voltage_min cannot be negative."
+            )
+
+        if v_max <= v_min:
+
+            raise ValueError(
+                "voltage_max must be greater than voltage_min."
+            )
+
+        if thermal < 0.0:
+
+            raise ValueError(
+                "thermal_limit cannot be negative."
+            )
+
+    # =================================================================
+    # NETWORK VALIDATION
     # =================================================================
 
     def _validate_network(self) -> None:
         """
-        Validate the minimum Network interface required for
+        Validate the minimum public Network interface required by
         contingency analysis.
 
-        Engineering validation remains outside Network.
+        Internal Network implementation details are deliberately not
+        required here.
         """
 
         if self.network is None:
+
             raise ValueError(
                 "Contingency Analysis requires "
                 "a valid Network."
@@ -930,7 +1142,6 @@ class ContingencyAnalysis:
             "buses",
             "lines",
             "transformers",
-            "rebuild_bus_index",
             "set_element_status",
         )
 
@@ -940,12 +1151,14 @@ class ContingencyAnalysis:
                 self.network,
                 attribute,
             ):
+
                 raise ValueError(
                     "Network is missing required "
                     f"attribute or method '{attribute}'."
                 )
 
-        if not self.network.buses:
+        if len(self.network.buses) == 0:
+
             raise ValueError(
                 "Contingency Analysis requires "
                 "at least one bus."
@@ -963,6 +1176,10 @@ class ContingencyAnalysis:
 
         return self._result
 
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
 
 __all__ = [
     "ContingencyAnalysis",
