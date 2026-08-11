@@ -1,10 +1,23 @@
+```python
 """
 GridForge Overcurrent Protection
+================================
 
-IEC inverse-time relays
+Overcurrent protection plugin package.
+
+Provides:
+    IECOvercurrentRelay
+
+IEC protection algorithms are implemented in:
+
+    core.protection.overcurrent.iec_relay
 """
 
-
 from core.protection.overcurrent.iec_relay import (
-    IECOvercurrentRelay
+    IECOvercurrentRelay,
 )
+
+__all__ = [
+    "IECOvercurrentRelay",
+]
+```
