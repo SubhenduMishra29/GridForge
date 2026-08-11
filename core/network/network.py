@@ -1,4 +1,3 @@
-```python
 """
 GridForge Network
 =================
@@ -426,6 +425,133 @@ class Network:
         return self.Ybus
 
     # =========================================================
+    # INJECTION AGGREGATION
+    # =========================================================
+
+    def sync_injections(self) -> None:
+        """
+        Aggregate attached Generator/Load power and reactive-power
+        limits onto each Bus.
+
+        For every bus this recomputes, from scratch:
+
+            P_spec, Q_spec
+                Sum of ``get_power()`` over every Generator and
+                Load whose terminal is connected to that bus.
+
+            Q_min, Q_max
+                Sum of ``q_min``/``q_max`` over every Generator
+                connected to that bus, but only for PV and SLACK
+                buses. PQ buses are reset to unlimited
+                ``(-inf, +inf)`` since the Q-limit handler never
+                inspects them.
+
+        This must be called after generators/loads have been
+        added (or their power/limits changed) and before building
+        Ybus or running the power-flow solver, so that bus state
+        reflects the currently attached injections.
+
+        Notes
+        -----
+        This replaces any manually-set P_spec/Q_spec/Q_min/Q_max
+        on the affected buses. Call it once per assembly/update
+        cycle rather than mixing it with manual bus edits.
+
+        Buses with no attached generator or load are reset to
+        zero injection and unlimited Q.
+        """
+
+        if not self.buses:
+            raise ValueError(
+                "Network contains no buses."
+            )
+
+        bus_set = set(self.buses)
+
+        p = {bus: 0.0 for bus in self.buses}
+        q = {bus: 0.0 for bus in self.buses}
+
+        q_min = {bus: 0.0 for bus in self.buses}
+        q_max = {bus: 0.0 for bus in self.buses}
+        has_generator = {bus: False for bus in self.buses}
+
+        # -----------------------------------------------------
+        # Loads
+        # -----------------------------------------------------
+
+        for load in self.loads:
+
+            bus = load.bus
+
+            if bus not in bus_set:
+                raise ValueError(
+                    f"Load '{load.id}' is connected to a bus "
+                    "that is not registered on this network."
+                )
+
+            dp, dq = load.get_power()
+
+            p[bus] += dp
+            q[bus] += dq
+
+        # -----------------------------------------------------
+        # Generators
+        # -----------------------------------------------------
+
+        for generator in self.generators:
+
+            bus = generator.bus
+
+            if bus not in bus_set:
+                raise ValueError(
+                    f"Generator '{generator.id}' is connected "
+                    "to a bus that is not registered on this "
+                    "network."
+                )
+
+            dp, dq = generator.get_power()
+
+            p[bus] += dp
+            q[bus] += dq
+
+            # ---------------------------------------------------
+            # Reactive-power limits only matter for buses whose
+            # voltage is being held by a generator.
+            # ---------------------------------------------------
+
+            if bus.is_pv() or bus.is_slack():
+
+                q_min[bus] += generator.q_min
+                q_max[bus] += generator.q_max
+
+                has_generator[bus] = True
+
+        # -----------------------------------------------------
+        # Apply aggregated state.
+        # -----------------------------------------------------
+
+        for bus in self.buses:
+
+            bus.set_power(
+                P_spec=p[bus],
+                Q_spec=q[bus],
+            )
+
+            if has_generator[bus]:
+
+                bus.set_q_limits(
+                    q_min[bus],
+                    q_max[bus],
+                )
+
+            else:
+
+                bus.set_q_limits(
+                    float("-inf"),
+                    float("inf"),
+                )
+
+    # =========================================================
     # NETWORK RECONFIGURATION
     # =========================================================
 
@@ -587,4 +713,3 @@ class Network:
             f"shunts={len(self.shunts)}"
             f")"
         )
-```
