@@ -9,45 +9,55 @@ Purpose:
     Public analysis-level facade for AC power-flow studies.
 
 Architecture:
+
     Network
-        │
-        ▼
+        |
+        v
     PowerFlowAnalysis
-        │
-        ▼
+        |
+        v
     Numerical Power-Flow Solver
-        │
-        ▼
+        |
+        v
     core/solver/power_flow/
-        ├── solver_options.py
-        ├── mismatch.py
-        ├── jacobian.py
-        ├── sparse_solver.py
-        ├── q_limit_handler.py
-        └── newton_raphson.py
 
-Responsibilities:
-    - Validate minimum structural requirements for power flow.
-    - Keep the Network bus index authoritative.
-    - Ensure Ybus exists and is current.
-    - Create and invoke the numerical solver.
-    - Pass solver options to the numerical engine.
-    - Store and return the latest numerical result.
+Current numerical solver package:
 
-Does NOT:
-    - Build Ybus directly.
-    - Calculate power mismatches.
-    - Assemble the Jacobian.
-    - Solve linear systems.
-    - Perform Newton-Raphson iterations.
-    - Implement PV/PQ switching.
-    - Perform numerical power-flow mathematics.
+    core/solver/power_flow/
+        __init__.py
+        nr_solver.py
+        q_limit_handler.py
+        solver_options.py
+        sparse_solver.py
 
-Numerical responsibilities belong exclusively to:
+Responsibilities
+----------------
+This module is responsible for:
+
+    - validating minimum structural requirements
+    - maintaining the Network as the authoritative bus-index owner
+    - ensuring the Network Ybus is available and current
+    - creating and invoking the numerical power-flow solver
+    - passing solver options to the numerical engine
+    - storing the latest power-flow result on the Network
+    - exposing the latest result through the public analysis API
+
+This module does NOT:
+
+    - build Ybus directly
+    - calculate power mismatches
+    - assemble Jacobians
+    - solve linear systems
+    - perform Newton-Raphson iterations
+    - perform PV/PQ switching
+    - implement numerical power-flow mathematics
+
+Numerical responsibilities remain exclusively in:
 
     core/solver/power_flow/
 
 Canonical GridForge terminology:
+
     "Power Flow"
 """
 
@@ -58,7 +68,7 @@ from typing import Any, Optional
 
 class PowerFlowAnalysis:
     """
-    Public analysis facade for AC power-flow studies.
+    Public facade for AC power-flow studies.
 
     Parameters
     ----------
@@ -66,14 +76,29 @@ class PowerFlowAnalysis:
         GridForge Network instance.
 
     options:
-        Optional instance of the numerical solver's SolverOptions.
+        Optional SolverOptions instance belonging to the
+        numerical power-flow solver package.
 
     Notes
     -----
-    This class contains no numerical power-flow mathematics.
+    The analysis layer contains no numerical power-flow
+    mathematics.
 
-    It provides the analysis-level boundary between the
-    authoritative Network object and the numerical solver stack.
+    The Network remains authoritative for:
+
+        - buses
+        - bus indexing
+        - electrical network state
+        - Ybus lifecycle
+        - latest power-flow result
+
+    The numerical solver remains authoritative for:
+
+        - mismatch calculation
+        - Jacobian construction
+        - numerical solution
+        - convergence logic
+        - reactive-power limit handling
     """
 
     # =============================================================
@@ -88,14 +113,14 @@ class PowerFlowAnalysis:
 
         self.network = network
 
-        # Validate the initial Network state before constructing
-        # the numerical engine.
         self._validate_network()
 
-        # Solver configuration belongs to the numerical solver
-        # package. The analysis layer only owns the configuration
-        # reference and passes it downstream.
+        # ---------------------------------------------------------
+        # Solver options belong to the numerical solver layer.
+        # ---------------------------------------------------------
+
         if options is None:
+
             from core.solver.power_flow.solver_options import (
                 SolverOptions,
             )
@@ -104,9 +129,14 @@ class PowerFlowAnalysis:
 
         self.options = options
 
-        # Lazy import keeps the numerical backend out of the module
-        # import path until a Power Flow analysis is instantiated.
-        from core.solver.power_flow.newton_raphson import (
+        # ---------------------------------------------------------
+        # Numerical solver.
+        #
+        # IMPORTANT:
+        # Current GridForge solver module is nr_solver.py.
+        # ---------------------------------------------------------
+
+        from core.solver.power_flow.nr_solver import (
             NewtonRaphsonSolver,
         )
 
@@ -119,61 +149,51 @@ class PowerFlowAnalysis:
     # PUBLIC API
     # =============================================================
 
-    def solve(self) -> dict:
+    def solve(self) -> Any:
         """
         Execute the AC power-flow study.
 
         Returns
         -------
-        dict
-            Structured result returned by the numerical solver.
+        Any
+            Result returned by the numerical power-flow solver.
 
         Notes
         -----
-        The Network remains authoritative for:
-
-            - bus collection
-            - bus indexing
-            - Ybus lifecycle
-            - network state
-            - latest power-flow result
-
-        The numerical solver remains authoritative for:
-
-            - mismatch calculation
-            - Jacobian assembly
-            - numerical solution
-            - convergence logic
-            - PV/PQ handling
+        No numerical power-flow calculation is performed here.
         """
 
-        # The Network may have been modified after this analysis
-        # object was created. Revalidate the current structure.
+        # ---------------------------------------------------------
+        # Revalidate current Network state.
+        #
+        # The Network may have changed after construction of this
+        # analysis object.
+        # ---------------------------------------------------------
+
         self._validate_network()
 
         # ---------------------------------------------------------
-        # Ensure authoritative Network bus index is current.
+        # Network owns the authoritative bus index.
         # ---------------------------------------------------------
 
         self.network.rebuild_bus_index()
 
         # ---------------------------------------------------------
-        # Ensure Ybus exists and is current.
+        # Ensure Ybus is available and current.
         #
-        # Ybus construction remains exclusively owned by the
-        # Network layer / Ybus builder.
+        # Ybus construction remains outside this analysis layer.
         # ---------------------------------------------------------
 
         self._ensure_ybus()
 
         # ---------------------------------------------------------
-        # Execute the numerical solution.
+        # Execute numerical solver.
         # ---------------------------------------------------------
 
         result = self.solver.solve()
 
         # ---------------------------------------------------------
-        # Store the authoritative latest result on Network.
+        # Store latest result on authoritative Network.
         # ---------------------------------------------------------
 
         self.network.power_flow_result = result
@@ -188,11 +208,18 @@ class PowerFlowAnalysis:
         """
         Ensure that the Network has a current Ybus.
 
-        This method does not construct Ybus itself. It delegates
-        construction to the authoritative Network interface.
+        This method only delegates Ybus construction to the
+        authoritative Network interface.
+
+        No Ybus mathematics is implemented here.
         """
 
-        ybus = getattr(self.network, "Ybus", None)
+        ybus = getattr(
+            self.network,
+            "Ybus",
+            None,
+        )
+
         ybus_dirty = getattr(
             self.network,
             "_ybus_dirty",
@@ -200,6 +227,7 @@ class PowerFlowAnalysis:
         )
 
         if ybus is None or ybus_dirty:
+
             self.network.build_ybus()
 
     # =============================================================
@@ -208,12 +236,12 @@ class PowerFlowAnalysis:
 
     def _validate_network(self) -> None:
         """
-        Validate the minimum structural requirements for
-        power-flow analysis.
+        Validate minimum structural requirements for Power Flow.
 
-        This method performs structural validation only.
+        This is structural validation only.
 
-        Numerical validation belongs to the solver layer.
+        Numerical and electrical validation belongs to the
+        solver layer.
         """
 
         if self.network is None:
@@ -236,7 +264,11 @@ class PowerFlowAnalysis:
         )
 
         for attribute in required_attributes:
-            if not hasattr(self.network, attribute):
+
+            if not hasattr(
+                self.network,
+                attribute,
+            ):
                 raise ValueError(
                     "Network is missing required "
                     f"attribute or method '{attribute}'."
@@ -252,10 +284,7 @@ class PowerFlowAnalysis:
             )
 
         # ---------------------------------------------------------
-        # Validate bus identifiers and required electrical state.
-        #
-        # The frozen GridForge Bus model remains the authoritative
-        # representation of bus electrical state.
+        # Validate bus structure.
         # ---------------------------------------------------------
 
         bus_ids = []
@@ -314,16 +343,13 @@ class PowerFlowAnalysis:
             )
 
         # ---------------------------------------------------------
-        # Rebuild the authoritative Network bus index.
-        #
-        # Network owns indexing. The analysis layer never creates
-        # or maintains a parallel index.
+        # Rebuild authoritative bus index.
         # ---------------------------------------------------------
 
         self.network.rebuild_bus_index()
 
         # ---------------------------------------------------------
-        # Verify that every bus is represented correctly.
+        # Verify index consistency.
         # ---------------------------------------------------------
 
         if len(self.network.bus_index) != len(
@@ -334,9 +360,13 @@ class PowerFlowAnalysis:
                 "the current bus collection."
             )
 
-        for index, bus in enumerate(self.network.buses):
+        for index, bus in enumerate(
+            self.network.buses
+        ):
 
-            mapped_index = self.network.bus_index.get(bus.id)
+            mapped_index = self.network.bus_index.get(
+                bus.id
+            )
 
             if mapped_index != index:
                 raise ValueError(
@@ -349,15 +379,15 @@ class PowerFlowAnalysis:
     # =============================================================
 
     @property
-    def result(self) -> Optional[dict]:
+    def result(self) -> Optional[Any]:
         """
-        Return the latest power-flow result stored on Network.
+        Return the latest power-flow result.
 
         Returns
         -------
-        dict or None
-            Latest power-flow result, or None if no study has
-            successfully produced a result.
+        Any or None
+            Latest numerical solver result, or None when no
+            result has been produced.
         """
 
         return getattr(
@@ -367,29 +397,6 @@ class PowerFlowAnalysis:
         )
 
 
-# =============================================================
-# BACKWARD COMPATIBILITY
-# =============================================================
-#
-# Earlier GridForge code may use:
-#
-#     PowerFlowSolver(network)
-#
-# The analysis facade is now correctly named PowerFlowAnalysis,
-# but the old public name is retained as an alias so that existing
-# callers do not need to be rewritten immediately.
-#
-# The numerical solver remains:
-#
-#     core.solver.power_flow.newton_raphson.NewtonRaphsonSolver
-#
-# Therefore there is no ambiguity at the implementation level.
-# =============================================================
-
-PowerFlowSolver = PowerFlowAnalysis
-
-
 __all__ = [
     "PowerFlowAnalysis",
-    "PowerFlowSolver",
 ]
