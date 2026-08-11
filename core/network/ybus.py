@@ -172,7 +172,17 @@ class YBusBuilder:
 
         Y_dense = self.Ybus.toarray()
 
-        if not np.allclose(Y_dense, Y_dense.T.conj()):
+        # -------------------------------------------------------
+        # A power-system Ybus (built from lines/transformers with
+        # no phase shift) is complex-symmetric: Y == Y.T.
+        #
+        # It is NOT Hermitian in general: Y == Y.T.conj() would
+        # require the diagonal to be purely real, which fails for
+        # any bus with reactive charging or shunt susceptance, and
+        # is not the correct symmetry property for this matrix.
+        # -------------------------------------------------------
+
+        if not np.allclose(Y_dense, Y_dense.T):
             raise ValueError("Ybus is not symmetric")
 
     def _check_islands(self):
