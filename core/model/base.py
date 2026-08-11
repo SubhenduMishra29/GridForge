@@ -1,28 +1,75 @@
+```python
+# core/model/base.py
+
 """
-GridForge Electrical Object Base Model
-======================================
+GridForge Model Layer
+=====================
 
-File:
-    core/model/base.py
+Common base class for all GridForge electrical and engineering
+domain-model objects.
 
-Defines the common base class for all GridForge electrical
-and engineering model objects.
+This module defines the fundamental identity contract shared by
+GridForge model objects.
 
 Responsibilities
 ----------------
 - Provide a stable object identifier.
-- Provide a human-readable name.
-- Provide common identity/diagnostic behavior.
+- Provide a human-readable object name.
+- Provide type-aware equality.
+- Provide a consistent hash implementation.
+- Provide common diagnostic information.
+- Provide a concise developer-facing representation.
 
 This class intentionally contains NO:
 - Electrical calculations
+- Per-unit calculations
 - Numerical solver logic
 - Network topology logic
-- GUI logic
-- Simulation logic
+- Graph algorithms
+- GUI state or rendering logic
+- Dynamic simulation logic
 - Protection logic
+- Control logic
 
-All specialized model objects inherit from this class.
+Those responsibilities belong to their respective GridForge layers.
+
+Identity and Registry Ownership
+--------------------------------
+ElectricalObject does not enforce global identifier uniqueness.
+
+Identifier uniqueness is the responsibility of the owning registry or
+container, such as Grid.
+
+The object identifier is intended to represent the stable identity of
+the model object.
+
+Architecture
+------------
+All specialized GridForge model objects should derive from
+ElectricalObject unless there is a documented architectural reason
+not to do so.
+
+Examples
+--------
+Bus
+Line
+Transformer
+Generator
+Load
+Breaker
+Relay
+Shunt
+Terminal
+etc.
+
+GridForge V2 Status
+-------------------
+This module is part of the frozen GridForge Model Layer V2 baseline.
+
+Changes to this class should not be made casually. Any proposed
+modification must demonstrate a genuinely fundamental requirement
+that cannot be satisfied through a specialized model class or
+higher-level infrastructure.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -33,32 +80,37 @@ from __future__ import annotations
 
 class ElectricalObject:
     """
-    Base class for GridForge model objects.
+    Root identity class for GridForge model objects.
 
     Parameters
     ----------
     id : str
-        Unique object identifier within its owning registry.
+        Unique object identifier within the owning registry.
 
     name : str, optional
-        Human-readable object name.
+        Human-readable object name. If omitted or empty, the object
+        identifier is used as the name.
 
     Notes
     -----
-    ``ElectricalObject`` does not enforce global ID uniqueness.
+    ``ElectricalObject`` provides identity and diagnostics only.
 
-    ID uniqueness is the responsibility of the owning container,
-    such as ``Grid``.
+    It does not perform electrical calculations, manage topology,
+    communicate with the GUI, execute numerical studies, or implement
+    protection/simulation behavior.
+
+    Identifier uniqueness is enforced by the owning container,
+    such as ``Grid``, rather than by this class.
     """
 
     def __init__(
         self,
         id: str,
-        name: str = ""
+        name: str = "",
     ):
-        # ---------------------------------------------------------
-        # Validate identifier
-        # ---------------------------------------------------------
+        # ============================================================
+        # Identifier Validation
+        # ============================================================
 
         if id is None:
             raise ValueError(
@@ -77,13 +129,16 @@ class ElectricalObject:
                 "Object ID cannot be empty."
             )
 
-        # ---------------------------------------------------------
-        # Store identity
-        # ---------------------------------------------------------
+        # ============================================================
+        # Identity
+        # ============================================================
 
         self.id = id
 
-        # Empty names fall back to the object ID.
+        # ============================================================
+        # Name Validation
+        # ============================================================
+
         if name is None:
             name = ""
 
@@ -94,71 +149,103 @@ class ElectricalObject:
 
         name = name.strip()
 
+        # Use the object ID when no explicit display name is supplied.
         self.name = name or id
 
-    # =============================================================
+    # ================================================================
     # IDENTITY
-    # =============================================================
+    # ================================================================
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         """
-        Compare model objects by type and identifier.
+        Compare two model objects by concrete type and identifier.
 
-        Objects of different model classes are not considered equal
-        even if they happen to have the same ID.
+        Two objects are considered equal when:
+
+        1. They are instances of the same concrete model class, and
+        2. They have the same object identifier.
+
+        Objects belonging to different model classes are not considered
+        equal even if they have identical identifiers.
+
+        Examples
+        --------
+        ``Bus("B1") == Bus("B1")``
+
+        ``Bus("B1") != Line("B1")``
         """
 
         if self is other:
             return True
 
-        if not isinstance(
-            other,
-            self.__class__
-        ):
+        if not isinstance(other, self.__class__):
             return NotImplemented
 
         return self.id == other.id
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         """
-        Hash based on object type and stable identifier.
+        Return a hash based on concrete object type and identifier.
+
+        The hash follows the same identity definition used by
+        ``__eq__``.
         """
 
         return hash(
             (
                 self.__class__,
-                self.id
+                self.id,
             )
         )
 
-    # =============================================================
+    # ================================================================
     # DIAGNOSTICS
-    # =============================================================
+    # ================================================================
 
     def summary(self) -> dict:
         """
-        Return the common object identity information.
+        Return common object identity information.
 
-        Specialized models may extend this method with additional
-        electrical parameters.
+        Specialized model classes may extend this method with their
+        own domain-specific information.
+
+        Returns
+        -------
+        dict
+            Dictionary containing:
+
+            - ``id``   : object identifier
+            - ``name`` : human-readable name
+            - ``type`` : concrete model class name
+
+        Notes
+        -----
+        ``summary()`` is a diagnostic/introspection interface.
+
+        It is not, by itself, the GridForge serialization contract.
         """
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": self.__class__.__name__
+            "type": self.__class__.__name__,
         }
 
-    # =============================================================
+    # ================================================================
     # REPRESENTATION
-    # =============================================================
+    # ================================================================
 
     def __repr__(self) -> str:
         """
-        Developer-friendly representation.
+        Return a concise developer-facing representation.
+
+        Example
+        -------
+        ``<Bus id=B1>``
         """
 
         return (
             f"<{self.__class__.__name__} "
             f"id={self.id}>"
         )
+```
