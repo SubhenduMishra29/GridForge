@@ -1,22 +1,30 @@
 ```python
 """
-GridForge Short Circuit Analysis
-================================
+GridForge - Short Circuit Analysis
+==================================
 
-File:
-    core/analysis/short_circuit.py
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
+Proprietary and confidential.
 
-Purpose:
-    Public analysis-level facade for short-circuit / fault studies.
+File
+----
+core/analysis/short_circuit.py
 
-Numerical engine:
-    core.solver.short_circuit
+Purpose
+-------
+Public analysis-level facade for short-circuit and fault studies.
 
-Supported fault types:
-    - Three-phase fault
-    - Line-to-ground (LG)
-    - Line-to-line (LL)
-    - Double-line-to-ground (LLG)
+Numerical engine
+----------------
+core.solver.short_circuit
+
+Supported fault types
+---------------------
+- Three-phase fault
+- Line-to-ground (LG)
+- Line-to-line (LL)
+- Double-line-to-ground (LLG)
 
 Architecture
 ------------
@@ -36,44 +44,43 @@ Responsibilities
 ----------------
 This module is responsible for:
 
-    - providing the public short-circuit study API
-    - validating basic study inputs
-    - selecting the requested fault type
-    - passing the study to the numerical solver
-    - retaining the latest study result
+- providing the public short-circuit study API
+- validating basic study inputs
+- selecting the requested fault type
+- delegating the study to the numerical solver
+- retaining the latest study result
 
 This module does NOT:
 
-    - calculate fault currents
-    - construct sequence networks
-    - calculate Zbus
-    - calculate Thevenin equivalents
-    - perform symmetrical-component mathematics
-    - perform numerical fault calculations
+- calculate fault currents
+- construct sequence networks
+- calculate Zbus
+- calculate Thevenin equivalents
+- perform symmetrical-component mathematics
+- perform numerical fault calculations
 
-Numerical responsibilities remain exclusively in:
+All numerical responsibilities remain in:
 
     core/solver/short_circuit/
 
-Canonical GridForge terminology:
-    "Short Circuit Analysis"
+Canonical GridForge terminology
+--------------------------------
+Short Circuit Analysis
 """
-
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-
 from core.solver.short_circuit import (
-    ShortCircuitSolver,
     FaultType,
+    ShortCircuitSolver,
 )
 
 
 class ShortCircuitAnalysis:
     """
-    Public facade for short-circuit / fault studies.
+    Public facade for short-circuit and fault studies.
 
     Parameters
     ----------
@@ -81,20 +88,21 @@ class ShortCircuitAnalysis:
         GridForge Network containing the electrical system.
 
     sequence_network:
-        Optional sequence-network representation used by the
+        Optional sequence-network representation accepted by the
         numerical short-circuit solver.
 
     Notes
     -----
     This class contains no short-circuit numerical mathematics.
 
-    It delegates all fault calculations to
-    ``core.solver.short_circuit``.
+    All fault calculations are delegated to:
+
+        core.solver.short_circuit.ShortCircuitSolver
     """
 
-    # =============================================================
+    # =================================================================
     # INITIALIZATION
-    # =============================================================
+    # =================================================================
 
     def __init__(
         self,
@@ -103,22 +111,20 @@ class ShortCircuitAnalysis:
     ) -> None:
 
         self.network = network
-
         self.sequence_network = sequence_network
-
         self.result: Any = None
 
         self._validate_network()
 
-    # =============================================================
-    # PUBLIC FAULT STUDY API
-    # =============================================================
+    # =================================================================
+    # MAIN API
+    # =================================================================
 
     def run(
         self,
         fault_type: FaultType,
         fault_bus: Any,
-        Zf: float = 0.0,
+        Zf: complex = 0.0,
     ) -> Any:
         """
         Execute a short-circuit study.
@@ -129,19 +135,17 @@ class ShortCircuitAnalysis:
             FaultType identifying the requested fault.
 
         fault_bus:
-            ID or bus reference accepted by the numerical solver.
+            Bus ID or bus reference accepted by the numerical solver.
 
         Zf:
             Fault impedance.
 
+            Real or complex impedance values are accepted.
+
         Returns
         -------
         Any
-            Result returned by the numerical short-circuit solver.
-
-        Notes
-        -----
-        No numerical fault calculation is performed here.
+            Result returned by ShortCircuitSolver.
         """
 
         self._validate_fault_request(
@@ -163,14 +167,14 @@ class ShortCircuitAnalysis:
 
         return self.result
 
-    # =============================================================
+    # =================================================================
     # THREE-PHASE FAULT
-    # =============================================================
+    # =================================================================
 
     def run_three_phase_fault(
         self,
         fault_bus: Any,
-        Zf: float = 0.0,
+        Zf: complex = 0.0,
     ) -> Any:
         """
         Run a balanced three-phase fault study.
@@ -182,14 +186,14 @@ class ShortCircuitAnalysis:
             Zf,
         )
 
-    # =============================================================
+    # =================================================================
     # LINE-TO-GROUND FAULT
-    # =============================================================
+    # =================================================================
 
     def run_lg_fault(
         self,
         fault_bus: Any,
-        Zf: float = 0.0,
+        Zf: complex = 0.0,
     ) -> Any:
         """
         Run a single-line-to-ground fault study.
@@ -201,14 +205,14 @@ class ShortCircuitAnalysis:
             Zf,
         )
 
-    # =============================================================
+    # =================================================================
     # LINE-TO-LINE FAULT
-    # =============================================================
+    # =================================================================
 
     def run_ll_fault(
         self,
         fault_bus: Any,
-        Zf: float = 0.0,
+        Zf: complex = 0.0,
     ) -> Any:
         """
         Run a line-to-line fault study.
@@ -220,14 +224,14 @@ class ShortCircuitAnalysis:
             Zf,
         )
 
-    # =============================================================
+    # =================================================================
     # DOUBLE-LINE-TO-GROUND FAULT
-    # =============================================================
+    # =================================================================
 
     def run_llg_fault(
         self,
         fault_bus: Any,
-        Zf: float = 0.0,
+        Zf: complex = 0.0,
     ) -> Any:
         """
         Run a double-line-to-ground fault study.
@@ -239,49 +243,40 @@ class ShortCircuitAnalysis:
             Zf,
         )
 
-    # =============================================================
-    # SUMMARY
-    # =============================================================
+    # =================================================================
+    # RESULT ACCESS
+    # =================================================================
 
     def summary(self) -> Any:
         """
         Return the latest short-circuit result.
 
-        Returns
-        -------
-        Any
-            The numerical solver result.
-
-        If no study has been executed, a simple NOT_RUN status
-        dictionary is returned.
+        If no study has been executed, return a NOT_RUN status.
         """
 
         if self.result is None:
             return {
-                "status": "NOT_RUN"
+                "status": "NOT_RUN",
             }
 
         return self.result
 
-    # =============================================================
-    # VALIDATION
-    # =============================================================
+    # =================================================================
+    # NETWORK VALIDATION
+    # =================================================================
 
     def _validate_network(self) -> None:
         """
-        Validate the minimum Network interface required for a
-        short-circuit study.
+        Validate the minimum Network interface required by the
+        analysis facade.
 
-        This performs structural validation only.
-
-        Electrical and numerical validation remain the
-        responsibility of the solver layer.
+        Electrical and numerical validation remain the responsibility
+        of the solver layer.
         """
 
         if self.network is None:
             raise ValueError(
-                "Short Circuit Analysis requires "
-                "a valid Network."
+                "Short Circuit Analysis requires a valid Network."
             )
 
         if not hasattr(self.network, "buses"):
@@ -289,33 +284,29 @@ class ShortCircuitAnalysis:
                 "Network is missing required 'buses' collection."
             )
 
-        if not self.network.buses:
+        if len(self.network.buses) == 0:
             raise ValueError(
-                "Short Circuit Analysis requires "
-                "at least one bus."
+                "Short Circuit Analysis requires at least one bus."
             )
 
-    # =============================================================
+    # =================================================================
     # FAULT REQUEST VALIDATION
-    # =============================================================
+    # =================================================================
 
-    @staticmethod
     def _validate_fault_request(
+        self,
         fault_type: FaultType,
         fault_bus: Any,
-        Zf: float,
+        Zf: complex,
     ) -> None:
         """
         Validate the basic fault-study request.
 
-        This deliberately avoids validating solver-specific
-        electrical assumptions.
+        This method deliberately avoids solver-specific electrical
+        validation.
         """
 
-        if not isinstance(
-            fault_type,
-            FaultType,
-        ):
+        if not isinstance(fault_type, FaultType):
             raise ValueError(
                 "fault_type must be an instance of FaultType."
             )
@@ -325,34 +316,87 @@ class ShortCircuitAnalysis:
                 "fault_bus cannot be None."
             )
 
+        # -------------------------------------------------------------
+        # Fault impedance
+        # -------------------------------------------------------------
+
         try:
-            fault_impedance = float(Zf)
+            impedance = complex(Zf)
 
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 "Zf must be a numeric fault impedance."
             ) from exc
 
-        if fault_impedance < 0.0:
+        if not (
+            np_isfinite(impedance.real)
+            and np_isfinite(impedance.imag)
+        ):
             raise ValueError(
-                "Zf cannot be negative."
+                "Zf must contain finite real and imaginary components."
             )
+
+    # =================================================================
+    # FAULT BUS VALIDATION
+    # =================================================================
+
+    def _validate_fault_bus(self, fault_bus: Any) -> None:
+        """
+        Validate a fault-bus identifier when the Network exposes
+        a bus_index mapping.
+
+        Solver-specific bus resolution remains in the solver layer.
+        """
+
+        if not hasattr(self.network, "bus_index"):
+            return
+
+        bus_index = self.network.bus_index
+
+        if fault_bus in bus_index:
+            return
+
+        for bus in self.network.buses:
+
+            if fault_bus is bus:
+                return
+
+            if getattr(bus, "id", None) == fault_bus:
+                return
+
+        raise ValueError(
+            f"Fault bus '{fault_bus}' was not found in the Network."
+        )
+
+
+# =====================================================================
+# NUMERIC HELPER
+# =====================================================================
+
+def np_isfinite(value: float) -> bool:
+    """
+    Small local finite-value helper.
+
+    Avoids introducing NumPy as a dependency solely for scalar
+    validation in this public facade.
+    """
+
+    return value == value and abs(value) != float("inf")
 
 
 # =====================================================================
 # BACKWARD COMPATIBILITY
 # =====================================================================
-#
-# The original public class name was:
+
+# Original public class name:
 #
 #     ShortCircuitAnalyzer
 #
-# Keep it as an alias so existing GridForge callers continue to work.
-#
-# The canonical GridForge analysis API is now:
+# The canonical GridForge API is now:
 #
 #     ShortCircuitAnalysis
-# =====================================================================
+#
+# Existing callers can continue using the original name.
 
 ShortCircuitAnalyzer = ShortCircuitAnalysis
 
