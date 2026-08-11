@@ -12,11 +12,11 @@ Central protection-system coordinator.
 
 Responsibilities
 ----------------
-- Register protection relay elements.
-- Associate relay elements with breakers.
+- Register protection relay algorithms.
+- Associate relay algorithms with breakers.
 - Supply measurements to the authoritative Relay model.
-- Evaluate protection algorithms.
-- Generate trip commands.
+- Dispatch protection-specific evaluation.
+- Generate breaker trip commands.
 - Interface with BreakerManager.
 - Record protection events.
 
@@ -27,28 +27,45 @@ Architecture
             |
             | authoritative relay state
             v
-    core/protection/
+    core/protection/relay_base.py
+            |
+            +---- Overcurrent
+            +---- Distance
+            +---- Directional
             |
             v
     ProtectionSystem
             |
             v
     BreakerManager
+            |
+            v
+    core/model/breaker.py
 
 Important
 ---------
-The Relay model in core/model/relay.py is frozen and remains the
-authoritative owner of:
+The Relay model in core/model/relay.py is frozen.
 
-    - measurements
+It remains the authoritative owner of:
+
+    - relay identity
+    - relay type
     - pickup setting
+    - time delay
+    - current
+    - voltage
+    - impedance
     - in-service state
     - trip state
 
-ProtectionSystem does not create a second relay state.
+ProtectionSystem stores only:
 
-Protection algorithms may be supplied as RelayBase-derived objects.
-A raw model Relay is also supported for basic model-level evaluation.
+    - protection algorithm registration
+    - relay-to-breaker association
+    - protection events
+
+Protection-specific settings remain inside the corresponding
+protection algorithm.
 
 ProtectionSystem does NOT:
 
@@ -56,7 +73,7 @@ ProtectionSystem does NOT:
     - perform load flow
     - perform short-circuit analysis
     - calculate protection settings
-    - coordinate relays
+    - coordinate multiple relays
     - modify Network topology
 
 Copyright © 2026 Subhendu Mishra
@@ -76,8 +93,8 @@ class ProtectionSystem:
     Parameters
     ----------
     breaker_manager:
-        Optional BreakerManager instance responsible for actual
-        breaker operation.
+        Optional BreakerManager responsible for actual breaker
+        operation.
     """
 
     # =============================================================
@@ -91,11 +108,11 @@ class ProtectionSystem:
 
         self.relays: Dict[Any, Dict[str, Any]] = {}
 
-        self.breaker_manager = (
-            breaker_manager
-        )
+        self.breaker_manager = breaker_manager
 
-        self.events: List[Dict[str, Any]] = []
+        self.events: List[
+            Dict[str, Any]
+        ] = []
 
     # =============================================================
     # RELAY REGISTRATION
@@ -107,27 +124,17 @@ class ProtectionSystem:
         breaker_id: Any,
     ) -> None:
         """
-        Register a protection relay.
+        Register a protection algorithm and associate it with
+        a breaker.
 
         Parameters
         ----------
         relay:
-            Either:
-
-                1. a RelayBase-derived protection algorithm, or
-                2. the authoritative model Relay.
-
-            RelayBase-derived objects are preferred for detailed
-            protection functions.
+            Preferred input is a RelayBase-derived protection
+            algorithm.
 
         breaker_id:
-            Identifier of the breaker operated by this relay.
-
-        Notes
-        -----
-        The relay object itself remains authoritative for relay
-        state. ProtectionSystem stores only the association between
-        relay and breaker.
+            Identifier of the breaker operated by the relay.
         """
 
         if relay is None:
@@ -174,27 +181,72 @@ class ProtectionSystem:
         )
 
     # =============================================================
-    # MEASUREMENT INPUT
+    # AUTHORITATIVE MODEL ACCESS
     # =============================================================
 
     @staticmethod
+    def _get_relay_model(
+        relay,
+    ):
+        """
+        Return the authoritative Relay model.
+
+        RelayBase-derived protection algorithms store the model
+        Relay as:
+
+            relay.relay
+
+        A raw Relay model is returned directly.
+        """
+
+        model_relay = getattr(
+            relay,
+            "relay",
+            None,
+        )
+
+        if model_relay is not None:
+            return model_relay
+
+        return relay
+
+    # =============================================================
+    # MEASUREMENT INPUT
+    # =============================================================
+
+    @classmethod
     def _apply_measurement(
+        cls,
         relay,
         measurement: Dict[str, Any],
     ) -> None:
         """
         Apply a measurement to the authoritative Relay model.
 
-        Locked model API:
+        Measurement dictionary:
 
-            relay.measure(
-                current,
-                voltage,
-                impedance,
-            )
+            {
+                "current": ...,
+                "voltage": ...,
+                "impedance": ...
+            }
 
-        The protection system accepts measurement dictionaries
-        using named fields so positional-order mistakes cannot occur.
+        Optional directional quantities:
+
+            {
+                "voltage_angle": ...,
+                "current_angle": ...
+            }
+
+        Notes
+        -----
+        The authoritative model is always updated through
+        core/model/relay.py.
+
+        Distance protection additionally requires apparent
+        impedance. When impedance is not explicitly supplied,
+        the distance protection algorithm may calculate it from
+        voltage/current during evaluation preparation.
         """
 
         if not isinstance(
@@ -204,6 +256,10 @@ class ProtectionSystem:
             raise TypeError(
                 "Relay measurement must be a dictionary."
             )
+
+        model_relay = cls._get_relay_model(
+            relay
+        )
 
         current = measurement.get(
             "current",
@@ -220,76 +276,107 @@ class ProtectionSystem:
             0.0,
         )
 
-        # ---------------------------------------------------------
-        # RelayBase / protection algorithm
-        # ---------------------------------------------------------
-
-        relay_measure = getattr(
-            relay,
-            "measure",
-            None,
-        )
-
-        if relay_measure is None:
-            raise TypeError(
-                "Registered relay does not provide "
-                "a measure() method."
-            )
-
-        relay_measure(
+        model_relay.measure(
             current=current,
             voltage=voltage,
             impedance=impedance,
         )
 
     # =============================================================
-    # RELAY MODEL ACCESS
+    # PROTECTION-SPECIFIC MEASUREMENT PREPARATION
     # =============================================================
 
     @staticmethod
-    def _get_relay_model(relay):
+    def _prepare_protection_measurement(
+        relay,
+        measurement: Dict[str, Any],
+    ) -> None:
         """
-        Return the authoritative model Relay.
+        Prepare protection-specific quantities.
 
-        RelayBase stores it as:
+        This method does not create duplicate relay state.
 
-            relay.relay
+        Distance protection:
+            If voltage/current are supplied and impedance is not
+            explicitly supplied, calculate apparent impedance
+            through the distance protection algorithm.
 
-        A raw model Relay is returned directly.
+        Other protection algorithms use the authoritative Relay
+        measurements directly.
         """
 
-        model_relay = getattr(
+        # ---------------------------------------------------------
+        # Distance protection
+        # ---------------------------------------------------------
+
+        calculate_impedance = getattr(
             relay,
-            "relay",
+            "calculate_impedance",
             None,
         )
 
-        if model_relay is not None:
-            return model_relay
+        if (
+            callable(calculate_impedance)
+            and "impedance" not in measurement
+        ):
 
-        return relay
+            voltage = measurement.get(
+                "voltage",
+                1.0,
+            )
+
+            current = measurement.get(
+                "current",
+                0.0,
+            )
+
+            impedance = calculate_impedance(
+                voltage,
+                current,
+            )
+
+            model_relay = (
+                ProtectionSystem._get_relay_model(
+                    relay
+                )
+            )
+
+            model_relay.measure(
+                current=current,
+                voltage=voltage,
+                impedance=impedance,
+            )
 
     # =============================================================
-    # PICKUP / TRIP EVALUATION
+    # PROTECTION EVALUATION
     # =============================================================
 
     @staticmethod
     def _evaluate_relay(
         relay,
+        measurement: Dict[str, Any],
     ) -> bool:
         """
-        Evaluate a registered relay/protection algorithm.
+        Evaluate a registered protection algorithm.
 
-        Preferred path:
-            RelayBase.evaluate()
+        Protection-specific evaluation is delegated to the
+        protection plugin.
 
-        Fallback:
-            model Relay.evaluate()
+        Supported evaluation forms:
 
-        Returns
-        -------
-        bool
-            True when the relay has issued a trip decision.
+        Normal protection algorithm:
+
+            evaluate()
+
+        Directional protection:
+
+            evaluate(
+                voltage_angle=...,
+                current_angle=...
+            )
+
+        Raw Relay models may use their model-level evaluate()
+        only as a compatibility fallback.
         """
 
         model_relay = (
@@ -303,12 +390,10 @@ class ProtectionSystem:
             "in_service",
             True,
         ):
-            model_relay.set_trip(False)
+            model_relay.set_trip(
+                False
+            )
             return False
-
-        # ---------------------------------------------------------
-        # Preferred protection-layer evaluation
-        # ---------------------------------------------------------
 
         protection_evaluate = getattr(
             relay,
@@ -316,42 +401,59 @@ class ProtectionSystem:
             None,
         )
 
-        if callable(
+        if not callable(
             protection_evaluate
         ):
-
-            result = bool(
-                protection_evaluate()
-            )
-
-            return bool(
-                getattr(
-                    model_relay,
-                    "trip",
-                    False,
-                )
+            raise TypeError(
+                "Registered protection relay does not "
+                "provide an evaluate() method."
             )
 
         # ---------------------------------------------------------
-        # Fallback to locked model-level evaluation
+        # Directional protection
         # ---------------------------------------------------------
 
-        model_evaluate = getattr(
-            model_relay,
-            "evaluate",
-            None,
+        voltage_angle = measurement.get(
+            "voltage_angle"
         )
 
-        if callable(
-            model_evaluate
+        current_angle = measurement.get(
+            "current_angle"
+        )
+
+        if (
+            voltage_angle is not None
+            or current_angle is not None
         ):
-            model_evaluate()
+
+            if (
+                voltage_angle is None
+                or current_angle is None
+            ):
+                raise ValueError(
+                    f"Directional relay '{model_relay.id}' "
+                    "requires both voltage_angle and "
+                    "current_angle."
+                )
+
+            result = protection_evaluate(
+                voltage_angle=voltage_angle,
+                current_angle=current_angle,
+            )
+
+        # ---------------------------------------------------------
+        # Standard protection algorithms
+        # ---------------------------------------------------------
+
+        else:
+
+            result = protection_evaluate()
 
         return bool(
             getattr(
                 model_relay,
                 "trip",
-                False,
+                bool(result),
             )
         )
 
@@ -361,8 +463,13 @@ class ProtectionSystem:
 
     def evaluate(
         self,
-        measurements: Dict[Any, Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        measurements: Dict[
+            Any,
+            Dict[str, Any]
+        ],
+    ) -> List[
+        Dict[str, Any]
+    ]:
         """
         Evaluate all registered protection relays.
 
@@ -373,32 +480,49 @@ class ProtectionSystem:
 
                 relay_id -> measurement dictionary
 
-            Example:
+        Example
+        -------
 
-                {
-                    "R1": {
-                        "current": 2500.0,
-                        "voltage": 11000.0,
-                        "impedance": 4.2 + 1.1j,
-                    }
+            {
+                "R1": {
+                    "current": 2500.0,
+                    "voltage": 11000.0,
+                    "impedance": 4.2 + 1.1j,
                 }
+            }
+
+        Directional example:
+
+            {
+                "R2": {
+                    "current": 2500.0,
+                    "voltage": 11000.0,
+                    "voltage_angle": 0.0,
+                    "current_angle": -85.0,
+                }
+            }
 
         Returns
         -------
         list
-            Trip commands.
+            Breaker trip commands.
 
         Notes
         -----
-        Measurement values are applied to the authoritative model
-        Relay through its measure() interface.
-
-        Breakers are NOT operated here.
+        Breakers are not operated by this method.
         """
 
         if measurements is None:
             raise ValueError(
                 "measurements cannot be None."
+            )
+
+        if not isinstance(
+            measurements,
+            dict,
+        ):
+            raise TypeError(
+                "measurements must be a dictionary."
             )
 
         trips: List[
@@ -407,17 +531,19 @@ class ProtectionSystem:
 
         for relay_id, data in self.relays.items():
 
-            relay = data["relay"]
-
             if relay_id not in measurements:
                 continue
 
-            measurement = (
-                measurements[relay_id]
-            )
+            relay = data[
+                "relay"
+            ]
+
+            measurement = measurements[
+                relay_id
+            ]
 
             # -----------------------------------------------------
-            # Apply measurements
+            # Apply authoritative measurements
             # -----------------------------------------------------
 
             self._apply_measurement(
@@ -426,12 +552,22 @@ class ProtectionSystem:
             )
 
             # -----------------------------------------------------
-            # Evaluate protection logic
+            # Prepare protection-specific quantities
+            # -----------------------------------------------------
+
+            self._prepare_protection_measurement(
+                relay,
+                measurement,
+            )
+
+            # -----------------------------------------------------
+            # Evaluate protection algorithm
             # -----------------------------------------------------
 
             operated = (
                 self._evaluate_relay(
-                    relay
+                    relay,
+                    measurement,
                 )
             )
 
@@ -441,7 +577,9 @@ class ProtectionSystem:
             trips.append(
                 {
                     "relay": relay_id,
-                    "breaker": data["breaker"],
+                    "breaker": data[
+                        "breaker"
+                    ],
                 }
             )
 
@@ -453,37 +591,37 @@ class ProtectionSystem:
 
     def operate(
         self,
-        trip_commands: List[Dict[str, Any]],
+        trip_commands: List[
+            Dict[str, Any]
+        ],
         time: float = 0.0,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[
+        Dict[str, Any]
+    ]:
         """
         Execute generated breaker-trip commands.
 
-        Parameters
-        ----------
-        trip_commands:
-            Commands returned by evaluate().
-
-        time:
-            Event time in seconds.
-
-        Returns
-        -------
-        list
-            Breaker operation results.
-
-        Notes
-        -----
-        ProtectionSystem does not directly operate breakers.
-
-        BreakerManager owns breaker operation.
+        BreakerManager owns actual breaker operation.
         """
+
+        if trip_commands is None:
+            raise ValueError(
+                "trip_commands cannot be None."
+            )
 
         results: List[
             Dict[str, Any]
         ] = []
 
         for command in trip_commands:
+
+            if not isinstance(
+                command,
+                dict,
+            ):
+                raise TypeError(
+                    "Each trip command must be a dictionary."
+                )
 
             breaker_id = command.get(
                 "breaker"
@@ -492,6 +630,11 @@ class ProtectionSystem:
             relay_id = command.get(
                 "relay"
             )
+
+            if breaker_id is None:
+                raise ValueError(
+                    "Trip command is missing breaker id."
+                )
 
             # -----------------------------------------------------
             # No breaker manager
@@ -533,18 +676,18 @@ class ProtectionSystem:
             )
 
             # -----------------------------------------------------
-            # Record protection event
+            # Protection event
             # -----------------------------------------------------
 
-            if success:
-
-                self.events.append(
-                    {
-                        "time": time,
-                        "relay": relay_id,
-                        "breaker": breaker_id,
-                    }
-                )
+            self.events.append(
+                {
+                    "time": float(time),
+                    "relay": relay_id,
+                    "breaker": breaker_id,
+                    "action": "TRIP",
+                    "success": success,
+                }
+            )
 
         return results
 
@@ -554,9 +697,14 @@ class ProtectionSystem:
 
     def process_fault(
         self,
-        measurements: Dict[Any, Dict[str, Any]],
+        measurements: Dict[
+            Any,
+            Dict[str, Any]
+        ],
         time: float = 0.0,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[
+        Dict[str, Any]
+    ]:
         """
         Execute one complete protection cycle.
 
@@ -565,24 +713,22 @@ class ProtectionSystem:
             measurements
                 |
                 v
-            relay measurement
+            authoritative Relay
                 |
                 v
-            protection evaluation
+            protection algorithm
                 |
                 v
-            trip commands
+            trip command
                 |
                 v
             BreakerManager
                 |
                 v
-            event record
-
-        Returns
-        -------
-        list
-            Breaker operation results.
+            Breaker.open()
+                |
+                v
+            protection event
         """
 
         commands = self.evaluate(
@@ -600,12 +746,17 @@ class ProtectionSystem:
 
     def reset(self) -> None:
         """
-        Reset all registered relay states and clear events.
+        Reset all registered protection relay states and
+        clear protection events.
+
+        Protection settings remain unchanged.
         """
 
         for data in self.relays.values():
 
-            relay = data["relay"]
+            relay = data[
+                "relay"
+            ]
 
             model_relay = (
                 self._get_relay_model(
@@ -622,22 +773,44 @@ class ProtectionSystem:
             if callable(reset):
                 reset()
 
+            # Protection algorithms may maintain transient
+            # algorithmic state such as active_zone or direction.
+
+            protection_reset = getattr(
+                relay,
+                "reset",
+                None,
+            )
+
+            if (
+                callable(protection_reset)
+                and relay is not model_relay
+            ):
+                protection_reset()
+
         self.events.clear()
 
     # =============================================================
     # STATUS
     # =============================================================
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(
+        self,
+    ) -> Dict[str, Any]:
         """
-        Return protection-system summary.
+        Return structured protection-system status.
         """
 
-        relay_status = {}
+        relay_status: Dict[
+            Any,
+            Dict[str, Any]
+        ] = {}
 
         for relay_id, data in self.relays.items():
 
-            relay = data["relay"]
+            relay = data[
+                "relay"
+            ]
 
             model_relay = (
                 self._get_relay_model(
