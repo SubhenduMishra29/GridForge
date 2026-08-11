@@ -1,89 +1,139 @@
 ```python
+# core/model/generator.py
+
 """
-GridForge Governor Model
-========================
+GridForge Generator Model
+=========================
 
-File:
-    core/model/governor.py
+GridForge Model Layer V2
 
-Defines the turbine governor model used by the GridForge
-transient-stability / dynamic simulation framework.
-
-Purpose
--------
-The Governor represents a simplified first-order turbine-governor
-dynamic model.
-
-The governing equation is:
-
-    dPm/dt = (Pref - Pm - omega / R) / Tg
-
-where:
-
-    Pm:
-        Current mechanical power output in per-unit.
-
-    Pref:
-        Mechanical power reference in per-unit.
-
-    omega:
-        Rotor speed deviation in per-unit.
-
-    R:
-        Governor speed-droop coefficient.
-
-    Tg:
-        Governor time constant in seconds.
+Defines the GridForge controllable Generator model.
 
 Architecture
 ------------
-The Governor is a dynamic component, but it does NOT perform
-numerical integration.
+A Generator represents a controllable electrical power injection
+connected to a Bus through a Terminal.
 
-The dynamic / DAE solver owns:
+The Generator is an electrical model.
 
-    - Dynamic state vector
-    - State integration
-    - Time stepping
-    - Initial conditions
-    - Differential-algebraic solution
+Optional advanced functionality may be attached through the generic
+plugin/extension mechanism:
 
-The Governor provides:
-
-    - Differential equation
-    - Mechanical-power limiting
-    - Initial-state calculation
-    - Parameter management
-    - Diagnostic information
-
-The Governor deliberately does NOT maintain an authoritative
-dynamic state internally.
-
-Used by
--------
     Generator
-    Transient Stability Solver
-    Dynamic Solver
-    Governor Dynamic Plugin
+        └── plugins
+              ├── dynamics.machine
+              ├── dynamics.governor
+              ├── dynamics.avr
+              ├── dynamics.pss
+              └── future extensions
 
-Future Extensions
------------------
-The model can later support:
+The Generator deliberately does NOT know the concrete classes
+implementing those extensions.
 
-    - IEEE turbine-governor models
-    - Hydraulic turbine governors
-    - Steam turbine governors
-    - Deadband
-    - Rate limiting
-    - Servo dynamics
-    - Multiple turbine stages
-    - Reheat dynamics
-    - Nonlinear governor characteristics
+Plugin implementations belong outside core/model/.
+
+Dynamic / DAE solver responsibilities include:
+
+    - Dynamic state-vector ownership
+    - State initialization
+    - Algebraic-state management
+    - Differential-equation evaluation
+    - Time integration
+    - Time stepping
+    - DAE solution
+
+Generator Electrical Responsibilities
+-------------------------------------
+The Generator model stores:
+
+    - Active power injection
+    - Reactive power injection
+    - Voltage-control setpoint
+    - Reactive-power limits
+    - Reactive-power limit status
+    - Bus connectivity
+    - Generic plugin/extension references
+
+The Generator does NOT:
+
+    - Decide PV/PQ/SLACK bus classification.
+    - Build Y-bus.
+    - Perform Newton-Raphson iterations.
+    - Perform load-flow calculations.
+    - Perform short-circuit calculations.
+    - Perform contingency analysis.
+    - Perform dynamic integration.
+    - Perform protection calculations.
+    - Own the dynamic solver state vector.
+    - Manage GUI objects.
+    - Import or depend on specific dynamic plugins.
 
 Sign Convention
 ---------------
-Mechanical power is represented as positive generation-side
-mechanical input to the synchronous-machine model.
+Generator electrical power follows the GridForge
+network-injection convention:
+
+    +P
+        Active power injected into the network.
+
+    +Q
+        Reactive power injected into the network.
+
+Therefore:
+
+    get_power() -> (P, Q)
+
+Reactive Power Limits
+---------------------
+Q limits are stored by the Generator as physical generator limits.
+
+Infinite limits are permitted and represent an unrestricted
+generator.
+
+The Generator may report and locally clamp its own Q value through
+``enforce_q_limits()``.
+
+It does NOT perform PV -> PQ bus conversion.
+
+PV/PQ switching is a power-flow control-layer responsibility.
+
+Plugin Architecture
+-------------------
+The Generator exposes a generic plugin registry.
+
+The registry stores references to extension objects but does not
+interpret their implementation.
+
+This allows future functionality to be added without modifying
+the central Generator model.
+
+Examples of possible plugin identifiers include:
+
+    "dynamics.machine"
+    "dynamics.governor"
+    "dynamics.avr"
+    "dynamics.pss"
+    "protection.relay"
+    "control.exciter"
+    "control.turbine"
+    "converter.controller"
+
+The Generator does not import or depend on any of these concrete
+implementations.
+
+Plugin objects must therefore be managed by the appropriate
+higher-level/plugin infrastructure.
+
+GridForge V2 Status
+-------------------
+This module is part of the GridForge Model Layer V2 baseline.
+
+The electrical Generator interface is intentionally kept small,
+stable, and independent of optional feature plugins.
+
+Changes require evidence of a genuinely fundamental generator-model
+requirement that cannot be implemented through an existing model,
+interface, plugin, or higher-level layer.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -92,501 +142,737 @@ All Rights Reserved.
 from __future__ import annotations
 
 import math
+from typing import Any, Tuple
+
+from .base import ElectricalObject
+from .injection import Injection
+from .terminal import Terminal
 
 
-class Governor:
+# =====================================================================
+# GENERATOR MODEL
+# =====================================================================
+
+class Generator(ElectricalObject, Injection):
     """
-    First-order turbine governor model.
-
-    The Governor does not integrate its internal state.
-
-    The dynamic solver supplies the current mechanical-power
-    state ``Pm`` and rotor-speed deviation ``omega`` and integrates
-    the derivative returned by :meth:`derivative`.
+    GridForge controllable generator model.
 
     Parameters
     ----------
-    Pref:
-        Mechanical power reference in per-unit.
+    id : str
+        Unique GridForge object identifier.
 
-    R:
-        Governor speed-droop coefficient.
+    bus :
+        Bus to which the generator is connected.
 
-    Tg:
-        Governor time constant in seconds.
+    p : float, optional
+        Active power injection in per-unit.
 
-    Pm_min:
-        Minimum mechanical power output in per-unit.
+        Positive values represent injection into the network.
 
-    Pm_max:
-        Maximum mechanical power output in per-unit.
+    q : float, optional
+        Reactive power injection in per-unit.
+
+        Positive values represent injection into the network.
+
+    V_setpoint : float, optional
+        Voltage magnitude control target in per-unit.
+
+    q_limits : tuple[float, float], optional
+        Reactive-power limits as:
+
+            (Qmin, Qmax)
+
+        Infinite limits are permitted.
+
+    name : str, optional
+        Human-readable generator name.
+
+    Notes
+    -----
+    The Generator is intentionally independent of specific dynamic
+    model implementations.
+
+    Advanced functionality may be attached through the generic
+    plugin registry using:
+
+        attach_plugin()
+        get_plugin()
+        has_plugin()
+        detach_plugin()
+
+    The Generator does not own plugin state or perform plugin
+    execution.
     """
 
-    # =========================================================
+    # =================================================================
     # INITIALIZATION
-    # =========================================================
+    # =================================================================
 
     def __init__(
         self,
-        Pref: float = 1.0,
-        R: float = 0.05,
-        Tg: float = 0.2,
-        Pm_min: float = 0.0,
-        Pm_max: float = 1.2,
+        id: str,
+        bus,
+        p: float = 0.0,
+        q: float = 0.0,
+        V_setpoint: float = 1.0,
+        q_limits: Tuple[float, float] = (
+            -float("inf"),
+            float("inf"),
+        ),
+        name: str = "",
     ) -> None:
-        """
-        Initialize the governor model.
-        """
 
-        # -----------------------------------------------------
-        # Parameters
-        # -----------------------------------------------------
+        super().__init__(
+            id=id,
+            name=name,
+        )
 
-        self.Pref = float(Pref)
+        # -------------------------------------------------------------
+        # Electrical connection
+        # -------------------------------------------------------------
 
-        self.R = float(R)
+        self.terminal = Terminal(bus)
 
-        self.Tg = float(Tg)
+        # -------------------------------------------------------------
+        # Generator electrical power
+        #
+        # Positive P/Q = injection into the network.
+        # -------------------------------------------------------------
 
-        # -----------------------------------------------------
-        # Mechanical-power limits
-        # -----------------------------------------------------
+        self.p = float(p)
+        self.q = float(q)
 
-        self.Pm_min = float(Pm_min)
+        # -------------------------------------------------------------
+        # Voltage control
+        # -------------------------------------------------------------
 
-        self.Pm_max = float(Pm_max)
+        self.V_setpoint = float(V_setpoint)
 
-        # -----------------------------------------------------
-        # Validation
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # Reactive-power limits
+        # -------------------------------------------------------------
+
+        try:
+            if len(q_limits) != 2:
+                raise ValueError(
+                    "q_limits must contain exactly "
+                    "(Qmin, Qmax)."
+                )
+
+            self.q_min = float(q_limits[0])
+            self.q_max = float(q_limits[1])
+
+        except TypeError as exc:
+            raise TypeError(
+                "q_limits must be a two-value sequence "
+                "(Qmin, Qmax)."
+            ) from exc
+
+        # -------------------------------------------------------------
+        # Generic plugin registry
+        #
+        # The Generator stores references only.
+        #
+        # It does not know what a plugin does, does not execute
+        # plugins, and does not own plugin state.
+        # -------------------------------------------------------------
+
+        self._plugins: dict[str, Any] = {}
+
+        # -------------------------------------------------------------
+        # Validate complete generator state.
+        # -------------------------------------------------------------
 
         self._validate()
 
-    # =========================================================
+    # =================================================================
     # VALIDATION
-    # =========================================================
+    # =================================================================
 
     def _validate(self) -> None:
         """
-        Validate governor parameters.
+        Validate generator electrical parameters.
+
+        P and Q must be finite.
+
+        Q limits may be infinite, representing unrestricted
+        reactive capability, but NaN is never valid.
+
+        Voltage setpoint must be finite and positive.
         """
 
-        if not math.isfinite(self.Pref):
+        # -------------------------------------------------------------
+        # Active and reactive power
+        # -------------------------------------------------------------
+
+        if not math.isfinite(self.p):
             raise ValueError(
-                "Governor reference Pref must be finite."
+                "Generator active power must be finite."
             )
 
-        if not math.isfinite(self.R):
+        if not math.isfinite(self.q):
             raise ValueError(
-                "Governor droop coefficient R must be finite."
+                "Generator reactive power must be finite."
             )
 
-        if self.R <= 0.0:
+        # -------------------------------------------------------------
+        # Voltage setpoint
+        # -------------------------------------------------------------
+
+        if not math.isfinite(self.V_setpoint):
             raise ValueError(
-                "Governor droop coefficient R "
+                "Generator voltage setpoint must be finite."
+            )
+
+        if self.V_setpoint <= 0.0:
+            raise ValueError(
+                "Generator voltage setpoint "
                 "must be greater than zero."
             )
 
-        if not math.isfinite(self.Tg):
+        # -------------------------------------------------------------
+        # Reactive-power limits
+        #
+        # Infinite limits are valid.
+        # NaN limits are not.
+        # -------------------------------------------------------------
+
+        if math.isnan(self.q_min):
             raise ValueError(
-                "Governor time constant Tg must be finite."
+                "Generator Qmin cannot be NaN."
             )
 
-        if self.Tg <= 0.0:
+        if math.isnan(self.q_max):
             raise ValueError(
-                "Governor time constant Tg "
-                "must be greater than zero."
+                "Generator Qmax cannot be NaN."
             )
 
-        if not math.isfinite(self.Pm_min):
+        if self.q_min > self.q_max:
             raise ValueError(
-                "Governor Pm_min must be finite."
+                "Generator Qmin cannot exceed Qmax."
             )
 
-        if not math.isfinite(self.Pm_max):
-            raise ValueError(
-                "Governor Pm_max must be finite."
-            )
+    # =================================================================
+    # INJECTION INTERFACE
+    # =================================================================
 
-        if self.Pm_min > self.Pm_max:
-            raise ValueError(
-                "Pm_min must not be greater than Pm_max."
-            )
-
-    # =========================================================
-    # DIFFERENTIAL EQUATION
-    # =========================================================
-
-    def derivative(
-        self,
-        Pm: float,
-        omega: float,
-    ) -> float:
+    def get_power(self) -> tuple[float, float]:
         """
-        Calculate the mechanical-power state derivative.
-
-        Equation
-        --------
-            dPm/dt =
-                (Pref - Pm - omega / R) / Tg
-
-        Parameters
-        ----------
-        Pm:
-            Current mechanical-power state.
-
-        omega:
-            Rotor speed deviation.
+        Return generator network power injection.
 
         Returns
         -------
-        float
-            dPm/dt.
+        tuple[float, float]
+            ``(P, Q)`` in the GridForge network-injection
+            convention.
+
+        Positive values represent injection into the network.
+        """
+
+        return (
+            self.p,
+            self.q,
+        )
+
+    # =================================================================
+    # CONNECTION
+    # =================================================================
+
+    @property
+    def bus(self):
+        """
+        Return the Bus connected to this generator.
+        """
+
+        return self.terminal.bus
+
+    # =================================================================
+    # POWER CONTROL
+    # =================================================================
+
+    def set_power(
+        self,
+        p: float,
+        q: float,
+    ) -> None:
+        """
+        Set generator active and reactive power.
+
+        Parameters
+        ----------
+        p : float
+            Active power injection in per-unit.
+
+        q : float
+            Reactive power injection in per-unit.
 
         Notes
         -----
-        No numerical integration occurs here.
+        Q-limit enforcement is intentionally not performed here.
 
-        The dynamic solver is responsible for integrating the
-        returned derivative.
+        The caller may explicitly use ``enforce_q_limits()`` or the
+        appropriate power-flow control layer may manage generator
+        reactive limits.
         """
 
-        Pm = float(Pm)
-        omega = float(omega)
+        p = float(p)
+        q = float(q)
 
-        if not math.isfinite(Pm):
+        if not math.isfinite(p):
             raise ValueError(
-                "Governor mechanical-power state Pm "
-                "must be finite."
+                "Generator active power must be finite."
             )
 
-        if not math.isfinite(omega):
+        if not math.isfinite(q):
             raise ValueError(
-                "Governor rotor speed deviation omega "
-                "must be finite."
+                "Generator reactive power must be finite."
             )
+
+        self.p = p
+        self.q = q
+
+    def set_active_power(
+        self,
+        p: float,
+    ) -> None:
+        """
+        Set generator active power injection.
+        """
+
+        p = float(p)
+
+        if not math.isfinite(p):
+            raise ValueError(
+                "Generator active power must be finite."
+            )
+
+        self.p = p
+
+    def set_reactive_power(
+        self,
+        q: float,
+    ) -> None:
+        """
+        Set generator reactive power injection.
+
+        This method does not automatically clamp Q.
+
+        Reactive-power limit handling belongs to the appropriate
+        power-flow control workflow.
+        """
+
+        q = float(q)
+
+        if not math.isfinite(q):
+            raise ValueError(
+                "Generator reactive power must be finite."
+            )
+
+        self.q = q
+
+    # =================================================================
+    # VOLTAGE CONTROL
+    # =================================================================
+
+    def set_voltage_setpoint(
+        self,
+        V_setpoint: float,
+    ) -> None:
+        """
+        Set the generator voltage-control target.
+
+        Parameters
+        ----------
+        V_setpoint : float
+            Voltage magnitude in per-unit.
+        """
+
+        V_setpoint = float(V_setpoint)
+
+        if not math.isfinite(V_setpoint):
+            raise ValueError(
+                "Generator voltage setpoint must be finite."
+            )
+
+        if V_setpoint <= 0.0:
+            raise ValueError(
+                "Generator voltage setpoint "
+                "must be greater than zero."
+            )
+
+        self.V_setpoint = V_setpoint
+
+    # =================================================================
+    # REACTIVE POWER LIMITS
+    # =================================================================
+
+    @property
+    def q_limits(self) -> tuple[float, float]:
+        """
+        Return generator reactive-power limits.
+
+        Returns
+        -------
+        tuple[float, float]
+            ``(Qmin, Qmax)``
+        """
 
         return (
-            self.Pref
-            - Pm
-            - omega / self.R
-        ) / self.Tg
+            self.q_min,
+            self.q_max,
+        )
 
-    # =========================================================
-    # OUTPUT
-    # =========================================================
-
-    def output(
+    def set_q_limits(
         self,
-        Pm: float,
-    ) -> float:
+        q_min: float,
+        q_max: float,
+    ) -> None:
         """
-        Return the limited mechanical-power output.
+        Update generator reactive-power limits.
 
         Parameters
         ----------
-        Pm:
-            Current mechanical-power state.
+        q_min : float
+            Minimum reactive-power injection.
 
-        Returns
-        -------
-        float
-            Limited mechanical power.
-        """
-
-        return self.limit(Pm)
-
-    # =========================================================
-    # COMBINED EVALUATION
-    # =========================================================
-
-    def evaluate(
-        self,
-        Pm: float,
-        omega: float,
-    ) -> tuple[float, float]:
-        """
-        Evaluate governor derivative and mechanical-power output.
-
-        Parameters
-        ----------
-        Pm:
-            Current mechanical-power state.
-
-        omega:
-            Rotor speed deviation.
-
-        Returns
-        -------
-        tuple
-            (dPm_dt, Pm_output)
+        q_max : float
+            Maximum reactive-power injection.
 
         Notes
         -----
-        No numerical integration occurs here.
+        Infinite limits are permitted.
+
+        The limits are stored only. The current generator Q value
+        is not automatically changed.
         """
 
-        dPm_dt = self.derivative(
-            Pm=Pm,
-            omega=omega,
-        )
+        q_min = float(q_min)
+        q_max = float(q_max)
 
-        Pm_output = self.output(
-            Pm=Pm,
-        )
+        if math.isnan(q_min) or math.isnan(q_max):
+            raise ValueError(
+                "Reactive-power limits cannot be NaN."
+            )
 
-        return (
-            dPm_dt,
-            Pm_output,
-        )
+        if q_min > q_max:
+            raise ValueError(
+                "Qmin cannot exceed Qmax."
+            )
 
-    # =========================================================
-    # LIMITER
-    # =========================================================
+        self.q_min = q_min
+        self.q_max = q_max
 
-    def limit(
+    def q_limit_status(
         self,
-        Pm: float,
-    ) -> float:
+        tolerance: float = 1e-6,
+    ) -> str:
         """
-        Apply mechanical-power limits.
+        Determine the current reactive-power limit status.
 
         Parameters
         ----------
-        Pm:
-            Unrestricted mechanical-power state.
+        tolerance : float, optional
+            Numerical tolerance in per-unit.
 
         Returns
         -------
-        float
-            Limited mechanical power.
+        str
+            One of:
+
+                "LOW"
+                "HIGH"
+                "NORMAL"
+
+        Notes
+        -----
+        This method is diagnostic only.
+
+        It does not change generator Q and does not change Bus
+        classification.
         """
 
-        Pm = float(Pm)
+        tolerance = float(tolerance)
 
-        if not math.isfinite(Pm):
+        if not math.isfinite(tolerance):
             raise ValueError(
-                "Governor mechanical-power value Pm "
-                "must be finite."
+                "Q-limit tolerance must be finite."
             )
 
-        return max(
-            self.Pm_min,
-            min(
-                Pm,
-                self.Pm_max,
-            ),
-        )
+        if tolerance < 0.0:
+            raise ValueError(
+                "Q-limit tolerance cannot be negative."
+            )
 
-    # =========================================================
-    # INITIAL STATE
-    # =========================================================
+        if self.q < self.q_min - tolerance:
+            return "LOW"
 
-    def initial_state(
-        self,
-        omega: float = 0.0,
-    ) -> float:
+        if self.q > self.q_max + tolerance:
+            return "HIGH"
+
+        return "NORMAL"
+
+    def enforce_q_limits(self) -> bool:
         """
-        Calculate the steady-state initial mechanical power.
+        Clamp reactive power to the configured physical limits.
 
-        At steady state:
+        Returns
+        -------
+        bool
+            True if Q was modified.
 
-            dPm/dt = 0
+        Notes
+        -----
+        This method changes only the Generator's own reactive-power
+        value.
 
-        Therefore:
+        It does NOT:
 
-            Pm = Pref - omega / R
+        - Change Bus classification.
+        - Perform PV -> PQ switching.
+        - Modify Bus voltage.
+        - Run a power-flow solution.
 
-        The result is passed through the configured mechanical
-        power limits.
+        PV -> PQ handling belongs to the power-flow control layer.
+        """
+
+        original_q = self.q
+
+        if self.q < self.q_min:
+            self.q = self.q_min
+
+        elif self.q > self.q_max:
+            self.q = self.q_max
+
+        return self.q != original_q
+
+    # =================================================================
+    # GENERIC PLUGIN ARCHITECTURE
+    # =================================================================
+
+    def attach_plugin(
+        self,
+        key: str,
+        plugin: Any,
+        *,
+        replace: bool = False,
+    ) -> None:
+        """
+        Attach a generic plugin/extension to the Generator.
 
         Parameters
         ----------
-        omega:
-            Initial rotor speed deviation.
+        key : str
+            Unique plugin key.
 
-        Returns
-        -------
-        float
-            Initial mechanical-power state.
+            Examples:
+
+                "dynamics.machine"
+                "dynamics.governor"
+                "dynamics.avr"
+                "dynamics.pss"
+
+        plugin : object
+            Plugin/model instance.
+
+        replace : bool, optional
+            If False, attempting to replace an existing plugin
+            raises ValueError.
+
+        Notes
+        -----
+        The Generator does not inspect or execute the plugin.
+
+        Plugin lifecycle, validation, execution, and state
+        management belong to the appropriate plugin infrastructure
+        and higher-level simulation/control layers.
         """
 
-        omega = float(omega)
-
-        if not math.isfinite(omega):
-            raise ValueError(
-                "Initial rotor speed deviation omega "
-                "must be finite."
+        if not isinstance(key, str):
+            raise TypeError(
+                "Generator plugin key must be a string."
             )
 
-        Pm = (
-            self.Pref
-            - omega / self.R
-        )
+        key = key.strip()
 
-        return self.limit(Pm)
+        if not key:
+            raise ValueError(
+                "Generator plugin key cannot be empty."
+            )
 
-    # =========================================================
-    # RESET
-    # =========================================================
+        if plugin is None:
+            raise ValueError(
+                "Generator plugin cannot be None."
+            )
 
-    def reset(
+        if key in self._plugins and not replace:
+            raise ValueError(
+                f"Generator plugin '{key}' is already attached."
+            )
+
+        self._plugins[key] = plugin
+
+    def detach_plugin(
         self,
-        omega: float = 0.0,
-    ) -> float:
+        key: str,
+    ) -> Any | None:
         """
-        Return the initial governor state.
-
-        The dynamic solver should use this value when resetting
-        the dynamic simulation.
+        Detach a plugin from the Generator.
 
         Parameters
         ----------
-        omega:
-            Initial rotor speed deviation.
+        key : str
+            Plugin identifier.
 
         Returns
         -------
-        float
-            Initial mechanical-power state.
+        object or None
+            Previously attached plugin.
         """
 
-        return self.initial_state(
-            omega=omega,
+        if not isinstance(key, str):
+            raise TypeError(
+                "Generator plugin key must be a string."
+            )
+
+        return self._plugins.pop(
+            key.strip(),
+            None,
         )
 
-    # =========================================================
-    # PARAMETER MANAGEMENT
-    # =========================================================
-
-    def set_reference(
+    def get_plugin(
         self,
-        Pref: float,
-    ) -> None:
+        key: str,
+    ) -> Any | None:
         """
-        Update the mechanical-power reference.
+        Return an attached plugin by key.
+
+        Parameters
+        ----------
+        key : str
+            Plugin identifier.
+
+        Returns
+        -------
+        object or None
+            Attached plugin, if present.
         """
 
-        Pref = float(Pref)
-
-        if not math.isfinite(Pref):
-            raise ValueError(
-                "Governor reference Pref must be finite."
+        if not isinstance(key, str):
+            raise TypeError(
+                "Generator plugin key must be a string."
             )
 
-        self.Pref = Pref
+        return self._plugins.get(
+            key.strip()
+        )
 
-    def set_droop(
+    def has_plugin(
         self,
-        R: float,
-    ) -> None:
+        key: str,
+    ) -> bool:
         """
-        Update the governor speed-droop coefficient.
-        """
-
-        R = float(R)
-
-        if not math.isfinite(R):
-            raise ValueError(
-                "Governor droop coefficient R must be finite."
-            )
-
-        if R <= 0.0:
-            raise ValueError(
-                "Governor droop coefficient R "
-                "must be greater than zero."
-            )
-
-        self.R = R
-
-    def set_time_constant(
-        self,
-        Tg: float,
-    ) -> None:
-        """
-        Update the governor time constant.
+        Return True when a plugin with the specified key exists.
         """
 
-        Tg = float(Tg)
-
-        if not math.isfinite(Tg):
-            raise ValueError(
-                "Governor time constant Tg must be finite."
+        if not isinstance(key, str):
+            raise TypeError(
+                "Generator plugin key must be a string."
             )
 
-        if Tg <= 0.0:
-            raise ValueError(
-                "Governor time constant Tg "
-                "must be greater than zero."
-            )
+        return key.strip() in self._plugins
 
-        self.Tg = Tg
-
-    def set_limits(
-        self,
-        Pm_min: float,
-        Pm_max: float,
-    ) -> None:
+    def plugin_keys(self) -> tuple[str, ...]:
         """
-        Update mechanical-power limits.
+        Return the registered plugin keys.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Immutable tuple of plugin identifiers.
         """
 
-        Pm_min = float(Pm_min)
-        Pm_max = float(Pm_max)
+        return tuple(
+            self._plugins.keys()
+        )
 
-        if not math.isfinite(Pm_min):
-            raise ValueError(
-                "Governor Pm_min must be finite."
-            )
+    def plugins(self) -> dict[str, Any]:
+        """
+        Return a shallow copy of the plugin registry.
 
-        if not math.isfinite(Pm_max):
-            raise ValueError(
-                "Governor Pm_max must be finite."
-            )
+        Returns
+        -------
+        dict[str, object]
+            Mapping of plugin identifiers to plugin references.
 
-        if Pm_min > Pm_max:
-            raise ValueError(
-                "Pm_min must not be greater than Pm_max."
-            )
+        Notes
+        -----
+        A copy is returned so callers cannot directly replace the
+        Generator's internal registry.
+        """
 
-        self.Pm_min = Pm_min
-        self.Pm_max = Pm_max
+        return dict(self._plugins)
 
-    # =========================================================
+    def clear_plugins(self) -> None:
+        """
+        Detach all plugins from the Generator.
+
+        Notes
+        -----
+        This only removes references from the Generator.
+
+        It does not destroy plugin objects or modify any external
+        solver state.
+        """
+
+        self._plugins.clear()
+
+    # =================================================================
     # DIAGNOSTICS
-    # =========================================================
+    # =================================================================
 
     def summary(self) -> dict:
         """
-        Return governor configuration information.
+        Return structured generator diagnostic information.
+
+        Plugin presence is reported by identifier without exposing
+        plugin implementation details or dynamic solver state.
         """
 
         return {
-            "type": "Governor",
-            "model": "FIRST_ORDER",
-            "Pref": self.Pref,
-            "R": self.R,
-            "Tg": self.Tg,
-            "Pm_min": self.Pm_min,
-            "Pm_max": self.Pm_max,
+            "id": self.id,
+            "name": self.name,
+            "type": "generator",
+            "bus": self.bus.id,
+            "P": self.p,
+            "Q": self.q,
+            "V_setpoint": self.V_setpoint,
+            "Qmin": self.q_min,
+            "Qmax": self.q_max,
+            "Q_status": self.q_limit_status(),
+            "plugins": tuple(
+                self._plugins.keys()
+            ),
         }
 
-    # =========================================================
-    # DEBUG
-    # =========================================================
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
 
     def __repr__(self) -> str:
         """
-        Developer-friendly representation.
+        Return a concise developer-facing representation.
         """
 
         return (
-            f"<Governor "
-            f"Pref={self.Pref:.4f}, "
-            f"R={self.R:.6f}, "
-            f"Tg={self.Tg:.6f}, "
-            f"limits=("
-            f"{self.Pm_min:.4f}, "
-            f"{self.Pm_max:.4f})>"
+            f"<Generator "
+            f"id={self.id}, "
+            f"bus={self.bus.id}, "
+            f"P={self.p:.6f}, "
+            f"Q={self.q:.6f}, "
+            f"Vset={self.V_setpoint:.6f}, "
+            f"Qmin={self.q_min:.6f}, "
+            f"Qmax={self.q_max:.6f}, "
+            f"plugins={len(self._plugins)}>"
         )
 ```
