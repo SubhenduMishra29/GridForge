@@ -1,79 +1,78 @@
 ```python
 """
-GridForge Relay Base Class
-==========================
+GridForge Protection Relay Base
+===============================
 
-Common interface for all protection relays.
+File:
+    core/protection/relay_base.py
 
-Derived classes may include:
+Purpose
+-------
+Common interface for protection algorithms operating on the
+authoritative GridForge Relay model.
 
-    OvercurrentRelay
-    DistanceRelay
-    DirectionalRelay
-    DifferentialRelay
+The electrical Relay device model is defined in:
 
-Responsibilities
-----------------
-RelayBase provides the common protection-relay contract:
+    core/model/relay.py
 
-    - relay identification
-    - measured electrical quantities
-    - pickup state
-    - trip state
-    - measurement input
-    - pickup interface
-    - trip state transition
-    - reset
-    - status reporting
+This module MUST NOT create a second authoritative relay state.
 
 Architecture
 ------------
 
-    Measurement Source
+    core/model/relay.py
             |
+            | authoritative Relay object
             v
-       RelayBase
+    core/protection/relay_base.py
             |
-            v
-      Relay-specific
-      protection logic
-            |
-            v
-       Trip Decision
+            +-- Overcurrent protection
+            +-- Directional protection
+            +-- Distance protection
+            +-- Differential protection
             |
             v
     ProtectionSystem
             |
             v
-      BreakerManager
+    BreakerManager
 
-RelayBase MUST NOT:
+Responsibilities
+----------------
+RelayBase provides:
 
-    - calculate network electrical quantities
+    - access to the model Relay
+    - relay identification
+    - protection measurement access
+    - protection pickup interface
+    - protection trip decision
+    - reset interface
+    - status reporting
+
+The model Relay remains authoritative for:
+
+    - relay identity
+    - relay type
+    - pickup setting
+    - time delay
+    - measured current
+    - measured voltage
+    - measured impedance
+    - in-service state
+    - trip state
+
+RelayBase does NOT:
+
+    - duplicate relay state
+    - calculate system-wide fault quantities
     - build Ybus
-    - solve power flow
-    - calculate fault current
-    - operate breakers directly
-    - modify authoritative Network topology
-
-Measurement Contract
---------------------
-
-Voltage:
-    volts (V)
-
-Current:
-    amperes (A)
-
-Angle:
-    degrees (deg)
-
-The relay base class stores measured values only.
-It does not derive or calculate them.
+    - perform load flow
+    - perform short-circuit studies
+    - coordinate multiple relays
+    - operate circuit breakers
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
-Proprietary and confidential.
 """
 
 from __future__ import annotations
@@ -84,95 +83,211 @@ from typing import Any, Dict
 
 class RelayBase(ABC):
     """
-    Abstract base class for all GridForge protection relays.
+    Abstract base class for GridForge protection algorithms.
 
     Parameters
     ----------
-    relay_id:
-        Unique identifier of the relay.
+    relay:
+        Authoritative Relay object from core.model.relay.
 
     Notes
     -----
-    RelayBase contains protection state and the latest supplied
-    measurements. It does not own network state and does not
-    perform electrical-system calculations.
+    The supplied Relay object is the single source of truth for
+    relay state and measurements.
+
+    Protection subclasses should implement protection-specific
+    pickup logic without creating duplicate relay state.
     """
 
     # =============================================================
     # INITIALIZATION
     # =============================================================
 
-    def __init__(self, relay_id: Any) -> None:
-        if relay_id is None:
+    def __init__(self, relay: Any) -> None:
+        if relay is None:
             raise ValueError(
-                "relay_id cannot be None."
+                "relay cannot be None."
             )
 
-        self.id = relay_id
-
-        # ---------------------------------------------------------
-        # Relay state
-        # ---------------------------------------------------------
-
-        self.picked_up: bool = False
-        self.tripped: bool = False
-
-        # ---------------------------------------------------------
-        # Measured electrical quantities
-        #
-        # Voltage : volts
-        # Current : amperes
-        # Angle   : degrees
-        # ---------------------------------------------------------
-
-        self.voltage: float = 0.0
-        self.current: float = 0.0
-        self.angle: float = 0.0
+        self.relay = relay
 
     # =============================================================
-    # MEASUREMENT INPUT
+    # RELAY IDENTITY
     # =============================================================
+
+    @property
+    def id(self) -> Any:
+        """
+        Return the authoritative relay identifier.
+        """
+
+        return self.relay.id
+
+    @property
+    def relay_type(self) -> str:
+        """
+        Return the authoritative relay type.
+        """
+
+        return self.relay.type
+
+    # =============================================================
+    # MEASUREMENTS
+    # =============================================================
+
+    @property
+    def current(self) -> float:
+        """
+        Return the latest relay current measurement.
+        """
+
+        return self.relay.current
+
+    @property
+    def voltage(self) -> float:
+        """
+        Return the latest relay voltage measurement.
+        """
+
+        return self.relay.voltage
+
+    @property
+    def impedance(self) -> complex:
+        """
+        Return the latest relay impedance measurement.
+        """
+
+        return self.relay.impedance
 
     def measure(
         self,
-        voltage: float,
-        current: float,
-        angle: float = 0.0,
+        current: float = 0.0,
+        voltage: float = 1.0,
+        impedance: complex = 0.0,
     ) -> None:
         """
-        Update relay measurements.
+        Update the authoritative Relay measurement state.
 
         Parameters
         ----------
-        voltage:
-            Measured voltage in volts (V).
-
         current:
-            Measured current in amperes (A).
+            Measured current.
 
-        angle:
-            Measured electrical angle in degrees (deg).
+        voltage:
+            Measured voltage magnitude.
+
+        impedance:
+            Measured apparent impedance.
 
         Notes
         -----
-        This method accepts measurements supplied by an external
-        measurement/analysis/simulation layer.
-
-        It does not calculate the electrical quantities itself.
+        The actual measurement storage remains in
+        core/model/relay.py.
         """
 
-        try:
-            voltage_value = float(voltage)
-            current_value = float(current)
-            angle_value = float(angle)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "Relay measurements must be numeric."
-            ) from exc
+        self.relay.measure(
+            current=current,
+            voltage=voltage,
+            impedance=impedance,
+        )
 
-        self.voltage = voltage_value
-        self.current = current_value
-        self.angle = angle_value
+    # =============================================================
+    # RELAY SETTINGS
+    # =============================================================
+
+    @property
+    def pickup(self) -> float:
+        """
+        Return the authoritative relay pickup setting.
+        """
+
+        return self.relay.pickup
+
+    @pickup.setter
+    def pickup(self, value: float) -> None:
+        """
+        Update the authoritative relay pickup setting.
+        """
+
+        self.relay.set_pickup(value)
+
+    @property
+    def time_delay(self) -> float:
+        """
+        Return the authoritative relay time delay.
+        """
+
+        return self.relay.time_delay
+
+    @time_delay.setter
+    def time_delay(self, value: float) -> None:
+        """
+        Update the authoritative relay time delay.
+        """
+
+        self.relay.set_time_delay(value)
+
+    # =============================================================
+    # SERVICE STATE
+    # =============================================================
+
+    @property
+    def in_service(self) -> bool:
+        """
+        Return whether the relay is in service.
+        """
+
+        return self.relay.in_service
+
+    # =============================================================
+    # TRIP STATE
+    # =============================================================
+
+    @property
+    def tripped(self) -> bool:
+        """
+        Return the authoritative relay trip state.
+        """
+
+        return self.relay.trip
+
+    def trip(self) -> bool:
+        """
+        Issue a relay trip decision.
+
+        Returns
+        -------
+        bool
+            True when the relay is now tripped.
+
+        Notes
+        -----
+        This changes the Relay model's trip state.
+
+        It does NOT operate a circuit breaker.
+
+        Breaker operation belongs to ProtectionSystem /
+        BreakerManager.
+        """
+
+        if not self.relay.in_service:
+            self.relay.set_trip(False)
+            return False
+
+        self.relay.set_trip(True)
+
+        return self.relay.trip
+
+    # =============================================================
+    # RESET
+    # =============================================================
+
+    def reset(self) -> None:
+        """
+        Reset the authoritative relay model.
+        """
+
+        self.relay.reset()
 
     # =============================================================
     # PICKUP LOGIC
@@ -181,77 +296,59 @@ class RelayBase(ABC):
     @abstractmethod
     def check_pickup(self) -> bool:
         """
-        Evaluate relay-specific pickup logic.
-
-        Derived relay classes must implement this method.
+        Evaluate the protection-specific pickup condition.
 
         Returns
         -------
         bool
-            True when the relay pickup condition is satisfied.
+            True when the protection element should pick up.
 
         Notes
         -----
-        The derived relay is responsible for applying its own
-        protection characteristic.
+        Derived classes implement the actual protection algorithm.
 
-        Examples include:
-
-            - overcurrent pickup
-            - directional pickup
-            - distance-zone pickup
-            - differential pickup
-
-        This method must not operate a breaker.
+        The method must use the authoritative Relay measurements
+        and settings rather than maintaining duplicate copies.
         """
 
         raise NotImplementedError
 
     # =============================================================
-    # TRIP LOGIC
+    # EVALUATION
     # =============================================================
 
-    def trip(self) -> bool:
+    def evaluate(self) -> bool:
         """
-        Set the relay trip state when the relay has picked up.
+        Evaluate the protection element.
 
         Returns
         -------
         bool
-            Current trip state.
+            True when the protection element picks up.
 
         Notes
         -----
-        This method represents the relay's trip decision/state.
+        Pickup logic belongs to the protection subclass.
 
-        It does NOT operate a physical breaker.
-
-        Breaker operation belongs to the protection-system /
-        breaker-management layer.
+        The model Relay's generic evaluate() method is deliberately
+        not called here because detailed protection algorithms
+        belong in core/protection.
         """
 
-        if self.picked_up:
-            self.tripped = True
+        if not self.relay.in_service:
+            self.relay.set_trip(False)
+            return False
 
-        return self.tripped
+        picked_up = bool(
+            self.check_pickup()
+        )
 
-    # =============================================================
-    # RESET
-    # =============================================================
+        if picked_up:
+            self.trip()
+        else:
+            self.relay.set_trip(False)
 
-    def reset(self) -> None:
-        """
-        Reset relay operating state and measurements.
-
-        The relay returns to its initial state.
-        """
-
-        self.picked_up = False
-        self.tripped = False
-
-        self.voltage = 0.0
-        self.current = 0.0
-        self.angle = 0.0
+        return picked_up
 
     # =============================================================
     # STATUS
@@ -259,21 +356,20 @@ class RelayBase(ABC):
 
     def status(self) -> Dict[str, Any]:
         """
-        Return the current relay status.
-
-        Returns
-        -------
-        dict
-            Diagnostic relay state and latest measurements.
+        Return protection status using the authoritative Relay model.
         """
 
         return {
-            "id": self.id,
-            "pickup": self.picked_up,
-            "trip": self.tripped,
-            "voltage": self.voltage,
-            "current": self.current,
-            "angle": self.angle,
+            "id": self.relay.id,
+            "name": self.relay.name,
+            "type": self.relay.type,
+            "pickup": self.relay.pickup,
+            "time_delay": self.relay.time_delay,
+            "current": self.relay.current,
+            "voltage": self.relay.voltage,
+            "impedance": self.relay.impedance,
+            "in_service": self.relay.in_service,
+            "trip": self.relay.trip,
         }
 
 
