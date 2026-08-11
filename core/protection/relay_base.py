@@ -15,7 +15,7 @@ The electrical Relay device model is defined in:
 
     core/model/relay.py
 
-This module MUST NOT create a second authoritative relay state.
+This module does NOT create a second authoritative relay state.
 
 Architecture
 ------------
@@ -43,9 +43,10 @@ RelayBase provides:
 
     - access to the model Relay
     - relay identification
-    - protection measurement access
+    - measurement access
+    - relay setting access
     - protection pickup interface
-    - protection trip decision
+    - trip-state interface
     - reset interface
     - status reporting
 
@@ -78,7 +79,7 @@ All Rights Reserved.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any
 
 
 class RelayBase(ABC):
@@ -92,18 +93,19 @@ class RelayBase(ABC):
 
     Notes
     -----
-    The supplied Relay object is the single source of truth for
-    relay state and measurements.
-
-    Protection subclasses should implement protection-specific
-    pickup logic without creating duplicate relay state.
+    The supplied Relay object is the single source of truth
+    for relay state, measurements, and settings.
     """
 
-    # =============================================================
+    # =========================================================
     # INITIALIZATION
-    # =============================================================
+    # =========================================================
 
-    def __init__(self, relay: Any) -> None:
+    def __init__(
+        self,
+        relay: Any,
+    ) -> None:
+
         if relay is None:
             raise ValueError(
                 "relay cannot be None."
@@ -111,9 +113,9 @@ class RelayBase(ABC):
 
         self.relay = relay
 
-    # =============================================================
+    # =========================================================
     # RELAY IDENTITY
-    # =============================================================
+    # =========================================================
 
     @property
     def id(self) -> Any:
@@ -131,14 +133,14 @@ class RelayBase(ABC):
 
         return self.relay.type
 
-    # =============================================================
+    # =========================================================
     # MEASUREMENTS
-    # =============================================================
+    # =========================================================
 
     @property
     def current(self) -> float:
         """
-        Return the latest relay current measurement.
+        Return the authoritative current measurement.
         """
 
         return self.relay.current
@@ -146,7 +148,7 @@ class RelayBase(ABC):
     @property
     def voltage(self) -> float:
         """
-        Return the latest relay voltage measurement.
+        Return the authoritative voltage measurement.
         """
 
         return self.relay.voltage
@@ -154,7 +156,7 @@ class RelayBase(ABC):
     @property
     def impedance(self) -> complex:
         """
-        Return the latest relay impedance measurement.
+        Return the authoritative impedance measurement.
         """
 
         return self.relay.impedance
@@ -168,21 +170,7 @@ class RelayBase(ABC):
         """
         Update the authoritative Relay measurement state.
 
-        Parameters
-        ----------
-        current:
-            Measured current.
-
-        voltage:
-            Measured voltage magnitude.
-
-        impedance:
-            Measured apparent impedance.
-
-        Notes
-        -----
-        The actual measurement storage remains in
-        core/model/relay.py.
+        Storage remains exclusively in core/model/relay.py.
         """
 
         self.relay.measure(
@@ -191,25 +179,30 @@ class RelayBase(ABC):
             impedance=impedance,
         )
 
-    # =============================================================
+    # =========================================================
     # RELAY SETTINGS
-    # =============================================================
+    # =========================================================
 
     @property
     def pickup(self) -> float:
         """
-        Return the authoritative relay pickup setting.
+        Return the authoritative pickup setting.
         """
 
         return self.relay.pickup
 
     @pickup.setter
-    def pickup(self, value: float) -> None:
+    def pickup(
+        self,
+        value: float,
+    ) -> None:
         """
-        Update the authoritative relay pickup setting.
+        Update the authoritative pickup setting.
         """
 
-        self.relay.set_pickup(value)
+        self.relay.set_pickup(
+            value
+        )
 
     @property
     def time_delay(self) -> float:
@@ -220,16 +213,21 @@ class RelayBase(ABC):
         return self.relay.time_delay
 
     @time_delay.setter
-    def time_delay(self, value: float) -> None:
+    def time_delay(
+        self,
+        value: float,
+    ) -> None:
         """
         Update the authoritative relay time delay.
         """
 
-        self.relay.set_time_delay(value)
+        self.relay.set_time_delay(
+            value
+        )
 
-    # =============================================================
+    # =========================================================
     # SERVICE STATE
-    # =============================================================
+    # =========================================================
 
     @property
     def in_service(self) -> bool:
@@ -239,9 +237,9 @@ class RelayBase(ABC):
 
         return self.relay.in_service
 
-    # =============================================================
+    # =========================================================
     # TRIP STATE
-    # =============================================================
+    # =========================================================
 
     @property
     def tripped(self) -> bool:
@@ -253,45 +251,48 @@ class RelayBase(ABC):
 
     def trip(self) -> bool:
         """
-        Issue a relay trip decision.
+        Set the authoritative relay trip state.
 
-        Returns
-        -------
-        bool
-            True when the relay is now tripped.
+        This method does NOT operate a circuit breaker.
 
-        Notes
-        -----
-        This changes the Relay model's trip state.
+        Breaker operation belongs to:
 
-        It does NOT operate a circuit breaker.
-
-        Breaker operation belongs to ProtectionSystem /
-        BreakerManager.
+            ProtectionSystem
+                |
+                v
+            BreakerManager
         """
 
         if not self.relay.in_service:
-            self.relay.set_trip(False)
+            self.relay.set_trip(
+                False
+            )
+
             return False
 
-        self.relay.set_trip(True)
+        self.relay.set_trip(
+            True
+        )
 
         return self.relay.trip
 
-    # =============================================================
+    # =========================================================
     # RESET
-    # =============================================================
+    # =========================================================
 
     def reset(self) -> None:
         """
-        Reset the authoritative relay model.
+        Reset the authoritative Relay model.
+
+        Protection-specific transient state must also be reset
+        by subclasses when required.
         """
 
         self.relay.reset()
 
-    # =============================================================
+    # =========================================================
     # PICKUP LOGIC
-    # =============================================================
+    # =========================================================
 
     @abstractmethod
     def check_pickup(self) -> bool:
@@ -301,62 +302,72 @@ class RelayBase(ABC):
         Returns
         -------
         bool
-            True when the protection element should pick up.
-
-        Notes
-        -----
-        Derived classes implement the actual protection algorithm.
-
-        The method must use the authoritative Relay measurements
-        and settings rather than maintaining duplicate copies.
-        """
-
-        raise NotImplementedError
-
-    # =============================================================
-    # EVALUATION
-    # =============================================================
-
-    def evaluate(self) -> bool:
-        """
-        Evaluate the protection element.
-
-        Returns
-        -------
-        bool
             True when the protection element picks up.
 
         Notes
         -----
-        Pickup logic belongs to the protection subclass.
+        Implementations must use the authoritative Relay model
+        rather than maintaining duplicate measurement or state
+        variables.
+        """
 
-        The model Relay's generic evaluate() method is deliberately
-        not called here because detailed protection algorithms
-        belong in core/protection.
+        raise NotImplementedError
+
+    # =========================================================
+    # GENERIC EVALUATION
+    # =========================================================
+
+    def evaluate(self) -> bool:
+        """
+        Evaluate the protection pickup condition.
+
+        Returns
+        -------
+        bool
+            True when the protection element operates.
+
+        Notes
+        -----
+        This base implementation represents an instantaneous
+        protection decision.
+
+        Time grading, TCC behaviour, breaker operating time,
+        and event scheduling belong to the appropriate higher
+        protection/simulation layers.
+
+        Protection subclasses may override this method when
+        their operating criterion requires additional inputs,
+        such as directional phase angles or distance zones.
         """
 
         if not self.relay.in_service:
-            self.relay.set_trip(False)
+            self.relay.set_trip(
+                False
+            )
+
             return False
 
-        picked_up = bool(
+        operates = bool(
             self.check_pickup()
         )
 
-        if picked_up:
+        if operates:
             self.trip()
         else:
-            self.relay.set_trip(False)
+            self.relay.set_trip(
+                False
+            )
 
-        return picked_up
+        return operates
 
-    # =============================================================
+    # =========================================================
     # STATUS
-    # =============================================================
+    # =========================================================
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """
-        Return protection status using the authoritative Relay model.
+        Return protection status using the authoritative
+        Relay model.
         """
 
         return {
