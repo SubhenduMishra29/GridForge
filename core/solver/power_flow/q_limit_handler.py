@@ -1,41 +1,42 @@
 ```python
 """
-GridForge Newton-Raphson Power Flow Engine
-==========================================
+GridForge Reactive Power Limit Handler
+======================================
 
 File:
-    core/solver/power_flow/nr_solver.py
+    core/solver/power_flow/q_limit_handler.py
 
-Industrial AC Power Flow Solver
+Industrial PV/PQ Reactive Power Limit Handler
 
 Responsibilities
 ----------------
-- Newton-Raphson iteration
-- Jacobian construction
-- Linear-system solution
-- Voltage state update
-- Convergence monitoring
-- PV/PQ reactive-limit handling
+- Detect reactive-power limit violations on PV buses.
+- Convert violating PV buses to PQ buses.
+- Clamp the specified reactive power to Qmin/Qmax.
+- Preserve deterministic PV -> PQ state transitions.
+- Provide diagnostics describing converted buses.
 
-This module is the orchestration layer of the numerical
-power-flow solver.
+This module is part of the Power Flow numerical orchestration
+layer.
 
 It does NOT:
-- Build Ybus
-- Calculate power injections directly
-- Assemble the Jacobian directly
-- Perform linear algebra directly
-- Modify network topology
-- Perform contingency analysis
-- Perform short-circuit analysis
-- Perform protection decisions
+- Perform Newton-Raphson iteration.
+- Build Ybus.
+- Calculate Ybus.
+- Assemble the Jacobian.
+- Solve linear systems.
+- Modify network topology.
+- Perform contingency analysis.
+- Perform short-circuit analysis.
+- Perform protection decisions.
 
-Numerical responsibilities are delegated to:
+The actual AC power calculation is delegated to the shared
+reference numerical component:
 
-    core.solver.common.mismatch
-    core.solver.common.jacobian
-    core.solver.power_flow.sparse_solver
-    core.solver.power_flow.q_limit_handler
+    core.solver.common.mismatch.PowerMismatch
+
+Bus classification remains owned by the unified GridForge
+Bus model.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -46,669 +47,702 @@ from __future__ import annotations
 import numpy as np
 
 from core.solver.common.mismatch import PowerMismatch
-from core.solver.common.jacobian import JacobianBuilder
-
-from core.solver.power_flow.sparse_solver import (
-    SparseLinearSolver
-)
-
-from core.solver.power_flow.q_limit_handler import (
-    QLimitHandler
-)
 
 
-class NewtonRaphsonSolver:
+class QLimitHandler:
     """
-    Newton-Raphson AC power-flow solver.
+    Handle generator reactive-power limits during AC
+    Newton-Raphson power-flow calculations.
 
     Parameters
     ----------
     network:
-        GridForge Network object.
+        GridForge Network object containing the ordered
+        collection of Bus objects.
 
-    options:
-        SolverOptions instance.
+    tolerance:
+        Numerical tolerance used when comparing calculated
+        reactive power against Qmin/Qmax.
 
     Notes
     -----
-    The Network must already contain a valid Ybus before
-    ``solve()`` is called.
+    Only PV buses are considered for conversion.
 
-    The solver updates the voltage state stored in the Bus
-    objects. This is intentional because the rest of the
-    GridForge numerical infrastructure operates on the
-    unified electrical model.
+    A bus already classified as PQ is never converted again.
+
+    The handler performs the following state transition:
+
+        PV
+         |
+         | Q > Qmax
+         | Q < Qmin
+         v
+        PQ
+
+    When a limit is violated, the specified reactive power
+    is clamped to the violated limit.
+
+    Example:
+
+        Q > Qmax
+
+        bus.Q_spec = bus.Q_max
+        bus -> PQ
+
+    or:
+
+        Q < Qmin
+
+        bus.Q_spec = bus.Q_min
+        bus -> PQ
+
+    The solver then rebuilds its mismatch/Jacobian structure
+    on the next Newton-Raphson iteration.
     """
 
-    def __init__(self, network, options):
-
-        if network is None:
-            raise ValueError(
-                "Network cannot be None"
-            )
-
-        if options is None:
-            raise ValueError(
-                "Solver options cannot be None"
-            )
-
-        self.network = network
-        self.options = options
-
-        # -----------------------------------------------------
-        # Linear algebra layer
-        #
-        # Regularization belongs to the numerical options and
-        # must therefore be passed explicitly to the linear
-        # solver.
-        # -----------------------------------------------------
-
-        self.linear_solver = SparseLinearSolver(
-            regularization=options.regularization
-        )
-
-        # -----------------------------------------------------
-        # Reactive power limit handler
-        # -----------------------------------------------------
-
-        self.q_handler = QLimitHandler(
-            network,
-            tolerance=options.q_limit_tolerance
-        )
-
-        # -----------------------------------------------------
-        # Iteration diagnostics
-        # -----------------------------------------------------
-
-        self.history = []
-
     # =========================================================
-    # MAIN SOLVER
+    # INITIALIZATION
     # =========================================================
 
-    def solve(self):
+    def __init__(
+        self,
+        network,
+        tolerance: float = 1.0e-8,
+    ):
         """
-        Execute the Newton-Raphson power-flow solution.
+        Initialize the reactive-power limit handler.
 
-        Returns
-        -------
-        dict
-            Solver result containing:
+        Parameters
+        ----------
+        network:
+            GridForge Network object.
 
-                success
-                iterations
-                error
-                pv_to_pq
-                history
-                message
-                voltages
+        tolerance:
+            Non-negative numerical tolerance for Q-limit
+            comparisons.
 
         Raises
         ------
         ValueError
-            If the network or Ybus is invalid.
+            If the network is invalid or tolerance is invalid.
+
+        TypeError
+            If tolerance has an invalid type.
         """
 
-        # -----------------------------------------------------
-        # Validate numerical options
-        # -----------------------------------------------------
-
-        self.options.validate()
-
-        # -----------------------------------------------------
-        # Reset diagnostic history.
-        #
-        # A solver object may legitimately be reused for
-        # multiple power-flow studies.
-        # -----------------------------------------------------
-
-        self.history = []
-
-        # -----------------------------------------------------
-        # Validate network
-        # -----------------------------------------------------
+        if network is None:
+            raise ValueError(
+                "Network cannot be None."
+            )
 
         if not hasattr(
-            self.network,
-            "buses"
+            network,
+            "buses",
         ):
-
             raise ValueError(
-                "Network must provide a 'buses' collection"
+                "Network must provide a 'buses' collection."
             )
 
-        if len(
-            self.network.buses
-        ) == 0:
-
-            raise ValueError(
-                "Network contains no buses"
+        if isinstance(
+            tolerance,
+            bool,
+        ) or not isinstance(
+            tolerance,
+            (int, float),
+        ):
+            raise TypeError(
+                "tolerance must be a real number."
             )
+
+        tolerance = float(
+            tolerance
+        )
+
+        if not np.isfinite(
+            tolerance
+        ):
+            raise ValueError(
+                "tolerance must be finite."
+            )
+
+        if tolerance < 0.0:
+            raise ValueError(
+                "tolerance cannot be negative."
+            )
+
+        self.network = network
+        self.tolerance = tolerance
+
+        self.buses = network.buses
 
         # -----------------------------------------------------
-        # Ybus must already exist.
+        # Record of buses converted during the current solver
+        # lifecycle.
         #
-        # Ybus construction belongs to the Network/Core layer,
-        # not to the Newton-Raphson solver.
+        # This is diagnostic information only.
         # -----------------------------------------------------
+
+        self.converted = []
+
+    # =========================================================
+    # VALIDATION
+    # =========================================================
+
+    def _validate_bus_interface(
+        self,
+        bus,
+    ) -> None:
+        """
+        Validate the minimum Bus interface required by the
+        Q-limit handler.
+
+        The unified Bus model is expected to provide:
+
+            bus.Q_spec
+            bus.is_pv()
+
+        and reactive limits:
+
+            bus.Q_min
+            bus.Q_max
+
+        Raises
+        ------
+        ValueError
+            If required information is unavailable.
+        """
+
+        if not hasattr(
+            bus,
+            "Q_spec",
+        ):
+            raise ValueError(
+                "Bus must provide 'Q_spec' "
+                "for reactive-power limit handling."
+            )
+
+        if not hasattr(
+            bus,
+            "is_pv",
+        ):
+            raise ValueError(
+                "Bus must provide an 'is_pv()' method."
+            )
+
+        if not callable(
+            bus.is_pv,
+        ):
+            raise ValueError(
+                "Bus 'is_pv' must be callable."
+            )
+
+        if not hasattr(
+            bus,
+            "Q_min",
+        ):
+            raise ValueError(
+                "PV bus must provide 'Q_min'."
+            )
+
+        if not hasattr(
+            bus,
+            "Q_max",
+        ):
+            raise ValueError(
+                "PV bus must provide 'Q_max'."
+            )
+
+    # =========================================================
+    # YBUS VALIDATION
+    # =========================================================
+
+    def _get_ybus(
+        self,
+    ):
+        """
+        Return the network Ybus.
+
+        Ybus ownership remains outside this module.
+
+        Returns
+        -------
+        matrix-like
+            Network Ybus matrix.
+
+        Raises
+        ------
+        ValueError
+            If Ybus is unavailable or has an invalid shape.
+        """
 
         Ybus = getattr(
             self.network,
             "Ybus",
-            None
+            None,
         )
 
         if Ybus is None:
-
             raise ValueError(
-                "Network Ybus has not been built"
+                "Network Ybus has not been built."
             )
-
-        # -----------------------------------------------------
-        # Validate Ybus dimensions.
-        # -----------------------------------------------------
-
-        n = len(
-            self.network.buses
-        )
 
         if not hasattr(
             Ybus,
-            "shape"
+            "shape",
         ):
-
             raise ValueError(
-                "Network Ybus must provide a matrix shape"
+                "Network Ybus must provide a matrix shape."
             )
+
+        n = len(
+            self.buses
+        )
 
         if Ybus.shape != (
             n,
-            n
+            n,
         ):
-
             raise ValueError(
-                "Ybus dimension does not match "
-                f"network bus count: "
-                f"expected {(n, n)}, "
-                f"received {Ybus.shape}"
+                "Ybus dimension does not match network bus "
+                f"count: expected {(n, n)}, "
+                f"received {Ybus.shape}."
             )
 
-        # -----------------------------------------------------
-        # Create reusable numerical components.
-        #
-        # They read the current Bus state each iteration.
-        # -----------------------------------------------------
+        return Ybus
+
+    # =========================================================
+    # POWER CALCULATION
+    # =========================================================
+
+    def _calculate_q(
+        self,
+    ):
+        """
+        Calculate current AC bus reactive-power injections.
+
+        The shared PowerMismatch reference implementation is
+        deliberately used so that Q-limit handling follows the
+        same electrical convention as the Newton-Raphson
+        mismatch and Jacobian.
+
+        Returns
+        -------
+        np.ndarray
+            Calculated Q injection for every bus.
+        """
+
+        Ybus = self._get_ybus()
 
         mismatch_engine = PowerMismatch(
             self.network,
-            Ybus
+            Ybus,
         )
 
-        jacobian_builder = JacobianBuilder(
-            self.network,
-            Ybus
-        )
+        _, Q = mismatch_engine.compute_power()
 
-        converted_pv = []
+        Q = np.asarray(
+            Q,
+            dtype=float,
+        ).reshape(-1)
 
-        last_error = np.inf
-
-        # =====================================================
-        # NEWTON-RAPHSON ITERATION
-        # =====================================================
-
-        for iteration in range(
-            self.options.max_iterations
+        if Q.size != len(
+            self.buses
         ):
-
-            # -------------------------------------------------
-            # 1. Calculate mismatch
-            # -------------------------------------------------
-
-            mismatch = mismatch_engine.compute()
-
-            # -------------------------------------------------
-            # Handle trivial/empty state vector.
-            # -------------------------------------------------
-
-            if mismatch.size == 0:
-
-                return self._result(
-                    success=True,
-                    iterations=iteration + 1,
-                    error=0.0,
-                    converted_pv=converted_pv,
-                    message="No independent power-flow states"
-                )
-
-            # -------------------------------------------------
-            # Maximum mismatch
-            # -------------------------------------------------
-
-            error = float(
-                np.max(
-                    np.abs(
-                        mismatch
-                    )
-                )
+            raise ValueError(
+                "Calculated reactive-power vector has "
+                "incorrect dimension."
             )
 
-            last_error = error
-
-            self.history.append(
-                error
+        if not np.all(
+            np.isfinite(Q)
+        ):
+            raise ValueError(
+                "Calculated reactive-power vector contains "
+                "NaN or infinite values."
             )
 
-            # -------------------------------------------------
-            # Optional diagnostics
-            # -------------------------------------------------
-
-            if self.options.verbose:
-
-                print(
-                    f"Iteration {iteration + 1}: "
-                    f"Mismatch={error:.6e}"
-                )
-
-            # -------------------------------------------------
-            # 2. Convergence test
-            # -------------------------------------------------
-
-            if error <= self.options.tolerance:
-
-                return self._result(
-                    success=True,
-                    iterations=iteration + 1,
-                    error=error,
-                    converted_pv=converted_pv,
-                    message="Converged"
-                )
-
-            # -------------------------------------------------
-            # 3. Reactive power limit enforcement
-            #
-            # The Q-limit handler is deliberately independent
-            # of the NR algorithm.
-            # -------------------------------------------------
-
-            if self.options.enforce_q_limits:
-
-                changed = (
-                    self.q_handler.check_limits()
-                )
-
-                if changed:
-
-                    converted_pv.extend(
-                        changed
-                    )
-
-                    # -----------------------------------------
-                    # Bus type has changed.
-                    #
-                    # Therefore the mismatch vector and
-                    # Jacobian dimensions may have changed.
-                    #
-                    # Restart the NR iteration using the new
-                    # bus classification.
-                    # -----------------------------------------
-
-                    continue
-
-            # -------------------------------------------------
-            # 4. Build Jacobian
-            # -------------------------------------------------
-
-            try:
-
-                J = jacobian_builder.build()
-
-            except Exception as error:
-
-                return self._result(
-                    success=False,
-                    iterations=iteration + 1,
-                    error=last_error,
-                    converted_pv=converted_pv,
-                    message=(
-                        "Jacobian construction failed: "
-                        f"{error}"
-                    )
-                )
-
-            # -------------------------------------------------
-            # 5. Solve:
-            #
-            #       J Δx = mismatch
-            # -------------------------------------------------
-
-            try:
-
-                dx = self.linear_solver.solve(
-                    J,
-                    mismatch
-                )
-
-            except Exception as error:
-
-                return self._result(
-                    success=False,
-                    iterations=iteration + 1,
-                    error=last_error,
-                    converted_pv=converted_pv,
-                    message=(
-                        "Linear system solution failed: "
-                        f"{error}"
-                    )
-                )
-
-            # -------------------------------------------------
-            # 6. Validate correction vector
-            # -------------------------------------------------
-
-            expected_size = mismatch.size
-
-            if dx.size != expected_size:
-
-                return self._result(
-                    success=False,
-                    iterations=iteration + 1,
-                    error=last_error,
-                    converted_pv=converted_pv,
-                    message=(
-                        "Newton-Raphson correction vector "
-                        "has incorrect dimension: "
-                        f"expected {expected_size}, "
-                        f"received {dx.size}"
-                    )
-                )
-
-            if not np.all(
-                np.isfinite(dx)
-            ):
-
-                return self._result(
-                    success=False,
-                    iterations=iteration + 1,
-                    error=last_error,
-                    converted_pv=converted_pv,
-                    message=(
-                        "Newton-Raphson correction contains "
-                        "NaN or infinite values"
-                    )
-                )
-
-            # -------------------------------------------------
-            # 7. Update voltage state
-            # -------------------------------------------------
-
-            try:
-
-                self._update_states(
-                    dx,
-                    jacobian_builder
-                )
-
-            except Exception as error:
-
-                return self._result(
-                    success=False,
-                    iterations=iteration + 1,
-                    error=last_error,
-                    converted_pv=converted_pv,
-                    message=(
-                        "Voltage state update failed: "
-                        f"{error}"
-                    )
-                )
-
-        # =====================================================
-        # MAXIMUM ITERATIONS REACHED
-        # =====================================================
-
-        return self._result(
-            success=False,
-            iterations=self.options.max_iterations,
-            error=last_error,
-            converted_pv=converted_pv,
-            message="Maximum iterations reached"
-        )
+        return Q
 
     # =========================================================
-    # STATE UPDATE
+    # LIMIT VALIDATION
     # =========================================================
 
-    def _update_states(
+    def _validate_limits(
         self,
-        dx,
-        jacobian_builder
+        bus,
     ):
         """
-        Apply Newton-Raphson correction to the Bus state.
+        Validate and return the reactive-power limits.
 
-        State vector ordering:
+        Returns
+        -------
+        tuple[float, float]
+            (Q_min, Q_max)
+        """
 
-            dx =
-                [
-                    Δθ_non_slack,
-                    ΔV_PQ
-                ]
+        try:
+            q_min = float(
+                bus.Q_min
+            )
 
-        The indexing is obtained directly from the
-        JacobianBuilder so that the solver cannot silently
-        diverge from the Jacobian/mismatch ordering.
+            q_max = float(
+                bus.Q_max
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise ValueError(
+                "Bus reactive-power limits must be "
+                "real numerical values."
+            ) from exc
+
+        if not np.isfinite(
+            q_min
+        ) or not np.isfinite(
+            q_max
+        ):
+            raise ValueError(
+                "Bus reactive-power limits must be finite."
+            )
+
+        if q_min > q_max:
+            raise ValueError(
+                "Bus Q_min cannot be greater than Q_max."
+            )
+
+        return q_min, q_max
+
+    # =========================================================
+    # BUS CONVERSION
+    # =========================================================
+
+    def _convert_to_pq(
+        self,
+        bus,
+        bus_index: int,
+        q_value: float,
+        q_limit: float,
+        limit_type: str,
+    ) -> dict:
+        """
+        Convert a PV bus to PQ and clamp its Q specification.
 
         Parameters
         ----------
-        dx:
-            Newton-Raphson correction vector.
+        bus:
+            Bus object.
 
-        jacobian_builder:
-            JacobianBuilder instance providing state indices.
-        """
+        bus_index:
+            Index in network.buses.
 
-        buses = self.network.buses
+        q_value:
+            Calculated reactive injection before conversion.
 
-        indices = (
-            jacobian_builder.state_indices()
-        )
+        q_limit:
+            Limit at which the bus is clamped.
 
-        angle_indices = indices[
-            "angle"
-        ]
-
-        voltage_indices = indices[
-            "voltage"
-        ]
-
-        expected_size = (
-            len(angle_indices)
-            +
-            len(voltage_indices)
-        )
-
-        if dx.size != expected_size:
-
-            raise ValueError(
-                "Correction vector size does not match "
-                "Jacobian state structure: "
-                f"expected {expected_size}, "
-                f"received {dx.size}"
-            )
-
-        # -----------------------------------------------------
-        # Angle correction
-        # -----------------------------------------------------
-
-        offset = 0
-
-        for local_index, bus_index in enumerate(
-            angle_indices
-        ):
-
-            buses[
-                bus_index
-            ].theta += (
-                self.options.damping
-                *
-                dx[
-                    offset + local_index
-                ]
-            )
-
-        # -----------------------------------------------------
-        # Voltage magnitude correction
-        # -----------------------------------------------------
-
-        voltage_offset = (
-            len(angle_indices)
-        )
-
-        for local_index, bus_index in enumerate(
-            voltage_indices
-        ):
-
-            buses[
-                bus_index
-            ].V += (
-                self.options.damping
-                *
-                dx[
-                    voltage_offset + local_index
-                ]
-            )
-
-    # =========================================================
-    # RESULT
-    # =========================================================
-
-    def _result(
-        self,
-        success,
-        iterations,
-        error,
-        converted_pv,
-        message=None
-    ):
-        """
-        Construct the standard GridForge power-flow result.
-        """
-
-        return {
-            "success": bool(
-                success
-            ),
-
-            "iterations": int(
-                iterations
-            ),
-
-            "error": float(
-                error
-            ),
-
-            "pv_to_pq": list(
-                converted_pv
-            ),
-
-            "history": list(
-                self.history
-            ),
-
-            "message": message,
-
-            "voltages": self._voltage_result()
-        }
-
-    # =========================================================
-    # VOLTAGE RESULT
-    # =========================================================
-
-    def _voltage_result(self):
-        """
-        Return the current network voltage state.
+        limit_type:
+            Either ``"Qmin"`` or ``"Qmax"``.
 
         Returns
         -------
         dict
-            Vm:
-                Voltage magnitudes in pu.
+            Conversion diagnostic record.
 
-            Va:
-                Voltage angles in radians.
+        Notes
+        -----
+        This method intentionally performs only the state
+        transition required by the power-flow formulation.
+
+        The solver remains responsible for continuing the
+        Newton-Raphson iteration after the classification
+        changes.
         """
 
-        return {
-            "Vm": np.asarray(
-                [
-                    bus.V
-                    for bus in self.network.buses
-                ],
-                dtype=float
-            ),
+        # -----------------------------------------------------
+        # Clamp specified reactive power.
+        # -----------------------------------------------------
 
-            "Va": np.asarray(
-                [
-                    bus.theta
-                    for bus in self.network.buses
-                ],
-                dtype=float
+        bus.Q_spec = float(
+            q_limit
+        )
+
+        # -----------------------------------------------------
+        # Change bus classification.
+        #
+        # The unified Bus model is expected to expose a
+        # conversion method.
+        # -----------------------------------------------------
+
+        if hasattr(
+            bus,
+            "set_pq",
+        ) and callable(
+            bus.set_pq,
+        ):
+
+            bus.set_pq()
+
+        elif hasattr(
+            bus,
+            "set_type",
+        ) and callable(
+            bus.set_type,
+        ):
+
+            bus.set_type(
+                "PQ"
             )
+
+        else:
+            raise ValueError(
+                "Bus must provide either 'set_pq()' or "
+                "'set_type()' to perform PV-to-PQ conversion."
+            )
+
+        # -----------------------------------------------------
+        # Verify the state transition.
+        # -----------------------------------------------------
+
+        if hasattr(
+            bus,
+            "is_pq",
+        ) and callable(
+            bus.is_pq,
+        ):
+
+            if not bus.is_pq():
+                raise RuntimeError(
+                    "Bus PV-to-PQ conversion failed."
+                )
+
+        record = {
+            "bus_index": int(
+                bus_index
+            ),
+            "q_calculated": float(
+                q_value
+            ),
+            "q_limit": float(
+                q_limit
+            ),
+            "limit": limit_type,
+            "from_type": "PV",
+            "to_type": "PQ",
         }
+
+        return record
+
+    # =========================================================
+    # CHECK LIMITS
+    # =========================================================
+
+    def check_limits(
+        self,
+    ) -> list:
+        """
+        Check reactive-power limits on all PV buses.
+
+        Returns
+        -------
+        list[dict]
+            List of buses converted from PV to PQ during this
+            call.
+
+            An empty list means no conversion occurred.
+
+        Notes
+        -----
+        The method calculates Q once for the current network
+        state and evaluates every PV bus against its limits.
+
+        At most one conversion occurs per bus during a single
+        call.
+
+        Once converted to PQ, a bus is no longer considered
+        by subsequent calls unless some higher-level mechanism
+        explicitly changes it back to PV.
+        """
+
+        if len(
+            self.buses
+        ) == 0:
+            return []
+
+        Q = self._calculate_q()
+
+        changed = []
+
+        for i, bus in enumerate(
+            self.buses
+        ):
+
+            # -------------------------------------------------
+            # Only PV buses are candidates.
+            # -------------------------------------------------
+
+            if not hasattr(
+                bus,
+                "is_pv",
+            ):
+                raise ValueError(
+                    "Bus must provide an 'is_pv()' method."
+                )
+
+            if not bus.is_pv():
+                continue
+
+            self._validate_bus_interface(
+                bus
+            )
+
+            q_min, q_max = self._validate_limits(
+                bus
+            )
+
+            q_calculated = float(
+                Q[i]
+            )
+
+            # -------------------------------------------------
+            # Upper reactive-power limit.
+            # -------------------------------------------------
+
+            if q_calculated > (
+                q_max
+                +
+                self.tolerance
+            ):
+
+                record = self._convert_to_pq(
+                    bus=bus,
+                    bus_index=i,
+                    q_value=q_calculated,
+                    q_limit=q_max,
+                    limit_type="Qmax",
+                )
+
+                changed.append(
+                    record
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # Lower reactive-power limit.
+            # -------------------------------------------------
+
+            if q_calculated < (
+                q_min
+                -
+                self.tolerance
+            ):
+
+                record = self._convert_to_pq(
+                    bus=bus,
+                    bus_index=i,
+                    q_value=q_calculated,
+                    q_limit=q_min,
+                    limit_type="Qmin",
+                )
+
+                changed.append(
+                    record
+                )
+
+        # -----------------------------------------------------
+        # Preserve conversion history.
+        # -----------------------------------------------------
+
+        self.converted.extend(
+            changed
+        )
+
+        return changed
+
+    # =========================================================
+    # RESET
+    # =========================================================
+
+    def reset_history(
+        self,
+    ) -> None:
+        """
+        Clear diagnostic conversion history.
+
+        This does NOT change bus states.
+        """
+
+        self.converted = []
 
     # =========================================================
     # DIAGNOSTICS
     # =========================================================
 
-    def summary(self):
+    def summary(
+        self,
+    ) -> dict:
         """
-        Return solver configuration and runtime information.
+        Return Q-limit handler diagnostics.
         """
 
+        pv_count = 0
+        pq_count = 0
+
+        for bus in self.buses:
+
+            if hasattr(
+                bus,
+                "is_pv",
+            ) and bus.is_pv():
+
+                pv_count += 1
+
+            elif hasattr(
+                bus,
+                "is_pq",
+            ) and bus.is_pq():
+
+                pq_count += 1
+
         return {
-            "solver": "Newton-Raphson",
+            "handler": "QLimitHandler",
             "buses": len(
-                self.network.buses
+                self.buses
             ),
-            "tolerance": self.options.tolerance,
-            "max_iterations": (
-                self.options.max_iterations
+            "pv_buses": pv_count,
+            "pq_buses": pq_count,
+            "tolerance": float(
+                self.tolerance
             ),
-            "damping": self.options.damping,
-            "regularization": (
-                self.options.regularization
+            "conversions": len(
+                self.converted
             ),
-            "enforce_q_limits": (
-                self.options.enforce_q_limits
-            ),
-            "q_limit_tolerance": (
-                self.options.q_limit_tolerance
-            ),
-            "iterations_completed": len(
-                self.history
-            ),
-            "last_mismatch": (
-                self.history[-1]
-                if self.history
-                else None
-            )
         }
 
     # =========================================================
     # REPRESENTATION
     # =========================================================
 
-    def __repr__(self):
+    def __repr__(
+        self,
+    ) -> str:
         """
         Developer-friendly representation.
         """
 
         return (
-            "NewtonRaphsonSolver("
-            f"buses={len(self.network.buses)}, "
-            f"tolerance={self.options.tolerance}, "
-            f"max_iterations="
-            f"{self.options.max_iterations}"
+            "QLimitHandler("
+            f"buses={len(self.buses)}, "
+            f"tolerance={self.tolerance}"
             ")"
         )
+
+
+__all__ = [
+    "QLimitHandler",
+]
 ```
