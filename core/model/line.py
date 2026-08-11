@@ -1,10 +1,11 @@
 ```python
+# core/model/line.py
+
 """
 GridForge Transmission Line Model
 =================================
 
-File:
-    core/model/line.py
+GridForge Model Layer V2
 
 Defines the GridForge transmission-line model.
 
@@ -20,21 +21,52 @@ Common Branch responsibilities:
     - In-service state
     - Common electrical interface
 
-Line-specific meaning:
+Line-specific representation:
     - Standard transmission-line π-equivalent
-    - Series R + jX
+    - Series resistance R
+    - Series reactance X
     - Total shunt susceptance B
 
+For a standard π-equivalent line:
+
+    Z_series = R + jX
+
+    Y_shunt,total = jB
+
+The numerical network/solver layer is responsible for applying:
+
+    jB / 2
+
+at each terminal when constructing the network admittance model.
+
 The Line model does NOT:
-    - Build Ybus.
+    - Build Y-bus.
+    - Stamp admittance matrices.
     - Calculate branch power flow.
     - Calculate losses.
     - Perform load flow.
     - Perform short-circuit calculations.
     - Perform contingency analysis.
+    - Perform protection calculations.
+    - Perform dynamic simulation.
     - Store GUI geometry.
 
-Numerical calculations belong to the network/solver/analysis layers.
+Numerical calculations belong to the appropriate
+network/solver/analysis layers.
+
+Units
+-----
+    r       : per-unit
+    x       : per-unit
+    b       : per-unit
+    rate    : MVA
+
+GridForge V2 Status
+-------------------
+This module is part of the frozen GridForge Model Layer V2 baseline.
+
+Changes require evidence of a genuinely fundamental model requirement
+that cannot be satisfied by the Branch base class or higher layers.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -45,50 +77,65 @@ from __future__ import annotations
 from .branch import Branch
 
 
+# =====================================================================
+# TRANSMISSION LINE
+# =====================================================================
+
 class Line(Branch):
     """
     GridForge transmission-line model.
 
-    The line uses the standard π-equivalent representation.
+    The Line uses the standard two-terminal π-equivalent
+    representation.
 
     Parameters
     ----------
-    id:
-        Unique line identifier.
+    id : str
+        Unique GridForge line identifier.
 
-    bus_from:
-        From-side Bus object.
+    bus_from :
+        From-side GridForge Bus.
 
-    bus_to:
-        To-side Bus object.
+    bus_to :
+        To-side GridForge Bus.
 
-    r:
+    r : float
         Series resistance in per-unit.
 
-    x:
+    x : float
         Series reactance in per-unit.
 
-    b:
-        Total shunt susceptance in per-unit.
+    b : float, optional
+        Total line shunt susceptance in per-unit.
 
-        The Ybus builder is responsible for applying:
+        The numerical Y-bus/network layer is responsible for applying
+        jB/2 at each end of the line.
 
-            jB / 2
-
-        at each end of the line.
-
-    name:
+    name : str, optional
         Human-readable line name.
 
-    rate_mva:
+    rate_mva : float, optional
         Thermal/equipment rating in MVA.
 
     Notes
     -----
-    ``Line`` deliberately does not calculate power flow itself.
+    ``Line`` inherits:
 
-    Power-flow calculations belong to the solver layer so that
-    all electrical elements use a consistent numerical convention.
+    - terminal connectivity
+    - impedance
+    - admittance
+    - shunt-admittance representation
+    - equipment rating
+    - in-service state
+    - common diagnostics
+
+    from ``Branch``.
+
+    A transmission line does not have a transformer tap or phase-shift
+    parameter. Therefore the inherited Branch values are fixed to:
+
+        tap = 1.0
+        shift = 0.0
     """
 
     def __init__(
@@ -103,7 +150,7 @@ class Line(Branch):
         rate_mva: float = 100.0,
     ):
         """
-        Initialize a transmission line.
+        Initialize a GridForge transmission line.
         """
 
         super().__init__(
@@ -119,19 +166,16 @@ class Line(Branch):
             shift=0.0,
         )
 
-    # =============================================================
+    # =================================================================
     # LINE-SPECIFIC PROPERTIES
-    # =============================================================
+    # =================================================================
 
     @property
     def r_pu(self) -> float:
         """
-        Compatibility alias for series resistance.
+        Return the line series resistance in per-unit.
 
-        Returns
-        -------
-        float
-            Series resistance in per-unit.
+        This is a compatibility alias for the inherited ``r`` field.
         """
 
         return self.r
@@ -139,12 +183,9 @@ class Line(Branch):
     @property
     def x_pu(self) -> float:
         """
-        Compatibility alias for series reactance.
+        Return the line series reactance in per-unit.
 
-        Returns
-        -------
-        float
-            Series reactance in per-unit.
+        This is a compatibility alias for the inherited ``x`` field.
         """
 
         return self.x
@@ -152,35 +193,35 @@ class Line(Branch):
     @property
     def b_pu(self) -> float:
         """
-        Compatibility alias for total shunt susceptance.
+        Return the total line shunt susceptance in per-unit.
 
-        Returns
-        -------
-        float
-            Total line shunt susceptance in per-unit.
+        This is a compatibility alias for the inherited ``b`` field.
+
+        The value represents the TOTAL line shunt susceptance, not the
+        susceptance of one terminal.
         """
 
         return self.b
 
-    # =============================================================
+    # =================================================================
     # LINE MODEL
-    # =============================================================
+    # =================================================================
 
     @property
     def is_pi_model(self) -> bool:
         """
-        Identify the line as a standard π-equivalent element.
+        Return True because the Line uses the standard π-equivalent.
         """
 
         return True
 
-    # =============================================================
-    # SUMMARY
-    # =============================================================
+    # =================================================================
+    # DIAGNOSTICS
+    # =================================================================
 
     def summary(self) -> dict:
         """
-        Return structured line information.
+        Return structured transmission-line information.
         """
 
         data = super().summary()
@@ -197,11 +238,15 @@ class Line(Branch):
 
         return data
 
-    # =============================================================
-    # DEBUG
-    # =============================================================
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
 
     def __repr__(self) -> str:
+        """
+        Return a concise developer-facing representation.
+        """
+
         return (
             f"<Line "
             f"id={self.id}, "
