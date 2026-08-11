@@ -8,11 +8,11 @@ File:
 
 Purpose
 -------
-IEC inverse-time overcurrent protection plugin.
+IEC inverse-time overcurrent protection algorithm.
 
 Implements IEC inverse-time characteristics:
 
-    - Normal / Standard Inverse
+    - Standard / Normal Inverse
     - Very Inverse
     - Extremely Inverse
 
@@ -50,17 +50,31 @@ Architecture
 
 Important
 ---------
-This class does not maintain an independent relay state.
+This class does NOT maintain an independent relay state.
 
 The following remain owned by the authoritative Relay model:
 
-    relay.current
+    relay.id
+    relay.type
     relay.pickup
-    relay.trip
+    relay.current
+    relay.voltage
+    relay.impedance
     relay.in_service
+    relay.trip
+    relay.time_delay
 
 Protection-specific settings such as IEC curve selection and TMS
 remain in this protection-layer class.
+
+The IEC operating-time calculation does not directly operate a
+circuit breaker. Breaker operation belongs to:
+
+    ProtectionSystem
+        ->
+    BreakerManager
+        ->
+    Breaker
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -77,42 +91,43 @@ from core.protection.relay_functions import iec_time
 
 class IECOvercurrentRelay(RelayBase):
     """
-    IEC inverse-time overcurrent relay algorithm.
+    IEC inverse-time overcurrent protection algorithm.
 
     Parameters
     ----------
     relay:
-        Authoritative Relay model from core.model.relay.
+        Authoritative Relay object from core.model.relay.
 
     curve:
-        IEC curve name.
+        IEC inverse-time characteristic.
 
         Supported values:
 
-            "SI"
-            "VI"
-            "EI"
+            SI
+            VI
+            EI
 
-        The following descriptive aliases are also accepted:
+        Descriptive aliases:
 
-            "NORMAL_INVERSE"
-            "VERY_INVERSE"
-            "EXTREMELY_INVERSE"
+            STANDARD_INVERSE
+            NORMAL_INVERSE
+            VERY_INVERSE
+            EXTREMELY_INVERSE
 
     TMS:
-        IEC Time Multiplier Setting.
+        Time Multiplier Setting.
 
     Notes
     -----
-    The pickup current is obtained directly from:
+    Pickup current is obtained from:
 
         relay.pickup
 
-    The measured current is obtained directly from:
+    Measured current is obtained from:
 
         relay.current
 
-    No duplicate relay state is maintained here.
+    No independent pickup/current/trip state is maintained here.
     """
 
     # =============================================================
@@ -157,21 +172,21 @@ class IECOvercurrentRelay(RelayBase):
             relay
         )
 
-        curve = str(
+        curve_name = str(
             curve
         ).upper()
 
-        if curve not in self.CURVE_ALIASES:
+        if curve_name not in self.CURVE_ALIASES:
             raise ValueError(
-                f"Unsupported IEC curve '{curve}'. "
+                f"Unsupported IEC curve '{curve_name}'. "
                 "Supported curves: "
                 "SI, VI, EI, "
-                "NORMAL_INVERSE, VERY_INVERSE, "
-                "EXTREMELY_INVERSE."
+                "STANDARD_INVERSE, NORMAL_INVERSE, "
+                "VERY_INVERSE, EXTREMELY_INVERSE."
             )
 
         self.curve = (
-            self.CURVE_ALIASES[curve]
+            self.CURVE_ALIASES[curve_name]
         )
 
         self.TMS = float(
@@ -191,15 +206,12 @@ class IECOvercurrentRelay(RelayBase):
         self,
     ) -> bool:
         """
-        Evaluate the relay pickup condition.
+        Evaluate the authoritative relay pickup condition.
 
-        The authoritative pickup setting is:
-
-            relay.pickup
-
-        The authoritative measurement is:
-
-            relay.current
+        Returns
+        -------
+        bool
+            True when measured current exceeds pickup current.
         """
 
         if not self.relay.in_service:
@@ -228,17 +240,30 @@ class IECOvercurrentRelay(RelayBase):
         float or None
             Operating time in seconds.
 
-            None means the relay has not picked up.
+            None:
+                Relay is out of service or below pickup.
+
+        Notes
+        -----
+        The IEC calculation is delegated to:
+
+            core.protection.relay_functions.iec_time
+
+        The authoritative relay pickup and current values are used
+        directly from the Relay model.
         """
 
         if not self.relay.in_service:
             return None
 
+        if self.relay.pickup <= 0.0:
+            return None
+
         return iec_time(
-            current=self.relay.current,
-            pickup=self.relay.pickup,
-            curve=self.curve,
-            TMS=self.TMS,
+            abs(self.relay.current),
+            self.relay.pickup,
+            self.curve,
+            self.TMS,
         )
 
     # =============================================================
@@ -249,26 +274,39 @@ class IECOvercurrentRelay(RelayBase):
         self,
     ) -> bool:
         """
-        Evaluate the IEC overcurrent element.
+        Evaluate the IEC overcurrent protection element.
 
         Returns
         -------
         bool
-            True when the relay has an operating condition.
+            True when the relay is above pickup and therefore has
+            an IEC operating condition.
 
-        Notes
-        -----
-        This method updates the authoritative Relay model's trip
-        state through Relay.set_trip().
+        Important
+        ---------
+        This method establishes the protection operating decision.
 
-        Actual time-domain execution remains the responsibility
-        of the protection/simulation layer.
+        The IEC operating time is calculated separately by
+        operating_time().
+
+        Actual delayed breaker operation belongs to the higher-level
+        protection/simulation layer.
         """
 
         if not self.relay.in_service:
+
             self.relay.set_trip(
                 False
             )
+
+            return False
+
+        if not self.check_pickup():
+
+            self.relay.set_trip(
+                False
+            )
+
             return False
 
         operating_time = (
@@ -279,6 +317,14 @@ class IECOvercurrentRelay(RelayBase):
             self.relay.set_trip(
                 False
             )
+            return False
+
+        if operating_time == float("inf"):
+
+            self.relay.set_trip(
+                False
+            )
+
             return False
 
         self.relay.set_trip(
@@ -295,10 +341,9 @@ class IECOvercurrentRelay(RelayBase):
         self,
     ) -> None:
         """
-        Reset the authoritative relay model.
+        Reset the authoritative Relay operating state.
 
-        Protection-specific settings such as curve and TMS
-        are retained.
+        IEC curve and TMS settings are retained.
         """
 
         self.relay.reset()
@@ -311,15 +356,17 @@ class IECOvercurrentRelay(RelayBase):
         self,
     ) -> dict:
         """
-        Return structured IEC relay information.
+        Return structured IEC overcurrent information.
         """
 
         return {
             "relay_id": self.relay.id,
+            "relay_type": self.relay.type,
             "curve": self.curve,
             "TMS": self.TMS,
             "pickup": self.relay.pickup,
             "current": self.relay.current,
+            "operating_time": self.operating_time(),
             "in_service": self.relay.in_service,
             "trip": self.relay.trip,
         }
