@@ -1,3 +1,4 @@
+```python
 """
 GridForge Sparse Linear Solver
 ==============================
@@ -5,99 +6,30 @@ GridForge Sparse Linear Solver
 File:
     core/solver/power_flow/sparse_solver.py
 
-Purpose:
-    Solve the Newton-Raphson linear correction equation:
+Industrial linear-system backend for the GridForge
+Newton-Raphson Power Flow Engine.
 
-        J * Δx = mismatch
+Responsibilities
+----------------
+- Solve J * dx = rhs.
+- Support dense and sparse matrix inputs.
+- Validate matrix/vector dimensions.
+- Validate numerical finiteness.
+- Provide optional explicit diagonal regularization.
+- Return a deterministic correction vector.
 
-This module provides the linear algebra layer between the
-Newton-Raphson solver and the underlying numerical library.
+This module is deliberately independent of:
 
------------------------------------------------------------------------
-SUPPORTED SOLUTION MODES
------------------------------------------------------------------------
+- Network
+- Bus
+- Ybus
+- PowerMismatch
+- JacobianBuilder
+- Newton-Raphson iteration
+- PV/PQ classification
+- Reactive-power limits
 
-Preferred:
-
-    SciPy sparse direct solver
-
-Fallback:
-
-    NumPy dense solver
-
-The fallback exists primarily for:
-
-    - environments without SciPy
-    - small test systems
-    - development/debugging
-
------------------------------------------------------------------------
-NUMERICAL SAFEGUARDS
------------------------------------------------------------------------
-
-Supports optional diagonal regularization:
-
-    J_reg = J + λI
-
-where λ is supplied through ``regularization``.
-
-Regularization should normally remain zero.
-
-It is a numerical recovery mechanism rather than a substitute
-for a correctly formed Jacobian.
-
------------------------------------------------------------------------
-RESPONSIBILITIES
------------------------------------------------------------------------
-
-This module:
-
-    - Validates linear-system dimensions.
-    - Solves J Δx = mismatch.
-    - Supports sparse SciPy solving.
-    - Provides dense fallback.
-    - Detects NaN/Inf results.
-    - Reports numerical failures clearly.
-
-This module does NOT:
-
-    - Build the Jacobian.
-    - Calculate mismatch.
-    - Modify bus states.
-    - Perform Newton-Raphson iteration.
-    - Perform convergence checking.
-    - Handle Q limits.
-
------------------------------------------------------------------------
-INPUT CONVENTION
------------------------------------------------------------------------
-
-J:
-
-    Square Jacobian matrix of dimension m × m.
-
-mismatch:
-
-    Vector of length m.
-
-Output:
-
-    Δx vector of length m.
-
------------------------------------------------------------------------
-FUTURE EXTENSIONS
------------------------------------------------------------------------
-
-The public ``solve()`` interface is intentionally simple so that
-future implementations can add:
-
-    - sparse LU
-    - iterative Krylov methods
-    - GPU linear solvers
-    - CUDA sparse factorization
-    - conditioning estimates
-
-without changing the Newton-Raphson engine.
+The module is a linear-algebra service only.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -105,456 +37,348 @@ All Rights Reserved.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
-
-
-# ---------------------------------------------------------------------
-# Optional SciPy dependency
-# ---------------------------------------------------------------------
-
-try:
-    from scipy.sparse import (
-        csr_matrix,
-        issparse,
-    )
-
-    from scipy.sparse.linalg import (
-        spsolve,
-    )
-
-    SCIPY_AVAILABLE = True
-
-except ImportError:
-
-    SCIPY_AVAILABLE = False
 
 
 class SparseLinearSolver:
     """
-    Linear solver for Newton-Raphson correction equations.
+    Solve linear systems used by the GridForge
+    Newton-Raphson power-flow engine.
 
     Parameters
     ----------
-    regularization : float, optional
-        Diagonal regularization coefficient.
+    regularization:
+        Non-negative diagonal regularization parameter.
 
-        The system solved becomes:
+        ``0.0`` means the original system is solved:
 
-            (J + λI) Δx = mismatch
+            J dx = rhs
 
-        Default is 0.0, meaning no regularization.
+        A positive value solves:
+
+            (J + λI) dx = rhs
+
+        This is an explicit numerical option and is never
+        applied implicitly.
 
     Notes
     -----
-    The solver itself does not decide whether regularization is
-    appropriate. That decision belongs to the higher-level solver
-    configuration.
+    The implementation accepts both:
+
+        - dense NumPy matrices
+        - SciPy sparse matrices
+
+    The public interface deliberately does not expose a
+    particular sparse backend so that future GPU or alternative
+    sparse implementations can replace this layer.
     """
+
+    # =========================================================
+    # INITIALIZATION
+    # =========================================================
 
     def __init__(
         self,
-        regularization: float = 0.0
+        regularization: float = 0.0,
     ):
-        """
-        Initialize the linear solver.
 
-        Parameters
-        ----------
-        regularization:
-            Non-negative diagonal regularization coefficient.
-
-        Raises
-        ------
-        ValueError
-            If regularization is negative.
-        """
-
-        if regularization < 0:
-            raise ValueError(
-                "Regularization must be >= 0"
+        if isinstance(
+            regularization,
+            bool,
+        ) or not isinstance(
+            regularization,
+            (int, float),
+        ):
+            raise TypeError(
+                "regularization must be a real number."
             )
 
-        self.regularization = float(
+        regularization = float(
             regularization
         )
 
-    # =============================================================
-    # PUBLIC SOLVE API
-    # =============================================================
+        if not np.isfinite(
+            regularization
+        ):
+            raise ValueError(
+                "regularization must be finite."
+            )
+
+        if regularization < 0.0:
+            raise ValueError(
+                "regularization cannot be negative."
+            )
+
+        self.regularization = regularization
+
+    # =========================================================
+    # MAIN SOLVE
+    # =========================================================
 
     def solve(
         self,
-        J,
-        mismatch
-    ):
+        J: Any,
+        rhs: np.ndarray,
+    ) -> np.ndarray:
         """
         Solve:
 
-            J * Δx = mismatch
+            J dx = rhs
+
+        or, when regularization is explicitly enabled:
+
+            (J + λI) dx = rhs
 
         Parameters
         ----------
         J:
             Square Jacobian matrix.
 
-        mismatch:
-            One-dimensional mismatch vector.
+            Dense NumPy arrays and SciPy sparse matrices
+            are supported.
+
+        rhs:
+            One-dimensional right-hand-side vector.
 
         Returns
         -------
-        ndarray
-            Newton-Raphson correction vector Δx.
+        np.ndarray
+            One-dimensional finite correction vector.
 
         Raises
         ------
         ValueError
-            If dimensions or numerical inputs are invalid.
+            If matrix/vector dimensions or numerical values
+            are invalid.
 
         RuntimeError
             If the linear system cannot be solved.
         """
 
-        # ---------------------------------------------------------
-        # Normalize mismatch first.
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # Validate matrix
+        # -----------------------------------------------------
 
-        mismatch = np.asarray(
-            mismatch,
-            dtype=float
-        )
-
-        if mismatch.ndim != 1:
+        if J is None:
             raise ValueError(
-                "Mismatch must be a one-dimensional vector"
+                "Jacobian matrix J cannot be None."
             )
 
-        # ---------------------------------------------------------
-        # Detect sparse versus dense Jacobian.
+        if not hasattr(
+            J,
+            "shape",
+        ):
+            raise ValueError(
+                "Jacobian matrix must provide a shape."
+            )
+
+        if len(J.shape) != 2:
+            raise ValueError(
+                "Jacobian matrix must be two-dimensional."
+            )
+
+        rows, cols = J.shape
+
+        if rows != cols:
+            raise ValueError(
+                "Jacobian matrix must be square: "
+                f"received shape {J.shape}."
+            )
+
+        # -----------------------------------------------------
+        # Validate RHS
+        # -----------------------------------------------------
+
+        if rhs is None:
+            raise ValueError(
+                "Right-hand-side vector cannot be None."
+            )
+
+        rhs = np.asarray(
+            rhs,
+            dtype=float,
+        ).reshape(-1)
+
+        if rhs.size != rows:
+            raise ValueError(
+                "Linear-system dimension mismatch: "
+                f"Jacobian has dimension {rows}, "
+                f"but RHS has dimension {rhs.size}."
+            )
+
+        if not np.all(
+            np.isfinite(rhs)
+        ):
+            raise ValueError(
+                "Right-hand-side vector contains "
+                "NaN or infinite values."
+            )
+
+        # -----------------------------------------------------
+        # Empty system
+        # -----------------------------------------------------
+
+        if rows == 0:
+            return np.empty(
+                0,
+                dtype=float,
+            )
+
+        # -----------------------------------------------------
+        # Convert matrix to a numerical representation.
         #
-        # Keeping sparse matrices sparse is important for the
-        # eventual large-system implementation.
-        # ---------------------------------------------------------
+        # Dense conversion is intentional for the v1.0
+        # reference implementation.
+        #
+        # The public interface remains compatible with
+        # sparse/GPU implementations later.
+        # -----------------------------------------------------
 
-        is_sparse = (
-            SCIPY_AVAILABLE
-            and
-            issparse(J)
-        )
+        if hasattr(
+            J,
+            "toarray",
+        ):
 
-        if is_sparse:
-
-            J_matrix = J.tocsr()
+            matrix = np.asarray(
+                J.toarray(),
+                dtype=float,
+            )
 
         else:
 
-            J_matrix = np.asarray(
+            matrix = np.asarray(
                 J,
-                dtype=float
+                dtype=float,
             )
 
-        # ---------------------------------------------------------
-        # Validate dimensions.
-        # ---------------------------------------------------------
-
-        if J_matrix.ndim != 2:
-
+        if matrix.shape != (
+            rows,
+            cols,
+        ):
             raise ValueError(
-                "Jacobian must be a two-dimensional matrix"
+                "Jacobian matrix shape changed during "
+                "normalization."
             )
-
-        rows, cols = J_matrix.shape
-
-        if rows != cols:
-
-            raise ValueError(
-                "Jacobian must be square: "
-                f"received shape {J_matrix.shape}"
-            )
-
-        if mismatch.size != rows:
-
-            raise ValueError(
-                "Jacobian and mismatch dimensions do not match: "
-                f"Jacobian={J_matrix.shape}, "
-                f"mismatch={mismatch.shape}"
-            )
-
-        # ---------------------------------------------------------
-        # Empty system.
-        #
-        # This can occur in pathological or trivial networks.
-        # Returning an empty correction is mathematically consistent.
-        # ---------------------------------------------------------
-
-        if rows == 0:
-
-            return np.empty(
-                0,
-                dtype=float
-            )
-
-        # ---------------------------------------------------------
-        # Validate numerical input.
-        # ---------------------------------------------------------
 
         if not np.all(
-            np.isfinite(mismatch)
+            np.isfinite(matrix)
         ):
-
             raise ValueError(
-                "Mismatch contains NaN or infinite values"
+                "Jacobian matrix contains "
+                "NaN or infinite values."
             )
 
-        # ---------------------------------------------------------
-        # Apply optional regularization.
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # Explicit regularization
+        # -----------------------------------------------------
 
-        if self.regularization > 0:
+        if self.regularization > 0.0:
 
-            if is_sparse:
-
-                from scipy.sparse import (
-                    eye
+            matrix = (
+                matrix
+                +
+                self.regularization
+                *
+                np.eye(
+                    rows,
+                    dtype=float,
                 )
+            )
 
-                J_matrix = (
-                    J_matrix
-                    +
-                    self.regularization
-                    *
-                    eye(
-                        rows,
-                        format="csr"
-                    )
-                )
-
-            else:
-
-                J_matrix = (
-                    J_matrix
-                    +
-                    self.regularization
-                    *
-                    np.eye(
-                        rows,
-                        dtype=float
-                    )
-                )
-
-        # =========================================================
-        # SPARSE SOLUTION
-        # =========================================================
-
-        if SCIPY_AVAILABLE:
-
-            try:
-
-                # -------------------------------------------------
-                # Convert dense matrices to CSR for the preferred
-                # sparse direct solve.
-                # -------------------------------------------------
-
-                if not is_sparse:
-
-                    J_sparse = csr_matrix(
-                        J_matrix
-                    )
-
-                else:
-
-                    J_sparse = J_matrix
-
-                dx = spsolve(
-                    J_sparse,
-                    mismatch
-                )
-
-                dx = np.asarray(
-                    dx,
-                    dtype=float
-                )
-
-                # -------------------------------------------------
-                # Validate solver output.
-                # -------------------------------------------------
-
-                self._validate_solution(
-                    dx
-                )
-
-                return dx
-
-            except Exception as sparse_error:
-
-                # -------------------------------------------------
-                # Sparse solution failed.
-                #
-                # Attempt dense recovery. This is useful for small
-                # systems and development environments.
-                # -------------------------------------------------
-
-                try:
-
-                    J_dense = (
-                        J_matrix.toarray()
-                        if hasattr(
-                            J_matrix,
-                            "toarray"
-                        )
-                        else np.asarray(
-                            J_matrix,
-                            dtype=float
-                        )
-                    )
-
-                    return self._dense_solve(
-                        J_dense,
-                        mismatch,
-                        sparse_error=sparse_error
-                    )
-
-                except Exception as dense_error:
-
-                    raise RuntimeError(
-                        "Linear system solution failed using "
-                        "both sparse and dense solvers"
-                    ) from dense_error
-
-        # =========================================================
-        # DENSE FALLBACK
-        # =========================================================
-
-        return self._dense_solve(
-            J_matrix,
-            mismatch
-        )
-
-    # =============================================================
-    # DENSE SOLVER
-    # =============================================================
-
-    def _dense_solve(
-        self,
-        J,
-        mismatch,
-        sparse_error=None
-    ):
-        """
-        Solve the system using NumPy dense linear algebra.
-
-        Parameters
-        ----------
-        J:
-            Dense square Jacobian.
-
-        mismatch:
-            Mismatch vector.
-
-        sparse_error:
-            Optional exception from the sparse solver.
-
-        Returns
-        -------
-        ndarray
-            Correction vector Δx.
-
-        Raises
-        ------
-        RuntimeError
-            If NumPy cannot solve the system.
-        """
+        # -----------------------------------------------------
+        # Solve
+        # -----------------------------------------------------
 
         try:
 
             dx = np.linalg.solve(
-                J,
-                mismatch
+                matrix,
+                rhs,
             )
 
-            dx = np.asarray(
-                dx,
-                dtype=float
-            )
-
-            self._validate_solution(
-                dx
-            )
-
-            return dx
-
-        except np.linalg.LinAlgError as error:
-
-            if sparse_error is not None:
-
-                raise RuntimeError(
-                    "Linear solve failed. "
-                    "The Jacobian may be singular or "
-                    "ill-conditioned. "
-                    f"Sparse solver error: {sparse_error}"
-                ) from error
+        except np.linalg.LinAlgError as exc:
 
             raise RuntimeError(
-                "Linear solve failed. "
-                "The Jacobian may be singular or "
-                "ill-conditioned."
-            ) from error
+                "Linear system could not be solved: "
+                f"{exc}"
+            ) from exc
 
-    # =============================================================
-    # SOLUTION VALIDATION
-    # =============================================================
-
-    @staticmethod
-    def _validate_solution(dx):
-        """
-        Validate a calculated correction vector.
-
-        Raises
-        ------
-        RuntimeError
-            If the solver returned NaN or infinite values.
-        """
-
-        if dx.ndim != 1:
+        except Exception as exc:
 
             raise RuntimeError(
-                "Linear solver returned an invalid vector"
+                "Unexpected linear-system failure: "
+                f"{exc}"
+            ) from exc
+
+        # -----------------------------------------------------
+        # Normalize result
+        # -----------------------------------------------------
+
+        dx = np.asarray(
+            dx,
+            dtype=float,
+        ).reshape(-1)
+
+        # -----------------------------------------------------
+        # Validate solution
+        # -----------------------------------------------------
+
+        if dx.size != rows:
+            raise RuntimeError(
+                "Linear solver returned an incorrect "
+                "solution dimension: "
+                f"expected {rows}, "
+                f"received {dx.size}."
             )
 
         if not np.all(
             np.isfinite(dx)
         ):
-
             raise RuntimeError(
-                "Linear solver returned NaN or infinite values"
+                "Linear solver returned NaN or "
+                "infinite values."
             )
 
-    # =============================================================
-    # DIAGNOSTICS
-    # =============================================================
+        return dx
 
-    def summary(self):
+    # =========================================================
+    # DIAGNOSTICS
+    # =========================================================
+
+    def summary(self) -> dict:
         """
         Return solver configuration information.
         """
 
         return {
-            "scipy_available": SCIPY_AVAILABLE,
-            "regularization": self.regularization,
-            "preferred_method": (
-                "scipy.sparse.linalg.spsolve"
-                if SCIPY_AVAILABLE
-                else "numpy.linalg.solve"
-            )
+            "solver": "SparseLinearSolver",
+            "regularization": float(
+                self.regularization
+            ),
+            "backend": "numpy",
+            "supports_sparse_input": True,
         }
 
-    def __repr__(self):
+    # =========================================================
+    # REPRESENTATION
+    # =========================================================
+
+    def __repr__(self) -> str:
         """
         Developer-friendly representation.
         """
 
         return (
             "SparseLinearSolver("
-            f"scipy_available={SCIPY_AVAILABLE}, "
-            f"regularization={self.regularization}"
+            f"regularization="
+            f"{self.regularization}"
             ")"
         )
+
+
+__all__ = [
+    "SparseLinearSolver",
+]
+```
