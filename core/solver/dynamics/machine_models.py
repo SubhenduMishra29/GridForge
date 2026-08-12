@@ -1,41 +1,42 @@
-```python
 """
 GridForge Dynamic Machine Models
 ================================
 
-Dynamic machine models used by the GridForge transient-stability
-solver.
+Synchronous-machine models for transient-stability simulation.
 
-Architecture
-------------
+V2 Responsibilities
+-------------------
 
-The machine model is responsible for:
+This module provides:
 
 - machine identity;
-- electrical connection information;
-- machine dynamic-state definition;
-- initialization of dynamic states;
-- internal-emf/current calculation;
-- electrical power calculation;
-- differential equations.
+- machine parameters;
+- dynamic state definition;
+- initialization;
+- internal-emf calculation;
+- terminal-current calculation;
+- electrical-power calculation;
+- machine differential equations.
 
-The machine model is NOT responsible for:
+This module does NOT provide:
 
 - numerical integration;
 - network solution;
-- Y-bus construction;
-- event processing;
+- event scheduling;
 - protection;
+- AVR;
+- governor;
+- PSS;
 - simulation orchestration.
 
-Controller models such as AVR, governor, and PSS are deliberately not
-embedded in the classical machine model. They may be connected through
-the dynamic-control architecture in a higher-level composition layer.
+The machine model is therefore a pure engineering model consumed by
+the dynamic simulation layer.
 
 Classical machine model
 -----------------------
 
-The baseline model is the classical synchronous-machine model:
+The V2 baseline is the classical second-order synchronous-machine
+model:
 
     E' = Efd ∠ δ
 
@@ -47,40 +48,18 @@ Rotor equations:
 
     dδ/dt = ω
 
-    dω/dt =
-        (Pm - Pe - Dω) / (2H)
+    dω/dt = (Pm - Pe - Dω) / (2H)
 
-where:
+Dynamic state:
 
-    δ
-        Rotor angle [rad].
+    x = [δ, ω]
 
-    ω
-        Speed deviation [pu].
+Mechanical power Pm is an INPUT to the model.
 
-    Efd
-        Internal excitation magnitude [pu].
+It is intentionally NOT stored as a machine dynamic state.
 
-    Pm
-        Mechanical input power [pu].
-
-    Pe
-        Electrical active power [pu].
-
-    H
-        Inertia constant [s].
-
-    D
-        Damping coefficient [pu torque / pu speed].
-
-The exact machine state vector is:
-
-    [δ, ω]
-
-for the classical second-order model.
-
-More detailed machine models can expose additional states without
-requiring changes to MultiMachineSystem or DAESolver.
+Future governor/turbine/control implementations may provide Pm
+through the dynamic simulation/control composition layer.
 """
 
 from __future__ import annotations
@@ -89,6 +68,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+
+from .swing_equation import SwingEquation
 
 
 # ======================================================================
@@ -99,7 +80,7 @@ import numpy as np
 class MachineModelError(
     RuntimeError
 ):
-    """Base exception for dynamic-machine errors."""
+    """Base exception for machine-model errors."""
 
 
 class MachineParameterError(
@@ -115,52 +96,6 @@ class MachineStateError(
 
 
 # ======================================================================
-# ELECTRICAL OUTPUT
-# ======================================================================
-
-
-@dataclass(frozen=True)
-class MachineElectricalOutput:
-    """
-    Electrical output of a dynamic machine.
-
-    Parameters
-    ----------
-    active_power:
-        Active electrical power Pe [pu].
-
-    reactive_power:
-        Reactive electrical power Qe [pu].
-
-    current:
-        Complex terminal current injection [pu].
-
-    terminal_voltage:
-        Complex terminal voltage [pu].
-
-    internal_emf:
-        Complex internal emf [pu].
-    """
-
-    active_power: float
-    reactive_power: float
-    current: complex
-    terminal_voltage: complex
-    internal_emf: complex
-
-    @property
-    def apparent_power(
-        self,
-    ) -> complex:
-        """Return complex electrical power S = P + jQ."""
-
-        return complex(
-            self.active_power,
-            self.reactive_power,
-        )
-
-
-# ======================================================================
 # MACHINE PARAMETERS
 # ======================================================================
 
@@ -168,7 +103,7 @@ class MachineElectricalOutput:
 @dataclass(frozen=True)
 class ClassicalMachineParameters:
     """
-    Parameters for the classical synchronous-machine model.
+    Parameters of the classical synchronous-machine model.
 
     Parameters
     ----------
@@ -189,12 +124,6 @@ class ClassicalMachineParameters:
 
     initial_omega:
         Initial speed deviation [pu].
-
-    Notes
-    -----
-    The synchronous-machine model uses Xd' rather than the synchronous
-    reactance Xd because the classical transient-stability model
-    represents the internal emf behind transient reactance.
     """
 
     H: float
@@ -213,50 +142,109 @@ class ClassicalMachineParameters:
         self,
     ) -> None:
 
-        if self.H <= 0.0:
+        if not np.isfinite(
+            self.H
+        ) or self.H <= 0.0:
 
             raise MachineParameterError(
-                "H must be greater "
-                "than zero."
-            )
-
-        if self.Xd_prime <= 0.0:
-
-            raise MachineParameterError(
-                "Xd_prime must be "
+                "H must be finite and "
                 "greater than zero."
             )
 
-        if self.D < 0.0:
+        if not np.isfinite(
+            self.Xd_prime
+        ) or self.Xd_prime <= 0.0:
 
             raise MachineParameterError(
-                "D cannot be negative."
+                "Xd_prime must be finite "
+                "and greater than zero."
             )
 
-        if self.Efd < 0.0:
+        if not np.isfinite(
+            self.D
+        ) or self.D < 0.0:
 
             raise MachineParameterError(
-                "Efd cannot be negative."
+                "D must be finite and "
+                "non-negative."
             )
 
-        for name, value in (
-            (
-                "initial_delta",
-                self.initial_delta,
-            ),
-            (
-                "initial_omega",
-                self.initial_omega,
-            ),
+        if not np.isfinite(
+            self.Efd
+        ) or self.Efd < 0.0:
+
+            raise MachineParameterError(
+                "Efd must be finite and "
+                "non-negative."
+            )
+
+        if not np.isfinite(
+            self.initial_delta
         ):
 
-            if not np.isfinite(
-                value
-            ):
+            raise MachineParameterError(
+                "initial_delta must "
+                "be finite."
+            )
 
-                raise MachineParameterError(
-                    f"{name} must be finite."
-                )
+        if not np.isfinite(
+            self.initial_omega
+        ):
+
+            raise MachineParameterError(
+                "initial_omega must "
+                "be finite."
+            )
+
+
+# ======================================================================
+# ELECTRICAL OUTPUT
+# ======================================================================
+
+
+@dataclass(frozen=True)
+class MachineElectricalOutput:
+    """
+    Electrical output calculated at a machine terminal.
+
+    Attributes
+    ----------
+    active_power:
+        Electrical active power Pe [pu].
+
+    reactive_power:
+        Electrical reactive power Qe [pu].
+
+    current:
+        Machine terminal current injection [pu].
+
+    terminal_voltage:
+        Complex terminal voltage [pu].
+
+    internal_emf:
+        Complex internal emf [pu].
+    """
+
+    active_power: float
+
+    reactive_power: float
+
+    current: complex
+
+    terminal_voltage: complex
+
+    internal_emf: complex
+
+    @property
+    def apparent_power(
+        self,
+    ) -> complex:
+        """Return complex apparent power S = P + jQ."""
+
+        return complex(
+            self.active_power,
+            self.reactive_power,
+        )
 
 
 # ======================================================================
@@ -268,14 +256,18 @@ class ClassicalSynchronousMachine:
     """
     Classical second-order synchronous-machine model.
 
-    Dynamic states
-    --------------
+    State
+    -----
 
-        state[0] = delta
-        state[1] = omega
+        [delta, omega]
 
-    The machine does not own a numerical integrator. Its ``derivatives``
-    method returns dx/dt for the global numerical integration layer.
+    where:
+
+        delta = rotor electrical angle [rad]
+        omega = speed deviation [pu]
+
+    The machine delegates rotor physics to ``SwingEquation`` and does
+    not perform numerical integration.
 
     Parameters
     ----------
@@ -351,12 +343,15 @@ class ClassicalSynchronousMachine:
                 Xd_prime=Xd_prime,
                 D=D,
                 Efd=Efd,
-                initial_delta=(
-                    initial_delta
-                ),
-                initial_omega=(
-                    initial_omega
-                ),
+                initial_delta=initial_delta,
+                initial_omega=initial_omega,
+            )
+        )
+
+        self._swing_equation = (
+            SwingEquation(
+                H=self.parameters.H,
+                D=self.parameters.D,
             )
         )
 
@@ -368,7 +363,7 @@ class ClassicalSynchronousMachine:
     def machine_id(
         self,
     ) -> str:
-        """Unique machine identifier."""
+        """Return unique machine identifier."""
 
         return self._machine_id
 
@@ -376,13 +371,53 @@ class ClassicalSynchronousMachine:
     def bus_id(
         self,
     ) -> str:
-        """Electrical bus identifier."""
+        """Return connected bus identifier."""
 
         return self._bus_id
 
     # ==================================================================
-    # STATE
+    # PARAMETERS
     # ==================================================================
+
+    @property
+    def H(
+        self,
+    ) -> float:
+        """Return inertia constant."""
+
+        return self.parameters.H
+
+    @property
+    def Xd_prime(
+        self,
+    ) -> float:
+        """Return transient reactance."""
+
+        return self.parameters.Xd_prime
+
+    @property
+    def D(
+        self,
+    ) -> float:
+        """Return damping coefficient."""
+
+        return self.parameters.D
+
+    @property
+    def Efd(
+        self,
+    ) -> float:
+        """Return internal emf magnitude."""
+
+        return self.parameters.Efd
+
+    @property
+    def swing_equation(
+        self,
+    ) -> SwingEquation:
+        """Return the machine's rotor-equation model."""
+
+        return self._swing_equation
 
     @property
     def state_size(
@@ -392,63 +427,39 @@ class ClassicalSynchronousMachine:
 
         return self.STATE_SIZE
 
-    @property
-    def H(
-        self,
-    ) -> float:
-        """Inertia constant."""
-
-        return self.parameters.H
-
-    @property
-    def Xd_prime(
-        self,
-    ) -> float:
-        """Transient reactance."""
-
-        return self.parameters.Xd_prime
-
-    @property
-    def D(
-        self,
-    ) -> float:
-        """Damping coefficient."""
-
-        return self.parameters.D
-
-    @property
-    def Efd(
-        self,
-    ) -> float:
-        """Internal emf magnitude."""
-
-        return self.parameters.Efd
-
     # ==================================================================
-    # INITIALIZATION
+    # INITIAL STATE
     # ==================================================================
 
     def initial_state(
         self,
         terminal_voltage: complex,
-        electrical_power: Any,
-        mechanical_power: float,
+        electrical_power: Any = None,
+        mechanical_power: float | None = None,
         *,
         time: float = 0.0,
     ) -> np.ndarray:
         """
-        Construct the initial dynamic state.
+        Return the initial machine dynamic state.
 
-        The classical model initializes rotor angle from the initial
-        electrical power and terminal voltage when sufficient phasor
-        information is available.
+        The initial rotor angle may be inferred from a supplied complex
+        operating-point power.
 
-        If a meaningful angle cannot be inferred, the configured
-        ``initial_delta`` is retained.
+        Parameters
+        ----------
+        terminal_voltage:
+            Initial terminal voltage phasor.
 
-        ``mechanical_power`` is validated here because it is part of the
-        machine operating point, although the classical second-order
-        state vector does not contain Pm as a dynamic state.
+        electrical_power:
+            Initial complex electrical power, if available.
+
+        mechanical_power:
+            Initial mechanical input. It is validated but is not stored
+            in the machine.
+
+        time:
+            Initialization time. Reserved for future initialization
+            models.
         """
 
         del time
@@ -457,27 +468,16 @@ class ClassicalSynchronousMachine:
             terminal_voltage
         )
 
-        if not (
-            np.isfinite(
-                voltage.real
-            )
-            and np.isfinite(
-                voltage.imag
-            )
-        ):
+        self._validate_complex(
+            voltage,
+            "terminal_voltage",
+        )
 
-            raise MachineStateError(
-                "Terminal voltage "
-                "must be finite."
-            )
+        if mechanical_power is not None:
 
-        if not np.isfinite(
-            mechanical_power
-        ):
-
-            raise MachineStateError(
-                "Mechanical power "
-                "must be finite."
+            self._validate_scalar(
+                mechanical_power,
+                "mechanical_power",
             )
 
         delta = (
@@ -488,23 +488,8 @@ class ClassicalSynchronousMachine:
             self.parameters.initial_omega
         )
 
-        # --------------------------------------------------------------
-        # If complex electrical power is
-        # supplied, infer the internal
-        # emf angle from:
-        #
-        #     E' = V + j Xd' I
-        #
-        # where:
-        #
-        #     I = conj(S / V)
-        #
-        # This gives a more physically
-        # meaningful initial rotor angle.
-        # --------------------------------------------------------------
-
         apparent_power = (
-            self._complex_power(
+            self._extract_complex_power(
                 electrical_power
             )
         )
@@ -514,11 +499,9 @@ class ClassicalSynchronousMachine:
             and abs(voltage) > 1e-12
         ):
 
-            current = (
-                np.conj(
-                    apparent_power
-                    / voltage
-                )
+            current = np.conj(
+                apparent_power
+                / voltage
             )
 
             internal_emf = (
@@ -538,16 +521,6 @@ class ClassicalSynchronousMachine:
                     )
                 )
 
-                # Preserve the configured
-                # emf magnitude when the
-                # operating point is not
-                # intended to modify Efd.
-                #
-                # The classical model uses
-                # the configured Efd as its
-                # internal-emf magnitude.
-                #
-
         state = np.array(
             [
                 delta,
@@ -556,11 +529,9 @@ class ClassicalSynchronousMachine:
             dtype=float,
         )
 
-        self._validate_state(
+        return self.validate_state(
             state
         )
-
-        return state
 
     # ==================================================================
     # INTERNAL EMF
@@ -571,18 +542,18 @@ class ClassicalSynchronousMachine:
         state: np.ndarray,
     ) -> complex:
         """
-        Return internal emf E' behind Xd'.
+        Calculate internal emf behind transient reactance.
 
-            E' = Efd * exp(jδ)
+            E' = Efd exp(jδ)
         """
 
-        state = self._validate_state(
+        state = self.validate_state(
             state
         )
 
         delta = state[0]
 
-        return (
+        return complex(
             self.Efd
             * np.exp(
                 1j * delta
@@ -590,7 +561,7 @@ class ClassicalSynchronousMachine:
         )
 
     # ==================================================================
-    # CURRENT INJECTION
+    # CURRENT
     # ==================================================================
 
     def current_injection(
@@ -601,17 +572,17 @@ class ClassicalSynchronousMachine:
         time: float = 0.0,
     ) -> complex:
         """
-        Calculate terminal current injection.
+        Calculate machine current injection.
 
-            I = (E' - V) / (j Xd')
+            I = (E' - V) / (jXd')
 
-        Positive current represents current injected by the machine
-        into the network.
+        Positive current denotes injection from the machine into the
+        network.
         """
 
         del time
 
-        state = self._validate_state(
+        state = self.validate_state(
             state
         )
 
@@ -619,14 +590,10 @@ class ClassicalSynchronousMachine:
             terminal_voltage
         )
 
-        if abs(
-            self.Xd_prime
-        ) <= 1e-15:
-
-            raise MachineModelError(
-                "Xd_prime is too small "
-                "for current calculation."
-            )
+        self._validate_complex(
+            voltage,
+            "terminal_voltage",
+        )
 
         emf = (
             self.internal_emf(
@@ -641,7 +608,7 @@ class ClassicalSynchronousMachine:
         )
 
     # ==================================================================
-    # ELECTRICAL OUTPUT
+    # ELECTRICAL POWER
     # ==================================================================
 
     def electrical_output(
@@ -652,12 +619,9 @@ class ClassicalSynchronousMachine:
         time: float = 0.0,
     ) -> MachineElectricalOutput:
         """
-        Calculate terminal electrical power.
+        Calculate terminal electrical output.
 
             S = V I*
-
-        Returns active and reactive power together with the underlying
-        electrical phasors.
         """
 
         del time
@@ -698,6 +662,27 @@ class ClassicalSynchronousMachine:
             internal_emf=emf,
         )
 
+    def electrical_power(
+        self,
+        state: np.ndarray,
+        terminal_voltage: complex,
+        *,
+        time: float = 0.0,
+    ) -> float:
+        """
+        Return electrical active power Pe [pu].
+        """
+
+        output = (
+            self.electrical_output(
+                state=state,
+                terminal_voltage=terminal_voltage,
+                time=time,
+            )
+        )
+
+        return output.active_power
+
     # ==================================================================
     # DIFFERENTIAL EQUATIONS
     # ==================================================================
@@ -706,322 +691,112 @@ class ClassicalSynchronousMachine:
         self,
         state: np.ndarray,
         terminal_voltage: complex,
-        electrical_output: Any,
+        mechanical_power: float,
         *,
+        electrical_power: float | None = None,
         time: float = 0.0,
     ) -> np.ndarray:
         """
-        Return the classical rotor differential equations.
+        Evaluate machine dynamic derivatives.
 
-            dδ/dt = ω
+        Parameters
+        ----------
+        state:
+            Machine dynamic state [delta, omega].
 
-            dω/dt =
-                (Pm - Pe - Dω) / (2H)
+        terminal_voltage:
+            Complex terminal voltage [pu].
 
-        ``mechanical_power`` is supplied through the operating-point /
-        dynamic-control composition and is therefore obtained from the
-        electrical-output context where supported.
+        mechanical_power:
+            Mechanical input Pm [pu].
 
-        For the pure classical machine, a mechanical-power value must be
-        supplied in ``electrical_output`` or through ``set_mechanical_power``.
+        electrical_power:
+            Electrical active output Pe [pu].
+
+            If omitted, Pe is calculated from the terminal voltage.
+
+        time:
+            Simulation time.
+
+        Returns
+        -------
+        numpy.ndarray
+            [d_delta/dt, d_omega/dt]
+
+        Important
+        ---------
+        ``mechanical_power`` is an explicit input.
+
+        It is NOT stored in the machine model and is NOT a dynamic
+        state of the classical machine.
         """
 
-        del terminal_voltage
-        del time
-
-        state = self._validate_state(
+        state = self.validate_state(
             state
         )
 
-        Pe = (
-            self._extract_active_power(
-                electrical_output
-            )
+        self._validate_scalar(
+            mechanical_power,
+            "mechanical_power",
         )
-
-        Pm = (
-            self.mechanical_power
-        )
-
-        delta = state[0]
-        omega = state[1]
-
-        del delta
-
-        ddelta_dt = (
-            omega
-        )
-
-        domega_dt = (
-            Pm
-            - Pe
-            - self.D * omega
-        ) / (
-            2.0 * self.H
-        )
-
-        derivative = np.array(
-            [
-                ddelta_dt,
-                domega_dt,
-            ],
-            dtype=float,
-        )
-
-        self._validate_state(
-            derivative,
-            name="derivative",
-        )
-
-        return derivative
-
-    # ==================================================================
-    # MECHANICAL POWER
-    # ==================================================================
-
-    @property
-    def mechanical_power(
-        self,
-    ) -> float:
-        """
-        Current mechanical input power.
-
-        The classical machine keeps this as an operating-point input,
-        not as an independently integrated state.
-
-        A future turbine/governor model can replace/update this value
-        through the dynamic-control composition layer.
-        """
-
-        return getattr(
-            self,
-            "_mechanical_power",
-            1.0,
-        )
-
-    def set_mechanical_power(
-        self,
-        mechanical_power: float,
-    ) -> None:
-        """
-        Set the current mechanical input power.
-
-        This method is intended for operating-point initialization and
-        external dynamic-control composition.
-        """
-
-        value = float(
-            mechanical_power
-        )
-
-        if not np.isfinite(
-            value
-        ):
-
-            raise ValueError(
-                "mechanical_power must "
-                "be finite."
-            )
-
-        self._mechanical_power = value
-
-    # ==================================================================
-    # HELPERS
-    # ==================================================================
-
-    @staticmethod
-    def _complex_power(
-        electrical_power: Any,
-    ) -> complex | None:
-        """
-        Extract a complex power from common GridForge power formats.
-        """
 
         if electrical_power is None:
 
-            return None
-
-        if isinstance(
-            electrical_power,
-            complex,
-        ):
-
-            return electrical_power
-
-        if hasattr(
-            electrical_power,
-            "apparent_power",
-        ):
-
-            return complex(
-                electrical_power.apparent_power
-            )
-
-        if hasattr(
-            electrical_power,
-            "active_power",
-        ):
-
-            p = float(
-                electrical_power.active_power
-            )
-
-            q = float(
-                getattr(
-                    electrical_power,
-                    "reactive_power",
-                    0.0,
-                )
-            )
-
-            return complex(
-                p,
-                q,
-            )
-
-        if isinstance(
-            electrical_power,
-            dict,
-        ):
-
-            if "active_power" in (
-                electrical_power
-            ):
-
-                return complex(
-                    float(
-                        electrical_power[
-                            "active_power"
-                        ]
-                    ),
-                    float(
-                        electrical_power.get(
-                            "reactive_power",
-                            0.0,
-                        )
-                    ),
-                )
-
-            if "P" in electrical_power:
-
-                return complex(
-                    float(
-                        electrical_power["P"]
-                    ),
-                    float(
-                        electrical_power.get(
-                            "Q",
-                            0.0,
-                        )
-                    ),
-                )
-
-        if np.isscalar(
-            electrical_power
-        ):
-
-            value = float(
-                electrical_power
-            )
-
-            if np.isfinite(
-                value
-            ):
-
-                return complex(
-                    value,
-                    0.0,
-                )
-
-        return None
-
-    @staticmethod
-    def _extract_active_power(
-        electrical_output: Any,
-    ) -> float:
-        """
-        Extract Pe from a machine electrical-output object.
-        """
-
-        if electrical_output is None:
-
-            raise MachineModelError(
-                "Electrical output "
-                "cannot be None."
-            )
-
-        if hasattr(
-            electrical_output,
-            "active_power",
-        ):
-
-            value = float(
-                electrical_output.active_power
-            )
-
-        elif isinstance(
-            electrical_output,
-            dict,
-        ):
-
-            if "active_power" in (
-                electrical_output
-            ):
-
-                value = float(
-                    electrical_output[
-                        "active_power"
-                    ]
-                )
-
-            elif "P" in electrical_output:
-
-                value = float(
-                    electrical_output["P"]
-                )
-
-            else:
-
-                raise MachineModelError(
-                    "Electrical output "
-                    "does not contain "
-                    "active power."
-                )
-
-        elif np.isscalar(
-            electrical_output
-        ):
-
-            value = float(
-                electrical_output
+            Pe = self.electrical_power(
+                state=state,
+                terminal_voltage=(
+                    terminal_voltage
+                ),
+                time=time,
             )
 
         else:
 
-            raise MachineModelError(
-                "Unsupported electrical "
-                "output format."
+            Pe = float(
+                electrical_power
             )
 
-        if not np.isfinite(
-            value
+            self._validate_scalar(
+                Pe,
+                "electrical_power",
+            )
+
+        result = (
+            self.swing_equation.derivative_vector(
+                state=state,
+                Pm=float(
+                    mechanical_power
+                ),
+                Pe=Pe,
+            )
+        )
+
+        if not np.all(
+            np.isfinite(result)
         ):
 
             raise MachineModelError(
-                "Electrical active power "
-                "must be finite."
+                "Machine derivative "
+                "calculation produced "
+                "non-finite values."
             )
 
-        return value
+        return result
 
-    def _validate_state(
+    # ==================================================================
+    # STATE VALIDATION
+    # ==================================================================
+
+    def validate_state(
         self,
         state: np.ndarray,
-        *,
-        name: str = "state",
     ) -> np.ndarray:
         """
-        Validate the classical machine state.
+        Validate and return a machine state vector.
+
+        Required ordering:
+
+            [delta, omega]
         """
 
         values = np.asarray(
@@ -1032,7 +807,7 @@ class ClassicalSynchronousMachine:
         if values.ndim != 1:
 
             raise MachineStateError(
-                f"{name} must be "
+                "Machine state must be "
                 "one-dimensional."
             )
 
@@ -1041,9 +816,9 @@ class ClassicalSynchronousMachine:
         ):
 
             raise MachineStateError(
-                f"{name} must contain "
-                f"{self.STATE_SIZE} "
-                "values."
+                "Classical machine state "
+                "must contain exactly "
+                "[delta, omega]."
             )
 
         if not np.all(
@@ -1051,16 +826,189 @@ class ClassicalSynchronousMachine:
         ):
 
             raise MachineStateError(
-                f"{name} contains "
+                "Machine state contains "
                 "non-finite values."
             )
 
         return values
 
+    # ==================================================================
+    # HELPERS
+    # ==================================================================
+
+    @staticmethod
+    def _validate_scalar(
+        value: float,
+        name: str,
+    ) -> None:
+
+        try:
+
+            numeric = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise MachineModelError(
+                f"{name} must be numeric."
+            ) from exc
+
+        if not np.isfinite(
+            numeric
+        ):
+
+            raise MachineModelError(
+                f"{name} must be finite."
+            )
+
+    @staticmethod
+    def _validate_complex(
+        value: complex,
+        name: str,
+    ) -> None:
+
+        if not (
+            np.isfinite(
+                value.real
+            )
+            and np.isfinite(
+                value.imag
+            )
+        ):
+
+            raise MachineModelError(
+                f"{name} must contain "
+                "finite real and "
+                "imaginary parts."
+            )
+
+    @staticmethod
+    def _extract_complex_power(
+        value: Any,
+    ) -> complex | None:
+        """
+        Extract complex power from supported operating-point formats.
+        """
+
+        if value is None:
+
+            return None
+
+        if isinstance(
+            value,
+            complex,
+        ):
+
+            result = value
+
+        elif hasattr(
+            value,
+            "apparent_power",
+        ):
+
+            result = complex(
+                value.apparent_power
+            )
+
+        elif hasattr(
+            value,
+            "active_power",
+        ):
+
+            result = complex(
+                float(
+                    value.active_power
+                ),
+                float(
+                    getattr(
+                        value,
+                        "reactive_power",
+                        0.0,
+                    )
+                ),
+            )
+
+        elif isinstance(
+            value,
+            dict,
+        ):
+
+            if "active_power" in value:
+
+                result = complex(
+                    float(
+                        value[
+                            "active_power"
+                        ]
+                    ),
+                    float(
+                        value.get(
+                            "reactive_power",
+                            0.0,
+                        )
+                    ),
+                )
+
+            elif "P" in value:
+
+                result = complex(
+                    float(
+                        value["P"]
+                    ),
+                    float(
+                        value.get(
+                            "Q",
+                            0.0,
+                        )
+                    ),
+                )
+
+            else:
+
+                return None
+
+        elif np.isscalar(
+            value
+        ):
+
+            result = complex(
+                float(value),
+                0.0,
+            )
+
+        else:
+
+            return None
+
+        if not (
+            np.isfinite(
+                result.real
+            )
+            and np.isfinite(
+                result.imag
+            )
+        ):
+
+            raise MachineModelError(
+                "Electrical power "
+                "contains non-finite "
+                "values."
+            )
+
+        return result
+
 
 # ======================================================================
-# BACKWARD-COMPATIBILITY ALIAS
+# LEGACY NAME
 # ======================================================================
+
+# Temporary compatibility alias. It does NOT reintroduce the old
+# DynamicGenerator implementation or its embedded AVR/Governor/PSS
+# architecture.
 
 DynamicGenerator = (
     ClassicalSynchronousMachine
@@ -1071,8 +1019,8 @@ __all__ = [
     "MachineModelError",
     "MachineParameterError",
     "MachineStateError",
-    "MachineElectricalOutput",
     "ClassicalMachineParameters",
+    "MachineElectricalOutput",
     "ClassicalSynchronousMachine",
     "DynamicGenerator",
 ]
