@@ -1,4 +1,3 @@
-```python
 """
 GridForge Reactive Power Limit Handler
 ======================================
@@ -6,36 +5,37 @@ GridForge Reactive Power Limit Handler
 File:
     core/solver/power_flow/q_limit_handler.py
 
-Industrial PV/PQ Reactive Power Limit Handler
+GridForge Power Flow Engine v1.0
+--------------------------------
+
+Reactive-power limit handling for PV buses during AC
+Newton-Raphson power-flow solution.
 
 Responsibilities
 ----------------
 - Detect reactive-power limit violations on PV buses.
 - Convert violating PV buses to PQ buses.
-- Clamp the specified reactive power to Qmin/Qmax.
-- Preserve deterministic PV -> PQ state transitions.
-- Provide diagnostics describing converted buses.
+- Clamp Q_spec to Q_min or Q_max.
+- Preserve deterministic PV -> PQ transitions.
+- Provide conversion diagnostics.
 
-This module is part of the Power Flow numerical orchestration
-layer.
-
-It does NOT:
+This module does NOT:
 - Perform Newton-Raphson iteration.
 - Build Ybus.
-- Calculate Ybus.
 - Assemble the Jacobian.
 - Solve linear systems.
 - Modify network topology.
 - Perform contingency analysis.
 - Perform short-circuit analysis.
-- Perform protection decisions.
+- Perform protection calculations.
+- Perform dynamic simulation.
 
-The actual AC power calculation is delegated to the shared
-reference numerical component:
+Reactive power is calculated through the shared reference
+numerical component:
 
     core.solver.common.mismatch.PowerMismatch
 
-Bus classification remains owned by the unified GridForge
+Bus classification remains owned by the canonical GridForge
 Bus model.
 
 Copyright © 2026 Subhendu Mishra
@@ -43,6 +43,8 @@ All Rights Reserved.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 
@@ -57,47 +59,47 @@ class QLimitHandler:
     Parameters
     ----------
     network:
-        GridForge Network object containing the ordered
+        GridForge Network instance containing the ordered
         collection of Bus objects.
 
     tolerance:
-        Numerical tolerance used when comparing calculated
-        reactive power against Qmin/Qmax.
+        Non-negative tolerance used when comparing calculated
+        reactive power against Q_min and Q_max.
 
     Notes
     -----
-    Only PV buses are considered for conversion.
+    Only buses currently classified as PV are candidates for
+    conversion.
 
-    A bus already classified as PQ is never converted again.
+    A violating PV bus undergoes:
 
-    The handler performs the following state transition:
+        PV -> PQ
 
-        PV
-         |
-         | Q > Qmax
-         | Q < Qmin
-         v
-        PQ
+    and its specified reactive power is clamped to the violated
+    limit.
 
-    When a limit is violated, the specified reactive power
-    is clamped to the violated limit.
+    Example
+    -------
+    If:
 
-    Example:
+        Q_calculated > Q_max
 
-        Q > Qmax
+    then:
 
         bus.Q_spec = bus.Q_max
         bus -> PQ
 
-    or:
+    Likewise, if:
 
-        Q < Qmin
+        Q_calculated < Q_min
+
+    then:
 
         bus.Q_spec = bus.Q_min
         bus -> PQ
 
-    The solver then rebuilds its mismatch/Jacobian structure
-    on the next Newton-Raphson iteration.
+    The Newton-Raphson solver is responsible for rebuilding the
+    mismatch/Jacobian structure after this state transition.
     """
 
     # =========================================================
@@ -106,28 +108,11 @@ class QLimitHandler:
 
     def __init__(
         self,
-        network,
+        network: Any,
         tolerance: float = 1.0e-8,
-    ):
+    ) -> None:
         """
         Initialize the reactive-power limit handler.
-
-        Parameters
-        ----------
-        network:
-            GridForge Network object.
-
-        tolerance:
-            Non-negative numerical tolerance for Q-limit
-            comparisons.
-
-        Raises
-        ------
-        ValueError
-            If the network is invalid or tolerance is invalid.
-
-        TypeError
-            If tolerance has an invalid type.
         """
 
         if network is None:
@@ -171,45 +156,25 @@ class QLimitHandler:
             )
 
         self.network = network
+        self.buses = network.buses
         self.tolerance = tolerance
 
-        self.buses = network.buses
-
-        # -----------------------------------------------------
-        # Record of buses converted during the current solver
-        # lifecycle.
+        # Diagnostic history only.
         #
-        # This is diagnostic information only.
-        # -----------------------------------------------------
-
-        self.converted = []
+        # This does not represent authoritative network state.
+        self.converted: list[dict[str, Any]] = []
 
     # =========================================================
-    # VALIDATION
+    # BUS INTERFACE VALIDATION
     # =========================================================
 
     def _validate_bus_interface(
         self,
-        bus,
+        bus: Any,
     ) -> None:
         """
-        Validate the minimum Bus interface required by the
-        Q-limit handler.
-
-        The unified Bus model is expected to provide:
-
-            bus.Q_spec
-            bus.is_pv()
-
-        and reactive limits:
-
-            bus.Q_min
-            bus.Q_max
-
-        Raises
-        ------
-        ValueError
-            If required information is unavailable.
+        Validate the minimum Bus interface required for
+        reactive-power limit handling.
         """
 
         if not hasattr(
@@ -253,26 +218,14 @@ class QLimitHandler:
             )
 
     # =========================================================
-    # YBUS VALIDATION
+    # YBUS ACCESS
     # =========================================================
 
-    def _get_ybus(
-        self,
-    ):
+    def _get_ybus(self):
         """
         Return the network Ybus.
 
-        Ybus ownership remains outside this module.
-
-        Returns
-        -------
-        matrix-like
-            Network Ybus matrix.
-
-        Raises
-        ------
-        ValueError
-            If Ybus is unavailable or has an invalid shape.
+        Ybus ownership remains with the Network layer.
         """
 
         Ybus = getattr(
@@ -298,37 +251,31 @@ class QLimitHandler:
             self.buses
         )
 
-        if Ybus.shape != (
+        expected_shape = (
             n,
             n,
-        ):
+        )
+
+        if Ybus.shape != expected_shape:
             raise ValueError(
-                "Ybus dimension does not match network bus "
-                f"count: expected {(n, n)}, "
+                "Ybus dimension does not match network "
+                f"bus count: expected {expected_shape}, "
                 f"received {Ybus.shape}."
             )
 
         return Ybus
 
     # =========================================================
-    # POWER CALCULATION
+    # REACTIVE POWER CALCULATION
     # =========================================================
 
-    def _calculate_q(
-        self,
-    ):
+    def _calculate_q(self) -> np.ndarray:
         """
-        Calculate current AC bus reactive-power injections.
+        Calculate the current AC reactive-power injection
+        for every bus.
 
-        The shared PowerMismatch reference implementation is
-        deliberately used so that Q-limit handling follows the
-        same electrical convention as the Newton-Raphson
-        mismatch and Jacobian.
-
-        Returns
-        -------
-        np.ndarray
-            Calculated Q injection for every bus.
+        PowerMismatch is the shared numerical reference for
+        the power-flow formulation.
         """
 
         Ybus = self._get_ybus()
@@ -345,12 +292,16 @@ class QLimitHandler:
             dtype=float,
         ).reshape(-1)
 
-        if Q.size != len(
+        expected_size = len(
             self.buses
-        ):
+        )
+
+        if Q.size != expected_size:
             raise ValueError(
                 "Calculated reactive-power vector has "
-                "incorrect dimension."
+                "incorrect dimension: "
+                f"expected {expected_size}, "
+                f"received {Q.size}."
             )
 
         if not np.all(
@@ -369,14 +320,11 @@ class QLimitHandler:
 
     def _validate_limits(
         self,
-        bus,
-    ):
+        bus: Any,
+    ) -> tuple[float, float]:
         """
-        Validate and return the reactive-power limits.
+        Validate and return:
 
-        Returns
-        -------
-        tuple[float, float]
             (Q_min, Q_max)
         """
 
@@ -401,69 +349,57 @@ class QLimitHandler:
 
         if not np.isfinite(
             q_min
-        ) or not np.isfinite(
+        ):
+            raise ValueError(
+                f"Bus '{getattr(bus, 'id', bus)}' "
+                "has non-finite Q_min."
+            )
+
+        if not np.isfinite(
             q_max
         ):
             raise ValueError(
-                "Bus reactive-power limits must be finite."
+                f"Bus '{getattr(bus, 'id', bus)}' "
+                "has non-finite Q_max."
             )
 
         if q_min > q_max:
             raise ValueError(
-                "Bus Q_min cannot be greater than Q_max."
+                f"Bus '{getattr(bus, 'id', bus)}' has "
+                "Q_min greater than Q_max."
             )
 
-        return q_min, q_max
+        return (
+            q_min,
+            q_max,
+        )
 
     # =========================================================
-    # BUS CONVERSION
+    # PV -> PQ CONVERSION
     # =========================================================
 
     def _convert_to_pq(
         self,
-        bus,
+        bus: Any,
         bus_index: int,
         q_value: float,
         q_limit: float,
         limit_type: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
-        Convert a PV bus to PQ and clamp its Q specification.
-
-        Parameters
-        ----------
-        bus:
-            Bus object.
-
-        bus_index:
-            Index in network.buses.
-
-        q_value:
-            Calculated reactive injection before conversion.
-
-        q_limit:
-            Limit at which the bus is clamped.
-
-        limit_type:
-            Either ``"Qmin"`` or ``"Qmax"``.
-
-        Returns
-        -------
-        dict
-            Conversion diagnostic record.
-
-        Notes
-        -----
-        This method intentionally performs only the state
-        transition required by the power-flow formulation.
-
-        The solver remains responsible for continuing the
-        Newton-Raphson iteration after the classification
-        changes.
+        Convert one PV bus to PQ and clamp Q_spec.
         """
+
+        if limit_type not in (
+            "Qmin",
+            "Qmax",
+        ):
+            raise ValueError(
+                "limit_type must be 'Qmin' or 'Qmax'."
+            )
 
         # -----------------------------------------------------
-        # Clamp specified reactive power.
+        # Clamp specified reactive power first.
         # -----------------------------------------------------
 
         bus.Q_spec = float(
@@ -471,57 +407,80 @@ class QLimitHandler:
         )
 
         # -----------------------------------------------------
-        # Change bus classification.
-        #
-        # The unified Bus model is expected to expose a
-        # conversion method.
+        # Perform canonical Bus state transition.
         # -----------------------------------------------------
 
-        if hasattr(
+        set_pq = getattr(
             bus,
             "set_pq",
-        ) and callable(
-            bus.set_pq,
+            None,
+        )
+
+        if callable(
+            set_pq,
         ):
 
-            bus.set_pq()
+            set_pq()
 
-        elif hasattr(
-            bus,
-            "set_type",
-        ) and callable(
-            bus.set_type,
-        ):
+        else:
 
-            bus.set_type(
+            set_type = getattr(
+                bus,
+                "set_type",
+                None,
+            )
+
+            if not callable(
+                set_type,
+            ):
+                raise ValueError(
+                    "Bus must provide either 'set_pq()' "
+                    "or 'set_type()' for PV-to-PQ conversion."
+                )
+
+            set_type(
                 "PQ"
             )
 
-        else:
-            raise ValueError(
-                "Bus must provide either 'set_pq()' or "
-                "'set_type()' to perform PV-to-PQ conversion."
-            )
-
         # -----------------------------------------------------
-        # Verify the state transition.
+        # Verify conversion.
         # -----------------------------------------------------
 
-        if hasattr(
+        is_pq = getattr(
             bus,
             "is_pq",
-        ) and callable(
-            bus.is_pq,
+            None,
+        )
+
+        if callable(
+            is_pq,
         ):
 
-            if not bus.is_pq():
+            if not is_pq():
                 raise RuntimeError(
                     "Bus PV-to-PQ conversion failed."
                 )
 
-        record = {
+        elif hasattr(
+            bus,
+            "type",
+        ):
+
+            if str(
+                bus.type
+            ).upper() != "PQ":
+                raise RuntimeError(
+                    "Bus PV-to-PQ conversion failed."
+                )
+
+        return {
             "bus_index": int(
                 bus_index
+            ),
+            "bus_id": getattr(
+                bus,
+                "id",
+                bus_index,
             ),
             "q_calculated": float(
                 q_value
@@ -534,37 +493,32 @@ class QLimitHandler:
             "to_type": "PQ",
         }
 
-        return record
-
     # =========================================================
     # CHECK LIMITS
     # =========================================================
 
     def check_limits(
         self,
-    ) -> list:
+    ) -> list[dict[str, Any]]:
         """
-        Check reactive-power limits on all PV buses.
+        Check reactive-power limits on all current PV buses.
 
         Returns
         -------
         list[dict]
-            List of buses converted from PV to PQ during this
-            call.
-
-            An empty list means no conversion occurred.
+            Conversion records for buses changed from PV to PQ.
 
         Notes
         -----
-        The method calculates Q once for the current network
-        state and evaluates every PV bus against its limits.
+        Reactive power is calculated exactly once for the current
+        network state.
 
-        At most one conversion occurs per bus during a single
-        call.
+        Each PV bus can be converted at most once during this
+        invocation.
 
-        Once converted to PQ, a bus is no longer considered
-        by subsequent calls unless some higher-level mechanism
-        explicitly changes it back to PV.
+        A bus converted to PQ is skipped by subsequent calls
+        unless another higher-level mechanism explicitly changes
+        it back to PV.
         """
 
         if len(
@@ -572,27 +526,40 @@ class QLimitHandler:
         ) == 0:
             return []
 
+        # -----------------------------------------------------
+        # Calculate Q once for the complete current state.
+        # -----------------------------------------------------
+
         Q = self._calculate_q()
 
-        changed = []
+        changed: list[dict[str, Any]] = []
 
-        for i, bus in enumerate(
+        # -----------------------------------------------------
+        # Evaluate buses in deterministic network order.
+        # -----------------------------------------------------
+
+        for bus_index, bus in enumerate(
             self.buses
         ):
 
-            # -------------------------------------------------
-            # Only PV buses are candidates.
-            # -------------------------------------------------
-
-            if not hasattr(
+            is_pv = getattr(
                 bus,
                 "is_pv",
+                None,
+            )
+
+            if not callable(
+                is_pv,
             ):
                 raise ValueError(
                     "Bus must provide an 'is_pv()' method."
                 )
 
-            if not bus.is_pv():
+            # -------------------------------------------------
+            # Only PV buses participate.
+            # -------------------------------------------------
+
+            if not is_pv():
                 continue
 
             self._validate_bus_interface(
@@ -604,11 +571,11 @@ class QLimitHandler:
             )
 
             q_calculated = float(
-                Q[i]
+                Q[bus_index]
             )
 
             # -------------------------------------------------
-            # Upper reactive-power limit.
+            # Upper limit.
             # -------------------------------------------------
 
             if q_calculated > (
@@ -619,7 +586,7 @@ class QLimitHandler:
 
                 record = self._convert_to_pq(
                     bus=bus,
-                    bus_index=i,
+                    bus_index=bus_index,
                     q_value=q_calculated,
                     q_limit=q_max,
                     limit_type="Qmax",
@@ -632,7 +599,7 @@ class QLimitHandler:
                 continue
 
             # -------------------------------------------------
-            # Lower reactive-power limit.
+            # Lower limit.
             # -------------------------------------------------
 
             if q_calculated < (
@@ -643,7 +610,7 @@ class QLimitHandler:
 
                 record = self._convert_to_pq(
                     bus=bus,
-                    bus_index=i,
+                    bus_index=bus_index,
                     q_value=q_calculated,
                     q_limit=q_min,
                     limit_type="Qmin",
@@ -654,7 +621,7 @@ class QLimitHandler:
                 )
 
         # -----------------------------------------------------
-        # Preserve conversion history.
+        # Preserve diagnostic history.
         # -----------------------------------------------------
 
         self.converted.extend(
@@ -673,10 +640,10 @@ class QLimitHandler:
         """
         Clear diagnostic conversion history.
 
-        This does NOT change bus states.
+        This method does not alter any Bus state.
         """
 
-        self.converted = []
+        self.converted.clear()
 
     # =========================================================
     # DIAGNOSTICS
@@ -684,9 +651,9 @@ class QLimitHandler:
 
     def summary(
         self,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
-        Return Q-limit handler diagnostics.
+        Return concise Q-limit handling diagnostics.
         """
 
         pv_count = 0
@@ -694,17 +661,29 @@ class QLimitHandler:
 
         for bus in self.buses:
 
-            if hasattr(
+            is_pv = getattr(
                 bus,
                 "is_pv",
-            ) and bus.is_pv():
+                None,
+            )
+
+            if callable(
+                is_pv,
+            ) and is_pv():
 
                 pv_count += 1
 
-            elif hasattr(
+                continue
+
+            is_pq = getattr(
                 bus,
                 "is_pq",
-            ) and bus.is_pq():
+                None,
+            )
+
+            if callable(
+                is_pq,
+            ) and is_pq():
 
                 pq_count += 1
 
@@ -731,7 +710,7 @@ class QLimitHandler:
         self,
     ) -> str:
         """
-        Developer-friendly representation.
+        Return a concise developer-facing representation.
         """
 
         return (
@@ -745,4 +724,3 @@ class QLimitHandler:
 __all__ = [
     "QLimitHandler",
 ]
-```
