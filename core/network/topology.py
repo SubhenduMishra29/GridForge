@@ -1,8 +1,9 @@
 """
-GridForge Network Topology Manager
-==================================
-
 GridForge Network Layer V2
+==========================
+
+Topology Manager
+----------------
 
 Maintains the electrical connectivity graph of an assembled
 GridForge Network.
@@ -52,13 +53,13 @@ Architecture
 
 Topology Principle
 ------------------
-The topology manager operates on canonical objects already owned by
-the Network.
+The topology manager operates on canonical objects already owned
+by the Network.
 
 It does not create replacement Bus, Line, Transformer, Breaker, or
 other electrical model objects.
 
-Graph representation
+Graph Representation
 --------------------
 A NetworkX MultiGraph is used because multiple physical electrical
 connections may exist between the same pair of buses.
@@ -67,7 +68,7 @@ Nodes:
     bus.id
 
 Edges:
-    physical topology-forming network elements
+    Physical topology-forming network elements.
 
 Each edge stores:
 
@@ -93,21 +94,17 @@ Elements with:
 
 are excluded from the active topology graph.
 
-Changing an element's service state invalidates both:
-
-    - topology
-    - topology-dependent network representations such as Y-bus
-
-The Network remains the owner of network-level invalidation.
+Network-level invalidation remains owned by Network. The topology
+manager maintains only the dirty state of its own derived graph.
 
 GridForge V2 Status
 -------------------
-This module is part of the GridForge Network Layer V2 audit/freeze
-baseline.
+This module is part of the GridForge Network Layer V2
+audit/freeze baseline.
 
-Changes require evidence of a fundamental topology requirement that
-cannot be satisfied by the existing model, network, or analysis
-architecture.
+Changes require evidence of a fundamental topology requirement
+that cannot be satisfied by the existing model, network, or
+analysis architecture.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -139,6 +136,8 @@ class TopologyManager:
 
     The graph is never the source of truth for electrical equipment.
     Canonical model objects remain owned by the Network/model layers.
+
+    Network-level state invalidation is owned by ``Network``.
     """
 
     # =================================================================
@@ -166,6 +165,7 @@ class TopologyManager:
 
         self.graph = nx.MultiGraph()
 
+        # The graph is a derived representation.
         self._dirty = True
 
     # =================================================================
@@ -174,25 +174,16 @@ class TopologyManager:
 
     def _invalidate(self) -> None:
         """
-        Invalidate the derived topology graph and notify the Network.
+        Mark the derived topology graph as dirty.
 
-        Network-level invalidation is attempted through the owning
-        Network's private invalidation hook.
+        Network-level invalidation is intentionally NOT performed here.
 
-        This keeps topology-changing operations synchronized with
-        Y-bus and other topology-dependent network state.
+        The Network owns network-wide invalidation because topology
+        changes can invalidate other derived representations such as
+        Y-bus.
         """
 
         self._dirty = True
-
-        invalidate = getattr(
-            self.network,
-            "_invalidate_topology",
-            None,
-        )
-
-        if callable(invalidate):
-            invalidate()
 
     # =================================================================
     # GRAPH BUILD
@@ -245,7 +236,6 @@ class TopologyManager:
             "lines",
             [],
         ):
-
             self._add_branch_edge(
                 line,
                 "line",
@@ -260,7 +250,6 @@ class TopologyManager:
             "transformers",
             [],
         ):
-
             self._add_branch_edge(
                 transformer,
                 "transformer",
@@ -354,15 +343,21 @@ class TopologyManager:
 
         if u not in self.graph:
             raise ValueError(
-                f"{element_type.capitalize()} '{getattr(element, 'id', element)}' "
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
                 f"references unregistered from_bus '{u}'."
             )
 
         if v not in self.graph:
             raise ValueError(
-                f"{element_type.capitalize()} '{getattr(element, 'id', element)}' "
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
                 f"references unregistered to_bus '{v}'."
             )
+
+        # -------------------------------------------------------------
+        # MultiGraph preserves parallel physical connections.
+        # -------------------------------------------------------------
 
         self.graph.add_edge(
             u,
@@ -491,23 +486,17 @@ class TopologyManager:
 
         Notes
         -----
-        This changes the element's service state and invalidates
-        topology-dependent network state.
+        This changes the element's service state and invalidates the
+        topology graph.
+
+        For network-wide derived-state invalidation, callers should
+        prefer ``Network.set_element_status()`` when operating through
+        the Network API.
         """
 
-        if element is None:
-            raise ValueError(
-                "Element cannot be None."
-            )
-
-        if not hasattr(
-            element,
-            "in_service",
-        ):
-            raise AttributeError(
-                "Element does not provide an "
-                "'in_service' state."
-            )
+        self._validate_service_state_element(
+            element
+        )
 
         element.in_service = False
 
@@ -529,8 +518,30 @@ class TopologyManager:
 
         Notes
         -----
-        This changes the element's service state and invalidates
-        topology-dependent network state.
+        This changes the element's service state and invalidates the
+        topology graph.
+
+        For network-wide derived-state invalidation, callers should
+        prefer ``Network.set_element_status()`` when operating through
+        the Network API.
+        """
+
+        self._validate_service_state_element(
+            element
+        )
+
+        element.in_service = True
+
+        self._invalidate()
+
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_service_state_element(
+        element: Any,
+    ) -> None:
+        """
+        Validate that an element exposes an in-service state.
         """
 
         if element is None:
@@ -546,10 +557,6 @@ class TopologyManager:
                 "Element does not provide an "
                 "'in_service' state."
             )
-
-        element.in_service = True
-
-        self._invalidate()
 
     # =================================================================
     # CONTINGENCY SUPPORT
@@ -587,19 +594,9 @@ class TopologyManager:
         convenience method for complete study execution.
         """
 
-        if element is None:
-            raise ValueError(
-                "Element cannot be None."
-            )
-
-        if not hasattr(
-            element,
-            "in_service",
-        ):
-            raise AttributeError(
-                "Element does not provide an "
-                "'in_service' state."
-            )
+        self._validate_service_state_element(
+            element
+        )
 
         original_state = bool(
             element.in_service
@@ -627,12 +624,16 @@ class TopologyManager:
             }
 
         finally:
+            # ---------------------------------------------------------
+            # Always restore the original canonical model state.
+            # ---------------------------------------------------------
+
             element.in_service = original_state
 
             self._invalidate()
 
-            # Rebuild immediately so the manager does not retain a
-            # temporary outage graph after the method returns.
+            # Rebuild immediately so the manager does not retain
+            # a temporary outage graph after returning.
             self.build()
 
     # =================================================================
@@ -683,6 +684,7 @@ class TopologyManager:
             f"<TopologyManager "
             f"buses={self.graph.number_of_nodes()}, "
             f"connections={self.graph.number_of_edges()}, "
-            f"islands={nx.number_connected_components(self.graph)}, "
+            f"islands="
+            f"{nx.number_connected_components(self.graph)}, "
             f"dirty={self._dirty}>"
         )
