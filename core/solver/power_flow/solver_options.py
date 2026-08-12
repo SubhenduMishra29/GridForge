@@ -1,4 +1,3 @@
-```python
 """
 GridForge Power Flow Solver Options
 ===================================
@@ -6,8 +5,11 @@ GridForge Power Flow Solver Options
 File:
     core/solver/power_flow/solver_options.py
 
+GridForge Power Flow Solver Options v1.0
+----------------------------------------
+
 Industrial configuration and validation for the GridForge
-AC Power Flow Engine.
+AC Newton-Raphson Power Flow Engine.
 
 Responsibilities
 ----------------
@@ -15,6 +17,7 @@ Responsibilities
 - Validate numerical parameters.
 - Provide deterministic solver defaults.
 - Prevent invalid numerical configurations.
+- Provide serializable configuration diagnostics.
 
 This module contains configuration only.
 
@@ -25,6 +28,36 @@ It does NOT:
 - Assemble Jacobians.
 - Solve linear systems.
 - Handle reactive-power limits.
+- Select numerical backends.
+- Implement advanced convergence algorithms.
+
+Current Numerical Scope
+-----------------------
+The reference GridForge power-flow solver supports:
+
+- Classical Newton-Raphson iteration.
+- Explicit Newton damping.
+- Explicit linear-system regularization.
+- PV/PQ reactive-power limit enforcement.
+- Deterministic convergence criteria.
+
+Advanced numerical strategies are intentionally NOT part of
+this configuration baseline.
+
+Deferred capabilities include:
+
+- Line search.
+- Trust-region methods.
+- Levenberg-Marquardt methods.
+- Adaptive damping.
+- Automatic flat-start initialization.
+- Voltage-limit optimization/control.
+- Angle-limit control.
+- GPU backend selection.
+- Sparse backend selection.
+
+These capabilities may be introduced later only when a
+fundamental numerical requirement justifies them.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -33,6 +66,8 @@ All Rights Reserved.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+import math
 
 
 @dataclass
@@ -46,8 +81,12 @@ class SolverOptions:
     tolerance:
         Maximum acceptable infinity-norm mismatch.
 
+        Must be finite and strictly greater than zero.
+
     max_iterations:
-        Maximum Newton-Raphson iterations.
+        Maximum number of Newton-Raphson iterations.
+
+        Must be an integer greater than or equal to one.
 
     damping:
         Newton correction multiplier.
@@ -58,8 +97,12 @@ class SolverOptions:
         Values below 1.0:
             Damped Newton step.
 
+        Required range:
+
+            0.0 < damping <= 1.0
+
     regularization:
-        Non-negative regularization parameter supplied
+        Non-negative diagonal regularization parameter supplied
         to the linear solver.
 
         Zero disables explicit regularization.
@@ -71,8 +114,15 @@ class SolverOptions:
         Enable PV-bus reactive-power limit enforcement.
 
     q_limit_tolerance:
-        Numerical tolerance used when evaluating
-        generator reactive-power limits.
+        Numerical tolerance used when evaluating generator
+        reactive-power limits.
+
+    Notes
+    -----
+    This class contains configuration only.
+
+    It deliberately does not contain algorithm-selection
+    controls for advanced numerical methods.
     """
 
     # =========================================================
@@ -110,35 +160,97 @@ class SolverOptions:
     q_limit_tolerance: float = 1.0e-8
 
     # =========================================================
+    # VALIDATION HELPERS
+    # =========================================================
+
+    @staticmethod
+    def _validate_real(
+        value,
+        name: str,
+    ) -> float:
+        """
+        Validate and normalize a real-valued numerical option.
+
+        Parameters
+        ----------
+        value:
+            Value to validate.
+
+        name:
+            Configuration field name used in diagnostics.
+
+        Returns
+        -------
+        float
+            Finite floating-point representation.
+
+        Raises
+        ------
+        TypeError
+            If the value is not a real numerical value or is bool.
+
+        ValueError
+            If the value is NaN or infinite.
+        """
+
+        if isinstance(
+            value,
+            bool,
+        ) or not isinstance(
+            value,
+            (int, float),
+        ):
+            raise TypeError(
+                f"{name} must be a real number."
+            )
+
+        value = float(
+            value
+        )
+
+        if not math.isfinite(
+            value
+        ):
+            raise ValueError(
+                f"{name} must be finite."
+            )
+
+        return value
+
+    # =========================================================
     # VALIDATION
     # =========================================================
 
     def validate(self) -> None:
         """
-        Validate solver configuration.
+        Validate the complete solver configuration.
 
         Raises
         ------
         ValueError
-            If any numerical option is invalid.
+            If a numerical option is outside its permitted
+            range or is non-finite.
 
         TypeError
             If an option has an invalid basic type.
+
+        Notes
+        -----
+        Validation is intentionally explicit so invalid
+        numerical configuration cannot silently enter the
+        Newton-Raphson solver.
         """
 
         # -----------------------------------------------------
         # Tolerance
         # -----------------------------------------------------
 
-        if not isinstance(
+        tolerance = self._validate_real(
             self.tolerance,
-            (int, float)
-        ):
-            raise TypeError(
-                "tolerance must be a real number."
-            )
+            "tolerance",
+        )
 
-        if self.tolerance <= 0.0:
+        if tolerance <= 0.0:
             raise ValueError(
                 "tolerance must be greater than zero."
             )
@@ -149,10 +261,10 @@ class SolverOptions:
 
         if isinstance(
             self.max_iterations,
-            bool
+            bool,
         ) or not isinstance(
             self.max_iterations,
-            int
+            int,
         ):
             raise TypeError(
                 "max_iterations must be an integer."
@@ -167,16 +279,13 @@ class SolverOptions:
         # Damping
         # -----------------------------------------------------
 
-        if not isinstance(
+        damping = self._validate_real(
             self.damping,
-            (int, float)
-        ):
-            raise TypeError(
-                "damping must be a real number."
-            )
+            "damping",
+        )
 
         if not (
-            0.0 < self.damping <= 1.0
+            0.0 < damping <= 1.0
         ):
             raise ValueError(
                 "damping must satisfy "
@@ -187,15 +296,12 @@ class SolverOptions:
         # Regularization
         # -----------------------------------------------------
 
-        if not isinstance(
+        regularization = self._validate_real(
             self.regularization,
-            (int, float)
-        ):
-            raise TypeError(
-                "regularization must be a real number."
-            )
+            "regularization",
+        )
 
-        if self.regularization < 0.0:
+        if regularization < 0.0:
             raise ValueError(
                 "regularization cannot be negative."
             )
@@ -206,7 +312,7 @@ class SolverOptions:
 
         if not isinstance(
             self.verbose,
-            bool
+            bool,
         ):
             raise TypeError(
                 "verbose must be a boolean."
@@ -214,7 +320,7 @@ class SolverOptions:
 
         if not isinstance(
             self.enforce_q_limits,
-            bool
+            bool,
         ):
             raise TypeError(
                 "enforce_q_limits must be a boolean."
@@ -224,15 +330,12 @@ class SolverOptions:
         # Q-limit tolerance
         # -----------------------------------------------------
 
-        if not isinstance(
+        q_limit_tolerance = self._validate_real(
             self.q_limit_tolerance,
-            (int, float)
-        ):
-            raise TypeError(
-                "q_limit_tolerance must be a real number."
-            )
+            "q_limit_tolerance",
+        )
 
-        if self.q_limit_tolerance < 0.0:
+        if q_limit_tolerance < 0.0:
             raise ValueError(
                 "q_limit_tolerance cannot be negative."
             )
@@ -249,6 +352,11 @@ class SolverOptions:
         -------
         dict
             Serializable solver configuration.
+
+        Notes
+        -----
+        The returned dictionary contains only configuration
+        state and does not expose any runtime solver state.
         """
 
         return {
@@ -308,17 +416,3 @@ class SolverOptions:
 __all__ = [
     "SolverOptions",
 ]
-#=======================================================================
-# Not Added 
-#=======================================================================
-# not add advanced options such as:
-
-# line_search
-# trust_region
-# Levenberg-Marquardt
-# flat_start
-# voltage_limits
-# angle_limits
-# adaptive_damping
-# GPU
-# sparse_backend
