@@ -1,4 +1,3 @@
-```python
 """
 GridForge Transient-Stability Events
 ====================================
