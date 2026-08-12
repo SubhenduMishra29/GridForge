@@ -2,76 +2,144 @@
 # core/model/transformer.py
 
 """
-GridForge Two-Winding Transformer Model
-=======================================
+GridForge Transformer Model
+===========================
 
 GridForge Model Layer V2
 
-Defines the GridForge two-winding transformer model.
+Defines the core two-terminal transformer equipment model.
 
 Architecture
 ------------
 Transformer is a specialized Branch.
+
+The core Transformer model represents the stable physical/electrical
+identity required by the GridForge network and study architecture.
 
 Common Branch responsibilities:
     - Two-terminal connectivity
     - Series impedance
     - Equipment rating
     - In-service state
-    - Common electrical interface
+    - Common branch electrical interface
+    - Transformer-compatible tap ratio
+    - Transformer-compatible phase shift
 
-Transformer-specific responsibilities:
-    - Off-nominal tap ratio
-    - Phase-shifting angle
-    - Complex transformer ratio
+Transformer-specific detailed behavior belongs to the GridForge
+plugin architecture under:
 
-The Transformer model does NOT:
-    - Build Y-bus.
-    - Perform power-flow calculations.
-    - Perform fault calculations.
+    core/plugins/transformer/
+
+Examples of transformer-specific capabilities that may be provided
+by plugins include:
+
+    - Winding definitions
+    - Vector groups
+    - Grounding and neutral configuration
+    - Tap-changer models
+    - OLTC control
+    - Magnetizing/core-loss models
+    - Detailed transformer equivalents
+    - Sequence models
+    - Thermal models
+    - Specialized transformer controls
+
+The core Transformer model does NOT:
+
+    - Build Y-bus matrices.
+    - Perform load-flow calculations.
+    - Calculate transformer loading.
+    - Calculate transformer losses.
+    - Perform short-circuit calculations.
     - Perform voltage regulation.
-    - Perform numerical optimization.
-    - Calculate loading.
+    - Execute tap-changer control.
+    - Perform protection calculations.
+    - Perform dynamic simulation.
     - Store GUI geometry.
+    - Own global network topology.
 
-Those responsibilities belong to the appropriate
-network/solver/analysis layers.
+Those responsibilities belong to the appropriate network,
+solver, analysis, protection, simulation, UI, or plugin layers.
 
-Transformer Representation
---------------------------
-The transformer uses the standard complex off-nominal ratio:
+Core Transformer Representation
+-------------------------------
+The core transformer uses the common Branch electrical representation:
 
-    a = t * exp(jθ)
+    Z_series = R + jX
 
-where:
+and the common transformer-compatible parameters:
 
-    t = tap magnitude
-    θ = phase-shift angle in radians
+    tap
+        Magnitude tap ratio.
 
-The public ``phase_shift_deg`` interface uses degrees because this
-is the conventional engineering/user-facing representation.
+        Normal transformer value: 1.0
 
-The inherited ``Branch.shift`` value is maintained in radians for
-compatibility with the common branch/numerical interface.
+    shift
+        Phase-shifting angle in radians.
+
+        Normal transformer value: 0.0
+
+The exact numerical interpretation of tap and phase shift,
+including Y-bus stamping conventions and sign conventions, belongs
+to the network/solver contract.
+
+Plugin Architecture
+--------------------
+The core Transformer intentionally remains small and stable.
+
+Detailed transformer engineering behavior should be implemented
+through plugins rather than by continuously expanding this class.
+
+The plugin layer may associate specialized capabilities with a
+Transformer instance without moving numerical study logic into the
+core model.
+
+This preserves:
+
+    core/model
+        stable physical equipment contract
+
+    core/plugins
+        specialized equipment behavior and engineering models
+
+    core/network
+        network representation and topology
+
+    core/solver
+        numerical computation
+
+    core/analysis
+        public study interfaces
+
+    core/protection
+        protection engineering
 
 State Ownership
 ---------------
-The transformer model stores physical equipment parameters.
+The Transformer stores authoritative equipment parameters only.
 
-Calculated quantities such as transformer loading, losses, terminal
-power, currents, and voltage regulation are NOT stored as persistent
-model state. They belong to study/result objects or analysis layers.
+Calculated quantities such as:
 
-This prevents stale numerical results from becoming part of the
-authoritative electrical model.
+    - loading
+    - losses
+    - terminal power
+    - terminal current
+    - voltage regulation
+    - fault current
+    - thermal state
+    - control results
+
+must not become persistent authoritative Transformer state.
+
+They belong to study/result objects or the appropriate higher layer.
 
 GridForge V2 Status
 -------------------
 This module is part of the frozen GridForge Model Layer V2 baseline.
 
 Changes require evidence of a genuinely fundamental transformer
-model requirement that cannot be satisfied by a higher-level
-network/solver/analysis layer.
+equipment requirement that cannot be satisfied through the existing
+Branch contract or the transformer plugin architecture.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -79,19 +147,18 @@ All Rights Reserved.
 
 from __future__ import annotations
 
-from math import isfinite, radians
-import cmath
-
 from .branch import Branch
 
 
 # =====================================================================
-# TWO-WINDING TRANSFORMER
+# TRANSFORMER
 # =====================================================================
 
 class Transformer(Branch):
     """
-    GridForge two-winding transformer.
+    Core GridForge two-terminal transformer model.
+
+    Transformer is intentionally a thin specialization of ``Branch``.
 
     Parameters
     ----------
@@ -105,18 +172,18 @@ class Transformer(Branch):
         To-side GridForge Bus.
 
     r : float
-        Series resistance in per-unit.
+        Transformer series resistance in per-unit.
 
     x : float
-        Series reactance in per-unit.
+        Transformer series reactance in per-unit.
 
-    tap_ratio : float, optional
-        Off-nominal transformer tap magnitude.
+    tap : float, optional
+        Transformer off-nominal magnitude tap ratio.
 
         Default: 1.0
 
-    phase_shift_deg : float, optional
-        Phase-shifting angle in degrees.
+    shift : float, optional
+        Transformer phase-shifting angle in radians.
 
         Default: 0.0
 
@@ -124,23 +191,17 @@ class Transformer(Branch):
         Human-readable transformer name.
 
     rate_mva : float, optional
-        Transformer continuous/equipment rating in MVA.
+        Transformer equipment rating in MVA.
 
     Notes
     -----
-    Transformer shunt susceptance is not represented by the common
-    Branch ``b`` parameter in this model. The transformer therefore
-    passes:
+    The Transformer does not independently implement tap-changer,
+    vector-group, grounding, winding, magnetizing, or control logic.
 
-        b = 0.0
+    Such capabilities belong to transformer plugins.
 
-    to the Branch base class.
-
-    Any transformer magnetizing branch, core-loss representation,
-    grounding representation, winding connection, or more detailed
-    transformer equivalent must be introduced explicitly as part of
-    a future transformer model extension rather than being silently
-    inferred here.
+    The inherited Branch fields ``tap`` and ``shift`` form the common
+    numerical interface consumed by the network/solver layers.
     """
 
     def __init__(
@@ -150,36 +211,14 @@ class Transformer(Branch):
         bus_to,
         r: float,
         x: float,
-        tap_ratio: float = 1.0,
-        phase_shift_deg: float = 0.0,
+        tap: float = 1.0,
+        shift: float = 0.0,
         name: str = "",
         rate_mva: float = 100.0,
     ):
-        # =============================================================
-        # TRANSFORMER-SPECIFIC VALIDATION
-        # =============================================================
-
-        tap_ratio = float(tap_ratio)
-        phase_shift_deg = float(phase_shift_deg)
-
-        if not isfinite(tap_ratio):
-            raise ValueError(
-                "Transformer tap ratio must be finite."
-            )
-
-        if tap_ratio <= 0.0:
-            raise ValueError(
-                "Transformer tap ratio must be greater than zero."
-            )
-
-        if not isfinite(phase_shift_deg):
-            raise ValueError(
-                "Transformer phase shift must be finite."
-            )
-
-        # =============================================================
-        # COMMON BRANCH INITIALIZATION
-        # =============================================================
+        """
+        Initialize a GridForge transformer.
+        """
 
         super().__init__(
             id=id,
@@ -190,146 +229,25 @@ class Transformer(Branch):
             b=0.0,
             name=name,
             rate_mva=rate_mva,
-            tap=tap_ratio,
-            shift=radians(phase_shift_deg),
+            tap=tap,
+            shift=shift,
         )
 
-        # =============================================================
-        # TRANSFORMER PARAMETERS
-        # =============================================================
-
-        # These are the authoritative transformer-specific values.
-        self.tap_ratio = tap_ratio
-        self.phase_shift_deg = phase_shift_deg
-
-        # The inherited Branch fields ``tap`` and ``shift`` are kept
-        # synchronized whenever the transformer control methods are
-        # used. They provide the common numerical interface expected
-        # by the network/solver layers.
-
     # =================================================================
-    # TAP CONTROL
-    # =================================================================
-
-    def set_tap(
-        self,
-        tap_ratio: float,
-    ) -> None:
-        """
-        Set the transformer off-nominal tap ratio.
-
-        Parameters
-        ----------
-        tap_ratio : float
-            Positive finite transformer tap magnitude.
-
-        Notes
-        -----
-        The transformer-specific ``tap_ratio`` is authoritative.
-
-        The inherited ``Branch.tap`` value is updated simultaneously
-        to preserve the common Branch interface.
-        """
-
-        tap_ratio = float(tap_ratio)
-
-        if not isfinite(tap_ratio):
-            raise ValueError(
-                "Transformer tap ratio must be finite."
-            )
-
-        if tap_ratio <= 0.0:
-            raise ValueError(
-                "Transformer tap ratio must be greater than zero."
-            )
-
-        self.tap_ratio = tap_ratio
-
-        # Synchronize common Branch representation.
-        self.tap = tap_ratio
-
-    # =================================================================
-    # PHASE-SHIFT CONTROL
-    # =================================================================
-
-    def set_phase_shift(
-        self,
-        phase_shift_deg: float,
-    ) -> None:
-        """
-        Set transformer phase shift in degrees.
-
-        Parameters
-        ----------
-        phase_shift_deg : float
-            Finite phase-shifting angle in degrees.
-
-        Notes
-        -----
-        ``phase_shift_deg`` is the engineering/user-facing value.
-
-        The inherited ``Branch.shift`` value is maintained in radians
-        for the common numerical interface.
-        """
-
-        phase_shift_deg = float(phase_shift_deg)
-
-        if not isfinite(phase_shift_deg):
-            raise ValueError(
-                "Transformer phase shift must be finite."
-            )
-
-        self.phase_shift_deg = phase_shift_deg
-
-        # Synchronize common Branch representation.
-        self.shift = radians(phase_shift_deg)
-
-    # =================================================================
-    # COMPLEX TRANSFORMER RATIO
+    # TRANSFORMER IDENTIFICATION
     # =================================================================
 
     @property
-    def complex_tap(self) -> complex:
+    def is_transformer(self) -> bool:
         """
-        Return the complex transformer ratio.
-
-        The standard representation is:
-
-            a = t * exp(jθ)
-
-        where:
-
-            t = tap magnitude
-            θ = phase shift in radians
-
-        Returns
-        -------
-        complex
-            Complex off-nominal transformer ratio.
-
-        Notes
-        -----
-        This property provides data for the network/solver layer.
-
-        It does not perform Y-bus stamping itself.
+        Return True because this equipment is a transformer.
         """
 
-        return (
-            self.tap_ratio
-            * cmath.exp(1j * self.shift)
-        )
+        return True
 
     # =================================================================
     # TRANSFORMER STATUS
     # =================================================================
-
-    @property
-    def has_phase_shift(self) -> bool:
-        """
-        Return True when the transformer has a non-zero phase shift.
-        """
-
-        return self.phase_shift_deg != 0.0
 
     @property
     def is_off_nominal(self) -> bool:
@@ -337,7 +255,17 @@ class Transformer(Branch):
         Return True when the transformer tap differs from unity.
         """
 
-        return self.tap_ratio != 1.0
+        return self.tap != 1.0
+
+    @property
+    def has_phase_shift(self) -> bool:
+        """
+        Return True when the transformer has a non-zero phase shift.
+
+        The Branch ``shift`` value is expressed in radians.
+        """
+
+        return self.shift != 0.0
 
     # =================================================================
     # DIAGNOSTICS
@@ -353,9 +281,8 @@ class Transformer(Branch):
         data.update(
             {
                 "type": "transformer",
-                "tap_ratio": self.tap_ratio,
-                "phase_shift_deg": self.phase_shift_deg,
-                "complex_tap": self.complex_tap,
+                "tap": self.tap,
+                "shift": self.shift,
             }
         )
 
@@ -376,8 +303,9 @@ class Transformer(Branch):
             f"{self.from_bus.id} -> {self.to_bus.id}, "
             f"r={self.r:.6f}, "
             f"x={self.x:.6f}, "
-            f"tap={self.tap_ratio:.6f}, "
-            f"shift={self.phase_shift_deg:.3f}°, "
+            f"tap={self.tap:.6f}, "
+            f"shift={self.shift:.6f} rad, "
+            f"rate={self.rate_mva:.2f} MVA, "
             f"in_service={self.in_service}>"
         )
 ```
