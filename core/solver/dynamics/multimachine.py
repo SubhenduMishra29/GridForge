@@ -1,201 +1,70 @@
+```python
 """
 GridForge Multi-Machine Dynamic System
 ======================================
 
-Coordinates multiple dynamic machine models and exposes a single global
-dynamic-state interface to the DAE solver.
+Coordinates multiple dynamic machine models for transient-stability
+simulation.
 
 Responsibilities
 ----------------
-- Manage an ordered collection of dynamic machines.
+- Register dynamic machine models.
 - Maintain deterministic machine ordering.
-- Build and initialize the global dynamic state vector.
-- Map the global state vector to individual machines.
-- Collect machine current injections.
-- Collect machine electrical outputs.
-- Assemble machine derivatives into one global derivative vector.
+- Define the global dynamic-state layout.
+- Pack machine states into one global vector.
+- Unpack a global vector into machine-local states.
+- Evaluate machine electrical outputs.
+- Evaluate machine differential equations.
 
 Non-responsibilities
 --------------------
 This module does NOT:
 
-- solve the network algebraic equations;
-- construct Y-bus;
-- implement swing equations;
-- implement AVR/governor/PSS physics;
 - perform numerical integration;
-- process protection events;
-- modify network topology.
+- solve the network;
+- construct Y-bus;
+- process simulation events;
+- implement AVR/GOV/PSS;
+- implement protection;
+- own the simulation time loop.
 
-Architecture
+The numerical integrator is provided by ``integrator.py``.
+
+The network/algebraic solution is provided by the DAE/network layer.
+
+The machine equations are supplied by ``machine_models.py``.
+
+Global state
 ------------
 
-    DAESolver
-        |
-        v
-    MultiMachineSystem
-        |
-        +---- DynamicMachine 1
-        |
-        +---- DynamicMachine 2
-        |
-        +---- DynamicMachine N
+For N classical machines:
 
-The global state vector is the sole numerical state passed to the
-integrator.
+    x =
+    [
+        δ1, ω1,
+        δ2, ω2,
+        ...
+        δN, ωN
+    ]
 
-Machine-specific state ownership is handled through the machine-model
-state interface rather than by maintaining a second independent global
-copy.
+The layout is deterministic and is derived from machine order.
+
+For future higher-order machine models, each machine may expose a
+different ``state_size`` while the global vector remains contiguous.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Protocol
+from typing import Iterable, Mapping
 
 import numpy as np
 
-
-# ======================================================================
-# TYPES
-# ======================================================================
-
-State = np.ndarray
-
-VoltageMap = Mapping[
-    str,
-    complex,
-]
-
-ElectricalOutputMap = Mapping[
-    str,
-    Any,
-]
-
-
-# ======================================================================
-# MACHINE MODEL CONTRACT
-# ======================================================================
-
-
-class DynamicMachine(Protocol):
-    """
-    Protocol implemented by dynamic machine models.
-
-    A machine must have a stable unique identifier and bus identifier.
-
-    The machine state is represented as a vector so that different
-    machine models can expose different dynamic orders without forcing
-    the multi-machine system to know their internal physics.
-    """
-
-    @property
-    def machine_id(self) -> str:
-        """Unique machine identifier."""
-        ...
-
-    @property
-    def bus_id(self) -> str:
-        """Electrical bus identifier."""
-        ...
-
-    @property
-    def state_size(self) -> int:
-        """Number of dynamic states."""
-        ...
-
-    def initial_state(
-        self,
-        terminal_voltage: complex,
-        electrical_power: Any,
-        mechanical_power: float,
-        *,
-        time: float = 0.0,
-    ) -> State:
-        """
-        Return the machine's initialized dynamic state.
-        """
-        ...
-
-    def current_injection(
-        self,
-        state: State,
-        terminal_voltage: complex,
-        *,
-        time: float = 0.0,
-    ) -> complex:
-        """
-        Return the machine terminal current injection.
-        """
-        ...
-
-    def electrical_output(
-        self,
-        state: State,
-        terminal_voltage: complex,
-        *,
-        time: float = 0.0,
-    ) -> Any:
-        """
-        Return the machine electrical output.
-        """
-        ...
-
-    def derivatives(
-        self,
-        state: State,
-        terminal_voltage: complex,
-        electrical_output: Any,
-        *,
-        time: float = 0.0,
-    ) -> State:
-        """
-        Return the machine dynamic derivatives.
-        """
-        ...
-
-
-# ======================================================================
-# STATE SLICE
-# ======================================================================
-
-
-@dataclass(frozen=True)
-class MachineStateSlice:
-    """
-    Immutable mapping between a machine and its global state slice.
-    """
-
-    machine_id: str
-    start: int
-    stop: int
-
-    @property
-    def size(self) -> int:
-        """Number of states belonging to the machine."""
-        return self.stop - self.start
-
-    def extract(
-        self,
-        state: State,
-    ) -> State:
-        """Extract this machine's state from a global state vector."""
-
-        return state[
-            self.start:self.stop
-        ]
-
-    def insert(
-        self,
-        target: State,
-        values: State,
-    ) -> None:
-        """Insert machine states into a global state vector."""
-
-        target[
-            self.start:self.stop
-        ] = values
+from .machine_models import (
+    ClassicalSynchronousMachine,
+    MachineElectricalOutput,
+    MachineModelError,
+)
 
 
 # ======================================================================
@@ -206,19 +75,76 @@ class MachineStateSlice:
 class MultiMachineError(
     RuntimeError
 ):
-    """Base exception for multi-machine failures."""
+    """Base exception for multi-machine errors."""
 
 
 class DuplicateMachineError(
     MultiMachineError
 ):
-    """Raised when duplicate machine IDs are supplied."""
+    """Raised when a machine ID is duplicated."""
 
 
-class MachineStateError(
+class UnknownMachineError(
     MultiMachineError
 ):
-    """Raised when a machine returns an invalid state."""
+    """Raised when a machine cannot be found."""
+
+
+class StateLayoutError(
+    MultiMachineError
+):
+    """Raised when the global state layout is invalid."""
+
+
+# ======================================================================
+# STATE SLICE
+# ======================================================================
+
+
+@dataclass(frozen=True)
+class MachineStateSlice:
+    """
+    Location of one machine's state inside the global state vector.
+
+    Attributes
+    ----------
+    machine_id:
+        Machine identifier.
+
+    start:
+        Inclusive global-vector index.
+
+    stop:
+        Exclusive global-vector index.
+    """
+
+    machine_id: str
+    start: int
+    stop: int
+
+    @property
+    def size(
+        self,
+    ) -> int:
+        """Number of states belonging to the machine."""
+
+        return self.stop - self.start
+
+
+# ======================================================================
+# MACHINE ENTRY
+# ======================================================================
+
+
+@dataclass(frozen=True)
+class MachineEntry:
+    """
+    Registered machine and its global-state location.
+    """
+
+    machine: ClassicalSynchronousMachine
+
+    state_slice: MachineStateSlice
 
 
 # ======================================================================
@@ -228,92 +154,184 @@ class MachineStateError(
 
 class MultiMachineSystem:
     """
-    Global dynamic system containing multiple machine models.
+    Container and evaluator for multiple dynamic machines.
 
     Parameters
     ----------
     machines:
-        Ordered iterable of dynamic machine models.
+        Optional iterable of machine models.
 
     Notes
     -----
-    Machine ordering is deterministic and becomes part of the numerical
-    state-vector contract.
+    Machine ordering is deterministic and preserved in the order of
+    registration.
 
-    Once constructed, the machine collection is treated as immutable for
-    the lifetime of the simulation. This prevents state-vector indexing
-    from changing during numerical integration.
+    The global state vector is generated from the registered machine
+    models rather than from hard-coded assumptions about δ, ω, Efd,
+    Pm, or PSS states.
     """
 
     def __init__(
         self,
         machines: Iterable[
-            DynamicMachine
-        ],
+            ClassicalSynchronousMachine
+        ] | None = None,
     ) -> None:
 
-        machine_list = list(
-            machines
-        )
+        self._machines: list[
+            ClassicalSynchronousMachine
+        ] = []
 
-        if not machine_list:
+        self._entries: dict[
+            str,
+            MachineEntry,
+        ] = {}
 
-            raise ValueError(
-                "MultiMachineSystem "
-                "requires at least "
-                "one machine."
-            )
+        self._state_size = 0
 
-        self._machines = tuple(
-            machine_list
-        )
+        if machines is not None:
 
-        self._validate_machines()
+            for machine in machines:
 
-        self._state_slices = (
-            self._build_state_slices()
-        )
-
-        self._state_size = (
-            sum(
-                item.size
-                for item in
-                self._state_slices.values()
-            )
-        )
-
-        self._state = np.empty(
-            self._state_size,
-            dtype=float,
-        )
-
-        self._initialized = False
+                self.add_machine(
+                    machine
+                )
 
     # ==================================================================
-    # MACHINE COLLECTION
+    # MACHINE REGISTRATION
+    # ==================================================================
+
+    def add_machine(
+        self,
+        machine: ClassicalSynchronousMachine,
+    ) -> None:
+        """
+        Register a dynamic machine.
+
+        Machine IDs must be unique.
+        """
+
+        if not hasattr(
+            machine,
+            "machine_id",
+        ):
+
+            raise MultiMachineError(
+                "Machine must expose "
+                "machine_id."
+            )
+
+        machine_id = str(
+            machine.machine_id
+        )
+
+        if machine_id in self._entries:
+
+            raise DuplicateMachineError(
+                f"Machine '{machine_id}' "
+                "is already registered."
+            )
+
+        if not hasattr(
+            machine,
+            "state_size",
+        ):
+
+            raise MultiMachineError(
+                f"Machine '{machine_id}' "
+                "does not expose "
+                "state_size."
+            )
+
+        state_size = int(
+            machine.state_size
+        )
+
+        if state_size <= 0:
+
+            raise StateLayoutError(
+                f"Machine '{machine_id}' "
+                "has invalid state size."
+            )
+
+        state_slice = (
+            MachineStateSlice(
+                machine_id=machine_id,
+                start=self._state_size,
+                stop=(
+                    self._state_size
+                    + state_size
+                ),
+            )
+        )
+
+        entry = MachineEntry(
+            machine=machine,
+            state_slice=state_slice,
+        )
+
+        self._machines.append(
+            machine
+        )
+
+        self._entries[
+            machine_id
+        ] = entry
+
+        self._state_size += state_size
+
+    def remove_machine(
+        self,
+        machine_id: str,
+    ) -> None:
+        """
+        Remove a machine and rebuild the global state layout.
+        """
+
+        machine_id = str(
+            machine_id
+        )
+
+        if machine_id not in self._entries:
+
+            raise UnknownMachineError(
+                f"Unknown machine "
+                f"'{machine_id}'."
+            )
+
+        self._machines = [
+            machine
+            for machine in self._machines
+            if (
+                machine.machine_id
+                != machine_id
+            )
+        ]
+
+        self._rebuild_layout()
+
+    # ==================================================================
+    # ACCESS
     # ==================================================================
 
     @property
     def machines(
         self,
     ) -> tuple[
-        DynamicMachine,
+        ClassicalSynchronousMachine,
         ...,
     ]:
-        """
-        Ordered machine collection.
+        """Return registered machines."""
 
-        The returned tuple prevents accidental mutation of machine
-        ordering during simulation.
-        """
-
-        return self._machines
+        return tuple(
+            self._machines
+        )
 
     @property
     def machine_count(
         self,
     ) -> int:
-        """Number of dynamic machines."""
+        """Return number of registered machines."""
 
         return len(
             self._machines
@@ -323,354 +341,296 @@ class MultiMachineSystem:
     def state_size(
         self,
     ) -> int:
-        """Total number of dynamic states."""
+        """Return total global dynamic-state size."""
 
         return self._state_size
 
     @property
-    def state(
+    def state_layout(
         self,
-    ) -> State:
-        """
-        Current global dynamic state.
-
-        A copy is returned to prevent external mutation.
-        """
-
-        return self._state.copy()
-
-    # ==================================================================
-    # STATE MAPPING
-    # ==================================================================
-
-    @property
-    def state_slices(
-        self,
-    ) -> Mapping[
-        str,
+    ) -> tuple[
         MachineStateSlice,
+        ...,
     ]:
-        """
-        Mapping of machine ID to global state slice.
-        """
+        """Return global state layout in machine order."""
 
-        return dict(
-            self._state_slices
+        return tuple(
+            self._entries[
+                machine.machine_id
+            ].state_slice
+            for machine in self._machines
         )
 
-    def machine_state(
+    def get_machine(
         self,
         machine_id: str,
-        state: State | None = None,
-    ) -> State:
-        """
-        Return the state belonging to one machine.
-        """
+    ) -> ClassicalSynchronousMachine:
+        """Return a machine by ID."""
 
-        machine_slice = (
-            self._state_slices.get(
+        try:
+
+            return self._entries[
                 str(machine_id)
-            )
-        )
+            ].machine
 
-        if machine_slice is None:
+        except KeyError as exc:
 
-            raise KeyError(
+            raise UnknownMachineError(
                 f"Unknown machine "
                 f"'{machine_id}'."
-            )
+            ) from exc
 
-        source = (
-            self._state
-            if state is None
-            else np.asarray(
-                state,
-                dtype=float,
-            )
-        )
-
-        self._validate_global_state(
-            source
-        )
-
-        return machine_slice.extract(
-            source
-        ).copy()
-
-    def set_state(
+    def get_state_slice(
         self,
-        state: State,
-    ) -> None:
+        machine_id: str,
+    ) -> MachineStateSlice:
+        """Return the global state slice for a machine."""
+
+        try:
+
+            return self._entries[
+                str(machine_id)
+            ].state_slice
+
+        except KeyError as exc:
+
+            raise UnknownMachineError(
+                f"Unknown machine "
+                f"'{machine_id}'."
+            ) from exc
+
+    # ==================================================================
+    # STATE PACKING
+    # ==================================================================
+
+    def pack_states(
+        self,
+        machine_states: Mapping[
+            str,
+            np.ndarray,
+        ],
+    ) -> np.ndarray:
         """
-        Replace the complete global dynamic state.
+        Pack machine-local states into one global vector.
+
+        Parameters
+        ----------
+        machine_states:
+            Mapping:
+
+                machine_id -> local state vector
+
+        Returns
+        -------
+        numpy.ndarray
+            Global dynamic state vector.
         """
 
-        state = np.asarray(
-            state,
+        x = np.zeros(
+            self._state_size,
             dtype=float,
         )
 
-        self._validate_global_state(
+        for machine in self._machines:
+
+            machine_id = (
+                machine.machine_id
+            )
+
+            if machine_id not in (
+                machine_states
+            ):
+
+                raise StateLayoutError(
+                    f"Missing state for "
+                    f"machine '{machine_id}'."
+                )
+
+            local_state = (
+                machine.validate_state(
+                    machine_states[
+                        machine_id
+                    ]
+                )
+            )
+
+            state_slice = (
+                self.get_state_slice(
+                    machine_id
+                )
+            )
+
+            if local_state.size != (
+                state_slice.size
+            ):
+
+                raise StateLayoutError(
+                    f"State size mismatch "
+                    f"for machine "
+                    f"'{machine_id}'."
+                )
+
+            x[
+                state_slice.start:
+                state_slice.stop
+            ] = local_state
+
+        return x
+
+    def unpack_states(
+        self,
+        state: np.ndarray,
+    ) -> dict[
+        str,
+        np.ndarray,
+    ]:
+        """
+        Split a global state vector into machine-local states.
+        """
+
+        x = self.validate_global_state(
             state
         )
 
-        self._state = state.copy()
+        result: dict[
+            str,
+            np.ndarray,
+        ] = {}
+
+        for machine in self._machines:
+
+            machine_id = (
+                machine.machine_id
+            )
+
+            state_slice = (
+                self.get_state_slice(
+                    machine_id
+                )
+            )
+
+            result[
+                machine_id
+            ] = x[
+                state_slice.start:
+                state_slice.stop
+            ].copy()
+
+        return result
+
+    def pack_current_states(
+        self,
+        states: Mapping[
+            str,
+            np.ndarray,
+        ],
+    ) -> np.ndarray:
+        """
+        Alias for explicit current-state packing.
+        """
+
+        return self.pack_states(
+            states
+        )
 
     # ==================================================================
     # INITIALIZATION
     # ==================================================================
 
-    def initialize(
+    def initial_state(
         self,
-        terminal_voltages: VoltageMap,
+        terminal_voltages: Mapping[
+            str,
+            complex,
+        ],
         electrical_powers: Mapping[
             str,
-            Any,
-        ],
+            object,
+        ] | None = None,
         mechanical_powers: Mapping[
             str,
             float,
-        ],
-        *,
-        time: float = 0.0,
-    ) -> State:
+        ] | None = None,
+    ) -> np.ndarray:
         """
-        Initialize every machine and assemble the global state vector.
+        Build the global initial dynamic state.
+
+        Parameters
+        ----------
+        terminal_voltages:
+            Mapping:
+
+                bus_id -> complex terminal voltage
+
+        electrical_powers:
+            Optional mapping:
+
+                machine_id -> electrical power
+
+        mechanical_powers:
+            Optional mapping:
+
+                machine_id -> mechanical power
         """
 
-        if time < 0.0:
-
-            raise ValueError(
-                "Initial time cannot "
-                "be negative."
-            )
-
-        state = np.empty(
-            self._state_size,
-            dtype=float,
+        electrical_powers = (
+            {}
+            if electrical_powers is None
+            else electrical_powers
         )
 
-        for machine in (
-            self._machines
-        ):
+        mechanical_powers = (
+            {}
+            if mechanical_powers is None
+            else mechanical_powers
+        )
+
+        local_states: dict[
+            str,
+            np.ndarray,
+        ] = {}
+
+        for machine in self._machines:
 
             machine_id = (
-                str(
-                    machine.machine_id
-                )
+                machine.machine_id
             )
 
-            bus_id = (
-                str(
-                    machine.bus_id
-                )
-            )
+            bus_id = machine.bus_id
 
             if bus_id not in (
                 terminal_voltages
             ):
 
-                raise MachineStateError(
-                    f"No terminal voltage "
-                    f"provided for machine "
-                    f"'{machine_id}' at "
-                    f"bus '{bus_id}'."
-                )
-
-            if machine_id not in (
-                electrical_powers
-            ):
-
-                raise MachineStateError(
-                    f"No electrical power "
-                    f"provided for machine "
-                    f"'{machine_id}'."
-                )
-
-            if machine_id not in (
-                mechanical_powers
-            ):
-
-                raise MachineStateError(
-                    f"No mechanical power "
-                    f"provided for machine "
-                    f"'{machine_id}'."
-                )
-
-            voltage = complex(
-                terminal_voltages[
-                    bus_id
-                ]
-            )
-
-            electrical_power = (
-                electrical_powers[
-                    machine_id
-                ]
-            )
-
-            mechanical_power = float(
-                mechanical_powers[
-                    machine_id
-                ]
-            )
-
-            try:
-
-                machine_state = (
-                    machine.initial_state(
-                        terminal_voltage=(
-                            voltage
-                        ),
-                        electrical_power=(
-                            electrical_power
-                        ),
-                        mechanical_power=(
-                            mechanical_power
-                        ),
-                        time=time,
-                    )
-                )
-
-            except Exception as exc:
-
-                raise MachineStateError(
-                    "Failed to initialize "
-                    f"machine "
-                    f"'{machine_id}'."
-                ) from exc
-
-            machine_state = (
-                self._validate_machine_state(
-                    machine,
-                    machine_state,
-                )
-            )
-
-            self._state_slices[
-                machine_id
-            ].insert(
-                state,
-                machine_state,
-            )
-
-        self._state = state
-
-        self._initialized = True
-
-        return self.state
-
-    # ==================================================================
-    # CURRENT INJECTIONS
-    # ==================================================================
-
-    def current_injections(
-        self,
-        state: State,
-        *,
-        time: float = 0.0,
-        terminal_voltages: VoltageMap | None = None,
-    ) -> dict[
-        str,
-        complex,
-    ]:
-        """
-        Calculate current injections from all machines.
-
-        Returns
-        -------
-        dict
-            Mapping:
-
-                bus_id -> complex current
-
-        If multiple dynamic machines are connected to the same bus,
-        their injections are accumulated.
-        """
-
-        state = self._validate_global_state(
-            state
-        )
-
-        voltages = (
-            self._require_terminal_voltages(
-                terminal_voltages
-            )
-        )
-
-        injections: dict[
-            str,
-            complex,
-        ] = {}
-
-        for machine in (
-            self._machines
-        ):
-
-            machine_id = (
-                str(
-                    machine.machine_id
-                )
-            )
-
-            bus_id = (
-                str(
-                    machine.bus_id
-                )
-            )
-
-            if bus_id not in voltages:
-
-                raise MachineStateError(
-                    f"No terminal voltage "
-                    f"available for machine "
-                    f"'{machine_id}' at "
-                    f"bus '{bus_id}'."
-                )
-
-            machine_state = (
-                self.machine_state(
-                    machine_id,
-                    state,
-                )
-            )
-
-            try:
-
-                current = complex(
-                    machine.current_injection(
-                        state=machine_state,
-                        terminal_voltage=(
-                            complex(
-                                voltages[
-                                    bus_id
-                                ]
-                            )
-                        ),
-                        time=time,
-                    )
-                )
-
-            except Exception as exc:
-
                 raise MultiMachineError(
-                    "Failed to calculate "
-                    f"current injection "
-                    f"for machine "
-                    f"'{machine_id}'."
-                ) from exc
-
-            injections[
-                bus_id
-            ] = (
-                injections.get(
-                    bus_id,
-                    0.0 + 0.0j,
+                    f"Missing terminal "
+                    f"voltage for bus "
+                    f"'{bus_id}'."
                 )
-                + current
+
+            local_states[
+                machine_id
+            ] = machine.initial_state(
+                terminal_voltage=(
+                    terminal_voltages[
+                        bus_id
+                    ]
+                ),
+                electrical_power=(
+                    electrical_powers.get(
+                        machine_id
+                    )
+                ),
+                mechanical_power=(
+                    mechanical_powers.get(
+                        machine_id
+                    )
+                ),
             )
 
-        return injections
+        return self.pack_states(
+            local_states
+        )
 
     # ==================================================================
     # ELECTRICAL OUTPUTS
@@ -678,467 +638,339 @@ class MultiMachineSystem:
 
     def electrical_outputs(
         self,
-        state: State,
-        terminal_voltages: VoltageMap,
-        *,
-        time: float = 0.0,
+        state: np.ndarray,
+        terminal_voltages: Mapping[
+            str,
+            complex,
+        ],
     ) -> dict[
         str,
-        Any,
+        MachineElectricalOutput,
     ]:
         """
-        Calculate electrical outputs for all machines.
+        Calculate electrical output of every machine.
         """
 
-        state = self._validate_global_state(
-            state
-        )
-
-        voltages = (
-            self._require_terminal_voltages(
-                terminal_voltages
+        local_states = (
+            self.unpack_states(
+                state
             )
         )
 
         outputs: dict[
             str,
-            Any,
+            MachineElectricalOutput,
         ] = {}
 
-        for machine in (
-            self._machines
-        ):
+        for machine in self._machines:
 
             machine_id = (
-                str(
-                    machine.machine_id
-                )
+                machine.machine_id
             )
 
-            bus_id = (
-                str(
-                    machine.bus_id
-                )
-            )
+            bus_id = machine.bus_id
 
-            if bus_id not in voltages:
-
-                raise MachineStateError(
-                    f"No terminal voltage "
-                    f"available for machine "
-                    f"'{machine_id}'."
-                )
-
-            machine_state = (
-                self.machine_state(
-                    machine_id,
-                    state,
-                )
-            )
-
-            try:
-
-                outputs[
-                    machine_id
-                ] = (
-                    machine.electrical_output(
-                        state=machine_state,
-                        terminal_voltage=(
-                            complex(
-                                voltages[
-                                    bus_id
-                                ]
-                            )
-                        ),
-                        time=time,
-                    )
-                )
-
-            except Exception as exc:
+            if bus_id not in (
+                terminal_voltages
+            ):
 
                 raise MultiMachineError(
-                    "Failed to calculate "
-                    f"electrical output "
-                    f"for machine "
-                    f"'{machine_id}'."
-                ) from exc
+                    f"Missing terminal "
+                    f"voltage for bus "
+                    f"'{bus_id}'."
+                )
+
+            outputs[
+                machine_id
+            ] = machine.electrical_output(
+                state=local_states[
+                    machine_id
+                ],
+                terminal_voltage=(
+                    terminal_voltages[
+                        bus_id
+                    ]
+                ),
+            )
 
         return outputs
 
+    def electrical_powers(
+        self,
+        state: np.ndarray,
+        terminal_voltages: Mapping[
+            str,
+            complex,
+        ],
+    ) -> dict[
+        str,
+        float,
+    ]:
+        """
+        Return active electrical power Pe for every machine.
+        """
+
+        outputs = (
+            self.electrical_outputs(
+                state,
+                terminal_voltages,
+            )
+        )
+
+        return {
+            machine_id:
+            output.active_power
+            for (
+                machine_id,
+                output
+            ) in outputs.items()
+        }
+
     # ==================================================================
-    # DERIVATIVES
+    # DIFFERENTIAL EQUATIONS
     # ==================================================================
 
     def derivatives(
         self,
-        state: State,
-        terminal_voltages: VoltageMap,
-        electrical_outputs: ElectricalOutputMap,
+        state: np.ndarray,
+        terminal_voltages: Mapping[
+            str,
+            complex,
+        ],
+        mechanical_powers: Mapping[
+            str,
+            float,
+        ],
         *,
         time: float = 0.0,
-    ) -> State:
+    ) -> np.ndarray:
         """
-        Assemble the global dynamic derivative vector.
+        Evaluate the global machine differential equations.
+
+        Parameters
+        ----------
+        state:
+            Global dynamic-state vector.
+
+        terminal_voltages:
+            Current network terminal-voltage solution.
+
+        mechanical_powers:
+            Current mechanical inputs, supplied externally.
+
+        time:
+            Simulation time.
         """
 
-        state = self._validate_global_state(
+        x = self.validate_global_state(
             state
         )
 
-        voltages = (
-            self._require_terminal_voltages(
-                terminal_voltages
+        local_states = (
+            self.unpack_states(
+                x
             )
         )
 
-        derivatives = np.empty(
+        derivative = np.zeros(
             self._state_size,
             dtype=float,
         )
 
-        for machine in (
-            self._machines
-        ):
+        electrical_outputs = (
+            self.electrical_outputs(
+                state=x,
+                terminal_voltages=(
+                    terminal_voltages
+                ),
+            )
+        )
+
+        for machine in self._machines:
 
             machine_id = (
-                str(
-                    machine.machine_id
-                )
+                machine.machine_id
             )
-
-            bus_id = (
-                str(
-                    machine.bus_id
-                )
-            )
-
-            if bus_id not in voltages:
-
-                raise MachineStateError(
-                    f"No terminal voltage "
-                    f"available for machine "
-                    f"'{machine_id}'."
-                )
 
             if machine_id not in (
-                electrical_outputs
+                mechanical_powers
             ):
 
                 raise MultiMachineError(
-                    f"No electrical output "
-                    f"available for machine "
+                    f"Missing mechanical "
+                    f"power for machine "
                     f"'{machine_id}'."
                 )
 
-            machine_state = (
-                self.machine_state(
-                    machine_id,
-                    state,
+            local_derivative = (
+                machine.derivatives(
+                    state=local_states[
+                        machine_id
+                    ],
+                    terminal_voltage=(
+                        terminal_voltages[
+                            machine.bus_id
+                        ]
+                    ),
+                    mechanical_power=(
+                        mechanical_powers[
+                            machine_id
+                        ]
+                    ),
+                    electrical_power=(
+                        electrical_outputs[
+                            machine_id
+                        ].active_power
+                    ),
+                    time=time,
                 )
             )
 
-            try:
-
-                machine_derivative = (
-                    machine.derivatives(
-                        state=machine_state,
-                        terminal_voltage=(
-                            complex(
-                                voltages[
-                                    bus_id
-                                ]
-                            )
-                        ),
-                        electrical_output=(
-                            electrical_outputs[
-                                machine_id
-                            ]
-                        ),
-                        time=time,
-                    )
-                )
-
-            except Exception as exc:
-
-                raise MultiMachineError(
-                    "Failed to calculate "
-                    f"derivatives for "
-                    f"machine "
-                    f"'{machine_id}'."
-                ) from exc
-
-            machine_derivative = (
-                self._validate_machine_state(
-                    machine,
-                    machine_derivative,
-                    name="derivative",
+            state_slice = (
+                self.get_state_slice(
+                    machine_id
                 )
             )
 
-            self._state_slices[
-                machine_id
-            ].insert(
-                derivatives,
-                machine_derivative,
+            derivative[
+                state_slice.start:
+                state_slice.stop
+            ] = local_derivative
+
+        if not np.all(
+            np.isfinite(
+                derivative
+            )
+        ):
+
+            raise MultiMachineError(
+                "Global derivative "
+                "contains non-finite "
+                "values."
             )
 
-        return derivatives
+        return derivative
 
     # ==================================================================
     # VALIDATION
     # ==================================================================
 
-    def _validate_machines(
+    def validate_global_state(
         self,
-    ) -> None:
-        """
-        Validate machine collection and IDs.
-        """
-
-        identifiers: set[
-            str
-        ] = set()
-
-        for machine in (
-            self._machines
-        ):
-
-            if not hasattr(
-                machine,
-                "machine_id",
-            ):
-
-                raise TypeError(
-                    "Every dynamic machine "
-                    "must provide "
-                    "'machine_id'."
-                )
-
-            if not hasattr(
-                machine,
-                "bus_id",
-            ):
-
-                raise TypeError(
-                    "Every dynamic machine "
-                    "must provide "
-                    "'bus_id'."
-                )
-
-            machine_id = str(
-                machine.machine_id
-            )
-
-            if not machine_id:
-
-                raise ValueError(
-                    "Machine ID cannot "
-                    "be empty."
-                )
-
-            if machine_id in identifiers:
-
-                raise DuplicateMachineError(
-                    "Duplicate machine ID "
-                    f"'{machine_id}'."
-                )
-
-            identifiers.add(
-                machine_id
-            )
-
-            try:
-
-                state_size = int(
-                    machine.state_size
-                )
-
-            except Exception as exc:
-
-                raise TypeError(
-                    f"Machine "
-                    f"'{machine_id}' has "
-                    "an invalid "
-                    "'state_size'."
-                ) from exc
-
-            if state_size <= 0:
-
-                raise ValueError(
-                    f"Machine "
-                    f"'{machine_id}' must "
-                    "have at least one "
-                    "dynamic state."
-                )
-
-    def _build_state_slices(
-        self,
-    ) -> dict[
-        str,
-        MachineStateSlice,
-    ]:
-        """
-        Build deterministic machine-to-state mappings.
-        """
-
-        slices: dict[
-            str,
-            MachineStateSlice,
-        ] = {}
-
-        offset = 0
-
-        for machine in (
-            self._machines
-        ):
-
-            machine_id = str(
-                machine.machine_id
-            )
-
-            size = int(
-                machine.state_size
-            )
-
-            slices[
-                machine_id
-            ] = MachineStateSlice(
-                machine_id=machine_id,
-                start=offset,
-                stop=offset + size,
-            )
-
-            offset += size
-
-        return slices
-
-    def _validate_global_state(
-        self,
-        state: State,
+        state: np.ndarray,
     ) -> np.ndarray:
         """
-        Validate the global state vector.
+        Validate the complete global dynamic-state vector.
         """
 
-        state = np.asarray(
+        x = np.asarray(
             state,
             dtype=float,
         )
 
-        if state.ndim != 1:
+        if x.ndim != 1:
 
-            raise MachineStateError(
-                "Global dynamic state "
-                "must be one-dimensional."
-            )
-
-        if state.size != (
-            self._state_size
-        ):
-
-            raise MachineStateError(
-                "Global dynamic state "
-                f"has {state.size} values; "
-                f"expected {self._state_size}."
-            )
-
-        if not np.all(
-            np.isfinite(state)
-        ):
-
-            raise MachineStateError(
-                "Global dynamic state "
-                "contains non-finite "
-                "values."
-            )
-
-        return state
-
-    @staticmethod
-    def _validate_machine_state(
-        machine: DynamicMachine,
-        values: State,
-        *,
-        name: str = "state",
-    ) -> np.ndarray:
-        """
-        Validate a machine-local state vector.
-        """
-
-        values = np.asarray(
-            values,
-            dtype=float,
-        )
-
-        expected = int(
-            machine.state_size
-        )
-
-        if values.ndim != 1:
-
-            raise MachineStateError(
-                f"Machine "
-                f"'{machine.machine_id}' "
-                f"{name} must be "
+            raise StateLayoutError(
+                "Global state must be "
                 "one-dimensional."
             )
 
-        if values.size != expected:
+        if x.size != (
+            self._state_size
+        ):
 
-            raise MachineStateError(
-                f"Machine "
-                f"'{machine.machine_id}' "
-                f"{name} has "
-                f"{values.size} values; "
-                f"expected {expected}."
+            raise StateLayoutError(
+                "Global state size "
+                f"must be {self._state_size}; "
+                f"received {x.size}."
             )
 
         if not np.all(
-            np.isfinite(values)
+            np.isfinite(x)
         ):
 
-            raise MachineStateError(
-                f"Machine "
-                f"'{machine.machine_id}' "
-                f"{name} contains "
+            raise StateLayoutError(
+                "Global state contains "
                 "non-finite values."
             )
 
-        return values
+        return x
 
-    @staticmethod
-    def _require_terminal_voltages(
-        terminal_voltages: VoltageMap | None,
-    ) -> dict[
-        str,
-        complex,
-    ]:
+    # ==================================================================
+    # INTERNAL
+    # ==================================================================
+
+    def _rebuild_layout(
+        self,
+    ) -> None:
         """
-        Validate and normalize terminal-voltage data.
+        Rebuild state slices after machine removal.
         """
 
-        if terminal_voltages is None:
+        self._entries.clear()
 
-            raise MachineStateError(
-                "Terminal voltages "
-                "are required."
+        offset = 0
+
+        for machine in self._machines:
+
+            machine_id = (
+                machine.machine_id
             )
 
-        return {
-            str(bus_id): complex(
-                voltage
+            state_size = int(
+                machine.state_size
             )
-            for bus_id, voltage
-            in terminal_voltages.items()
-        }
+
+            state_slice = (
+                MachineStateSlice(
+                    machine_id=machine_id,
+                    start=offset,
+                    stop=(
+                        offset
+                        + state_size
+                    ),
+                )
+            )
+
+            self._entries[
+                machine_id
+            ] = MachineEntry(
+                machine=machine,
+                state_slice=state_slice,
+            )
+
+            offset += state_size
+
+        self._state_size = offset
+
+
+# ======================================================================
+# CONVENIENCE FACTORY
+# ======================================================================
+
+
+def create_multimachine_system(
+    machines: Iterable[
+        ClassicalSynchronousMachine
+    ],
+) -> MultiMachineSystem:
+    """
+    Construct a MultiMachineSystem from an iterable of machines.
+    """
+
+    return MultiMachineSystem(
+        machines=machines
+    )
 
 
 __all__ = [
-    "DynamicMachine",
-    "MachineStateSlice",
     "MultiMachineError",
     "DuplicateMachineError",
-    "MachineStateError",
+    "UnknownMachineError",
+    "StateLayoutError",
+    "MachineStateSlice",
+    "MachineEntry",
     "MultiMachineSystem",
+    "create_multimachine_system",
 ]
 ```
