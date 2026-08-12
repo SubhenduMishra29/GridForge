@@ -1,77 +1,112 @@
 """
-GridForge Potential Transformer Model
-=====================================
-
 GridForge Model Layer V2
+========================
 
-Defines the canonical Potential Transformer (PT) equipment model.
+File:
+    core/model/pt.py
 
-A PT is a voltage measurement transformer physically connected to the
-power-system primary circuit and providing a scaled secondary voltage
-for measurement, protection, control, and instrumentation.
+Purpose
+-------
+Canonical Potential Transformer (PT) equipment model for GridForge V2.
+
+A PT is a physical instrument transformer connected to the power
+system primary circuit and providing an isolated, scaled secondary
+voltage representation for:
+
+    - measurement
+    - protection
+    - metering
+    - control
+    - instrumentation
 
 Architecture
 ------------
 
-                    POTENTIAL TRANSFORMER
-                             │
-               ┌─────────────┴─────────────┐
-               │                           │
-          PRIMARY SIDE               SECONDARY SIDE
-               │                           │
-        Electrical circuit          Measurement circuit
-               │                           │
-        ┌──────┴──────┐             ┌──────┴──────┐
-        │             │             │             │
-   Primary H1     Primary H2    Secondary X1  Secondary X2
-        │             │             │             │
-        └──────┬──────┘             └──────┬──────┘
-               │                           │
-        Power topology              Measurement /
-                                    protection
+                 POWER SYSTEM
+                      |
+                      |
+               Primary terminals
+                  H1       H2
+                   |       |
+                   +--- PT--+
+                       |
+                 Secondary side
+                  X1       X2
+                   |       |
+                   +-------+
+                       |
+             Measurement / protection
+                       |
+              Measurement Channel
+                       |
+                 Relay Input
+                       |
+                    Relay
 
-Responsibilities
-----------------
-This module is responsible for:
+The PT is an equipment model.
 
-- Representing a physical PT.
-- Representing its primary electrical terminals.
-- Representing its secondary measurement terminals.
-- Storing rated primary voltage.
-- Storing rated secondary voltage.
-- Storing accuracy-class information.
-- Storing rated burden.
-- Storing polarity.
-- Storing service state.
-- Providing local state validation.
-- Providing diagnostic information.
+It does NOT:
 
-This module does NOT:
-
-- Build network topology.
-- Register terminals with Network.
-- Build Y-bus.
-- Calculate network voltages.
-- Perform relay calculations.
-- Perform protection logic.
-- Perform measurement simulation.
-- Manage GUI objects.
+    - generate measurement signals;
+    - store measured voltage;
+    - create measurement channels;
+    - connect itself to relays;
+    - implement protection algorithms;
+    - calculate network voltage;
+    - build network topology;
+    - create Bus objects;
+    - build Y-bus;
+    - perform load flow;
+    - perform short-circuit calculations;
+    - perform dynamic simulation;
+    - operate circuit breakers;
+    - manage GUI state.
 
 Those responsibilities belong to the appropriate GridForge layers.
 
-GridForge V2 Boundary
----------------------
-The PT primary terminals participate in the physical/electrical
-power-system graph.
+Authoritative ownership
+-----------------------
+The PT owns:
 
-The PT secondary terminals belong to the measurement/protection
+    - equipment identity;
+    - primary/secondary interfaces;
+    - rated voltage;
+    - accuracy information;
+    - burden information;
+    - polarity;
+    - frequency;
+    - service state.
+
+Measurement values derived from the PT belong to the measurement
 domain.
 
-The PT itself does not decide how those interfaces are connected.
+Relay inputs belong to the protection/measurement interface layer.
 
-GridForge V2 Status
--------------------
-Canonical Model Layer V2 equipment.
+Network topology belongs to core/network.
+
+Dynamic PT behaviour belongs to the appropriate simulation or
+measurement plugin.
+
+GridForge V2 Design Principle
+-----------------------------
+The PT is upstream of measurement and protection:
+
+    Power-system voltage
+            |
+            v
+           PT
+            |
+            v
+    Measurement Channel
+            |
+            v
+       Relay Input
+            |
+            v
+          Relay
+
+The Relay must never obtain its authoritative voltage directly from
+a value stored inside the Relay model.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -81,14 +116,16 @@ from __future__ import annotations
 
 from enum import Enum
 from math import isfinite
+from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
 
 
 # =====================================================================
-# POLARITY
+# PT POLARITY
 # =====================================================================
+
 
 class PTPolarity(Enum):
     """
@@ -103,54 +140,72 @@ class PTPolarity(Enum):
 # POTENTIAL TRANSFORMER
 # =====================================================================
 
+
 class PotentialTransformer(ElectricalObject):
     """
-    GridForge Potential Transformer.
+    Canonical GridForge V2 Potential Transformer.
 
     Parameters
     ----------
-    id : str
-        Unique GridForge object identifier.
+    id:
+        Unique GridForge equipment identifier.
 
-    name : str, optional
+    name:
         Human-readable PT name.
 
-    rated_primary_voltage : float
+    rated_primary_voltage:
         Rated primary voltage in volts.
 
-    rated_secondary_voltage : float
+    rated_secondary_voltage:
         Rated secondary voltage in volts.
 
-        Typical values may include 100 V or 110 V depending on the
-        application and transformer configuration.
+    accuracy_class:
+        Instrument-transformer accuracy classification.
 
-    accuracy_class : str, optional
-        Measurement/protection accuracy classification.
+        Examples:
 
-    rated_burden_va : float, optional
+            "0.2"
+            "0.5"
+            "3P"
+            "6P"
+
+        The model stores the engineering classification.
+        Interpretation belongs to the appropriate measurement
+        or protection layer.
+
+    rated_burden_va:
         Rated secondary burden in VA.
 
-    polarity : PTPolarity, optional
-        Primary polarity designation.
+    polarity:
+        PT polarity convention.
 
-    in_service : bool, optional
+    frequency:
+        Nominal operating frequency in Hz.
+
+    in_service:
         Equipment service state.
 
     Notes
     -----
-    The PT owns four local terminals:
+    The PT owns four local interfaces:
 
         primary_h1_terminal
         primary_h2_terminal
+
         secondary_x1_terminal
         secondary_x2_terminal
 
-    The primary terminals belong to the electrical power-system
-    physical graph.
+    Primary terminals represent physical electrical interfaces.
 
-    The secondary terminals belong to the measurement/protection
-    domain.
+    Secondary terminals represent measurement-side interfaces.
+
+    The PT does not determine global topology or measurement
+    connectivity.
     """
+
+    # =================================================================
+    # INITIALIZATION
+    # =================================================================
 
     def __init__(
         self,
@@ -161,8 +216,10 @@ class PotentialTransformer(ElectricalObject):
         accuracy_class: str = "",
         rated_burden_va: float = 0.0,
         polarity: PTPolarity = PTPolarity.H1_H2,
+        frequency: float = 50.0,
         in_service: bool = True,
-    ):
+    ) -> None:
+
         super().__init__(
             id=id,
             name=name,
@@ -187,6 +244,11 @@ class PotentialTransformer(ElectricalObject):
             "rated_burden_va",
         )
 
+        self._validate_positive(
+            frequency,
+            "frequency",
+        )
+
         if not isinstance(accuracy_class, str):
             raise TypeError(
                 "accuracy_class must be a string."
@@ -209,7 +271,7 @@ class PotentialTransformer(ElectricalObject):
             rated_secondary_voltage
         )
 
-        self.accuracy_class = accuracy_class
+        self.accuracy_class = accuracy_class.strip()
 
         self.rated_burden_va = float(
             rated_burden_va
@@ -217,14 +279,20 @@ class PotentialTransformer(ElectricalObject):
 
         self.polarity = polarity
 
+        self.frequency = float(
+            frequency
+        )
+
         # -------------------------------------------------------------
         # Service state
         # -------------------------------------------------------------
 
-        self.in_service = bool(in_service)
+        self.in_service = bool(
+            in_service
+        )
 
         # -------------------------------------------------------------
-        # Primary electrical terminals
+        # Primary physical interfaces
         # -------------------------------------------------------------
 
         self.primary_h1_terminal = Terminal(
@@ -236,7 +304,7 @@ class PotentialTransformer(ElectricalObject):
         )
 
         # -------------------------------------------------------------
-        # Secondary measurement terminals
+        # Secondary measurement interfaces
         # -------------------------------------------------------------
 
         self.secondary_x1_terminal = Terminal(
@@ -246,16 +314,6 @@ class PotentialTransformer(ElectricalObject):
         self.secondary_x2_terminal = Terminal(
             owner=self
         )
-
-        # -------------------------------------------------------------
-        # Compatibility aliases
-        # -------------------------------------------------------------
-
-        self.primary_a = self.primary_h1_terminal
-        self.primary_b = self.primary_h2_terminal
-
-        self.secondary_x1 = self.secondary_x1_terminal
-        self.secondary_x2 = self.secondary_x2_terminal
 
     # =================================================================
     # VALIDATION
@@ -267,7 +325,7 @@ class PotentialTransformer(ElectricalObject):
         field_name: str,
     ) -> None:
         """
-        Validate a strictly positive numerical value.
+        Validate a strictly positive finite quantity.
         """
 
         value = float(value)
@@ -285,7 +343,7 @@ class PotentialTransformer(ElectricalObject):
         field_name: str,
     ) -> None:
         """
-        Validate a non-negative numerical value.
+        Validate a finite non-negative quantity.
         """
 
         value = float(value)
@@ -302,7 +360,7 @@ class PotentialTransformer(ElectricalObject):
     @property
     def ratio(self) -> float:
         """
-        Return the nominal voltage transformation ratio.
+        Return the nominal PT voltage transformation ratio.
 
         Defined as:
 
@@ -315,11 +373,13 @@ class PotentialTransformer(ElectricalObject):
         )
 
     # =================================================================
-    # TERMINAL ACCESS
+    # PRIMARY TERMINALS
     # =================================================================
 
     @property
-    def primary_terminals(self) -> tuple[Terminal, Terminal]:
+    def primary_terminals(
+        self,
+    ) -> tuple[Terminal, Terminal]:
         """
         Return the two primary electrical terminals.
         """
@@ -332,7 +392,31 @@ class PotentialTransformer(ElectricalObject):
     # -----------------------------------------------------------------
 
     @property
-    def secondary_terminals(self) -> tuple[Terminal, Terminal]:
+    def primary_h1(self) -> Terminal:
+        """
+        Return the H1 primary terminal.
+        """
+
+        return self.primary_h1_terminal
+
+    # -----------------------------------------------------------------
+
+    @property
+    def primary_h2(self) -> Terminal:
+        """
+        Return the H2 primary terminal.
+        """
+
+        return self.primary_h2_terminal
+
+    # =================================================================
+    # SECONDARY TERMINALS
+    # =================================================================
+
+    @property
+    def secondary_terminals(
+        self,
+    ) -> tuple[Terminal, Terminal]:
         """
         Return the two secondary measurement terminals.
         """
@@ -342,8 +426,28 @@ class PotentialTransformer(ElectricalObject):
             self.secondary_x2_terminal,
         )
 
+    # -----------------------------------------------------------------
+
+    @property
+    def secondary_x1(self) -> Terminal:
+        """
+        Return the X1 secondary terminal.
+        """
+
+        return self.secondary_x1_terminal
+
+    # -----------------------------------------------------------------
+
+    @property
+    def secondary_x2(self) -> Terminal:
+        """
+        Return the X2 secondary terminal.
+        """
+
+        return self.secondary_x2_terminal
+
     # =================================================================
-    # STATE
+    # SERVICE STATE
     # =================================================================
 
     def set_in_service(
@@ -353,20 +457,47 @@ class PotentialTransformer(ElectricalObject):
         """
         Set the PT service state.
 
-        This changes only local equipment state.
+        This modifies only local equipment state.
 
-        Network topology interpretation belongs to core/network.
+        Network/topology interpretation belongs to core/network.
         """
 
-        self.in_service = bool(in_service)
+        self.in_service = bool(
+            in_service
+        )
+
+    # =================================================================
+    # ENGINEERING ACCESSORS
+    # =================================================================
+
+    @property
+    def primary_voltage_rating(self) -> float:
+        """
+        Return the rated primary voltage.
+        """
+
+        return self.rated_primary_voltage
+
+    # -----------------------------------------------------------------
+
+    @property
+    def secondary_voltage_rating(self) -> float:
+        """
+        Return the rated secondary voltage.
+        """
+
+        return self.rated_secondary_voltage
 
     # =================================================================
     # DIAGNOSTICS
     # =================================================================
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         """
-        Return a compact PT summary.
+        Return a compact engineering summary.
+
+        Measurement values are intentionally absent because
+        measurement state belongs to the measurement layer.
         """
 
         return {
@@ -384,6 +515,7 @@ class PotentialTransformer(ElectricalObject):
             "accuracy_class": self.accuracy_class,
             "rated_burden_va": self.rated_burden_va,
             "polarity": self.polarity.value,
+            "frequency": self.frequency,
             "primary_h1": (
                 self.primary_h1_terminal.endpoint_id
             ),
@@ -410,8 +542,15 @@ class PotentialTransformer(ElectricalObject):
         return (
             f"<PotentialTransformer "
             f"id={self.id}, "
-            f"ratio={self.rated_primary_voltage:.3f}/"
+            f"ratio="
+            f"{self.rated_primary_voltage:.3f}/"
             f"{self.rated_secondary_voltage:.3f}, "
             f"accuracy={self.accuracy_class!r}, "
             f"in_service={self.in_service}>"
         )
+
+
+__all__ = [
+    "PTPolarity",
+    "PotentialTransformer",
+]
