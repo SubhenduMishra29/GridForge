@@ -1,146 +1,76 @@
+```python
 """
-GridForge Protection Numerical Functions
-========================================
+GridForge Protection Relay Functions
+====================================
 
 File:
     core/protection/relay_functions.py
 
 Purpose
 -------
-Pure, stateless numerical utilities used by GridForge protection
-functions and coordination tools.
+Pure numerical primitives used by GridForge V2 protection-function
+plugins.
 
-This module is deliberately independent of:
+This module is intentionally independent of:
 
     - core.model
     - Relay
     - RelayBase
+    - MeasurementChannel
     - ProtectionSystem
-    - Breaker
     - BreakerManager
-    - Network
-    - topology
-    - Y-bus
-    - load-flow
-    - short-circuit studies
-    - simulation scheduling
-    - protection-system state
+    - Network topology
+    - Network solvers
+    - Fault studies
+    - Coordination state
+    - Event scheduling
 
-It contains reusable protection mathematics only.
+It provides reusable protection mathematics for protection
+functions such as:
 
-Architecture
-------------
+    - overcurrent
+    - directional overcurrent
+    - earth-fault overcurrent
+    - voltage
+    - frequency
+    - distance
+    - differential
+    - future protection functions
 
-    Measurement / RelayInput
-              |
-              v
-      Protection Function
-              |
-              +--------------------+
-              |                    |
-              v                    v
-       Numerical Functions   Algorithm State
-              |
-              v
-       ProtectionDecision
-
-
-IMPORTANT V2 BOUNDARY
----------------------
-
-This module calculates quantities.
-
-It does NOT decide what a particular protection relay should do.
+Architectural Principle
+-----------------------
+A physical relay may contain multiple protection elements.
 
 For example:
 
-    iec_time(...)
-        -> calculates an IEC operating time
+    Relay
+      |
+      +-- 50  Instantaneous overcurrent
+      +-- 51  IDMT overcurrent
+      +-- 50N Earth-fault instantaneous
+      +-- 51N Earth-fault IDMT
+      +-- 67  Directional overcurrent
+      +-- 21  Distance
+      +-- 27  Undervoltage
+      +-- 59  Overvoltage
+      +-- 81  Frequency
+      +-- 87  Differential
 
-    impedance(...)
-        -> calculates apparent impedance
+This module contains the mathematical primitives required by those
+elements. It does not attempt to model the relay itself.
 
-    directional_characteristic(...)
-        -> calculates a directional characteristic quantity
-
-The calling protection function remains responsible for interpreting
-those quantities and producing a protection decision.
-
-FUTURE-READY DESIGN
--------------------
-
-GridForge supports relays containing multiple protection functions.
-
-Examples include:
-
-    Overcurrent
-    Directional Overcurrent
-    Distance
-    Earth Fault
-    Sensitive Earth Fault
-    Negative Sequence
-    Zero Sequence
-    Differential
-    Under/Over Voltage
-    Under/Over Frequency
-    Rate of Change of Frequency
-    Thermal
-    Power
-    Reverse Power
-    Loss of Mains
-    Out-of-Step
-    Breaker Failure
-    Auto-Reclose
-    Synchrocheck
-
-This module therefore provides reusable mathematical primitives
-without coupling those functions together.
-
-IEC CURVES
-----------
-
-Supported IEC 60255 inverse-time curves:
-
-    SI  - Standard / Normal Inverse
-    VI  - Very Inverse
-    EI  - Extremely Inverse
-
-Equation:
-
-                 k × TMS
-    t = -------------------------
-         M^alpha - 1
-
-where:
-
-    M = I / Pickup
-
-Curve constants:
-
-    SI:
-        k     = 0.14
-        alpha = 0.02
-
-    VI:
-        k     = 13.5
-        alpha = 1.0
-
-    EI:
-        k     = 80.0
-        alpha = 2.0
-
-
-NUMERICAL CONVENTIONS
----------------------
-
-Unless explicitly stated otherwise:
-
-- currents and voltages may be real or complex;
-- magnitude-based protection calculations use abs(...);
-- denominators approaching zero are handled explicitly;
-- invalid physical inputs raise ValueError;
-- functions do not silently manufacture measurements;
-- no mutable global runtime state is maintained.
+Design goals
+------------
+- deterministic numerical behaviour;
+- explicit validation;
+- standards-oriented curve definitions;
+- reusable pickup/time primitives;
+- no duplicated IEC equations;
+- clear distinction between pickup and operating time;
+- explicit handling of non-operating conditions;
+- extensibility for future standards;
+- compatibility with TCC and coordination layers;
+- no protection-system state.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -149,151 +79,199 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 import math
-from typing import Dict, Iterable, Mapping
-
-
-# =====================================================================
-# IEC CURVE DEFINITIONS
-# =====================================================================
-
-IEC_CURVES: Dict[str, Dict[str, float]] = {
-    "SI": {
-        "k": 0.14,
-        "alpha": 0.02,
-    },
-    "VI": {
-        "k": 13.5,
-        "alpha": 1.0,
-    },
-    "EI": {
-        "k": 80.0,
-        "alpha": 2.0,
-    },
-}
-
-
-IEC_CURVE_ALIASES: Dict[str, str] = {
-    "SI": "SI",
-    "STANDARD_INVERSE": "SI",
-    "NORMAL_INVERSE": "SI",
-    "STANDARD": "SI",
-    "NORMAL": "SI",
-
-    "VI": "VI",
-    "VERY_INVERSE": "VI",
-    "VERY": "VI",
-
-    "EI": "EI",
-    "EXTREMELY_INVERSE": "EI",
-    "EXTREME": "EI",
-}
+from typing import Iterable, Mapping
 
 
 # =====================================================================
 # NUMERICAL CONSTANTS
 # =====================================================================
 
-DEFAULT_EPSILON = 1.0e-12
-DEFAULT_CURRENT_EPSILON = 1.0e-9
-DEFAULT_IMPEDANCE_EPSILON = 1.0e-12
+_EPSILON = 1.0e-12
 
 
 # =====================================================================
-# VALIDATION UTILITIES
+# PROTECTION CHARACTERISTIC TYPES
 # =====================================================================
 
-def finite_real(
+
+class ProtectionCharacteristic(str, Enum):
+    """
+    Canonical protection operating characteristics.
+    """
+
+    INVERSE = "INVERSE"
+    DEFINITE_TIME = "DEFINITE_TIME"
+    INSTANTANEOUS = "INSTANTANEOUS"
+
+
+# =====================================================================
+# IEC CURVE DEFINITIONS
+# =====================================================================
+
+
+@dataclass(frozen=True)
+class IECCurveDefinition:
+    """
+    Immutable IEC inverse-time curve definition.
+
+    Parameters
+    ----------
+    name:
+        Canonical curve identifier.
+
+    k:
+        IEC time coefficient.
+
+    alpha:
+        IEC exponent.
+
+    description:
+        Human-readable engineering description.
+
+    Equation
+    --------
+                       k × TMS
+        t = -----------------------------
+             M^alpha - 1
+
+        M = I / Pickup
+    """
+
+    name: str
+    k: float
+    alpha: float
+    description: str
+
+
+IEC_CURVES: Mapping[str, IECCurveDefinition] = {
+    "SI": IECCurveDefinition(
+        name="SI",
+        k=0.14,
+        alpha=0.02,
+        description="IEC Standard / Normal Inverse",
+    ),
+    "VI": IECCurveDefinition(
+        name="VI",
+        k=13.5,
+        alpha=1.0,
+        description="IEC Very Inverse",
+    ),
+    "EI": IECCurveDefinition(
+        name="EI",
+        k=80.0,
+        alpha=2.0,
+        description="IEC Extremely Inverse",
+    ),
+}
+
+
+# =====================================================================
+# CURVE ALIASES
+# =====================================================================
+
+
+IEC_CURVE_ALIASES: Mapping[str, str] = {
+    "SI": "SI",
+    "STANDARD_INVERSE": "SI",
+    "NORMAL_INVERSE": "SI",
+
+    "VI": "VI",
+    "VERY_INVERSE": "VI",
+
+    "EI": "EI",
+    "EXTREMELY_INVERSE": "EI",
+}
+
+
+# =====================================================================
+# VALIDATION HELPERS
+# =====================================================================
+
+
+def _finite_float(
     value: float,
-    *,
-    name: str = "value",
+    name: str,
 ) -> float:
     """
-    Convert a value to a finite real float.
-
-    Raises
-    ------
-    ValueError
-        If the value cannot be represented as a finite real number.
+    Convert a value to float and require finiteness.
     """
 
     try:
-        value = float(value)
+        result = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(
             f"{name} must be numeric."
         ) from exc
 
-    if not math.isfinite(value):
+    if not math.isfinite(result):
         raise ValueError(
             f"{name} must be finite."
         )
 
-    return value
+    return result
 
 
-def positive_real(
+def _positive_float(
     value: float,
-    *,
-    name: str = "value",
+    name: str,
 ) -> float:
     """
-    Convert a value to a strictly positive finite float.
+    Convert a value to float and require it to be positive.
     """
 
-    value = finite_real(
+    result = _finite_float(
         value,
-        name=name,
+        name,
     )
 
-    if value <= 0.0:
+    if result <= 0.0:
         raise ValueError(
             f"{name} must be positive."
         )
 
-    return value
+    return result
 
 
-def nonnegative_real(
+def _non_negative_float(
     value: float,
-    *,
-    name: str = "value",
+    name: str,
 ) -> float:
     """
-    Convert a value to a finite float >= 0.
+    Convert a value to float and require it to be >= 0.
     """
 
-    value = finite_real(
+    result = _finite_float(
         value,
-        name=name,
+        name,
     )
 
-    if value < 0.0:
+    if result < 0.0:
         raise ValueError(
             f"{name} must be >= 0."
         )
 
-    return value
+    return result
 
 
 # =====================================================================
 # CURVE NORMALIZATION
 # =====================================================================
 
+
 def normalize_iec_curve(
     curve: str,
 ) -> str:
     """
-    Normalize an IEC inverse-time curve identifier.
+    Normalize an IEC curve name to its canonical identifier.
 
-    Returns
-    -------
-    str
-        Canonical identifier:
+    Supported canonical curves:
 
-            SI
-            VI
-            EI
+        SI
+        VI
+        EI
     """
 
     if curve is None:
@@ -312,126 +290,188 @@ def normalize_iec_curve(
     except KeyError:
         raise ValueError(
             f"Unsupported IEC curve '{curve}'. "
-            "Supported curves include SI, VI, EI, "
-            "NORMAL_INVERSE, VERY_INVERSE, and "
+            "Supported curves: SI, VI, EI, "
+            "NORMAL_INVERSE, VERY_INVERSE, "
             "EXTREMELY_INVERSE."
         ) from None
 
 
 # =====================================================================
-# IEC CURVE CONSTANTS
+# CURVE INFORMATION
 # =====================================================================
 
-def iec_curve_constants(
+
+def iec_curve_definition(
     curve: str,
-) -> Mapping[str, float]:
+) -> IECCurveDefinition:
     """
-    Return the immutable IEC characteristic constants.
-
-    Returns
-    -------
-    Mapping[str, float]
-        Contains:
-
-            k
-            alpha
+    Return the immutable definition of an IEC curve.
     """
 
     canonical = normalize_iec_curve(
         curve
     )
 
-    constants = IEC_CURVES[
+    return IEC_CURVES[
         canonical
     ]
 
+
+def iec_curve_constants(
+    curve: str,
+) -> dict[str, float]:
+    """
+    Return IEC curve constants.
+
+    Returns
+    -------
+    dict
+        Contains:
+
+            k
+            alpha
+    """
+
+    definition = iec_curve_definition(
+        curve
+    )
+
     return {
-        "k": constants["k"],
-        "alpha": constants["alpha"],
+        "k": definition.k,
+        "alpha": definition.alpha,
     }
 
 
 # =====================================================================
-# PICKUP MULTIPLE
+# CURRENT MULTIPLIER
 # =====================================================================
 
+
 def current_multiplier(
-    current: complex | float,
+    current: float,
     pickup: float,
 ) -> float:
     """
-    Calculate current multiple:
+    Calculate multiple of pickup.
 
         M = |I| / Pickup
+
+    Parameters
+    ----------
+    current:
+        Measured current.
+
+    pickup:
+        Relay pickup current.
+
+    Returns
+    -------
+    float
+        Current multiple M.
     """
 
-    pickup = positive_real(
+    pickup = _positive_float(
         pickup,
-        name="pickup",
+        "pickup",
     )
 
-    magnitude = abs(current)
+    current = _finite_float(
+        current,
+        "current",
+    )
 
-    if not math.isfinite(
-        magnitude
-    ):
-        raise ValueError(
-            "Current magnitude must be finite."
-        )
-
-    return magnitude / pickup
+    return abs(current) / pickup
 
 
 # =====================================================================
-# IEC PICKUP
+# PICKUP EVALUATION
 # =====================================================================
 
-def iec_pickup(
-    current: complex | float,
+
+def pickup_exceeded(
+    current: float,
     pickup: float,
 ) -> bool:
     """
-    Determine whether current is strictly above pickup.
+    Return True when current is strictly above pickup.
 
-    The criterion is:
+    The comparison is intentionally:
 
         |I| > Pickup
     """
 
-    pickup = positive_real(
+    pickup = _positive_float(
         pickup,
-        name="pickup",
+        "pickup",
     )
 
-    magnitude = abs(current)
+    current = _finite_float(
+        current,
+        "current",
+    )
 
-    if not math.isfinite(
-        magnitude
-    ):
-        raise ValueError(
-            "Current magnitude must be finite."
+    return abs(current) > pickup
+
+
+def pickup_margin(
+    current: float,
+    pickup: float,
+) -> float:
+    """
+    Return pickup margin as a current ratio.
+
+        margin = |I| / Pickup - 1
+
+    Examples
+    --------
+    M = 1.0
+        margin = 0
+
+    M = 2.0
+        margin = 1.0
+    """
+
+    return (
+        current_multiplier(
+            current,
+            pickup,
         )
+        - 1.0
+    )
 
-    return magnitude > pickup
+
+def iec_pickup(
+    current: float,
+    pickup: float,
+) -> bool:
+    """
+    IEC-specific alias for pickup_exceeded().
+    """
+
+    return pickup_exceeded(
+        current,
+        pickup,
+    )
 
 
 # =====================================================================
 # IEC OPERATING TIME
 # =====================================================================
 
+
 def iec_time(
-    current: complex | float,
+    current: float,
     pickup: float,
     curve: str = "SI",
     TMS: float = 1.0,
 ) -> float:
     """
-    Calculate IEC inverse-time operating time.
+    Calculate IEC 60255 inverse-time operating time.
 
-    Equation:
-
-                 k × TMS
-        t = -------------------
+    Equation
+    --------
+                       k × TMS
+        t = -----------------------------
              M^alpha - 1
 
         M = |I| / Pickup
@@ -444,61 +484,226 @@ def iec_time(
         math.inf is returned when:
 
             |I| <= Pickup
+
+    Notes
+    -----
+    This function does not impose a relay trip.
+
+    It only evaluates the mathematical characteristic.
     """
 
-    pickup = positive_real(
+    current = _finite_float(
+        current,
+        "current",
+    )
+
+    pickup = _positive_float(
         pickup,
-        name="pickup",
+        "pickup",
     )
 
-    tms = nonnegative_real(
+    TMS = _non_negative_float(
         TMS,
-        name="TMS",
+        "TMS",
     )
 
-    magnitude = abs(current)
-
-    if not math.isfinite(
-        magnitude
-    ):
-        raise ValueError(
-            "Current magnitude must be finite."
-        )
-
-    canonical = normalize_iec_curve(
+    definition = iec_curve_definition(
         curve
     )
 
-    constants = IEC_CURVES[
-        canonical
-    ]
-
-    k = constants["k"]
-    alpha = constants["alpha"]
-
-    M = magnitude / pickup
+    M = abs(current) / pickup
 
     if M <= 1.0:
         return math.inf
 
     denominator = (
-        M ** alpha
+        M ** definition.alpha
         - 1.0
     )
 
-    if denominator <= DEFAULT_EPSILON:
+    if denominator <= _EPSILON:
         return math.inf
 
     return (
-        tms
-        * k
+        TMS
+        * definition.k
         / denominator
     )
 
 
 # =====================================================================
-# IEC CURVE DATA
+# DEFINITE-TIME CHARACTERISTIC
 # =====================================================================
+
+
+def definite_time(
+    current: float,
+    pickup: float,
+    delay: float,
+) -> float:
+    """
+    Evaluate a definite-time protection characteristic.
+
+    Returns
+    -------
+    float
+        Configured delay when pickup is exceeded,
+        otherwise math.inf.
+
+    This is a numerical primitive only.
+    """
+
+    pickup = _positive_float(
+        pickup,
+        "pickup",
+    )
+
+    delay = _non_negative_float(
+        delay,
+        "delay",
+    )
+
+    current = _finite_float(
+        current,
+        "current",
+    )
+
+    if abs(current) <= pickup:
+        return math.inf
+
+    return delay
+
+
+# =====================================================================
+# INSTANTANEOUS CHARACTERISTIC
+# =====================================================================
+
+
+def instantaneous_operating_time(
+    current: float,
+    pickup: float,
+) -> float:
+    """
+    Evaluate an instantaneous protection characteristic.
+
+    Returns
+    -------
+    float
+        0.0 when pickup is exceeded,
+        otherwise math.inf.
+
+    The function represents the ideal protection characteristic.
+
+    Actual breaker operating time, relay processing time, and event
+    scheduling belong to higher layers.
+    """
+
+    if pickup_exceeded(
+        current,
+        pickup,
+    ):
+        return 0.0
+
+    return math.inf
+
+
+# =====================================================================
+# GENERIC CHARACTERISTIC EVALUATION
+# =====================================================================
+
+
+def operating_time(
+    current: float,
+    pickup: float,
+    *,
+    characteristic: ProtectionCharacteristic | str = (
+        ProtectionCharacteristic.INVERSE
+    ),
+    curve: str = "SI",
+    TMS: float = 1.0,
+    delay: float = 0.0,
+) -> float:
+    """
+    Evaluate a generic current-based protection characteristic.
+
+    Parameters
+    ----------
+    characteristic:
+        INVERSE
+        DEFINITE_TIME
+        INSTANTANEOUS
+
+    curve:
+        IEC curve used when characteristic is INVERSE.
+
+    TMS:
+        IEC Time Multiplier Setting.
+
+    delay:
+        Definite-time delay.
+
+    Returns
+    -------
+    float
+        Protection operating time in seconds, or math.inf when
+        the element does not operate.
+    """
+
+    if isinstance(
+        characteristic,
+        ProtectionCharacteristic,
+    ):
+        characteristic_value = characteristic
+    else:
+        try:
+            characteristic_value = (
+                ProtectionCharacteristic(
+                    str(characteristic).strip().upper()
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported protection characteristic "
+                f"'{characteristic}'."
+            ) from exc
+
+    if characteristic_value is ProtectionCharacteristic.INVERSE:
+        return iec_time(
+            current=current,
+            pickup=pickup,
+            curve=curve,
+            TMS=TMS,
+        )
+
+    if (
+        characteristic_value
+        is ProtectionCharacteristic.DEFINITE_TIME
+    ):
+        return definite_time(
+            current=current,
+            pickup=pickup,
+            delay=delay,
+        )
+
+    if (
+        characteristic_value
+        is ProtectionCharacteristic.INSTANTANEOUS
+    ):
+        return instantaneous_operating_time(
+            current=current,
+            pickup=pickup,
+        )
+
+    raise ValueError(
+        f"Unsupported protection characteristic "
+        f"'{characteristic_value}'."
+    )
+
+
+# =====================================================================
+# IEC CURVE GENERATION
+# =====================================================================
+
 
 def generate_iec_curve(
     pickup: float,
@@ -507,20 +712,49 @@ def generate_iec_curve(
     multipliers: Iterable[float] | None = None,
 ) -> list[dict[str, float]]:
     """
-    Generate time-current characteristic points.
+    Generate time-current characteristic data.
 
-    Returns records of:
+    Parameters
+    ----------
+    pickup:
+        Relay pickup current.
 
-        {
-            "multiple": M,
-            "current": I,
-            "time": t,
-        }
+    curve:
+        IEC curve identifier or alias.
+
+    TMS:
+        Time Multiplier Setting.
+
+    multipliers:
+        Iterable of current multiples.
+
+        Defaults to:
+
+            1, 2, ..., 20
+
+    Returns
+    -------
+    list[dict]
+        Each point contains:
+
+            multiple
+            current
+            time
     """
 
-    pickup = positive_real(
+    pickup = _positive_float(
         pickup,
-        name="pickup",
+        "pickup",
+    )
+
+    TMS = _non_negative_float(
+        TMS,
+        "TMS",
+    )
+
+    # Validate curve before generating points.
+    normalize_iec_curve(
+        curve
     )
 
     if multipliers is None:
@@ -529,15 +763,13 @@ def generate_iec_curve(
             21,
         )
 
-    points: list[
-        dict[str, float]
-    ] = []
+    result: list[dict[str, float]] = []
 
     for multiplier in multipliers:
 
-        multiplier = positive_real(
+        multiplier = _positive_float(
             multiplier,
-            name="current multiplier",
+            "current multiplier",
         )
 
         current = (
@@ -552,7 +784,7 @@ def generate_iec_curve(
             TMS=TMS,
         )
 
-        points.append(
+        result.append(
             {
                 "multiple": multiplier,
                 "current": current,
@@ -560,545 +792,263 @@ def generate_iec_curve(
             }
         )
 
-    return points
+    return result
 
 
 # =====================================================================
-# PHASOR MAGNITUDE
+# INVERSE CURVE POINT
 # =====================================================================
 
-def magnitude(
-    value: complex | float,
+
+def inverse_time_from_multiple(
+    multiple: float,
+    curve: str = "SI",
+    TMS: float = 1.0,
 ) -> float:
     """
-    Return the magnitude of a real or complex quantity.
+    Calculate IEC operating time directly from current multiple.
+
+    This is useful for TCC and coordination calculations where the
+    current multiple is already known.
     """
 
-    result = abs(value)
-
-    if not math.isfinite(
-        result
-    ):
-        raise ValueError(
-            "Quantity magnitude must be finite."
-        )
-
-    return float(result)
-
-
-# =====================================================================
-# PHASOR ANGLE
-# =====================================================================
-
-def angle(
-    value: complex | float,
-) -> float:
-    """
-    Return the phase angle in radians.
-
-    For zero magnitude, the angle is defined as zero.
-
-    This convention avoids manufacturing an undefined numerical
-    angle for zero-valued phasors.
-    """
-
-    value = complex(value)
-
-    if not (
-        math.isfinite(value.real)
-        and math.isfinite(value.imag)
-    ):
-        raise ValueError(
-            "Phasor must be finite."
-        )
-
-    if abs(value) <= DEFAULT_EPSILON:
-        return 0.0
-
-    return math.atan2(
-        value.imag,
-        value.real,
+    multiple = _positive_float(
+        multiple,
+        "multiple",
     )
 
-
-# =====================================================================
-# PHASOR POLAR CONVERSION
-# =====================================================================
-
-def polar_phasor(
-    magnitude_value: float,
-    angle_radians: float,
-) -> complex:
-    """
-    Construct a complex phasor from magnitude and angle.
-    """
-
-    magnitude_value = nonnegative_real(
-        magnitude_value,
-        name="magnitude",
+    TMS = _non_negative_float(
+        TMS,
+        "TMS",
     )
 
-    angle_radians = finite_real(
-        angle_radians,
-        name="angle_radians",
+    definition = iec_curve_definition(
+        curve
     )
+
+    if multiple <= 1.0:
+        return math.inf
+
+    denominator = (
+        multiple ** definition.alpha
+        - 1.0
+    )
+
+    if denominator <= _EPSILON:
+        return math.inf
 
     return (
-        magnitude_value
-        * complex(
-            math.cos(angle_radians),
-            math.sin(angle_radians),
-        )
+        TMS
+        * definition.k
+        / denominator
     )
 
 
 # =====================================================================
-# SAFE COMPLEX DIVISION
+# INVERSE CHARACTERISTIC SOLUTION
 # =====================================================================
 
-def safe_divide(
-    numerator: complex | float,
-    denominator: complex | float,
-    *,
-    epsilon: float = DEFAULT_EPSILON,
-) -> complex:
-    """
-    Perform protected complex division.
 
-    Raises
-    ------
-    ZeroDivisionError
-        When denominator magnitude is below epsilon.
-    """
-
-    epsilon = positive_real(
-        epsilon,
-        name="epsilon",
-    )
-
-    denominator_complex = complex(
-        denominator
-    )
-
-    if abs(
-        denominator_complex
-    ) <= epsilon:
-        raise ZeroDivisionError(
-            "Complex denominator is too small."
-        )
-
-    return (
-        complex(numerator)
-        / denominator_complex
-    )
-
-
-# =====================================================================
-# APPARENT IMPEDANCE
-# =====================================================================
-
-def apparent_impedance(
-    voltage: complex | float,
-    current: complex | float,
-    *,
-    epsilon: float = DEFAULT_IMPEDANCE_EPSILON,
-) -> complex:
-    """
-    Calculate apparent impedance:
-
-        Z = V / I
-
-    This is a mathematical quantity only.
-
-    It does not implement a distance relay characteristic.
-    """
-
-    return safe_divide(
-        voltage,
-        current,
-        epsilon=epsilon,
-    )
-
-
-# =====================================================================
-# IMPEDANCE MAGNITUDE
-# =====================================================================
-
-def impedance_magnitude(
-    voltage: complex | float,
-    current: complex | float,
-    *,
-    epsilon: float = DEFAULT_IMPEDANCE_EPSILON,
+def current_multiple_for_time(
+    operating_time_seconds: float,
+    curve: str = "SI",
+    TMS: float = 1.0,
 ) -> float:
     """
-    Calculate apparent impedance magnitude:
+    Calculate the current multiple corresponding to an IEC
+    inverse-time operating point.
 
-        |Z| = |V / I|
-    """
+    Solves:
 
-    return magnitude(
-        apparent_impedance(
-            voltage,
-            current,
-            epsilon=epsilon,
-        )
-    )
+                       k × TMS
+        t = -----------------------------
+             M^alpha - 1
 
-
-# =====================================================================
-# IMPEDANCE ANGLE
-# =====================================================================
-
-def impedance_angle(
-    voltage: complex | float,
-    current: complex | float,
-    *,
-    epsilon: float = DEFAULT_IMPEDANCE_EPSILON,
-) -> float:
-    """
-    Calculate apparent impedance angle in radians.
-    """
-
-    impedance = apparent_impedance(
-        voltage,
-        current,
-        epsilon=epsilon,
-    )
-
-    return angle(
-        impedance
-    )
-
-
-# =====================================================================
-# DIRECTIONAL CHARACTERISTIC
-# =====================================================================
-
-def directional_characteristic(
-    voltage: complex | float,
-    current: complex | float,
-    *,
-    characteristic_angle: float = 0.0,
-) -> float:
-    """
-    Calculate a generic directional characteristic quantity.
-
-    The mathematical characteristic is:
-
-        T = Re{ V × conj(I) × exp(-jθc) }
-
-    where:
-
-        V  = polarizing voltage phasor
-        I  = operating current phasor
-        θc = relay characteristic angle
-
-    Positive values indicate one directional half-plane and
-    negative values indicate the opposite half-plane.
-
-    This function does NOT decide forward/reverse operation.
-    """
-
-    voltage = complex(
-        voltage
-    )
-
-    current = complex(
-        current
-    )
-
-    characteristic_angle = finite_real(
-        characteristic_angle,
-        name="characteristic_angle",
-    )
-
-    if not (
-        math.isfinite(voltage.real)
-        and math.isfinite(voltage.imag)
-        and math.isfinite(current.real)
-        and math.isfinite(current.imag)
-    ):
-        raise ValueError(
-            "Voltage and current phasors must be finite."
-        )
-
-    rotation = complex(
-        math.cos(
-            -characteristic_angle
-        ),
-        math.sin(
-            -characteristic_angle
-        ),
-    )
-
-    return float(
-        (
-            voltage
-            * current.conjugate()
-            * rotation
-        ).real
-    )
-
-
-# =====================================================================
-# DIRECTIONAL POLARIZING ANGLE
-# =====================================================================
-
-def directional_angle(
-    voltage: complex | float,
-    current: complex | float,
-) -> float:
-    """
-    Return the angle difference:
-
-        angle(V) - angle(I)
-
-    in radians.
-
-    This is a numerical quantity only.
-    """
-
-    return angle(
-        complex(voltage)
-        / complex(current)
-    )
-
-
-# =====================================================================
-# SEQUENCE COMPONENTS
-# =====================================================================
-
-def symmetrical_components(
-    phase_a: complex | float,
-    phase_b: complex | float,
-    phase_c: complex | float,
-) -> Mapping[str, complex]:
-    """
-    Calculate positive-, negative-, and zero-sequence components.
+    for M.
 
     Returns
     -------
+    float
+        Current multiple M.
 
-        {
-            "zero": V0,
-            "positive": V1,
-            "negative": V2,
-        }
-
-    The transformation is:
-
-        V0 = (Va + Vb + Vc) / 3
-
-        V1 = (Va + aVb + a²Vc) / 3
-
-        V2 = (Va + a²Vb + aVc) / 3
-
-    where:
-
-        a = exp(j 120°)
-
-    This function is reusable by:
-
-        - negative-sequence protection;
-        - zero-sequence protection;
-        - earth-fault protection;
-        - unbalance protection;
-        - generator protection;
-        - motor protection.
+    Raises
+    ------
+    ValueError
+        If operating time is not positive.
     """
 
-    a = complex(
-        -0.5,
-        math.sqrt(3.0) / 2.0,
+    operating_time_seconds = _positive_float(
+        operating_time_seconds,
+        "operating_time_seconds",
     )
 
-    a_squared = a * a
-
-    va = complex(
-        phase_a
-    )
-    vb = complex(
-        phase_b
-    )
-    vc = complex(
-        phase_c
+    TMS = _non_negative_float(
+        TMS,
+        "TMS",
     )
 
-    for name, value in (
-        ("phase_a", va),
-        ("phase_b", vb),
-        ("phase_c", vc),
-    ):
-        if not (
-            math.isfinite(value.real)
-            and math.isfinite(value.imag)
-        ):
-            raise ValueError(
-                f"{name} must be finite."
-            )
-
-    zero = (
-        va
-        + vb
-        + vc
-    ) / 3.0
-
-    positive = (
-        va
-        + a * vb
-        + a_squared * vc
-    ) / 3.0
-
-    negative = (
-        va
-        + a_squared * vb
-        + a * vc
-    ) / 3.0
-
-    return {
-        "zero": zero,
-        "positive": positive,
-        "negative": negative,
-    }
-
-
-# =====================================================================
-# RESIDUAL / ZERO-SEQUENCE QUANTITY
-# =====================================================================
-
-def residual_quantity(
-    phase_a: complex | float,
-    phase_b: complex | float,
-    phase_c: complex | float,
-) -> complex:
-    """
-    Calculate the residual quantity:
-
-        Xres = Xa + Xb + Xc
-
-    This is useful for current or voltage residual quantities.
-
-    The caller determines whether the quantity represents:
-
-        3I0
-        3V0
-        residual current
-        residual voltage
-    """
-
-    result = (
-        complex(phase_a)
-        + complex(phase_b)
-        + complex(phase_c)
-    )
-
-    if not (
-        math.isfinite(result.real)
-        and math.isfinite(result.imag)
-    ):
+    if TMS == 0.0:
         raise ValueError(
-            "Phase quantities must be finite."
+            "TMS must be > 0 when solving an inverse curve."
+        )
+
+    definition = iec_curve_definition(
+        curve
+    )
+
+    ratio = (
+        definition.k
+        * TMS
+        / operating_time_seconds
+    )
+
+    return (
+        ratio + 1.0
+    ) ** (
+        1.0 / definition.alpha
+    )
+
+
+# =====================================================================
+# TCC POINT GENERATION
+# =====================================================================
+
+
+def generate_tcc_points(
+    pickup: float,
+    curve: str = "SI",
+    TMS: float = 1.0,
+    *,
+    minimum_multiple: float = 1.01,
+    maximum_multiple: float = 20.0,
+    points: int = 200,
+) -> list[dict[str, float]]:
+    """
+    Generate smoothly distributed TCC points.
+
+    Logarithmic spacing is used because inverse-time characteristics
+    span a large current range and are normally displayed on
+    logarithmic axes.
+
+    This function performs no plotting.
+    """
+
+    pickup = _positive_float(
+        pickup,
+        "pickup",
+    )
+
+    TMS = _non_negative_float(
+        TMS,
+        "TMS",
+    )
+
+    minimum_multiple = _positive_float(
+        minimum_multiple,
+        "minimum_multiple",
+    )
+
+    maximum_multiple = _positive_float(
+        maximum_multiple,
+        "maximum_multiple",
+    )
+
+    if minimum_multiple <= 1.0:
+        raise ValueError(
+            "minimum_multiple must be greater than 1."
+        )
+
+    if maximum_multiple <= minimum_multiple:
+        raise ValueError(
+            "maximum_multiple must be greater than "
+            "minimum_multiple."
+        )
+
+    try:
+        points = int(points)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "points must be an integer."
+        ) from exc
+
+    if points < 2:
+        raise ValueError(
+            "points must be >= 2."
+        )
+
+    # Import locally so this numerical module remains lightweight.
+    import numpy as np
+
+    multipliers = np.geomspace(
+        minimum_multiple,
+        maximum_multiple,
+        points,
+    )
+
+    result: list[dict[str, float]] = []
+
+    for multiple in multipliers:
+
+        multiple = float(
+            multiple
+        )
+
+        current = (
+            pickup
+            * multiple
+        )
+
+        time = iec_time(
+            current=current,
+            pickup=pickup,
+            curve=curve,
+            TMS=TMS,
+        )
+
+        result.append(
+            {
+                "multiple": multiple,
+                "current": current,
+                "time": time,
+            }
         )
 
     return result
 
 
 # =====================================================================
-# RATE OF CHANGE
+# COORDINATION MARGIN
 # =====================================================================
 
-def rate_of_change(
-    current_value: float,
-    previous_value: float,
-    delta_time: float,
+
+def coordination_margin(
+    upstream_time: float,
+    downstream_time: float,
 ) -> float:
     """
-    Calculate a finite-difference rate of change:
+    Calculate temporal coordination margin.
 
-        dx/dt = (x2 - x1) / Δt
+        margin = upstream_time - downstream_time
 
-    This primitive can support future functions such as:
+    Positive value means the upstream element operates later.
 
-        - ROCOF;
-        - voltage rate-of-change;
-        - frequency rate-of-change;
-        - thermal derivative functions.
+    This function does not determine whether a margin is acceptable.
+    Acceptance criteria belong to the coordination layer.
     """
 
-    current_value = finite_real(
-        current_value,
-        name="current_value",
+    upstream_time = _finite_float(
+        upstream_time,
+        "upstream_time",
     )
 
-    previous_value = finite_real(
-        previous_value,
-        name="previous_value",
-    )
-
-    delta_time = positive_real(
-        delta_time,
-        name="delta_time",
+    downstream_time = _finite_float(
+        downstream_time,
+        "downstream_time",
     )
 
     return (
-        current_value
-        - previous_value
-    ) / delta_time
-
-
-# =====================================================================
-# LINEAR INTERPOLATION
-# =====================================================================
-
-def linear_interpolate(
-    x: float,
-    x1: float,
-    y1: float,
-    x2: float,
-    y2: float,
-) -> float:
-    """
-    Perform linear interpolation.
-
-    This is intentionally generic and is useful for future
-    protection characteristics and TCC calculations.
-    """
-
-    x = finite_real(
-        x,
-        name="x",
-    )
-    x1 = finite_real(
-        x1,
-        name="x1",
-    )
-    y1 = finite_real(
-        y1,
-        name="y1",
-    )
-    x2 = finite_real(
-        x2,
-        name="x2",
-    )
-    y2 = finite_real(
-        y2,
-        name="y2",
-    )
-
-    if abs(
-        x2 - x1
-    ) <= DEFAULT_EPSILON:
-        raise ValueError(
-            "Interpolation x coordinates must be distinct."
-        )
-
-    return (
-        y1
-        + (
-            (x - x1)
-            / (x2 - x1)
-        )
-        * (y2 - y1)
+        upstream_time
+        - downstream_time
     )
 
 
@@ -1106,44 +1056,27 @@ def linear_interpolate(
 # PUBLIC API
 # =====================================================================
 
+
 __all__ = [
-    # IEC
+    "ProtectionCharacteristic",
+    "IECCurveDefinition",
     "IEC_CURVES",
     "IEC_CURVE_ALIASES",
     "normalize_iec_curve",
+    "iec_curve_definition",
     "iec_curve_constants",
     "current_multiplier",
+    "pickup_exceeded",
+    "pickup_margin",
     "iec_pickup",
     "iec_time",
+    "definite_time",
+    "instantaneous_operating_time",
+    "operating_time",
     "generate_iec_curve",
-
-    # Validation
-    "finite_real",
-    "positive_real",
-    "nonnegative_real",
-
-    # Phasor mathematics
-    "magnitude",
-    "angle",
-    "polar_phasor",
-    "safe_divide",
-
-    # Impedance
-    "apparent_impedance",
-    "impedance_magnitude",
-    "impedance_angle",
-
-    # Directional
-    "directional_characteristic",
-    "directional_angle",
-
-    # Sequence quantities
-    "symmetrical_components",
-    "residual_quantity",
-
-    # Dynamic numerical primitives
-    "rate_of_change",
-
-    # Characteristic utilities
-    "linear_interpolate",
+    "inverse_time_from_multiple",
+    "current_multiple_for_time",
+    "generate_tcc_points",
+    "coordination_margin",
 ]
+```
