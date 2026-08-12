@@ -5,11 +5,11 @@ GridForge Power Flow Solver Options
 File:
     core/solver/power_flow/solver_options.py
 
-GridForge Power Flow Solver Options v1.0
-----------------------------------------
+GridForge Power Flow Engine v1.0
+--------------------------------
 
-Industrial configuration and validation for the GridForge
-AC Newton-Raphson Power Flow Engine.
+Configuration and validation for the GridForge AC
+Newton-Raphson power-flow solver.
 
 Responsibilities
 ----------------
@@ -17,7 +17,7 @@ Responsibilities
 - Validate numerical parameters.
 - Provide deterministic solver defaults.
 - Prevent invalid numerical configurations.
-- Provide serializable configuration diagnostics.
+- Provide serializable diagnostics.
 
 This module contains configuration only.
 
@@ -27,37 +27,14 @@ It does NOT:
 - Build Ybus.
 - Assemble Jacobians.
 - Solve linear systems.
-- Handle reactive-power limits.
-- Select numerical backends.
-- Implement advanced convergence algorithms.
+- Handle reactive-power limits directly.
+- Perform line-search or trust-region algorithms.
+- Perform GPU computation.
+- Select sparse numerical backends.
 
-Current Numerical Scope
------------------------
-The reference GridForge power-flow solver supports:
-
-- Classical Newton-Raphson iteration.
-- Explicit Newton damping.
-- Explicit linear-system regularization.
-- PV/PQ reactive-power limit enforcement.
-- Deterministic convergence criteria.
-
-Advanced numerical strategies are intentionally NOT part of
-this configuration baseline.
-
-Deferred capabilities include:
-
-- Line search.
-- Trust-region methods.
-- Levenberg-Marquardt methods.
-- Adaptive damping.
-- Automatic flat-start initialization.
-- Voltage-limit optimization/control.
-- Angle-limit control.
-- GPU backend selection.
-- Sparse backend selection.
-
-These capabilities may be introduced later only when a
-fundamental numerical requirement justifies them.
+Advanced numerical strategies are intentionally excluded from
+this baseline and may be introduced later only when supported by
+a fundamental solver requirement.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -66,27 +43,24 @@ All Rights Reserved.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Real
 
-import math
+import numpy as np
 
 
 @dataclass
 class SolverOptions:
     """
     Configuration for the GridForge Newton-Raphson
-    Power Flow Engine.
+    AC Power Flow Engine.
 
     Parameters
     ----------
     tolerance:
-        Maximum acceptable infinity-norm mismatch.
-
-        Must be finite and strictly greater than zero.
+        Maximum acceptable infinity-norm power mismatch.
 
     max_iterations:
         Maximum number of Newton-Raphson iterations.
-
-        Must be an integer greater than or equal to one.
 
     damping:
         Newton correction multiplier.
@@ -94,35 +68,46 @@ class SolverOptions:
         1.0:
             Full Newton step.
 
-        Values below 1.0:
+        Values between 0 and 1:
             Damped Newton step.
 
-        Required range:
-
-            0.0 < damping <= 1.0
-
     regularization:
-        Non-negative diagonal regularization parameter supplied
-        to the linear solver.
+        Explicit non-negative diagonal regularization parameter
+        passed to the linear-system solver.
 
-        Zero disables explicit regularization.
+        0.0:
+            No regularization.
 
     verbose:
-        Enable iteration diagnostics.
+        Enable iteration-level diagnostic output.
 
     enforce_q_limits:
-        Enable PV-bus reactive-power limit enforcement.
+        Enable PV-bus reactive-power limit handling.
 
     q_limit_tolerance:
-        Numerical tolerance used when evaluating generator
-        reactive-power limits.
+        Numerical tolerance used when comparing calculated
+        reactive power against Qmin/Qmax.
 
     Notes
     -----
-    This class contains configuration only.
+    The options object is intentionally limited to the stable
+    GridForge Power Flow Engine V1.0 numerical contract.
 
-    It deliberately does not contain algorithm-selection
-    controls for advanced numerical methods.
+    The following are deliberately NOT included:
+
+        line_search
+        trust_region
+        Levenberg-Marquardt
+        flat_start
+        voltage_limits
+        angle_limits
+        adaptive_damping
+        GPU
+        sparse_backend
+
+    These are separate numerical or engineering features and
+    must not be introduced into the baseline configuration
+    without a demonstrated architectural requirement.
     """
 
     # =========================================================
@@ -169,28 +154,10 @@ class SolverOptions:
         name: str,
     ) -> float:
         """
-        Validate and normalize a real-valued numerical option.
+        Validate a finite real-valued numerical parameter.
 
-        Parameters
-        ----------
-        value:
-            Value to validate.
-
-        name:
-            Configuration field name used in diagnostics.
-
-        Returns
-        -------
-        float
-            Finite floating-point representation.
-
-        Raises
-        ------
-        TypeError
-            If the value is not a real numerical value or is bool.
-
-        ValueError
-            If the value is NaN or infinite.
+        Booleans are deliberately rejected because bool is a
+        subclass of int in Python.
         """
 
         if isinstance(
@@ -198,7 +165,7 @@ class SolverOptions:
             bool,
         ) or not isinstance(
             value,
-            (int, float),
+            Real,
         ):
             raise TypeError(
                 f"{name} must be a real number."
@@ -208,7 +175,7 @@ class SolverOptions:
             value
         )
 
-        if not math.isfinite(
+        if not np.isfinite(
             value
         ):
             raise ValueError(
@@ -227,18 +194,11 @@ class SolverOptions:
 
         Raises
         ------
-        ValueError
-            If a numerical option is outside its permitted
-            range or is non-finite.
-
         TypeError
-            If an option has an invalid basic type.
+            If an option has an invalid type.
 
-        Notes
-        -----
-        Validation is intentionally explicit so invalid
-        numerical configuration cannot silently enter the
-        Newton-Raphson solver.
+        ValueError
+            If an option contains an invalid numerical value.
         """
 
         # -----------------------------------------------------
@@ -276,7 +236,7 @@ class SolverOptions:
             )
 
         # -----------------------------------------------------
-        # Damping
+        # Newton damping
         # -----------------------------------------------------
 
         damping = self._validate_real(
@@ -293,7 +253,7 @@ class SolverOptions:
             )
 
         # -----------------------------------------------------
-        # Regularization
+        # Linear-system regularization
         # -----------------------------------------------------
 
         regularization = self._validate_real(
@@ -346,44 +306,35 @@ class SolverOptions:
 
     def summary(self) -> dict:
         """
-        Return the complete solver configuration.
+        Return the complete validated solver configuration.
 
         Returns
         -------
         dict
-            Serializable solver configuration.
-
-        Notes
-        -----
-        The returned dictionary contains only configuration
-        state and does not expose any runtime solver state.
+            Serializable configuration dictionary.
         """
+
+        self.validate()
 
         return {
             "tolerance": float(
                 self.tolerance
             ),
-
             "max_iterations": int(
                 self.max_iterations
             ),
-
             "damping": float(
                 self.damping
             ),
-
             "regularization": float(
                 self.regularization
             ),
-
             "verbose": bool(
                 self.verbose
             ),
-
             "enforce_q_limits": bool(
                 self.enforce_q_limits
             ),
-
             "q_limit_tolerance": float(
                 self.q_limit_tolerance
             ),
@@ -393,9 +344,11 @@ class SolverOptions:
     # REPRESENTATION
     # =========================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
-        Developer-friendly representation.
+        Return a concise developer-facing representation.
         """
 
         return (
