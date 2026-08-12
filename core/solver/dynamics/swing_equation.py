@@ -1,64 +1,56 @@
-```python
 """
 GridForge Swing Equation
 ========================
 
-Reference rotor-motion equations for transient-stability simulation.
+Reusable synchronous-machine rotor dynamics.
 
-The swing equation describes the electromechanical motion of a
-synchronous-machine rotor.
-
-State convention
+Responsibilities
 ----------------
-GridForge uses:
+- Evaluate the classical swing equation.
+- Support inertia and damping.
+- Provide rotor-angle and speed-deviation derivatives.
+- Provide a pure, stateless numerical formulation.
 
-    delta
-        Rotor electrical angle [rad].
+Non-responsibilities
+--------------------
+This module does NOT:
 
-    omega
-        Rotor speed deviation [pu].
+- store simulation state;
+- perform numerical integration;
+- solve the electrical network;
+- calculate electrical power;
+- implement AVR, governor, or PSS;
+- process simulation events;
+- manage multiple machines.
 
-        omega = (wr - ws) / ws
+Classical swing equation
+------------------------
+
+    dδ/dt = ω
+
+    dω/dt = (Pm - Pe - Dω) / (2H)
 
 where:
 
-    wr = actual rotor electrical angular speed
-    ws = synchronous electrical angular speed [rad/s]
+    δ  = rotor electrical angle [rad]
+    ω  = speed deviation [pu]
+    Pm = mechanical input power [pu]
+    Pe = electrical output power [pu]
+    H  = inertia constant [s]
+    D  = damping coefficient
 
-Therefore:
+The formulation assumes that ``omega`` represents speed deviation
+from synchronous speed:
 
-    d(delta)/dt = ws * omega
+    ω = Δω
 
-and:
+Therefore, rotor angle is integrated using:
 
-    d(omega)/dt =
-        (Pm - Pe - D * omega) / (2H)
+    dδ/dt = Δω
 
-Parameters
-----------
-H:
-    Inertia constant [s].
-
-D:
-    Damping coefficient in the selected per-unit convention.
-
-frequency:
-    System frequency [Hz].
-
-Architectural responsibilities
--------------------------------
-This module:
-
-- evaluates rotor-motion equations;
-- provides a reusable numerical physics primitive;
-- performs no integration;
-- owns no dynamic state;
-- performs no network solution;
-- performs no event handling;
-- does not modify generator objects.
-
-The numerical integrator is responsible for advancing the returned
-derivatives in time.
+This component is deliberately independent of the numerical
+integration method. RK4, implicit trapezoidal, or another integrator
+may call this equation evaluator.
 """
 
 from __future__ import annotations
@@ -69,7 +61,18 @@ import numpy as np
 
 
 # ======================================================================
-# RESULT CONTRACT
+# ERRORS
+# ======================================================================
+
+
+class SwingEquationError(
+    ValueError
+):
+    """Base exception for swing-equation errors."""
+
+
+# ======================================================================
+# RESULT
 # ======================================================================
 
 
@@ -78,17 +81,36 @@ class SwingDerivatives:
     """
     Result of the swing-equation evaluation.
 
-    Parameters
+    Attributes
     ----------
     delta:
-        Rotor-angle derivative [rad/s].
+        Rotor-angle derivative dδ/dt [rad/s in normalized formulation].
 
     omega:
-        Rotor-speed-deviation derivative [pu/s].
+        Speed-deviation derivative dω/dt.
     """
 
     delta: float
     omega: float
+
+    def as_array(
+        self,
+    ) -> np.ndarray:
+        """
+        Return derivatives as a numerical state vector.
+
+        Ordering:
+
+            [dδ/dt, dω/dt]
+        """
+
+        return np.array(
+            [
+                self.delta,
+                self.omega,
+            ],
+            dtype=float,
+        )
 
 
 # ======================================================================
@@ -103,89 +125,82 @@ class SwingEquation:
     Parameters
     ----------
     H:
-        Machine inertia constant [s].
+        Inertia constant [s].
 
     D:
         Damping coefficient.
 
-    frequency:
-        System frequency [Hz].
-
     Notes
     -----
-    ``omega`` is speed deviation in per-unit, not absolute rotor speed.
+    The class is intentionally stateless with respect to the dynamic
+    trajectory. ``delta`` and ``omega`` are supplied to ``derivatives()``
+    and are not stored internally.
 
-    Consequently the rotor-angle equation is:
-
-        d(delta)/dt = omega_base * omega
-
-    where:
-
-        omega_base = 2*pi*frequency
+    This makes the component safe to use with vectorized solvers,
+    predictor-corrector methods, RK4, and implicit methods.
     """
 
     def __init__(
         self,
         H: float,
         D: float = 0.0,
-        frequency: float = 50.0,
     ) -> None:
 
-        if not np.isfinite(H):
-            raise ValueError(
-                "H must be finite."
-            )
-
-        if H <= 0.0:
-            raise ValueError(
-                "H must be greater than zero."
-            )
-
-        if not np.isfinite(D):
-            raise ValueError(
-                "D must be finite."
-            )
-
-        if not np.isfinite(
-            frequency
-        ):
-            raise ValueError(
-                "frequency must be finite."
-            )
-
-        if frequency <= 0.0:
-            raise ValueError(
-                "frequency must be greater than zero."
-            )
-
-        self.H = float(H)
-
-        self.D = float(D)
-
-        self.frequency = float(
-            frequency
+        self._validate_parameter(
+            "H",
+            H,
+            strictly_positive=True,
         )
 
+        self._validate_parameter(
+            "D",
+            D,
+            strictly_positive=False,
+        )
+
+        if D < 0.0:
+
+            raise SwingEquationError(
+                "D cannot be negative."
+            )
+
+        self._H = float(H)
+        self._D = float(D)
+
     # ==================================================================
-    # SYSTEM FREQUENCY
+    # PARAMETERS
     # ==================================================================
 
     @property
-    def omega_base(
+    def H(
+        self,
+    ) -> float:
+        """Inertia constant [s]."""
+
+        return self._H
+
+    @property
+    def D(
+        self,
+    ) -> float:
+        """Damping coefficient."""
+
+        return self._D
+
+    @property
+    def M(
         self,
     ) -> float:
         """
-        Synchronous electrical angular frequency [rad/s].
+        Equivalent inertia coefficient.
+
+        M = 2H
         """
 
-        return (
-            2.0
-            * np.pi
-            * self.frequency
-        )
+        return 2.0 * self._H
 
     # ==================================================================
-    # DERIVATIVES
+    # DIFFERENTIAL EQUATIONS
     # ==================================================================
 
     def derivatives(
@@ -201,7 +216,7 @@ class SwingEquation:
         Parameters
         ----------
         delta:
-            Rotor electrical angle [rad].
+            Rotor angle [rad].
 
         omega:
             Rotor speed deviation [pu].
@@ -210,97 +225,328 @@ class SwingEquation:
             Mechanical input power [pu].
 
         Pe:
-            Electrical output power [pu].
+            Electrical active power output [pu].
 
         Returns
         -------
         SwingDerivatives
-            Rotor-angle and speed-deviation derivatives.
+            ``dδ/dt`` and ``dω/dt``.
+
+        Notes
+        -----
+        ``delta`` is accepted explicitly because it is part of the
+        machine state, although it does not appear directly in the
+        classical first-order rotor equations.
         """
 
-        values = (
+        self._validate_finite(
+            "delta",
             delta,
+        )
+
+        self._validate_finite(
+            "omega",
             omega,
+        )
+
+        self._validate_finite(
+            "Pm",
             Pm,
+        )
+
+        self._validate_finite(
+            "Pe",
             Pe,
         )
 
-        if not all(
-            np.isfinite(value)
-            for value in values
-        ):
-            raise ValueError(
-                "Swing-equation inputs "
-                "must all be finite."
-            )
-
-        ddelta_dt = (
-            self.omega_base
-            * omega
+        ddelta_dt = float(
+            omega
         )
 
         domega_dt = (
-            Pm
-            - Pe
-            - self.D * omega
-        ) / (
-            2.0 * self.H
-        )
+            float(Pm)
+            - float(Pe)
+            - self._D * float(omega)
+        ) / self.M
 
         result = SwingDerivatives(
-            delta=float(
-                ddelta_dt
-            ),
-            omega=float(
-                domega_dt
-            ),
+            delta=ddelta_dt,
+            omega=domega_dt,
         )
 
-        if not np.isfinite(
-            result.delta
-        ):
-            raise FloatingPointError(
-                "Swing-equation delta "
-                "derivative is non-finite."
+        if not np.all(
+            np.isfinite(
+                result.as_array()
             )
-
-        if not np.isfinite(
-            result.omega
         ):
-            raise FloatingPointError(
-                "Swing-equation omega "
-                "derivative is non-finite."
+
+            raise SwingEquationError(
+                "Swing-equation derivative "
+                "calculation produced "
+                "non-finite values."
             )
 
         return result
 
     # ==================================================================
-    # ACCELERATION ONLY
+    # ARRAY INTERFACE
     # ==================================================================
 
-    def acceleration(
+    def derivative_vector(
         self,
-        omega: float,
+        state: np.ndarray,
+        Pm: float,
+        Pe: float,
+    ) -> np.ndarray:
+        """
+        Evaluate the swing equation directly from a rotor state vector.
+
+        Parameters
+        ----------
+        state:
+            Rotor state ordered as:
+
+                [delta, omega]
+
+        Pm:
+            Mechanical input power [pu].
+
+        Pe:
+            Electrical active power output [pu].
+
+        Returns
+        -------
+        numpy.ndarray
+            Derivative vector ordered as:
+
+                [d_delta/dt, d_omega/dt]
+        """
+
+        values = np.asarray(
+            state,
+            dtype=float,
+        )
+
+        if values.ndim != 1:
+
+            raise SwingEquationError(
+                "Rotor state must be "
+                "one-dimensional."
+            )
+
+        if values.size != 2:
+
+            raise SwingEquationError(
+                "Rotor state must contain "
+                "exactly two values: "
+                "[delta, omega]."
+            )
+
+        result = self.derivatives(
+            delta=values[0],
+            omega=values[1],
+            Pm=Pm,
+            Pe=Pe,
+        )
+
+        return result.as_array()
+
+    # ==================================================================
+    # POWER ACCELERATION
+    # ==================================================================
+
+    def accelerating_power(
+        self,
         Pm: float,
         Pe: float,
     ) -> float:
         """
-        Return rotor speed-deviation acceleration.
+        Return accelerating power:
 
-        This convenience method is useful for machine models that
-        already have the rotor-angle derivative available.
+            Pa = Pm - Pe
         """
 
-        return self.derivatives(
-            delta=0.0,
-            omega=omega,
-            Pm=Pm,
-            Pe=Pe,
-        ).omega
+        self._validate_finite(
+            "Pm",
+            Pm,
+        )
+
+        self._validate_finite(
+            "Pe",
+            Pe,
+        )
+
+        return float(
+            Pm - Pe
+        )
+
+    def acceleration(
+        self,
+        Pm: float,
+        Pe: float,
+        omega: float = 0.0,
+    ) -> float:
+        """
+        Return rotor speed-deviation acceleration.
+
+            dω/dt =
+                (Pm - Pe - Dω) / (2H)
+        """
+
+        self._validate_finite(
+            "Pm",
+            Pm,
+        )
+
+        self._validate_finite(
+            "Pe",
+            Pe,
+        )
+
+        self._validate_finite(
+            "omega",
+            omega,
+        )
+
+        return float(
+            (
+                Pm
+                - Pe
+                - self._D * omega
+            )
+            / self.M
+        )
+
+    # ==================================================================
+    # VALIDATION
+    # ==================================================================
+
+    @staticmethod
+    def _validate_parameter(
+        name: str,
+        value: float,
+        *,
+        strictly_positive: bool,
+    ) -> None:
+        """
+        Validate a scalar model parameter.
+        """
+
+        try:
+
+            numeric = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise SwingEquationError(
+                f"{name} must be "
+                "numeric."
+            ) from exc
+
+        if not np.isfinite(
+            numeric
+        ):
+
+            raise SwingEquationError(
+                f"{name} must be finite."
+            )
+
+        if (
+            strictly_positive
+            and numeric <= 0.0
+        ):
+
+            raise SwingEquationError(
+                f"{name} must be "
+                "greater than zero."
+            )
+
+    @staticmethod
+    def _validate_finite(
+        name: str,
+        value: float,
+    ) -> None:
+        """
+        Validate a dynamic scalar.
+        """
+
+        try:
+
+            numeric = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise SwingEquationError(
+                f"{name} must be numeric."
+            ) from exc
+
+        if not np.isfinite(
+            numeric
+        ):
+
+            raise SwingEquationError(
+                f"{name} must be finite."
+            )
+
+
+# ======================================================================
+# CONVENIENCE FUNCTION
+# ======================================================================
+
+
+def swing_derivatives(
+    delta: float,
+    omega: float,
+    Pm: float,
+    Pe: float,
+    H: float,
+    D: float = 0.0,
+) -> tuple[
+    float,
+    float,
+]:
+    """
+    Evaluate the classical swing equation without explicitly creating
+    a ``SwingEquation`` instance.
+
+    Returns
+    -------
+    tuple
+        ``(d_delta_dt, d_omega_dt)``
+    """
+
+    equation = SwingEquation(
+        H=H,
+        D=D,
+    )
+
+    result = equation.derivatives(
+        delta=delta,
+        omega=omega,
+        Pm=Pm,
+        Pe=Pe,
+    )
+
+    return (
+        result.delta,
+        result.omega,
+    )
 
 
 __all__ = [
+    "SwingEquationError",
     "SwingDerivatives",
     "SwingEquation",
+    "swing_derivatives",
 ]
 ```
