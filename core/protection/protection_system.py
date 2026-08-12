@@ -8,58 +8,53 @@ File:
 
 Purpose
 -------
-Central orchestration boundary for GridForge protection.
+Central orchestration boundary for GridForge V2 protection.
 
-Architecture
-------------
+Architectural Principle
+-----------------------
 
-    Physical measurement system
-            |
-            v
-        CT / PT / CVT
-            |
-            v
-    MeasurementChannel
-            |
-            v
-        Relay / RelayInput
-            |
-            v
-    Protection Function Plugin
-            |
-            v
-    ProtectionDecision
-            |
-            v
-        TripRequest
-            |
-            v
-      BreakerManager
-            |
-            v
-          Breaker
+A physical/numerical Relay may contain multiple protection
+functions.
 
+Therefore:
 
-GridForge V2 Authority Boundary
---------------------------------
+    Relay != ProtectionFunction
+
+Example:
+
+    Relay R1
+        |
+        +-- OvercurrentFunction
+        +-- EarthFaultFunction
+        +-- DirectionalFunction
+        +-- DistanceFunction
+        +-- VoltageFunction
+        +-- FrequencyFunction
+
+ProtectionSystem orchestrates those function instances.
+
+It does not become a protection algorithm.
+
+Authority Boundary
+-------------------
 
 core/model/relay.py
-    Authoritative Relay device state.
+    Authoritative Relay device identity, configuration and state.
 
 core/model/ct.py
 core/model/pt.py
 core/model/cvt.py
 core/model/measurement_channel.py
-    Measurement equipment and measurement-domain state.
+    Authoritative measurement-domain objects.
 
 core/protection/relay_base.py
-    Protection-function plugin contract.
+    Protection-function execution contract.
 
 core/protection/<function>.py
-    Protection-function implementations.
+    Concrete protection algorithms/elements.
 
 core/protection/protection_system.py
-    Protection orchestration only.
+    Protection-function orchestration and decision aggregation.
 
 core/protection/breaker_manager.py
     Breaker command boundary.
@@ -71,54 +66,84 @@ Responsibilities
 ----------------
 ProtectionSystem:
 
-- register protection-function plugins;
-- associate plugins with authoritative Relay models;
-- associate plugins with controlled breakers;
+- register multiple protection functions;
+- allow multiple functions on one Relay;
+- associate functions with authoritative Relay models;
+- associate functions with controlled breakers;
 - validate protection registration;
-- invoke protection-function evaluation;
-- normalize protection decisions;
+- evaluate protection functions;
+- normalize protection results;
+- aggregate decisions;
 - generate TripRequest objects;
-- dispatch TripRequest objects to BreakerManager;
-- record protection/control orchestration events;
-- reset protection runtime state;
-- provide diagnostics.
+- dispatch TripRequests through BreakerManager;
+- preserve provenance;
+- record orchestration events;
+- reset protection-function runtime state;
+- expose diagnostics.
 
 ProtectionSystem does NOT:
 
-- acquire CT signals;
-- acquire PT signals;
-- acquire CVT signals;
-- transform instrument-transformer signals;
-- create MeasurementChannel objects;
-- calculate measurements;
+- acquire measurements;
+- create measurement channels;
+- calculate electrical quantities;
+- implement protection algorithms;
 - calculate impedance;
-- calculate phase angles;
 - calculate fault current;
 - perform load flow;
 - perform short-circuit analysis;
 - build Y-bus;
-- implement overcurrent protection;
-- implement inverse-time curves;
-- implement directional protection;
-- implement distance protection;
-- implement differential protection;
-- coordinate protection functions;
-- calculate relay settings;
-- own Relay state;
-- duplicate MeasurementChannel state;
-- own Breaker state;
-- directly call Breaker.open() or Breaker.close();
-- modify Network topology;
+- coordinate relay settings;
+- directly operate breakers;
+- modify network topology;
 - schedule simulation events.
 
-Design Principle
-----------------
-ProtectionSystem is an orchestration boundary.
+Multifunction Relay Model
+-------------------------
 
-A protection function must already know how to interpret its
-authoritative Relay inputs before it is registered here.
+The internal registration structure is function-centric:
 
-The system never becomes a second protection algorithm.
+    function_id
+        |
+        +-- protection function
+        +-- authoritative relay
+        +-- breaker association
+        +-- optional metadata
+
+This permits:
+
+    Relay R1
+        |
+        +-- OC1
+        +-- EF1
+        +-- DIST1
+        +-- UV1
+
+without duplicating Relay state.
+
+Trip Ownership
+--------------
+
+ProtectionSystem creates TripRequest objects.
+
+BreakerManager remains the sole protection-layer command boundary
+for physical breaker operation.
+
+    ProtectionFunction
+            |
+            v
+    ProtectionDecision
+            |
+            v
+    ProtectionSystem
+            |
+            v
+       TripRequest
+            |
+            v
+      BreakerManager
+            |
+            v
+          Breaker
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -140,29 +165,39 @@ from typing import Any, Mapping
 @dataclass(frozen=True, slots=True)
 class ProtectionDecision:
     """
-    Immutable result of a protection-function evaluation.
+    Immutable result of one protection-function evaluation.
 
     Parameters
     ----------
     relay_id:
-        Authoritative Relay identifier.
+        Authoritative physical Relay identifier.
+
+    function_id:
+        Protection-function instance identifier.
 
     operated:
-        True when the protection function has issued an operating
-        decision.
+        True when the protection element has reached its operating
+        criterion.
 
     picked_up:
         True when the protection element is in pickup condition.
 
+    trip:
+        True when the function requests a protection trip.
+
+        This is deliberately separate from pickup and operation.
+
     function:
-        Protection-function identifier.
+        Protection-function type/name.
+
+    time:
+        Evaluation time.
 
     reason:
-        Optional operating explanation.
+        Operating explanation.
 
     metadata:
-        Optional diagnostic information supplied by the protection
-        function.
+        Function-specific diagnostic information.
 
     Notes
     -----
@@ -172,9 +207,12 @@ class ProtectionDecision:
     """
 
     relay_id: Any
+    function_id: Any
     operated: bool
     picked_up: bool
+    trip: bool
     function: str
+    time: float = 0.0
     reason: str = ""
     metadata: Mapping[str, Any] = field(
         default_factory=dict
@@ -189,38 +227,20 @@ class ProtectionDecision:
 @dataclass(frozen=True, slots=True)
 class TripRequest:
     """
-    Immutable protection request to operate a breaker.
+    Immutable request to operate a controlled breaker.
 
-    Parameters
-    ----------
-    relay_id:
-        Relay that generated the request.
-
-    breaker_id:
-        Controlled breaker identifier.
-
-    function:
-        Protection function that generated the request.
-
-    time:
-        Simulation/event time in seconds.
-
-    reason:
-        Optional operating explanation.
-
-    Notes
-    -----
     TripRequest does not operate the breaker.
-
-    BreakerManager remains the sole protection-layer command
-    boundary for physical breaker operation.
     """
 
     relay_id: Any
+    function_id: Any
     breaker_id: Any
     function: str
     time: float
     reason: str = ""
+    metadata: Mapping[str, Any] = field(
+        default_factory=dict
+    )
 
 
 # =====================================================================
@@ -233,7 +253,7 @@ class ProtectionEvent:
     """
     Immutable protection/control orchestration event.
 
-    This is history/diagnostic information.
+    This represents history and diagnostics.
 
     It is not authoritative device state.
     """
@@ -241,6 +261,7 @@ class ProtectionEvent:
     time: float
     event_type: str
     relay_id: Any
+    function_id: Any = None
     breaker_id: Any = None
     function: str = ""
     success: bool | None = None
@@ -258,16 +279,16 @@ class ProtectionEvent:
 @dataclass(slots=True)
 class _ProtectionRegistration:
     """
-    Internal protection registration.
+    Internal protection-function registration.
 
     References are stored only.
 
-    Relay and Breaker state are never duplicated here.
+    Relay and Breaker state are never duplicated.
     """
 
     protection: Any
     relay: Any
-    breaker_id: Any
+    breaker_id: Any = None
 
 
 # =====================================================================
@@ -279,12 +300,11 @@ class ProtectionSystem:
     """
     Central GridForge V2 protection orchestrator.
 
-    The authoritative Relay model is supplied explicitly during
-    registration.
+    The primary registration identity is function_id rather than
+    relay_id.
 
-    The protection plugin interprets Relay inputs.
-
-    BreakerManager performs actual breaker commands.
+    This permits multiple protection functions to operate on one
+    authoritative Relay.
     """
 
     # =================================================================
@@ -302,7 +322,7 @@ class ProtectionSystem:
         self.breaker_manager = breaker_manager
 
         self._registrations: dict[
-            Any,
+            str,
             _ProtectionRegistration,
         ] = {}
 
@@ -317,39 +337,41 @@ class ProtectionSystem:
     def register(
         self,
         protection: Any,
-        relay: Any,
+        relay: Any | None = None,
         breaker_id: Any = None,
-    ) -> None:
+        *,
+        function_id: str | None = None,
+    ) -> str:
         """
-        Register a protection-function plugin against an
-        authoritative Relay.
+        Register one protection-function instance.
 
         Parameters
         ----------
         protection:
-            RelayBase-derived protection function or compatible
-            protection plugin.
+            RelayBase-derived protection function.
 
         relay:
-            Authoritative Relay model from core.model.relay.
+            Authoritative Relay model.
+
+            When omitted, protection.relay is used.
 
         breaker_id:
-            Optional controlled breaker identifier.
+            Optional controlled breaker.
 
-        Raises
-        ------
-        ValueError
-            Invalid or duplicate registration.
+        function_id:
+            Optional explicit protection-function identifier.
 
-        TypeError
-            Protection plugin does not provide the required
-            interface.
+            When omitted, protection.function_id or protection.id
+            is used.
+
+        Returns
+        -------
+        str
+            Registered function identifier.
 
         Notes
         -----
-        This method stores references only.
-
-        It does not copy Relay state.
+        Multiple protection functions may reference the same Relay.
         """
 
         if protection is None:
@@ -357,14 +379,23 @@ class ProtectionSystem:
                 "protection cannot be None."
             )
 
+        # -------------------------------------------------------------
+        # Resolve authoritative Relay
+        # -------------------------------------------------------------
+
         if relay is None:
-            raise ValueError(
-                "relay cannot be None."
+            relay = getattr(
+                protection,
+                "relay",
+                None,
             )
 
-        # -------------------------------------------------------------
-        # Relay identity
-        # -------------------------------------------------------------
+        if relay is None:
+            raise ValueError(
+                "An authoritative Relay must be supplied either "
+                "through register(..., relay=...) or "
+                "protection.relay."
+            )
 
         relay_id = getattr(
             relay,
@@ -380,13 +411,8 @@ class ProtectionSystem:
                 "relay must provide a non-empty string id."
             )
 
-        if relay_id in self._registrations:
-            raise ValueError(
-                f"Relay '{relay_id}' is already registered."
-            )
-
         # -------------------------------------------------------------
-        # Protection-plugin identity
+        # Verify plugin Relay binding
         # -------------------------------------------------------------
 
         protection_relay = getattr(
@@ -395,25 +421,70 @@ class ProtectionSystem:
             None,
         )
 
-        if protection_relay is not None:
-            if protection_relay is not relay:
-                raise ValueError(
-                    "Protection plugin is bound to a different "
-                    "authoritative Relay model."
-                )
+        if (
+            protection_relay is not None
+            and protection_relay is not relay
+        ):
+            raise ValueError(
+                "Protection function is bound to a different "
+                "authoritative Relay model."
+            )
 
-        protection_id = getattr(
+        # -------------------------------------------------------------
+        # Function identity
+        # -------------------------------------------------------------
+
+        if function_id is None:
+
+            function_id = getattr(
+                protection,
+                "function_id",
+                None,
+            )
+
+        if function_id is None:
+
+            function_id = getattr(
+                protection,
+                "id",
+                None,
+            )
+
+        if not isinstance(
+            function_id,
+            str,
+        ) or not function_id.strip():
+            raise ValueError(
+                "Protection function must provide a non-empty "
+                "function_id or id."
+            )
+
+        function_id = function_id.strip()
+
+        if function_id in self._registrations:
+            raise ValueError(
+                f"Protection function '{function_id}' "
+                "is already registered."
+            )
+
+        # -------------------------------------------------------------
+        # Verify function identity consistency
+        # -------------------------------------------------------------
+
+        protection_function_id = getattr(
             protection,
-            "id",
+            "function_id",
             None,
         )
 
-        if protection_id is not None:
-            if protection_id != relay_id:
-                raise ValueError(
-                    "Protection plugin id does not match "
-                    "the authoritative Relay id."
-                )
+        if (
+            protection_function_id is not None
+            and protection_function_id != function_id
+        ):
+            raise ValueError(
+                "function_id does not match the protection "
+                "function's authoritative function_id."
+            )
 
         # -------------------------------------------------------------
         # Evaluation interface
@@ -427,38 +498,40 @@ class ProtectionSystem:
 
         if not callable(evaluate):
             raise TypeError(
-                "Protection plugin must provide evaluate()."
+                "Protection function must provide evaluate()."
             )
 
         # -------------------------------------------------------------
-        # Breaker reference
+        # Breaker validation
         # -------------------------------------------------------------
 
         if breaker_id is not None:
 
+            has_breaker = getattr(
+                self.breaker_manager,
+                "has_breaker",
+                None,
+            )
+
             if (
                 self.breaker_manager is not None
-                and hasattr(
-                    self.breaker_manager,
-                    "has_breaker",
-                )
+                and callable(has_breaker)
+                and not has_breaker(breaker_id)
             ):
-
-                if not self.breaker_manager.has_breaker(
-                    breaker_id
-                ):
-                    raise KeyError(
-                        f"Breaker '{breaker_id}' is not "
-                        "registered with BreakerManager."
-                    )
+                raise KeyError(
+                    f"Breaker '{breaker_id}' is not "
+                    "registered with BreakerManager."
+                )
 
         self._registrations[
-            relay_id
+            function_id
         ] = _ProtectionRegistration(
             protection=protection,
             relay=relay,
             breaker_id=breaker_id,
         )
+
+        return function_id
 
     # =================================================================
     # COMPATIBILITY REGISTRATION
@@ -468,9 +541,12 @@ class ProtectionSystem:
         self,
         protection: Any,
         breaker_id: Any = None,
-    ) -> None:
+    ) -> str:
         """
         Compatibility registration method.
+
+        Despite its historical name, this registers one protection
+        function.
 
         Preferred V2 form:
 
@@ -479,29 +555,15 @@ class ProtectionSystem:
                 relay=...,
                 breaker_id=...,
             )
-
-        This method obtains the authoritative Relay from:
-
-            protection.relay
         """
 
-        relay = getattr(
-            protection,
-            "relay",
-            None,
-        )
-
-        if relay is None:
-            raise TypeError(
-                "add_relay() requires a protection plugin "
-                "exposing its authoritative Relay through "
-                ".relay. Use register() for explicit V2 "
-                "registration."
-            )
-
-        self.register(
+        return self.register(
             protection=protection,
-            relay=relay,
+            relay=getattr(
+                protection,
+                "relay",
+                None,
+            ),
             breaker_id=breaker_id,
         )
 
@@ -511,16 +573,16 @@ class ProtectionSystem:
 
     def unregister(
         self,
-        relay_id: Any,
+        function_id: str,
     ) -> None:
         """
-        Remove a protection registration.
+        Remove one protection-function registration.
 
         The authoritative Relay is not modified.
         """
 
         self._registrations.pop(
-            relay_id,
+            function_id,
             None,
         )
 
@@ -530,16 +592,14 @@ class ProtectionSystem:
 
     def get(
         self,
-        relay_id: Any,
+        function_id: str,
     ) -> Any | None:
         """
-        Return the registered protection plugin.
-
-        Returns None when the Relay is not registered.
+        Return a registered protection function.
         """
 
         registration = self._registrations.get(
-            relay_id
+            function_id
         )
 
         if registration is None:
@@ -547,27 +607,85 @@ class ProtectionSystem:
 
         return registration.protection
 
+    # -----------------------------------------------------------------
+
+    def get_relay_functions(
+        self,
+        relay_id: Any,
+    ) -> tuple[Any, ...]:
+        """
+        Return all protection functions associated with one Relay.
+        """
+
+        return tuple(
+            registration.protection
+            for registration in self._registrations.values()
+            if registration.relay.id == relay_id
+        )
+
+    # -----------------------------------------------------------------
+
+    def function_ids_for_relay(
+        self,
+        relay_id: Any,
+    ) -> tuple[str, ...]:
+        """
+        Return all protection-function IDs belonging to a Relay.
+        """
+
+        return tuple(
+            function_id
+            for function_id, registration
+            in self._registrations.items()
+            if registration.relay.id == relay_id
+        )
+
     # =================================================================
     # REGISTRATION INFORMATION
     # =================================================================
 
     @property
-    def relay_ids(self) -> tuple[Any, ...]:
+    def function_ids(self) -> tuple[str, ...]:
         """
-        Return registered Relay identifiers.
+        Return registered protection-function identifiers.
         """
 
         return tuple(
             self._registrations.keys()
         )
 
-    @property
-    def events(self) -> tuple[ProtectionEvent, ...]:
-        """
-        Return protection events.
+    # -----------------------------------------------------------------
 
-        The returned tuple cannot modify the internal event
-        collection.
+    @property
+    def relay_ids(self) -> tuple[Any, ...]:
+        """
+        Return unique authoritative Relay identifiers.
+
+        Multiple functions belonging to the same Relay appear only
+        once.
+        """
+
+        seen: list[Any] = []
+
+        for registration in (
+            self._registrations.values()
+        ):
+
+            relay_id = registration.relay.id
+
+            if relay_id not in seen:
+                seen.append(relay_id)
+
+        return tuple(seen)
+
+    # -----------------------------------------------------------------
+
+    @property
+    def events(
+        self,
+    ) -> tuple[ProtectionEvent, ...]:
+        """
+        Return immutable event history.
         """
 
         return tuple(
@@ -596,80 +714,6 @@ class ProtectionSystem:
         return value
 
     # =================================================================
-    # RELAY OPERATIONAL STATE
-    # =================================================================
-
-    @staticmethod
-    def _relay_operational(
-        relay: Any,
-    ) -> bool:
-        """
-        Determine whether an authoritative Relay is operational.
-
-        Preferred V2 interface:
-
-            relay.operational
-
-        The Relay model owns the meaning of this state.
-
-        A limited compatibility fallback is retained for older
-        Relay implementations.
-        """
-
-        operational = getattr(
-            relay,
-            "operational",
-            None,
-        )
-
-        if operational is not None:
-            return bool(
-                operational
-            )
-
-        in_service = getattr(
-            relay,
-            "in_service",
-            True,
-        )
-
-        if not bool(in_service):
-            return False
-
-        enabled = getattr(
-            relay,
-            "enabled",
-            True,
-        )
-
-        if not bool(enabled):
-            return False
-
-        blocked = getattr(
-            relay,
-            "blocked",
-            False,
-        )
-
-        if bool(blocked):
-            return False
-
-        required_inputs_available = getattr(
-            relay,
-            "required_inputs_available",
-            None,
-        )
-
-        if callable(
-            required_inputs_available
-        ):
-            return bool(
-                required_inputs_available()
-            )
-
-        return True
-
-    # =================================================================
     # FUNCTION IDENTIFICATION
     # =================================================================
 
@@ -678,7 +722,7 @@ class ProtectionSystem:
         protection: Any,
     ) -> str:
         """
-        Return the protection-function identifier.
+        Return the protection-function name.
         """
 
         for attribute in (
@@ -687,6 +731,7 @@ class ProtectionSystem:
             "relay_type",
             "name",
         ):
+
             value = getattr(
                 protection,
                 attribute,
@@ -710,35 +755,54 @@ class ProtectionSystem:
         cls,
         registration: _ProtectionRegistration,
         result: Any,
+        *,
+        time: float,
     ) -> ProtectionDecision:
         """
         Normalize a protection-function result.
 
-        Preferred result:
+        Supported result forms:
 
             ProtectionDecision
 
-        Compatibility forms:
-
             bool
 
-        or:
+            mapping
 
-            {
-                "operated": bool,
-                "picked_up": bool,
-                "reason": str,
-                "metadata": mapping,
-            }
+        Mapping keys:
 
-        The normalization layer does not create persistent Relay
-        state.
+            operated
+            picked_up
+            trip
+            reason
+            metadata
+
+        Compatibility aliases:
+
+            tripped -> trip
         """
 
         relay = registration.relay
         protection = registration.protection
 
         relay_id = relay.id
+
+        function_id = getattr(
+            protection,
+            "function_id",
+            getattr(
+                protection,
+                "id",
+                None,
+            ),
+        )
+
+        if function_id is None:
+            raise RuntimeError(
+                "Protection function does not expose a "
+                "function identifier."
+            )
+
         function = cls._function_name(
             protection
         )
@@ -758,10 +822,16 @@ class ProtectionSystem:
                     "the registered authoritative Relay."
                 )
 
+            if result.function_id != function_id:
+                raise ValueError(
+                    "ProtectionDecision function_id does not "
+                    "match the registered protection function."
+                )
+
             return result
 
         # -------------------------------------------------------------
-        # Boolean compatibility result
+        # Boolean compatibility
         # -------------------------------------------------------------
 
         if isinstance(
@@ -771,13 +841,16 @@ class ProtectionSystem:
 
             return ProtectionDecision(
                 relay_id=relay_id,
+                function_id=function_id,
                 operated=result,
                 picked_up=result,
+                trip=result,
                 function=function,
+                time=time,
             )
 
         # -------------------------------------------------------------
-        # Mapping compatibility result
+        # Mapping compatibility
         # -------------------------------------------------------------
 
         if isinstance(
@@ -799,6 +872,16 @@ class ProtectionSystem:
                 result.get(
                     "picked_up",
                     operated,
+                )
+            )
+
+            trip = bool(
+                result.get(
+                    "trip",
+                    result.get(
+                        "tripped",
+                        operated,
+                    ),
                 )
             )
 
@@ -825,45 +908,32 @@ class ProtectionSystem:
 
             return ProtectionDecision(
                 relay_id=relay_id,
+                function_id=function_id,
                 operated=operated,
                 picked_up=picked_up,
+                trip=trip,
                 function=function,
+                time=time,
                 reason=reason,
                 metadata=dict(metadata),
             )
 
         raise TypeError(
-            "Protection plugin evaluate() must return "
+            "Protection function evaluate() must return "
             "ProtectionDecision, bool, or a mapping."
         )
 
     # =================================================================
-    # SINGLE RELAY EVALUATION
+    # SINGLE FUNCTION EVALUATION
     # =================================================================
 
-    def evaluate_relay(
+    def evaluate_function(
         self,
-        relay_id: Any,
+        function_id: str,
         time: float = 0.0,
     ) -> ProtectionDecision:
         """
-        Evaluate one registered protection function.
-
-        No raw measurement data is accepted.
-
-        The protection plugin consumes authoritative Relay inputs.
-
-        Parameters
-        ----------
-        relay_id:
-            Registered Relay identifier.
-
-        time:
-            Simulation/event time used for protection events.
-
-        Returns
-        -------
-        ProtectionDecision
+        Evaluate one protection-function instance.
         """
 
         simulation_time = self._validate_time(
@@ -871,59 +941,68 @@ class ProtectionSystem:
         )
 
         registration = self._registrations.get(
-            relay_id
+            function_id
         )
 
         if registration is None:
             raise KeyError(
-                f"Relay '{relay_id}' is not registered."
+                f"Protection function '{function_id}' "
+                "is not registered."
             )
 
-        relay = registration.relay
         protection = registration.protection
+        relay = registration.relay
 
         function = self._function_name(
             protection
         )
 
         # -------------------------------------------------------------
-        # Operational gate
+        # Function availability
         # -------------------------------------------------------------
 
-        if not self._relay_operational(
-            relay
-        ):
+        is_available = getattr(
+            protection,
+            "is_available",
+            None,
+        )
 
-            decision = ProtectionDecision(
-                relay_id=relay.id,
-                operated=False,
-                picked_up=bool(
-                    getattr(
-                        relay,
-                        "picked_up",
-                        False,
-                    )
-                ),
-                function=function,
-                reason="Relay is not operational.",
-            )
+        if callable(is_available):
 
-            self._events.append(
-                ProtectionEvent(
-                    time=simulation_time,
-                    event_type="PROTECTION_BLOCKED",
+            if not bool(
+                is_available()
+            ):
+
+                decision = ProtectionDecision(
                     relay_id=relay.id,
-                    breaker_id=registration.breaker_id,
+                    function_id=function_id,
+                    operated=False,
+                    picked_up=False,
+                    trip=False,
                     function=function,
-                    success=False,
-                    reason=decision.reason,
+                    time=simulation_time,
+                    reason=(
+                        "Protection function is not available."
+                    ),
                 )
-            )
 
-            return decision
+                self._events.append(
+                    ProtectionEvent(
+                        time=simulation_time,
+                        event_type="PROTECTION_BLOCKED",
+                        relay_id=relay.id,
+                        function_id=function_id,
+                        breaker_id=registration.breaker_id,
+                        function=function,
+                        success=False,
+                        reason=decision.reason,
+                    )
+                )
+
+                return decision
 
         # -------------------------------------------------------------
-        # Protection plugin evaluation
+        # Evaluate function
         # -------------------------------------------------------------
 
         result = protection.evaluate()
@@ -931,11 +1010,8 @@ class ProtectionSystem:
         decision = self._make_decision(
             registration,
             result,
+            time=simulation_time,
         )
-
-        # -------------------------------------------------------------
-        # Operating event
-        # -------------------------------------------------------------
 
         if decision.operated:
 
@@ -944,8 +1020,27 @@ class ProtectionSystem:
                     time=simulation_time,
                     event_type="PROTECTION_OPERATE",
                     relay_id=relay.id,
+                    function_id=function_id,
                     breaker_id=registration.breaker_id,
-                    function=decision.function,
+                    function=function,
+                    success=None,
+                    reason=decision.reason,
+                    metadata=dict(
+                        decision.metadata
+                    ),
+                )
+            )
+
+        elif decision.picked_up:
+
+            self._events.append(
+                ProtectionEvent(
+                    time=simulation_time,
+                    event_type="PROTECTION_PICKUP",
+                    relay_id=relay.id,
+                    function_id=function_id,
+                    breaker_id=registration.breaker_id,
+                    function=function,
                     success=None,
                     reason=decision.reason,
                     metadata=dict(
@@ -957,7 +1052,45 @@ class ProtectionSystem:
         return decision
 
     # =================================================================
-    # ALL RELAYS
+    # SINGLE RELAY EVALUATION
+    # =================================================================
+
+    def evaluate_relay(
+        self,
+        relay_id: Any,
+        time: float = 0.0,
+    ) -> tuple[ProtectionDecision, ...]:
+        """
+        Evaluate every protection function belonging to one Relay.
+
+        Multiple functions may therefore produce independent
+        decisions during the same evaluation cycle.
+        """
+
+        simulation_time = self._validate_time(
+            time
+        )
+
+        function_ids = self.function_ids_for_relay(
+            relay_id
+        )
+
+        if not function_ids:
+            raise KeyError(
+                f"Relay '{relay_id}' has no registered "
+                "protection functions."
+            )
+
+        return tuple(
+            self.evaluate_function(
+                function_id,
+                time=simulation_time,
+            )
+            for function_id in function_ids
+        )
+
+    # =================================================================
+    # ALL FUNCTIONS
     # =================================================================
 
     def evaluate(
@@ -966,29 +1099,48 @@ class ProtectionSystem:
     ) -> tuple[ProtectionDecision, ...]:
         """
         Evaluate all registered protection functions.
-
-        No measurement acquisition or calculation is performed.
         """
 
         simulation_time = self._validate_time(
             time
         )
 
-        decisions: list[
-            ProtectionDecision
-        ] = []
-
-        for relay_id in self._registrations:
-
-            decisions.append(
-                self.evaluate_relay(
-                    relay_id,
-                    time=simulation_time,
-                )
+        return tuple(
+            self.evaluate_function(
+                function_id,
+                time=simulation_time,
             )
+            for function_id in self._registrations
+        )
+
+    # =================================================================
+    # DECISION AGGREGATION
+    # =================================================================
+
+    @staticmethod
+    def trip_decisions(
+        decisions: tuple[
+            ProtectionDecision,
+            ...
+        ] | list[
+            ProtectionDecision
+        ],
+    ) -> tuple[ProtectionDecision, ...]:
+        """
+        Return only decisions that explicitly request a trip.
+
+        Pickup and operation are not automatically converted into a
+        breaker trip.
+        """
 
         return tuple(
-            decisions
+            decision
+            for decision in decisions
+            if isinstance(
+                decision,
+                ProtectionDecision,
+            )
+            and decision.trip
         )
 
     # =================================================================
@@ -1006,22 +1158,12 @@ class ProtectionSystem:
         time: float | None = None,
     ) -> tuple[TripRequest, ...]:
         """
-        Convert operated protection decisions into TripRequests.
+        Convert protection trip decisions into TripRequests.
 
-        This method never operates breakers.
+        No breaker operation occurs here.
 
-        Parameters
-        ----------
-        decisions:
-            Protection decisions.
-
-        time:
-            Optional explicit command time.
-
-            When omitted, the caller-supplied decision-cycle time
-            is expected to have already been encoded by the caller.
-            For deterministic operation, passing an explicit time
-            is recommended.
+        The function-specific decision remains the provenance of the
+        request.
         """
 
         if decisions is None:
@@ -1050,34 +1192,35 @@ class ProtectionSystem:
                     "ProtectionDecision objects."
                 )
 
-            if not decision.operated:
+            if not decision.trip:
                 continue
 
             registration = self._registrations.get(
-                decision.relay_id
+                decision.function_id
             )
 
             if registration is None:
                 raise RuntimeError(
                     "Protection decision references an "
-                    "unregistered Relay."
+                    "unregistered protection function."
                 )
 
             breaker_id = registration.breaker_id
 
-            if breaker_id is None:
+            request_time = (
+                simulation_time
+                if simulation_time is not None
+                else decision.time
+            )
 
-                event_time = (
-                    simulation_time
-                    if simulation_time is not None
-                    else 0.0
-                )
+            if breaker_id is None:
 
                 self._events.append(
                     ProtectionEvent(
-                        time=event_time,
+                        time=request_time,
                         event_type="TRIP_REQUEST_REJECTED",
                         relay_id=decision.relay_id,
+                        function_id=decision.function_id,
                         breaker_id=None,
                         function=decision.function,
                         success=False,
@@ -1090,19 +1233,17 @@ class ProtectionSystem:
 
                 continue
 
-            request_time = (
-                simulation_time
-                if simulation_time is not None
-                else 0.0
-            )
-
             requests.append(
                 TripRequest(
                     relay_id=decision.relay_id,
+                    function_id=decision.function_id,
                     breaker_id=breaker_id,
                     function=decision.function,
                     time=request_time,
                     reason=decision.reason,
+                    metadata=dict(
+                        decision.metadata
+                    ),
                 )
             )
 
@@ -1130,8 +1271,6 @@ class ProtectionSystem:
         Dispatch TripRequests to BreakerManager.
 
         ProtectionSystem never calls Breaker.open() directly.
-
-        BreakerManager remains the sole command boundary.
         """
 
         if requests is None:
@@ -1147,29 +1286,31 @@ class ProtectionSystem:
 
             for request in requests:
 
+                reason = (
+                    "No BreakerManager is configured."
+                )
+
                 self._events.append(
                     ProtectionEvent(
                         time=request.time,
                         event_type="TRIP_REQUEST_UNDISPATCHED",
                         relay_id=request.relay_id,
+                        function_id=request.function_id,
                         breaker_id=request.breaker_id,
                         function=request.function,
                         success=False,
-                        reason=(
-                            "No BreakerManager is configured."
-                        ),
+                        reason=reason,
                     )
                 )
 
                 results.append(
                     {
                         "relay_id": request.relay_id,
+                        "function_id": request.function_id,
                         "breaker_id": request.breaker_id,
                         "function": request.function,
                         "success": False,
-                        "error": (
-                            "No BreakerManager is configured."
-                        ),
+                        "error": reason,
                     }
                 )
 
@@ -1190,15 +1331,12 @@ class ProtectionSystem:
 
         for request in requests:
 
-            # ---------------------------------------------------------
-            # Preserve command provenance.
-            # ---------------------------------------------------------
-
             success = bool(
                 trip(
                     request.breaker_id,
                     time=request.time,
                     source=request.relay_id,
+                    function_id=request.function_id,
                 )
             )
 
@@ -1207,16 +1345,21 @@ class ProtectionSystem:
                     time=request.time,
                     event_type="BREAKER_TRIP",
                     relay_id=request.relay_id,
+                    function_id=request.function_id,
                     breaker_id=request.breaker_id,
                     function=request.function,
                     success=success,
                     reason=request.reason,
+                    metadata=dict(
+                        request.metadata
+                    ),
                 )
             )
 
             results.append(
                 {
                     "relay_id": request.relay_id,
+                    "function_id": request.function_id,
                     "breaker_id": request.breaker_id,
                     "function": request.function,
                     "success": success,
@@ -1245,25 +1388,24 @@ class ProtectionSystem:
         Sequence
         --------
 
-            authoritative Relay inputs
-                    |
-                    v
-            protection plugins
-                    |
-                    v
-            ProtectionDecision
-                    |
-                    v
-            TripRequest
-                    |
-                    v
-            BreakerManager
-                    |
-                    v
-                Breaker
+        Measurement architecture
+                |
+                v
+        Protection functions
+                |
+                v
+        ProtectionDecision
+                |
+                v
+        TripRequest
+                |
+                v
+        BreakerManager
+                |
+                v
+              Breaker
 
-        This method performs no measurement acquisition and no
-        protection calculation.
+        ProtectionSystem performs orchestration only.
         """
 
         simulation_time = self._validate_time(
@@ -1291,9 +1433,9 @@ class ProtectionSystem:
         self,
     ) -> None:
         """
-        Reset protection runtime state.
+        Reset every registered protection-function instance.
 
-        Protection settings are not modified.
+        Relay configuration/settings are not modified.
 
         Measurement state is not modified.
 
@@ -1304,10 +1446,8 @@ class ProtectionSystem:
             self._registrations.values()
         ):
 
-            protection = registration.protection
-
             reset = getattr(
-                protection,
+                registration.protection,
                 "reset",
                 None,
             )
@@ -1325,9 +1465,7 @@ class ProtectionSystem:
         self,
     ) -> None:
         """
-        Clear ProtectionSystem event history.
-
-        Device state is unaffected.
+        Clear orchestration event history.
         """
 
         self._events.clear()
@@ -1342,45 +1480,71 @@ class ProtectionSystem:
         """
         Return structured ProtectionSystem diagnostics.
 
-        No Relay or Breaker state is copied into the manager.
+        No Relay or Breaker state is copied into this manager.
         """
 
-        registrations: dict[
+        functions: dict[
+            str,
+            dict[str, Any],
+        ] = {}
+
+        relays: dict[
             Any,
             dict[str, Any],
         ] = {}
 
         for (
-            relay_id,
+            function_id,
             registration,
         ) in self._registrations.items():
 
             relay = registration.relay
             protection = registration.protection
 
-            registrations[
-                relay_id
-            ] = {
-                "relay_id": relay_id,
-                "relay_type": getattr(
-                    relay,
-                    "type",
-                    None,
-                ),
-                "function": self._function_name(
-                    protection
-                ),
-                "breaker_id": registration.breaker_id,
-                "operational": self._relay_operational(
-                    relay
-                ),
-            }
+            status_method = getattr(
+                protection,
+                "status",
+                None,
+            )
+
+            if callable(status_method):
+                function_status = status_method()
+            else:
+                function_status = {
+                    "function_id": function_id,
+                    "relay_id": relay.id,
+                }
+
+            functions[
+                function_id
+            ] = function_status
+
+            relay_entry = relays.setdefault(
+                relay.id,
+                {
+                    "relay_id": relay.id,
+                    "relay_type": getattr(
+                        relay,
+                        "type",
+                        None,
+                    ),
+                    "function_ids": [],
+                },
+            )
+
+            relay_entry[
+                "function_ids"
+            ].append(
+                function_id
+            )
 
         return {
-            "relay_count": len(
+            "relay_count": len(relays),
+            "function_count": len(
                 self._registrations
             ),
-            "relays": registrations,
+            "relays": relays,
+            "functions": functions,
             "event_count": len(
                 self._events
             ),
@@ -1408,12 +1572,13 @@ class ProtectionSystem:
 
     def __repr__(self) -> str:
         """
-        Return a concise developer-facing representation.
+        Return concise developer-facing representation.
         """
 
         return (
             f"<ProtectionSystem "
-            f"relays={len(self._registrations)}, "
+            f"relays={len(self.relay_ids)}, "
+            f"functions={len(self._registrations)}, "
             f"events={len(self._events)}, "
             f"breaker_manager="
             f"{self.breaker_manager is not None}>"
