@@ -1,10 +1,8 @@
-```python id="7q2m4c"
 """
 GridForge Dynamic Integrators
 =============================
 
-Numerical time-integration methods used by the GridForge dynamics
-solver.
+Numerical integration methods for GridForge dynamic simulation.
 
 Supported methods
 -----------------
@@ -12,33 +10,79 @@ RK4
     Classical explicit fourth-order Runge-Kutta integration.
 
 TRAPEZOIDAL
-    Implicit trapezoidal integration using nonlinear fixed-point
-    iteration.
+    Implicit trapezoidal integration solved using Newton iteration.
 
-Architectural responsibilities
--------------------------------
-Integrators:
+Architecture
+------------
+The integrator is deliberately independent of:
 
-- operate only on numerical state vectors;
-- evaluate a supplied derivative function;
-- advance the state in time;
-- perform no network calculations;
-- perform no machine calculations;
-- perform no event processing;
-- own no simulation state.
+- generators;
+- machine models;
+- AVR/governor/PSS models;
+- network topology;
+- Y-bus construction;
+- algebraic network solving.
 
-Derivative contract
--------------------
-The derivative callable must have the form:
+It receives a generic differential-equation callback:
 
     derivative(x, t) -> dx/dt
 
+and advances the dynamic state:
+
+    x(t + dt)
+
+The DAE solver is responsible for constructing the complete derivative
+function, including the required algebraic-network solution.
+
+Numerical contract
+------------------
+All integrators implement:
+
+    step(
+        x,
+        derivative,
+        t,
+        dt,
+        jacobian=None,
+    )
+
 where:
 
-    x = numerical state vector
-    t = simulation time
+    x
+        Current dynamic state vector.
 
-The derivative function must not modify ``x``.
+    derivative
+        Callable returning dx/dt.
+
+    t
+        Current simulation time.
+
+    dt
+        Positive integration interval.
+
+    jacobian
+        Optional Jacobian of the derivative function:
+
+            df/dx
+
+        Used by the implicit trapezoidal solver.
+
+Notes
+-----
+The RK4 implementation evaluates both state and time at all four
+intermediate stages. This is important for time-dependent events,
+inputs, controls, and dynamic models.
+
+The trapezoidal solver solves:
+
+    x_new =
+        x_old
+        + dt/2 * (
+            f(x_old, t_old)
+            + f(x_new, t_new)
+        )
+
+using Newton iteration.
 """
 
 from __future__ import annotations
@@ -50,12 +94,18 @@ import numpy as np
 
 
 # ======================================================================
-# TYPES
+# TYPE ALIASES
 # ======================================================================
 
+State = np.ndarray
 
 DerivativeFunction = Callable[
-    [np.ndarray, float],
+    [State, float],
+    State,
+]
+
+JacobianFunction = Callable[
+    [State, float],
     np.ndarray,
 ]
 
@@ -65,8 +115,18 @@ DerivativeFunction = Callable[
 # ======================================================================
 
 
-class IntegrationError(RuntimeError):
-    """Raised when numerical integration fails."""
+class IntegrationError(
+    RuntimeError
+):
+    """Base exception for integration failures."""
+
+
+class IntegrationConvergenceError(
+    IntegrationError
+):
+    """
+    Raised when an implicit integration step fails to converge.
+    """
 
 
 # ======================================================================
@@ -76,130 +136,22 @@ class IntegrationError(RuntimeError):
 
 class BaseIntegrator(ABC):
     """
-    Common interface for GridForge time integrators.
+    Common interface for all GridForge dynamic integrators.
     """
 
     @abstractmethod
     def step(
         self,
-        x: np.ndarray,
+        x: State,
         derivative: DerivativeFunction,
         t: float,
         dt: float,
-    ) -> np.ndarray:
+        jacobian: JacobianFunction | None = None,
+    ) -> State:
         """
-        Advance the state by one time step.
-
-        Parameters
-        ----------
-        x:
-            Current state vector.
-
-        derivative:
-            Function returning dx/dt.
-
-        t:
-            Current simulation time.
-
-        dt:
-            Integration step size.
-
-        Returns
-        -------
-        numpy.ndarray
-            State at ``t + dt``.
+        Advance the state by one integration step.
         """
-        raise NotImplementedError
-
-    @staticmethod
-    def _validate_inputs(
-        x: np.ndarray,
-        t: float,
-        dt: float,
-    ) -> np.ndarray:
-        """
-        Validate common integration inputs.
-        """
-
-        state = np.asarray(
-            x,
-            dtype=float,
-        )
-
-        if state.ndim != 1:
-            raise IntegrationError(
-                "State vector must be "
-                "one-dimensional."
-            )
-
-        if not np.all(
-            np.isfinite(state)
-        ):
-            raise IntegrationError(
-                "State vector contains "
-                "non-finite values."
-            )
-
-        if not np.isfinite(t):
-            raise IntegrationError(
-                "Integration time must "
-                "be finite."
-            )
-
-        if not np.isfinite(dt):
-            raise IntegrationError(
-                "Integration step must "
-                "be finite."
-            )
-
-        if dt <= 0.0:
-            raise IntegrationError(
-                "Integration step must "
-                "be greater than zero."
-            )
-
-        return state
-
-    @staticmethod
-    def _evaluate_derivative(
-        derivative: DerivativeFunction,
-        x: np.ndarray,
-        t: float,
-        expected_size: int,
-    ) -> np.ndarray:
-        """
-        Evaluate and validate a derivative function.
-        """
-
-        dx = np.asarray(
-            derivative(x, t),
-            dtype=float,
-        )
-
-        if dx.ndim != 1:
-            raise IntegrationError(
-                "Derivative function must "
-                "return a one-dimensional "
-                "vector."
-            )
-
-        if dx.size != expected_size:
-            raise IntegrationError(
-                "Derivative vector size "
-                f"mismatch: expected "
-                f"{expected_size}, received "
-                f"{dx.size}."
-            )
-
-        if not np.all(
-            np.isfinite(dx)
-        ):
-            raise IntegrationError(
-                "Derivative vector contains "
-                "non-finite values."
-            )
-
-        return dx
+        ...
 
 
 # ======================================================================
@@ -213,7 +165,7 @@ class RK4Integrator(
     """
     Classical fourth-order Runge-Kutta integrator.
 
-    The method evaluates:
+    The method is:
 
         k1 = f(x_n, t_n)
 
@@ -232,61 +184,87 @@ class RK4Integrator(
             t_n + dt
         )
 
-    and:
+        x_(n+1) =
+            x_n
+            + dt/6 * (
+                k1 + 2*k2 + 2*k3 + k4
+            )
 
-        x_(n+1)
-            =
-        x_n
-        +
-        dt/6 * (
-            k1 + 2*k2 + 2*k3 + k4
-        )
+    This is the default explicit integrator for GridForge transient
+    stability calculations where appropriate.
     """
 
     def step(
         self,
-        x: np.ndarray,
+        x: State,
         derivative: DerivativeFunction,
         t: float,
         dt: float,
-    ) -> np.ndarray:
+        jacobian: JacobianFunction | None = None,
+    ) -> State:
+        """
+        Advance the state by one RK4 step.
 
-        state = self._validate_inputs(
+        Parameters
+        ----------
+        x:
+            Current state vector.
+
+        derivative:
+            Callable:
+
+                derivative(x, t) -> dx/dt
+
+        t:
+            Current simulation time.
+
+        dt:
+            Integration step.
+
+        jacobian:
+            Ignored by RK4. Accepted to maintain the common interface.
+        """
+
+        del jacobian
+
+        x = _validate_state(
+            x
+        )
+
+        t = _validate_time(
+            t
+        )
+
+        dt = _validate_dt(
+            dt
+        )
+
+        k1 = _evaluate_derivative(
+            derivative,
             x,
             t,
-            dt,
         )
 
-        k1 = self._evaluate_derivative(
+        k2 = _evaluate_derivative(
             derivative,
-            state,
-            t,
-            state.size,
-        )
-
-        k2 = self._evaluate_derivative(
-            derivative,
-            state + 0.5 * dt * k1,
+            x + 0.5 * dt * k1,
             t + 0.5 * dt,
-            state.size,
         )
 
-        k3 = self._evaluate_derivative(
+        k3 = _evaluate_derivative(
             derivative,
-            state + 0.5 * dt * k2,
+            x + 0.5 * dt * k2,
             t + 0.5 * dt,
-            state.size,
         )
 
-        k4 = self._evaluate_derivative(
+        k4 = _evaluate_derivative(
             derivative,
-            state + dt * k3,
+            x + dt * k3,
             t + dt,
-            state.size,
         )
 
-        result = (
-            state
+        x_new = (
+            x
             + (
                 dt / 6.0
             )
@@ -298,15 +276,10 @@ class RK4Integrator(
             )
         )
 
-        if not np.all(
-            np.isfinite(result)
-        ):
-            raise IntegrationError(
-                "RK4 produced a "
-                "non-finite state."
-            )
-
-        return result
+        return np.asarray(
+            x_new,
+            dtype=float,
+        )
 
 
 # ======================================================================
@@ -320,32 +293,50 @@ class TrapezoidalIntegrator(
     """
     Implicit trapezoidal integrator.
 
-    The nonlinear equation is:
+    The nonlinear equation solved at each step is:
 
-        x_(n+1)
-        =
-        x_n
-        +
-        dt/2 *
-        (
-            f(x_n, t_n)
-            +
-            f(x_(n+1), t_(n+1))
-        )
+        F(x_new) =
+            x_new
+            - x_old
+            - dt/2 * (
+                f_old
+                + f(x_new, t_new)
+            )
 
-    This implementation uses fixed-point iteration.
+        F(x_new) = 0
 
-    It is therefore an implicit ODE integrator, not a full Newton-based
-    DAE solver.
+    Newton iteration uses:
 
-    A future GridForge DAE Newton solver may use this integrator
-    contract while solving the complete residual/Jacobian system.
+        J_F =
+            I
+            - dt/2 * df/dx
+
+    If an analytical derivative Jacobian is not supplied, a numerical
+    finite-difference Jacobian is constructed.
+
+    Parameters
+    ----------
+    tolerance:
+        Newton convergence tolerance.
+
+    max_iterations:
+        Maximum Newton iterations.
+
+    finite_difference_step:
+        Perturbation used for numerical Jacobian construction.
+
+    Notes
+    -----
+    The numerical Jacobian fallback is intended as a correctness
+    reference and general-purpose implementation. Detailed production
+    models may provide analytical Jacobians for improved performance.
     """
 
     def __init__(
         self,
         tolerance: float = 1e-8,
         max_iterations: int = 20,
+        finite_difference_step: float = 1e-7,
     ) -> None:
 
         if tolerance <= 0.0:
@@ -354,10 +345,16 @@ class TrapezoidalIntegrator(
                 "greater than zero."
             )
 
-        if max_iterations < 1:
+        if max_iterations <= 0:
             raise ValueError(
                 "max_iterations must be "
-                "at least one."
+                "greater than zero."
+            )
+
+        if finite_difference_step <= 0.0:
+            raise ValueError(
+                "finite_difference_step "
+                "must be greater than zero."
             )
 
         self.tolerance = float(
@@ -368,57 +365,84 @@ class TrapezoidalIntegrator(
             max_iterations
         )
 
+        self.finite_difference_step = (
+            float(
+                finite_difference_step
+            )
+        )
+
     def step(
         self,
-        x: np.ndarray,
+        x: State,
         derivative: DerivativeFunction,
         t: float,
         dt: float,
-    ) -> np.ndarray:
+        jacobian: JacobianFunction | None = None,
+    ) -> State:
+        """
+        Advance the state using implicit trapezoidal integration.
+        """
 
-        state = self._validate_inputs(
-            x,
-            t,
-            dt,
+        x = _validate_state(
+            x
         )
 
-        f_old = (
-            self._evaluate_derivative(
-                derivative,
-                state,
-                t,
-                state.size,
-            )
+        t = _validate_time(
+            t
+        )
+
+        dt = _validate_dt(
+            dt
         )
 
         t_new = (
             t + dt
         )
 
-        # Explicit-Euler prediction.
+        # --------------------------------------------------------------
+        # Evaluate derivative at the beginning of the interval.
+        # --------------------------------------------------------------
+
+        f_old = _evaluate_derivative(
+            derivative,
+            x,
+            t,
+        )
+
+        # --------------------------------------------------------------
+        # Predictor.
+        #
+        # Explicit Euler is used only as the initial Newton guess.
+        # --------------------------------------------------------------
+
         x_new = (
-            state
+            x
             + dt * f_old
         )
 
-        converged = False
+        identity = np.eye(
+            x.size,
+            dtype=float,
+        )
 
-        for _ in range(
+        # --------------------------------------------------------------
+        # Newton iteration.
+        # --------------------------------------------------------------
+
+        for iteration in range(
             self.max_iterations
         ):
 
-            f_new = (
-                self._evaluate_derivative(
-                    derivative,
-                    x_new,
-                    t_new,
-                    state.size,
-                )
+            f_new = _evaluate_derivative(
+                derivative,
+                x_new,
+                t_new,
             )
 
-            predicted = (
-                state
-                + (
+            residual = (
+                x_new
+                - x
+                - (
                     dt / 2.0
                 )
                 * (
@@ -427,50 +451,206 @@ class TrapezoidalIntegrator(
                 )
             )
 
-            correction = (
-                predicted
-                - x_new
+            residual_norm = (
+                np.linalg.norm(
+                    residual,
+                    ord=np.inf,
+                )
             )
 
-            x_new = predicted
+            if residual_norm <= (
+                self.tolerance
+            ):
 
-            if np.linalg.norm(
-                correction,
-                ord=np.inf,
-            ) < self.tolerance:
+                return np.asarray(
+                    x_new,
+                    dtype=float,
+                )
 
-                converged = True
-                break
+            # ----------------------------------------------------------
+            # Evaluate df/dx.
+            # ----------------------------------------------------------
 
-        if not converged:
-            raise IntegrationError(
-                "Implicit trapezoidal "
-                "iteration did not converge "
-                f"within "
-                f"{self.max_iterations} "
-                "iterations."
+            if jacobian is not None:
+
+                df_dx = np.asarray(
+                    jacobian(
+                        x_new,
+                        t_new,
+                    ),
+                    dtype=float,
+                )
+
+                _validate_jacobian(
+                    df_dx,
+                    x.size,
+                )
+
+            else:
+
+                df_dx = (
+                    self._numerical_jacobian(
+                        derivative,
+                        x_new,
+                        t_new,
+                        f_new,
+                    )
+                )
+
+            # ----------------------------------------------------------
+            # Newton system:
+            #
+            # [I - dt/2 * df/dx] Δx = -F
+            # ----------------------------------------------------------
+
+            jacobian_residual = (
+                identity
+                - (
+                    dt / 2.0
+                ) * df_dx
             )
 
-        if not np.all(
-            np.isfinite(x_new)
-        ):
-            raise IntegrationError(
-                "Trapezoidal integration "
-                "produced a non-finite "
-                "state."
+            try:
+
+                correction = np.linalg.solve(
+                    jacobian_residual,
+                    -residual,
+                )
+
+            except np.linalg.LinAlgError as exc:
+
+                raise IntegrationError(
+                    "Implicit trapezoidal "
+                    "Newton system is "
+                    "singular or ill-conditioned "
+                    f"at t={t_new:.12g}."
+                ) from exc
+
+            x_new = (
+                x_new
+                + correction
             )
 
-        return x_new
+            correction_norm = (
+                np.linalg.norm(
+                    correction,
+                    ord=np.inf,
+                )
+            )
+
+            if correction_norm <= (
+                self.tolerance
+            ):
+
+                # Re-evaluate the residual
+                # after the correction so that
+                # convergence is based on the
+                # actual implicit equation.
+                f_check = (
+                    _evaluate_derivative(
+                        derivative,
+                        x_new,
+                        t_new,
+                    )
+                )
+
+                residual_check = (
+                    x_new
+                    - x
+                    - (
+                        dt / 2.0
+                    )
+                    * (
+                        f_old
+                        + f_check
+                    )
+                )
+
+                if (
+                    np.linalg.norm(
+                        residual_check,
+                        ord=np.inf,
+                    )
+                    <= self.tolerance
+                ):
+
+                    return np.asarray(
+                        x_new,
+                        dtype=float,
+                    )
+
+        raise IntegrationConvergenceError(
+            "Implicit trapezoidal integration "
+            "failed to converge after "
+            f"{self.max_iterations} Newton "
+            f"iterations at t={t_new:.12g}."
+        )
+
+    # ==================================================================
+    # NUMERICAL JACOBIAN
+    # ==================================================================
+
+    def _numerical_jacobian(
+        self,
+        derivative: DerivativeFunction,
+        x: State,
+        t: float,
+        f_x: State,
+    ) -> np.ndarray:
+        """
+        Construct df/dx using forward finite differences.
+        """
+
+        n = x.size
+
+        jacobian = np.empty(
+            (n, n),
+            dtype=float,
+        )
+
+        h_base = (
+            self.finite_difference_step
+        )
+
+        for column in range(n):
+
+            h = h_base * max(
+                1.0,
+                abs(
+                    x[column]
+                ),
+            )
+
+            x_perturbed = (
+                x.copy()
+            )
+
+            x_perturbed[column] += h
+
+            f_perturbed = (
+                _evaluate_derivative(
+                    derivative,
+                    x_perturbed,
+                    t,
+                )
+            )
+
+            jacobian[:, column] = (
+                f_perturbed
+                - f_x
+            ) / h
+
+        return jacobian
 
 
 # ======================================================================
-# FACADE
+# PUBLIC INTEGRATOR FACADE
 # ======================================================================
 
 
 class Integrator:
     """
-    Public integrator facade.
+    Common GridForge integration facade.
 
     Parameters
     ----------
@@ -479,67 +659,120 @@ class Integrator:
 
         Supported values:
 
-            "RK4"
-            "TRAPEZOIDAL"
+        - ``"RK4"``
+        - ``"TRAPEZOIDAL"``
 
     tolerance:
-        Convergence tolerance used by the trapezoidal method.
+        Convergence tolerance for implicit trapezoidal integration.
 
     max_iterations:
-        Maximum nonlinear fixed-point iterations used by the
-        trapezoidal method.
+        Maximum Newton iterations for implicit trapezoidal integration.
+
+    finite_difference_step:
+        Numerical Jacobian perturbation.
     """
 
-    RK4 = "RK4"
-    TRAPEZOIDAL = "TRAPEZOIDAL"
+    SUPPORTED_METHODS = (
+        "RK4",
+        "TRAPEZOIDAL",
+    )
 
     def __init__(
         self,
-        method: str = RK4,
+        method: str = "RK4",
+        *,
         tolerance: float = 1e-8,
         max_iterations: int = 20,
+        finite_difference_step: float = 1e-7,
     ) -> None:
 
-        normalized = (
-            str(method)
-            .strip()
-            .upper()
+        if not isinstance(
+            method,
+            str,
+        ):
+
+            raise TypeError(
+                "method must be a string."
+            )
+
+        normalized_method = (
+            method.strip().upper()
         )
 
-        if normalized == self.RK4:
+        if normalized_method == (
+            "TRAPEZOID"
+        ):
 
-            self.solver: BaseIntegrator = (
+            normalized_method = (
+                "TRAPEZOIDAL"
+            )
+
+        if normalized_method not in (
+            self.SUPPORTED_METHODS
+        ):
+
+            raise ValueError(
+                "Unknown integration method "
+                f"'{method}'. Supported "
+                f"methods: "
+                f"{', '.join(self.SUPPORTED_METHODS)}."
+            )
+
+        self.method = (
+            normalized_method
+        )
+
+        if normalized_method == "RK4":
+
+            self.solver = (
                 RK4Integrator()
             )
 
-        elif normalized == self.TRAPEZOIDAL:
+        else:
 
             self.solver = (
                 TrapezoidalIntegrator(
                     tolerance=tolerance,
                     max_iterations=max_iterations,
+                    finite_difference_step=(
+                        finite_difference_step
+                    ),
                 )
             )
 
-        else:
-
-            raise ValueError(
-                "Unknown integration method "
-                f"'{method}'. Supported methods "
-                "are 'RK4' and 'TRAPEZOIDAL'."
-            )
-
-        self.method = normalized
-
     def step(
         self,
-        x: np.ndarray,
+        x: State,
         derivative: DerivativeFunction,
         t: float,
         dt: float,
-    ) -> np.ndarray:
+        jacobian: JacobianFunction | None = None,
+    ) -> State:
         """
-        Advance the state by one integration step.
+        Advance the dynamic state by one step.
+
+        Parameters
+        ----------
+        x:
+            Current dynamic state.
+
+        derivative:
+            Differential-equation callback:
+
+                derivative(x, t) -> dx/dt
+
+        t:
+            Current simulation time.
+
+        dt:
+            Positive integration interval.
+
+        jacobian:
+            Optional analytical Jacobian:
+
+                jacobian(x, t) -> df/dx
+
+            Used by the implicit trapezoidal solver.
         """
 
         return self.solver.step(
@@ -547,12 +780,178 @@ class Integrator:
             derivative=derivative,
             t=t,
             dt=dt,
+            jacobian=jacobian,
         )
 
 
+# ======================================================================
+# VALIDATION HELPERS
+# ======================================================================
+
+
+def _validate_state(
+    x: State,
+) -> np.ndarray:
+    """
+    Validate and normalize the dynamic state vector.
+    """
+
+    state = np.asarray(
+        x,
+        dtype=float,
+    )
+
+    if state.ndim != 1:
+
+        raise ValueError(
+            "Dynamic state must be "
+            "a one-dimensional vector."
+        )
+
+    if state.size == 0:
+
+        raise ValueError(
+            "Dynamic state cannot be empty."
+        )
+
+    if not np.all(
+        np.isfinite(state)
+    ):
+
+        raise ValueError(
+            "Dynamic state contains "
+            "non-finite values."
+        )
+
+    return state.copy()
+
+
+def _validate_time(
+    t: float,
+) -> float:
+    """
+    Validate simulation time.
+    """
+
+    value = float(t)
+
+    if not np.isfinite(
+        value
+    ):
+
+        raise ValueError(
+            "Simulation time must "
+            "be finite."
+        )
+
+    return value
+
+
+def _validate_dt(
+    dt: float,
+) -> float:
+    """
+    Validate integration step.
+    """
+
+    value = float(dt)
+
+    if not np.isfinite(
+        value
+    ) or value <= 0.0:
+
+        raise ValueError(
+            "Integration dt must be "
+            "finite and greater "
+            "than zero."
+        )
+
+    return value
+
+
+def _evaluate_derivative(
+    derivative: DerivativeFunction,
+    x: State,
+    t: float,
+) -> np.ndarray:
+    """
+    Evaluate and validate a derivative callback.
+    """
+
+    result = np.asarray(
+        derivative(
+            x,
+            t,
+        ),
+        dtype=float,
+    )
+
+    if result.shape != x.shape:
+
+        raise ValueError(
+            "Derivative shape "
+            f"{result.shape} does not "
+            "match state shape "
+            f"{x.shape}."
+        )
+
+    if not np.all(
+        np.isfinite(result)
+    ):
+
+        raise IntegrationError(
+            "Derivative returned "
+            "non-finite values."
+        )
+
+    return result
+
+
+def _validate_jacobian(
+    jacobian: np.ndarray,
+    state_size: int,
+) -> None:
+    """
+    Validate an analytical derivative Jacobian.
+    """
+
+    expected_shape = (
+        state_size,
+        state_size,
+    )
+
+    if jacobian.shape != (
+        expected_shape
+    ):
+
+        raise ValueError(
+            "Derivative Jacobian shape "
+            f"{jacobian.shape} does not "
+            f"match expected shape "
+            f"{expected_shape}."
+        )
+
+    if not np.all(
+        np.isfinite(jacobian)
+    ):
+
+        raise IntegrationError(
+            "Derivative Jacobian "
+            "contains non-finite values."
+        )
+
+
+# ======================================================================
+# PUBLIC API
+# ======================================================================
+
+
 __all__ = [
+    "State",
     "DerivativeFunction",
+    "JacobianFunction",
     "IntegrationError",
+    "IntegrationConvergenceError",
     "BaseIntegrator",
     "RK4Integrator",
     "TrapezoidalIntegrator",
