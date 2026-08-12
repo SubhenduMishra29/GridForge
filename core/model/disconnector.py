@@ -1,4 +1,3 @@
-```python
 # core/model/disconnector.py
 
 """
@@ -121,6 +120,23 @@ layer.
 Changing the Disconnector state changes only the physical equipment
 state. The network layer derives the corresponding electrical topology.
 
+Conducting State
+----------------
+
+The Disconnector is locally considered conducting only when:
+
+    closed == True
+    in_service == True
+
+Therefore:
+
+    conducts = closed and in_service
+
+This is a local equipment-state interpretation.
+
+The network/topology layer remains responsible for applying this state
+to the derived electrical topology.
+
 GridForge V2 Status
 -------------------
 
@@ -131,6 +147,9 @@ belongs in ``core/model``.
 
 Detailed topology, protection, control and simulation behavior remains
 outside this module.
+
+Future changes require evidence of a genuinely fundamental
+architectural requirement.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -166,14 +185,17 @@ class Disconnector(ElectricalObject):
     rated_current_a : float
         Continuous current rating in amperes.
 
-    endpoint_from : optional
+    endpoint_from : object, optional
         Initial from-side electrical endpoint.
 
-        Normally this should remain ``None`` until the network/topology
-        assembly establishes the physical connection.
+        May be None when the disconnector is created before network
+        assembly.
 
-    endpoint_to : optional
+    endpoint_to : object, optional
         Initial to-side electrical endpoint.
+
+        May be None when the disconnector is created before network
+        assembly.
 
     operating_time : float, optional
         Mechanical operating time in seconds.
@@ -181,8 +203,8 @@ class Disconnector(ElectricalObject):
     closed : bool, optional
         Initial physical state.
 
-        ``True`` means the disconnector is physically closed.
-        ``False`` means the disconnector is physically open.
+        True means physically closed.
+        False means physically open.
 
     in_service : bool, optional
         Equipment service state.
@@ -192,14 +214,17 @@ class Disconnector(ElectricalObject):
 
     Notes
     -----
-    The Disconnector owns its physical terminals.
+    The Disconnector owns two Terminal objects.
 
-    It does not own or manipulate the global network topology.
+    The Terminal objects contain the local endpoint references.
 
-    In particular, ``open()`` and ``close()`` modify only the local
-    physical state. The network/topology layer is responsible for
-    deriving the resulting electrical connectivity.
+    The Disconnector does not own or manipulate global network
+    topology.
     """
+
+    # =================================================================
+    # INITIALIZATION
+    # =================================================================
 
     def __init__(
         self,
@@ -212,15 +237,19 @@ class Disconnector(ElectricalObject):
         closed: bool = True,
         in_service: bool = True,
         name: str = "",
-    ):
+    ) -> None:
+        """
+        Initialize a physical disconnector.
+        """
+
         super().__init__(
             id=id,
             name=name,
         )
 
-        # =============================================================
+        # -------------------------------------------------------------
         # PHYSICAL TERMINALS
-        # =============================================================
+        # -------------------------------------------------------------
 
         self.from_terminal = Terminal(
             endpoint=endpoint_from,
@@ -232,9 +261,9 @@ class Disconnector(ElectricalObject):
             owner=self,
         )
 
-        # =============================================================
+        # -------------------------------------------------------------
         # EQUIPMENT RATINGS
-        # =============================================================
+        # -------------------------------------------------------------
 
         self.voltage_kv = float(voltage_kv)
 
@@ -242,31 +271,51 @@ class Disconnector(ElectricalObject):
             rated_current_a
         )
 
-        # =============================================================
+        # -------------------------------------------------------------
         # OPERATING CHARACTERISTICS
-        # =============================================================
+        # -------------------------------------------------------------
 
         self.operating_time = float(
             operating_time
         )
 
-        # =============================================================
+        # -------------------------------------------------------------
         # PHYSICAL STATE
-        # =============================================================
+        # -------------------------------------------------------------
 
         self.closed = bool(closed)
 
-        # =============================================================
+        # -------------------------------------------------------------
         # SERVICE STATE
-        # =============================================================
+        # -------------------------------------------------------------
 
         self.in_service = bool(in_service)
 
-        # =============================================================
-        # LOCAL VALIDATION
-        # =============================================================
+        # -------------------------------------------------------------
+        # VALIDATION
+        # -------------------------------------------------------------
 
         self._validate_parameters()
+
+    # =================================================================
+    # TERMINALS
+    # =================================================================
+
+    @property
+    def terminals(self) -> tuple[Terminal, Terminal]:
+        """
+        Return the two physical terminals.
+
+        Returns
+        -------
+        tuple
+            ``(from_terminal, to_terminal)``
+        """
+
+        return (
+            self.from_terminal,
+            self.to_terminal,
+        )
 
     # =================================================================
     # ENDPOINT ACCESS
@@ -275,12 +324,11 @@ class Disconnector(ElectricalObject):
     @property
     def from_endpoint(self):
         """
-        Return the local from-side endpoint.
+        Return the authoritative from-side local endpoint.
 
-        Returns
-        -------
-        object or None
-            Endpoint currently referenced by ``from_terminal``.
+        Equivalent to:
+
+            self.from_terminal.endpoint
         """
 
         return self.from_terminal.endpoint
@@ -288,17 +336,16 @@ class Disconnector(ElectricalObject):
     @property
     def to_endpoint(self):
         """
-        Return the local to-side endpoint.
+        Return the authoritative to-side local endpoint.
 
-        Returns
-        -------
-        object or None
-            Endpoint currently referenced by ``to_terminal``.
+        Equivalent to:
+
+            self.to_terminal.endpoint
         """
 
         return self.to_terminal.endpoint
 
-    def endpoints(self):
+    def endpoints(self) -> tuple[object | None, object | None]:
         """
         Return the local endpoint pair.
 
@@ -306,6 +353,12 @@ class Disconnector(ElectricalObject):
         -------
         tuple
             ``(from_endpoint, to_endpoint)``
+
+        Notes
+        -----
+        This exposes local model state only.
+
+        It does not resolve global network topology.
         """
 
         return (
@@ -384,6 +437,10 @@ class Disconnector(ElectricalObject):
         belong to ``core/network`` and ``core/validation``.
         """
 
+        # -------------------------------------------------------------
+        # Voltage rating
+        # -------------------------------------------------------------
+
         if not isfinite(self.voltage_kv):
             raise ValueError(
                 f"Disconnector '{self.id}' voltage rating "
@@ -396,6 +453,10 @@ class Disconnector(ElectricalObject):
                 "must be greater than zero."
             )
 
+        # -------------------------------------------------------------
+        # Continuous current rating
+        # -------------------------------------------------------------
+
         if not isfinite(self.rated_current_a):
             raise ValueError(
                 f"Disconnector '{self.id}' rated current "
@@ -407,6 +468,10 @@ class Disconnector(ElectricalObject):
                 f"Disconnector '{self.id}' rated current "
                 "must be greater than zero."
             )
+
+        # -------------------------------------------------------------
+        # Operating time
+        # -------------------------------------------------------------
 
         if not isfinite(self.operating_time):
             raise ValueError(
@@ -476,6 +541,22 @@ class Disconnector(ElectricalObject):
 
         return self.in_service
 
+    @property
+    def conducts(self) -> bool:
+        """
+        Return whether the disconnector is locally conducting.
+
+        A disconnector conducts only when it is both physically
+        closed and in service.
+
+        This is a local equipment-state interpretation.
+
+        The network/topology layer is responsible for applying this
+        state to the derived electrical topology.
+        """
+
+        return self.closed and self.in_service
+
     # =================================================================
     # SERVICE STATE
     # =================================================================
@@ -513,6 +594,7 @@ class Disconnector(ElectricalObject):
         return {
             "id": self.id,
             "name": self.name,
+            "type": "Disconnector",
             "from_endpoint": (
                 self.from_terminal.endpoint_id
             ),
@@ -530,6 +612,7 @@ class Disconnector(ElectricalObject):
             "operating_time": self.operating_time,
             "closed": self.closed,
             "in_service": self.in_service,
+            "conducts": self.conducts,
         }
 
     # =================================================================
@@ -547,10 +630,11 @@ class Disconnector(ElectricalObject):
         return (
             f"<Disconnector "
             f"id={self.id}, "
-            f"{from_id} -> {to_id}, "
+            f"from={from_id}, "
+            f"to={to_id}, "
             f"voltage={self.voltage_kv:.3f} kV, "
             f"rated={self.rated_current_a:.2f} A, "
             f"closed={self.closed}, "
-            f"in_service={self.in_service}>"
+            f"in_service={self.in_service}, "
+            f"conducts={self.conducts}>"
         )
-```
