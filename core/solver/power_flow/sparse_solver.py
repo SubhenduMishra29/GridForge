@@ -1,4 +1,3 @@
-```python
 """
 GridForge Sparse Linear Solver
 ==============================
@@ -6,17 +5,21 @@ GridForge Sparse Linear Solver
 File:
     core/solver/power_flow/sparse_solver.py
 
+GridForge Power Flow Engine v1.0
+--------------------------------
+
 Industrial linear-system backend for the GridForge
-Newton-Raphson Power Flow Engine.
+Newton-Raphson power-flow engine.
 
 Responsibilities
 ----------------
 - Solve J * dx = rhs.
-- Support dense and sparse matrix inputs.
-- Validate matrix/vector dimensions.
+- Accept dense and SciPy sparse matrices.
+- Validate matrix and vector dimensions.
 - Validate numerical finiteness.
-- Provide optional explicit diagonal regularization.
+- Apply explicitly requested diagonal regularization.
 - Return a deterministic correction vector.
+- Provide lightweight diagnostics.
 
 This module is deliberately independent of:
 
@@ -29,7 +32,18 @@ This module is deliberately independent of:
 - PV/PQ classification
 - Reactive-power limits
 
-The module is a linear-algebra service only.
+The public interface represents a linear-algebra service.
+
+Implementation note
+-------------------
+The V1.0 reference implementation uses NumPy's dense
+linear-system solver after normalizing sparse inputs.
+
+This preserves a stable solver API while keeping the numerical
+backend replaceable in a future implementation.
+
+No sparse backend, GPU backend, iterative solver, or automatic
+regularization is selected implicitly.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -37,6 +51,7 @@ All Rights Reserved.
 
 from __future__ import annotations
 
+from numbers import Real
 from typing import Any
 
 import numpy as np
@@ -52,27 +67,28 @@ class SparseLinearSolver:
     regularization:
         Non-negative diagonal regularization parameter.
 
-        ``0.0`` means the original system is solved:
+        ``0.0``:
+            Solve the original system:
 
-            J dx = rhs
+                J dx = rhs
 
-        A positive value solves:
+        ``lambda > 0``:
+            Solve:
 
-            (J + λI) dx = rhs
+                (J + lambda I) dx = rhs
 
-        This is an explicit numerical option and is never
-        applied implicitly.
+        Regularization is never enabled implicitly.
 
     Notes
     -----
-    The implementation accepts both:
+    The solver accepts:
 
-        - dense NumPy matrices
+        - NumPy dense arrays
         - SciPy sparse matrices
 
-    The public interface deliberately does not expose a
-    particular sparse backend so that future GPU or alternative
-    sparse implementations can replace this layer.
+    The public API does not expose the underlying numerical
+    backend, allowing the implementation to evolve without
+    changing the Power Flow Engine interface.
     """
 
     # =========================================================
@@ -82,14 +98,17 @@ class SparseLinearSolver:
     def __init__(
         self,
         regularization: float = 0.0,
-    ):
+    ) -> None:
+        """
+        Initialize the linear solver.
+        """
 
         if isinstance(
             regularization,
             bool,
         ) or not isinstance(
             regularization,
-            (int, float),
+            Real,
         ):
             raise TypeError(
                 "regularization must be a real number."
@@ -114,52 +133,21 @@ class SparseLinearSolver:
         self.regularization = regularization
 
     # =========================================================
-    # MAIN SOLVE
+    # MATRIX VALIDATION
     # =========================================================
 
-    def solve(
-        self,
+    @staticmethod
+    def _validate_matrix(
         J: Any,
-        rhs: np.ndarray,
-    ) -> np.ndarray:
+    ) -> tuple[int, int]:
         """
-        Solve:
-
-            J dx = rhs
-
-        or, when regularization is explicitly enabled:
-
-            (J + λI) dx = rhs
-
-        Parameters
-        ----------
-        J:
-            Square Jacobian matrix.
-
-            Dense NumPy arrays and SciPy sparse matrices
-            are supported.
-
-        rhs:
-            One-dimensional right-hand-side vector.
+        Validate the structural properties of the matrix.
 
         Returns
         -------
-        np.ndarray
-            One-dimensional finite correction vector.
-
-        Raises
-        ------
-        ValueError
-            If matrix/vector dimensions or numerical values
-            are invalid.
-
-        RuntimeError
-            If the linear system cannot be solved.
+        tuple[int, int]
+            Matrix dimensions.
         """
-
-        # -----------------------------------------------------
-        # Validate matrix
-        # -----------------------------------------------------
 
         if J is None:
             raise ValueError(
@@ -174,89 +162,70 @@ class SparseLinearSolver:
                 "Jacobian matrix must provide a shape."
             )
 
-        if len(J.shape) != 2:
+        shape = J.shape
+
+        if len(shape) != 2:
             raise ValueError(
                 "Jacobian matrix must be two-dimensional."
             )
 
-        rows, cols = J.shape
+        rows, cols = shape
 
         if rows != cols:
             raise ValueError(
                 "Jacobian matrix must be square: "
-                f"received shape {J.shape}."
+                f"received shape {shape}."
             )
 
-        # -----------------------------------------------------
-        # Validate RHS
-        # -----------------------------------------------------
+        return int(rows), int(cols)
 
-        if rhs is None:
-            raise ValueError(
-                "Right-hand-side vector cannot be None."
-            )
+    # =========================================================
+    # MATRIX NORMALIZATION
+    # =========================================================
 
-        rhs = np.asarray(
-            rhs,
-            dtype=float,
-        ).reshape(-1)
+    @staticmethod
+    def _to_dense(
+        J: Any,
+        shape: tuple[int, int],
+    ) -> np.ndarray:
+        """
+        Normalize dense or sparse matrix input to a NumPy
+        floating-point matrix.
 
-        if rhs.size != rows:
-            raise ValueError(
-                "Linear-system dimension mismatch: "
-                f"Jacobian has dimension {rows}, "
-                f"but RHS has dimension {rhs.size}."
-            )
+        Notes
+        -----
+        The reference implementation deliberately solves the
+        normalized dense representation.
+        """
 
-        if not np.all(
-            np.isfinite(rhs)
-        ):
-            raise ValueError(
-                "Right-hand-side vector contains "
-                "NaN or infinite values."
-            )
+        try:
 
-        # -----------------------------------------------------
-        # Empty system
-        # -----------------------------------------------------
-
-        if rows == 0:
-            return np.empty(
-                0,
-                dtype=float,
-            )
-
-        # -----------------------------------------------------
-        # Convert matrix to a numerical representation.
-        #
-        # Dense conversion is intentional for the v1.0
-        # reference implementation.
-        #
-        # The public interface remains compatible with
-        # sparse/GPU implementations later.
-        # -----------------------------------------------------
-
-        if hasattr(
-            J,
-            "toarray",
-        ):
-
-            matrix = np.asarray(
-                J.toarray(),
-                dtype=float,
-            )
-
-        else:
-
-            matrix = np.asarray(
+            if hasattr(
                 J,
-                dtype=float,
-            )
+                "toarray",
+            ):
+                matrix = np.asarray(
+                    J.toarray(),
+                    dtype=float,
+                )
 
-        if matrix.shape != (
-            rows,
-            cols,
-        ):
+            else:
+                matrix = np.asarray(
+                    J,
+                    dtype=float,
+                )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise ValueError(
+                "Jacobian matrix could not be converted "
+                "to a finite numerical matrix."
+            ) from exc
+
+        if matrix.shape != shape:
             raise ValueError(
                 "Jacobian matrix shape changed during "
                 "normalization."
@@ -270,8 +239,139 @@ class SparseLinearSolver:
                 "NaN or infinite values."
             )
 
+        return matrix
+
+    # =========================================================
+    # RHS VALIDATION
+    # =========================================================
+
+    @staticmethod
+    def _normalize_rhs(
+        rhs: Any,
+        expected_size: int,
+    ) -> np.ndarray:
+        """
+        Normalize and validate the right-hand-side vector.
+        """
+
+        if rhs is None:
+            raise ValueError(
+                "Right-hand-side vector cannot be None."
+            )
+
+        try:
+
+            rhs_array = np.asarray(
+                rhs,
+                dtype=float,
+            ).reshape(-1)
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise ValueError(
+                "Right-hand-side vector must contain "
+                "real numerical values."
+            ) from exc
+
+        if rhs_array.size != expected_size:
+            raise ValueError(
+                "Linear-system dimension mismatch: "
+                f"Jacobian has dimension {expected_size}, "
+                f"but RHS has dimension "
+                f"{rhs_array.size}."
+            )
+
+        if not np.all(
+            np.isfinite(rhs_array)
+        ):
+            raise ValueError(
+                "Right-hand-side vector contains "
+                "NaN or infinite values."
+            )
+
+        return rhs_array
+
+    # =========================================================
+    # MAIN SOLVE
+    # =========================================================
+
+    def solve(
+        self,
+        J: Any,
+        rhs: Any,
+    ) -> np.ndarray:
+        """
+        Solve the linear system:
+
+            J dx = rhs
+
+        or, when explicit regularization is enabled:
+
+            (J + lambda I) dx = rhs
+
+        Parameters
+        ----------
+        J:
+            Square dense or sparse Jacobian matrix.
+
+        rhs:
+            One-dimensional right-hand-side vector.
+
+        Returns
+        -------
+        numpy.ndarray
+            One-dimensional finite correction vector.
+
+        Raises
+        ------
+        ValueError
+            If dimensions or numerical values are invalid.
+
+        RuntimeError
+            If the linear system cannot be solved.
+        """
+
         # -----------------------------------------------------
-        # Explicit regularization
+        # Validate matrix structure.
+        # -----------------------------------------------------
+
+        rows, cols = self._validate_matrix(
+            J
+        )
+
+        # -----------------------------------------------------
+        # Validate RHS.
+        # -----------------------------------------------------
+
+        rhs_array = self._normalize_rhs(
+            rhs,
+            rows,
+        )
+
+        # -----------------------------------------------------
+        # Empty system.
+        # -----------------------------------------------------
+
+        if rows == 0:
+            return np.empty(
+                0,
+                dtype=float,
+            )
+
+        # -----------------------------------------------------
+        # Normalize matrix.
+        # -----------------------------------------------------
+
+        matrix = self._to_dense(
+            J,
+            (rows, cols),
+        )
+
+        # -----------------------------------------------------
+        # Explicit regularization.
         # -----------------------------------------------------
 
         if self.regularization > 0.0:
@@ -288,14 +388,14 @@ class SparseLinearSolver:
             )
 
         # -----------------------------------------------------
-        # Solve
+        # Solve.
         # -----------------------------------------------------
 
         try:
 
             dx = np.linalg.solve(
                 matrix,
-                rhs,
+                rhs_array,
             )
 
         except np.linalg.LinAlgError as exc:
@@ -313,16 +413,28 @@ class SparseLinearSolver:
             ) from exc
 
         # -----------------------------------------------------
-        # Normalize result
+        # Normalize result.
         # -----------------------------------------------------
 
-        dx = np.asarray(
-            dx,
-            dtype=float,
-        ).reshape(-1)
+        try:
+
+            dx = np.asarray(
+                dx,
+                dtype=float,
+            ).reshape(-1)
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise RuntimeError(
+                "Linear solver returned an invalid "
+                "solution vector."
+            ) from exc
 
         # -----------------------------------------------------
-        # Validate solution
+        # Validate result.
         # -----------------------------------------------------
 
         if dx.size != rows:
@@ -347,27 +459,34 @@ class SparseLinearSolver:
     # DIAGNOSTICS
     # =========================================================
 
-    def summary(self) -> dict:
+    def summary(
+        self,
+    ) -> dict:
         """
-        Return solver configuration information.
+        Return linear-solver configuration information.
         """
 
         return {
             "solver": "SparseLinearSolver",
+            "version": "1.0",
             "regularization": float(
                 self.regularization
             ),
             "backend": "numpy",
+            "supports_dense_input": True,
             "supports_sparse_input": True,
+            "automatic_regularization": False,
         }
 
     # =========================================================
     # REPRESENTATION
     # =========================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
-        Developer-friendly representation.
+        Return a concise developer-facing representation.
         """
 
         return (
@@ -381,4 +500,3 @@ class SparseLinearSolver:
 __all__ = [
     "SparseLinearSolver",
 ]
-```
