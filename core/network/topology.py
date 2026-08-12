@@ -4,112 +4,110 @@ GridForge Network Topology Manager
 
 GridForge Network Layer V2
 
-Builds and manages the electrical connectivity graph of an
-assembled GridForge Network.
+Maintains the electrical connectivity graph of an assembled
+GridForge Network.
 
 Responsibilities
 ----------------
 - Build the network connectivity graph.
 - Represent buses as graph nodes.
-- Represent topology-forming electrical elements as graph edges.
-- Respect element service state.
+- Represent topology-forming branches as graph edges.
+- Respect element in-service state.
+- Determine electrical connectivity.
 - Detect electrical islands.
-- Determine bus-to-bus connectivity.
-- Support temporary element-outage studies.
-- Provide lightweight topology diagnostics.
+- Support element open/close operations.
+- Support non-persistent outage simulation.
+- Provide topology diagnostics.
 
-The TopologyManager operates on canonical electrical model objects
-from ``core.model``.
+Does NOT
+--------
+- Define electrical equipment models.
+- Perform power-flow calculations.
+- Build Y-bus numerical stamps.
+- Perform short-circuit calculations.
+- Perform protection calculations.
+- Perform dynamic simulation.
+- Perform engineering validation.
+- Own canonical electrical objects.
 
 Architecture
 ------------
-
     core/model/
         Canonical electrical entities
-              |
-              v
+                |
+                v
     core/network/
         Network
         TopologyManager
-              |
-              v
+        PerUnitSystem
+        YBusBuilder
+                |
+                v
     core/analysis/
         Study orchestration
+                |
+                v
+    core/solver/
+        Numerical algorithms
 
-The topology layer does NOT:
-
-- Define electrical equipment models.
-- Calculate electrical impedance.
-- Build Y-bus.
-- Solve power flow.
-- Calculate short-circuit currents.
-- Perform protection calculations.
-- Perform dynamic simulation.
-- Modify GUI state.
-- Own the canonical electrical objects.
-
-Topology Semantics
+Topology Principle
 ------------------
-A graph edge represents an electrically conductive/topology-forming
-connection between two buses.
+The topology manager operates on canonical objects already owned by
+the Network.
 
-Currently supported direct bus-to-bus topology elements include:
+It does not create replacement Bus, Line, Transformer, Breaker, or
+other electrical model objects.
 
-- Line
-- Transformer
-
-Switching elements such as breakers and disconnectors are evaluated
-through their ``in_service`` state when they expose bus endpoints.
-
-The topology manager deliberately does not calculate electrical
-admittance. Electrical parameters remain the responsibility of the
-model and Y-bus layers.
-
-Network Object Ownership
-------------------------
-The Network owns the assembled collections.
-
-The TopologyManager only references the Network:
-
-    TopologyManager
-          |
-          v
-       Network
-          |
-          +-- buses
-          +-- lines
-          +-- transformers
-          +-- ...
-
-No electrical object is copied into the topology graph.
-
-Graph Representation
+Graph representation
 --------------------
-NetworkX ``MultiGraph`` is used because multiple electrical elements
-may connect the same pair of buses.
+A NetworkX MultiGraph is used because multiple physical electrical
+connections may exist between the same pair of buses.
 
-Each graph edge contains:
+Nodes:
+    bus.id
+
+Edges:
+    physical topology-forming network elements
+
+Each edge stores:
 
     element
         Reference to the canonical model object.
 
     type
-        Topology element classification.
+        Logical element type.
 
-For example:
+Current V2 topology-forming branch classes are:
 
-    Bus A ---- Line 1 ---- Bus B
-    Bus A ---- Transformer 1 ---- Bus B
+    - Line
+    - Transformer
 
-Both connections can coexist.
+Switching-device topology can be extended when the Network exposes
+those canonical switching elements to the topology layer.
+
+Service State
+-------------
+Elements with:
+
+    in_service == False
+
+are excluded from the active topology graph.
+
+Changing an element's service state invalidates both:
+
+    - topology
+    - topology-dependent network representations such as Y-bus
+
+The Network remains the owner of network-level invalidation.
 
 GridForge V2 Status
 -------------------
-This module is part of the Network Layer V2 baseline.
+This module is part of the GridForge Network Layer V2 audit/freeze
+baseline.
 
-Changes require evidence of a genuinely fundamental topology
-requirement that cannot be satisfied by the existing model,
-network, or analysis layers.
+Changes require evidence of a fundamental topology requirement that
+cannot be satisfied by the existing model, network, or analysis
+architecture.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -128,51 +126,92 @@ import networkx as nx
 
 class TopologyManager:
     """
-    Manage the assembled electrical topology of a GridForge Network.
+    Manage electrical connectivity for an assembled GridForge Network.
 
     Parameters
     ----------
     network :
-        GridForge ``Network`` instance.
+        Owning GridForge Network instance.
 
     Notes
     -----
-    The manager stores only graph connectivity. It does not duplicate
-    electrical model state.
+    The manager maintains a derived graph.
+
+    The graph is never the source of truth for electrical equipment.
+    Canonical model objects remain owned by the Network/model layers.
     """
 
     # =================================================================
     # INITIALIZATION
     # =================================================================
 
-    def __init__(self, network) -> None:
+    def __init__(self, network: Any) -> None:
+        """
+        Initialize the topology manager.
+        """
+
+        if network is None:
+            raise ValueError(
+                "TopologyManager requires a Network instance."
+            )
+
         self.network = network
 
-        # MultiGraph is required because more than one electrical
-        # element may connect the same pair of buses.
+        # -------------------------------------------------------------
+        # MultiGraph is intentional.
+        #
+        # Parallel lines/transformers between the same buses are
+        # electrically valid and must remain independently represented.
+        # -------------------------------------------------------------
+
         self.graph = nx.MultiGraph()
 
         self._dirty = True
 
     # =================================================================
+    # INTERNAL INVALIDATION
+    # =================================================================
+
+    def _invalidate(self) -> None:
+        """
+        Invalidate the derived topology graph and notify the Network.
+
+        Network-level invalidation is attempted through the owning
+        Network's private invalidation hook.
+
+        This keeps topology-changing operations synchronized with
+        Y-bus and other topology-dependent network state.
+        """
+
+        self._dirty = True
+
+        invalidate = getattr(
+            self.network,
+            "_invalidate_topology",
+            None,
+        )
+
+        if callable(invalidate):
+            invalidate()
+
+    # =================================================================
     # GRAPH BUILD
     # =================================================================
 
-    def build(self):
+    def build(self) -> nx.MultiGraph:
         """
         Build and return the current electrical topology graph.
 
         Returns
         -------
         networkx.MultiGraph
-            Current electrical connectivity graph.
+            Derived electrical connectivity graph.
 
         Notes
         -----
-        The graph contains buses as nodes and topology-forming
-        electrical elements as edges.
+        Only in-service topology-forming elements are included.
 
-        Elements that are out of service are excluded.
+        The method is idempotent while topology remains unchanged.
         """
 
         if not self._dirty:
@@ -181,205 +220,156 @@ class TopologyManager:
         self.graph.clear()
 
         # -------------------------------------------------------------
-        # BUSES
+        # BUS NODES
         # -------------------------------------------------------------
 
         for bus in self.network.buses:
-            self.graph.add_node(bus.id)
+
+            if not hasattr(bus, "id"):
+                raise TypeError(
+                    "Every network bus must provide an 'id' attribute."
+                )
+
+            self.graph.add_node(
+                bus.id,
+                element=bus,
+                type="bus",
+            )
 
         # -------------------------------------------------------------
-        # DIRECT BUS-TO-BUS ELEMENTS
+        # LINES
         # -------------------------------------------------------------
 
-        self._add_elements(
-            getattr(self.network, "lines", []),
-            "line",
-        )
+        for line in getattr(
+            self.network,
+            "lines",
+            [],
+        ):
 
-        self._add_elements(
-            getattr(self.network, "transformers", []),
-            "transformer",
-        )
-
-        # -------------------------------------------------------------
-        # BRANCH COLLECTION
-        #
-        # ``Branch`` is included only when the assembled Network
-        # explicitly provides such a collection.
-        #
-        # This keeps TopologyManager compatible with the canonical
-        # model architecture without requiring Network to maintain
-        # duplicate collections.
-        # -------------------------------------------------------------
-
-        self._add_elements(
-            getattr(self.network, "branches", []),
-            "branch",
-        )
+            self._add_branch_edge(
+                line,
+                "line",
+            )
 
         # -------------------------------------------------------------
-        # SWITCHING ELEMENTS
-        #
-        # Breakers/disconnectors may be represented as topology
-        # elements when the Network exposes their collections.
-        # Their own in_service state determines whether the
-        # connection participates in the graph.
+        # TRANSFORMERS
         # -------------------------------------------------------------
 
-        self._add_elements(
-            getattr(self.network, "breakers", []),
-            "breaker",
-        )
+        for transformer in getattr(
+            self.network,
+            "transformers",
+            [],
+        ):
 
-        self._add_elements(
-            getattr(self.network, "disconnectors", []),
-            "disconnector",
-        )
+            self._add_branch_edge(
+                transformer,
+                "transformer",
+            )
 
         self._dirty = False
 
         return self.graph
 
     # =================================================================
-    # ELEMENT GRAPH INSERTION
+    # BRANCH GRAPH SUPPORT
     # =================================================================
 
-    def _add_elements(
+    def _add_branch_edge(
         self,
-        elements,
+        element: Any,
         element_type: str,
     ) -> None:
         """
-        Add supported bus-to-bus elements to the topology graph.
+        Add a topology-forming branch to the graph.
 
         Parameters
         ----------
-        elements :
-            Iterable of canonical model elements.
+        element :
+            Canonical branch-like model object.
 
         element_type : str
-            Graph classification stored on each edge.
+            Logical topology element type.
 
         Notes
         -----
-        Elements without a usable pair of bus endpoints are ignored
-        here rather than having topology invent a connection that the
-        model does not define.
+        Elements that are out of service are ignored.
+
+        A branch whose endpoints are identical is ignored because it
+        does not provide inter-bus connectivity.
+
+        Missing endpoints are treated as structural errors because
+        topology cannot be constructed safely without them.
         """
 
-        for element in elements:
-
-            if not getattr(element, "in_service", True):
-                continue
-
-            endpoints = self._get_bus_endpoints(element)
-
-            if endpoints is None:
-                continue
-
-            from_bus, to_bus = endpoints
-
-            if from_bus is None or to_bus is None:
-                continue
-
-            if not hasattr(from_bus, "id"):
-                raise TypeError(
-                    f"{element_type} from_bus must provide an 'id' "
-                    "attribute."
-                )
-
-            if not hasattr(to_bus, "id"):
-                raise TypeError(
-                    f"{element_type} to_bus must provide an 'id' "
-                    "attribute."
-                )
-
-            u = from_bus.id
-            v = to_bus.id
-
-            # Self-connections do not create meaningful network
-            # connectivity.
-            if u == v:
-                continue
-
-            self.graph.add_edge(
-                u,
-                v,
-                element=element,
-                type=element_type,
-            )
-
-    # =================================================================
-    # ENDPOINT DISCOVERY
-    # =================================================================
-
-    @staticmethod
-    def _get_bus_endpoints(element):
-        """
-        Return the two bus endpoints of a topology-forming element.
-
-        Returns
-        -------
-        tuple or None
-            ``(from_bus, to_bus)`` when both endpoints are available.
-
-        Notes
-        -----
-        The preferred canonical representation is:
-
-            element.from_bus
-            element.to_bus
-
-        A terminal-based representation is also supported when an
-        element exposes two terminals containing bus references.
-
-        The topology layer does not create or infer new terminals.
-        """
-
-        if (
-            hasattr(element, "from_bus")
-            and hasattr(element, "to_bus")
+        if not getattr(
+            element,
+            "in_service",
+            True,
         ):
-            return (
-                element.from_bus,
-                element.to_bus,
+            return
+
+        from_bus = getattr(
+            element,
+            "from_bus",
+            None,
+        )
+
+        to_bus = getattr(
+            element,
+            "to_bus",
+            None,
+        )
+
+        if from_bus is None or to_bus is None:
+            raise AttributeError(
+                f"{element_type.capitalize()} topology element "
+                "must provide from_bus and to_bus."
             )
 
+        if not hasattr(from_bus, "id"):
+            raise AttributeError(
+                f"{element_type.capitalize()} from_bus must "
+                "provide an 'id' attribute."
+            )
+
+        if not hasattr(to_bus, "id"):
+            raise AttributeError(
+                f"{element_type.capitalize()} to_bus must "
+                "provide an 'id' attribute."
+            )
+
+        u = from_bus.id
+        v = to_bus.id
+
         # -------------------------------------------------------------
-        # Optional terminal-based fallback.
-        #
-        # This supports future/generalized topology elements without
-        # forcing the topology manager to depend on a concrete
-        # Terminal implementation.
+        # Ignore self-connections.
         # -------------------------------------------------------------
 
-        terminals = getattr(element, "terminals", None)
+        if u == v:
+            return
 
-        if terminals is not None:
+        # -------------------------------------------------------------
+        # Ensure endpoints actually exist in the network graph.
+        # -------------------------------------------------------------
 
-            try:
-                terminals = list(terminals)
-            except TypeError:
-                terminals = None
+        if u not in self.graph:
+            raise ValueError(
+                f"{element_type.capitalize()} '{getattr(element, 'id', element)}' "
+                f"references unregistered from_bus '{u}'."
+            )
 
-            if terminals is not None and len(terminals) >= 2:
+        if v not in self.graph:
+            raise ValueError(
+                f"{element_type.capitalize()} '{getattr(element, 'id', element)}' "
+                f"references unregistered to_bus '{v}'."
+            )
 
-                bus_a = getattr(
-                    terminals[0],
-                    "bus",
-                    None,
-                )
-
-                bus_b = getattr(
-                    terminals[1],
-                    "bus",
-                    None,
-                )
-
-                if bus_a is not None and bus_b is not None:
-                    return bus_a, bus_b
-
-        return None
+        self.graph.add_edge(
+            u,
+            v,
+            element=element,
+            type=element_type,
+        )
 
     # =================================================================
     # CONNECTIVITY
@@ -405,18 +395,36 @@ class TopologyManager:
         -------
         bool
             True when a path exists between the two buses.
+
+        Raises
+        ------
+        KeyError
+            If either bus is not present in the topology graph.
         """
 
         self.build()
 
-        a = bus_a.id if hasattr(bus_a, "id") else bus_a
-        b = bus_b.id if hasattr(bus_b, "id") else bus_b
+        a = (
+            bus_a.id
+            if hasattr(bus_a, "id")
+            else bus_a
+        )
+
+        b = (
+            bus_b.id
+            if hasattr(bus_b, "id")
+            else bus_b
+        )
 
         if a not in self.graph:
-            return False
+            raise KeyError(
+                f"Unknown topology bus: {a}"
+            )
 
         if b not in self.graph:
-            return False
+            raise KeyError(
+                f"Unknown topology bus: {b}"
+            )
 
         return nx.has_path(
             self.graph,
@@ -430,17 +438,17 @@ class TopologyManager:
 
     def find_islands(self) -> list[list[Any]]:
         """
-        Return the electrical islands of the current topology.
+        Return the electrical islands in the current topology.
 
         Returns
         -------
         list[list]
-            Each list contains the bus IDs belonging to one
-            electrically connected island.
+            Each inner list contains bus IDs belonging to one
+            connected electrical island.
 
         Notes
         -----
-        Isolated buses are valid islands containing one bus.
+        Isolated buses are valid islands consisting of one bus.
         """
 
         self.build()
@@ -461,7 +469,9 @@ class TopologyManager:
         Return True when the network contains more than one island.
         """
 
-        return len(self.find_islands()) > 1
+        return len(
+            self.find_islands()
+        ) > 1
 
     # =================================================================
     # ELEMENT STATUS
@@ -472,48 +482,74 @@ class TopologyManager:
         element: Any,
     ) -> None:
         """
-        Open an electrical topology element.
+        Open a topology-forming element.
 
-        The canonical model object remains owned by the Network.
-        Only its service state is changed.
+        Parameters
+        ----------
+        element :
+            Canonical network element.
+
+        Notes
+        -----
+        This changes the element's service state and invalidates
+        topology-dependent network state.
         """
 
-        self._require_service_state(element)
+        if element is None:
+            raise ValueError(
+                "Element cannot be None."
+            )
+
+        if not hasattr(
+            element,
+            "in_service",
+        ):
+            raise AttributeError(
+                "Element does not provide an "
+                "'in_service' state."
+            )
 
         element.in_service = False
-        self._dirty = True
+
+        self._invalidate()
+
+    # -----------------------------------------------------------------
 
     def close_element(
         self,
         element: Any,
     ) -> None:
         """
-        Close an electrical topology element.
-        """
+        Close a topology-forming element.
 
-        self._require_service_state(element)
+        Parameters
+        ----------
+        element :
+            Canonical network element.
 
-        element.in_service = True
-        self._dirty = True
-
-    @staticmethod
-    def _require_service_state(
-        element: Any,
-    ) -> None:
-        """
-        Validate that an element exposes service state.
+        Notes
+        -----
+        This changes the element's service state and invalidates
+        topology-dependent network state.
         """
 
         if element is None:
             raise ValueError(
-                "Topology element cannot be None."
+                "Element cannot be None."
             )
 
-        if not hasattr(element, "in_service"):
+        if not hasattr(
+            element,
+            "in_service",
+        ):
             raise AttributeError(
-                "Topology element does not provide "
+                "Element does not provide an "
                 "'in_service' state."
             )
+
+        element.in_service = True
+
+        self._invalidate()
 
     # =================================================================
     # CONTINGENCY SUPPORT
@@ -524,43 +560,55 @@ class TopologyManager:
         element: Any,
     ) -> dict[str, Any]:
         """
-        Temporarily remove an element and report topology impact.
+        Simulate a temporary element outage.
 
         Parameters
         ----------
         element :
-            Canonical topology-forming element.
+            Canonical network element.
 
         Returns
         -------
         dict
-            Contains:
+            Outage diagnostic information containing:
 
                 element
-                    Element name or representation.
-
                 islanded
-                    True when the outage creates multiple islands.
-
                 islands
-                    Bus IDs grouped by resulting island.
 
         Notes
         -----
-        The original service state is restored before this method
-        returns.
+        The original element service state is always restored.
 
-        This is a topology-only operation. It does not alter Y-bus,
-        solve power flow, or perform a complete contingency study.
+        This method does not permanently modify network topology.
+
+        Numerical contingency studies should normally use the
+        appropriate analysis layer rather than relying on this
+        convenience method for complete study execution.
         """
 
-        self._require_service_state(element)
+        if element is None:
+            raise ValueError(
+                "Element cannot be None."
+            )
 
-        original = element.in_service
+        if not hasattr(
+            element,
+            "in_service",
+        ):
+            raise AttributeError(
+                "Element does not provide an "
+                "'in_service' state."
+            )
+
+        original_state = bool(
+            element.in_service
+        )
 
         try:
             element.in_service = False
-            self._dirty = True
+
+            self._invalidate()
 
             islands = self.find_islands()
 
@@ -568,24 +616,34 @@ class TopologyManager:
                 "element": getattr(
                     element,
                     "name",
-                    str(element),
+                    getattr(
+                        element,
+                        "id",
+                        str(element),
+                    ),
                 ),
                 "islanded": len(islands) > 1,
                 "islands": islands,
             }
 
         finally:
-            element.in_service = original
-            self._dirty = True
+            element.in_service = original_state
+
+            self._invalidate()
+
+            # Rebuild immediately so the manager does not retain a
+            # temporary outage graph after the method returns.
             self.build()
 
     # =================================================================
     # GRAPH ACCESS
     # =================================================================
 
-    def get_graph(self):
+    def get_graph(self) -> nx.MultiGraph:
         """
-        Return the current topology graph.
+        Return the current derived topology graph.
+
+        The graph is rebuilt automatically when topology is dirty.
         """
 
         return self.build()
@@ -596,7 +654,7 @@ class TopologyManager:
 
     def summary(self) -> dict[str, Any]:
         """
-        Return a concise topology summary.
+        Return concise topology diagnostics.
         """
 
         self.build()
@@ -604,13 +662,10 @@ class TopologyManager:
         return {
             "buses": self.graph.number_of_nodes(),
             "connections": self.graph.number_of_edges(),
-            "islands": len(
-                list(
-                    nx.connected_components(
-                        self.graph
-                    )
-                )
+            "islands": nx.number_connected_components(
+                self.graph
             ),
+            "dirty": self._dirty,
         }
 
     # =================================================================
@@ -628,5 +683,6 @@ class TopologyManager:
             f"<TopologyManager "
             f"buses={self.graph.number_of_nodes()}, "
             f"connections={self.graph.number_of_edges()}, "
-            f"islands={len(list(nx.connected_components(self.graph)))}>"
+            f"islands={nx.number_connected_components(self.graph)}, "
+            f"dirty={self._dirty}>"
         )
