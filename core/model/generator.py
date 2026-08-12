@@ -1,4 +1,3 @@
-```python
 # core/model/generator.py
 
 """
@@ -11,10 +10,21 @@ Defines the GridForge controllable Generator model.
 
 Architecture
 ------------
-A Generator represents a controllable electrical power injection
-connected to a Bus through a Terminal.
 
-The Generator is an electrical model.
+A Generator is a controllable electrical power-injection device
+connected to the electrical network through one physical Terminal.
+
+    Generator
+        │
+     Terminal
+        │
+        └──── network topology ──── Bus
+
+The Generator owns its physical Terminal.
+
+The Terminal is the authoritative local physical connection point.
+The network layer is responsible for establishing and interpreting
+global topology.
 
 Optional advanced functionality may be attached through the generic
 plugin/extension mechanism:
@@ -30,46 +40,42 @@ plugin/extension mechanism:
 The Generator deliberately does NOT know the concrete classes
 implementing those extensions.
 
-Plugin implementations belong outside core/model/.
-
-Dynamic / DAE solver responsibilities include:
-
-    - Dynamic state-vector ownership
-    - State initialization
-    - Algebraic-state management
-    - Differential-equation evaluation
-    - Time integration
-    - Time stepping
-    - DAE solution
+Plugin implementations belong outside ``core/model/``.
 
 Generator Electrical Responsibilities
 -------------------------------------
-The Generator model stores:
 
-    - Active power injection
-    - Reactive power injection
-    - Voltage-control setpoint
-    - Reactive-power limits
-    - Reactive-power limit status
-    - Bus connectivity
-    - Generic plugin/extension references
+The Generator stores:
+
+- Active power injection.
+- Reactive power injection.
+- Voltage-control setpoint.
+- Reactive-power limits.
+- Reactive-power limit status.
+- Physical terminal connectivity.
+- Generic plugin/extension references.
 
 The Generator does NOT:
 
-    - Decide PV/PQ/SLACK bus classification.
-    - Build Y-bus.
-    - Perform Newton-Raphson iterations.
-    - Perform load-flow calculations.
-    - Perform short-circuit calculations.
-    - Perform contingency analysis.
-    - Perform dynamic integration.
-    - Perform protection calculations.
-    - Own the dynamic solver state vector.
-    - Manage GUI objects.
-    - Import or depend on specific dynamic plugins.
+- Decide PV/PQ/SLACK bus classification.
+- Build Y-bus.
+- Perform Newton-Raphson iterations.
+- Perform load-flow calculations.
+- Perform short-circuit calculations.
+- Perform contingency analysis.
+- Perform dynamic integration.
+- Perform protection calculations.
+- Own the dynamic solver state vector.
+- Manage global network topology.
+- Manage GUI objects.
+- Import or depend on concrete dynamic plugins.
+
+Those responsibilities belong to the appropriate
+network/solver/analysis/protection/simulation/plugin layers.
 
 Sign Convention
 ---------------
+
 Generator electrical power follows the GridForge
 network-injection convention:
 
@@ -85,29 +91,30 @@ Therefore:
 
 Reactive Power Limits
 ---------------------
-Q limits are stored by the Generator as physical generator limits.
 
-Infinite limits are permitted and represent an unrestricted
-generator.
+Q limits are stored as physical generator reactive-power limits:
 
-The Generator may report and locally clamp its own Q value through
+    (Qmin, Qmax)
+
+Infinite limits are permitted and represent unrestricted reactive
+capability.
+
+The Generator may locally clamp its own reactive-power value through
 ``enforce_q_limits()``.
 
 It does NOT perform PV -> PQ bus conversion.
 
-PV/PQ switching is a power-flow control-layer responsibility.
+PV/PQ switching is a responsibility of the power-flow control layer.
 
 Plugin Architecture
--------------------
+--------------------
+
 The Generator exposes a generic plugin registry.
 
 The registry stores references to extension objects but does not
-interpret their implementation.
+interpret, execute, validate, or manage their internal state.
 
-This allows future functionality to be added without modifying
-the central Generator model.
-
-Examples of possible plugin identifiers include:
+Example plugin identifiers include:
 
     "dynamics.machine"
     "dynamics.governor"
@@ -121,15 +128,17 @@ Examples of possible plugin identifiers include:
 The Generator does not import or depend on any of these concrete
 implementations.
 
-Plugin objects must therefore be managed by the appropriate
-higher-level/plugin infrastructure.
-
 GridForge V2 Status
 -------------------
+
 This module is part of the GridForge Model Layer V2 baseline.
 
-The electrical Generator interface is intentionally kept small,
-stable, and independent of optional feature plugins.
+The electrical Generator interface is intentionally small, stable,
+and independent of optional feature plugins.
+
+The physical connection contract is Terminal-based and follows the
+same ownership model used by other finalized V2 equipment/injection
+models.
 
 Changes require evidence of a genuinely fundamental generator-model
 requirement that cannot be implemented through an existing model,
@@ -142,7 +151,7 @@ All Rights Reserved.
 from __future__ import annotations
 
 import math
-from typing import Any, Tuple
+from typing import Any
 
 from .base import ElectricalObject
 from .injection import Injection
@@ -160,10 +169,13 @@ class Generator(ElectricalObject, Injection):
     Parameters
     ----------
     id : str
-        Unique GridForge object identifier.
+        Unique GridForge generator identifier.
 
     bus :
-        Bus to which the generator is connected.
+        Initial electrical connection endpoint.
+
+        Normally this is a Bus. The terminal may subsequently
+        participate in a larger topology assembled by ``core/network``.
 
     p : float, optional
         Active power injection in per-unit.
@@ -176,10 +188,10 @@ class Generator(ElectricalObject, Injection):
         Positive values represent injection into the network.
 
     V_setpoint : float, optional
-        Voltage magnitude control target in per-unit.
+        Voltage-magnitude control target in per-unit.
 
     q_limits : tuple[float, float], optional
-        Reactive-power limits as:
+        Reactive-power limits:
 
             (Qmin, Qmax)
 
@@ -190,8 +202,10 @@ class Generator(ElectricalObject, Injection):
 
     Notes
     -----
-    The Generator is intentionally independent of specific dynamic
-    model implementations.
+    The Generator owns its physical Terminal.
+
+    The Generator does not directly modify Bus state or global
+    network topology.
 
     Advanced functionality may be attached through the generic
     plugin registry using:
@@ -201,8 +215,8 @@ class Generator(ElectricalObject, Injection):
         has_plugin()
         detach_plugin()
 
-    The Generator does not own plugin state or perform plugin
-    execution.
+    The Generator does not own plugin execution state and does not
+    invoke plugin behavior.
     """
 
     # =================================================================
@@ -216,48 +230,61 @@ class Generator(ElectricalObject, Injection):
         p: float = 0.0,
         q: float = 0.0,
         V_setpoint: float = 1.0,
-        q_limits: Tuple[float, float] = (
+        q_limits: tuple[float, float] = (
             -float("inf"),
             float("inf"),
         ),
         name: str = "",
     ) -> None:
+        """
+        Initialize a GridForge controllable generator.
+        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # -------------------------------------------------------------
-        # Electrical connection
-        # -------------------------------------------------------------
+        # =============================================================
+        # PHYSICAL TERMINAL
+        # =============================================================
+        #
+        # The Generator owns the terminal.
+        #
+        # Explicit ownership is part of the V2 physical connection
+        # contract and does not imply registration with core/network.
+        #
 
-        self.terminal = Terminal(bus)
+        self.terminal = Terminal(
+            endpoint=bus,
+            owner=self,
+        )
 
-        # -------------------------------------------------------------
-        # Generator electrical power
+        # =============================================================
+        # ELECTRICAL POWER
+        # =============================================================
         #
         # Positive P/Q = injection into the network.
-        # -------------------------------------------------------------
+        #
 
         self.p = float(p)
         self.q = float(q)
 
-        # -------------------------------------------------------------
-        # Voltage control
-        # -------------------------------------------------------------
+        # =============================================================
+        # VOLTAGE CONTROL
+        # =============================================================
 
         self.V_setpoint = float(V_setpoint)
 
-        # -------------------------------------------------------------
-        # Reactive-power limits
-        # -------------------------------------------------------------
+        # =============================================================
+        # REACTIVE-POWER LIMITS
+        # =============================================================
 
         try:
             if len(q_limits) != 2:
                 raise ValueError(
-                    "q_limits must contain exactly "
-                    "(Qmin, Qmax)."
+                    f"Generator '{self.id}' q_limits must contain "
+                    "exactly (Qmin, Qmax)."
                 )
 
             self.q_min = float(q_limits[0])
@@ -265,24 +292,24 @@ class Generator(ElectricalObject, Injection):
 
         except TypeError as exc:
             raise TypeError(
-                "q_limits must be a two-value sequence "
-                "(Qmin, Qmax)."
+                f"Generator '{self.id}' q_limits must be a "
+                "two-value sequence (Qmin, Qmax)."
             ) from exc
 
-        # -------------------------------------------------------------
-        # Generic plugin registry
+        # =============================================================
+        # GENERIC PLUGIN REGISTRY
+        # =============================================================
         #
-        # The Generator stores references only.
+        # Only references are stored.
         #
-        # It does not know what a plugin does, does not execute
-        # plugins, and does not own plugin state.
-        # -------------------------------------------------------------
+        # The Generator does not interpret or execute plugin objects.
+        #
 
         self._plugins: dict[str, Any] = {}
 
-        # -------------------------------------------------------------
-        # Validate complete generator state.
-        # -------------------------------------------------------------
+        # =============================================================
+        # LOCAL VALIDATION
+        # =============================================================
 
         self._validate()
 
@@ -292,28 +319,33 @@ class Generator(ElectricalObject, Injection):
 
     def _validate(self) -> None:
         """
-        Validate generator electrical parameters.
+        Validate local generator parameters.
 
         P and Q must be finite.
 
-        Q limits may be infinite, representing unrestricted
-        reactive capability, but NaN is never valid.
-
         Voltage setpoint must be finite and positive.
+
+        Q limits may be infinite but may never be NaN.
+
+        Qmin must not exceed Qmax.
         """
 
         # -------------------------------------------------------------
-        # Active and reactive power
+        # Active power
         # -------------------------------------------------------------
 
         if not math.isfinite(self.p):
             raise ValueError(
-                "Generator active power must be finite."
+                f"Generator '{self.id}' active power must be finite."
             )
+
+        # -------------------------------------------------------------
+        # Reactive power
+        # -------------------------------------------------------------
 
         if not math.isfinite(self.q):
             raise ValueError(
-                "Generator reactive power must be finite."
+                f"Generator '{self.id}' reactive power must be finite."
             )
 
         # -------------------------------------------------------------
@@ -322,36 +354,98 @@ class Generator(ElectricalObject, Injection):
 
         if not math.isfinite(self.V_setpoint):
             raise ValueError(
-                "Generator voltage setpoint must be finite."
+                f"Generator '{self.id}' voltage setpoint "
+                "must be finite."
             )
 
         if self.V_setpoint <= 0.0:
             raise ValueError(
-                "Generator voltage setpoint "
+                f"Generator '{self.id}' voltage setpoint "
                 "must be greater than zero."
             )
 
         # -------------------------------------------------------------
         # Reactive-power limits
         #
-        # Infinite limits are valid.
-        # NaN limits are not.
+        # Infinite values are valid.
+        # NaN values are invalid.
         # -------------------------------------------------------------
 
         if math.isnan(self.q_min):
             raise ValueError(
-                "Generator Qmin cannot be NaN."
+                f"Generator '{self.id}' Qmin cannot be NaN."
             )
 
         if math.isnan(self.q_max):
             raise ValueError(
-                "Generator Qmax cannot be NaN."
+                f"Generator '{self.id}' Qmax cannot be NaN."
             )
 
         if self.q_min > self.q_max:
             raise ValueError(
-                "Generator Qmin cannot exceed Qmax."
+                f"Generator '{self.id}' Qmin cannot exceed Qmax."
             )
+
+    # =================================================================
+    # TERMINAL / CONNECTION
+    # =================================================================
+
+    @property
+    def bus(self):
+        """
+        Return the Bus-like endpoint associated with the Generator.
+
+        This is a derived convenience property.
+
+        The authoritative local physical connection is:
+
+            self.terminal
+        """
+
+        return self.terminal.bus
+
+    @property
+    def endpoint(self):
+        """
+        Return the authoritative physical terminal endpoint.
+
+        This is a compatibility/convenience accessor.
+
+        Returns
+        -------
+        object or None
+            Current terminal endpoint.
+        """
+
+        return self.terminal.endpoint
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Return True when the Generator terminal has an endpoint.
+        """
+
+        return self.terminal.is_connected
+
+    def connect(self, endpoint) -> None:
+        """
+        Connect the Generator terminal to an electrical endpoint.
+
+        This changes only the local physical terminal reference.
+
+        Global topology remains the responsibility of ``core/network``.
+        """
+
+        self.terminal.connect(endpoint)
+
+    def disconnect(self) -> None:
+        """
+        Disconnect the Generator terminal locally.
+
+        Global network topology is not modified directly.
+        """
+
+        self.terminal.disconnect()
 
     # =================================================================
     # INJECTION INTERFACE
@@ -359,13 +453,13 @@ class Generator(ElectricalObject, Injection):
 
     def get_power(self) -> tuple[float, float]:
         """
-        Return generator network power injection.
+        Return Generator network power injection.
 
         Returns
         -------
         tuple[float, float]
-            ``(P, Q)`` in the GridForge network-injection
-            convention.
+            ``(P, Q)`` in per-unit using the GridForge
+            network-injection convention.
 
         Positive values represent injection into the network.
         """
@@ -374,18 +468,6 @@ class Generator(ElectricalObject, Injection):
             self.p,
             self.q,
         )
-
-    # =================================================================
-    # CONNECTION
-    # =================================================================
-
-    @property
-    def bus(self):
-        """
-        Return the Bus connected to this generator.
-        """
-
-        return self.terminal.bus
 
     # =================================================================
     # POWER CONTROL
@@ -397,23 +479,12 @@ class Generator(ElectricalObject, Injection):
         q: float,
     ) -> None:
         """
-        Set generator active and reactive power.
+        Set generator active and reactive power injection.
 
-        Parameters
-        ----------
-        p : float
-            Active power injection in per-unit.
-
-        q : float
-            Reactive power injection in per-unit.
-
-        Notes
-        -----
         Q-limit enforcement is intentionally not performed here.
 
-        The caller may explicitly use ``enforce_q_limits()`` or the
-        appropriate power-flow control layer may manage generator
-        reactive limits.
+        The caller or the appropriate power-flow control layer may
+        explicitly invoke ``enforce_q_limits()`` when required.
         """
 
         p = float(p)
@@ -421,12 +492,12 @@ class Generator(ElectricalObject, Injection):
 
         if not math.isfinite(p):
             raise ValueError(
-                "Generator active power must be finite."
+                f"Generator '{self.id}' active power must be finite."
             )
 
         if not math.isfinite(q):
             raise ValueError(
-                "Generator reactive power must be finite."
+                f"Generator '{self.id}' reactive power must be finite."
             )
 
         self.p = p
@@ -444,7 +515,7 @@ class Generator(ElectricalObject, Injection):
 
         if not math.isfinite(p):
             raise ValueError(
-                "Generator active power must be finite."
+                f"Generator '{self.id}' active power must be finite."
             )
 
         self.p = p
@@ -456,20 +527,37 @@ class Generator(ElectricalObject, Injection):
         """
         Set generator reactive power injection.
 
-        This method does not automatically clamp Q.
-
-        Reactive-power limit handling belongs to the appropriate
-        power-flow control workflow.
+        This method does not automatically enforce Q limits.
         """
 
         q = float(q)
 
         if not math.isfinite(q):
             raise ValueError(
-                "Generator reactive power must be finite."
+                f"Generator '{self.id}' reactive power must be finite."
             )
 
         self.q = q
+
+    # =================================================================
+    # POWER PROPERTIES
+    # =================================================================
+
+    @property
+    def active_power(self) -> float:
+        """
+        Return active power injection in per-unit.
+        """
+
+        return self.p
+
+    @property
+    def reactive_power(self) -> float:
+        """
+        Return reactive power injection in per-unit.
+        """
+
+        return self.q
 
     # =================================================================
     # VOLTAGE CONTROL
@@ -485,32 +573,33 @@ class Generator(ElectricalObject, Injection):
         Parameters
         ----------
         V_setpoint : float
-            Voltage magnitude in per-unit.
+            Voltage magnitude target in per-unit.
         """
 
         V_setpoint = float(V_setpoint)
 
         if not math.isfinite(V_setpoint):
             raise ValueError(
-                "Generator voltage setpoint must be finite."
+                f"Generator '{self.id}' voltage setpoint "
+                "must be finite."
             )
 
         if V_setpoint <= 0.0:
             raise ValueError(
-                "Generator voltage setpoint "
+                f"Generator '{self.id}' voltage setpoint "
                 "must be greater than zero."
             )
 
         self.V_setpoint = V_setpoint
 
     # =================================================================
-    # REACTIVE POWER LIMITS
+    # REACTIVE-POWER LIMITS
     # =================================================================
 
     @property
     def q_limits(self) -> tuple[float, float]:
         """
-        Return generator reactive-power limits.
+        Return reactive-power limits.
 
         Returns
         -------
@@ -529,22 +618,11 @@ class Generator(ElectricalObject, Injection):
         q_max: float,
     ) -> None:
         """
-        Update generator reactive-power limits.
+        Set generator reactive-power limits.
 
-        Parameters
-        ----------
-        q_min : float
-            Minimum reactive-power injection.
-
-        q_max : float
-            Maximum reactive-power injection.
-
-        Notes
-        -----
         Infinite limits are permitted.
 
-        The limits are stored only. The current generator Q value
-        is not automatically changed.
+        The current generator Q value is not automatically modified.
         """
 
         q_min = float(q_min)
@@ -552,12 +630,13 @@ class Generator(ElectricalObject, Injection):
 
         if math.isnan(q_min) or math.isnan(q_max):
             raise ValueError(
-                "Reactive-power limits cannot be NaN."
+                f"Generator '{self.id}' reactive-power limits "
+                "cannot be NaN."
             )
 
         if q_min > q_max:
             raise ValueError(
-                "Qmin cannot exceed Qmax."
+                f"Generator '{self.id}' Qmin cannot exceed Qmax."
             )
 
         self.q_min = q_min
@@ -568,7 +647,7 @@ class Generator(ElectricalObject, Injection):
         tolerance: float = 1e-6,
     ) -> str:
         """
-        Determine the current reactive-power limit status.
+        Return the current reactive-power limit status.
 
         Parameters
         ----------
@@ -588,20 +667,21 @@ class Generator(ElectricalObject, Injection):
         -----
         This method is diagnostic only.
 
-        It does not change generator Q and does not change Bus
-        classification.
+        It does not modify Generator Q or Bus classification.
         """
 
         tolerance = float(tolerance)
 
         if not math.isfinite(tolerance):
             raise ValueError(
-                "Q-limit tolerance must be finite."
+                f"Generator '{self.id}' Q-limit tolerance "
+                "must be finite."
             )
 
         if tolerance < 0.0:
             raise ValueError(
-                "Q-limit tolerance cannot be negative."
+                f"Generator '{self.id}' Q-limit tolerance "
+                "cannot be negative."
             )
 
         if self.q < self.q_min - tolerance:
@@ -619,19 +699,18 @@ class Generator(ElectricalObject, Injection):
         Returns
         -------
         bool
-            True if Q was modified.
+            True if Q was modified, otherwise False.
 
         Notes
         -----
-        This method changes only the Generator's own reactive-power
-        value.
+        This method changes only Generator-owned Q state.
 
         It does NOT:
 
-        - Change Bus classification.
-        - Perform PV -> PQ switching.
-        - Modify Bus voltage.
-        - Run a power-flow solution.
+        - change Bus classification,
+        - perform PV -> PQ switching,
+        - modify Bus voltage,
+        - run a power-flow solution.
 
         PV -> PQ handling belongs to the power-flow control layer.
         """
@@ -658,56 +737,48 @@ class Generator(ElectricalObject, Injection):
         replace: bool = False,
     ) -> None:
         """
-        Attach a generic plugin/extension to the Generator.
+        Attach a generic plugin/extension reference.
 
         Parameters
         ----------
         key : str
-            Unique plugin key.
-
-            Examples:
-
-                "dynamics.machine"
-                "dynamics.governor"
-                "dynamics.avr"
-                "dynamics.pss"
+            Unique plugin identifier.
 
         plugin : object
-            Plugin/model instance.
+            Plugin/model reference.
 
         replace : bool, optional
-            If False, attempting to replace an existing plugin
-            raises ValueError.
+            If False, replacing an existing plugin raises ValueError.
 
         Notes
         -----
-        The Generator does not inspect or execute the plugin.
+        The Generator stores the reference only.
 
-        Plugin lifecycle, validation, execution, and state
-        management belong to the appropriate plugin infrastructure
-        and higher-level simulation/control layers.
+        Plugin lifecycle, validation, execution, and dynamic state
+        management belong to the appropriate plugin/simulation layer.
         """
 
         if not isinstance(key, str):
             raise TypeError(
-                "Generator plugin key must be a string."
+                f"Generator '{self.id}' plugin key must be a string."
             )
 
         key = key.strip()
 
         if not key:
             raise ValueError(
-                "Generator plugin key cannot be empty."
+                f"Generator '{self.id}' plugin key cannot be empty."
             )
 
         if plugin is None:
             raise ValueError(
-                "Generator plugin cannot be None."
+                f"Generator '{self.id}' plugin cannot be None."
             )
 
         if key in self._plugins and not replace:
             raise ValueError(
-                f"Generator plugin '{key}' is already attached."
+                f"Generator '{self.id}' plugin '{key}' "
+                "is already attached."
             )
 
         self._plugins[key] = plugin
@@ -717,22 +788,17 @@ class Generator(ElectricalObject, Injection):
         key: str,
     ) -> Any | None:
         """
-        Detach a plugin from the Generator.
-
-        Parameters
-        ----------
-        key : str
-            Plugin identifier.
+        Detach and return a plugin reference.
 
         Returns
         -------
         object or None
-            Previously attached plugin.
+            Previously attached plugin, if present.
         """
 
         if not isinstance(key, str):
             raise TypeError(
-                "Generator plugin key must be a string."
+                f"Generator '{self.id}' plugin key must be a string."
             )
 
         return self._plugins.pop(
@@ -745,22 +811,12 @@ class Generator(ElectricalObject, Injection):
         key: str,
     ) -> Any | None:
         """
-        Return an attached plugin by key.
-
-        Parameters
-        ----------
-        key : str
-            Plugin identifier.
-
-        Returns
-        -------
-        object or None
-            Attached plugin, if present.
+        Return an attached plugin reference by key.
         """
 
         if not isinstance(key, str):
             raise TypeError(
-                "Generator plugin key must be a string."
+                f"Generator '{self.id}' plugin key must be a string."
             )
 
         return self._plugins.get(
@@ -777,19 +833,19 @@ class Generator(ElectricalObject, Injection):
 
         if not isinstance(key, str):
             raise TypeError(
-                "Generator plugin key must be a string."
+                f"Generator '{self.id}' plugin key must be a string."
             )
 
         return key.strip() in self._plugins
 
     def plugin_keys(self) -> tuple[str, ...]:
         """
-        Return the registered plugin keys.
+        Return registered plugin identifiers.
 
         Returns
         -------
         tuple[str, ...]
-            Immutable tuple of plugin identifiers.
+            Immutable tuple of plugin keys.
         """
 
         return tuple(
@@ -800,29 +856,18 @@ class Generator(ElectricalObject, Injection):
         """
         Return a shallow copy of the plugin registry.
 
-        Returns
-        -------
-        dict[str, object]
-            Mapping of plugin identifiers to plugin references.
-
-        Notes
-        -----
-        A copy is returned so callers cannot directly replace the
-        Generator's internal registry.
+        The internal registry cannot be directly replaced by the
+        caller through this returned dictionary.
         """
 
         return dict(self._plugins)
 
     def clear_plugins(self) -> None:
         """
-        Detach all plugins from the Generator.
+        Detach all plugin references from the Generator.
 
-        Notes
-        -----
-        This only removes references from the Generator.
-
-        It does not destroy plugin objects or modify any external
-        solver state.
+        This does not destroy plugin objects or modify external
+        simulation state.
         """
 
         self._plugins.clear()
@@ -833,23 +878,38 @@ class Generator(ElectricalObject, Injection):
 
     def summary(self) -> dict:
         """
-        Return structured generator diagnostic information.
+        Return structured Generator diagnostic information.
 
-        Plugin presence is reported by identifier without exposing
-        plugin implementation details or dynamic solver state.
+        Plugin presence is reported only by identifier.
+
+        Plugin implementation details and dynamic solver state are
+        intentionally excluded.
         """
 
         return {
             "id": self.id,
             "name": self.name,
             "type": "generator",
-            "bus": self.bus.id,
+
+            "terminal": self.terminal.summary(),
+
+            "bus": (
+                self.bus.id
+                if self.bus is not None
+                else None
+            ),
+
+            "connected": self.is_connected,
+
             "P": self.p,
             "Q": self.q,
+
             "V_setpoint": self.V_setpoint,
+
             "Qmin": self.q_min,
             "Qmax": self.q_max,
             "Q_status": self.q_limit_status(),
+
             "plugins": tuple(
                 self._plugins.keys()
             ),
@@ -864,10 +924,16 @@ class Generator(ElectricalObject, Injection):
         Return a concise developer-facing representation.
         """
 
+        bus_id = (
+            self.bus.id
+            if self.bus is not None
+            else None
+        )
+
         return (
             f"<Generator "
             f"id={self.id}, "
-            f"bus={self.bus.id}, "
+            f"bus={bus_id}, "
             f"P={self.p:.6f}, "
             f"Q={self.q:.6f}, "
             f"Vset={self.V_setpoint:.6f}, "
