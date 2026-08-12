@@ -1,4 +1,3 @@
-```python
 """
 GridForge Newton-Raphson Power Flow Engine
 ==========================================
@@ -31,6 +30,8 @@ This module does NOT:
 - Perform contingency analysis.
 - Perform short-circuit analysis.
 - Perform protection decisions.
+- Perform dynamic simulation.
+- Implement advanced convergence algorithms.
 
 Numerical responsibilities are delegated to:
 
@@ -62,11 +63,40 @@ and is therefore shared by:
     JacobianBuilder
     NewtonRaphsonSolver
 
+Newton convention
+-----------------
+The shared mismatch convention is:
+
+    mismatch = specified - calculated
+
+Therefore the Newton correction is obtained from:
+
+    J * dx = mismatch
+
+and the correction is applied directly to the voltage state.
+
+State ownership
+---------------
+The canonical Bus voltage state remains owned by the unified
+GridForge model.
+
+The solver updates:
+
+    bus.V
+    bus.theta
+
+in-place.
+
+The solver does not create a second persistent voltage-state
+representation.
+
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 
@@ -94,22 +124,21 @@ class NewtonRaphsonSolver:
     Parameters
     ----------
     network:
-        GridForge Network object containing the unified
-        electrical model.
+        GridForge Network object containing the canonical
+        electrical model and ordered Bus collection.
 
     options:
         GridForge SolverOptions instance.
 
     Notes
     -----
-    The network must already contain a valid Ybus.
+    The Network must already contain a valid Ybus.
 
     The solver intentionally operates on the voltage state
-    stored in the unified Bus model. This allows the numerical
-    engine to remain synchronized with the GridForge model.
+    stored in the canonical Bus model.
 
-    No numerical power-flow calculation is performed directly
-    in this orchestration class.
+    No numerical power-flow calculation is implemented
+    directly in this orchestration class.
     """
 
     # =========================================================
@@ -118,9 +147,9 @@ class NewtonRaphsonSolver:
 
     def __init__(
         self,
-        network,
-        options,
-    ):
+        network: Any,
+        options: Any,
+    ) -> None:
         """
         Initialize the Newton-Raphson solver.
         """
@@ -141,6 +170,17 @@ class NewtonRaphsonSolver:
         ):
             raise ValueError(
                 "Network must provide a 'buses' collection."
+            )
+
+        if not hasattr(
+            options,
+            "validate",
+        ) or not callable(
+            options.validate,
+        ):
+            raise TypeError(
+                "Solver options must provide a callable "
+                "'validate()' method."
             )
 
         self.network = network
@@ -164,12 +204,11 @@ class NewtonRaphsonSolver:
         )
 
         # -----------------------------------------------------
-        # Iteration diagnostics.
+        # Runtime diagnostics.
         # -----------------------------------------------------
 
-        self.history = []
-
-        self._converted_pv = []
+        self.history: list[float] = []
+        self._converted_pv: list[dict[str, Any]] = []
 
     # =========================================================
     # VALIDATION
@@ -177,12 +216,17 @@ class NewtonRaphsonSolver:
 
     def _validate_network(self):
         """
-        Validate the network and Ybus before solving.
+        Validate the Network and Ybus before solving.
+
+        Returns
+        -------
+        matrix-like
+            Network Ybus.
 
         Raises
         ------
         ValueError
-            If the network or Ybus is invalid.
+            If the Network or Ybus is invalid.
         """
 
         if not hasattr(
@@ -244,11 +288,11 @@ class NewtonRaphsonSolver:
         Ybus,
     ):
         """
-        Create the shared numerical components.
+        Create shared numerical components.
 
         Components read current Bus state whenever they are
-        evaluated, so they remain valid after each Newton step
-        and after PV-to-PQ transitions.
+        evaluated. This keeps them valid after every Newton
+        update and after PV-to-PQ transitions.
         """
 
         mismatch_engine = PowerMismatch(
@@ -270,14 +314,14 @@ class NewtonRaphsonSolver:
     # MAIN SOLVER
     # =========================================================
 
-    def solve(self):
+    def solve(self) -> dict[str, Any]:
         """
         Execute the Newton-Raphson power-flow solution.
 
         Returns
         -------
         dict
-            Standard GridForge power-flow result:
+            Standard GridForge power-flow result containing:
 
                 success
                 iterations
@@ -289,14 +333,30 @@ class NewtonRaphsonSolver:
 
         Notes
         -----
-        The network Bus voltage state is updated in-place.
+        The canonical Network Bus voltage state is updated
+        in-place.
         """
 
         # -----------------------------------------------------
-        # Validate solver configuration.
+        # Validate configuration.
         # -----------------------------------------------------
 
         self.options.validate()
+
+        # -----------------------------------------------------
+        # Synchronize runtime solver configuration.
+        #
+        # This allows the options object to be intentionally
+        # modified between solver runs.
+        # -----------------------------------------------------
+
+        self.linear_solver.regularization = float(
+            self.options.regularization
+        )
+
+        self.q_handler.tolerance = float(
+            self.options.q_limit_tolerance
+        )
 
         # -----------------------------------------------------
         # Reset runtime diagnostics.
@@ -305,14 +365,31 @@ class NewtonRaphsonSolver:
         self.history = []
         self._converted_pv = []
 
-        # QLimitHandler maintains its own diagnostic history.
         self.q_handler.reset_history()
 
         # -----------------------------------------------------
-        # Validate network.
+        # Validate Network/Ybus.
         # -----------------------------------------------------
 
         Ybus = self._validate_network()
+
+        # -----------------------------------------------------
+        # Validate initial voltage state.
+        # -----------------------------------------------------
+
+        try:
+            self._validate_voltage_state()
+
+        except Exception as exc:
+            return self._result(
+                success=False,
+                iterations=0,
+                error=np.inf,
+                message=(
+                    "Initial voltage state validation failed: "
+                    f"{exc}"
+                ),
+            )
 
         # -----------------------------------------------------
         # Create shared numerical components.
@@ -344,11 +421,9 @@ class NewtonRaphsonSolver:
             # -------------------------------------------------
 
             try:
-
                 mismatch = mismatch_engine.compute()
 
             except Exception as exc:
-
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -379,13 +454,9 @@ class NewtonRaphsonSolver:
 
             # -------------------------------------------------
             # Empty state vector.
-            #
-            # This can occur for a network containing no
-            # independent power-flow equations.
             # -------------------------------------------------
 
             if mismatch.size == 0:
-
                 return self._result(
                     success=True,
                     iterations=iteration_number,
@@ -396,7 +467,7 @@ class NewtonRaphsonSolver:
                 )
 
             # -------------------------------------------------
-            # 2. Calculate infinity-norm mismatch.
+            # 2. Infinity-norm mismatch.
             # -------------------------------------------------
 
             error = float(
@@ -414,7 +485,6 @@ class NewtonRaphsonSolver:
             )
 
             if self.options.verbose:
-
                 print(
                     f"Iteration {iteration_number}: "
                     f"Mismatch={error:.6e}"
@@ -423,14 +493,12 @@ class NewtonRaphsonSolver:
             # -------------------------------------------------
             # 3. Convergence test.
             #
-            # Convergence is checked before Q-limit conversion.
-            #
-            # If the current solution satisfies the equations,
-            # no additional PV/PQ transition is required.
+            # Convergence is evaluated before Q-limit
+            # conversion. A converged solution does not require
+            # another PV/PQ restructuring step.
             # -------------------------------------------------
 
             if error <= self.options.tolerance:
-
                 return self._result(
                     success=True,
                     iterations=iteration_number,
@@ -440,18 +508,21 @@ class NewtonRaphsonSolver:
 
             # -------------------------------------------------
             # 4. Reactive-power limit handling.
+            #
+            # A PV -> PQ conversion invalidates the current
+            # equation structure. Therefore no Jacobian or
+            # Newton correction is calculated during the
+            # iteration in which a conversion occurs.
             # -------------------------------------------------
 
             if self.options.enforce_q_limits:
 
                 try:
-
                     changed = (
                         self.q_handler.check_limits()
                     )
 
                 except Exception as exc:
-
                     return self._result(
                         success=False,
                         iterations=iteration_number,
@@ -469,16 +540,6 @@ class NewtonRaphsonSolver:
                         changed
                     )
 
-                    # -----------------------------------------
-                    # Bus classification has changed.
-                    #
-                    # Therefore the next mismatch and
-                    # Jacobian must use the new PV/PQ structure.
-                    #
-                    # No Newton correction is calculated from
-                    # the obsolete Jacobian structure.
-                    # -----------------------------------------
-
                     continue
 
             # -------------------------------------------------
@@ -486,11 +547,9 @@ class NewtonRaphsonSolver:
             # -------------------------------------------------
 
             try:
-
                 J = jacobian_builder.build()
 
             except Exception as exc:
-
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -507,18 +566,19 @@ class NewtonRaphsonSolver:
             )
 
             # -------------------------------------------------
-            # Validate Jacobian shape against mismatch.
+            # Validate Jacobian.
             # -------------------------------------------------
 
             expected_dimension = (
                 mismatch.size
             )
 
-            if J.shape != (
+            expected_shape = (
                 expected_dimension,
                 expected_dimension,
-            ):
+            )
 
+            if J.shape != expected_shape:
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -526,8 +586,7 @@ class NewtonRaphsonSolver:
                     message=(
                         "Jacobian dimension does not match "
                         "mismatch vector: "
-                        f"expected "
-                        f"{(expected_dimension, expected_dimension)}, "
+                        f"expected {expected_shape}, "
                         f"received {J.shape}."
                     ),
                 )
@@ -535,7 +594,6 @@ class NewtonRaphsonSolver:
             if not np.all(
                 np.isfinite(J)
             ):
-
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -551,7 +609,7 @@ class NewtonRaphsonSolver:
             #
             #       J dx = mismatch
             #
-            # The mismatch convention is:
+            # The shared mismatch convention is:
             #
             #       specified - calculated
             #
@@ -560,14 +618,12 @@ class NewtonRaphsonSolver:
             # -------------------------------------------------
 
             try:
-
                 dx = self.linear_solver.solve(
                     J,
                     mismatch,
                 )
 
             except Exception as exc:
-
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -588,7 +644,6 @@ class NewtonRaphsonSolver:
             # -------------------------------------------------
 
             if dx.size != expected_dimension:
-
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -604,7 +659,6 @@ class NewtonRaphsonSolver:
             if not np.all(
                 np.isfinite(dx)
             ):
-
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -620,14 +674,12 @@ class NewtonRaphsonSolver:
             # -------------------------------------------------
 
             try:
-
                 self._update_states(
                     dx,
                     jacobian_builder,
                 )
 
             except Exception as exc:
-
                 return self._result(
                     success=False,
                     iterations=iteration_number,
@@ -657,9 +709,10 @@ class NewtonRaphsonSolver:
         self,
         dx,
         jacobian_builder,
-    ):
+    ) -> None:
         """
-        Apply a Newton-Raphson correction to the Bus state.
+        Apply a Newton-Raphson correction to the canonical
+        Bus voltage state.
 
         State ordering:
 
@@ -684,13 +737,34 @@ class NewtonRaphsonSolver:
             jacobian_builder.state_indices()
         )
 
-        angle_indices = indices[
-            "angle"
-        ]
+        if not isinstance(
+            indices,
+            dict,
+        ):
+            raise ValueError(
+                "JacobianBuilder.state_indices() must return "
+                "a dictionary."
+            )
 
-        voltage_indices = indices[
-            "voltage"
-        ]
+        if "angle" not in indices:
+            raise ValueError(
+                "Jacobian state indices must provide "
+                "'angle'."
+            )
+
+        if "voltage" not in indices:
+            raise ValueError(
+                "Jacobian state indices must provide "
+                "'voltage'."
+            )
+
+        angle_indices = list(
+            indices["angle"]
+        )
+
+        voltage_indices = list(
+            indices["voltage"]
+        )
 
         expected_size = (
             len(angle_indices)
@@ -699,7 +773,6 @@ class NewtonRaphsonSolver:
         )
 
         if dx.size != expected_size:
-
             raise ValueError(
                 "Correction vector size does not match "
                 "Jacobian state structure: "
@@ -714,6 +787,29 @@ class NewtonRaphsonSolver:
         for local_index, bus_index in enumerate(
             angle_indices
         ):
+
+            if not (
+                isinstance(
+                    bus_index,
+                    int,
+                )
+                and not isinstance(
+                    bus_index,
+                    bool,
+                )
+            ):
+                raise TypeError(
+                    "Jacobian angle state indices must "
+                    "be integers."
+                )
+
+            if not (
+                0 <= bus_index < len(buses)
+            ):
+                raise IndexError(
+                    "Jacobian angle state index is outside "
+                    "the Network Bus collection."
+                )
 
             bus = buses[
                 bus_index
@@ -739,6 +835,29 @@ class NewtonRaphsonSolver:
             voltage_indices
         ):
 
+            if not (
+                isinstance(
+                    bus_index,
+                    int,
+                )
+                and not isinstance(
+                    bus_index,
+                    bool,
+                )
+            ):
+                raise TypeError(
+                    "Jacobian voltage state indices must "
+                    "be integers."
+                )
+
+            if not (
+                0 <= bus_index < len(buses)
+            ):
+                raise IndexError(
+                    "Jacobian voltage state index is outside "
+                    "the Network Bus collection."
+                )
+
             bus = buses[
                 bus_index
             ]
@@ -752,7 +871,7 @@ class NewtonRaphsonSolver:
             )
 
         # -----------------------------------------------------
-        # Immediately validate the resulting state.
+        # Validate resulting state immediately.
         # -----------------------------------------------------
 
         self._validate_voltage_state()
@@ -761,15 +880,14 @@ class NewtonRaphsonSolver:
     # VOLTAGE STATE VALIDATION
     # =========================================================
 
-    def _validate_voltage_state(self):
+    def _validate_voltage_state(self) -> None:
         """
-        Validate the complete network voltage state after a
-        Newton update.
+        Validate the complete canonical Network voltage state.
 
         Raises
         ------
         ValueError
-            If a voltage magnitude or angle becomes invalid.
+            If a voltage magnitude or angle is invalid.
         """
 
         for index, bus in enumerate(
@@ -777,7 +895,6 @@ class NewtonRaphsonSolver:
         ):
 
             try:
-
                 voltage = float(
                     bus.V
                 )
@@ -799,7 +916,6 @@ class NewtonRaphsonSolver:
             if not np.isfinite(
                 voltage
             ):
-
                 raise ValueError(
                     "Bus voltage magnitude became "
                     f"non-finite at bus index {index}."
@@ -808,14 +924,12 @@ class NewtonRaphsonSolver:
             if not np.isfinite(
                 angle
             ):
-
                 raise ValueError(
                     "Bus voltage angle became "
                     f"non-finite at bus index {index}."
                 )
 
             if voltage < 0.0:
-
                 raise ValueError(
                     "Bus voltage magnitude became negative "
                     f"at bus index {index}: {voltage}."
@@ -827,11 +941,11 @@ class NewtonRaphsonSolver:
 
     def _result(
         self,
-        success,
-        iterations,
-        error,
-        message,
-    ):
+        success: bool,
+        iterations: int,
+        error: float,
+        message: str,
+    ) -> dict[str, Any]:
         """
         Construct the standard GridForge power-flow result.
         """
@@ -857,7 +971,9 @@ class NewtonRaphsonSolver:
                 self.history
             ),
 
-            "message": message,
+            "message": str(
+                message
+            ),
 
             "voltages": self._voltage_result(),
         }
@@ -866,14 +982,13 @@ class NewtonRaphsonSolver:
     # VOLTAGE RESULT
     # =========================================================
 
-    def _voltage_result(self):
+    def _voltage_result(self) -> dict[str, np.ndarray]:
         """
-        Return the current network voltage state.
+        Return the current canonical Network voltage state.
 
         Returns
         -------
         dict
-
             Vm:
                 Voltage magnitudes in per-unit.
 
@@ -906,7 +1021,7 @@ class NewtonRaphsonSolver:
     # DIAGNOSTICS
     # =========================================================
 
-    def summary(self):
+    def summary(self) -> dict[str, Any]:
         """
         Return solver configuration and runtime information.
         """
@@ -952,9 +1067,7 @@ class NewtonRaphsonSolver:
     # REPRESENTATION
     # =========================================================
 
-    def __repr__(
-        self,
-    ) -> str:
+    def __repr__(self) -> str:
         """
         Developer-friendly representation.
         """
@@ -972,4 +1085,3 @@ class NewtonRaphsonSolver:
 __all__ = [
     "NewtonRaphsonSolver",
 ]
-```
