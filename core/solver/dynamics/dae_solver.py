@@ -1,55 +1,78 @@
+```python
 """
-GridForge Differential-Algebraic Equation Solver
-=================================================
+GridForge Dynamic Algebraic Equation Solver
+===========================================
 
-Time-domain coupling engine for GridForge dynamic simulation.
+Coordinates the differential and algebraic parts of GridForge
+time-domain simulation.
 
-The dynamic system is represented by:
+Mathematical structure
+----------------------
+
+Differential equations:
 
     dx/dt = f(x, z, u, t)
 
-and the electrical network by:
+Algebraic equations:
 
     0 = g(x, z, u, t)
 
 where:
 
     x
-        Differential states.
+        Dynamic state vector.
 
     z
         Algebraic network variables.
 
     u
-        External inputs / simulation conditions.
+        External inputs / controls.
 
-Responsibilities
-----------------
-- Coordinate dynamic machine models.
-- Coordinate the algebraic network solver.
-- Evaluate dynamic derivatives using the current algebraic solution.
-- Advance differential states using the configured integrator.
-- Provide a clean time-stepping interface.
+The DAE solver coordinates:
+
+    DynamicMachineSystem
+            ↓
+    machine electrical injections
+            ↓
+    AlgebraicNetworkSolver
+            ↓
+    terminal voltages
+            ↓
+    machine electrical outputs
+            ↓
+    dynamic derivatives
+            ↓
+    Integrator
+            ↓
+    updated dynamic state
+
+Architectural responsibilities
+-------------------------------
+This module:
+
+- owns the simulation dynamic state;
+- couples dynamic machines to the algebraic network;
+- evaluates machine derivatives;
+- invokes the numerical integrator;
+- provides one simulation time-step operation;
+- optionally processes scheduled events.
 
 This module does NOT:
-- implement generator equations
-- implement AVR/GOV/PSS equations
-- implement network equations
-- implement Y-bus construction
-- manage protection logic
-- own persistent network topology
-- define individual simulation events
 
-Event scheduling is handled by ``events.py`` and the higher-level
-transient-stability study controller.
+- implement machine physics;
+- implement AVR equations;
+- implement governor equations;
+- implement PSS equations;
+- construct Y-bus;
+- implement topology;
+- directly manipulate GUI state;
+- replace the GridForge network layer.
 
-Important
----------
-The algebraic network solver is injected into this class.
-
-This avoids coupling the dynamic solver to a particular network
-implementation and allows GridForge's existing network/solver layers
-to remain authoritative.
+Dependency injection
+--------------------
+The algebraic network solver is supplied to this class. This keeps
+the dynamics layer independent from a particular network-solver
+implementation.
 """
 
 from __future__ import annotations
@@ -59,583 +82,779 @@ from typing import Any, Mapping, Protocol
 
 import numpy as np
 
-from .integrator import (
-    BaseIntegrator,
-    Integrator,
-)
-from .machine_models import (
-    MachineInputs,
-)
-from .multimachine import (
-    MultiMachineSystem,
-)
-from .state_vector import (
-    DynamicStateVector,
-)
+from .events import EventManager
+from .integrator import Integrator
+from .multimachine import MultiMachineSystem
 
 
-class AlgebraicSolverProtocol(Protocol):
+# ======================================================================
+# NETWORK SOLVER CONTRACT
+# ======================================================================
+
+
+class AlgebraicNetworkSolverProtocol(
+    Protocol
+):
     """
-    Protocol required from the electrical-network algebraic solver.
+    Protocol for the algebraic network solver used by DAESolver.
 
-    The concrete network solver may expose additional functionality,
-    but it must provide a solve method compatible with this protocol.
+    The actual GridForge implementation may provide additional
+    functionality, but it must provide a method capable of solving
+    the algebraic network equations from machine injections.
     """
 
     def solve(
         self,
-        injections: Mapping[str, complex],
-        **kwargs: Any,
-    ) -> Mapping[str, complex]:
+        current_injections: Mapping[
+            str,
+            complex,
+        ],
+        *,
+        previous_voltages: Mapping[
+            str,
+            complex,
+        ]
+        | None = None,
+        time: float = 0.0,
+    ) -> Mapping[
+        str,
+        complex,
+    ]:
         """
         Solve the algebraic network and return bus voltages.
-
-        Returns
-        -------
-        Mapping[str, complex]
-            Bus ID -> complex bus voltage [pu].
         """
         ...
 
 
-class DAESolverError(RuntimeError):
-    """Raised when DAE coupling or solution fails."""
+# ======================================================================
+# SIMULATION RESULT
+# ======================================================================
 
 
 @dataclass(frozen=True)
-class AlgebraicSolution:
+class DAEStepResult:
     """
-    Result of one algebraic network solution.
-
-    Parameters
-    ----------
-    voltages:
-        Bus ID -> complex bus voltage [pu].
-
-    currents:
-        Bus ID -> complex dynamic-machine current injection [pu].
-
-    electrical_powers:
-        Machine ID -> electrical active power [pu].
+    Result returned by one DAE simulation step.
     """
 
-    voltages: Mapping[str, complex]
+    time: float
 
-    currents: Mapping[str, complex]
+    state: np.ndarray
 
-    electrical_powers: Mapping[str, float]
+    terminal_voltages: dict[
+        str,
+        complex,
+    ]
+
+    electrical_powers: dict[
+        str,
+        tuple[float, float],
+    ]
+
+    processed_events: tuple[Any, ...]
+
+
+# ======================================================================
+# DAE ERROR
+# ======================================================================
+
+
+class DAEError(RuntimeError):
+    """Raised when the DAE simulation cannot proceed."""
+
+
+# ======================================================================
+# DAE SOLVER
+# ======================================================================
 
 
 class DAESolver:
     """
-    Differential-algebraic coupling solver.
+    Differential-algebraic simulation coordinator.
 
     Parameters
     ----------
-    machine_system:
-        Multi-machine dynamic system.
+    machines:
+        MultiMachineSystem containing the dynamic machine models.
 
-    algebraic_solver:
-        Electrical-network algebraic solver.
+    network_solver:
+        Algebraic network solver implementing
+        AlgebraicNetworkSolverProtocol.
 
     integrator:
-        Numerical differential-state integrator.
+        GridForge Integrator instance.
 
     dt:
         Default simulation time step [s].
+
+    event_manager:
+        Optional event manager.
+
+    Notes
+    -----
+    The DAE solver owns the global dynamic state and simulation time,
+    but does not own the physical definitions of generators,
+    networks, faults, breakers, or controllers.
     """
 
     def __init__(
         self,
-        machine_system: MultiMachineSystem,
-        algebraic_solver: AlgebraicSolverProtocol,
-        integrator: BaseIntegrator | Integrator | None = None,
+        machines: MultiMachineSystem,
+        network_solver:
+            AlgebraicNetworkSolverProtocol,
+        integrator: Integrator | None = None,
         dt: float = 0.01,
+        event_manager:
+            EventManager | None = None,
     ) -> None:
+
+        if not isinstance(
+            machines,
+            MultiMachineSystem,
+        ):
+            raise TypeError(
+                "machines must be a "
+                "MultiMachineSystem."
+            )
 
         if dt <= 0.0:
             raise ValueError(
-                "Time step dt must be greater than zero."
+                "dt must be greater "
+                "than zero."
             )
 
-        if not np.isfinite(dt):
-            raise ValueError(
-                "Time step dt must be finite."
-            )
+        self.machines = machines
 
-        self.machine_system = (
-            machine_system
-        )
-
-        self.algebraic_solver = (
-            algebraic_solver
+        self.network_solver = (
+            network_solver
         )
 
         self.integrator = (
             integrator
             if integrator is not None
-            else Integrator("RK4")
+            else Integrator(
+                method="RK4"
+            )
         )
 
         self.dt = float(dt)
 
+        self.event_manager = (
+            event_manager
+            if event_manager is not None
+            else EventManager()
+        )
+
         self.time = 0.0
 
         self.state = (
-            machine_system.create_state_vector()
+            self.machines.state_vector.values.copy()
         )
 
-        self._last_algebraic_solution: (
-            AlgebraicSolution | None
-        ) = None
+        self.terminal_voltages: dict[
+            str,
+            complex,
+        ] = {}
 
-    # =========================================================
+        self.electrical_powers: dict[
+            str,
+            tuple[float, float],
+        ] = {}
+
+        self._initialized = False
+
+    # ==================================================================
     # INITIALIZATION
-    # =========================================================
+    # ==================================================================
 
     def initialize(
         self,
-        inputs: Mapping[
+        terminal_voltages: Mapping[
             str,
-            MachineInputs,
+            complex,
         ],
-    ) -> DynamicStateVector:
+        electrical_powers: Mapping[
+            str,
+            float,
+        ],
+        mechanical_powers: Mapping[
+            str,
+            float,
+        ],
+        *,
+        time: float = 0.0,
+    ) -> np.ndarray:
         """
-        Initialize the dynamic state from the supplied operating point.
+        Initialize the dynamic simulation.
 
         Parameters
         ----------
-        inputs:
-            Initial machine electrical/mechanical inputs.
+        terminal_voltages:
+            Initial machine-terminal bus voltages.
+
+        electrical_powers:
+            Initial machine electrical active powers.
+
+        mechanical_powers:
+            Initial machine mechanical powers.
+
+        time:
+            Initial simulation time.
 
         Returns
         -------
-        DynamicStateVector
-            Initialized global dynamic state.
+        numpy.ndarray
+            Initialized dynamic state vector.
         """
 
-        self.machine_system.initialize(
-            self.state,
-            inputs,
+        if time < 0.0:
+            raise ValueError(
+                "Initial time cannot "
+                "be negative."
+            )
+
+        self.state = (
+            self.machines.initialize(
+                terminal_voltages=(
+                    terminal_voltages
+                ),
+                electrical_powers=(
+                    electrical_powers
+                ),
+                mechanical_powers=(
+                    mechanical_powers
+                ),
+            )
         )
 
-        self.time = 0.0
-
-        # Establish an initial algebraic solution.
-        self._solve_algebraic(
-            self.state.pack(),
-            inputs,
-            self.time,
+        self.time = float(
+            time
         )
 
-        return self.state
+        self.terminal_voltages = {
+            bus_id: complex(voltage)
+            for bus_id, voltage
+            in terminal_voltages.items()
+        }
 
-    # =========================================================
-    # ALGEBRAIC NETWORK SOLUTION
-    # =========================================================
+        self.electrical_powers = (
+            self.machines.electrical_powers(
+                self.state,
+                self.terminal_voltages,
+            )
+        )
+
+        self._initialized = True
+
+        return self.state.copy()
+
+    # ==================================================================
+    # STATE ACCESS
+    # ==================================================================
+
+    def get_state(
+        self,
+    ) -> np.ndarray:
+        """
+        Return a copy of the current dynamic state.
+        """
+
+        return self.state.copy()
+
+    def set_state(
+        self,
+        state: np.ndarray,
+    ) -> None:
+        """
+        Replace the current dynamic state.
+
+        Intended for controlled solver operations such as
+        predictor/corrector workflows and restart handling.
+        """
+
+        state_array = (
+            np.asarray(
+                state,
+                dtype=float,
+            )
+        )
+
+        if state_array.ndim != 1:
+            raise DAEError(
+                "Dynamic state must be "
+                "one-dimensional."
+            )
+
+        if state_array.size != (
+            self.machines.size
+        ):
+            raise DAEError(
+                "Dynamic state size mismatch: "
+                f"expected "
+                f"{self.machines.size}, "
+                f"received "
+                f"{state_array.size}."
+            )
+
+        if not np.all(
+            np.isfinite(
+                state_array
+            )
+        ):
+            raise DAEError(
+                "Dynamic state contains "
+                "non-finite values."
+            )
+
+        self.state = (
+            state_array.copy()
+        )
+
+    # ==================================================================
+    # ALGEBRAIC SOLUTION
+    # ==================================================================
 
     def solve_algebraic(
         self,
-        inputs: Mapping[
-            str,
-            MachineInputs,
-        ],
+        state: np.ndarray | None = None,
+        *,
         time: float | None = None,
-    ) -> AlgebraicSolution:
+    ) -> dict[
+        str,
+        complex,
+    ]:
         """
-        Solve the electrical network for the current dynamic state.
+        Solve the algebraic network for a dynamic state.
+
+        Parameters
+        ----------
+        state:
+            Dynamic state to evaluate. If omitted, current state is
+            used.
+
+        time:
+            Evaluation time. If omitted, current simulation time is
+            used.
+
+        Returns
+        -------
+        dict
+            bus_id -> terminal voltage.
         """
 
-        if time is None:
-            time = self.time
+        if not self._initialized:
+            raise DAEError(
+                "DAESolver must be initialized "
+                "before solving the algebraic "
+                "network."
+            )
 
-        return self._solve_algebraic(
-            self.state.pack(),
-            inputs,
-            time,
+        x = (
+            self.state
+            if state is None
+            else np.asarray(
+                state,
+                dtype=float,
+            )
         )
 
-    def _solve_algebraic(
-        self,
-        state: np.ndarray,
-        inputs: Mapping[
-            str,
-            MachineInputs,
-        ],
-        time: float,
-    ) -> AlgebraicSolution:
+        evaluation_time = (
+            self.time
+            if time is None
+            else float(time)
+        )
 
-        del time
+        voltages = (
+            self.terminal_voltages
+        )
 
         injections = (
-            self.machine_system.electrical_injections(
-                state,
-                inputs,
-            )
-        )
-
-        try:
-            voltages = (
-                self.algebraic_solver.solve(
-                    injections
-                )
-            )
-        except Exception as exc:
-            raise DAESolverError(
-                "Algebraic network solution failed."
-            ) from exc
-
-        voltages = {
-            bus_id: complex(
-                voltage
-            )
-            for bus_id, voltage
-            in voltages.items()
-        }
-
-        for bus_id, voltage in voltages.items():
-
-            if not (
-                np.isfinite(
-                    voltage.real
-                )
-                and np.isfinite(
-                    voltage.imag
-                )
-            ):
-                raise DAESolverError(
-                    "Algebraic solver returned "
-                    f"a non-finite voltage for "
-                    f"bus '{bus_id}'."
-                )
-
-        machine_inputs = (
-            self._update_machine_inputs(
-                inputs,
+            self.machines.current_injections(
+                x,
                 voltages,
             )
         )
 
-        electrical_powers = {
-            machine_id:
-                machine_input.electrical_power
-            for machine_id, machine_input
-            in machine_inputs.items()
+        try:
+
+            solved_voltages = (
+                self.network_solver.solve(
+                    injections,
+                    previous_voltages=(
+                        voltages
+                    ),
+                    time=evaluation_time,
+                )
+            )
+
+        except TypeError:
+
+            # Compatibility with simpler network-solver interfaces.
+            solved_voltages = (
+                self.network_solver.solve(
+                    injections
+                )
+            )
+
+        result = {
+            bus_id: complex(voltage)
+            for bus_id, voltage
+            in solved_voltages.items()
         }
 
-        solution = AlgebraicSolution(
-            voltages=voltages,
-            currents=injections,
-            electrical_powers=electrical_powers,
-        )
+        if not result:
+            raise DAEError(
+                "Algebraic network solver "
+                "returned no bus voltages."
+            )
 
-        self._last_algebraic_solution = (
-            solution
-        )
+        if not all(
+            np.isfinite(
+                voltage.real
+            )
+            and np.isfinite(
+                voltage.imag
+            )
+            for voltage
+            in result.values()
+        ):
+            raise DAEError(
+                "Algebraic network solver "
+                "returned non-finite "
+                "voltages."
+            )
 
-        return solution
+        return result
 
-    # =========================================================
-    # DYNAMIC DERIVATIVE
-    # =========================================================
+    # ==================================================================
+    # DERIVATIVE EVALUATION
+    # ==================================================================
 
     def derivatives(
         self,
         state: np.ndarray,
-        inputs: Mapping[
-            str,
-            MachineInputs,
-        ],
         time: float,
     ) -> np.ndarray:
         """
-        Evaluate dx/dt for the complete dynamic system.
+        Evaluate dx/dt for a dynamic state.
 
-        The algebraic network is solved first, then machine inputs are
-        updated from the resulting terminal voltages.
+        The algebraic network is solved first, followed by machine
+        electrical-output evaluation and dynamic-equation evaluation.
         """
 
-        state = self._validate_state(
-            state
-        )
-
-        algebraic = (
-            self._solve_algebraic(
-                state,
-                inputs,
-                time,
-            )
-        )
-
-        machine_inputs = (
-            self._update_machine_inputs(
-                inputs,
-                algebraic.voltages,
-            )
-        )
-
-        return self.machine_system.derivatives(
-            state=state,
-            inputs=machine_inputs,
-            time=time,
-        )
-
-    # =========================================================
-    # TIME STEP
-    # =========================================================
-
-    def step(
-        self,
-        inputs: Mapping[
-            str,
-            MachineInputs,
-        ],
-        dt: float | None = None,
-    ) -> DynamicStateVector:
-        """
-        Advance the dynamic system by one time step.
-
-        Parameters
-        ----------
-        inputs:
-            Current external/mechanical inputs.
-
-        dt:
-            Optional step size. If omitted, ``self.dt`` is used.
-
-        Returns
-        -------
-        DynamicStateVector
-            Updated global dynamic state.
-        """
-
-        step_size = (
-            self.dt
-            if dt is None
-            else float(dt)
-        )
-
-        if step_size <= 0.0:
-            raise ValueError(
-                "Integration step must be greater than zero."
+        if not self._initialized:
+            raise DAEError(
+                "DAESolver must be initialized "
+                "before evaluating derivatives."
             )
 
-        if not np.isfinite(
-            step_size
+        x = np.asarray(
+            state,
+            dtype=float,
+        )
+
+        if x.ndim != 1:
+            raise DAEError(
+                "Dynamic state must be "
+                "one-dimensional."
+            )
+
+        if x.size != (
+            self.machines.size
         ):
-            raise ValueError(
-                "Integration step must be finite."
+            raise DAEError(
+                "Dynamic state size mismatch."
             )
 
-        x = self.state.pack()
+        # --------------------------------------------------------------
+        # 1. Algebraic network
+        # --------------------------------------------------------------
 
-        # Capture the current time explicitly. This is important for
-        # time-dependent models and event-aware simulation.
-        current_time = self.time
-
-        def derivative(
-            state: np.ndarray,
-            evaluation_time: float,
-        ) -> np.ndarray:
-
-            return self.derivatives(
-                state=state,
-                inputs=inputs,
-                time=evaluation_time,
+        voltages = (
+            self.solve_algebraic(
+                x,
+                time=time,
             )
+        )
 
-        try:
-            x_new = self.integrator.step(
-                x=x,
-                derivative=derivative,
-                t=current_time,
-                dt=step_size,
+        # --------------------------------------------------------------
+        # 2. Machine electrical outputs
+        # --------------------------------------------------------------
+
+        outputs = (
+            self.machines.electrical_outputs(
+                x,
+                voltages,
             )
-        except Exception as exc:
-            raise DAESolverError(
-                "Dynamic integration failed."
-            ) from exc
-
-        self._validate_state(
-            x_new
         )
 
-        self.state.unpack(
-            x_new
-        )
+        # --------------------------------------------------------------
+        # 3. Construct machine inputs
+        # --------------------------------------------------------------
 
-        self.time = (
-            current_time
-            + step_size
-        )
+        machine_inputs = {}
 
-        # Solve once at the accepted state so that the solver retains
-        # a consistent algebraic operating point.
-        self._solve_algebraic(
-            self.state.pack(),
-            inputs,
-            self.time,
-        )
-
-        return self.state
-
-    # =========================================================
-    # STATE / RESULTS
-    # =========================================================
-
-    @property
-    def algebraic_solution(
-        self,
-    ) -> AlgebraicSolution | None:
-        """
-        Return the latest algebraic solution.
-        """
-
-        return self._last_algebraic_solution
-
-    def reset(
-        self,
-    ) -> None:
-        """
-        Reset the solver time and dynamic state to initial values.
-        """
-
-        self.state = (
-            self.machine_system.create_state_vector()
-        )
-
-        self.time = 0.0
-
-        self._last_algebraic_solution = (
-            None
-        )
-
-    # =========================================================
-    # MACHINE INPUT COUPLING
-    # =========================================================
-
-    def _update_machine_inputs(
-        self,
-        inputs: Mapping[
-            str,
-            MachineInputs,
-        ],
-        voltages: Mapping[str, complex],
-    ) -> dict[
-        str,
-        MachineInputs,
-    ]:
-        """
-        Update terminal-voltage-dependent machine inputs.
-
-        The supplied Mapping is not modified.
-        """
-
-        updated: dict[
-            str,
-            MachineInputs,
-        ] = {}
-
-        for model in (
-            self.machine_system.models.models
-        ):
+        for model in self.machines:
 
             machine_id = (
                 model.machine_id
             )
 
-            if machine_id not in inputs:
-                raise DAESolverError(
-                    "Missing machine input for "
-                    f"'{machine_id}'."
-                )
-
-            if model.bus_id not in voltages:
-                raise DAESolverError(
-                    "Algebraic solution does not "
-                    f"contain machine bus "
-                    f"'{model.bus_id}'."
-                )
-
-            old = inputs[
+            output = outputs[
                 machine_id
             ]
 
-            terminal_voltage = complex(
-                voltages[
-                    model.bus_id
-                ]
-            )
-
-            electrical_power = (
-                old.electrical_power
-            )
-
-            if old.terminal_current is not None:
-
-                electrical_power = (
-                    terminal_voltage
-                    * np.conj(
-                        old.terminal_current
-                    )
-                ).real
-
-            updated[
+            machine_inputs[
                 machine_id
-            ] = MachineInputs(
-                terminal_voltage=terminal_voltage,
-                electrical_power=float(
-                    electrical_power
+            ] = model.build_inputs(
+                terminal_voltage=(
+                    voltages[
+                        model.bus_id
+                    ]
                 ),
-                mechanical_power=(
-                    old.mechanical_power
-                ),
-                terminal_current=(
-                    old.terminal_current
-                ),
-                electrical_reactive_power=(
-                    old.electrical_reactive_power
-                ),
+                electrical_output=output,
+                time=time,
             )
 
-        return updated
+        # --------------------------------------------------------------
+        # 4. Dynamic equations
+        # --------------------------------------------------------------
 
-    # =========================================================
-    # VALIDATION
-    # =========================================================
-
-    def _validate_state(
-        self,
-        state: np.ndarray,
-    ) -> np.ndarray:
-
-        state = np.asarray(
-            state,
-            dtype=float,
+        dx = (
+            self.machines.derivatives(
+                x,
+                machine_inputs,
+                time,
+            )
         )
 
-        if state.ndim != 1:
-            raise DAESolverError(
-                "Dynamic state must be "
-                "one-dimensional."
-            )
-
-        if state.size != (
-            self.machine_system.size
-        ):
-            raise DAESolverError(
-                "Dynamic state size mismatch: "
-                f"expected "
-                f"{self.machine_system.size}, "
-                f"received {state.size}."
-            )
-
         if not np.all(
-            np.isfinite(state)
+            np.isfinite(dx)
         ):
-            raise DAESolverError(
-                "Dynamic state contains "
-                "non-finite values."
+            raise DAEError(
+                "Dynamic derivative vector "
+                "contains non-finite values."
             )
 
-        return state
+        return dx
+
+    # ==================================================================
+    # STEP
+    # ==================================================================
+
+    def step(
+        self,
+        dt: float | None = None,
+    ) -> DAEStepResult:
+        """
+        Advance the DAE simulation by one time step.
+
+        Event boundaries are respected. If an event occurs before the
+        requested end time, the integration step is shortened to reach
+        that event exactly.
+
+        Parameters
+        ----------
+        dt:
+            Optional step size. Defaults to the solver's configured dt.
+
+        Returns
+        -------
+        DAEStepResult
+            State and algebraic results after the step.
+        """
+
+        if not self._initialized:
+            raise DAEError(
+                "DAESolver must be initialized "
+                "before stepping."
+            )
+
+        requested_dt = (
+            self.dt
+            if dt is None
+            else float(dt)
+        )
+
+        if requested_dt <= 0.0:
+            raise ValueError(
+                "dt must be greater "
+                "than zero."
+            )
+
+        target_time = (
+            self.time
+            + requested_dt
+        )
+
+        # --------------------------------------------------------------
+        # Respect the next event boundary.
+        # --------------------------------------------------------------
+
+        next_event_time = (
+            self.event_manager.next_event_time(
+                self.time
+            )
+        )
+
+        if (
+            next_event_time is not None
+            and next_event_time
+            > self.time
+            and next_event_time
+            < target_time
+        ):
+
+            target_time = (
+                next_event_time
+            )
+
+        actual_dt = (
+            target_time
+            - self.time
+        )
+
+        processed_events: tuple[
+            Any,
+            ...
+        ] = ()
+
+        # --------------------------------------------------------------
+        # Process events exactly at current time.
+        # --------------------------------------------------------------
+
+        due_now = (
+            self.event_manager.due_events(
+                self.time
+            )
+        )
+
+        if due_now:
+
+            processed_events = (
+                self.event_manager.process(
+                    self.time
+                )
+            )
+
+            # Topology/control changes may have altered the algebraic
+            # system, so discard the previous terminal-voltage cache.
+            self.terminal_voltages = {}
+
+            if actual_dt <= (
+                self.event_manager.time_tolerance
+            ):
+
+                return self._result(
+                    processed_events
+                )
+
+        # --------------------------------------------------------------
+        # Integrate dynamic state.
+        # --------------------------------------------------------------
+
+        def derivative(
+            x: np.ndarray,
+            t: float,
+        ) -> np.ndarray:
+
+            return self.derivatives(
+                x,
+                t,
+            )
+
+        self.state = (
+            self.integrator.step(
+                x=self.state,
+                derivative=derivative,
+                t=self.time,
+                dt=actual_dt,
+            )
+        )
+
+        self.time = (
+            self.time
+            + actual_dt
+        )
+
+        # --------------------------------------------------------------
+        # Solve final algebraic state.
+        # --------------------------------------------------------------
+
+        self.terminal_voltages = (
+            self.solve_algebraic(
+                self.state,
+                time=self.time,
+            )
+        )
+
+        self.electrical_powers = (
+            self.machines.electrical_powers(
+                self.state,
+                self.terminal_voltages,
+            )
+        )
+
+        # --------------------------------------------------------------
+        # Process events exactly at new time.
+        # --------------------------------------------------------------
+
+        end_events = (
+            self.event_manager.due_events(
+                self.time
+            )
+        )
+
+        if end_events:
+
+            newly_processed = (
+                self.event_manager.process(
+                    self.time
+                )
+            )
+
+            processed_events = (
+                processed_events
+                + newly_processed
+            )
+
+        return self._result(
+            processed_events
+        )
+
+    # ==================================================================
+    # INTERNAL RESULT
+    # ==================================================================
+
+    def _result(
+        self,
+        processed_events: tuple[
+            Any,
+            ...
+        ],
+    ) -> DAEStepResult:
+
+        return DAEStepResult(
+            time=float(
+                self.time
+            ),
+            state=self.state.copy(),
+            terminal_voltages=dict(
+                self.terminal_voltages
+            ),
+            electrical_powers=dict(
+                self.electrical_powers
+            ),
+            processed_events=(
+                processed_events
+            ),
+        )
+
+
+__all__ = [
+    "AlgebraicNetworkSolverProtocol",
+    "DAEStepResult",
+    "DAEError",
+    "DAESolver",
+]
+```
