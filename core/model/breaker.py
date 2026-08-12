@@ -1,29 +1,21 @@
 """
-GridForge Breaker Model
-=======================
-
 GridForge Model Layer V2
+========================
 
-Defines the GridForge physical circuit-breaker model.
+File:
+    core/model/breaker.py
+
+Purpose
+-------
+Defines the canonical GridForge physical circuit-breaker model.
 
 Architecture
 ------------
 
-A Breaker is a physical two-terminal switching device.
+A Breaker is a physical two-terminal switching device installed
+in series between two electrical endpoints.
 
-The breaker is installed in series between two electrical endpoints:
-
-    Equipment A
-         |
-      Terminal
-         |
-       Breaker
-         |
-      Terminal
-         |
-    Equipment B
-
-Examples include:
+Examples:
 
     Bus ── Breaker ── Bus
     Bus ── Breaker ── Load
@@ -33,140 +25,147 @@ Examples include:
 
 The Breaker owns its two physical terminals.
 
-The network/topology layer determines what those terminals are
-connected to and maintains the global electrical topology.
+The Terminal owns the local endpoint reference.
+
+The Network/topology layer determines the global electrical
+connectivity and interprets the Breaker's physical state.
 
 Responsibilities
 ----------------
-
 The Breaker model provides:
 
-- Physical two-terminal switching equipment.
-- Breaker identity.
-- Two local physical terminals.
-- Voltage rating.
-- Continuous current rating.
-- Interrupting-current capability.
-- Trip operating time.
-- Close operating time.
-- Open/closed physical state.
-- Equipment failure state.
-- Basic local parameter validation.
-- Diagnostic information.
+- physical two-terminal switchgear representation;
+- breaker identity;
+- two physical terminals;
+- rated voltage;
+- continuous current rating;
+- symmetrical interrupting-current capability;
+- short-time withstand-current capability;
+- short-circuit making/closing-current capability;
+- opening/trip operating time;
+- closing operating time;
+- service state;
+- physical open/closed state;
+- equipment failure state;
+- local terminal connection operations;
+- local engineering-parameter validation;
+- diagnostic information.
 
-The Breaker model does NOT:
+The Breaker does NOT:
 
-- Determine whether a fault exists.
-- Detect faults.
-- Issue protection decisions.
-- Perform relay calculations.
-- Perform breaker coordination.
-- Determine breaker-failure conditions.
-- Modify global network topology.
-- Rebuild Y-bus.
-- Perform load flow.
-- Perform short-circuit calculations.
-- Perform contingency analysis.
-- Perform dynamic simulation.
-- Store simulation event history.
-- Store GUI geometry.
+- detect faults;
+- calculate fault current;
+- make protection decisions;
+- implement relay logic;
+- determine breaker-failure conditions;
+- coordinate protection;
+- schedule operations;
+- store operation history;
+- store simulation events;
+- modify Network topology;
+- rebuild Y-bus;
+- perform load flow;
+- perform short-circuit studies;
+- perform contingency analysis;
+- perform dynamic simulation;
+- manage GUI state.
 
-Protection commands belong to the protection layer.
-
-Operation scheduling and event history belong to the simulation/event
-layer.
-
-Global connectivity belongs to the network/topology layer.
+Those responsibilities belong to the appropriate GridForge layers.
 
 State Ownership
 ---------------
 
-The Breaker owns only its authoritative physical equipment state:
+The Breaker owns only authoritative physical equipment state:
 
+    in_service
     closed
     failed
 
-These states are intentionally independent.
+These states are independent.
 
-Therefore the following combinations are valid:
+Valid combinations therefore include:
 
-    OPEN
-    CLOSED
-    OPEN + FAILED
-    CLOSED + FAILED
+    in_service=True,  closed=True,  failed=False
+    in_service=True,  closed=False, failed=False
+    in_service=True,  closed=False, failed=True
+    in_service=True,  closed=True,  failed=True
+    in_service=False, closed=True,  failed=False
 
-A failed breaker is not necessarily open. For example, a breaker may
-fail to trip and therefore remain physically closed.
+A failed breaker is not necessarily open.
 
-The model does not store historical operation events.
+For example, a breaker may fail to operate and remain physically
+closed.
 
-A simulation may record:
+The model therefore deliberately does not contain a ``tripped``
+state.
 
-    time
-    breaker
-    command
-    resulting state
+A protection command to trip a breaker results in the physical
+operation:
 
-without making that history part of the authoritative equipment model.
+    breaker.open()
 
-Topology
---------
-
-The Breaker's terminals are the authoritative local connection points:
-
-    from_terminal
-    to_terminal
-
-A terminal may initially be disconnected.
-
-The network layer is responsible for:
-
-- registering the equipment;
-- validating complete connections;
-- constructing physical connections;
-- constructing the physical graph;
-- deriving electrical topology;
-- applying the Breaker's state to that topology.
-
-The Breaker does not directly modify the Network object.
+Whether that command is delayed, rejected, fails mechanically,
+or is recorded as an event belongs to the protection/simulation
+layers.
 
 Terminal Architecture
 ---------------------
 
-The Breaker uses the current GridForge Terminal abstraction.
+The Breaker owns:
 
-The Terminal owns the local endpoint reference:
+    from_terminal
+    to_terminal
+
+Each Terminal contains its local endpoint:
 
     terminal.endpoint
 
-The Breaker does not assume that the endpoint is necessarily a Bus.
-
-An endpoint may be:
+The endpoint may be:
 
 - a Bus;
 - another Terminal;
 - another network-supported endpoint.
 
-The authoritative local connection is therefore:
+The Breaker does not assume that either endpoint is a Bus.
 
-    from_terminal.endpoint
-    to_terminal.endpoint
+Global topology remains owned by:
 
-Bus-specific compatibility is provided by Terminal.bus and must not
-be used as the Breaker's primary topology representation.
+    core/network
+
+Protection remains owned by:
+
+    core/protection
+
+Event scheduling/history remains owned by:
+
+    core/simulation
+
+The Breaker therefore remains a physical equipment model rather
+than becoming a topology or protection controller.
+
+Engineering Parameters
+----------------------
+
+The following are physical breaker nameplate/operational
+characteristics:
+
+    voltage_kv
+    rated_current_a
+    interrupting_capacity_ka
+    short_time_withstand_ka
+    making_capacity_ka
+    trip_time
+    close_time
+
+The detailed interpretation of these quantities in a particular
+study belongs to the relevant solver/protection/simulation layer.
 
 GridForge V2 Status
 -------------------
 
-This module is part of the GridForge Model Layer V2 baseline.
+Canonical GridForge Model Layer V2 breaker model.
 
-The Breaker is a fundamental switchgear model and therefore remains
-inside core/model.
-
-Detailed protection, control, measurement, topology, and simulation
-capabilities remain outside this module.
-
-Future changes require evidence of a genuinely fundamental
+Future modifications require evidence of a genuinely fundamental
 architectural requirement.
 
 Copyright © 2026 Subhendu Mishra
@@ -206,35 +205,36 @@ class Breaker(ElectricalObject):
     interrupting_capacity_ka : float
         Symmetrical interrupting-current capability in kA.
 
+    short_time_withstand_ka : float
+        Short-time withstand current capability in kA.
+
+    making_capacity_ka : float
+        Short-circuit making/closing current capability in kA.
+
     trip_time : float, optional
-        Mechanical/equipment trip operating time in seconds.
+        Breaker opening/trip operating time in seconds.
 
     close_time : float, optional
-        Mechanical/equipment close operating time in seconds.
+        Breaker closing operating time in seconds.
 
     endpoint_from : object, optional
-        Initial from-side electrical endpoint.
-
-        May be None when the breaker is created before network
-        assembly.
+        Initial from-side local endpoint.
 
     endpoint_to : object, optional
-        Initial to-side electrical endpoint.
-
-        May be None when the breaker is created before network
-        assembly.
+        Initial to-side local endpoint.
 
     name : str, optional
         Human-readable breaker name.
 
+    in_service : bool, optional
+        Equipment service state.
+
     Notes
     -----
-    The Breaker owns two Terminal objects.
+    ``from_terminal`` and ``to_terminal`` are the authoritative
+    local physical interfaces.
 
-    The Terminal objects belong to this Breaker and contain the
-    local endpoint references.
-
-    The Breaker does not own global topology.
+    The Breaker does not own global network topology.
     """
 
     def __init__(
@@ -243,16 +243,63 @@ class Breaker(ElectricalObject):
         voltage_kv: float,
         rated_current_a: float,
         interrupting_capacity_ka: float,
+        short_time_withstand_ka: float,
+        making_capacity_ka: float,
         trip_time: float = 0.05,
         close_time: float = 0.10,
         endpoint_from: Any = None,
         endpoint_to: Any = None,
         name: str = "",
+        in_service: bool = True,
     ) -> None:
 
         super().__init__(
             id=id,
             name=name,
+        )
+
+        # =============================================================
+        # EQUIPMENT RATINGS
+        # =============================================================
+
+        self.voltage_kv = float(
+            voltage_kv
+        )
+
+        self.rated_current_a = float(
+            rated_current_a
+        )
+
+        self.interrupting_capacity_ka = float(
+            interrupting_capacity_ka
+        )
+
+        self.short_time_withstand_ka = float(
+            short_time_withstand_ka
+        )
+
+        self.making_capacity_ka = float(
+            making_capacity_ka
+        )
+
+        # =============================================================
+        # OPERATING CHARACTERISTICS
+        # =============================================================
+
+        self.trip_time = float(
+            trip_time
+        )
+
+        self.close_time = float(
+            close_time
+        )
+
+        # =============================================================
+        # SERVICE STATE
+        # =============================================================
+
+        self.in_service = bool(
+            in_service
         )
 
         # =============================================================
@@ -270,32 +317,13 @@ class Breaker(ElectricalObject):
         )
 
         # =============================================================
-        # EQUIPMENT RATINGS
+        # PHYSICAL SWITCHING STATE
         # =============================================================
 
-        self.voltage_kv = float(voltage_kv)
-
-        self.rated_current_a = float(
-            rated_current_a
-        )
-
-        self.interrupting_capacity_ka = float(
-            interrupting_capacity_ka
-        )
-
-        # =============================================================
-        # OPERATING CHARACTERISTICS
-        # =============================================================
-
-        self.trip_time = float(trip_time)
-        self.close_time = float(close_time)
-
-        # =============================================================
-        # PHYSICAL STATE
-        # =============================================================
-
-        # A newly created breaker is physically closed unless
-        # explicitly opened by the model user or simulation.
+        # A newly created breaker is physically closed.
+        #
+        # This is equipment state only. Network/topology decides
+        # how the state is interpreted in the global electrical graph.
         self.closed = True
 
         # Equipment condition is independent of switching state.
@@ -318,7 +346,7 @@ class Breaker(ElectricalObject):
 
         Returns
         -------
-        tuple
+        tuple[Terminal, Terminal]
             ``(from_terminal, to_terminal)``
         """
 
@@ -326,6 +354,32 @@ class Breaker(ElectricalObject):
             self.from_terminal,
             self.to_terminal,
         )
+
+    # -----------------------------------------------------------------
+
+    @property
+    def primary_terminal(self) -> Terminal:
+        """
+        Compatibility alias for the from-side terminal.
+
+        The canonical Breaker terminology remains
+        ``from_terminal`` / ``to_terminal``.
+        """
+
+        return self.from_terminal
+
+    # -----------------------------------------------------------------
+
+    @property
+    def secondary_terminal(self) -> Terminal:
+        """
+        Compatibility alias for the to-side terminal.
+
+        The canonical Breaker terminology remains
+        ``from_terminal`` / ``to_terminal``.
+        """
+
+        return self.to_terminal
 
     # =================================================================
     # ENDPOINT ACCESS
@@ -336,11 +390,9 @@ class Breaker(ElectricalObject):
         """
         Return the authoritative from-side local endpoint.
 
-        This is equivalent to:
+        Equivalent to:
 
             self.from_terminal.endpoint
-
-        The returned object is not assumed to be a Bus.
         """
 
         return self.from_terminal.endpoint
@@ -352,11 +404,9 @@ class Breaker(ElectricalObject):
         """
         Return the authoritative to-side local endpoint.
 
-        This is equivalent to:
+        Equivalent to:
 
             self.to_terminal.endpoint
-
-        The returned object is not assumed to be a Bus.
         """
 
         return self.to_terminal.endpoint
@@ -374,9 +424,9 @@ class Breaker(ElectricalObject):
 
         Notes
         -----
-        This method exposes local model state only.
+        This exposes local model state only.
 
-        It does not resolve global network topology.
+        It does not resolve or modify global network topology.
         """
 
         return (
@@ -388,35 +438,45 @@ class Breaker(ElectricalObject):
     # TERMINAL CONNECTION
     # =================================================================
 
-    def connect_from(self, endpoint: Any) -> None:
+    def connect_from(
+        self,
+        endpoint: Any,
+    ) -> None:
         """
-        Connect the from-side terminal to a local endpoint.
+        Connect the from-side terminal locally.
 
-        This changes only the Breaker's local terminal state.
+        This modifies only the local Terminal reference.
 
         It does not modify Network or global topology.
         """
 
-        self.from_terminal.connect(endpoint)
+        self.from_terminal.connect(
+            endpoint
+        )
 
     # -----------------------------------------------------------------
 
-    def connect_to(self, endpoint: Any) -> None:
+    def connect_to(
+        self,
+        endpoint: Any,
+    ) -> None:
         """
-        Connect the to-side terminal to a local endpoint.
+        Connect the to-side terminal locally.
 
-        This changes only the Breaker's local terminal state.
+        This modifies only the local Terminal reference.
 
         It does not modify Network or global topology.
         """
 
-        self.to_terminal.connect(endpoint)
+        self.to_terminal.connect(
+            endpoint
+        )
 
     # -----------------------------------------------------------------
 
     def disconnect_from(self) -> None:
         """
-        Disconnect the Breaker's from-side terminal locally.
+        Disconnect the from-side terminal locally.
         """
 
         self.from_terminal.disconnect()
@@ -425,13 +485,13 @@ class Breaker(ElectricalObject):
 
     def disconnect_to(self) -> None:
         """
-        Disconnect the Breaker's to-side terminal locally.
+        Disconnect the to-side terminal locally.
         """
 
         self.to_terminal.disconnect()
 
     # =================================================================
-    # LOCAL CONNECTION STATE
+    # CONNECTION STATE
     # =================================================================
 
     @property
@@ -446,111 +506,121 @@ class Breaker(ElectricalObject):
         )
 
     # =================================================================
-    # VALIDATION
+    # PARAMETER VALIDATION
     # =================================================================
 
     def _validate_parameters(self) -> None:
         """
         Validate local breaker engineering parameters.
 
-        System-level topology and equipment compatibility rules
+        System-level electrical compatibility and topology rules
         belong to core/network and core/validation.
         """
 
-        # -------------------------------------------------------------
-        # Voltage rating
-        # -------------------------------------------------------------
+        self._validate_positive(
+            self.voltage_kv,
+            "voltage_kv",
+        )
 
-        if not isfinite(self.voltage_kv):
+        self._validate_positive(
+            self.rated_current_a,
+            "rated_current_a",
+        )
+
+        self._validate_positive(
+            self.interrupting_capacity_ka,
+            "interrupting_capacity_ka",
+        )
+
+        self._validate_positive(
+            self.short_time_withstand_ka,
+            "short_time_withstand_ka",
+        )
+
+        self._validate_positive(
+            self.making_capacity_ka,
+            "making_capacity_ka",
+        )
+
+        self._validate_non_negative(
+            self.trip_time,
+            "trip_time",
+        )
+
+        self._validate_non_negative(
+            self.close_time,
+            "close_time",
+        )
+
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_positive(
+        value: float,
+        field_name: str,
+    ) -> None:
+        """
+        Validate a strictly positive engineering quantity.
+        """
+
+        if not isfinite(value):
             raise ValueError(
-                f"Breaker '{self.id}' voltage rating "
-                "must be finite."
+                f"{field_name} must be finite."
             )
 
-        if self.voltage_kv <= 0.0:
+        if value <= 0.0:
             raise ValueError(
-                f"Breaker '{self.id}' voltage rating "
-                "must be greater than zero."
+                f"{field_name} must be greater than zero."
             )
 
-        # -------------------------------------------------------------
-        # Continuous current rating
-        # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
-        if not isfinite(self.rated_current_a):
+    @staticmethod
+    def _validate_non_negative(
+        value: float,
+        field_name: str,
+    ) -> None:
+        """
+        Validate a non-negative engineering quantity.
+        """
+
+        if not isfinite(value):
             raise ValueError(
-                f"Breaker '{self.id}' rated current "
-                "must be finite."
+                f"{field_name} must be finite."
             )
 
-        if self.rated_current_a <= 0.0:
+        if value < 0.0:
             raise ValueError(
-                f"Breaker '{self.id}' rated current "
-                "must be greater than zero."
-            )
-
-        # -------------------------------------------------------------
-        # Interrupting capability
-        # -------------------------------------------------------------
-
-        if not isfinite(
-            self.interrupting_capacity_ka
-        ):
-            raise ValueError(
-                f"Breaker '{self.id}' interrupting capacity "
-                "must be finite."
-            )
-
-        if self.interrupting_capacity_ka <= 0.0:
-            raise ValueError(
-                f"Breaker '{self.id}' interrupting capacity "
-                "must be greater than zero."
-            )
-
-        # -------------------------------------------------------------
-        # Trip time
-        # -------------------------------------------------------------
-
-        if not isfinite(self.trip_time):
-            raise ValueError(
-                f"Breaker '{self.id}' trip time "
-                "must be finite."
-            )
-
-        if self.trip_time < 0.0:
-            raise ValueError(
-                f"Breaker '{self.id}' trip time "
-                "cannot be negative."
-            )
-
-        # -------------------------------------------------------------
-        # Close time
-        # -------------------------------------------------------------
-
-        if not isfinite(self.close_time):
-            raise ValueError(
-                f"Breaker '{self.id}' close time "
-                "must be finite."
-            )
-
-        if self.close_time < 0.0:
-            raise ValueError(
-                f"Breaker '{self.id}' close time "
-                "cannot be negative."
+                f"{field_name} cannot be negative."
             )
 
     # =================================================================
-    # OPERATING STATE
+    # SWITCHING OPERATIONS
     # =================================================================
 
     def open(self) -> None:
         """
-        Open the circuit breaker.
+        Open the physical breaker.
 
-        This changes only the local physical state.
+        This changes only the authoritative local physical
+        switching state.
 
-        The network/topology layer observes the resulting state when
-        rebuilding the active electrical topology.
+        It does not:
+
+        - modify Network;
+        - rebuild topology;
+        - schedule an event;
+        - record history;
+        - perform protection logic.
+
+        Notes
+        -----
+        Opening a failed breaker is still a physical-state
+        operation at the model level.
+
+        Whether a real-world failed breaker should reject the
+        operation belongs to the protection/simulation model,
+        not this basic equipment state transition.
         """
 
         self.closed = False
@@ -559,18 +629,44 @@ class Breaker(ElectricalObject):
 
     def close(self) -> None:
         """
-        Close the circuit breaker.
+        Close the physical breaker.
 
-        This changes only the local physical state.
+        This changes only the authoritative local physical
+        switching state.
 
-        The network/topology layer observes the resulting state when
-        rebuilding the active electrical topology.
+        It does not:
+
+        - modify Network;
+        - rebuild topology;
+        - schedule an event;
+        - record history;
+        - perform synchronization checks;
+        - perform protection logic.
         """
 
         self.closed = True
 
     # =================================================================
-    # STATUS
+    # SERVICE STATE
+    # =================================================================
+
+    def set_in_service(
+        self,
+        in_service: bool,
+    ) -> None:
+        """
+        Set the local equipment service state.
+
+        Network/topology interpretation of service state belongs
+        outside the Breaker model.
+        """
+
+        self.in_service = bool(
+            in_service
+        )
+
+    # =================================================================
+    # SWITCHING STATE
     # =================================================================
 
     @property
@@ -594,16 +690,31 @@ class Breaker(ElectricalObject):
     # -----------------------------------------------------------------
 
     @property
-    def is_failed(self) -> bool:
+    def conducts(self) -> bool:
         """
-        Return True when the breaker is marked as failed.
+        Return the local physical conduction state.
+
+        This is equivalent to the physical closed state.
+
+        The Network layer decides how this state affects the
+        derived electrical topology.
         """
 
-        return self.failed
+        return self.closed
 
     # =================================================================
     # FAILURE STATE
     # =================================================================
+
+    @property
+    def is_failed(self) -> bool:
+        """
+        Return True when the breaker is marked failed.
+        """
+
+        return self.failed
+
+    # -----------------------------------------------------------------
 
     def mark_failed(self) -> None:
         """
@@ -611,8 +722,8 @@ class Breaker(ElectricalObject):
 
         This records equipment condition only.
 
-        Breaker-failure detection and protection logic belong to
-        core/protection and/or core/simulation.
+        Breaker-failure detection belongs to the protection/
+        simulation layers.
         """
 
         self.failed = True
@@ -621,32 +732,27 @@ class Breaker(ElectricalObject):
 
     def clear_failure(self) -> None:
         """
-        Clear the Breaker's equipment-failure state.
+        Clear the breaker equipment-failure state.
         """
 
         self.failed = False
 
     # =================================================================
-    # SERVICE / TOPOLOGY SEMANTICS
+    # RESET
     # =================================================================
 
-    @property
-    def conducts(self) -> bool:
+    def reset(self) -> None:
         """
-        Return whether the Breaker is physically closed.
+        Reset the Breaker to its model initialization state.
 
-        Notes
-        -----
-        This is a local equipment-state interpretation.
+        Resetting the physical equipment model is deliberately
+        limited to local state.
 
-        The network/topology layer decides how this state affects
-        the derived electrical topology.
-
-        A failed breaker may still be physically closed and therefore
-        ``conducts`` remains True until the physical state changes.
+        Terminal topology is not modified.
         """
 
-        return self.closed
+        self.closed = True
+        self.failed = False
 
     # =================================================================
     # DIAGNOSTICS
@@ -654,32 +760,45 @@ class Breaker(ElectricalObject):
 
     def summary(self) -> dict:
         """
-        Return structured Breaker information.
+        Return structured Breaker engineering and state information.
         """
 
         return {
             "id": self.id,
             "name": self.name,
             "type": "Breaker",
+
+            "in_service": self.in_service,
+
             "from_endpoint": (
                 self.from_terminal.endpoint_id
             ),
             "to_endpoint": (
                 self.to_terminal.endpoint_id
             ),
+
             "from_connected": (
                 self.from_terminal.is_connected
             ),
             "to_connected": (
                 self.to_terminal.is_connected
             ),
+
             "voltage_kv": self.voltage_kv,
             "rated_current_a": self.rated_current_a,
             "interrupting_capacity_ka": (
                 self.interrupting_capacity_ka
             ),
+            "short_time_withstand_ka": (
+                self.short_time_withstand_ka
+            ),
+            "making_capacity_ka": (
+                self.making_capacity_ka
+            ),
+
             "trip_time": self.trip_time,
             "close_time": self.close_time,
+
             "closed": self.closed,
             "failed": self.failed,
         }
@@ -714,6 +833,16 @@ class Breaker(ElectricalObject):
             f"rated={self.rated_current_a:.2f} A, "
             f"interrupting="
             f"{self.interrupting_capacity_ka:.2f} kA, "
+            f"short_time="
+            f"{self.short_time_withstand_ka:.2f} kA, "
+            f"making="
+            f"{self.making_capacity_ka:.2f} kA, "
             f"closed={self.closed}, "
             f"failed={self.failed}>"
         )
+
+
+__all__ = [
+    "Breaker",
+]
+```
