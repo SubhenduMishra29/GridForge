@@ -1,82 +1,59 @@
 """
-GridForge Short-Circuit Impedance Matrix V2
-===========================================
+GridForge Short-Circuit Impedance Matrix
+========================================
 
 File:
     core/solver/short_circuit/impedance_matrix.py
 
-Purpose
--------
-Build and provide access to the bus impedance matrix (Zbus)
-used by GridForge short-circuit studies.
+GridForge Short-Circuit Solver V2.0
+-----------------------------------
 
-Primary responsibilities
-------------------------
-- Validate the network Ybus.
-- Construct Zbus from Ybus.
-- Provide Thevenin driving-point impedance.
-- Provide transfer impedance.
+Provides bus impedance matrix (Zbus) services for short-circuit
+studies.
+
+Responsibilities
+----------------
+- Obtain the network Ybus.
+- Validate Ybus dimensions and numerical values.
+- Compute Zbus from Ybus.
+- Provide bus Thevenin impedances.
+- Provide transfer impedances.
+- Preserve the network's Ybus without modification.
 - Provide deterministic diagnostics.
-- Preserve complex numerical precision.
 
 This module does NOT:
-- Build Ybus.
-- Modify network topology.
-- Perform fault calculations.
-- Calculate sequence components.
-- Perform protection calculations.
-- Perform relay coordination.
-- Perform power-flow calculations.
+- Build or modify network topology.
+- Perform load-flow calculations.
+- Calculate fault currents directly.
+- Perform sequence-network calculations.
+- Determine fault type.
+- Perform protection decisions.
 
 Architecture
 ------------
-Network
-   │
-   └── Ybus
-        │
-        ▼
-ImpedanceMatrix
-        │
-        └── Zbus
-             ├── Zii  → Thevenin impedance
-             └── Zij  → Transfer impedance
+    Network
+       │
+       ▼
+      Ybus
+       │
+       ▼
+  ImpedanceMatrix
+       │
+       ├── Zbus
+       ├── Zth
+       └── Ztransfer
 
-Numerical convention
---------------------
-All impedances are complex quantities:
+Notes
+-----
+The V2 reference implementation uses a dense NumPy inverse.
 
-    Z = R + jX
-
-Zbus is defined as:
-
-    V = Zbus I
-
-where:
-
-    V = bus-voltage vector
-    I = injected-current vector
-
-Therefore the diagonal element:
-
-    Zbus[i, i]
-
-is the driving-point/Thevenin impedance seen at bus i
-for the network represented by Ybus.
-
-V2 design principles
---------------------
-- Explicit validation.
-- No pseudo-inverse fallback.
-- No silent singularity handling.
-- No topology mutation.
-- No hidden Ybus construction.
-- Complex-valued numerical representation.
-- Deterministic failure on singular or invalid Ybus.
-- Stable public interface for future sparse/GPU implementations.
+The public interface deliberately isolates the Zbus operation so
+that a future sparse, factorization-based, or accelerated backend
+can replace the numerical implementation without changing the
+short-circuit solver API.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
-Proprietary and confidential.
 """
 
 from __future__ import annotations
@@ -88,19 +65,21 @@ import numpy as np
 
 class ImpedanceMatrix:
     """
-    Bus impedance matrix service for GridForge
-    short-circuit studies.
+    Bus impedance matrix service for short-circuit studies.
 
     Parameters
     ----------
     network:
-        GridForge Network object.
+        GridForge Network object containing the ordered buses and
+        an available Ybus.
 
     Notes
     -----
-    The network is expected to own the already-built Ybus.
+    ``build()`` computes:
 
-    This class does not own or construct network topology.
+        Zbus = inv(Ybus)
+
+    The network itself is never modified by this class.
     """
 
     # =========================================================
@@ -129,53 +108,30 @@ class ImpedanceMatrix:
 
         self.Zbus: np.ndarray | None = None
 
-    # =========================================================
-    # VALIDATION
-    # =========================================================
-
-    def _validate_network(self) -> None:
-        """
-        Validate the minimum network interface required by
-        the impedance-matrix calculation.
-        """
-
-        if not hasattr(
-            self.network,
-            "buses",
-        ):
-            raise ValueError(
-                "Network must provide a 'buses' collection."
-            )
-
-        n = len(
-            self.network.buses
-        )
-
-        if n == 0:
-            raise ValueError(
-                "Network contains no buses."
-            )
+        # Store the Ybus signature used to construct Zbus.
+        #
+        # This is diagnostic/cache metadata only. The network
+        # remains the authoritative owner of Ybus.
+        self._ybus_shape: tuple[int, int] | None = None
 
     # =========================================================
     # YBUS ACCESS
     # =========================================================
 
-    def _get_ybus(self) -> np.ndarray:
+    def _get_ybus(self) -> Any:
         """
-        Retrieve and validate the network Ybus.
+        Obtain and validate the network Ybus.
 
         Returns
         -------
-        np.ndarray
-            Complex square Ybus matrix.
+        matrix-like
+            Validated Ybus matrix.
 
         Raises
         ------
         ValueError
             If Ybus is unavailable or invalid.
         """
-
-        self._validate_network()
 
         Ybus = getattr(
             self.network,
@@ -196,77 +152,121 @@ class ImpedanceMatrix:
                 "Network Ybus must provide a matrix shape."
             )
 
+        if len(
+            Ybus.shape
+        ) != 2:
+            raise ValueError(
+                "Network Ybus must be a two-dimensional matrix."
+            )
+
         n = len(
             self.network.buses
         )
 
-        if Ybus.shape != (
+        expected_shape = (
             n,
             n,
-        ):
+        )
+
+        if Ybus.shape != expected_shape:
             raise ValueError(
-                "Ybus dimension does not match network "
-                f"bus count: expected {(n, n)}, "
+                "Ybus dimension does not match network bus "
+                f"count: expected {expected_shape}, "
                 f"received {Ybus.shape}."
+            )
+
+        return Ybus
+
+    # =========================================================
+    # MATRIX NORMALIZATION
+    # =========================================================
+
+    @staticmethod
+    def _to_dense_matrix(
+        matrix: Any,
+        name: str,
+    ) -> np.ndarray:
+        """
+        Normalize a dense or sparse matrix to a NumPy array.
+
+        Parameters
+        ----------
+        matrix:
+            Dense NumPy matrix or sparse matrix supporting
+            ``toarray()``.
+
+        name:
+            Diagnostic matrix name.
+
+        Returns
+        -------
+        np.ndarray
+            Two-dimensional complex-valued matrix.
+        """
+
+        if matrix is None:
+            raise ValueError(
+                f"{name} cannot be None."
             )
 
         try:
 
-            matrix = np.asarray(
-                Ybus,
-                dtype=complex,
-            )
+            if hasattr(
+                matrix,
+                "toarray",
+            ):
+
+                result = np.asarray(
+                    matrix.toarray(),
+                    dtype=complex,
+                )
+
+            else:
+
+                result = np.asarray(
+                    matrix,
+                    dtype=complex,
+                )
 
         except Exception as exc:
 
             raise ValueError(
-                "Network Ybus could not be converted "
-                "to a complex numerical matrix."
+                f"{name} could not be converted to a "
+                "numerical matrix."
             ) from exc
 
-        if matrix.shape != (
-            n,
-            n,
-        ):
+        if result.ndim != 2:
             raise ValueError(
-                "Ybus shape changed during normalization."
+                f"{name} must be two-dimensional."
+            )
+
+        if result.shape[0] != result.shape[1]:
+            raise ValueError(
+                f"{name} must be square: "
+                f"received shape {result.shape}."
             )
 
         if not np.all(
-            np.isfinite(
-                matrix.real
-            )
+            np.isfinite(result.real)
         ) or not np.all(
-            np.isfinite(
-                matrix.imag
-            )
+            np.isfinite(result.imag)
         ):
 
             raise ValueError(
-                "Ybus contains NaN or infinite values."
+                f"{name} contains NaN or infinite values."
             )
 
-        return matrix
+        return result
 
     # =========================================================
     # BUILD ZBUS
     # =========================================================
 
-    def build(self) -> np.ndarray:
+    def build(
+        self,
+    ) -> np.ndarray:
         """
         Build the bus impedance matrix.
-
-        The mathematical relationship is:
-
-            Zbus = Ybus^-1
-
-        The implementation uses a linear solve rather than
-        explicitly calling ``np.linalg.inv``:
-
-            Ybus Zbus = I
-
-        This avoids unnecessary explicit matrix inversion
-        while producing the complete Zbus matrix.
 
         Returns
         -------
@@ -275,37 +275,63 @@ class ImpedanceMatrix:
 
         Raises
         ------
+        ValueError
+            If Ybus is invalid.
+
         RuntimeError
-            If Ybus is singular or the numerical solve fails.
+            If Ybus is singular or inversion fails.
+
+        Notes
+        -----
+        The calculation is:
+
+            Zbus = Ybus^-1
+
+        The original network Ybus is never modified.
         """
 
         Ybus = self._get_ybus()
 
-        n = Ybus.shape[0]
-
-        identity = np.eye(
-            n,
-            dtype=complex,
+        matrix = self._to_dense_matrix(
+            Ybus,
+            "Ybus",
         )
+
+        n = matrix.shape[0]
+
+        if n == 0:
+            self.Zbus = np.empty(
+                (0, 0),
+                dtype=complex,
+            )
+
+            self._ybus_shape = (
+                0,
+                0,
+            )
+
+            return self.Zbus
+
+        # -----------------------------------------------------
+        # Numerical inversion
+        # -----------------------------------------------------
 
         try:
 
-            Zbus = np.linalg.solve(
-                Ybus,
-                identity,
+            Zbus = np.linalg.inv(
+                matrix
             )
 
         except np.linalg.LinAlgError as exc:
 
             raise RuntimeError(
-                "Ybus is singular or numerically "
-                "non-invertible. Cannot construct Zbus."
+                "Ybus is singular. Cannot calculate Zbus."
             ) from exc
 
         except Exception as exc:
 
             raise RuntimeError(
-                "Unexpected failure while constructing Zbus: "
+                "Unexpected Zbus calculation failure: "
                 f"{exc}"
             ) from exc
 
@@ -314,60 +340,73 @@ class ImpedanceMatrix:
             dtype=complex,
         )
 
+        # -----------------------------------------------------
+        # Validate result
+        # -----------------------------------------------------
+
         if Zbus.shape != (
             n,
             n,
         ):
+
             raise RuntimeError(
-                "Zbus construction returned an incorrect "
-                f"matrix shape: {Zbus.shape}."
+                "Zbus calculation returned an incorrect "
+                f"matrix shape: expected {(n, n)}, "
+                f"received {Zbus.shape}."
             )
 
         if not np.all(
-            np.isfinite(
-                Zbus.real
-            )
+            np.isfinite(Zbus.real)
         ) or not np.all(
-            np.isfinite(
-                Zbus.imag
-            )
+            np.isfinite(Zbus.imag)
         ):
 
             raise RuntimeError(
-                "Zbus contains NaN or infinite values."
+                "Zbus calculation produced NaN or "
+                "infinite values."
             )
 
         self.Zbus = Zbus
 
-        return self.Zbus.copy()
+        self._ybus_shape = (
+            n,
+            n,
+        )
+
+        return self.Zbus
 
     # =========================================================
     # ENSURE ZBUS
     # =========================================================
 
-    def _ensure_built(self) -> None:
+    def _ensure_built(
+        self,
+    ) -> np.ndarray:
         """
-        Ensure that Zbus is available.
+        Ensure that Zbus is available for a query.
+
+        Returns
+        -------
+        np.ndarray
+            Current Zbus matrix.
         """
 
         if self.Zbus is None:
-            self.build()
+            return self.build()
+
+        return self.Zbus
 
     # =========================================================
-    # BUS INDEX VALIDATION
+    # INDEX VALIDATION
     # =========================================================
 
     def _validate_bus_index(
         self,
         bus_index: int,
+        name: str = "bus_index",
     ) -> int:
         """
-        Validate a positional bus index.
-
-        Returns
-        -------
-        int
-            Validated integer index.
+        Validate a zero-based bus index.
         """
 
         if isinstance(
@@ -377,8 +416,9 @@ class ImpedanceMatrix:
             bus_index,
             (int, np.integer),
         ):
+
             raise TypeError(
-                "bus_index must be an integer."
+                f"{name} must be an integer."
             )
 
         bus_index = int(
@@ -389,11 +429,10 @@ class ImpedanceMatrix:
             self.network.buses
         )
 
-        if not (
-            0 <= bus_index < n
-        ):
+        if bus_index < 0 or bus_index >= n:
+
             raise IndexError(
-                "Bus index out of range: "
+                f"{name} out of range: "
                 f"{bus_index}. Valid range is "
                 f"0 to {n - 1}."
             )
@@ -414,24 +453,22 @@ class ImpedanceMatrix:
         Parameters
         ----------
         bus_index:
-            Zero-based positional index in network.buses.
+            Zero-based network bus index.
 
         Returns
         -------
         complex
-            Zbus[bus_index, bus_index].
+            Zth = Zbus[i, i].
         """
 
         bus_index = self._validate_bus_index(
             bus_index
         )
 
-        self._ensure_built()
-
-        assert self.Zbus is not None
+        Zbus = self._ensure_built()
 
         return complex(
-            self.Zbus[
+            Zbus[
                 bus_index,
                 bus_index,
             ]
@@ -452,74 +489,96 @@ class ImpedanceMatrix:
         Parameters
         ----------
         from_bus:
-            Source/injection bus index.
+            Zero-based source bus index.
 
         to_bus:
-            Observation bus index.
+            Zero-based destination bus index.
 
         Returns
         -------
         complex
-            Corresponding Zbus matrix element.
+            Zbus[from_bus, to_bus].
         """
 
         from_bus = self._validate_bus_index(
-            from_bus
+            from_bus,
+            "from_bus",
         )
 
         to_bus = self._validate_bus_index(
-            to_bus
+            to_bus,
+            "to_bus",
         )
 
-        self._ensure_built()
-
-        assert self.Zbus is not None
+        Zbus = self._ensure_built()
 
         return complex(
-            self.Zbus[
+            Zbus[
                 from_bus,
                 to_bus,
             ]
         )
 
     # =========================================================
-    # FULL MATRIX ACCESS
+    # DIRECT MATRIX ACCESS
     # =========================================================
 
-    def get_zbus(self) -> np.ndarray:
+    def get_zbus(
+        self,
+        copy: bool = True,
+    ) -> np.ndarray:
         """
-        Return a copy of the complete Zbus matrix.
+        Return the calculated Zbus matrix.
+
+        Parameters
+        ----------
+        copy:
+            If True, return an independent copy.
 
         Returns
         -------
         np.ndarray
-            Complex bus impedance matrix.
+            Zbus matrix.
+
+        Notes
+        -----
+        A copy is returned by default so callers cannot
+        accidentally modify the internal matrix.
         """
 
-        self._ensure_built()
+        Zbus = self._ensure_built()
 
-        assert self.Zbus is not None
+        if copy:
+            return Zbus.copy()
 
-        return self.Zbus.copy()
+        return Zbus
 
     # =========================================================
-    # RESET
+    # REBUILD
     # =========================================================
 
-    def reset(self) -> None:
+    def invalidate(
+        self,
+    ) -> None:
         """
-        Discard the currently stored Zbus matrix.
+        Discard the internally cached Zbus.
 
-        This does not modify the network or Ybus.
+        This does not modify the network or its Ybus.
+
+        Call this when the authoritative network Ybus has
+        changed and Zbus must be rebuilt.
         """
 
         self.Zbus = None
+        self._ybus_shape = None
 
     # =========================================================
     # DIAGNOSTICS
     # =========================================================
 
-    def summary(self) -> dict:
+    def summary(
+        self,
+    ) -> dict:
         """
         Return impedance-matrix diagnostics.
         """
@@ -530,22 +589,19 @@ class ImpedanceMatrix:
                 "component": "ImpedanceMatrix",
                 "version": "2.0",
                 "status": "NOT_BUILT",
-                "buses": len(
-                    self.network.buses
-                ),
+                "size": None,
             }
 
         return {
             "component": "ImpedanceMatrix",
             "version": "2.0",
             "status": "BUILT",
-            "buses": len(
-                self.network.buses
+            "size": self.Zbus.shape,
+            "dtype": str(
+                self.Zbus.dtype
             ),
-            "shape": tuple(
-                self.Zbus.shape
-            ),
-            "complex": True,
+            "backend": "numpy",
+            "network_ybus_shape": self._ybus_shape,
         }
 
     # =========================================================
@@ -568,7 +624,7 @@ class ImpedanceMatrix:
         return (
             "ImpedanceMatrix("
             f"buses={len(self.network.buses)}, "
-            f"status='{status}'"
+            f"status={status}"
             ")"
         )
 
