@@ -1,30 +1,44 @@
+```python id="7q2m4c"
 """
 GridForge Dynamic Integrators
 =============================
 
-Numerical time-integration methods for GridForge dynamic simulation.
+Numerical time-integration methods used by the GridForge dynamics
+solver.
 
 Supported methods
 -----------------
-- RK4
-    Explicit classical fourth-order Runge-Kutta method.
+RK4
+    Classical explicit fourth-order Runge-Kutta integration.
 
-- Trapezoidal
-    Implicit trapezoidal integration using iterative correction.
+TRAPEZOIDAL
+    Implicit trapezoidal integration using nonlinear fixed-point
+    iteration.
 
-Responsibilities
-----------------
-- Advance differential state vectors in time.
-- Provide a common integration interface.
-- Remain independent of physical dynamic models.
-- Operate on NumPy state vectors.
+Architectural responsibilities
+-------------------------------
+Integrators:
 
-This module does NOT:
-- solve network algebraic equations
-- evaluate generator equations
-- manage events
-- own simulation state
-- know about buses or equipment
+- operate only on numerical state vectors;
+- evaluate a supplied derivative function;
+- advance the state in time;
+- perform no network calculations;
+- perform no machine calculations;
+- perform no event processing;
+- own no simulation state.
+
+Derivative contract
+-------------------
+The derivative callable must have the form:
+
+    derivative(x, t) -> dx/dt
+
+where:
+
+    x = numerical state vector
+    t = simulation time
+
+The derivative function must not modify ``x``.
 """
 
 from __future__ import annotations
@@ -35,19 +49,34 @@ from typing import Callable
 import numpy as np
 
 
+# ======================================================================
+# TYPES
+# ======================================================================
+
+
 DerivativeFunction = Callable[
     [np.ndarray, float],
     np.ndarray,
 ]
 
 
+# ======================================================================
+# ERRORS
+# ======================================================================
+
+
 class IntegrationError(RuntimeError):
-    """Raised when an integration step cannot be completed."""
+    """Raised when numerical integration fails."""
+
+
+# ======================================================================
+# BASE INTEGRATOR
+# ======================================================================
 
 
 class BaseIntegrator(ABC):
     """
-    Abstract interface for dynamic-system integrators.
+    Common interface for GridForge time integrators.
     """
 
     @abstractmethod
@@ -67,36 +96,151 @@ class BaseIntegrator(ABC):
             Current state vector.
 
         derivative:
-            Callable returning dx/dt.
-
-            Signature:
-                derivative(x, t) -> dx/dt
+            Function returning dx/dt.
 
         t:
             Current simulation time.
 
         dt:
-            Integration time step.
+            Integration step size.
 
         Returns
         -------
         numpy.ndarray
-            State at t + dt.
+            State at ``t + dt``.
         """
         raise NotImplementedError
 
+    @staticmethod
+    def _validate_inputs(
+        x: np.ndarray,
+        t: float,
+        dt: float,
+    ) -> np.ndarray:
+        """
+        Validate common integration inputs.
+        """
 
-class RK4Integrator(BaseIntegrator):
+        state = np.asarray(
+            x,
+            dtype=float,
+        )
+
+        if state.ndim != 1:
+            raise IntegrationError(
+                "State vector must be "
+                "one-dimensional."
+            )
+
+        if not np.all(
+            np.isfinite(state)
+        ):
+            raise IntegrationError(
+                "State vector contains "
+                "non-finite values."
+            )
+
+        if not np.isfinite(t):
+            raise IntegrationError(
+                "Integration time must "
+                "be finite."
+            )
+
+        if not np.isfinite(dt):
+            raise IntegrationError(
+                "Integration step must "
+                "be finite."
+            )
+
+        if dt <= 0.0:
+            raise IntegrationError(
+                "Integration step must "
+                "be greater than zero."
+            )
+
+        return state
+
+    @staticmethod
+    def _evaluate_derivative(
+        derivative: DerivativeFunction,
+        x: np.ndarray,
+        t: float,
+        expected_size: int,
+    ) -> np.ndarray:
+        """
+        Evaluate and validate a derivative function.
+        """
+
+        dx = np.asarray(
+            derivative(x, t),
+            dtype=float,
+        )
+
+        if dx.ndim != 1:
+            raise IntegrationError(
+                "Derivative function must "
+                "return a one-dimensional "
+                "vector."
+            )
+
+        if dx.size != expected_size:
+            raise IntegrationError(
+                "Derivative vector size "
+                f"mismatch: expected "
+                f"{expected_size}, received "
+                f"{dx.size}."
+            )
+
+        if not np.all(
+            np.isfinite(dx)
+        ):
+            raise IntegrationError(
+                "Derivative vector contains "
+                "non-finite values."
+            )
+
+        return dx
+
+
+# ======================================================================
+# RK4
+# ======================================================================
+
+
+class RK4Integrator(
+    BaseIntegrator
+):
     """
     Classical fourth-order Runge-Kutta integrator.
 
-    Suitable for explicit dynamic models such as:
+    The method evaluates:
 
-    - rotor dynamics
-    - excitation systems
-    - governors
-    - PSS models
-    - other explicit differential equations
+        k1 = f(x_n, t_n)
+
+        k2 = f(
+            x_n + dt/2*k1,
+            t_n + dt/2
+        )
+
+        k3 = f(
+            x_n + dt/2*k2,
+            t_n + dt/2
+        )
+
+        k4 = f(
+            x_n + dt*k3,
+            t_n + dt
+        )
+
+    and:
+
+        x_(n+1)
+            =
+        x_n
+        +
+        dt/6 * (
+            k1 + 2*k2 + 2*k3 + k4
+        )
     """
 
     def step(
@@ -107,95 +251,113 @@ class RK4Integrator(BaseIntegrator):
         dt: float,
     ) -> np.ndarray:
 
-        _validate_step_inputs(
+        state = self._validate_inputs(
             x,
             t,
             dt,
         )
 
-        x = np.asarray(
-            x,
-            dtype=float,
-        )
-
-        k1 = _evaluate(
+        k1 = self._evaluate_derivative(
             derivative,
-            x,
+            state,
             t,
+            state.size,
         )
 
-        k2 = _evaluate(
+        k2 = self._evaluate_derivative(
             derivative,
-            x + 0.5 * dt * k1,
+            state + 0.5 * dt * k1,
             t + 0.5 * dt,
+            state.size,
         )
 
-        k3 = _evaluate(
+        k3 = self._evaluate_derivative(
             derivative,
-            x + 0.5 * dt * k2,
+            state + 0.5 * dt * k2,
             t + 0.5 * dt,
+            state.size,
         )
 
-        k4 = _evaluate(
+        k4 = self._evaluate_derivative(
             derivative,
-            x + dt * k3,
+            state + dt * k3,
             t + dt,
+            state.size,
         )
 
-        x_new = x + (
-            dt / 6.0
-        ) * (
-            k1
-            + 2.0 * k2
-            + 2.0 * k3
-            + k4
+        result = (
+            state
+            + (
+                dt / 6.0
+            )
+            * (
+                k1
+                + 2.0 * k2
+                + 2.0 * k3
+                + k4
+            )
         )
 
-        _validate_derivative_shape(
-            x_new,
-            x,
-        )
+        if not np.all(
+            np.isfinite(result)
+        ):
+            raise IntegrationError(
+                "RK4 produced a "
+                "non-finite state."
+            )
 
-        return x_new
+        return result
 
 
-class TrapezoidalIntegrator(BaseIntegrator):
+# ======================================================================
+# IMPLICIT TRAPEZOIDAL
+# ======================================================================
+
+
+class TrapezoidalIntegrator(
+    BaseIntegrator
+):
     """
     Implicit trapezoidal integrator.
 
-    Solves approximately:
+    The nonlinear equation is:
 
-        x(n+1) =
-            x(n)
-            + dt/2 * [
-                f(x(n), t(n))
-                + f(x(n+1), t(n+1))
-            ]
+        x_(n+1)
+        =
+        x_n
+        +
+        dt/2 *
+        (
+            f(x_n, t_n)
+            +
+            f(x_(n+1), t_(n+1))
+        )
 
-    The nonlinear implicit equation is solved by fixed-point
-    iteration.
+    This implementation uses fixed-point iteration.
 
-    Notes
-    -----
-    This implementation intentionally does not claim to be a
-    Newton-based DAE solver. A future fully implicit DAE solver may
-    provide Jacobian-based Newton iterations separately.
+    It is therefore an implicit ODE integrator, not a full Newton-based
+    DAE solver.
+
+    A future GridForge DAE Newton solver may use this integrator
+    contract while solving the complete residual/Jacobian system.
     """
 
     def __init__(
         self,
-        tolerance: float = 1.0e-8,
+        tolerance: float = 1e-8,
         max_iterations: int = 20,
     ) -> None:
 
         if tolerance <= 0.0:
             raise ValueError(
-                "Tolerance must be greater than zero."
+                "tolerance must be "
+                "greater than zero."
             )
 
         if max_iterations < 1:
             raise ValueError(
-                "max_iterations must be at least 1."
+                "max_iterations must be "
+                "at least one."
             )
 
         self.tolerance = float(
@@ -214,76 +376,101 @@ class TrapezoidalIntegrator(BaseIntegrator):
         dt: float,
     ) -> np.ndarray:
 
-        _validate_step_inputs(
+        state = self._validate_inputs(
             x,
             t,
             dt,
         )
 
-        x = np.asarray(
-            x,
-            dtype=float,
+        f_old = (
+            self._evaluate_derivative(
+                derivative,
+                state,
+                t,
+                state.size,
+            )
         )
 
-        f_old = _evaluate(
-            derivative,
-            x,
-            t,
+        t_new = (
+            t + dt
         )
 
-        t_new = t + dt
-
-        # Explicit Euler prediction.
+        # Explicit-Euler prediction.
         x_new = (
-            x
+            state
             + dt * f_old
         )
+
+        converged = False
 
         for _ in range(
             self.max_iterations
         ):
 
-            f_new = _evaluate(
-                derivative,
-                x_new,
-                t_new,
+            f_new = (
+                self._evaluate_derivative(
+                    derivative,
+                    x_new,
+                    t_new,
+                    state.size,
+                )
             )
 
-            target = (
-                x
-                + 0.5 * dt * (
+            predicted = (
+                state
+                + (
+                    dt / 2.0
+                )
+                * (
                     f_old
                     + f_new
                 )
             )
 
             correction = (
-                target
+                predicted
                 - x_new
             )
 
-            x_new = (
-                x_new
-                + correction
-            )
+            x_new = predicted
 
             if np.linalg.norm(
                 correction,
                 ord=np.inf,
-            ) <= self.tolerance:
+            ) < self.tolerance:
 
-                return x_new
+                converged = True
+                break
 
-        raise IntegrationError(
-            "Trapezoidal integration failed "
-            "to converge within "
-            f"{self.max_iterations} iterations."
-        )
+        if not converged:
+            raise IntegrationError(
+                "Implicit trapezoidal "
+                "iteration did not converge "
+                f"within "
+                f"{self.max_iterations} "
+                "iterations."
+            )
+
+        if not np.all(
+            np.isfinite(x_new)
+        ):
+            raise IntegrationError(
+                "Trapezoidal integration "
+                "produced a non-finite "
+                "state."
+            )
+
+        return x_new
+
+
+# ======================================================================
+# FACADE
+# ======================================================================
 
 
 class Integrator:
     """
-    Common GridForge integration interface.
+    Public integrator facade.
 
     Parameters
     ----------
@@ -291,43 +478,58 @@ class Integrator:
         Integration method.
 
         Supported values:
-        - ``"RK4"``
-        - ``"TRAPEZOIDAL"``
+
+            "RK4"
+            "TRAPEZOIDAL"
+
+    tolerance:
+        Convergence tolerance used by the trapezoidal method.
+
+    max_iterations:
+        Maximum nonlinear fixed-point iterations used by the
+        trapezoidal method.
     """
 
-    METHODS = {
-        "RK4": RK4Integrator,
-        "TRAPEZOIDAL": TrapezoidalIntegrator,
-    }
+    RK4 = "RK4"
+    TRAPEZOIDAL = "TRAPEZOIDAL"
 
     def __init__(
         self,
-        method: str = "RK4",
-        **kwargs,
+        method: str = RK4,
+        tolerance: float = 1e-8,
+        max_iterations: int = 20,
     ) -> None:
 
-        method_key = method.upper()
+        normalized = (
+            str(method)
+            .strip()
+            .upper()
+        )
 
-        try:
-            integrator_class = (
-                self.METHODS[method_key]
+        if normalized == self.RK4:
+
+            self.solver: BaseIntegrator = (
+                RK4Integrator()
             )
-        except KeyError as exc:
-            supported = ", ".join(
-                self.METHODS
+
+        elif normalized == self.TRAPEZOIDAL:
+
+            self.solver = (
+                TrapezoidalIntegrator(
+                    tolerance=tolerance,
+                    max_iterations=max_iterations,
+                )
             )
+
+        else:
 
             raise ValueError(
-                f"Unknown integration method "
-                f"'{method}'. "
-                f"Supported methods: {supported}."
-            ) from exc
+                "Unknown integration method "
+                f"'{method}'. Supported methods "
+                "are 'RK4' and 'TRAPEZOIDAL'."
+            )
 
-        self.method = method_key
-
-        self.solver = integrator_class(
-            **kwargs
-        )
+        self.method = normalized
 
     def step(
         self,
@@ -348,87 +550,12 @@ class Integrator:
         )
 
 
-def _evaluate(
-    derivative: DerivativeFunction,
-    x: np.ndarray,
-    t: float,
-) -> np.ndarray:
-    """
-    Evaluate and validate a derivative function.
-    """
-
-    result = np.asarray(
-        derivative(x, t),
-        dtype=float,
-    )
-
-    _validate_derivative_shape(
-        result,
-        x,
-    )
-
-    if not np.all(
-        np.isfinite(result)
-    ):
-        raise IntegrationError(
-            "Derivative contains "
-            "non-finite values."
-        )
-
-    return result
-
-
-def _validate_derivative_shape(
-    result: np.ndarray,
-    x: np.ndarray,
-) -> None:
-
-    if result.shape != x.shape:
-        raise IntegrationError(
-            "Derivative/state shape mismatch: "
-            f"state shape={x.shape}, "
-            f"derivative shape={result.shape}."
-        )
-
-
-def _validate_step_inputs(
-    x: np.ndarray,
-    t: float,
-    dt: float,
-) -> None:
-
-    if not isinstance(
-        x,
-        np.ndarray,
-    ):
-        raise TypeError(
-            "State vector must be a NumPy array."
-        )
-
-    if x.ndim != 1:
-        raise ValueError(
-            "State vector must be one-dimensional."
-        )
-
-    if not np.all(
-        np.isfinite(x)
-    ):
-        raise ValueError(
-            "State vector contains "
-            "non-finite values."
-        )
-
-    if not np.isfinite(t):
-        raise ValueError(
-            "Simulation time must be finite."
-        )
-
-    if not np.isfinite(dt):
-        raise ValueError(
-            "Time step must be finite."
-        )
-
-    if dt <= 0.0:
-        raise ValueError(
-            "Time step must be greater than zero."
-        )
+__all__ = [
+    "DerivativeFunction",
+    "IntegrationError",
+    "BaseIntegrator",
+    "RK4Integrator",
+    "TrapezoidalIntegrator",
+    "Integrator",
+]
+```
