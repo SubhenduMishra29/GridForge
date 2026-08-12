@@ -1,16 +1,16 @@
-# GridForge SLD & Network Architecture Contract
+# GridForge SLD & Network Architecture  
 
 **Status:** Architectural Working Baseline
 **Project:** GridForge
 **Layer:** Model / Network / SLD Architecture
-**Version:** V2 Audit Contract
+**Version:** V2 Audit  
 **Date:** 12 August 2026
 
 ---
 
 ## 1. Purpose
 
-This document establishes the architectural contract governing how GridForge represents an electrical power system from:
+This document establishes the architectural   governing how GridForge represents an electrical power system from:
 
 ```text
 Physical Equipment
@@ -28,7 +28,7 @@ Analysis / Simulation / Protection
 
 The purpose is to prevent the GridForge Model Layer from being designed independently of the SLD and network architecture.
 
-The contract must be established before finalizing the remaining `core/model/` audit.
+The   must be established before finalizing the remaining `core/model/` audit.
 
 ---
 
@@ -994,7 +994,7 @@ The following are now the **working architectural rules** for the V2 audit:
 14. **Load flow, short circuit, protection and dynamics may require different derived representations of the same physical system.**
 15. **The GUI never owns authoritative electrical state.**
 16. **Frozen layers are not redesigned without fundamental evidence.**
-17. **The model audit will proceed only after each model is checked against this contract.**
+17. **The model audit will proceed only after each model is checked against this  .**
 
 ---
 
@@ -1010,7 +1010,7 @@ core/model/bus.py
 
 but not to rewrite it.
 
-We should first inspect its current architecture against this contract and answer:
+We should first inspect its current architecture against this   and answer:
 
 > **Is GridForge `Bus` simultaneously acting as physical bus equipment, topological node, and numerical bus — and if so, is that intentional and compatible with the existing frozen `core/network/` layer?**
 
