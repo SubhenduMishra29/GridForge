@@ -1,3 +1,4 @@
+```python
 """
 GridForge Measurement Channel
 =============================
@@ -7,11 +8,11 @@ File:
 
 Purpose
 -------
-Defines the canonical GridForge V2 measurement-channel abstraction.
+Defines the canonical GridForge V2 logical measurement-channel
+abstraction.
 
-A MeasurementChannel represents a logical measurement signal produced
-from a physical measurement interface and made available to consuming
-systems such as:
+A MeasurementChannel represents a logical signal made available by
+the measurement architecture to consuming systems such as:
 
     - protection
     - metering
@@ -25,200 +26,145 @@ Architectural position
 ----------------------
 
     Physical Instrument
-        │
-        ├── CT
-        ├── PT
-        └── CVT
-             │
-             │ secondary interface
-             ▼
+        |
+        +-- CT
+        +-- PT
+        +-- CVT
+        |
+        v
+    Measurement Interface
+        |
+        v
     MeasurementChannel
-             │
-             ├── Protection
-             ├── Metering
-             ├── Control
-             └── Monitoring
+        |
+        +-- RelayInput
+        +-- Metering
+        +-- Control
+        +-- SCADA
+        +-- Monitoring
+        +-- Analysis
 
 The MeasurementChannel is a CORE GridForge V2 abstraction.
 
-It is NOT a protection plugin.
+It represents the logical signal contract.
 
-Specialized measurement-generation behaviour, such as:
+It does NOT model the physical instrument itself.
 
-    - CT saturation
-    - instrument error
-    - transient response
-    - filtering
-    - frequency response
-    - burden effects
+Physical equipment remains authoritative for:
 
-may be implemented by plugins, while this channel contract remains
-stable.
+    - equipment identity
+    - nameplate data
+    - ratio
+    - burden
+    - accuracy class
+    - saturation characteristics
+    - physical terminals
+    - equipment state
 
-Architectural Responsibilities
-------------------------------
+Those responsibilities remain in the appropriate model/domain
+layers.
 
-MeasurementChannel is responsible for:
+Design principles
+-----------------
 
-    - channel identity
-    - source equipment association
-    - source interface association
-    - signal classification
-    - phase identification
-    - engineering unit
-    - nominal/rated value
-    - scaling
-    - polarity
-    - measured value
-    - signal quality
-    - availability
-    - timestamp/sample information
-    - local validation
-    - measurement diagnostics
+1. A measurement channel owns the logical signal state.
+2. Physical source equipment remains authoritative for physical
+   equipment state.
+3. A channel stores references to source objects; it does not copy
+   their state.
+4. Consumers must consume channels rather than directly reading
+   CT/PT/CVT implementation details.
+5. Measurement generation and transformation are separate from
+   logical channel storage.
+6. Protection must be able to determine whether a signal is usable
+   without knowing how the physical instrument produced it.
+7. The channel must support scalar measurements, phasors and future
+   engineering signal types without coupling to a solver.
+8. The channel must remain independent of:
+       - protection
+       - simulation
+       - network topology
+       - numerical solvers
+       - GUI
+       - breaker control
 
-MeasurementChannel does NOT:
+Value semantics
+---------------
 
-    - build network topology
-    - create Bus objects
-    - build Y-bus
-    - calculate load flow
-    - calculate short circuit
-    - implement relay logic
-    - perform protection coordination
-    - calculate TCC curves
-    - operate breakers
-    - own physical CT/PT/CVT equipment
-    - determine system-wide electrical quantities
-    - manage GUI state
+The channel distinguishes:
 
-Authoritative Ownership
------------------------
+    raw_value
+        Value supplied by the measurement-generation interface.
 
-Physical equipment remains authoritative for physical equipment
-identity and nameplate data:
+    engineering_value
+        Value exposed to consumers after channel-level scaling and
+        polarity.
 
-    core/model/ct.py
-    core/model/pt.py
-    core/model/cvt.py
+The channel therefore has one unambiguous conversion:
 
-The MeasurementChannel is authoritative only for the logical
-measurement signal it represents.
+    engineering_value =
+        raw_value * scale * polarity
 
-A channel may reference its source equipment and source terminal,
-but it does not duplicate that equipment's state.
+Measurement-generation plugins are responsible for physical
+instrument transformations such as CT/PT/CVT ratios, burden,
+saturation, filtering and instrument error.
 
-Relay Architecture
-------------------
+The channel does not recreate those physical calculations.
 
-The V2 Relay should consume MeasurementChannel objects.
+Quality and availability
+------------------------
 
-For example:
-
-    CT
-      │
-      ▼
-    Current MeasurementChannel
-      │
-      ▼
-    Relay input
-      │
-      ▼
-    Overcurrent / Directional / Differential function
-
-and:
-
-    PT / CVT
-      │
-      ▼
-    Voltage MeasurementChannel
-      │
-      ▼
-    Relay input
-      │
-      ▼
-    Distance / Voltage / Directional function
-
-The Relay must therefore not obtain its protection signal directly
-from a raw CT/PT/CVT object.
-
-Signal Domain
--------------
-
-Measurement channels use explicit signal types rather than relying
-on arbitrary field names.
-
-Supported signal types include:
-
-    CURRENT
-    VOLTAGE
-    POWER
-    FREQUENCY
-    PHASE_ANGLE
-    IMPEDANCE
-    DIGITAL
-    CUSTOM
-
-Phase identification supports:
-
-    A
-    B
-    C
-    N
-    AB
-    BC
-    CA
-    THREE_PHASE
-    POSITIVE_SEQUENCE
-    NEGATIVE_SEQUENCE
-    ZERO_SEQUENCE
-    NONE
-
-Quality
--------
-
-A channel may contain a valid numerical value while the signal is
-not suitable for protection.
-
-Therefore signal quality and availability are explicit.
-
-The distinction is:
+These are intentionally separate.
 
     available
-        Whether a signal source is presently available.
+        Whether the signal path currently exists/is available.
 
     quality
-        Whether the signal is considered valid/reliable.
+        Whether the available value is considered reliable.
 
-Protection consumers must be able to reject invalid measurements
-without inspecting the physical instrument model.
+A signal may therefore be:
 
-Time
-----
+    available=True
+    quality=INVALID
 
-The channel supports an optional timestamp.
+or:
 
-The channel does not prescribe a particular simulation clock,
-event scheduler, or time-domain engine.
+    available=False
+    quality=UNKNOWN
 
-Simulation layers may update the channel repeatedly.
+A consumer should normally use ``is_usable`` rather than assuming
+that a numerical value is valid merely because one exists.
 
-GridForge V2 Status
--------------------
+Future protection architecture
+------------------------------
 
-This module is part of the GridForge Model/Measurement foundation.
+Protection functions consume MeasurementChannel through RelayInput:
 
-The contract is intentionally independent of:
+    CT/PT/CVT
+        |
+        v
+    MeasurementChannel
+        |
+        v
+    RelayInput
+        |
+        v
+    RelayBase
+        |
+        +-- Overcurrent
+        +-- Directional
+        +-- Distance
+        +-- Differential
+        +-- Voltage
+        +-- Frequency
+        +-- future functions
 
-    - protection algorithms
-    - simulation engines
-    - network topology
-    - numerical solvers
-
-Higher-level protection modules should depend on this contract
-rather than directly depending on CT/PT/CVT implementation details.
+MeasurementChannel must therefore remain a stable low-level
+contract.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
+Proprietary and confidential.
 """
 
 from __future__ import annotations
@@ -235,7 +181,7 @@ from typing import Any, Optional
 
 class MeasurementSignalType(Enum):
     """
-    Canonical GridForge measurement signal types.
+    Canonical GridForge measurement signal classifications.
     """
 
     CURRENT = "CURRENT"
@@ -249,13 +195,13 @@ class MeasurementSignalType(Enum):
 
 
 # =====================================================================
-# PHASE
+# PHASE / SEQUENCE
 # =====================================================================
 
 
 class MeasurementPhase(Enum):
     """
-    Phase or sequence designation for a measurement channel.
+    Phase or sequence designation for a measurement signal.
     """
 
     NONE = "NONE"
@@ -263,7 +209,6 @@ class MeasurementPhase(Enum):
     A = "A"
     B = "B"
     C = "C"
-
     N = "N"
 
     AB = "AB"
@@ -284,19 +229,20 @@ class MeasurementPhase(Enum):
 
 class MeasurementQuality(Enum):
     """
-    Measurement signal quality state.
+    Logical signal-quality state.
 
     GOOD
-        Signal is valid and suitable for normal consumption.
+        Signal is valid for normal engineering consumption.
 
     SUSPECT
-        Signal exists but may not be reliable.
+        Signal exists but may not be sufficiently reliable for all
+        consumers.
 
     INVALID
-        Signal is not valid for engineering use.
+        Signal is explicitly invalid.
 
     UNKNOWN
-        Quality has not been established.
+        Signal quality has not been established.
     """
 
     GOOD = "GOOD"
@@ -306,93 +252,103 @@ class MeasurementQuality(Enum):
 
 
 # =====================================================================
+# VALIDITY REASON
+# =====================================================================
+
+
+class MeasurementValidity(Enum):
+    """
+    Canonical diagnostic reason for measurement usability.
+
+    This is deliberately separate from MeasurementQuality.
+
+    Quality describes the signal condition.
+
+    Validity describes why a consumer can or cannot use it.
+    """
+
+    VALID = "VALID"
+    UNAVAILABLE = "UNAVAILABLE"
+    INVALID_QUALITY = "INVALID_QUALITY"
+    SUSPECT_QUALITY = "SUSPECT_QUALITY"
+    UNKNOWN_QUALITY = "UNKNOWN_QUALITY"
+    STALE = "STALE"
+    NONFINITE = "NONFINITE"
+
+
+# =====================================================================
 # MEASUREMENT CHANNEL
 # =====================================================================
 
 
 class MeasurementChannel:
     """
-    Canonical GridForge V2 measurement signal channel.
+    Canonical GridForge V2 logical measurement channel.
 
     Parameters
     ----------
-    id : str
-        Unique channel identifier.
+    id:
+        Globally unique logical channel identifier.
 
-    signal_type : MeasurementSignalType
-        Type of measurement represented by this channel.
+    signal_type:
+        MeasurementSignalType describing the signal domain.
 
-    name : str, optional
+    name:
         Human-readable channel name.
 
-    source : object, optional
-        Physical source equipment.
+    source:
+        Physical measurement source reference, typically CT/PT/CVT
+        or another measurement-producing interface.
 
-        Typical sources:
+    source_terminal:
+        Optional source-side measurement terminal/interface.
 
-            CurrentTransformer
-            PotentialTransformer
-            CVT
+    phase:
+        Phase or sequence designation.
 
-        The source is referenced, not duplicated.
+    unit:
+        Engineering unit exposed by the channel.
 
-    source_terminal : object, optional
-        Measurement-side terminal/interface from the source
-        equipment.
+    nominal_value:
+        Nominal/reference engineering magnitude.
 
-    phase : MeasurementPhase, optional
-        Phase or sequence associated with the signal.
+    scale:
+        Channel-level conversion multiplier.
 
-    unit : str, optional
-        Engineering unit.
+    polarity:
+        +1.0 for normal polarity or -1.0 for reversed polarity.
 
-        Examples:
+    available:
+        Whether the logical signal path is currently available.
 
-            A
-            kA
-            V
-            kV
-            W
-            MW
-            Hz
-            deg
-            ohm
+    quality:
+        Current signal-quality classification.
 
-    nominal_value : float, optional
-        Nominal/reference value associated with the channel.
+    raw_value:
+        Value supplied by the measurement-generation layer.
 
-    scale : float, optional
-        Engineering scaling factor applied to the raw channel value.
+    timestamp:
+        Optional simulation/event/sample timestamp.
 
-    polarity : float, optional
-        Measurement polarity.
+    sample_sequence:
+        Optional monotonically increasing sample/update identifier.
 
-        +1.0 means normal polarity.
-        -1.0 means reversed polarity.
-
-    available : bool, optional
-        Whether the measurement source is currently available.
-
-    quality : MeasurementQuality, optional
-        Current signal quality.
-
-    value : float or complex, optional
-        Current engineering measurement.
-
-    timestamp : float, optional
-        Optional simulation/event timestamp.
+    stale_after:
+        Optional maximum permitted signal age in the same time units
+        as timestamp.
 
     Notes
     -----
-    The channel is deliberately lightweight.
+    The channel stores references to physical sources.
 
-    It represents a signal contract rather than a measurement
-    simulation engine.
+    It does not own or duplicate source-equipment state.
+
+    The channel is not a measurement simulator.
     """
 
-    # =============================================================
+    # =================================================================
     # INITIALIZATION
-    # =============================================================
+    # =================================================================
 
     def __init__(
         self,
@@ -408,22 +364,16 @@ class MeasurementChannel:
         polarity: float = 1.0,
         available: bool = True,
         quality: MeasurementQuality = MeasurementQuality.UNKNOWN,
-        value: float | complex = 0.0,
+        raw_value: float | complex = 0.0,
         timestamp: Optional[float] = None,
+        sample_sequence: Optional[int] = None,
+        stale_after: Optional[float] = None,
     ) -> None:
-
-        # ---------------------------------------------------------
-        # Identity
-        # ---------------------------------------------------------
 
         self._validate_id(id)
 
         self.id = id
         self.name = str(name)
-
-        # ---------------------------------------------------------
-        # Signal classification
-        # ---------------------------------------------------------
 
         if not isinstance(
             signal_type,
@@ -445,10 +395,6 @@ class MeasurementChannel:
 
         self.phase = phase
 
-        # ---------------------------------------------------------
-        # Source association
-        # ---------------------------------------------------------
-
         if source is not None:
             self._validate_reference(
                 source,
@@ -464,16 +410,12 @@ class MeasurementChannel:
         self.source = source
         self.source_terminal = source_terminal
 
-        # ---------------------------------------------------------
-        # Engineering metadata
-        # ---------------------------------------------------------
-
         if not isinstance(unit, str):
             raise TypeError(
                 "unit must be a string."
             )
 
-        self.unit = unit
+        self.unit = unit.strip()
 
         self.nominal_value = float(
             nominal_value
@@ -487,15 +429,7 @@ class MeasurementChannel:
             polarity
         )
 
-        self._validate_engineering_data()
-
-        # ---------------------------------------------------------
-        # Signal state
-        # ---------------------------------------------------------
-
-        self.available = bool(
-            available
-        )
+        self._validate_engineering_configuration()
 
         if not isinstance(
             quality,
@@ -505,33 +439,33 @@ class MeasurementChannel:
                 "quality must be a MeasurementQuality."
             )
 
-        self.quality = quality
-
-        # ---------------------------------------------------------
-        # Current measurement
-        # ---------------------------------------------------------
-
-        self.value = self._validate_value(
-            value
+        self.available = bool(
+            available
         )
 
-        # ---------------------------------------------------------
-        # Time information
-        # ---------------------------------------------------------
+        self.quality = quality
 
-        if timestamp is not None:
-            timestamp = float(timestamp)
+        self.raw_value = self._validate_value(
+            raw_value
+        )
 
-            if not isfinite(timestamp):
-                raise ValueError(
-                    "timestamp must be finite."
-                )
+        self.timestamp = self._validate_timestamp(
+            timestamp
+        )
 
-        self.timestamp = timestamp
+        self.sample_sequence = (
+            self._validate_sample_sequence(
+                sample_sequence
+            )
+        )
 
-    # =============================================================
+        self.stale_after = self._validate_stale_after(
+            stale_after
+        )
+
+    # =================================================================
     # VALIDATION
-    # =============================================================
+    # =================================================================
 
     @staticmethod
     def _validate_id(
@@ -541,7 +475,10 @@ class MeasurementChannel:
         Validate channel identity.
         """
 
-        if not isinstance(value, str):
+        if not isinstance(
+            value,
+            str,
+        ):
             raise TypeError(
                 "MeasurementChannel id must be a string."
             )
@@ -551,7 +488,7 @@ class MeasurementChannel:
                 "MeasurementChannel id cannot be empty."
             )
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @staticmethod
     def _validate_reference(
@@ -561,11 +498,14 @@ class MeasurementChannel:
         """
         Validate a referenced GridForge object.
 
-        References require an identifiable object but the channel
-        deliberately does not impose a concrete CT/PT/CVT class.
+        The channel intentionally does not impose a concrete source
+        equipment class.
         """
 
-        if not hasattr(value, "id"):
+        if not hasattr(
+            value,
+            "id",
+        ):
             raise TypeError(
                 f"{field_name} must expose an 'id' attribute."
             )
@@ -575,7 +515,10 @@ class MeasurementChannel:
             "id",
         )
 
-        if not isinstance(object_id, str):
+        if not isinstance(
+            object_id,
+            str,
+        ):
             raise TypeError(
                 f"{field_name}.id must be a string."
             )
@@ -585,60 +528,67 @@ class MeasurementChannel:
                 f"{field_name}.id cannot be empty."
             )
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
-    def _validate_engineering_data(self) -> None:
+    def _validate_engineering_configuration(
+        self,
+    ) -> None:
         """
-        Validate engineering metadata.
+        Validate engineering configuration.
         """
 
         if (
-            not isfinite(self.nominal_value)
+            not isfinite(
+                self.nominal_value
+            )
             or self.nominal_value < 0.0
         ):
             raise ValueError(
                 "nominal_value must be finite and non-negative."
             )
 
-        if (
-            not isfinite(self.scale)
-            or self.scale == 0.0
+        if not isfinite(
+            self.scale
         ):
             raise ValueError(
-                "scale must be finite and non-zero."
+                "scale must be finite."
             )
 
         if (
-            not isfinite(self.polarity)
-            or self.polarity not in (-1.0, 1.0)
+            not isfinite(
+                self.polarity
+            )
+            or self.polarity not in (
+                -1.0,
+                1.0,
+            )
         ):
             raise ValueError(
                 "polarity must be either +1.0 or -1.0."
             )
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @staticmethod
     def _validate_value(
         value: float | complex,
     ) -> float | complex:
         """
-        Validate a channel measurement value.
-
-        Real and complex values are both supported.
-
-        Complex values are required for quantities such as:
-
-            impedance
-            phasors
+        Validate a scalar or complex measurement value.
         """
 
-        if isinstance(value, bool):
+        if isinstance(
+            value,
+            bool,
+        ):
             raise TypeError(
                 "Measurement value cannot be bool."
             )
 
-        if isinstance(value, complex):
+        if isinstance(
+            value,
+            complex,
+        ):
 
             if (
                 not isfinite(value.real)
@@ -650,7 +600,15 @@ class MeasurementChannel:
 
             return value
 
-        value = float(value)
+        try:
+            value = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                "Measurement value must be numeric."
+            ) from exc
 
         if not isfinite(value):
             raise ValueError(
@@ -659,9 +617,92 @@ class MeasurementChannel:
 
         return value
 
-    # =============================================================
-    # SOURCE
-    # =============================================================
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_timestamp(
+        timestamp: Optional[float],
+    ) -> Optional[float]:
+        """
+        Validate an optional timestamp.
+        """
+
+        if timestamp is None:
+            return None
+
+        timestamp = float(
+            timestamp
+        )
+
+        if not isfinite(timestamp):
+            raise ValueError(
+                "timestamp must be finite."
+            )
+
+        return timestamp
+
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_sample_sequence(
+        sequence: Optional[int],
+    ) -> Optional[int]:
+        """
+        Validate an optional sample/update sequence number.
+        """
+
+        if sequence is None:
+            return None
+
+        if isinstance(
+            sequence,
+            bool,
+        ):
+            raise TypeError(
+                "sample_sequence cannot be bool."
+            )
+
+        sequence = int(
+            sequence
+        )
+
+        if sequence < 0:
+            raise ValueError(
+                "sample_sequence cannot be negative."
+            )
+
+        return sequence
+
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_stale_after(
+        value: Optional[float],
+    ) -> Optional[float]:
+        """
+        Validate optional signal-staleness threshold.
+        """
+
+        if value is None:
+            return None
+
+        value = float(
+            value
+        )
+
+        if (
+            not isfinite(value)
+            or value < 0.0
+        ):
+            raise ValueError(
+                "stale_after must be finite and >= 0."
+            )
+
+        return value
+
+    # =================================================================
+    # SOURCE ASSOCIATION
+    # =================================================================
 
     def set_source(
         self,
@@ -670,7 +711,7 @@ class MeasurementChannel:
         """
         Associate the channel with a measurement source.
 
-        This does not modify the source equipment.
+        The source itself is not modified.
         """
 
         self._validate_reference(
@@ -680,7 +721,7 @@ class MeasurementChannel:
 
         self.source = source
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def set_source_terminal(
         self,
@@ -688,10 +729,6 @@ class MeasurementChannel:
     ) -> None:
         """
         Associate the channel with a source measurement terminal.
-
-        This stores only the local association.
-
-        It does not create a network or protection connection.
         """
 
         self._validate_reference(
@@ -701,9 +738,73 @@ class MeasurementChannel:
 
         self.source_terminal = terminal
 
-    # =============================================================
+    # =================================================================
+    # VALUE ACCESS
+    # =================================================================
+
+    @property
+    def value(
+        self,
+    ) -> float | complex:
+        """
+        Return the raw channel value.
+
+        ``value`` is retained as a compatibility alias for
+        ``raw_value``.
+        """
+
+        return self.raw_value
+
+    # -----------------------------------------------------------------
+
+    @value.setter
+    def value(
+        self,
+        value: float | complex,
+    ) -> None:
+        self.raw_value = self._validate_value(
+            value
+        )
+
+    # -----------------------------------------------------------------
+
+    @property
+    def engineering_value(
+        self,
+    ) -> float | complex:
+        """
+        Return the consumer-facing engineering value.
+
+        Conversion:
+
+            engineering_value =
+                raw_value * scale * polarity
+        """
+
+        return (
+            self.raw_value
+            * self.scale
+            * self.polarity
+        )
+
+    # -----------------------------------------------------------------
+
+    @property
+    def signal(
+        self,
+    ) -> float | complex:
+        """
+        Return the current engineering signal.
+
+        This property is intentionally convenient for RelayInput and
+        other consumers.
+        """
+
+        return self.engineering_value
+
+    # =================================================================
     # MEASUREMENT UPDATE
-    # =============================================================
+    # =================================================================
 
     def update(
         self,
@@ -712,49 +813,41 @@ class MeasurementChannel:
         timestamp: Optional[float] = None,
         quality: Optional[MeasurementQuality] = None,
         available: Optional[bool] = None,
+        sample_sequence: Optional[int] = None,
     ) -> None:
         """
-        Update the channel measurement.
+        Update the channel with a new raw measurement value.
 
         Parameters
         ----------
         value:
-            New engineering measurement.
+            Raw value supplied by the measurement-generation layer.
 
         timestamp:
-            Optional measurement timestamp.
+            Optional sample timestamp.
 
         quality:
-            Optional signal quality update.
+            Optional quality update.
 
         available:
             Optional availability update.
 
+        sample_sequence:
+            Optional sample/update sequence number.
+
         Notes
         -----
-        The supplied value is the channel engineering value.
-
-        Scaling and instrument-specific transformation should be
-        performed by the measurement-generation layer/plugin before
-        the value is written here.
+        Physical CT/PT/CVT transformation is not performed here.
         """
 
-        self.value = self._validate_value(
+        self.raw_value = self._validate_value(
             value
         )
 
         if timestamp is not None:
-
-            timestamp = float(
+            self.timestamp = self._validate_timestamp(
                 timestamp
             )
-
-            if not isfinite(timestamp):
-                raise ValueError(
-                    "timestamp must be finite."
-                )
-
-            self.timestamp = timestamp
 
         if quality is not None:
 
@@ -773,119 +866,138 @@ class MeasurementChannel:
                 available
             )
 
-    # =============================================================
-    # ENGINEERING VALUE
-    # =============================================================
+        if sample_sequence is not None:
+            self.sample_sequence = (
+                self._validate_sample_sequence(
+                    sample_sequence
+                )
+            )
 
-    @property
-    def engineering_value(
+    # =================================================================
+    # SIGNAL QUALITY / VALIDITY
+    # =================================================================
+
+    def validity(
         self,
-    ) -> float | complex:
+        *,
+        current_time: Optional[float] = None,
+    ) -> MeasurementValidity:
         """
-        Return the channel engineering value.
+        Determine the current logical validity state.
 
-        The channel stores engineering-domain values.
+        ``current_time`` is optional because the channel does not
+        own a simulation clock.
+        """
 
-        The source instrument's physical transformation is not
-        recalculated here.
+        if not self.available:
+            return MeasurementValidity.UNAVAILABLE
+
+        if (
+            self.quality
+            == MeasurementQuality.INVALID
+        ):
+            return MeasurementValidity.INVALID_QUALITY
+
+        if (
+            self.quality
+            == MeasurementQuality.SUSPECT
+        ):
+            return MeasurementValidity.SUSPECT_QUALITY
+
+        if (
+            self.quality
+            == MeasurementQuality.UNKNOWN
+        ):
+            return MeasurementValidity.UNKNOWN_QUALITY
+
+        if (
+            current_time is not None
+            and self.stale_after is not None
+            and self.timestamp is not None
+        ):
+
+            current_time = float(
+                current_time
+            )
+
+            if not isfinite(
+                current_time
+            ):
+                raise ValueError(
+                    "current_time must be finite."
+                )
+
+            age = (
+                current_time
+                - self.timestamp
+            )
+
+            if age > self.stale_after:
+                return MeasurementValidity.STALE
+
+        return MeasurementValidity.VALID
+
+    # -----------------------------------------------------------------
+
+    def is_valid_at(
+        self,
+        current_time: Optional[float] = None,
+    ) -> bool:
+        """
+        Return whether the channel is valid at the supplied time.
         """
 
         return (
-            self.value
-            * self.scale
-            * self.polarity
+            self.validity(
+                current_time=current_time
+            )
+            == MeasurementValidity.VALID
         )
 
-    # =============================================================
-    # VALIDITY
-    # =============================================================
+    # -----------------------------------------------------------------
 
     @property
-    def is_valid(self) -> bool:
+    def is_valid(
+        self,
+    ) -> bool:
         """
-        Return whether the signal is presently suitable for
-        normal engineering consumption.
+        Return basic signal validity without staleness evaluation.
         """
 
         return (
-            self.available
-            and self.quality
-            == MeasurementQuality.GOOD
+            self.validity()
+            == MeasurementValidity.VALID
         )
 
-    # =============================================================
+    # -----------------------------------------------------------------
 
     @property
-    def is_usable(self) -> bool:
+    def is_usable(
+        self,
+    ) -> bool:
         """
-        Alias for the protection/consumer-facing validity check.
-
-        A consumer should normally use this property rather than
-        inspecting quality and availability independently.
+        Consumer-facing alias for basic signal validity.
         """
 
         return self.is_valid
 
-    # =============================================================
-    # SOURCE INFORMATION
-    # =============================================================
-
-    @property
-    def source_id(self) -> str | None:
-        """
-        Return the source equipment identifier.
-        """
-
-        if self.source is None:
-            return None
-
-        return self.source.id
-
-    # -------------------------------------------------------------
-
-    @property
-    def source_terminal_id(self) -> str | None:
-        """
-        Return the source measurement-terminal identifier.
-        """
-
-        if self.source_terminal is None:
-            return None
-
-        return self.source_terminal.id
-
-    # =============================================================
-    # SIGNAL INFORMATION
-    # =============================================================
-
-    @property
-    def signal_name(self) -> str:
-        """
-        Return a canonical signal classification name.
-        """
-
-        return self.signal_type.value
-
-    # =============================================================
-    # SERVICE / AVAILABILITY
-    # =============================================================
+    # =================================================================
+    # AVAILABILITY
+    # =================================================================
 
     def set_available(
         self,
         available: bool,
     ) -> None:
         """
-        Set channel availability.
-
-        Availability is a signal-domain state and does not modify
-        the physical source equipment.
+        Set logical signal availability.
         """
 
         self.available = bool(
             available
         )
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def set_quality(
         self,
@@ -905,9 +1017,55 @@ class MeasurementChannel:
 
         self.quality = quality
 
-    # =============================================================
+    # =================================================================
+    # SOURCE INFORMATION
+    # =================================================================
+
+    @property
+    def source_id(
+        self,
+    ) -> str | None:
+        """
+        Return the source equipment identifier.
+        """
+
+        if self.source is None:
+            return None
+
+        return self.source.id
+
+    # -----------------------------------------------------------------
+
+    @property
+    def source_terminal_id(
+        self,
+    ) -> str | None:
+        """
+        Return the source-terminal identifier.
+        """
+
+        if self.source_terminal is None:
+            return None
+
+        return self.source_terminal.id
+
+    # =================================================================
+    # SIGNAL INFORMATION
+    # =================================================================
+
+    @property
+    def signal_name(
+        self,
+    ) -> str:
+        """
+        Return the canonical signal type identifier.
+        """
+
+        return self.signal_type.value
+
+    # =================================================================
     # RESET
-    # =============================================================
+    # =================================================================
 
     def reset(
         self,
@@ -918,15 +1076,13 @@ class MeasurementChannel:
         ),
         available: bool = True,
         timestamp: Optional[float] = None,
+        sample_sequence: Optional[int] = None,
     ) -> None:
         """
-        Reset channel signal state.
-
-        Source association and engineering configuration remain
-        unchanged.
+        Reset signal state while retaining channel configuration.
         """
 
-        self.value = self._validate_value(
+        self.raw_value = self._validate_value(
             value
         )
 
@@ -942,16 +1098,33 @@ class MeasurementChannel:
         self.available = bool(
             available
         )
-        self.timestamp = timestamp
 
-    # =============================================================
+        self.timestamp = self._validate_timestamp(
+            timestamp
+        )
+
+        self.sample_sequence = (
+            self._validate_sample_sequence(
+                sample_sequence
+            )
+        )
+
+    # =================================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =================================================================
 
-    def summary(self) -> dict[str, Any]:
+    def diagnostics(
+        self,
+        *,
+        current_time: Optional[float] = None,
+    ) -> dict[str, Any]:
         """
-        Return structured channel information.
+        Return structured measurement diagnostics.
         """
+
+        validity = self.validity(
+            current_time=current_time
+        )
 
         return {
             "id": self.id,
@@ -962,39 +1135,67 @@ class MeasurementChannel:
             "nominal_value": self.nominal_value,
             "scale": self.scale,
             "polarity": self.polarity,
-            "value": self.value,
+            "raw_value": self.raw_value,
             "engineering_value": self.engineering_value,
             "available": self.available,
             "quality": self.quality.value,
-            "usable": self.is_usable,
+            "validity": validity.value,
+            "usable": (
+                validity
+                == MeasurementValidity.VALID
+            ),
             "timestamp": self.timestamp,
+            "sample_sequence": self.sample_sequence,
+            "stale_after": self.stale_after,
             "source": self.source_id,
             "source_terminal": self.source_terminal_id,
         }
 
-    # =============================================================
-    # REPRESENTATION
-    # =============================================================
+    # -----------------------------------------------------------------
 
-    def __repr__(self) -> str:
+    def summary(
+        self,
+    ) -> dict[str, Any]:
+        """
+        Return channel summary.
+
+        This method intentionally excludes time-relative staleness.
+        """
+
+        return self.diagnostics()
+
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
+
+    def __repr__(
+        self,
+    ) -> str:
         """
         Return a concise developer-facing representation.
         """
 
         return (
             f"<MeasurementChannel "
-            f"id={self.id}, "
+            f"id={self.id!r}, "
             f"type={self.signal_type.value}, "
             f"phase={self.phase.value}, "
-            f"value={self.value!r}, "
+            f"value={self.engineering_value!r}, "
             f"quality={self.quality.value}, "
             f"available={self.available}>"
         )
+
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
 
 
 __all__ = [
     "MeasurementSignalType",
     "MeasurementPhase",
     "MeasurementQuality",
+    "MeasurementValidity",
     "MeasurementChannel",
 ]
+```
