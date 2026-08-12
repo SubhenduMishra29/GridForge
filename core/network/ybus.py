@@ -1,10 +1,11 @@
 """
-GridForge Y-Bus Builder
-=======================
-
 GridForge Network Layer V2
+==========================
 
-Builds the network bus-admittance matrix from the canonical electrical
+Y-Bus Builder
+-------------
+
+Builds the network bus-admittance matrix from canonical electrical
 model objects assembled in ``core.network.Network``.
 
 Responsibilities
@@ -14,56 +15,47 @@ Responsibilities
 - Stamp in-service transmission/distribution lines.
 - Stamp in-service transformers.
 - Stamp bus shunts.
+- Stamp supported canonical shunt elements.
 - Produce a sparse CSR admittance matrix.
 - Perform structural matrix validation.
 - Provide lightweight diagnostic information.
 
-Architecture
-------------
-
-    core/model/
-        Bus
-        Line
-        Transformer
-        Shunt
-              |
-              v
-    core/network/
-        Network
-        YBusBuilder
-              |
-              v
-    core/analysis/
-        Study orchestration
-              |
-              v
-    core/solver/
-        Numerical algorithms
-
-The canonical electrical model objects remain owned by
-``core.model``.
-
-YBusBuilder only reads their electrical parameters.
-
-The YBusBuilder does NOT:
-
+Does NOT
+--------
 - Define electrical equipment models.
-- Modify Bus state.
-- Modify Line state.
-- Modify Transformer state.
-- Modify Shunt state.
+- Modify canonical model objects.
 - Perform power-flow calculations.
 - Perform Newton-Raphson iterations.
 - Calculate short-circuit currents.
 - Perform contingency analysis.
 - Perform protection calculations.
 - Perform dynamic simulation.
-- Decide PV/PQ/Slack bus classification.
+- Decide PV/PQ/Slack classification.
 - Perform engineering validation.
 - Manage GUI state.
 
+Architecture
+------------
+
+    core/model/
+        Canonical electrical entities
+                |
+                v
+    core/network/
+        Network
+        YBusBuilder
+                |
+                v
+    core/analysis/
+        Study orchestration
+                |
+                v
+    core/solver/
+        Numerical algorithms
+
 Y-Bus Convention
 ----------------
+
 For a conventional passive network:
 
     I = Ybus V
@@ -72,24 +64,12 @@ The matrix is assembled using complex nodal admittances.
 
 Line Model
 ----------
-A line is represented using the standard nominal-pi model:
 
-                    y + jb/2
-              +----/\\/\\/\\/----+
-              |                |
-              |                |
-        Bus i +                + Bus j
-              |                |
-              +----/\\/\\/\\/----+
-                    y + jb/2
-
-where:
+Lines use the nominal-pi model:
 
     y = 1 / (r + jx)
 
-and ``b_pu`` is the total line charging susceptance.
-
-Therefore each line contributes:
+with total charging susceptance ``b_pu``:
 
     Yii += y + j*b/2
     Yjj += y + j*b/2
@@ -98,15 +78,16 @@ Therefore each line contributes:
 
 Transformer Model
 -----------------
-The transformer uses a complex off-nominal tap:
+
+Transformers use a complex off-nominal tap:
 
     a = tap_ratio * exp(j * phase_shift)
 
-For series admittance:
+with:
 
     y = 1 / (r + jx)
 
-the standard complex tap formulation is:
+The standard complex-tap formulation is:
 
     Yii += y / |a|²
     Yij -= y / conj(a)
@@ -116,34 +97,43 @@ the standard complex tap formulation is:
 Optional transformer shunt susceptance is divided equally between
 the two sides.
 
-Unlike a zero-phase transformer, a transformer with a non-zero phase
-shift generally produces a non-symmetric Y-bus.
+A transformer with non-zero phase shift can produce a non-symmetric
+Y-bus.
 
 Shunts
 ------
-Bus shunt conductance/susceptance is added directly to the diagonal.
 
-If a bus provides:
-
-    g_shunt
-    b_shunt
-
-then:
+Bus shunt quantities are added directly to the diagonal:
 
     Yii += g_shunt + j*b_shunt
 
-The model layer remains responsible for defining the meaning and
-units of these quantities.
+Canonical Shunt objects may additionally contribute directly at
+their associated bus.
 
 Sparse Representation
 ---------------------
-The assembled matrix is constructed using SciPy ``lil_matrix`` for
-efficient incremental stamping and converted to ``csr_matrix`` for
-normal downstream numerical use.
+
+Assembly uses ``scipy.sparse.lil_matrix`` and converts the result
+to ``scipy.sparse.csr_matrix`` for downstream numerical use.
+
+Validation
+----------
+
+The builder validates:
+
+- deterministic bus indexing,
+- registered bus references,
+- matrix dimensions,
+- finite matrix values.
+
+Y-bus symmetry is deliberately NOT enforced because phase-shifting
+transformers can legitimately produce a non-symmetric matrix.
 
 GridForge V2 Status
 -------------------
-This module is part of the Network Layer V2 audit baseline.
+
+This module is part of the GridForge Network Layer V2 freeze
+baseline.
 
 Changes require evidence of a genuinely fundamental network
 representation requirement that cannot be satisfied by the existing
@@ -179,14 +169,26 @@ class YBusBuilder:
     The builder reads canonical model objects from the Network.
 
     It does not take ownership of those objects and does not modify
-    them.
+    their state.
     """
 
     # =================================================================
     # INITIALIZATION
     # =================================================================
 
-    def __init__(self, network) -> None:
+    def __init__(
+        self,
+        network: Any,
+    ) -> None:
+        """
+        Initialize the Y-bus builder.
+        """
+
+        if network is None:
+            raise ValueError(
+                "YBusBuilder requires a Network instance."
+            )
+
         self.network = network
 
         self.bus_index: dict[Any, int] = {}
@@ -203,9 +205,7 @@ class YBusBuilder:
         Returns
         -------
         dict
-            Mapping:
-
-                bus.id -> matrix index
+            Mapping ``bus.id -> matrix index``.
 
         Notes
         -----
@@ -218,8 +218,10 @@ class YBusBuilder:
         for position, bus in enumerate(
             self.network.buses
         ):
-
-            if not hasattr(bus, "id"):
+            if not hasattr(
+                bus,
+                "id",
+            ):
                 raise TypeError(
                     "Every network bus must provide "
                     "an 'id' attribute."
@@ -255,12 +257,14 @@ class YBusBuilder:
 
             I = Ybus V
 
-        The builder does not solve any network equations.
+        No network equations are solved by this method.
         """
 
         self.build_bus_index()
 
-        n = len(self.network.buses)
+        n = len(
+            self.network.buses
+        )
 
         Y = lil_matrix(
             (n, n),
@@ -296,13 +300,13 @@ class YBusBuilder:
             )
 
         # -------------------------------------------------------------
-        # Bus shunts
+        # Bus-level shunts and canonical Shunt elements.
         # -------------------------------------------------------------
 
         self.stamp_bus_shunts(Y)
 
         # -------------------------------------------------------------
-        # Convert to downstream-friendly sparse representation.
+        # Convert to downstream-friendly CSR representation.
         # -------------------------------------------------------------
 
         self.Ybus = Y.tocsr()
@@ -310,20 +314,18 @@ class YBusBuilder:
         # -------------------------------------------------------------
         # Structural validation.
         #
-        # Deliberately do NOT enforce matrix symmetry.
+        # Do NOT enforce symmetry:
         #
-        # A transformer phase shift can legitimately produce:
+        # phase-shifting transformers can legitimately produce
         #
         #     Yij != Yji
-        #
-        # Therefore symmetry is not a universal Y-bus invariant.
         # -------------------------------------------------------------
 
         self._validate_dimensions()
         self._validate_finite()
 
         # -------------------------------------------------------------
-        # Store the assembled representation on Network.
+        # Store derived representation on Network.
         # -------------------------------------------------------------
 
         self.network.Ybus = self.Ybus
@@ -354,18 +356,6 @@ class YBusBuilder:
         ------
         ValueError
             If the line has effectively zero series impedance.
-
-        Key equations
-        -------------
-            z = r + jx
-            y = 1 / z
-
-        For total charging susceptance ``b_pu``:
-
-            Yii += y + j*b/2
-            Yjj += y + j*b/2
-            Yij -= y
-            Yji -= y
         """
 
         if not getattr(
@@ -403,8 +393,19 @@ class YBusBuilder:
             line,
         )
 
-        r = float(line.r_pu)
-        x = float(line.x_pu)
+        r = float(
+            line.r_pu
+        )
+
+        x = float(
+            line.x_pu
+        )
+
+        if not np.isfinite(r) or not np.isfinite(x):
+            raise ValueError(
+                f"Line '{getattr(line, 'id', line)}' "
+                "has non-finite impedance parameters."
+            )
 
         z = complex(
             r,
@@ -425,6 +426,12 @@ class YBusBuilder:
                 0.0,
             )
         )
+
+        if not np.isfinite(b_total):
+            raise ValueError(
+                f"Line '{getattr(line, 'id', line)}' "
+                "has non-finite b_pu."
+            )
 
         y_shunt = 1j * b_total / 2.0
 
@@ -458,12 +465,16 @@ class YBusBuilder:
 
         Notes
         -----
-        The transformer uses a complex off-nominal tap:
+        The transformer uses:
 
-            a = tap * exp(j*theta)
+            a = tap * exp(j*shift)
 
-        The resulting matrix is generally non-symmetric when
-        ``phase_shift_deg != 0``.
+        and:
+
+            Yii += y / |a|²
+            Yij -= y / conj(a)
+            Yji -= y / a
+            Yjj += y
         """
 
         if not getattr(
@@ -509,6 +520,13 @@ class YBusBuilder:
         x = float(
             transformer.x_pu
         )
+
+        if not np.isfinite(r) or not np.isfinite(x):
+            raise ValueError(
+                f"Transformer "
+                f"'{getattr(transformer, 'id', transformer)}' "
+                "has non-finite impedance parameters."
+            )
 
         z = complex(
             r,
@@ -575,7 +593,7 @@ class YBusBuilder:
         )
 
         # -------------------------------------------------------------
-        # Optional magnetizing/shunt susceptance.
+        # Optional transformer shunt susceptance.
         # -------------------------------------------------------------
 
         b_shunt = float(
@@ -586,21 +604,16 @@ class YBusBuilder:
             )
         )
 
+        if not np.isfinite(b_shunt):
+            raise ValueError(
+                f"Transformer shunt susceptance must be finite: "
+                f"{transformer}"
+            )
+
         y_shunt = 1j * b_shunt / 2.0
 
         # -------------------------------------------------------------
         # Transformer stamp.
-        #
-        # For:
-        #
-        #     a = tap * exp(j*shift)
-        #
-        # the standard complex tap formulation is:
-        #
-        #     Yii += y / |a|²
-        #     Yij -= y / conj(a)
-        #     Yji -= y / a
-        #     Yjj += y
         # -------------------------------------------------------------
 
         Y[i, i] += (
@@ -630,21 +643,29 @@ class YBusBuilder:
         Y: lil_matrix,
     ) -> None:
         """
-        Stamp bus-level shunt conductance and susceptance.
+        Stamp bus-level shunt quantities and canonical Shunt objects.
 
-        Expected optional Bus attributes:
+        Bus attributes:
 
             g_shunt
             b_shunt
 
-        The contribution is:
+        contribute:
 
             Yii += g_shunt + j*b_shunt
 
-        Notes
-        -----
-        Missing shunt attributes are treated as zero.
+        Canonical Shunt objects are supported when they expose:
+
+            bus
+            g_pu
+            b_pu
+
+        Missing bus-level shunt attributes are treated as zero.
         """
+
+        # -------------------------------------------------------------
+        # Bus-level shunts
+        # -------------------------------------------------------------
 
         for bus in self.network.buses:
 
@@ -671,14 +692,12 @@ class YBusBuilder:
 
             if not np.isfinite(g):
                 raise ValueError(
-                    f"Bus '{bus.id}' has non-finite "
-                    "g_shunt."
+                    f"Bus '{bus.id}' has non-finite g_shunt."
                 )
 
             if not np.isfinite(b):
                 raise ValueError(
-                    f"Bus '{bus.id}' has non-finite "
-                    "b_shunt."
+                    f"Bus '{bus.id}' has non-finite b_shunt."
                 )
 
             if g != 0.0 or b != 0.0:
@@ -688,12 +707,7 @@ class YBusBuilder:
                 )
 
         # -------------------------------------------------------------
-        # Explicit Shunt model collection.
-        #
-        # If the canonical Shunt model exposes a direct bus endpoint,
-        # stamp it here. This keeps shunt equipment separate from the
-        # Bus object while allowing Network.shunts to participate in
-        # Y-bus assembly.
+        # Canonical Shunt model collection
         # -------------------------------------------------------------
 
         for shunt in getattr(
@@ -716,7 +730,11 @@ class YBusBuilder:
             )
 
             if bus is None:
-                continue
+                raise ValueError(
+                    f"Shunt "
+                    f"'{getattr(shunt, 'id', shunt)}' "
+                    "must provide a bus reference."
+                )
 
             idx = self._bus_index(
                 bus,
@@ -741,13 +759,15 @@ class YBusBuilder:
 
             if not np.isfinite(g):
                 raise ValueError(
-                    f"Shunt '{getattr(shunt, 'id', shunt)}' "
+                    f"Shunt "
+                    f"'{getattr(shunt, 'id', shunt)}' "
                     "has non-finite conductance."
                 )
 
             if not np.isfinite(b):
                 raise ValueError(
-                    f"Shunt '{getattr(shunt, 'id', shunt)}' "
+                    f"Shunt "
+                    f"'{getattr(shunt, 'id', shunt)}' "
                     "has non-finite susceptance."
                 )
 
@@ -758,7 +778,7 @@ class YBusBuilder:
                 )
 
     # =================================================================
-    # INDEX VALIDATION
+    # BUS INDEX RESOLUTION
     # =================================================================
 
     def _bus_index(
@@ -767,7 +787,7 @@ class YBusBuilder:
         element: Any,
     ) -> int:
         """
-        Resolve a bus object to its Y-bus matrix index.
+        Resolve a canonical bus object to its matrix index.
         """
 
         if not hasattr(
@@ -775,7 +795,8 @@ class YBusBuilder:
             "id",
         ):
             raise TypeError(
-                f"Element '{getattr(element, 'id', element)}' "
+                f"Element "
+                f"'{getattr(element, 'id', element)}' "
                 "references a bus without an 'id'."
             )
 
@@ -783,7 +804,8 @@ class YBusBuilder:
 
         if bus_id not in self.bus_index:
             raise ValueError(
-                f"Element '{getattr(element, 'id', element)}' "
+                f"Element "
+                f"'{getattr(element, 'id', element)}' "
                 f"references unregistered bus '{bus_id}'."
             )
 
@@ -817,12 +839,11 @@ class YBusBuilder:
                 f"got {self.Ybus.shape}."
             )
 
+    # -----------------------------------------------------------------
+
     def _validate_finite(self) -> None:
         """
-        Verify that all assembled Y-bus entries are finite.
-
-        Complex entries are checked by examining their real and
-        imaginary components.
+        Verify that all Y-bus entries are finite.
         """
 
         if self.Ybus is None:
@@ -876,7 +897,7 @@ class YBusBuilder:
 
     def summary(self) -> dict[str, Any]:
         """
-        Return concise Y-bus assembly information.
+        Return concise Y-bus assembly diagnostics.
         """
 
         return {
