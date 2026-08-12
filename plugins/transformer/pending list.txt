@@ -1,0 +1,624 @@
+# GridForge Transformer Plugin — Pending List
+
+Status: ACTIVE DEVELOPMENT
+Layer: Plugin Layer
+Package: `plugins/transformer/`
+Baseline: GridForge Model Layer V2
+
+---
+
+## 1. Transformer Plugin Attachment / Registration
+
+**Status:** PENDING
+
+Determine how transformer plugins are attached to a
+`core.model.transformer.Transformer`.
+
+Current plugins are independent objects and receive a reference to
+the core transformer.
+
+Need to establish a formal mechanism for:
+
+* Plugin registration.
+* Plugin discovery.
+* Plugin lookup.
+* Plugin lifecycle.
+* Duplicate-plugin prevention.
+* Plugin removal/replacement.
+* Plugin validation.
+* Serialization/deserialization.
+
+Do not modify `core/model/transformer.py` until the architecture
+requires it.
+
+---
+
+## 2. Transformer Plugin Container
+
+**Status:** PENDING
+
+Determine whether transformer-specific capabilities should remain
+independent:
+
+```text
+Transformer
+├── Winding
+├── VectorGroup
+├── Grounding
+├── TapChanger
+└── TransformerEquivalent
+```
+
+or whether a dedicated transformer plugin/container should coordinate
+these capabilities:
+
+```text
+Transformer
+└── TransformerPluginContainer
+    ├── Winding
+    ├── VectorGroup
+    ├── Grounding
+    ├── TapChanger
+    └── TransformerEquivalent
+```
+
+Preferred direction:
+
+* Keep individual capabilities independent.
+* Introduce a container only if lifecycle/coordination requirements
+  genuinely justify it.
+
+---
+
+## 3. Transformer / Winding Ownership
+
+**Status:** PENDING
+
+Determine whether windings should:
+
+* exist only as plugin objects,
+* be owned by a transformer plugin container,
+* or be registered directly against the transformer.
+
+Need to establish authoritative ownership without creating duplicate
+transformer state.
+
+---
+
+## 4. Transformer Equivalent Authority
+
+**Status:** PENDING
+
+Current core transformer already contains:
+
+```text
+r
+x
+```
+
+`TransformerEquivalent` introduces:
+
+```text
+r_series
+x_series
+g_magnetizing
+b_magnetizing
+```
+
+Need to establish the authority rule.
+
+Current intended direction:
+
+```text
+core Transformer
+    └── authoritative common series representation
+
+TransformerEquivalent
+    └── optional detailed physical model
+```
+
+No automatic synchronization should be introduced until explicitly
+designed.
+
+---
+
+## 5. Tap Changer Integration
+
+**Status:** PENDING
+
+`TapChanger` currently owns:
+
+```text
+position
+ratio
+min_ratio
+max_ratio
+step_ratio
+neutral_position
+```
+
+It intentionally does not directly modify:
+
+```text
+Transformer.tap
+```
+
+Need a formal integration mechanism between:
+
+```text
+TapChanger
+        ↓
+Transformer common tap interface
+        ↓
+Network / Solver
+```
+
+Automatic voltage regulation remains outside the tap-changer model.
+
+---
+
+## 6. OLTC / Voltage Regulation Controller
+
+**Status:** PENDING
+
+Do NOT implement inside:
+
+```text
+plugins/transformer/tap_changer.py
+```
+
+Future implementation should belong to an appropriate control/dynamics
+layer.
+
+Potential future capabilities:
+
+* Local voltage regulation.
+* Remote voltage regulation.
+* Deadband.
+* Time delay.
+* Raise/lower control.
+* Control limits.
+* Reverse power logic.
+* Line-drop compensation.
+* Parallel transformer coordination.
+
+---
+
+## 7. Transformer Vector Group
+
+**Status:** IMPLEMENTED — REQUIRES AUDIT
+
+Current module:
+
+```text
+plugins/transformer/vector_group.py
+```
+
+Pending audit items:
+
+* IEC notation coverage.
+* Two-winding notation.
+* Three-winding future compatibility.
+* Phase-shift sign convention.
+* Relationship with `Transformer.phase_shift_deg`.
+* Relationship with solver/network transformer convention.
+
+Do not duplicate numerical phase-shift logic.
+
+---
+
+## 8. Transformer Grounding
+
+**Status:** IMPLEMENTED — REQUIRES AUDIT
+
+Current module:
+
+```text
+plugins/transformer/grounding.py
+```
+
+Pending future work:
+
+* Winding-specific grounding.
+* Neutral grounding impedance.
+* Grounding transformer arrangements.
+* Grounding resistor/reactor representation.
+* Zero-sequence network integration.
+* Earth-fault study integration.
+
+Zero-sequence calculations must remain outside the plugin model.
+
+---
+
+## 9. Three-Winding Transformer
+
+**Status:** NOT IMPLEMENTED
+
+Future requirement.
+
+Potential architecture:
+
+```text
+Transformer
+├── Winding HV
+├── Winding LV
+└── Winding Tertiary
+```
+
+Need a proper multi-terminal transformer representation before
+implementation.
+
+Do not force three-winding behavior into the current two-terminal
+core `Transformer`.
+
+---
+
+## 10. Multi-Winding Equivalent
+
+**Status:** NOT IMPLEMENTED
+
+Future requirement.
+
+Need to define:
+
+* Pairwise impedance representation.
+* Common-core equivalent.
+* Leakage impedance.
+* Winding reference bases.
+* Per-unit conversion.
+* Numerical solver interface.
+
+Must be designed before implementation.
+
+---
+
+## 11. Transformer Sequence Model
+
+**Status:** NOT IMPLEMENTED
+
+Future requirement.
+
+Potential capabilities:
+
+* Positive-sequence impedance.
+* Negative-sequence impedance.
+* Zero-sequence impedance.
+* Zero-sequence grounding path.
+* Winding connection effects.
+
+Sequence calculations belong to solver/analysis layers.
+
+The plugin should only provide physical/model parameters.
+
+---
+
+## 12. Transformer Thermal Model
+
+**Status:** NOT IMPLEMENTED
+
+Future requirement.
+
+Potential capabilities:
+
+* Top-oil temperature.
+* Winding hot-spot temperature.
+* Ambient temperature.
+* Thermal time constants.
+* Continuous rating.
+* Short-time emergency rating.
+* Aging acceleration.
+
+Should become a dedicated transformer thermal capability rather than
+being added to the core transformer.
+
+---
+
+## 13. Transformer Loss Model
+
+**Status:** PARTIALLY COVERED
+
+Current equivalent supports:
+
+```text
+G_magnetizing
+```
+
+for core-loss representation.
+
+Pending:
+
+* No-load loss.
+* Load loss.
+* Copper loss.
+* Stray loss.
+* Temperature-dependent resistance.
+* Loss separation.
+
+Numerical loss calculation belongs to analysis/solver layers.
+
+---
+
+## 14. Transformer Protection Interface
+
+**Status:** NOT IMPLEMENTED
+
+Future integration may require transformer-specific protection
+interfaces for:
+
+* Differential protection.
+* REF.
+* Buchholz.
+* Sudden-pressure protection.
+* Overfluxing.
+* Thermal protection.
+* Overcurrent backup.
+
+Protection devices must remain outside the transformer physical model.
+
+---
+
+## 15. Transformer Auxiliary Equipment
+
+**Status:** NOT IMPLEMENTED
+
+Potential future capabilities:
+
+* Cooling systems.
+* Fans.
+* Pumps.
+* OLTC motor drive.
+* Marshalling cabinet.
+* Temperature indicators.
+* Oil level monitoring.
+* Buchholz relay.
+* Pressure relief device.
+
+These should be separate equipment/control/measurement models.
+
+---
+
+## 16. Transformer Measurement Interface
+
+**Status:** NOT IMPLEMENTED
+
+Future integration with:
+
+* CT.
+* PT/VT.
+* Temperature sensors.
+* Oil level sensors.
+* Pressure sensors.
+* Tap-position feedback.
+* SCADA channels.
+
+Measurement channels must remain separate from the physical
+transformer model.
+
+---
+
+## 17. Transformer Grounding vs System Grounding
+
+**Status:** PENDING
+
+Establish clear ownership between:
+
+```text
+Transformer grounding
+```
+
+and:
+
+```text
+Network/system grounding
+```
+
+Transformer plugin should represent the physical transformer-side
+grounding arrangement.
+
+Network-level grounding rules belong to:
+
+```text
+core/network/
+```
+
+or the appropriate future grounding subsystem.
+
+---
+
+## 18. Serialization
+
+**Status:** NOT IMPLEMENTED
+
+Define serialization format for transformer plugins.
+
+Requirements:
+
+* Stable identifiers.
+* Plugin type.
+* Version.
+* Physical parameters.
+* References to parent transformer.
+* Backward compatibility.
+
+Potential future format:
+
+```json
+{
+    "plugin_type": "...",
+    "version": "...",
+    "parameters": {}
+}
+```
+
+Do not implement until plugin registration architecture is defined.
+
+---
+
+## 19. Plugin Validation
+
+**Status:** PARTIALLY IMPLEMENTED
+
+Current plugins perform local validation.
+
+Need a future distinction between:
+
+### Local validation
+
+Examples:
+
+* Positive voltage.
+* Valid tap range.
+* Valid impedance.
+* Valid grounding resistance.
+
+### System validation
+
+Examples:
+
+* Winding actually exists.
+* Vector group matches winding configuration.
+* Grounding references a valid neutral.
+* Tap changer applies to the correct winding.
+* Plugin does not conflict with another plugin.
+
+System validation must not be duplicated inside individual plugins.
+
+---
+
+## 20. Plugin Versioning
+
+**Status:** NOT IMPLEMENTED
+
+Future requirement.
+
+Each plugin capability should have a stable version so that
+serialized GridForge projects remain compatible.
+
+Example:
+
+```text
+transformer_winding: 1.0
+transformer_vector_group: 1.0
+transformer_grounding: 1.0
+transformer_tap_changer: 1.0
+transformer_equivalent: 1.0
+```
+
+---
+
+## 21. Unit Policy
+
+**Status:** PENDING AUDIT
+
+Current representation intentionally uses different engineering units
+where appropriate:
+
+```text
+Core electrical parameters:
+    per-unit
+
+Winding voltage:
+    kV
+
+Equipment rating:
+    MVA
+
+Grounding impedance:
+    ohm
+
+Phase shift:
+    degree at public interface
+    radian in common numerical interface
+```
+
+Need a final transformer-plugin unit contract consistent with the
+GridForge Base Layer.
+
+---
+
+## 22. Frozen Core Boundary
+
+**Status:** IMPORTANT — DO NOT VIOLATE
+
+The following must remain outside `core/model/transformer.py`
+unless a genuinely fundamental requirement is demonstrated:
+
+* Three-winding representation.
+* Detailed winding configuration.
+* Vector group.
+* Grounding configuration.
+* Tap changer mechanics.
+* Magnetizing branch.
+* Thermal model.
+* Auxiliary equipment.
+* Protection equipment.
+* Measurement channels.
+
+The core transformer remains the stable common two-terminal model.
+
+---
+
+# Current Transformer Plugin Files
+
+```text
+plugins/
+└── transformer/
+    ├── __init__.py
+    ├── base.py
+    ├── winding.py
+    ├── vector_group.py
+    ├── grounding.py
+    ├── tap_changer.py
+    └── equivalent.py
+```
+
+---
+
+# Immediate Next Steps
+
+1. Continue transformer plugin capability development.
+2. Do not freeze the package yet.
+3. Complete remaining clearly separable physical transformer
+   capabilities.
+4. Then perform a package-level architectural audit.
+5. Define plugin registration/attachment.
+6. Define plugin ownership/lifecycle.
+7. Define serialization/versioning.
+8. Validate interaction with the frozen `core/model/` layer.
+9. Freeze the transformer plugin baseline.
+10. Only then proceed to additional transformer/control/dynamics
+    capabilities.
+
+---
+
+# Architectural Rule
+
+Do not move detailed transformer physics back into `core/model/`
+merely because a new capability is required.
+
+Preferred architecture:
+
+```text
+                    GridForge Core
+                         │
+                  core/model/
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+        Transformer             Branch
+              │
+              │ stable interface
+              ▼
+       plugins/transformer/
+              │
+       ┌──────┼────────┬────────┐
+       ▼      ▼        ▼        ▼
+    Winding  Vector   Grounding TapChanger
+             Group
+              │
+              ▼
+          Equivalent
+```
+
+The core model remains small and stable; specialized transformer
+physics is progressively added through capabilities/plugins.
