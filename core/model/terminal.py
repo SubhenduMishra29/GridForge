@@ -1,11 +1,13 @@
+# core/model/terminal.py
+
 """
 GridForge Terminal Model
 ========================
 
 GridForge Model Layer V2
 
-Defines the physical electrical Terminal abstraction used by GridForge
-equipment models.
+Defines the physical electrical Terminal abstraction used by
+GridForge equipment models.
 
 Architecture
 ------------
@@ -14,64 +16,44 @@ to an electrical equipment model.
 
 The Terminal is NOT the global network topology.
 
-A terminal identifies a local connection point of equipment. The
-network layer remains responsible for determining and maintaining the
+A Terminal identifies a local connection point of equipment. The
+network layer remains responsible for determining and maintaining
 global electrical topology.
 
 Examples
 --------
-
 Load:
 
     Load
-      │
+      |
     Terminal
-      │
-      └──── Network topology ──── Bus
-
+      |
+      +---- Network topology ---- Bus
 
 Breaker:
 
     Breaker
-    ├── from_terminal
-    └── to_terminal
+    |      |
+    from   to
+    terminal terminal
 
-    Bus ── Breaker ── Load
-
+    Bus -- Breaker -- Load
 
 Line:
 
     Line
-    ├── from_terminal
-    └── to_terminal
+    |    |
+    from to
 
-    Bus ── Line ── Bus
-
+    Bus -- Line -- Bus
 
 Transformer:
 
     Transformer
-    ├── from_terminal
-    └── to_terminal
+    |          |
+    from       to
 
-    Bus ── Transformer ── Bus
-
-
-Physical switching connection:
-
-    Bus
-      │
-      ▼
-    Breaker.from_terminal
-      │
-    Breaker
-      │
-    Breaker.to_terminal
-      │
-      ▼
-    Load.terminal
-      │
-    Load
+    Bus -- Transformer -- Bus
 
 Responsibilities
 ----------------
@@ -108,22 +90,22 @@ A Terminal belongs to an equipment model.
 Examples:
 
     Load
-      └── terminal
+      |
+    terminal
 
     Breaker
-      ├── from_terminal
-      └── to_terminal
+    |      |
+    from   to
+    terminal terminal
 
     Line
-      ├── from_terminal
-      └── to_terminal
+    |    |
+    from to
+    terminal terminal
 
-    Transformer
-      ├── from_terminal
-      └── to_terminal
+The owner is local model information.
 
-The owner is local model information. The Terminal does not register
-itself with the owner or with the network.
+The Terminal does not register itself with the owner or network.
 
 Connection Model
 ----------------
@@ -131,18 +113,18 @@ A Terminal contains a local connection endpoint.
 
 The endpoint may represent:
 
-- a Bus;
+- a Bus-like object;
 - another Terminal.
 
 This allows physical equipment connections such as:
 
-    Bus ── Breaker ── Load
+    Bus -- Breaker -- Load
 
-without making the Breaker directly own or manipulate the global
+without making the Breaker directly own or manipulate global
 network topology.
 
-The network layer remains responsible for validating the complete
-network connection and constructing the global topology representation.
+The network layer remains responsible for validating complete
+network connections and constructing the global topology.
 
 Bus Compatibility
 -----------------
@@ -153,32 +135,28 @@ Terminal provides:
 
     terminal.bus
 
-This property returns the connected Bus only when the endpoint is
+This property returns the connected Bus when the endpoint is
 Bus-like.
 
-If the endpoint is another Terminal, ``terminal.bus`` resolves through
-that terminal when possible.
+If the endpoint is another Terminal, ``terminal.bus`` follows the
+terminal connection when possible.
 
 The authoritative local connection reference remains:
 
     terminal.endpoint
 
-The Terminal does not import the concrete Bus class. This preserves
-the existing dependency direction and avoids circular dependencies.
+The Terminal deliberately does not import the concrete Bus class.
 
 Validation
 ----------
-The Terminal validates only the local connection contract.
+The Terminal validates only the local endpoint contract.
 
-A connected endpoint must expose a non-empty string ``id`` attribute.
+An endpoint must expose a non-empty string ``id`` attribute.
 
-A Terminal may also connect directly to another Terminal.
+A Terminal may connect directly to another Terminal.
 
 The Terminal does not determine whether a connection is electrically
-legal.
-
-Connection compatibility and global topology rules belong to
-``core/network/``.
+legal. That belongs to ``core/network``.
 
 Disconnection
 -------------
@@ -190,9 +168,7 @@ A disconnected Terminal has:
 
     endpoint = None
 
-This changes only the local model reference.
-
-It does not modify global network topology.
+This modifies only the local model reference.
 
 GridForge V2 Status
 -------------------
@@ -200,9 +176,9 @@ This module is part of the GridForge Model Layer V2 baseline.
 
 This revision replaces the original Bus-only Terminal abstraction.
 
-The change is required to support physical switching equipment and
-general equipment connection points while preserving the separation
-between:
+The generalized terminal architecture supports physical switching
+equipment and general equipment connection points while preserving
+the separation between:
 
     core/model
         physical equipment state
@@ -221,9 +197,6 @@ between:
 
     core/simulation
         time-domain/event execution
-
-Future changes require evidence of a genuinely fundamental
-architectural requirement.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -258,7 +231,7 @@ class Terminal:
         self,
         endpoint=None,
         owner=None,
-    ):
+    ) -> None:
         """
         Create a GridForge Terminal.
 
@@ -272,10 +245,8 @@ class Terminal:
 
         Notes
         -----
-        ``endpoint`` may be None when creating a disconnected Terminal.
-
-        This is useful for equipment that creates its terminal before
-        the network connection is established.
+        ``endpoint`` may be None when creating a disconnected
+        Terminal.
         """
 
         if owner is not None:
@@ -301,8 +272,8 @@ class Terminal:
 
         if not hasattr(owner, "id"):
             raise TypeError(
-                "Terminal owner requires an object with an 'id' "
-                "attribute."
+                "Terminal owner requires an object with an "
+                "'id' attribute."
             )
 
         owner_id = getattr(owner, "id")
@@ -359,13 +330,6 @@ class Terminal:
         """
         Connect this Terminal to an electrical endpoint.
 
-        Parameters
-        ----------
-        endpoint :
-            Bus-like endpoint or another Terminal.
-
-        Notes
-        -----
         This changes only the local endpoint reference.
 
         It does NOT:
@@ -375,8 +339,6 @@ class Terminal:
         - update the network graph;
         - rebuild Y-bus;
         - update solver structures.
-
-        Those operations belong to ``core/network``.
         """
 
         self._validate_endpoint(endpoint)
@@ -426,29 +388,39 @@ class Terminal:
         -----
         This is a compatibility accessor for existing GridForge code.
 
-        It is intentionally derived from ``endpoint``.
+        It is derived from ``endpoint``.
 
-        If the endpoint is another Terminal, the method follows that
-        terminal's Bus reference.
+        If the endpoint is another Terminal, the terminal chain is
+        followed until a non-Terminal endpoint is reached.
 
-        It does not perform network topology resolution.
+        A cyclic Terminal connection returns None rather than entering
+        infinite recursion.
         """
 
-        if self.endpoint is None:
+        endpoint = self.endpoint
+
+        if endpoint is None:
             return None
 
-        # Direct Bus-like endpoint.
-        if not isinstance(self.endpoint, Terminal):
-            return self.endpoint
+        visited: set[int] = set()
 
-        # Terminal-to-terminal connection.
-        if self.endpoint is self:
-            return None
+        while isinstance(endpoint, Terminal):
+            object_id = id(endpoint)
 
-        return self.endpoint.bus
+            if object_id in visited:
+                return None
+
+            visited.add(object_id)
+
+            if endpoint.endpoint is None:
+                return None
+
+            endpoint = endpoint.endpoint
+
+        return endpoint
 
     # =================================================================
-    # ENDPOINT
+    # ENDPOINT INFORMATION
     # =================================================================
 
     @property
@@ -463,7 +435,7 @@ class Terminal:
         return self.endpoint.id
 
     # =================================================================
-    # OWNER
+    # OWNER INFORMATION
     # =================================================================
 
     @property
@@ -486,13 +458,15 @@ class Terminal:
         Return structured Terminal information.
         """
 
+        bus = self.bus
+
         return {
             "owner": self.owner_id,
             "endpoint": self.endpoint_id,
             "connected": self.is_connected,
             "bus": (
-                self.bus.id
-                if self.bus is not None
+                bus.id
+                if bus is not None
                 else None
             ),
         }
@@ -506,20 +480,8 @@ class Terminal:
         Return a concise developer-facing representation.
         """
 
-        owner = (
-            self.owner.id
-            if self.owner is not None
-            else None
-        )
-
-        endpoint = (
-            self.endpoint.id
-            if self.endpoint is not None
-            else None
-        )
-
         return (
             f"<Terminal "
-            f"owner={owner}, "
-            f"endpoint={endpoint}>"
+            f"owner={self.owner_id}, "
+            f"endpoint={self.endpoint_id}>"
         )
