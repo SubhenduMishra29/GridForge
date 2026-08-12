@@ -1,63 +1,74 @@
 """
-GridForge Sequence Network Model
-================================
+GridForge Sequence Network Model V2
+===================================
 
 File:
     core/solver/short_circuit/sequence_network.py
 
-GridForge Short Circuit Solver V1.0
------------------------------------
+Purpose
+-------
+Represent positive-, negative-, and zero-sequence network data
+used by GridForge unsymmetrical short-circuit studies.
 
-Stores positive-, negative-, and zero-sequence impedances used
-by unsymmetrical-fault calculations.
+Sequence networks
+-----------------
+    Positive sequence : Z1
+    Negative sequence : Z2
+    Zero sequence     : Z0
 
-Sequence networks:
-
-    Positive sequence: Z1
-    Negative sequence: Z2
-    Zero sequence:     Z0
-
-Impedance convention:
+The sequence impedance convention is:
 
     Z = R + jX
 
 Responsibilities
 ----------------
-- Store sequence impedances associated with identifiable
-  electrical elements.
-- Provide validated access to Z1, Z2, and Z0.
-- Provide deterministic equivalent series impedance for an
-  explicitly supplied element path.
-- Provide diagnostic information.
+- Store sequence impedance data.
+- Validate sequence impedance values.
+- Register element sequence impedances.
+- Provide sequence impedance lookup.
+- Store optional network-level sequence impedance matrices.
+- Provide sequence driving-point and transfer impedances.
+- Provide deterministic diagnostics.
 
 This module does NOT:
-- Build Ybus.
-- Build Zbus.
-- Determine network topology.
+- Build the physical network Ybus.
+- Build sequence Ybus automatically.
 - Perform fault calculations.
 - Calculate fault currents.
-- Modify Network state.
-- Perform protection decisions.
+- Perform symmetrical-component transformations.
+- Modify network topology.
+- Perform relay/protection calculations.
 
-Important V1.0 limitation
--------------------------
-The current implementation represents sequence impedances as
-element-level data.
+Architecture
+------------
+                    Network
+                       │
+                       ▼
+              SequenceNetwork
+                 │    │    │
+                 ▼    ▼    ▼
+                Z1   Z2   Z0
+                 │    │    │
+                 └────┴────┘
+                       │
+                       ▼
+             UnsymmetricalFault
 
-It does NOT yet construct full positive-, negative-, or
-zero-sequence bus impedance matrices.
-
-A future sequence-network implementation may introduce:
-
-    Z1bus
-    Z2bus
-    Z0bus
-
-or equivalent sequence-network assembly without changing the
-basic element impedance API.
+V2 design principles
+--------------------
+1. Sequence data is explicit.
+2. Sequence impedances are complex quantities.
+3. Element data and network-level matrices are distinct.
+4. No artificial series-path assumption is made.
+5. Zero-sequence data is never silently invented.
+6. Missing Z0 remains explicit.
+7. Matrix access is available for future network-level
+   sequence analysis.
+8. No fault-calculation logic belongs in this class.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
+Proprietary and confidential.
 """
 
 from __future__ import annotations
@@ -69,33 +80,107 @@ import numpy as np
 
 class SequenceNetwork:
     """
-    Store sequence impedances for short-circuit calculations.
+    Container and numerical interface for positive-, negative-,
+    and zero-sequence network data.
 
-    Each element is identified by an application-level
-    ``element_id``.
+    The class supports two levels of representation:
 
-    Parameters
-    ----------
-    None
-        The sequence network is initially empty.
+    1. Element sequence impedances.
+
+       Example:
+
+           add_element(
+               "GEN1",
+               Z1=...,
+               Z2=...,
+               Z0=...,
+           )
+
+    2. Network-level sequence impedance matrices.
+
+       Example:
+
+           set_matrix("positive", Z1bus)
+           set_matrix("negative", Z2bus)
+           set_matrix("zero", Z0bus)
+
+    The second representation is the preferred V2 interface
+    for network-level unsymmetrical fault calculations.
     """
 
     # =========================================================
     # INITIALIZATION
     # =========================================================
 
-    def __init__(self) -> None:
-        """
-        Initialize an empty sequence network.
-        """
+    def __init__(
+        self,
+    ) -> None:
+
+        # -----------------------------------------------------
+        # Element sequence impedances
+        # -----------------------------------------------------
 
         self.positive: dict[Any, complex] = {}
         self.negative: dict[Any, complex] = {}
         self.zero: dict[Any, complex] = {}
 
+        # -----------------------------------------------------
+        # Network-level sequence impedance matrices
+        #
+        # These are optional because construction may be
+        # performed by a higher-level sequence-network builder.
+        # -----------------------------------------------------
+
+        self._matrices: dict[
+            str,
+            np.ndarray | None,
+        ] = {
+            "positive": None,
+            "negative": None,
+            "zero": None,
+        }
+
     # =========================================================
-    # IMPEDANCE VALIDATION
+    # VALIDATION
     # =========================================================
+
+    @staticmethod
+    def _validate_sequence(
+        sequence: str,
+    ) -> str:
+        """
+        Validate and normalize a sequence name.
+        """
+
+        if not isinstance(
+            sequence,
+            str,
+        ):
+            raise TypeError(
+                "sequence must be a string."
+            )
+
+        sequence = sequence.strip().lower()
+
+        aliases = {
+            "positive": "positive",
+            "z1": "positive",
+            "1": "positive",
+            "negative": "negative",
+            "z2": "negative",
+            "2": "negative",
+            "zero": "zero",
+            "z0": "zero",
+            "0": "zero",
+        }
+
+        if sequence not in aliases:
+            raise ValueError(
+                "Invalid sequence. Expected "
+                "'positive', 'negative', or 'zero'."
+            )
+
+        return aliases[sequence]
 
     @staticmethod
     def _validate_impedance(
@@ -103,7 +188,7 @@ class SequenceNetwork:
         name: str,
     ) -> complex:
         """
-        Validate and normalize a sequence impedance.
+        Validate a complex impedance value.
         """
 
         if isinstance(
@@ -111,7 +196,7 @@ class SequenceNetwork:
             bool,
         ):
             raise TypeError(
-                f"{name} must be a complex-valued impedance."
+                f"{name} must be a complex-valued numerical quantity."
             )
 
         try:
@@ -126,7 +211,7 @@ class SequenceNetwork:
         ) as exc:
 
             raise TypeError(
-                f"{name} must be a valid complex impedance."
+                f"{name} must be a valid complex number."
             ) from exc
 
         if not (
@@ -138,31 +223,32 @@ class SequenceNetwork:
                 impedance.imag
             )
         ):
+
             raise ValueError(
-                f"{name} must be finite."
+                f"{name} must contain finite values."
             )
 
         return impedance
 
     # =========================================================
-    # ADD ELEMENT
+    # ELEMENT REGISTRATION
     # =========================================================
 
     def add_element(
         self,
         element_id: Any,
         Z1: Any,
-        Z2: Any = None,
-        Z0: Any = None,
+        Z2: Any | None = None,
+        Z0: Any | None = None,
     ) -> None:
         """
-        Add or replace sequence impedances for an element.
+        Register sequence impedances for an element.
 
         Parameters
         ----------
         element_id:
-            Unique application-level identifier for the
-            electrical element.
+            Unique identifier for the equipment or network
+            element.
 
         Z1:
             Positive-sequence impedance.
@@ -170,23 +256,23 @@ class SequenceNetwork:
         Z2:
             Negative-sequence impedance.
 
-            If omitted, Z2 = Z1 is used as the default.
+            If omitted, Z1 is used as an explicit engineering
+            default because many conventional static models use
+            Z2 approximately equal to Z1.
 
         Z0:
             Zero-sequence impedance.
 
-            If omitted, zero impedance is NOT physically inferred;
-            V1.0 uses 0 + j0 as an explicit default for backward
-            compatibility. Equipment-specific zero-sequence data
-            should therefore be supplied whenever required.
+            If omitted, the zero-sequence value is NOT inferred
+            from Z1. It remains unavailable for that element.
 
-        Raises
-        ------
-        ValueError
-            If element_id is invalid or already unsupported.
-
-        TypeError
-            If an impedance cannot be converted to complex form.
+        Notes
+        -----
+        Zero-sequence impedance is strongly dependent on
+        equipment construction, grounding, transformer winding
+        connections, line geometry, and grounding transformers.
+        Therefore V2 does not silently replace a missing Z0 with
+        zero impedance.
         """
 
         if element_id is None:
@@ -210,26 +296,83 @@ class SequenceNetwork:
                 "Z2",
             )
 
-        if Z0 is None:
-
-            z0 = complex(
-                0.0,
-                0.0,
-            )
-
-        else:
+        if Z0 is not None:
 
             z0 = self._validate_impedance(
                 Z0,
                 "Z0",
             )
 
+        else:
+
+            z0 = None
+
         self.positive[element_id] = z1
         self.negative[element_id] = z2
         self.zero[element_id] = z0
 
     # =========================================================
-    # GET POSITIVE SEQUENCE
+    # ELEMENT EXISTENCE
+    # =========================================================
+
+    def has_element(
+        self,
+        element_id: Any,
+    ) -> bool:
+        """
+        Return whether sequence data exists for an element.
+        """
+
+        return (
+            element_id in self.positive
+        )
+
+    # =========================================================
+    # ELEMENT LOOKUP
+    # =========================================================
+
+    def _get_element_impedance(
+        self,
+        element_id: Any,
+        sequence: str,
+    ) -> complex:
+        """
+        Return an element's sequence impedance.
+        """
+
+        sequence = self._validate_sequence(
+            sequence
+        )
+
+        data = getattr(
+            self,
+            sequence,
+        )
+
+        if element_id not in data:
+
+            raise KeyError(
+                f"No {sequence}-sequence impedance "
+                f"registered for element {element_id!r}."
+            )
+
+        value = data[
+            element_id
+        ]
+
+        if value is None:
+
+            raise ValueError(
+                f"Zero-sequence impedance is unavailable "
+                f"for element {element_id!r}."
+            )
+
+        return complex(
+            value
+        )
+
+    # =========================================================
+    # PUBLIC ELEMENT ACCESS
     # =========================================================
 
     def get_positive(
@@ -240,22 +383,10 @@ class SequenceNetwork:
         Return positive-sequence impedance Z1.
         """
 
-        try:
-
-            return self.positive[
-                element_id
-            ]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"No positive-sequence impedance registered "
-                f"for element {element_id!r}."
-            ) from exc
-
-    # =========================================================
-    # GET NEGATIVE SEQUENCE
-    # =========================================================
+        return self._get_element_impedance(
+            element_id,
+            "positive",
+        )
 
     def get_negative(
         self,
@@ -265,22 +396,10 @@ class SequenceNetwork:
         Return negative-sequence impedance Z2.
         """
 
-        try:
-
-            return self.negative[
-                element_id
-            ]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"No negative-sequence impedance registered "
-                f"for element {element_id!r}."
-            ) from exc
-
-    # =========================================================
-    # GET ZERO SEQUENCE
-    # =========================================================
+        return self._get_element_impedance(
+            element_id,
+            "negative",
+        )
 
     def get_zero(
         self,
@@ -290,72 +409,300 @@ class SequenceNetwork:
         Return zero-sequence impedance Z0.
         """
 
-        try:
-
-            return self.zero[
-                element_id
-            ]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"No zero-sequence impedance registered "
-                f"for element {element_id!r}."
-            ) from exc
-
-    # =========================================================
-    # SEQUENCE DATASET
-    # =========================================================
-
-    def _get_sequence_data(
-        self,
-        sequence: str,
-    ) -> dict[Any, complex]:
-        """
-        Return the impedance dictionary for a sequence.
-        """
-
-        if not isinstance(
-            sequence,
-            str,
-        ):
-            raise TypeError(
-                "sequence must be a string."
-            )
-
-        normalized = sequence.lower().strip()
-
-        if normalized in {
-            "positive",
-            "z1",
-            "1",
-        }:
-
-            return self.positive
-
-        if normalized in {
-            "negative",
-            "z2",
-            "2",
-        }:
-
-            return self.negative
-
-        if normalized in {
+        return self._get_element_impedance(
+            element_id,
             "zero",
-            "z0",
-            "0",
-        }:
-
-            return self.zero
-
-        raise ValueError(
-            "Invalid sequence. Expected "
-            "'positive', 'negative', or 'zero'."
         )
 
     # =========================================================
-    # TOTAL PATH IMPEDANCE
+    # NETWORK MATRIX VALIDATION
+    # =========================================================
+
+    @staticmethod
+    def _validate_matrix(
+        matrix: Any,
+        name: str,
+    ) -> np.ndarray:
+        """
+        Validate a sequence impedance matrix.
+        """
+
+        if matrix is None:
+            raise ValueError(
+                f"{name} cannot be None."
+            )
+
+        try:
+
+            matrix = np.asarray(
+                matrix,
+                dtype=complex,
+            )
+
+        except Exception as exc:
+
+            raise ValueError(
+                f"{name} could not be converted to "
+                "a complex matrix."
+            ) from exc
+
+        if matrix.ndim != 2:
+
+            raise ValueError(
+                f"{name} must be two-dimensional."
+            )
+
+        rows, cols = matrix.shape
+
+        if rows != cols:
+
+            raise ValueError(
+                f"{name} must be square: "
+                f"received shape {matrix.shape}."
+            )
+
+        if rows == 0:
+
+            raise ValueError(
+                f"{name} cannot be empty."
+            )
+
+        if not np.all(
+            np.isfinite(
+                matrix.real
+            )
+        ) or not np.all(
+            np.isfinite(
+                matrix.imag
+            )
+        ):
+
+            raise ValueError(
+                f"{name} contains NaN or infinite values."
+            )
+
+        return matrix.copy()
+
+    # =========================================================
+    # NETWORK MATRIX STORAGE
+    # =========================================================
+
+    def set_matrix(
+        self,
+        sequence: str,
+        matrix: Any,
+    ) -> None:
+        """
+        Store a network-level sequence impedance matrix.
+
+        Parameters
+        ----------
+        sequence:
+            ``positive``, ``negative``, or ``zero``.
+
+        matrix:
+            Square complex sequence impedance matrix.
+
+        Notes
+        -----
+        Matrix ownership remains with this SequenceNetwork
+        instance. A defensive copy is stored.
+        """
+
+        sequence = self._validate_sequence(
+            sequence
+        )
+
+        validated = self._validate_matrix(
+            matrix,
+            f"{sequence}-sequence impedance matrix",
+        )
+
+        self._matrices[
+            sequence
+        ] = validated
+
+    # =========================================================
+    # NETWORK MATRIX ACCESS
+    # =========================================================
+
+    def get_matrix(
+        self,
+        sequence: str,
+    ) -> np.ndarray:
+        """
+        Return a copy of the requested sequence impedance matrix.
+        """
+
+        sequence = self._validate_sequence(
+            sequence
+        )
+
+        matrix = self._matrices[
+            sequence
+        ]
+
+        if matrix is None:
+
+            raise ValueError(
+                f"{sequence.capitalize()}-sequence impedance "
+                "matrix has not been configured."
+            )
+
+        return matrix.copy()
+
+    def has_matrix(
+        self,
+        sequence: str,
+    ) -> bool:
+        """
+        Return whether a sequence impedance matrix exists.
+        """
+
+        sequence = self._validate_sequence(
+            sequence
+        )
+
+        return (
+            self._matrices[
+                sequence
+            ]
+            is not None
+        )
+
+    # =========================================================
+    # MATRIX INDEX VALIDATION
+    # =========================================================
+
+    def _validate_matrix_index(
+        self,
+        sequence: str,
+        index: int,
+    ) -> int:
+        """
+        Validate an index against a sequence matrix.
+        """
+
+        sequence = self._validate_sequence(
+            sequence
+        )
+
+        matrix = self._matrices[
+            sequence
+        ]
+
+        if matrix is None:
+
+            raise ValueError(
+                f"{sequence.capitalize()}-sequence impedance "
+                "matrix has not been configured."
+            )
+
+        if isinstance(
+            index,
+            bool,
+        ) or not isinstance(
+            index,
+            (int, np.integer),
+        ):
+
+            raise TypeError(
+                "Bus index must be an integer."
+            )
+
+        index = int(
+            index
+        )
+
+        if not (
+            0 <= index < matrix.shape[0]
+        ):
+
+            raise IndexError(
+                f"Bus index {index} is outside the "
+                f"valid range 0 to {matrix.shape[0] - 1}."
+            )
+
+        return index
+
+    # =========================================================
+    # DRIVING-POINT IMPEDANCE
+    # =========================================================
+
+    def get_driving_point_impedance(
+        self,
+        sequence: str,
+        bus_index: int,
+    ) -> complex:
+        """
+        Return Zii for the requested sequence network.
+        """
+
+        sequence = self._validate_sequence(
+            sequence
+        )
+
+        bus_index = self._validate_matrix_index(
+            sequence,
+            bus_index,
+        )
+
+        matrix = self._matrices[
+            sequence
+        ]
+
+        assert matrix is not None
+
+        return complex(
+            matrix[
+                bus_index,
+                bus_index,
+            ]
+        )
+
+    # =========================================================
+    # TRANSFER IMPEDANCE
+    # =========================================================
+
+    def get_transfer_impedance(
+        self,
+        sequence: str,
+        from_bus: int,
+        to_bus: int,
+    ) -> complex:
+        """
+        Return Zij from the requested sequence network.
+        """
+
+        sequence = self._validate_sequence(
+            sequence
+        )
+
+        from_bus = self._validate_matrix_index(
+            sequence,
+            from_bus,
+        )
+
+        to_bus = self._validate_matrix_index(
+            sequence,
+            to_bus,
+        )
+
+        matrix = self._matrices[
+            sequence
+        ]
+
+        assert matrix is not None
+
+        return complex(
+            matrix[
+                from_bus,
+                to_bus,
+            ]
+        )
+
+    # =========================================================
+    # LEGACY SERIES EQUIVALENT
     # =========================================================
 
     def total_impedance(
@@ -364,42 +711,35 @@ class SequenceNetwork:
         sequence: str = "positive",
     ) -> complex:
         """
-        Calculate the series impedance of an explicitly
-        supplied element path.
+        Calculate the series sum of explicitly supplied element
+        impedances.
+
+        This method is retained as a compatibility utility for
+        simplified fault-path models.
+
+        It must NOT be interpreted as a general network
+        equivalent impedance.
 
         Parameters
         ----------
         elements:
-            Iterable of registered element identifiers.
+            Iterable of registered element IDs.
 
         sequence:
-            Sequence network to use:
-
-                "positive"
-                "negative"
-                "zero"
+            Requested sequence.
 
         Returns
         -------
         complex
-            Equivalent series impedance.
+            Series sum.
 
         Notes
         -----
-        This is intentionally a simple series-path operation.
-
-        It must NOT be interpreted as a general network reduction.
-        Parallel paths, meshed networks, sequence bus matrices,
-        grounding connections, and transformer phase shifts require
-        a higher-level network assembly mechanism.
+        V2 fault solvers should prefer network-level sequence
+        impedance matrices whenever available.
         """
 
-        if elements is None:
-            raise ValueError(
-                "elements cannot be None."
-            )
-
-        data = self._get_sequence_data(
+        sequence = self._validate_sequence(
             sequence
         )
 
@@ -408,93 +748,50 @@ class SequenceNetwork:
             0.0,
         )
 
-        for element in elements:
+        for element_id in elements:
 
-            if element not in data:
-                raise KeyError(
-                    f"Element {element!r} has no "
-                    f"{sequence} sequence impedance."
-                )
-
-            total += data[
-                element
-            ]
-
-        if not (
-            np.isfinite(
-                total.real
-            )
-            and
-            np.isfinite(
-                total.imag
-            )
-        ):
-            raise RuntimeError(
-                "Equivalent sequence impedance became "
-                "non-finite."
+            total += self._get_element_impedance(
+                element_id,
+                sequence,
             )
 
         return total
 
     # =========================================================
-    # ELEMENT MANAGEMENT
+    # CLEAR
     # =========================================================
 
-    def contains(
+    def clear(
         self,
-        element_id: Any,
-    ) -> bool:
-        """
-        Return whether an element has sequence data.
-        """
-
-        return (
-            element_id in self.positive
-        )
-
-    def remove_element(
-        self,
-        element_id: Any,
     ) -> None:
         """
-        Remove an element from all sequence datasets.
-        """
-
-        self.positive.pop(
-            element_id,
-            None,
-        )
-
-        self.negative.pop(
-            element_id,
-            None,
-        )
-
-        self.zero.pop(
-            element_id,
-            None,
-        )
-
-    def clear(self) -> None:
-        """
-        Remove all sequence impedance data.
+        Clear all element and network sequence data.
         """
 
         self.positive.clear()
         self.negative.clear()
         self.zero.clear()
 
+        for sequence in self._matrices:
+
+            self._matrices[
+                sequence
+            ] = None
+
     # =========================================================
     # DIAGNOSTICS
     # =========================================================
 
-    def summary(self) -> dict:
+    def summary(
+        self,
+    ) -> dict:
         """
-        Return sequence-network diagnostic information.
+        Return sequence-network diagnostics.
         """
 
         return {
-            "model": "SequenceNetwork",
+            "component": "SequenceNetwork",
+            "version": "2.0",
             "positive_elements": len(
                 self.positive
             ),
@@ -504,8 +801,35 @@ class SequenceNetwork:
             "zero_elements": len(
                 self.zero
             ),
-            "elements": len(
-                self.positive
+            "positive_matrix": self.has_matrix(
+                "positive"
+            ),
+            "negative_matrix": self.has_matrix(
+                "negative"
+            ),
+            "zero_matrix": self.has_matrix(
+                "zero"
+            ),
+            "positive_matrix_shape": (
+                tuple(
+                    self._matrices["positive"].shape
+                )
+                if self._matrices["positive"] is not None
+                else None
+            ),
+            "negative_matrix_shape": (
+                tuple(
+                    self._matrices["negative"].shape
+                )
+                if self._matrices["negative"] is not None
+                else None
+            ),
+            "zero_matrix_shape": (
+                tuple(
+                    self._matrices["zero"].shape
+                )
+                if self._matrices["zero"] is not None
+                else None
             ),
         }
 
@@ -513,14 +837,24 @@ class SequenceNetwork:
     # REPRESENTATION
     # =========================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
         Developer-friendly representation.
         """
 
         return (
             "SequenceNetwork("
-            f"elements={len(self.positive)}"
+            f"positive_elements={len(self.positive)}, "
+            f"negative_elements={len(self.negative)}, "
+            f"zero_elements={len(self.zero)}, "
+            f"positive_matrix="
+            f"{self.has_matrix('positive')}, "
+            f"negative_matrix="
+            f"{self.has_matrix('negative')}, "
+            f"zero_matrix="
+            f"{self.has_matrix('zero')}"
             ")"
         )
 
