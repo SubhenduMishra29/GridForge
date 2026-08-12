@@ -1,4 +1,3 @@
-```python id="k4r7md"
 """
 GridForge Dynamic Simulation Events
 ===================================
