@@ -1,6 +1,7 @@
+```python
 """
-GridForge Protection Relay Base
-===============================
+GridForge Protection Relay Function Base
+========================================
 
 File:
     core/protection/relay_base.py
@@ -8,7 +9,7 @@ File:
 Purpose
 -------
 Defines the common execution contract for GridForge V2 protection
-function plugins.
+function/element plugins.
 
 Architectural Position
 ----------------------
@@ -21,176 +22,263 @@ Architectural Position
             |
         RelayInput
             |
-      model.Relay
+    authoritative Relay
             |
-      RelayBase
+       RelayBase
             |
     Protection Function
             |
-      ProtectionSystem
+    ProtectionSystem
             |
       BreakerManager
+            |
+          Breaker
 
 
-The Relay model in ``core/model/relay.py`` remains the authoritative
-relay device/configuration/state object.
+Important V2 Architectural Principle
+-------------------------------------
 
-RelayBase is NOT a second relay model.
+A physical/numerical Relay may contain MULTIPLE protection
+functions.
 
-It provides the common protection-function interface through which
-protection plugins consume the relay's configured inputs and produce
-protection decisions.
+Therefore:
+
+    Relay != ProtectionFunction
+
+For example, one authoritative Relay may contain:
+
+    50/51   Overcurrent
+    50N/51N Earth Fault
+    67      Directional Overcurrent
+    21      Distance
+    27      Undervoltage
+    59      Overvoltage
+    81      Frequency
+
+Each protection function is represented by a separate execution
+object derived from RelayBase.
+
+All such functions may reference the same authoritative Relay and
+shared measurement architecture.
+
+RelayBase is therefore a protection-FUNCTION contract.
+
+It is NOT a second Relay model.
+
+Authority
+---------
+
+core/model/relay.py
+    Authoritative physical/device-level Relay identity,
+    configuration and protection state.
+
+core/model/measurement_channel.py
+    Authoritative measurement-channel state.
+
+RelayInput
+    Existing input-path object connecting measurement channels to
+    protection functions.
+
+core/protection/relay_base.py
+    Common protection-function execution contract.
+
+core/protection/<function>.py
+    Concrete protection algorithms.
+
+core/protection/protection_system.py
+    Protection orchestration and decision aggregation.
+
+core/protection/breaker_manager.py
+    Breaker command boundary.
 
 Responsibilities
 ----------------
 RelayBase provides:
 
-- access to the authoritative Relay model;
-- relay identity;
-- relay configuration/state access;
-- access to configured RelayInput objects;
-- access to measurement-channel signals through RelayInput;
-- common service-state handling;
-- common pickup/operate/trip decision handling;
+- authoritative Relay access;
+- protection-function identity;
+- function metadata;
+- access to configured RelayInput references;
+- signal access through RelayInput;
+- service-state handling;
+- enable/block supervision hooks;
+- pickup state handling;
+- operate state handling;
+- protection trip-decision handling;
 - reset handling;
-- protection status reporting;
-- a stable plugin interface for protection functions.
+- structured function status;
+- a stable plugin interface;
+- compatibility with ProtectionDecision;
+- a common evaluation boundary.
 
 RelayBase does NOT:
 
+- create Relay objects;
 - create CT/PT/CVT objects;
 - create MeasurementChannel objects;
 - create RelayInput objects implicitly;
-- duplicate measured current/voltage/impedance state;
+- duplicate measurement values;
+- calculate system-wide electrical quantities;
 - build Y-bus;
 - perform load flow;
 - perform short-circuit analysis;
-- calculate system-wide fault quantities;
-- operate circuit breakers;
-- coordinate multiple relays;
-- perform TCC coordination;
-- schedule protection events;
-- own global protection-system state.
+- coordinate multiple protection functions;
+- operate breakers;
+- modify network topology;
+- schedule simulation events;
+- own ProtectionSystem state.
 
-Those responsibilities belong to their respective GridForge layers.
+Multi-Function Relay Principle
+------------------------------
 
-Important V2 Principle
-----------------------
-Protection algorithms consume signals.
+Multiple protection functions may reference the same Relay:
 
-They do not invent measurements.
-
-For example:
-
-    CT
+    Relay
       |
-      v
-    MeasurementChannel
+      +---- OvercurrentFunction
       |
-      v
-    RelayInput
+      +---- EarthFaultFunction
       |
-      v
-    OvercurrentProtection
+      +---- DirectionalFunction
+      |
+      +---- DistanceFunction
+      |
+      +---- VoltageFunction
+      |
+      +---- FrequencyFunction
 
-The overcurrent algorithm therefore evaluates a signal supplied by
-the measurement architecture rather than reading ``relay.current``.
+The function objects must not copy the Relay's authoritative
+configuration or device state.
 
-Similarly:
-
-    PT / CVT
-       |
-       v
-    MeasurementChannel
-       |
-       v
-    RelayInput
-       |
-       v
-    DistanceProtection
-
-Distance protection obtains voltage and current-derived quantities
-through the configured input architecture.
-
-Trip Ownership
---------------
-RelayBase may request/set the authoritative Relay's protection
-operating state.
-
-It does NOT operate a physical breaker.
-
-The intended boundary is:
-
-    RelayBase
-        |
-        | protection decision
-        v
-    ProtectionSystem
-        |
-        | trip command
-        v
-    BreakerManager
-
-Plugin Architecture
--------------------
-Concrete protection functions should derive from RelayBase.
+Algorithm-specific state is permitted.
 
 Examples:
 
-    OvercurrentRelay
-    DirectionalRelay
-    DistanceRelay
-    DifferentialRelay
-    VoltageRelay
-    FrequencyRelay
+- inverse-time accumulation;
+- distance-zone state;
+- directional polarization state;
+- differential restraint state;
+- frequency filtering state;
+- definite-time pickup timer;
+- dropout timer;
+- element latch state.
 
-A plugin may maintain algorithm-specific transient state, but such
-state must be protection-function state rather than a duplicate of
-Relay model state.
+Such state belongs to the protection-function execution layer.
+
+Decision Ownership
+------------------
+
+RelayBase may communicate protection operating state to the
+authoritative Relay where the Relay model exposes the corresponding
+API.
+
+It never operates a physical breaker.
+
+The command path remains:
+
+    Protection Function
+            |
+            v
+    ProtectionSystem
+            |
+       TripRequest
+            |
+            v
+      BreakerManager
+            |
+            v
+          Breaker
+
+Timing
+------
+
+RelayBase deliberately does not impose a particular operating-time
+model.
+
+A protection function may be:
+
+- instantaneous;
+- definite-time;
+- inverse-time;
+- multi-stage;
+- zone-based;
+- accumulated;
+- state-machine based;
+- supervised;
+- blocked;
+- latched.
+
+Concrete functions own their algorithmic timing state.
+
+ProtectionSystem owns orchestration.
+
+Simulation/event scheduling belongs outside this class.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
+Proprietary and confidential.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 
 class RelayBase(ABC):
     """
     Common base class for GridForge V2 protection-function plugins.
 
-    Parameters
-    ----------
-    relay:
-        Authoritative ``core.model.relay.Relay`` instance.
+    A RelayBase instance represents ONE protection function/element.
 
-    relay_inputs:
-        RelayInput objects configured for this protection function.
+    It references an authoritative Relay model but does not represent
+    the complete physical relay device.
 
-        The inputs are references to the existing measurement
-        architecture. RelayBase does not create or own the physical
-        measurement chain.
-
-    Notes
-    -----
-    The supplied Relay remains authoritative for relay identity,
-    configuration, service state, and protection operating state.
-
-    RelayBase is an algorithm/execution layer object.
+    Multiple RelayBase-derived objects may therefore reference the
+    same authoritative Relay.
     """
 
-    # =============================================================
+    # =================================================================
     # INITIALIZATION
-    # =============================================================
+    # =================================================================
 
     def __init__(
         self,
         relay: Any,
         relay_inputs: Mapping[str, Any] | None = None,
+        *,
+        function_id: str | None = None,
+        function_name: str | None = None,
+        enabled: bool = True,
     ) -> None:
+        """
+        Create a protection-function execution object.
+
+        Parameters
+        ----------
+        relay:
+            Authoritative core.model.relay.Relay instance.
+
+        relay_inputs:
+            Existing RelayInput references.
+
+        function_id:
+            Unique identifier for this protection-function instance.
+
+            This MUST be distinct from relay.id when multiple
+            functions are attached to the same Relay.
+
+        function_name:
+            Human-readable/canonical function identifier.
+
+        enabled:
+            Protection-function execution enable state.
+
+        Notes
+        -----
+        No measurement objects are created here.
+        """
 
         if relay is None:
             raise ValueError(
@@ -199,6 +287,36 @@ class RelayBase(ABC):
 
         self.relay = relay
 
+        # -------------------------------------------------------------
+        # Function identity
+        # -------------------------------------------------------------
+
+        if function_id is None:
+            function_id = self._default_function_id()
+
+        self._function_id = self._validate_identifier(
+            function_id,
+            "function_id",
+        )
+
+        if function_name is None:
+            function_name = self.__class__.__name__
+
+        self._function_name = self._validate_identifier(
+            function_name,
+            "function_name",
+        )
+
+        # -------------------------------------------------------------
+        # Execution state
+        #
+        # These are function-layer states, NOT copies of measurement
+        # or Relay configuration.
+        # -------------------------------------------------------------
+
+        self._enabled = bool(enabled)
+        self._blocked = False
+
         self._relay_inputs: dict[str, Any] = {}
 
         if relay_inputs is not None:
@@ -206,14 +324,94 @@ class RelayBase(ABC):
                 relay_inputs
             )
 
-    # =============================================================
-    # RELAY IDENTITY
-    # =============================================================
+    # =================================================================
+    # IDENTITY
+    # =================================================================
+
+    @staticmethod
+    def _validate_identifier(
+        value: Any,
+        name: str,
+    ) -> str:
+        """
+        Validate a protection-function identifier.
+        """
+
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{name} must be a string."
+            )
+
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                f"{name} cannot be empty."
+            )
+
+        return value
+
+    # -----------------------------------------------------------------
+
+    def _default_function_id(self) -> str:
+        """
+        Generate a deterministic default function identifier.
+
+        Concrete implementations are encouraged to supply an
+        explicit function_id when multiple instances of the same
+        function type may exist on one Relay.
+        """
+
+        return (
+            f"{self.relay.id}:"
+            f"{self.__class__.__name__}"
+        )
+
+    # -----------------------------------------------------------------
 
     @property
-    def id(self) -> Any:
+    def id(self) -> str:
         """
-        Return the authoritative relay identifier.
+        Return the protection-function instance identifier.
+        """
+
+        return self._function_id
+
+    # -----------------------------------------------------------------
+
+    @property
+    def function_id(self) -> str:
+        """
+        Alias for the protection-function instance identifier.
+        """
+
+        return self._function_id
+
+    # -----------------------------------------------------------------
+
+    @property
+    def function_name(self) -> str:
+        """
+        Return the protection-function type/name.
+
+        Examples:
+
+            overcurrent
+            directional_overcurrent
+            distance
+            differential
+            undervoltage
+            frequency
+        """
+
+        return self._function_name
+
+    # -----------------------------------------------------------------
+
+    @property
+    def relay_id(self) -> Any:
+        """
+        Return the authoritative Relay identifier.
         """
 
         return self.relay.id
@@ -223,7 +421,7 @@ class RelayBase(ABC):
     @property
     def name(self) -> str:
         """
-        Return the authoritative relay name.
+        Return the authoritative Relay name.
         """
 
         return self.relay.name
@@ -233,55 +431,140 @@ class RelayBase(ABC):
     @property
     def relay_type(self) -> str:
         """
-        Return the authoritative relay type.
+        Return the authoritative Relay type.
         """
 
         return self.relay.type
 
-    # =============================================================
-    # RELAY MODEL
-    # =============================================================
+    # -----------------------------------------------------------------
 
     @property
     def relay_model(self) -> Any:
         """
         Return the authoritative Relay model.
 
-        This is an explicit V2 accessor intended for plugins that
-        need relay configuration/state not exposed by convenience
-        properties.
+        No copy is created.
         """
 
         return self.relay
 
-    # =============================================================
+    # =================================================================
     # SERVICE STATE
-    # =============================================================
+    # =================================================================
 
     @property
     def in_service(self) -> bool:
         """
-        Return the authoritative relay service state.
+        Return the authoritative Relay service state.
         """
 
         return bool(
-            self.relay.in_service
+            getattr(
+                self.relay,
+                "in_service",
+                True,
+            )
         )
 
-    # =============================================================
+    # -----------------------------------------------------------------
+
+    @property
+    def enabled(self) -> bool:
+        """
+        Return whether this protection function is enabled.
+
+        This is function-level execution state.
+        """
+
+        return self._enabled
+
+    # -----------------------------------------------------------------
+
+    def set_enabled(
+        self,
+        state: bool,
+    ) -> None:
+        """
+        Enable or disable this protection function.
+        """
+
+        self._enabled = bool(state)
+
+        if not self._enabled:
+            self.set_pickup(False)
+            self.set_operated(False)
+            self.reset_trip()
+
+    # -----------------------------------------------------------------
+
+    @property
+    def blocked(self) -> bool:
+        """
+        Return whether this protection function is blocked.
+
+        Blocking is intentionally distinct from Relay service state.
+
+        Examples include:
+
+        - scheme blocking;
+        - maintenance blocking;
+        - directional supervision;
+        - breaker-status supervision;
+        - external interlock.
+        """
+
+        return self._blocked
+
+    # -----------------------------------------------------------------
+
+    def set_blocked(
+        self,
+        state: bool,
+    ) -> None:
+        """
+        Set function-level blocking state.
+        """
+
+        self._blocked = bool(state)
+
+        if self._blocked:
+            self.set_pickup(False)
+            self.set_operated(False)
+            self.reset_trip()
+
+    # -----------------------------------------------------------------
+
+    def is_available(self) -> bool:
+        """
+        Return whether the function may currently operate.
+
+        Concrete functions may override this to add supervision.
+
+        The default condition is:
+
+            Relay in service
+            AND function enabled
+            AND function not blocked
+        """
+
+        return (
+            self.in_service
+            and self.enabled
+            and not self.blocked
+        )
+
+    # =================================================================
     # INPUT ARCHITECTURE
-    # =============================================================
+    # =================================================================
 
     def _set_relay_inputs(
         self,
         relay_inputs: Mapping[str, Any],
     ) -> None:
         """
-        Register RelayInput references for this protection function.
+        Register existing RelayInput references.
 
-        This method stores references only.
-
-        It does not create, modify, or connect measurement channels.
+        No measurement object is created or modified.
         """
 
         if not isinstance(
@@ -299,7 +582,9 @@ class RelayBase(ABC):
                     "Relay input names must be strings."
                 )
 
-            if not name.strip():
+            name = name.strip()
+
+            if not name:
                 raise ValueError(
                     "Relay input name cannot be empty."
                 )
@@ -316,13 +601,68 @@ class RelayBase(ABC):
     @property
     def relay_inputs(self) -> Mapping[str, Any]:
         """
-        Return the configured RelayInput references.
-
-        The returned mapping is read-only from the caller's
-        perspective.
+        Return a shallow read-only view of configured input references.
         """
 
-        return self._relay_inputs.copy()
+        return dict(
+            self._relay_inputs
+        )
+
+    # -----------------------------------------------------------------
+
+    def add_input(
+        self,
+        name: str,
+        relay_input: Any,
+    ) -> None:
+        """
+        Add an existing RelayInput reference.
+
+        This method does not create the RelayInput.
+        """
+
+        if not isinstance(name, str):
+            raise TypeError(
+                "Relay input name must be a string."
+            )
+
+        name = name.strip()
+
+        if not name:
+            raise ValueError(
+                "Relay input name cannot be empty."
+            )
+
+        if relay_input is None:
+            raise ValueError(
+                f"Relay input '{name}' cannot be None."
+            )
+
+        if name in self._relay_inputs:
+            raise ValueError(
+                f"Relay input '{name}' is already configured "
+                f"for function '{self.id}'."
+            )
+
+        self._relay_inputs[name] = relay_input
+
+    # -----------------------------------------------------------------
+
+    def remove_input(
+        self,
+        name: str,
+    ) -> None:
+        """
+        Remove an input reference.
+
+        The underlying RelayInput and measurement channel are not
+        modified.
+        """
+
+        self._relay_inputs.pop(
+            name,
+            None,
+        )
 
     # -----------------------------------------------------------------
 
@@ -332,11 +672,6 @@ class RelayBase(ABC):
     ) -> Any:
         """
         Return a configured RelayInput.
-
-        Raises
-        ------
-        KeyError
-            If the requested input is not configured.
         """
 
         try:
@@ -344,7 +679,7 @@ class RelayBase(ABC):
         except KeyError as exc:
             raise KeyError(
                 f"Relay input '{name}' is not configured "
-                f"for relay '{self.id}'."
+                f"for protection function '{self.id}'."
             ) from exc
 
     # -----------------------------------------------------------------
@@ -354,25 +689,49 @@ class RelayBase(ABC):
         name: str,
     ) -> bool:
         """
-        Return True when the named RelayInput is configured.
+        Return True when the named RelayInput exists.
         """
 
         return name in self._relay_inputs
 
-    # =============================================================
+    # -----------------------------------------------------------------
+
+    def require_inputs(
+        self,
+        *names: str,
+    ) -> None:
+        """
+        Require specific RelayInputs.
+
+        Concrete protection functions should call this when their
+        input requirements are structurally mandatory.
+        """
+
+        missing = [
+            name
+            for name in names
+            if name not in self._relay_inputs
+        ]
+
+        if missing:
+            raise ValueError(
+                f"Protection function '{self.id}' on Relay "
+                f"'{self.relay_id}' is missing required "
+                f"RelayInput(s): {missing}"
+            )
+
+    # =================================================================
     # SIGNAL ACCESS
-    # =============================================================
+    # =================================================================
 
     def input_signal(
         self,
         name: str,
     ) -> Any:
         """
-        Return the current signal supplied by a RelayInput.
+        Return the current signal exposed by a RelayInput.
 
-        RelayInput remains authoritative for the signal path.
-
-        RelayBase does not cache the returned measurement.
+        The signal is never cached by RelayBase.
         """
 
         relay_input = self.get_input(
@@ -391,96 +750,59 @@ class RelayBase(ABC):
         if signal is not None:
             return signal
 
-        # Compatibility with implementations that expose
-        # a ``value`` property rather than ``signal``.
-        if hasattr(
+        value = getattr(
             relay_input,
             "value",
-        ):
-            value = getattr(
-                relay_input,
-                "value",
-            )
+            None,
+        )
 
-            if callable(value):
-                return value()
+        if callable(value):
+            return value()
 
+        if value is not None:
             return value
 
         raise AttributeError(
-            f"RelayInput '{name}' does not expose "
-            "a supported signal interface."
+            f"RelayInput '{name}' does not expose a supported "
+            "signal or value interface."
         )
 
-    # =============================================================
-    # INPUT VALIDATION
-    # =============================================================
-
-    def require_inputs(
-        self,
-        *names: str,
-    ) -> None:
-        """
-        Require specific RelayInputs before protection evaluation.
-
-        Protection plugins should use this during initialization or
-        before evaluation when their input requirements are explicit.
-        """
-
-        missing = [
-            name
-            for name in names
-            if name not in self._relay_inputs
-        ]
-
-        if missing:
-            raise ValueError(
-                f"Relay '{self.id}' is missing required "
-                f"RelayInput(s): {missing}"
-            )
-
-    # =============================================================
+    # =================================================================
     # PROTECTION STATE
-    # =============================================================
+    # =================================================================
 
     @property
     def picked_up(self) -> bool:
         """
-        Return the authoritative relay pickup/operate state when
-        supported by the V2 Relay model.
+        Return authoritative Relay pickup state when available.
 
         RelayBase does not maintain a duplicate pickup state.
         """
 
-        if hasattr(
-            self.relay,
-            "picked_up",
-        ):
-            return bool(
-                self.relay.picked_up
+        return bool(
+            getattr(
+                self.relay,
+                "picked_up",
+                False,
             )
-
-        return False
+        )
 
     # -----------------------------------------------------------------
 
     @property
     def operated(self) -> bool:
         """
-        Return the authoritative relay operating state when exposed
-        by the V2 Relay model.
-
-        Falls back to pickup state for models that intentionally
-        combine pickup and operation.
+        Return authoritative Relay operated state when available.
         """
 
-        if hasattr(
+        operated = getattr(
             self.relay,
             "operated",
-        ):
-            return bool(
-                self.relay.operated
-            )
+            None,
+        )
+
+        if operated is not None:
+            return bool(operated)
 
         return self.picked_up
 
@@ -489,39 +811,41 @@ class RelayBase(ABC):
     @property
     def tripped(self) -> bool:
         """
-        Return the authoritative relay trip state.
+        Return authoritative Relay protection-trip state.
         """
 
         return bool(
-            self.relay.trip
+            getattr(
+                self.relay,
+                "trip",
+                False,
+            )
         )
 
-    # =============================================================
+    # =================================================================
     # DECISION CONTROL
-    # =============================================================
+    # =================================================================
 
     def set_pickup(
         self,
         state: bool,
     ) -> bool:
         """
-        Set the authoritative relay pickup state.
-
-        The V2 Relay model owns this state.
-
-        If the Relay model does not expose a separate pickup state,
-        the method intentionally does not create one in RelayBase.
+        Set authoritative Relay pickup state when supported.
         """
 
-        if hasattr(
+        state = bool(state)
+
+        setter = getattr(
             self.relay,
             "set_pickup_state",
-        ):
-            self.relay.set_pickup_state(
-                bool(state)
-            )
+            None,
+        )
 
-        return bool(state)
+        if callable(setter):
+            setter(state)
+
+        return state
 
     # -----------------------------------------------------------------
 
@@ -530,77 +854,137 @@ class RelayBase(ABC):
         state: bool,
     ) -> bool:
         """
-        Set the authoritative relay operated state when supported.
-
-        No duplicate state is created in RelayBase.
+        Set authoritative Relay operated state when supported.
         """
 
-        if hasattr(
+        state = bool(state)
+
+        setter = getattr(
             self.relay,
             "set_operated",
-        ):
-            self.relay.set_operated(
-                bool(state)
-            )
+            None,
+        )
 
-        return bool(state)
+        if callable(setter):
+            setter(state)
+
+        return state
 
     # -----------------------------------------------------------------
 
     def trip(self) -> bool:
         """
-        Assert the authoritative relay trip state.
+        Assert the authoritative Relay protection-trip state.
 
-        This represents a protection trip decision.
+        This is a protection decision only.
 
-        It does NOT operate a circuit breaker.
+        It does NOT operate a physical breaker.
         """
 
-        if not self.in_service:
+        if not self.is_available():
             self.reset_trip()
             return False
 
-        self.relay.set_trip(
-            True
+        setter = getattr(
+            self.relay,
+            "set_trip",
+            None,
         )
 
-        return bool(
-            self.relay.trip
-        )
+        if not callable(setter):
+            raise AttributeError(
+                "Authoritative Relay does not provide "
+                "set_trip()."
+            )
+
+        setter(True)
+
+        return self.tripped
 
     # -----------------------------------------------------------------
 
     def reset_trip(self) -> None:
         """
-        Clear the authoritative relay trip state.
+        Clear the authoritative Relay protection-trip state.
         """
 
-        self.relay.set_trip(
-            False
+        setter = getattr(
+            self.relay,
+            "set_trip",
+            None,
         )
 
-    # =============================================================
+        if callable(setter):
+            setter(False)
+
+    # =================================================================
+    # SUPERVISION
+    # =================================================================
+
+    def check_supervision(self) -> bool:
+        """
+        Return whether the function's supervision conditions permit
+        operation.
+
+        Concrete functions may override this.
+
+        Examples:
+
+        - VT supervision;
+        - CT supervision;
+        - directional supervision;
+        - breaker status supervision;
+        - communication supervision.
+        """
+
+        return True
+
+    # -----------------------------------------------------------------
+
+    def can_operate(self) -> bool:
+        """
+        Return the complete common operation permission.
+
+        This method intentionally separates availability from the
+        protection pickup algorithm.
+        """
+
+        return (
+            self.is_available()
+            and self.check_supervision()
+        )
+
+    # =================================================================
     # EVALUATION
-    # =============================================================
+    # =================================================================
 
     @abstractmethod
     def check_pickup(self) -> bool:
         """
-        Evaluate the protection pickup criterion.
+        Evaluate the protection function's pickup criterion.
 
-        Returns
-        -------
-        bool
-            True when the protection element should pick up.
+        Concrete functions must obtain electrical quantities through
+        their configured input architecture.
 
-        Notes
-        -----
-        Implementations must obtain electrical signals through the
-        configured RelayInput/MeasurementChannel architecture.
+        They must not assume measurements are stored directly on the
+        protection function.
 
-        They must not assume that current, voltage, impedance, or
-        other quantities are stored directly on the protection
-        algorithm object.
+        Examples:
+
+            Overcurrent:
+                current input
+
+            Distance:
+                voltage/current inputs
+
+            Directional:
+                current/voltage polarization inputs
+
+            Differential:
+                multiple terminal current inputs
+
+            Frequency:
+                frequency measurement input
         """
 
         raise NotImplementedError
@@ -611,30 +995,36 @@ class RelayBase(ABC):
         self,
     ) -> bool:
         """
-        Execute one protection evaluation cycle.
+        Execute one common protection-function evaluation cycle.
 
-        This is the common instantaneous decision boundary.
+        The method intentionally represents a protection element
+        decision, not a complete breaker-operation sequence.
 
         Sequence
         --------
-        1. Check relay service state.
-        2. Evaluate plugin-specific pickup criterion.
-        3. Update authoritative relay pickup/operate state.
-        4. Assert or clear the relay trip state.
 
-        Time grading, intentional delay, TCC operation, event
-        scheduling, and breaker operation are outside this method.
+            availability
+                  |
+                  v
+            supervision
+                  |
+                  v
+            check_pickup()
+                  |
+                  v
+            authoritative Relay state
+                  |
+                  v
+            protection trip decision
+
+        Timing and delayed operation belong to concrete functions or
+        higher-level protection/simulation infrastructure.
         """
 
-        if not self.in_service:
-            self.set_pickup(
-                False
-            )
+        if not self.can_operate():
 
-            self.set_operated(
-                False
-            )
-
+            self.set_pickup(False)
+            self.set_operated(False)
             self.reset_trip()
 
             return False
@@ -658,64 +1048,77 @@ class RelayBase(ABC):
 
         return operates
 
-    # =============================================================
+    # =================================================================
     # RESET
-    # =============================================================
+    # =================================================================
 
     def reset(self) -> None:
         """
-        Reset protection-function operating state.
+        Reset common protection-function state.
 
-        The authoritative Relay model is reset first.
+        Subclasses may override this to clear genuine algorithmic
+        state such as timers, filters, accumulators, latches, or
+        zone state.
 
-        Subclasses may override this method to clear genuine
-        algorithm-specific transient state, but should call
-        ``super().reset()``.
+        Subclasses should call super().reset().
         """
 
-        if hasattr(
+        self._blocked = False
+
+        reset_state = getattr(
             self.relay,
             "reset_protection_state",
-        ):
-            self.relay.reset_protection_state()
-        else:
-            self.reset_trip()
+            None,
+        )
 
-            if hasattr(
-                self.relay,
-                "set_pickup_state",
-            ):
-                self.relay.set_pickup_state(
-                    False
-                )
+        if callable(reset_state):
+            reset_state()
+            return
 
-            if hasattr(
-                self.relay,
-                "set_operated",
-            ):
-                self.relay.set_operated(
-                    False
-                )
+        self.reset_trip()
 
-    # =============================================================
+        pickup_setter = getattr(
+            self.relay,
+            "set_pickup_state",
+            None,
+        )
+
+        if callable(pickup_setter):
+            pickup_setter(False)
+
+        operated_setter = getattr(
+            self.relay,
+            "set_operated",
+            None,
+        )
+
+        if callable(operated_setter):
+            operated_setter(False)
+
+    # =================================================================
     # STATUS
-    # =============================================================
+    # =================================================================
 
     def status(self) -> dict[str, Any]:
         """
-        Return protection-function status.
+        Return structured protection-function diagnostics.
 
-        The status is assembled from the authoritative Relay and
-        configured input architecture.
+        Authoritative Relay state is read rather than duplicated.
 
-        No measurement state is duplicated here.
+        Input diagnostic information is delegated to RelayInput.
         """
 
         return {
-            "relay_id": self.id,
+            "function_id": self.function_id,
+            "function_name": self.function_name,
+            "relay_id": self.relay_id,
             "relay_name": self.name,
             "relay_type": self.relay_type,
             "in_service": self.in_service,
+            "enabled": self.enabled,
+            "blocked": self.blocked,
+            "available": self.is_available(),
+            "supervised": self.check_supervision(),
             "picked_up": self.picked_up,
             "operated": self.operated,
             "trip": self.tripped,
@@ -735,38 +1138,32 @@ class RelayBase(ABC):
         relay_input: Any,
     ) -> Any:
         """
-        Obtain diagnostic information from a RelayInput.
-
-        This method deliberately avoids imposing a concrete
-        RelayInput implementation on the protection base class.
+        Obtain diagnostic information from a RelayInput without
+        imposing a concrete RelayInput implementation.
         """
 
-        if hasattr(
+        status = getattr(
             relay_input,
             "status",
-        ):
-            status = getattr(
-                relay_input,
-                "status",
-            )
+            None,
+        )
 
-            if callable(status):
-                return status()
+        if callable(status):
+            return status()
 
+        if status is not None:
             return status
 
-        if hasattr(
+        summary = getattr(
             relay_input,
             "summary",
-        ):
-            summary = getattr(
-                relay_input,
-                "summary",
-            )
+            None,
+        )
 
-            if callable(summary):
-                return summary()
+        if callable(summary):
+            return summary()
 
+        if summary is not None:
             return summary
 
         return {
@@ -779,6 +1176,42 @@ class RelayBase(ABC):
                 relay_input
             ).__name__,
         }
+
+    # =================================================================
+    # METADATA
+    # =================================================================
+
+    def metadata(self) -> dict[str, Any]:
+        """
+        Return protection-function metadata.
+
+        Concrete functions may override this to expose function
+        characteristics without exposing algorithm internals.
+        """
+
+        return {
+            "function_id": self.function_id,
+            "function_name": self.function_name,
+            "relay_id": self.relay_id,
+            "relay_type": self.relay_type,
+        }
+
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
+
+    def __repr__(self) -> str:
+        """
+        Return a concise developer-facing representation.
+        """
+
+        return (
+            f"<{self.__class__.__name__} "
+            f"function_id={self.function_id!r}, "
+            f"relay_id={self.relay_id!r}, "
+            f"enabled={self.enabled}, "
+            f"blocked={self.blocked}>"
+        )
 
 
 __all__ = [
