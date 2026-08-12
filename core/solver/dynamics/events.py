@@ -1,429 +1,742 @@
+```python id="k4r7md"
 """
 GridForge Dynamic Simulation Events
 ===================================
 
-Event definitions and deterministic event scheduling for dynamic
-and transient-stability simulations.
+Event scheduling and dispatch infrastructure for time-domain
+simulation.
 
-Responsibilities
-----------------
-- Represent discrete simulation events.
-- Schedule events at simulation times.
-- Maintain deterministic event ordering.
-- Dispatch events to registered callbacks.
-- Prevent accidental repeated execution of one-shot events.
+Typical transient-stability events include:
 
-Typical events include
-----------------------
-- fault application
-- fault clearing
-- breaker opening/closing
-- topology changes
-- controller set-point changes
-- protection actions
-- external disturbances
+- fault application;
+- fault clearing;
+- breaker opening;
+- breaker closing;
+- line outage;
+- generator trip;
+- load rejection;
+- shunt switching;
+- control-mode changes.
+
+Architectural responsibilities
+-------------------------------
+This module:
+
+- stores scheduled simulation events;
+- maintains deterministic event ordering;
+- identifies events uniquely;
+- determines the next pending event;
+- detects events crossed by a simulation step;
+- dispatches events through callbacks;
+- records processed events.
 
 This module does NOT:
-- implement protection logic
-- implement breaker physics
-- modify the network directly
-- solve differential equations
-- perform numerical integration
+
+- solve the electrical network;
+- modify Y-bus directly;
+- know how a breaker operates;
+- know how a fault is electrically represented;
+- own generator state;
+- perform numerical integration.
+
+The event action/callback is responsible for applying the physical
+change through the authoritative GridForge model/network interfaces.
+
+Event timing
+------------
+A simulation event occurring at t_event must never be silently skipped
+because a numerical integration step crosses it.
+
+For example:
+
+    current time = 0.100 s
+    event time   = 0.105 s
+    requested dt = 0.010 s
+
+The simulation controller should split the step:
+
+    0.100 -> 0.105
+              event
+    0.105 -> 0.110
+
+This module provides the event-query functionality required to do so.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
-import math
 
 
-EventAction = Callable[["SimulationEvent"], None]
+# ======================================================================
+# TYPES
+# ======================================================================
+
+
+EventAction = Callable[
+    ["SimulationEvent"],
+    None,
+]
+
+
+# ======================================================================
+# ERRORS
+# ======================================================================
+
+
+class EventError(RuntimeError):
+    """Raised when an event-management operation is invalid."""
+
+
+# ======================================================================
+# EVENT
+# ======================================================================
 
 
 @dataclass
 class SimulationEvent:
     """
-    One discrete simulation event.
+    Scheduled simulation event.
 
     Parameters
     ----------
     time:
-        Simulation time at which the event occurs [s].
+        Absolute simulation time at which the event occurs [s].
 
     action:
-        Callback executed when the event is dispatched.
+        Callback invoked when the event is processed.
+
+        The callback receives the SimulationEvent instance.
 
     event_id:
-        Unique identifier for the event.
+        Optional unique identifier. If omitted, EventManager assigns
+        one.
 
     event_type:
-        Engineering classification of the event.
+        Descriptive event category.
 
     target:
-        Optional identifier of the object affected by the event.
-
-    parameters:
-        Optional event-specific data.
+        Optional target identifier, such as a breaker, line, generator
+        or bus.
 
     priority:
-        Ordering for simultaneous events. Lower values execute first.
+        Events at the same time are processed in ascending priority
+        order.
+
+    description:
+        Human-readable description.
+
+    data:
+        Optional event-specific metadata.
 
     one_shot:
-        If True, the event executes only once.
+        If True, the event is processed only once.
 
-    enabled:
-        If False, the event is ignored.
+    Notes
+    -----
+    Event actions should modify GridForge state through the appropriate
+    model/network/controller interfaces. They should not bypass the
+    authoritative architecture.
     """
 
     time: float
+
     action: EventAction
 
-    event_id: str
+    event_id: str = ""
+
     event_type: str = "generic"
 
     target: str | None = None
 
-    parameters: dict[str, Any] = field(
+    priority: int = 0
+
+    description: str = ""
+
+    data: dict[str, Any] = field(
         default_factory=dict
     )
 
-    priority: int = 100
-
     one_shot: bool = True
 
-    enabled: bool = True
+    processed: bool = False
 
-    executed: bool = False
+    sequence: int = field(
+        default=-1,
+        repr=False,
+    )
 
-    def __post_init__(self) -> None:
-        if not self.event_id:
-            raise ValueError(
-                "Event ID must not be empty."
-            )
+    def __post_init__(
+        self,
+    ) -> None:
 
-        if not self.event_type:
-            raise ValueError(
-                "Event type must not be empty."
-            )
-
-        if not math.isfinite(self.time):
-            raise ValueError(
-                "Event time must be finite."
+        if not isinstance(
+            self.time,
+            (int, float),
+        ):
+            raise EventError(
+                "Event time must be numeric."
             )
 
         if self.time < 0.0:
-            raise ValueError(
+            raise EventError(
                 "Event time cannot be negative."
             )
 
-        if not callable(self.action):
-            raise TypeError(
+        if not callable(
+            self.action
+        ):
+            raise EventError(
                 "Event action must be callable."
             )
 
-    def can_execute(self) -> bool:
-        """Return True if the event is currently executable."""
+        if not self.event_type:
+            raise EventError(
+                "event_type cannot be empty."
+            )
 
-        if not self.enabled:
-            return False
+    # ------------------------------------------------------------------
+    # ORDERING KEY
+    # ------------------------------------------------------------------
 
-        if self.one_shot and self.executed:
-            return False
+    @property
+    def sort_key(
+        self,
+    ) -> tuple[
+        float,
+        int,
+        int,
+    ]:
+        """
+        Deterministic event-ordering key.
 
-        return True
+        Events are ordered by:
 
-    def execute(self) -> None:
-        """Execute the event callback."""
+            1. simulation time;
+            2. priority;
+            3. registration sequence.
+        """
 
-        if not self.can_execute():
-            return
+        return (
+            float(self.time),
+            int(self.priority),
+            int(self.sequence),
+        )
 
-        self.action(self)
 
-        if self.one_shot:
-            self.executed = True
+# ======================================================================
+# EVENT MANAGER
+# ======================================================================
 
 
 class EventManager:
     """
-    Deterministic event scheduler for dynamic simulation.
+    Deterministic event scheduler and dispatcher.
 
-    Events are ordered by:
-
-        1. event time
-        2. priority
-        3. insertion order
-
-    This guarantees deterministic execution when multiple events
-    occur at the same simulation time.
+    Parameters
+    ----------
+    time_tolerance:
+        Numerical tolerance used when determining whether a simulation
+        time has reached an event.
     """
 
     def __init__(
         self,
-        time_tolerance: float = 1.0e-9,
+        time_tolerance: float = 1e-9,
     ) -> None:
 
         if time_tolerance <= 0.0:
             raise ValueError(
-                "time_tolerance must be greater than zero."
+                "time_tolerance must be "
+                "greater than zero."
             )
 
         self.time_tolerance = float(
             time_tolerance
         )
 
-        self._events: list[
+        self.events: list[
             SimulationEvent
         ] = []
 
-        self._sequence: dict[
-            str,
-            int
-        ] = {}
+        self._event_ids: set[str] = set()
 
-        self._next_sequence = 0
+        self._sequence = 0
 
-    # =========================================================
-    # EVENT REGISTRATION
-    # =========================================================
-
-    def add(
-        self,
-        event: SimulationEvent,
-    ) -> None:
-        """
-        Register an event.
-        """
-
-        if event.event_id in self._sequence:
-            raise ValueError(
-                f"Event ID already exists: "
-                f"'{event.event_id}'."
-            )
-
-        self._sequence[
-            event.event_id
-        ] = self._next_sequence
-
-        self._next_sequence += 1
-
-        self._events.append(event)
-
-        self._sort_events()
+    # ==================================================================
+    # REGISTRATION
+    # ==================================================================
 
     def add_event(
         self,
-        time: float,
-        action: EventAction,
+        event: SimulationEvent | None = None,
         *,
-        event_id: str,
+        time: float | None = None,
+        action: EventAction | None = None,
+        event_id: str = "",
         event_type: str = "generic",
         target: str | None = None,
-        parameters: dict[str, Any] | None = None,
-        priority: int = 100,
+        priority: int = 0,
+        description: str = "",
+        data: dict[str, Any] | None = None,
         one_shot: bool = True,
     ) -> SimulationEvent:
         """
-        Convenience method for creating and registering an event.
+        Register a simulation event.
+
+        Either provide an existing ``SimulationEvent`` or supply the
+        event fields directly.
+
+        Returns
+        -------
+        SimulationEvent
+            The registered event.
         """
 
-        event = SimulationEvent(
-            time=time,
-            action=action,
-            event_id=event_id,
-            event_type=event_type,
-            target=target,
-            parameters=(
-                {}
-                if parameters is None
-                else dict(parameters)
-            ),
-            priority=priority,
-            one_shot=one_shot,
+        if event is None:
+
+            if time is None:
+                raise EventError(
+                    "time is required when "
+                    "event is not supplied."
+                )
+
+            if action is None:
+                raise EventError(
+                    "action is required when "
+                    "event is not supplied."
+                )
+
+            event = SimulationEvent(
+                time=float(time),
+                action=action,
+                event_id=event_id,
+                event_type=event_type,
+                target=target,
+                priority=priority,
+                description=description,
+                data=(
+                    {}
+                    if data is None
+                    else dict(data)
+                ),
+                one_shot=one_shot,
+            )
+
+        if event.event_id:
+
+            if event.event_id in (
+                self._event_ids
+            ):
+                raise EventError(
+                    "Duplicate event id "
+                    f"'{event.event_id}'."
+                )
+
+        else:
+
+            event.event_id = (
+                self._generate_event_id()
+            )
+
+        event.sequence = (
+            self._sequence
         )
 
-        self.add(event)
+        self._sequence += 1
+
+        self._event_ids.add(
+            event.event_id
+        )
+
+        self.events.append(
+            event
+        )
+
+        self._sort()
 
         return event
 
-    # =========================================================
-    # EVENT ACCESS
-    # =========================================================
+    # ==================================================================
+    # CONVENIENCE
+    # ==================================================================
 
-    @property
-    def events(self) -> tuple[
-        SimulationEvent, ...
+    def add(
+        self,
+        time: float,
+        action: EventAction,
+        **kwargs: Any,
+    ) -> SimulationEvent:
+        """
+        Convenience alias for ``add_event``.
+        """
+
+        return self.add_event(
+            time=time,
+            action=action,
+            **kwargs,
+        )
+
+    # ==================================================================
+    # EVENT QUERIES
+    # ==================================================================
+
+    def pending_events(
+        self,
+    ) -> tuple[
+        SimulationEvent,
+        ...
     ]:
-        """Return registered events in execution order."""
-
-        return tuple(self._events)
-
-    def pending_events(self) -> tuple[
-        SimulationEvent, ...
-    ]:
-        """Return events that have not yet executed."""
+        """
+        Return all unprocessed events.
+        """
 
         return tuple(
             event
-            for event in self._events
-            if event.can_execute()
+            for event in self.events
+            if not event.processed
         )
+
+    def next_event(
+        self,
+        current_time: float,
+    ) -> SimulationEvent | None:
+        """
+        Return the first pending event at or after ``current_time``.
+
+        Parameters
+        ----------
+        current_time:
+            Current simulation time.
+
+        Returns
+        -------
+        SimulationEvent | None
+            Next pending event.
+        """
+
+        for event in self.events:
+
+            if event.processed:
+                continue
+
+            if (
+                event.time
+                >= current_time
+                - self.time_tolerance
+            ):
+                return event
+
+        return None
 
     def next_event_time(
         self,
         current_time: float,
     ) -> float | None:
         """
-        Return the next pending event time after current_time.
-
-        Returns None when no future event exists.
+        Return the time of the next pending event.
         """
 
-        for event in self._events:
+        event = self.next_event(
+            current_time
+        )
 
-            if not event.can_execute():
+        if event is None:
+            return None
+
+        return float(
+            event.time
+        )
+
+    def events_between(
+        self,
+        start_time: float,
+        end_time: float,
+        *,
+        include_start: bool = False,
+        include_end: bool = True,
+    ) -> tuple[
+        SimulationEvent,
+        ...
+    ]:
+        """
+        Return pending events inside a simulation-time interval.
+
+        This is used by the simulation controller to detect whether a
+        proposed integration step crosses an event.
+        """
+
+        if end_time < start_time:
+            raise EventError(
+                "end_time cannot be earlier "
+                "than start_time."
+            )
+
+        result: list[
+            SimulationEvent
+        ] = []
+
+        for event in self.events:
+
+            if event.processed:
                 continue
 
-            if event.time >= (
-                current_time
-                - self.time_tolerance
+            if include_start:
+
+                after_start = (
+                    event.time
+                    >= start_time
+                    - self.time_tolerance
+                )
+
+            else:
+
+                after_start = (
+                    event.time
+                    > start_time
+                    + self.time_tolerance
+                )
+
+            if include_end:
+
+                before_end = (
+                    event.time
+                    <= end_time
+                    + self.time_tolerance
+                )
+
+            else:
+
+                before_end = (
+                    event.time
+                    < end_time
+                    - self.time_tolerance
+                )
+
+            if (
+                after_start
+                and before_end
             ):
-                return event.time
+                result.append(
+                    event
+                )
 
-        return None
+        result.sort(
+            key=lambda item:
+                item.sort_key
+        )
 
-    # =========================================================
-    # EVENT PROCESSING
-    # =========================================================
+        return tuple(
+            result
+        )
+
+    def due_events(
+        self,
+        current_time: float,
+    ) -> tuple[
+        SimulationEvent,
+        ...
+    ]:
+        """
+        Return all events whose scheduled time has been reached.
+
+        Events are returned in deterministic order but are not processed.
+        """
+
+        result: list[
+            SimulationEvent
+        ] = []
+
+        for event in self.events:
+
+            if event.processed:
+                continue
+
+            if (
+                event.time
+                <= current_time
+                + self.time_tolerance
+            ):
+                result.append(
+                    event
+                )
+
+        result.sort(
+            key=lambda item:
+                item.sort_key
+        )
+
+        return tuple(
+            result
+        )
+
+    # ==================================================================
+    # PROCESSING
+    # ==================================================================
 
     def process(
         self,
-        time: float,
-    ) -> list[SimulationEvent]:
+        current_time: float,
+    ) -> tuple[
+        SimulationEvent,
+        ...
+    ]:
         """
-        Execute all events occurring at ``time``.
+        Process all events due at ``current_time``.
 
         Returns
         -------
-        list[SimulationEvent]
-            Events executed during this call.
+        tuple[SimulationEvent, ...]
+            Events processed during this call.
         """
 
-        if not math.isfinite(time):
-            raise ValueError(
-                "Simulation time must be finite."
-            )
-
-        executed: list[
+        processed: list[
             SimulationEvent
         ] = []
 
-        for event in self._events:
+        for event in self.due_events(
+            current_time
+        ):
 
-            if not event.can_execute():
-                continue
-
-            if abs(
-                event.time - time
-            ) > self.time_tolerance:
-                continue
-
-            event.execute()
-
-            executed.append(event)
-
-        return executed
-
-    def process_until(
-        self,
-        time: float,
-    ) -> list[SimulationEvent]:
-        """
-        Execute all pending events whose scheduled time is at or
-        before ``time``.
-
-        This is useful when the simulation advances directly to an
-        event boundary.
-        """
-
-        if not math.isfinite(time):
-            raise ValueError(
-                "Simulation time must be finite."
+            event.action(
+                event
             )
 
-        executed: list[
-            SimulationEvent
-        ] = []
+            if event.one_shot:
+                event.processed = True
 
-        for event in self._events:
+            processed.append(
+                event
+            )
 
-            if not event.can_execute():
-                continue
+        return tuple(
+            processed
+        )
 
-            if event.time > (
-                time
-                + self.time_tolerance
-            ):
-                continue
-
-            event.execute()
-
-            executed.append(event)
-
-        return executed
-
-    # =========================================================
+    # ==================================================================
     # MANAGEMENT
-    # =========================================================
+    # ==================================================================
+
+    def cancel(
+        self,
+        event_id: str,
+    ) -> bool:
+        """
+        Mark an event as processed/cancelled.
+
+        Returns True if the event existed and was pending.
+        """
+
+        for event in self.events:
+
+            if (
+                event.event_id
+                == event_id
+            ):
+
+                if event.processed:
+                    return False
+
+                event.processed = True
+
+                return True
+
+        return False
+
+    def reset(
+        self,
+    ) -> None:
+        """
+        Reset all one-shot events to an unprocessed state.
+        """
+
+        for event in self.events:
+
+            if event.one_shot:
+                event.processed = False
+
+    def clear(
+        self,
+    ) -> None:
+        """
+        Remove all scheduled events.
+        """
+
+        self.events.clear()
+
+        self._event_ids.clear()
+
+        self._sequence = 0
 
     def remove(
         self,
         event_id: str,
-    ) -> None:
-        """Remove an event by ID."""
-
-        if event_id not in self._sequence:
-            raise KeyError(
-                f"Unknown event ID: '{event_id}'."
-            )
-
-        self._events = [
-            event
-            for event in self._events
-            if event.event_id != event_id
-        ]
-
-        del self._sequence[
-            event_id
-        ]
-
-    def clear(self) -> None:
-        """Remove all registered events."""
-
-        self._events.clear()
-        self._sequence.clear()
-        self._next_sequence = 0
-
-    def reset(self) -> None:
+    ) -> bool:
         """
-        Reset execution status while retaining event definitions.
+        Remove a scheduled event by identifier.
         """
 
-        for event in self._events:
-            event.executed = False
+        for index, event in enumerate(
+            self.events
+        ):
 
-    # =========================================================
+            if (
+                event.event_id
+                == event_id
+            ):
+
+                del self.events[
+                    index
+                ]
+
+                self._event_ids.discard(
+                    event_id
+                )
+
+                return True
+
+        return False
+
+    # ==================================================================
     # INTERNAL
-    # =========================================================
+    # ==================================================================
 
-    def _sort_events(self) -> None:
-        self._events.sort(
-            key=lambda event: (
-                event.time,
-                event.priority,
-                self._sequence[
-                    event.event_id
-                ],
+    def _generate_event_id(
+        self,
+    ) -> str:
+
+        while True:
+
+            event_id = (
+                f"event_{self._sequence:06d}"
             )
+
+            if event_id not in (
+                self._event_ids
+            ):
+                return event_id
+
+            self._sequence += 1
+
+    def _sort(
+        self,
+    ) -> None:
+
+        self.events.sort(
+            key=lambda event:
+                event.sort_key
         )
+
+
+# ======================================================================
+# PUBLIC EXPORTS
+# ======================================================================
+
+
+__all__ = [
+    "EventAction",
+    "EventError",
+    "SimulationEvent",
+    "EventManager",
+]
+```
