@@ -1,9 +1,6 @@
-#core/network/network.py
 """
-GridForge Network
-=================
-
 GridForge Network Layer V2
+==========================
 
 Central assembled-network container for GridForge.
 
@@ -27,6 +24,7 @@ Architecture
               v
     core/solver/
         Numerical algorithms
+
 
 Responsibilities
 ----------------
@@ -60,7 +58,7 @@ The Network does not:
 
 Model Ownership
 ---------------
-``core/model`` is the single source of truth for electrical
+``core.model`` is the single source of truth for electrical
 entities.
 
 The Network stores references to those canonical model objects.
@@ -78,7 +76,7 @@ The Network exposes a configured instance through:
 
     network.per_unit
 
-There is intentionally no active ``core.network.per_unit`` model.
+There is intentionally no active ``core.network.per_unit`` module.
 
 Y-Bus Ownership
 ---------------
@@ -92,6 +90,14 @@ Topology Ownership
 ------------------
 Topology construction and connectivity analysis are delegated to
 ``TopologyManager``.
+
+Injection State
+---------------
+Generator and Load electrical injections are aggregated into the
+corresponding Bus study-state quantities by ``sync_injections()``.
+
+The Network does not perform power-flow calculations or bus-type
+switching.
 
 GridForge V2 Status
 -------------------
@@ -175,8 +181,8 @@ class Network:
         # -------------------------------------------------------------
         # CANONICAL MODEL COLLECTIONS
         #
-        # These contain references to objects originating from
-        # core.model.
+        # These collections contain references to objects originating
+        # from core.model.
         # -------------------------------------------------------------
 
         self.buses: List[Any] = []
@@ -208,7 +214,7 @@ class Network:
         self.ybus_builder = YBusBuilder(self)
 
         # -------------------------------------------------------------
-        # NETWORK STUDY STATE
+        # LIGHTWEIGHT NETWORK STUDY STATE
         # -------------------------------------------------------------
 
         self.active_fault: Optional[Dict[str, Any]] = None
@@ -216,14 +222,15 @@ class Network:
         # -------------------------------------------------------------
         # REVISION / DIRTY STATE
         #
-        # Topology revisions invalidate topology-dependent derived
-        # representations such as Y-bus.
+        # A topology change invalidates both topology and Y-bus.
+        #
+        # A Y-bus-only change invalidates Y-bus without incrementing
+        # the topology revision.
         # -------------------------------------------------------------
 
         self._topology_revision = 0
         self._ybus_revision = -1
 
-        # Backward-compatible dirty flags.
         self._topology_dirty = True
         self._ybus_dirty = True
 
@@ -249,11 +256,6 @@ class Network:
         if not hasattr(bus, "id"):
             raise TypeError(
                 "Bus object must provide an 'id' attribute."
-            )
-
-        if bus.id in self.bus_index:
-            raise ValueError(
-                f"Duplicate bus ID: {bus.id}"
             )
 
         for existing in self.buses:
@@ -320,6 +322,11 @@ class Network:
     ) -> None:
         """
         Add a canonical Generator model to the network.
+
+        Generator electrical power does not directly modify Y-bus.
+
+        Bus study-state quantities are synchronized through
+        ``sync_injections()``.
         """
 
         self._require_element(
@@ -333,13 +340,6 @@ class Network:
             "generator",
         )
 
-        # Generator electrical injection changes do not alter Y-bus.
-        #
-        # Bus P/Q study state is synchronized explicitly through
-        # sync_injections().
-        #
-        # Therefore no Y-bus invalidation is required here.
-
     # -----------------------------------------------------------------
 
     def add_load(
@@ -348,6 +348,11 @@ class Network:
     ) -> None:
         """
         Add a canonical Load model to the network.
+
+        Load electrical demand does not directly modify Y-bus.
+
+        Bus study-state quantities are synchronized through
+        ``sync_injections()``.
         """
 
         self._require_element(
@@ -361,8 +366,6 @@ class Network:
             "load",
         )
 
-        # Load power does not directly alter Y-bus.
-
     # -----------------------------------------------------------------
 
     def add_shunt(
@@ -372,8 +375,8 @@ class Network:
         """
         Add a canonical Shunt model to the network.
 
-        Shunt elements contribute to the admittance matrix and
-        therefore invalidate Y-bus.
+        Shunt elements contribute to network admittance and therefore
+        invalidate the current Y-bus representation.
         """
 
         self._require_element(
@@ -423,8 +426,8 @@ class Network:
         element_type: str,
     ) -> None:
         """
-        Append an element while preventing duplicate IDs within
-        the same network collection.
+        Append an element while preventing duplicate IDs within the
+        target network collection.
         """
 
         element_id = element.id
@@ -604,8 +607,8 @@ class Network:
 
         from all generators and loads connected to that bus.
 
-        Generator reactive-power limits are also aggregated for
-        buses operating as PV or SLACK buses.
+        Generator reactive-power limits are aggregated for buses
+        operating as PV or SLACK buses.
 
         Notes
         -----
@@ -691,11 +694,6 @@ class Network:
             p[bus] += dp
             q[bus] += dq
 
-            # ---------------------------------------------------------
-            # Reactive-power limits are relevant only to buses whose
-            # voltage is controlled by generator participation.
-            # ---------------------------------------------------------
-
             if bus.is_pv() or bus.is_slack():
 
                 q_min[bus] += generator.q_min
@@ -770,7 +768,8 @@ class Network:
 
         Notes
         -----
-        This method changes model state and invalidates topology.
+        The Network only changes the model's service-state attribute
+        and invalidates derived topology/Y-bus state.
 
         Engineering validation remains outside Network.
         """
@@ -828,10 +827,12 @@ class Network:
                 "fault_type cannot be empty."
             )
 
-        if isinstance(Zf, (int, float)) and Zf < 0.0:
-            raise ValueError(
-                "Fault impedance cannot be negative."
-            )
+        try:
+            Zf = complex(Zf)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                "Fault impedance must be a real or complex value."
+            ) from exc
 
         self.active_fault = {
             "bus_id": bus_id,
@@ -913,4 +914,3 @@ class Network:
             f"shunts={len(self.shunts)}"
             f")"
         )
-```
