@@ -1,105 +1,96 @@
 ```python
 """
-GridForge IEC Overcurrent Protection
-====================================
+GridForge IEC Overcurrent Protection Function
+==============================================
 
 File:
     core/protection/overcurrent/iec_relay.py
 
 Purpose
 -------
-IEC 60255 overcurrent protection-function implementation for the
-GridForge V2 protection architecture.
+Implements an IEC 60255 inverse-time overcurrent protection
+function for GridForge V2.
 
-Architecture
-------------
+Architectural Position
+-----------------------
 
-    CT / Measurement Source
+    CurrentTransformer
             |
             v
     MeasurementChannel
             |
             v
-        RelayInput
+       RelayInput
             |
             v
-      IECOvercurrentRelay
+       RelayBase
             |
             v
-     ProtectionElement
+    IECOvercurrentRelay
             |
             v
-     ProtectionSystem
+    ProtectionSystem
             |
             v
       BreakerManager
 
-The authoritative physical/configuration/state object remains:
 
-    core.model.relay.Relay
+Important V2 Principle
+----------------------
+This class represents a PROTECTION FUNCTION / ELEMENT.
 
-This class is a protection-function implementation and is NOT a
-second Relay model.
+It is not a second relay model.
 
-Design Principles
------------------
-- Electrical signals are consumed through RelayInput.
-- MeasurementChannel remains authoritative for measurement state.
-- IEC mathematics is delegated to relay_functions.py.
-- RelayBase owns the common protection execution contract.
-- Relay model owns relay-level protection state.
-- ProtectionElement owns multifunction-relay composition.
-- ProtectionSystem owns system-level orchestration.
-- BreakerManager owns physical breaker operation.
+A physical GridForge Relay may contain multiple protection
+functions, for example:
 
-Supported Operating Modes
---------------------------
-INVERSE
-    IEC inverse-time characteristic.
+    50       Instantaneous phase overcurrent
+    51       IEC inverse-time overcurrent
+    50N/50G  Instantaneous earth fault
+    51N/51G  Earth-fault inverse time
+    67       Directional overcurrent
 
-DEFINITE_TIME
-    Fixed operating delay after pickup.
+Therefore this implementation deliberately does not assume that
+one Relay object equals one protection algorithm.
 
-INSTANTANEOUS
-    Immediate operation after pickup.
-
-IEC Curves
-----------
-SI
-    Standard / Normal Inverse.
-
-VI
-    Very Inverse.
-
-EI
-    Extremely Inverse.
-
-Future Extension
+Responsibilities
 ----------------
-The class deliberately separates:
+This module is responsible for:
 
-    pickup
-    curve
-    TMS
-    operating mode
-    definite-time delay
-    instantaneous pickup
+    - consuming a configured current RelayInput;
+    - validating the measurement signal;
+    - evaluating pickup;
+    - evaluating IEC inverse-time operation;
+    - maintaining algorithm-specific timing state;
+    - exposing protection-function status;
+    - requesting the authoritative Relay protection state.
 
-This allows future extension toward:
+It does NOT:
 
-- IEC 60255 variants;
-- ANSI/IEEE inverse curves;
-- high-set stages;
-- low-set/high-set protection;
-- phase-specific elements;
-- residual/earth-fault elements;
-- directional supervision;
-- blocking;
-- breaker-failure interaction;
-- event/time-domain execution.
+    - create CTs;
+    - create MeasurementChannels;
+    - calculate fault current;
+    - access Network topology;
+    - perform load flow;
+    - perform short-circuit calculations;
+    - coordinate multiple relays;
+    - operate breakers;
+    - schedule system-wide protection events;
+    - modify Relay configuration outside its supported API.
 
-Those features should be added as separate capabilities rather than
-turning this class into a monolithic protection system.
+Timing Boundary
+---------------
+IEC inverse-time mathematics is provided by:
+
+    core.protection.relay_functions
+
+The protection function records elapsed operating time only when
+a caller supplies a simulation/evaluation timestamp.
+
+The class does not own the global simulation clock.
+
+A higher-level simulation/protection event engine remains
+responsible for actual event scheduling.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -108,12 +99,12 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
-from enum import Enum
-from math import isfinite
+from dataclasses import dataclass
+import math
 from typing import Any, Optional
 
-from ..relay_base import RelayBase
-from ..relay_functions import (
+from core.protection.relay_base import RelayBase
+from core.protection.relay_functions import (
     current_multiplier,
     iec_pickup,
     iec_time,
@@ -122,18 +113,93 @@ from ..relay_functions import (
 
 
 # =====================================================================
-# OPERATING MODE
+# DEFAULTS
+# =====================================================================
+
+DEFAULT_CURVE = "SI"
+DEFAULT_TMS = 1.0
+
+
+# =====================================================================
+# ELEMENT SETTINGS
 # =====================================================================
 
 
-class OvercurrentOperatingMode(Enum):
+@dataclass(frozen=True)
+class IECOvercurrentSettings:
     """
-    Operating characteristic of an overcurrent protection element.
+    Immutable settings for one IEC overcurrent protection element.
+
+    Parameters
+    ----------
+    pickup:
+        Pickup current in the measurement channel's configured
+        engineering convention.
+
+    curve:
+        IEC inverse-time characteristic.
+
+    TMS:
+        Time Multiplier Setting.
+
+    Notes
+    -----
+    This object contains algorithm settings.
+
+    It does not replace the authoritative Relay model.
     """
 
-    INVERSE = "INVERSE"
-    DEFINITE_TIME = "DEFINITE_TIME"
-    INSTANTANEOUS = "INSTANTANEOUS"
+    pickup: float
+    curve: str = DEFAULT_CURVE
+    TMS: float = DEFAULT_TMS
+
+    def __post_init__(self) -> None:
+
+        pickup = float(
+            self.pickup
+        )
+
+        if not math.isfinite(
+            pickup
+        ) or pickup <= 0.0:
+            raise ValueError(
+                "pickup must be finite and positive."
+            )
+
+        curve = normalize_iec_curve(
+            self.curve
+        )
+
+        TMS = float(
+            self.TMS
+        )
+
+        if not math.isfinite(
+            TMS
+        ) or TMS < 0.0:
+            raise ValueError(
+                "TMS must be finite and >= 0."
+            )
+
+        # Dataclass is frozen, therefore canonicalize the curve
+        # explicitly at construction time.
+        object.__setattr__(
+            self,
+            "pickup",
+            pickup,
+        )
+
+        object.__setattr__(
+            self,
+            "curve",
+            curve,
+        )
+
+        object.__setattr__(
+            self,
+            "TMS",
+            TMS,
+        )
 
 
 # =====================================================================
@@ -143,7 +209,7 @@ class OvercurrentOperatingMode(Enum):
 
 class IECOvercurrentRelay(RelayBase):
     """
-    GridForge IEC inverse-time overcurrent protection function.
+    GridForge V2 IEC inverse-time overcurrent protection function.
 
     Parameters
     ----------
@@ -151,71 +217,54 @@ class IECOvercurrentRelay(RelayBase):
         Authoritative GridForge Relay model.
 
     relay_inputs:
-        Mapping containing the measurement inputs required by this
-        function.
+        Mapping containing the current RelayInput.
 
         By default the function expects:
 
             "current"
 
-        The associated RelayInput must expose the signal supplied by
-        the measurement architecture.
+        Example:
 
-    pickup:
-        Pickup current in the same engineering convention as the
-        current MeasurementChannel.
+            IECOvercurrentRelay(
+                relay=relay,
+                relay_inputs={
+                    "current": current_input,
+                },
+                settings=IECOvercurrentSettings(
+                    pickup=5.0,
+                    curve="SI",
+                    TMS=0.10,
+                ),
+            )
 
-    curve:
-        IEC curve identifier.
-
-        Supported:
-
-            SI
-            VI
-            EI
-
-    TMS:
-        IEC Time Multiplier Setting.
-
-    mode:
-        Protection operating mode.
-
-    definite_time:
-        Operating delay in seconds when ``mode`` is
-        ``DEFINITE_TIME``.
-
-    name:
-        Optional protection-function name.
+    settings:
+        IEC overcurrent element settings.
 
     Notes
     -----
-    The class does not read:
+    The protection function reads the current from RelayInput.
+
+    It does not read:
 
         relay.current
 
-    and does not directly access a CT/PT/CVT.
-
-    The current must arrive through:
-
-        RelayInput -> MeasurementChannel
+    and does not calculate current itself.
     """
 
-    # =================================================================
+    CURRENT_INPUT = "current"
+
+    # ================================================================
     # INITIALIZATION
-    # =================================================================
+    # ================================================================
 
     def __init__(
         self,
         relay: Any,
-        relay_inputs: Optional[dict[str, Any]] = None,
+        relay_inputs: Optional[
+            dict[str, Any]
+        ] = None,
         *,
-        pickup: float,
-        curve: str = "SI",
-        TMS: float = 1.0,
-        mode: OvercurrentOperatingMode = (
-            OvercurrentOperatingMode.INVERSE
-        ),
-        definite_time: float = 0.0,
+        settings: IECOvercurrentSettings,
     ) -> None:
 
         super().__init__(
@@ -223,274 +272,82 @@ class IECOvercurrentRelay(RelayBase):
             relay_inputs=relay_inputs,
         )
 
-        self.require_inputs(
-            "current"
-        )
-
-        self.pickup = self._validate_pickup(
-            pickup
-        )
-
-        self.curve = normalize_iec_curve(
-            curve
-        )
-
-        self.TMS = self._validate_nonnegative(
-            TMS,
-            "TMS",
-        )
-
         if not isinstance(
-            mode,
-            OvercurrentOperatingMode,
+            settings,
+            IECOvercurrentSettings,
         ):
             raise TypeError(
-                "mode must be an "
-                "OvercurrentOperatingMode."
+                "settings must be an "
+                "IECOvercurrentSettings instance."
             )
 
-        self.mode = mode
+        self.settings = settings
 
-        self.definite_time = (
-            self._validate_nonnegative(
-                definite_time,
-                "definite_time",
-            )
-        )
-
-        # -------------------------------------------------------------
-        # Function-specific transient information.
+        # Algorithm-specific transient state.
         #
-        # These are NOT duplicate Relay states.
-        # -------------------------------------------------------------
-
+        # This is deliberately NOT duplicated Relay state.
+        self._pickup_start_time: float | None = None
+        self._last_timestamp: float | None = None
         self._last_current: float | None = None
-        self._last_multiple: float | None = None
-        self._last_operating_time: float | None = None
-        self._last_measurement_valid: bool = False
+        self._last_operating_time: float = math.inf
 
-    # =================================================================
-    # VALIDATION
-    # =================================================================
-
-    @staticmethod
-    def _validate_pickup(
-        pickup: float,
-    ) -> float:
-        """
-        Validate overcurrent pickup.
-        """
-
-        pickup = float(
-            pickup
+        self.require_inputs(
+            self.CURRENT_INPUT
         )
 
-        if not isfinite(pickup):
-            raise ValueError(
-                "pickup must be finite."
-            )
-
-        if pickup <= 0.0:
-            raise ValueError(
-                "pickup must be positive."
-            )
-
-        return pickup
-
-    # -----------------------------------------------------------------
-
-    @staticmethod
-    def _validate_nonnegative(
-        value: float,
-        name: str,
-    ) -> float:
-        """
-        Validate a finite non-negative numerical setting.
-        """
-
-        value = float(
-            value
-        )
-
-        if not isfinite(value):
-            raise ValueError(
-                f"{name} must be finite."
-            )
-
-        if value < 0.0:
-            raise ValueError(
-                f"{name} must be >= 0."
-            )
-
-        return value
-
-    # =================================================================
+    # ================================================================
     # SETTINGS
-    # =================================================================
+    # ================================================================
 
-    def set_pickup(
-        self,
-        pickup: float,
-    ) -> None:
-        """
-        Set the protection-function pickup setting.
+    @property
+    def pickup(self) -> float:
+        """Return configured element pickup."""
 
-        This is algorithm configuration.
+        return self.settings.pickup
 
-        It is intentionally separate from RelayBase.set_pickup(),
-        which controls the relay's protection operating state.
-        """
+    @property
+    def curve(self) -> str:
+        """Return canonical IEC curve identifier."""
 
-        self.pickup = self._validate_pickup(
-            pickup
-        )
+        return self.settings.curve
 
-    # -----------------------------------------------------------------
+    @property
+    def TMS(self) -> float:
+        """Return configured Time Multiplier Setting."""
 
-    def set_curve(
-        self,
-        curve: str,
-    ) -> None:
-        """
-        Set the IEC characteristic.
-        """
+        return self.settings.TMS
 
-        self.curve = normalize_iec_curve(
-            curve
-        )
-
-    # -----------------------------------------------------------------
-
-    def set_TMS(
-        self,
-        TMS: float,
-    ) -> None:
-        """
-        Set the IEC Time Multiplier Setting.
-        """
-
-        self.TMS = self._validate_nonnegative(
-            TMS,
-            "TMS",
-        )
-
-    # -----------------------------------------------------------------
-
-    def set_mode(
-        self,
-        mode: OvercurrentOperatingMode,
-    ) -> None:
-        """
-        Set the operating mode.
-        """
-
-        if not isinstance(
-            mode,
-            OvercurrentOperatingMode,
-        ):
-            raise TypeError(
-                "mode must be an "
-                "OvercurrentOperatingMode."
-            )
-
-        self.mode = mode
-
-    # -----------------------------------------------------------------
-
-    def set_definite_time(
-        self,
-        delay: float,
-    ) -> None:
-        """
-        Set definite-time operating delay.
-        """
-
-        self.definite_time = (
-            self._validate_nonnegative(
-                delay,
-                "definite_time",
-            )
-        )
-
-    # =================================================================
-    # MEASUREMENT ACCESS
-    # =================================================================
+    # ================================================================
+    # MEASUREMENT
+    # ================================================================
 
     def current_signal(self) -> Any:
         """
-        Return the current supplied by the configured current
-        RelayInput.
+        Obtain the current signal from the configured RelayInput.
 
-        The signal remains owned by the measurement architecture.
+        No measurement is cached by this method.
         """
 
         return self.input_signal(
-            "current"
+            self.CURRENT_INPUT
         )
 
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------------
 
-    def _extract_current(
-        self,
-    ) -> float:
+    def current_value(self) -> float:
         """
-        Extract a scalar current magnitude from the configured
-        measurement signal.
+        Return a validated scalar current magnitude.
 
-        Complex current is supported because protection simulations
-        commonly represent phasors.
+        Complex current values are accepted because protection
+        measurement chains may expose phasors.
 
-        The magnitude is used for IEC overcurrent pickup.
+        For the IEC magnitude characteristic, abs(I) is used.
         """
 
-        signal = self.current_signal()
-
-        # -------------------------------------------------------------
-        # RelayInput / MeasurementChannel validity
-        # -------------------------------------------------------------
-
-        input_object = self.get_input(
-            "current"
-        )
-
-        channel = getattr(
-            input_object,
-            "channel",
-            None,
-        )
-
-        if channel is None:
-            channel = getattr(
-                input_object,
-                "measurement_channel",
-                None,
-            )
-
-        if channel is not None:
-
-            usable = getattr(
-                channel,
-                "is_usable",
-                None,
-            )
-
-            if usable is not None:
-
-                if callable(usable):
-                    usable = usable()
-
-                if not bool(usable):
-                    raise ValueError(
-                        f"Current measurement channel for "
-                        f"relay '{self.id}' is not usable."
-                    )
-
-        # -------------------------------------------------------------
-        # Signal conversion
-        # -------------------------------------------------------------
+        value = self.current_signal()
 
         if isinstance(
-            signal,
+            value,
             bool,
         ):
             raise TypeError(
@@ -498,128 +355,74 @@ class IECOvercurrentRelay(RelayBase):
             )
 
         try:
-            if isinstance(
-                signal,
-                complex,
-            ):
-                current = abs(signal)
-            else:
-                current = abs(
-                    float(signal)
-                )
+            value = complex(
+                value
+            )
         except (TypeError, ValueError) as exc:
-            raise TypeError(
-                f"Current measurement for relay "
-                f"'{self.id}' is not numeric."
+            raise ValueError(
+                "Current measurement must be numeric."
             ) from exc
 
-        if not isfinite(current):
+        if not (
+            math.isfinite(value.real)
+            and math.isfinite(value.imag)
+        ):
             raise ValueError(
                 "Current measurement must be finite."
             )
 
-        return current
+        return abs(value)
 
-    # =================================================================
+    # ================================================================
     # PICKUP
-    # =================================================================
+    # ================================================================
 
     def check_pickup(self) -> bool:
         """
-        Evaluate the instantaneous overcurrent pickup criterion.
+        Evaluate the IEC overcurrent pickup criterion.
 
         Returns
         -------
         bool
-            True when measured current is strictly above pickup.
-
-        Notes
-        -----
-        Measurement validity is part of the protection boundary.
-
-        An unavailable/invalid signal must not produce a protection
-        operation.
+            True when measured current exceeds pickup.
         """
 
-        try:
-            current = self._extract_current()
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
-            self._last_current = None
-            self._last_multiple = None
-            self._last_measurement_valid = False
-
-            return False
-
-        self._last_current = current
-
-        self._last_multiple = (
-            current_multiplier(
-                current,
-                self.pickup,
-            )
-        )
-
-        self._last_measurement_valid = True
+        current = self.current_value()
 
         return iec_pickup(
-            current,
-            self.pickup,
+            current=current,
+            pickup=self.pickup,
         )
 
-    # =================================================================
+    # ================================================================
+    # CURRENT MULTIPLE
+    # ================================================================
+
+    def current_multiple(self) -> float:
+        """
+        Return current multiple M.
+        """
+
+        return current_multiplier(
+            current=self.current_value(),
+            pickup=self.pickup,
+        )
+
+    # ================================================================
     # OPERATING TIME
-    # =================================================================
+    # ================================================================
 
-    @property
-    def operating_time(self) -> float:
+    def operating_time(
+        self,
+    ) -> float:
         """
-        Calculate the current protection operating time.
+        Calculate the instantaneous IEC characteristic operating
+        time for the present current.
 
-        Returns
-        -------
-        float
-            Operating time in seconds.
-
-            math.inf indicates that pickup has not occurred.
-
-        Notes
-        -----
-        This property performs a numerical calculation from the
-        latest measurement.
-
-        It does not schedule an event or operate a breaker.
+        Returns math.inf when the element is not picked up.
         """
 
-        if (
-            self._last_current is None
-            or not self._last_measurement_valid
-        ):
-            return float("inf")
-
-        current = self._last_current
-
-        if not iec_pickup(
-            current,
-            self.pickup,
-        ):
-            return float("inf")
-
-        if (
-            self.mode
-            == OvercurrentOperatingMode.INSTANTANEOUS
-        ):
-            return 0.0
-
-        if (
-            self.mode
-            == OvercurrentOperatingMode.DEFINITE_TIME
-        ):
-            return self.definite_time
+        current = self.current_value()
 
         return iec_time(
             current=current,
@@ -628,168 +431,238 @@ class IECOvercurrentRelay(RelayBase):
             TMS=self.TMS,
         )
 
-    # =================================================================
+    # ================================================================
     # EVALUATION
-    # =================================================================
+    # ================================================================
 
     def evaluate(
         self,
+        *,
+        timestamp: float | None = None,
     ) -> bool:
         """
-        Execute one overcurrent protection evaluation cycle.
+        Evaluate one IEC overcurrent protection cycle.
 
+        Parameters
+        ----------
+        timestamp:
+            Optional simulation/event timestamp.
+
+        Behaviour
+        ---------
         The method:
 
-        1. validates service state;
-        2. obtains the current from RelayInput;
-        3. evaluates pickup;
-        4. calculates operating time;
-        5. updates the authoritative Relay protection state.
+            1. validates service state;
+            2. reads current from RelayInput;
+            3. evaluates pickup;
+            4. calculates IEC operating time;
+            5. records algorithm-specific timing state;
+            6. updates the authoritative Relay protection state.
 
-        It does NOT schedule delayed operation.
+        Important
+        ---------
+        This method does not operate a breaker.
 
-        A non-zero operating time is returned through
-        ``operating_time`` and must be handled by the appropriate
-        protection-event/simulation layer.
+        The returned bool represents the protection function's
+        instantaneous decision boundary.
+
+        Actual delayed event execution belongs to the higher-level
+        protection/simulation event layer.
         """
+
+        if timestamp is not None:
+            timestamp = self._validate_timestamp(
+                timestamp
+            )
+
+        self._last_timestamp = timestamp
 
         if not self.in_service:
 
-            self.set_pickup(
-                False
-            )
+            self._last_current = None
+            self._last_operating_time = math.inf
+            self._pickup_start_time = None
 
-            self.set_operated(
-                False
-            )
-
+            self.set_pickup(False)
+            self.set_operated(False)
             self.reset_trip()
-
-            self._last_measurement_valid = False
 
             return False
 
-        operates = self.check_pickup()
+        current = self.current_value()
+
+        self._last_current = current
+
+        picked_up = iec_pickup(
+            current=current,
+            pickup=self.pickup,
+        )
 
         self.set_pickup(
-            operates
+            picked_up
         )
 
-        # -------------------------------------------------------------
-        # The base execution decision represents pickup/operation of
-        # the protection element for this evaluation instant.
-        #
-        # Actual intentional delay must be handled externally.
-        # -------------------------------------------------------------
+        if not picked_up:
 
-        self.set_operated(
-            operates
-        )
+            self._last_operating_time = math.inf
+            self._pickup_start_time = None
 
-        if operates:
-
-            self._last_operating_time = (
-                self.operating_time
-            )
-
-            # Instantaneous operation can assert trip immediately.
-            #
-            # Inverse/definite-time elements expose their delay to
-            # the event/simulation layer rather than pretending that
-            # a delayed trip occurred at this instant.
-            if (
-                self._last_operating_time
-                == 0.0
-            ):
-                self.trip()
-            else:
-                self.reset_trip()
-
-        else:
-
-            self._last_operating_time = float(
-                "inf"
-            )
-
+            self.set_operated(False)
             self.reset_trip()
 
-        return operates
+            return False
 
-    # =================================================================
+        self._last_operating_time = iec_time(
+            current=current,
+            pickup=self.pickup,
+            curve=self.curve,
+            TMS=self.TMS,
+        )
+
+        if timestamp is not None:
+
+            if self._pickup_start_time is None:
+                self._pickup_start_time = timestamp
+
+        self.set_operated(
+            True
+        )
+
+        # Relay trip state represents a protection decision.
+        #
+        # Delayed event execution is intentionally outside this
+        # class. A caller requiring time-domain operation should
+        # use the calculated operating time with the event layer.
+        self.trip()
+
+        return True
+
+    # ================================================================
     # RESET
-    # =================================================================
+    # ================================================================
 
     def reset(
         self,
     ) -> None:
         """
-        Reset relay-level and algorithm-specific transient state.
+        Reset the IEC overcurrent element.
         """
 
         super().reset()
 
+        self._pickup_start_time = None
+        self._last_timestamp = None
         self._last_current = None
-        self._last_multiple = None
-        self._last_operating_time = None
-        self._last_measurement_valid = False
+        self._last_operating_time = math.inf
 
-    # =================================================================
+    # ================================================================
+    # TIMING STATE
+    # ================================================================
+
+    @property
+    def pickup_start_time(self) -> float | None:
+        """
+        Return the timestamp at which pickup was first observed
+        during the current pickup interval.
+        """
+
+        return self._pickup_start_time
+
+    @property
+    def last_timestamp(self) -> float | None:
+        """
+        Return the last evaluation timestamp.
+        """
+
+        return self._last_timestamp
+
+    @property
+    def last_current(self) -> float | None:
+        """
+        Return the last sampled current magnitude.
+
+        This is algorithm diagnostic state, not an authoritative
+        measurement state.
+        """
+
+        return self._last_current
+
+    @property
+    def last_operating_time(self) -> float:
+        """
+        Return the most recently calculated IEC operating time.
+        """
+
+        return self._last_operating_time
+
+    # ================================================================
     # STATUS
-    # =================================================================
+    # ================================================================
 
-    def status(
-        self,
-    ) -> dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """
-        Return structured IEC overcurrent protection status.
+        Return protection-function diagnostic status.
         """
 
-        status = super().status()
+        result = super().status()
 
-        status.update(
+        result.update(
             {
-                "function": "IEC_OVERCURRENT",
-                "pickup_setting": self.pickup,
+                "function": (
+                    "IEC_OVERCURRENT"
+                ),
+                "pickup": self.pickup,
                 "curve": self.curve,
                 "TMS": self.TMS,
-                "mode": self.mode.value,
-                "definite_time": (
-                    self.definite_time
-                ),
-                "last_current": (
-                    self._last_current
-                ),
+                "current": self._last_current,
                 "current_multiple": (
-                    self._last_multiple
+                    self.current_multiple()
+                    if self._last_current is not None
+                    else None
                 ),
                 "operating_time": (
                     self._last_operating_time
                 ),
-                "measurement_valid": (
-                    self._last_measurement_valid
+                "pickup_start_time": (
+                    self._pickup_start_time
+                ),
+                "last_timestamp": (
+                    self._last_timestamp
                 ),
             }
         )
 
-        return status
+        return result
 
-    # =================================================================
-    # REPRESENTATION
-    # =================================================================
+    # ================================================================
+    # VALIDATION
+    # ================================================================
 
-    def __repr__(self) -> str:
+    @staticmethod
+    def _validate_timestamp(
+        timestamp: float,
+    ) -> float:
         """
-        Return concise developer-facing representation.
+        Validate an evaluation timestamp.
         """
 
-        return (
-            f"<IECOvercurrentRelay "
-            f"relay_id={self.id}, "
-            f"pickup={self.pickup}, "
-            f"curve={self.curve}, "
-            f"TMS={self.TMS}, "
-            f"mode={self.mode.value}>"
-        )
+        try:
+            timestamp = float(
+                timestamp
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "timestamp must be numeric."
+            ) from exc
+
+        if not math.isfinite(
+            timestamp
+        ):
+            raise ValueError(
+                "timestamp must be finite."
+            )
+
+        return timestamp
 
 
 # =====================================================================
@@ -797,7 +670,7 @@ class IECOvercurrentRelay(RelayBase):
 # =====================================================================
 
 __all__ = [
-    "OvercurrentOperatingMode",
+    "IECOvercurrentSettings",
     "IECOvercurrentRelay",
 ]
 ```
