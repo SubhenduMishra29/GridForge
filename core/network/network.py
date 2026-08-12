@@ -1,28 +1,11 @@
+#core/network/network.py
 """
 GridForge Network
 =================
 
+GridForge Network Layer V2
+
 Central assembled-network container for GridForge.
-
-Responsibilities
-----------------
-- Maintain collections of canonical electrical model objects.
-- Maintain the system MVA base.
-- Maintain deterministic bus indexing.
-- Coordinate topology management.
-- Coordinate Y-bus construction.
-- Maintain network-derived state and study state.
-- Provide lightweight network-level utilities.
-
-Does NOT
---------
-- Implement numerical power-flow algorithms.
-- Implement Newton-Raphson/Jacobian calculations.
-- Implement short-circuit mathematics.
-- Implement protection algorithms.
-- Implement transient/dynamic numerical integration.
-- Implement engineering validation rules.
-- Define electrical equipment models.
 
 Architecture
 ------------
@@ -34,7 +17,7 @@ Architecture
     core/network/
         Assembled network
         topology
-        per-unit system
+        per-unit service
         Y-bus representation
               |
               v
@@ -45,69 +28,156 @@ Architecture
     core/solver/
         Numerical algorithms
 
-Important
----------
-core/model is the single source of truth for electrical entities.
+Responsibilities
+----------------
+The Network object:
 
-core/network does not define duplicate Bus, Generator, Load,
-Line, Transformer, or other equipment classes.
+- Maintains collections of canonical electrical model objects.
+- Maintains the system MVA base.
+- Provides the canonical PerUnitSystem service.
+- Maintains deterministic bus indexing.
+- Coordinates topology management.
+- Coordinates Y-bus construction.
+- Maintains network-derived state.
+- Maintains lightweight network study state.
+- Provides network-level utilities.
+- Provides injection aggregation for bus study state.
+
+Does NOT
+--------
+The Network does not:
+
+- Implement numerical power-flow algorithms.
+- Implement Newton-Raphson calculations.
+- Implement Jacobian calculations.
+- Implement short-circuit mathematics.
+- Implement protection algorithms.
+- Implement transient/dynamic numerical integration.
+- Define electrical equipment models.
+- Duplicate model classes.
+- Perform GUI operations.
+- Implement engineering validation rules.
+
+Model Ownership
+---------------
+``core/model`` is the single source of truth for electrical
+entities.
+
+The Network stores references to those canonical model objects.
+
+It does not define duplicate Bus, Generator, Load, Line,
+Transformer, Shunt, or other equipment classes.
+
+Per-Unit Ownership
+------------------
+The canonical per-unit implementation belongs to:
+
+    core.base.per_unit.PerUnitSystem
+
+The Network exposes a configured instance through:
+
+    network.per_unit
+
+There is intentionally no active ``core.network.per_unit`` model.
+
+Y-Bus Ownership
+---------------
+Y-bus construction is delegated to ``YBusBuilder``.
+
+The Network stores the resulting matrix as derived network state:
+
+    network.Ybus
+
+Topology Ownership
+------------------
+Topology construction and connectivity analysis are delegated to
+``TopologyManager``.
+
+GridForge V2 Status
+-------------------
+This module is part of the GridForge Network Layer V2 baseline.
+
+Changes require evidence of a genuinely fundamental network-layer
+requirement that cannot be satisfied by the model, base, topology,
+Y-bus, analysis, or solver layers.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .per_unit import PerUnitSystem
+from core.base.per_unit import PerUnitSystem
+
 from .topology import TopologyManager
 from .ybus import YBusBuilder
 
+
+# =====================================================================
+# NETWORK
+# =====================================================================
 
 class Network:
     """
     Assembled GridForge electrical network.
 
-    The Network object contains references to canonical objects
-    defined under ``core.model`` and provides network-level
-    services such as topology and Y-bus construction.
-
     Parameters
     ----------
-    base_mva:
-        System-wide apparent-power base in MVA.
+    base_mva : float, optional
+        Global system apparent-power base in MVA.
 
     Notes
     -----
-    Network is intentionally independent of specific numerical
-    solver implementations.
+    Network contains references to canonical electrical objects
+    defined under ``core.model``.
+
+    Network-level services include:
+
+    - per-unit conversion service
+    - topology management
+    - deterministic bus indexing
+    - Y-bus construction
+    - injection aggregation
+    - lightweight fault state
     """
 
-    # =========================================================
+    # =================================================================
     # INITIALIZATION
-    # =========================================================
+    # =================================================================
 
-    def __init__(self, base_mva: float = 100.0) -> None:
+    def __init__(
+        self,
+        base_mva: float = 100.0,
+    ) -> None:
+        """
+        Initialize an empty assembled network.
+        """
+
+        base_mva = float(base_mva)
 
         if base_mva <= 0.0:
             raise ValueError(
                 "Network base MVA must be positive."
             )
 
-        self.base_mva = float(base_mva)
+        self.base_mva = base_mva
 
-        # -----------------------------------------------------
-        # SYSTEM SERVICES
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # BASE-LAYER PER-UNIT SERVICE
+        # -------------------------------------------------------------
 
         self.per_unit = PerUnitSystem(
-            base_mva=self.base_mva
+            base_mva=self.base_mva,
         )
 
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
         # CANONICAL MODEL COLLECTIONS
         #
-        # Objects stored here must originate from core.model.
-        # Network does not redefine those electrical models.
-        # -----------------------------------------------------
+        # These contain references to objects originating from
+        # core.model.
+        # -------------------------------------------------------------
 
         self.buses: List[Any] = []
         self.lines: List[Any] = []
@@ -116,35 +186,40 @@ class Network:
         self.loads: List[Any] = []
         self.shunts: List[Any] = []
 
-        # -----------------------------------------------------
-        # DERIVED BUS INDEX
+        # -------------------------------------------------------------
+        # DETERMINISTIC BUS INDEX
         #
         # bus.id -> numerical matrix index
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
 
         self.bus_index: Dict[Any, int] = {}
 
-        # -----------------------------------------------------
-        # DERIVED NETWORK REPRESENTATIONS
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # DERIVED NETWORK REPRESENTATION
+        # -------------------------------------------------------------
 
         self.Ybus = None
 
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
         # NETWORK SERVICES
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
 
         self.topology = TopologyManager(self)
         self.ybus_builder = YBusBuilder(self)
 
-        # -----------------------------------------------------
-        # NETWORK STATE
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # NETWORK STUDY STATE
+        # -------------------------------------------------------------
 
         self.active_fault: Optional[Dict[str, Any]] = None
 
-        # Network revision counters are preferable to relying
-        # exclusively on loosely coordinated dirty flags.
+        # -------------------------------------------------------------
+        # REVISION / DIRTY STATE
+        #
+        # Topology revisions invalidate topology-dependent derived
+        # representations such as Y-bus.
+        # -------------------------------------------------------------
+
         self._topology_revision = 0
         self._ybus_revision = -1
 
@@ -152,15 +227,18 @@ class Network:
         self._topology_dirty = True
         self._ybus_dirty = True
 
-    # =========================================================
+    # =================================================================
     # ELEMENT MANAGEMENT
-    # =========================================================
+    # =================================================================
 
-    def add_bus(self, bus: Any) -> None:
+    def add_bus(
+        self,
+        bus: Any,
+    ) -> None:
         """
         Add a canonical Bus model to the network.
 
-        Bus IDs must be unique.
+        Bus IDs must be unique within the network.
         """
 
         if bus is None:
@@ -185,84 +263,144 @@ class Network:
                 )
 
         self.buses.append(bus)
+
         self._invalidate_topology()
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
-    def add_line(self, line: Any) -> None:
+    def add_line(
+        self,
+        line: Any,
+    ) -> None:
         """
         Add a canonical Line model to the network.
         """
 
-        self._require_element(line, "line")
+        self._require_element(
+            line,
+            "line",
+        )
 
-        self.lines.append(line)
+        self._append_unique(
+            self.lines,
+            line,
+            "line",
+        )
+
         self._invalidate_topology()
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
-    def add_transformer(self, transformer: Any) -> None:
+    def add_transformer(
+        self,
+        transformer: Any,
+    ) -> None:
         """
         Add a canonical Transformer model to the network.
         """
 
         self._require_element(
             transformer,
-            "transformer"
+            "transformer",
         )
 
-        self.transformers.append(transformer)
+        self._append_unique(
+            self.transformers,
+            transformer,
+            "transformer",
+        )
+
         self._invalidate_topology()
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
-    def add_generator(self, generator: Any) -> None:
+    def add_generator(
+        self,
+        generator: Any,
+    ) -> None:
         """
         Add a canonical Generator model to the network.
         """
 
         self._require_element(
             generator,
-            "generator"
+            "generator",
         )
 
-        self.generators.append(generator)
+        self._append_unique(
+            self.generators,
+            generator,
+            "generator",
+        )
 
-    # ---------------------------------------------------------
+        # Generator electrical injection changes do not alter Y-bus.
+        #
+        # Bus P/Q study state is synchronized explicitly through
+        # sync_injections().
+        #
+        # Therefore no Y-bus invalidation is required here.
 
-    def add_load(self, load: Any) -> None:
+    # -----------------------------------------------------------------
+
+    def add_load(
+        self,
+        load: Any,
+    ) -> None:
         """
         Add a canonical Load model to the network.
         """
 
-        self._require_element(load, "load")
+        self._require_element(
+            load,
+            "load",
+        )
 
-        self.loads.append(load)
+        self._append_unique(
+            self.loads,
+            load,
+            "load",
+        )
 
-    # ---------------------------------------------------------
+        # Load power does not directly alter Y-bus.
 
-    def add_shunt(self, shunt: Any) -> None:
+    # -----------------------------------------------------------------
+
+    def add_shunt(
+        self,
+        shunt: Any,
+    ) -> None:
         """
         Add a canonical Shunt model to the network.
+
+        Shunt elements contribute to the admittance matrix and
+        therefore invalidate Y-bus.
         """
 
-        self._require_element(shunt, "shunt")
+        self._require_element(
+            shunt,
+            "shunt",
+        )
 
-        self.shunts.append(shunt)
+        self._append_unique(
+            self.shunts,
+            shunt,
+            "shunt",
+        )
+
         self._invalidate_ybus()
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @staticmethod
     def _require_element(
         element: Any,
-        element_type: str
+        element_type: str,
     ) -> None:
         """
         Perform minimal structural validation.
 
-        Detailed engineering validation belongs to
-        core/validation/.
+        Detailed engineering validation belongs to the validation
+        layer.
         """
 
         if element is None:
@@ -270,40 +408,66 @@ class Network:
                 f"Cannot add None as a {element_type}."
             )
 
-    # =========================================================
+        if not hasattr(element, "id"):
+            raise TypeError(
+                f"{element_type.capitalize()} object must provide "
+                "an 'id' attribute."
+            )
+
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _append_unique(
+        collection: List[Any],
+        element: Any,
+        element_type: str,
+    ) -> None:
+        """
+        Append an element while preventing duplicate IDs within
+        the same network collection.
+        """
+
+        element_id = element.id
+
+        for existing in collection:
+            if existing.id == element_id:
+                raise ValueError(
+                    f"Duplicate {element_type} ID: {element_id}"
+                )
+
+        collection.append(element)
+
+    # =================================================================
     # INVALIDATION
-    # =========================================================
+    # =================================================================
 
     def _invalidate_topology(self) -> None:
         """
-        Mark topology and all topology-dependent representations
-        as invalid.
+        Invalidate topology and all topology-dependent derived state.
         """
 
         self._topology_revision += 1
 
         self._topology_dirty = True
         self._ybus_dirty = True
-
         self._ybus_revision = -1
 
         if hasattr(self.topology, "_dirty"):
             self.topology._dirty = True
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def _invalidate_ybus(self) -> None:
         """
-        Mark Y-bus as invalid without necessarily changing
-        network topology.
+        Invalidate Y-bus without changing topology revision.
         """
 
         self._ybus_dirty = True
         self._ybus_revision = -1
 
-    # =========================================================
+    # =================================================================
     # BUS INDEXING
-    # =========================================================
+    # =================================================================
 
     def rebuild_bus_index(self) -> Dict[Any, int]:
         """
@@ -312,7 +476,9 @@ class Network:
         Returns
         -------
         dict
-            Mapping ``bus.id -> numerical index``.
+            Mapping:
+
+                bus.id -> numerical matrix index
         """
 
         index: Dict[Any, int] = {}
@@ -335,9 +501,9 @@ class Network:
 
         return self.bus_index
 
-    # =========================================================
+    # =================================================================
     # TOPOLOGY
-    # =========================================================
+    # =================================================================
 
     def rebuild_topology(self):
         """
@@ -350,24 +516,23 @@ class Network:
 
         return graph
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def find_islands(self):
         """
         Return the electrical network islands.
 
-        Island detection itself is implemented by
-        TopologyManager.
+        Island detection is implemented by TopologyManager.
         """
 
         return self.topology.find_islands()
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def is_connected(
         self,
         bus_a: Any,
-        bus_b: Any
+        bus_b: Any,
     ) -> bool:
         """
         Determine whether two buses are electrically connected.
@@ -375,19 +540,19 @@ class Network:
 
         return self.topology.is_connected(
             bus_a,
-            bus_b
+            bus_b,
         )
 
-    # =========================================================
+    # =================================================================
     # Y-BUS
-    # =========================================================
+    # =================================================================
 
     def build_ybus(self):
         """
         Build and return the network Y-bus.
 
         Y-bus mathematics is implemented exclusively by
-        YBusBuilder.
+        ``YBusBuilder``.
 
         Returns
         -------
@@ -406,13 +571,13 @@ class Network:
 
         return self.Ybus
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def get_ybus(self):
         """
         Return the current Y-bus.
 
-        Rebuilds it automatically when invalid.
+        Rebuilds the matrix automatically when invalid.
         """
 
         if (
@@ -424,41 +589,35 @@ class Network:
 
         return self.Ybus
 
-    # =========================================================
+    # =================================================================
     # INJECTION AGGREGATION
-    # =========================================================
+    # =================================================================
 
     def sync_injections(self) -> None:
         """
-        Aggregate attached Generator/Load power and reactive-power
-        limits onto each Bus.
+        Aggregate Generator and Load injections onto each Bus.
 
-        For every bus this recomputes, from scratch:
+        For every registered bus this recomputes:
 
-            P_spec, Q_spec
-                Sum of ``get_power()`` over every Generator and
-                Load whose terminal is connected to that bus.
+            P_spec
+            Q_spec
 
-            Q_min, Q_max
-                Sum of ``q_min``/``q_max`` over every Generator
-                connected to that bus, but only for PV and SLACK
-                buses. PQ buses are reset to unlimited
-                ``(-inf, +inf)`` since the Q-limit handler never
-                inspects them.
+        from all generators and loads connected to that bus.
 
-        This must be called after generators/loads have been
-        added (or their power/limits changed) and before building
-        Ybus or running the power-flow solver, so that bus state
-        reflects the currently attached injections.
+        Generator reactive-power limits are also aggregated for
+        buses operating as PV or SLACK buses.
 
         Notes
         -----
-        This replaces any manually-set P_spec/Q_spec/Q_min/Q_max
-        on the affected buses. Call it once per assembly/update
-        cycle rather than mixing it with manual bus edits.
+        This method modifies Bus study-state quantities only.
 
-        Buses with no attached generator or load are reset to
-        zero injection and unlimited Q.
+        It does not:
+
+        - Build Y-bus.
+        - Solve power flow.
+        - Change generator Q.
+        - Change bus classification.
+        - Perform PV-to-PQ switching.
         """
 
         if not self.buses:
@@ -468,16 +627,34 @@ class Network:
 
         bus_set = set(self.buses)
 
-        p = {bus: 0.0 for bus in self.buses}
-        q = {bus: 0.0 for bus in self.buses}
+        p = {
+            bus: 0.0
+            for bus in self.buses
+        }
 
-        q_min = {bus: 0.0 for bus in self.buses}
-        q_max = {bus: 0.0 for bus in self.buses}
-        has_generator = {bus: False for bus in self.buses}
+        q = {
+            bus: 0.0
+            for bus in self.buses
+        }
 
-        # -----------------------------------------------------
-        # Loads
-        # -----------------------------------------------------
+        q_min = {
+            bus: 0.0
+            for bus in self.buses
+        }
+
+        q_max = {
+            bus: 0.0
+            for bus in self.buses
+        }
+
+        has_generator = {
+            bus: False
+            for bus in self.buses
+        }
+
+        # -------------------------------------------------------------
+        # LOADS
+        # -------------------------------------------------------------
 
         for load in self.loads:
 
@@ -494,9 +671,9 @@ class Network:
             p[bus] += dp
             q[bus] += dq
 
-        # -----------------------------------------------------
-        # Generators
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # GENERATORS
+        # -------------------------------------------------------------
 
         for generator in self.generators:
 
@@ -514,10 +691,10 @@ class Network:
             p[bus] += dp
             q[bus] += dq
 
-            # ---------------------------------------------------
-            # Reactive-power limits only matter for buses whose
-            # voltage is being held by a generator.
-            # ---------------------------------------------------
+            # ---------------------------------------------------------
+            # Reactive-power limits are relevant only to buses whose
+            # voltage is controlled by generator participation.
+            # ---------------------------------------------------------
 
             if bus.is_pv() or bus.is_slack():
 
@@ -526,9 +703,9 @@ class Network:
 
                 has_generator[bus] = True
 
-        # -----------------------------------------------------
-        # Apply aggregated state.
-        # -----------------------------------------------------
+        # -------------------------------------------------------------
+        # APPLY AGGREGATED BUS STATE
+        # -------------------------------------------------------------
 
         for bus in self.buses:
 
@@ -551,13 +728,13 @@ class Network:
                     float("inf"),
                 )
 
-    # =========================================================
+    # =================================================================
     # NETWORK RECONFIGURATION
-    # =========================================================
+    # =================================================================
 
     def reconfigure(self):
         """
-        Rebuild topology and Y-bus after network changes.
+        Rebuild topology and Y-bus after network reconfiguration.
 
         Returns
         -------
@@ -571,19 +748,31 @@ class Network:
 
         return self.build_ybus()
 
-    # =========================================================
+    # =================================================================
     # ELEMENT STATUS
-    # =========================================================
+    # =================================================================
 
     def set_element_status(
         self,
         element: Any,
-        in_service: bool
+        in_service: bool,
     ) -> None:
         """
         Change the service state of a topology-affecting element.
 
-        This method does not perform engineering validation.
+        Parameters
+        ----------
+        element : object
+            Network model element.
+
+        in_service : bool
+            Desired service state.
+
+        Notes
+        -----
+        This method changes model state and invalidates topology.
+
+        Engineering validation remains outside Network.
         """
 
         if element is None:
@@ -600,23 +789,23 @@ class Network:
 
         self._invalidate_topology()
 
-    # =========================================================
+    # =================================================================
     # FAULT STATE
-    # =========================================================
+    # =================================================================
 
     def apply_fault(
         self,
         bus_id: Any,
         fault_type: str,
-        Zf: complex = 0.0
+        Zf: complex = 0.0,
     ) -> None:
         """
         Store an active fault condition.
 
-        This method only stores network state.
+        This method only stores network study state.
 
-        Fault-current calculations belong to the analysis/solver
-        layers.
+        Fault-current calculations belong to the appropriate
+        analysis/solver layers.
         """
 
         if not self.bus_index:
@@ -627,14 +816,21 @@ class Network:
                 f"Unknown fault bus: {bus_id}"
             )
 
-        if isinstance(Zf, (int, float)) and Zf < 0:
-            raise ValueError(
-                "Fault impedance cannot be negative."
-            )
-
         if not isinstance(fault_type, str):
             raise TypeError(
                 "fault_type must be a string."
+            )
+
+        fault_type = fault_type.strip()
+
+        if not fault_type:
+            raise ValueError(
+                "fault_type cannot be empty."
+            )
+
+        if isinstance(Zf, (int, float)) and Zf < 0.0:
+            raise ValueError(
+                "Fault impedance cannot be negative."
             )
 
         self.active_fault = {
@@ -643,7 +839,7 @@ class Network:
             "Zf": Zf,
         }
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def clear_fault(self) -> None:
         """
@@ -652,29 +848,29 @@ class Network:
 
         self.active_fault = None
 
-    # =========================================================
+    # =================================================================
     # VALIDATION HOOK
-    # =========================================================
+    # =================================================================
 
     def validate(self):
         """
-        Delegate structural/engineering validation to the
-        validation layer when available.
+        Delegate engineering validation to the validation layer.
 
         Network itself does not implement engineering validation.
 
         Returns
         -------
-        Validation result
+        object
+            Validation result returned by ``core.validation``.
         """
 
         from core.validation import validate_network
 
         return validate_network(self)
 
-    # =========================================================
+    # =================================================================
     # SUMMARY
-    # =========================================================
+    # =================================================================
 
     def summary(self) -> Dict[str, Any]:
         """
@@ -697,11 +893,15 @@ class Network:
             "active_fault": self.active_fault is not None,
         }
 
-    # =========================================================
+    # =================================================================
     # REPRESENTATION
-    # =========================================================
+    # =================================================================
 
     def __repr__(self) -> str:
+        """
+        Return a concise developer-facing representation.
+        """
+
         return (
             f"Network("
             f"base_mva={self.base_mva}, "
@@ -713,3 +913,4 @@ class Network:
             f"shunts={len(self.shunts)}"
             f")"
         )
+```
