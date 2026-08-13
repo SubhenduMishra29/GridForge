@@ -1,29 +1,63 @@
 """
-Qt Abstraction Layer
+GridForge V2 — Qt Abstraction Layer
+===================================
 
-## Purpose:
-Centralizes ALL Qt imports so the entire project depends on ONE binding.
+File:
+    ui/core/qt.py
 
-If you ever switch bindings (PySide6 ↔ PyQt6),
-you only modify THIS file.
+Purpose
+-------
+Centralized Qt abstraction boundary for the GridForge UI.
+
+GridForge V2 uses PySide6 exclusively. All UI modules that require
+Qt APIs must import them through this module rather than importing
+PySide6 directly.
+
+Architectural Contract
+----------------------
+1. PySide6 is the only supported Qt binding.
+2. UI modules must not import PyQt6.
+3. UI modules should not import PySide6 directly.
+4. This module contains no GridForge application logic.
+5. Core/domain modules must not depend on this UI abstraction.
+6. Additional Qt exports are added only when required by finalized
+   UI modules.
+
+Dependency Direction
+--------------------
+    GridForge Core
+        ↑
+        │
+    UI Controllers
+        ↑
+        │
+    UI Components
+        ↑
+        │
+    ui.core.qt
+        ↑
+        │
+    PySide6
 """
 
-# ===== Binding Selection =====
-# (Easy future switch support)
-
-try:
-    from PySide6 import QtCore, QtGui, QtWidgets
-    BINDING = "PySide6"
-except ImportError:
-    from PyQt6 import QtCore, QtGui, QtWidgets
-    BINDING = "PyQt6"
+from PySide6 import QtCore, QtGui, QtWidgets
 
 
-# ===== Core Exports =====
+# ============================================================================
+# Binding
+# ============================================================================
+
+BINDING = "PySide6"
+
+
+# ============================================================================
+# Qt Core
+# ============================================================================
+
 Qt = QtCore.Qt
 QObject = QtCore.QObject
-Signal = QtCore.Signal if BINDING == "PySide6" else QtCore.pyqtSignal
-Slot = QtCore.Slot if BINDING == "PySide6" else QtCore.pyqtSlot
+Signal = QtCore.Signal
+Slot = QtCore.Slot
 
 QPointF = QtCore.QPointF
 QRectF = QtCore.QRectF
@@ -31,28 +65,43 @@ QSize = QtCore.QSize
 QTimer = QtCore.QTimer
 
 
-# ===== GUI Exports =====
+# ============================================================================
+# Qt GUI
+# ============================================================================
+
 QPainter = QtGui.QPainter
 QPen = QtGui.QPen
 QBrush = QtGui.QBrush
 QColor = QtGui.QColor
 
 
-# ===== Widgets Exports =====
+# ============================================================================
+# Qt Widgets
+# ============================================================================
+
 QWidget = QtWidgets.QWidget
 QGraphicsView = QtWidgets.QGraphicsView
 QGraphicsScene = QtWidgets.QGraphicsScene
 QGraphicsItem = QtWidgets.QGraphicsItem
 
 
-# ===== Optional Short Aliases =====
+# ============================================================================
+# Convenience Geometry Aliases
+# ============================================================================
+
 Point = QPointF
 Rect = QRectF
 
 
-# ===== Public API =====
+# ============================================================================
+# Public API
+# ============================================================================
+
 __all__ = [
-    # Core
+    # Binding
+    "BINDING",
+
+    # Qt Core
     "Qt",
     "QObject",
     "Signal",
@@ -62,22 +111,19 @@ __all__ = [
     "QSize",
     "QTimer",
 
-    # GUI
+    # Qt GUI
     "QPainter",
     "QPen",
     "QBrush",
     "QColor",
 
-    # Widgets
+    # Qt Widgets
     "QWidget",
     "QGraphicsView",
     "QGraphicsScene",
     "QGraphicsItem",
 
-    # Aliases
+    # Convenience aliases
     "Point",
     "Rect",
-
-    # Debug
-    "BINDING",
 ]
