@@ -519,7 +519,7 @@ class ProtectionSystem:
 
     def evaluate(
         self,
-        context: ProtectionContext | None = None,
+        context: ProtectionContext,
     ) -> tuple[ProtectionDecision, ...]:
         """
         Evaluate all enabled ProtectionElements.
@@ -527,7 +527,7 @@ class ProtectionSystem:
         Parameters
         ----------
         context:
-            Optional ProtectionContext supplied to each
+            Immutable ProtectionContext supplied to every enabled
             ProtectionElement.
 
         Returns
@@ -537,6 +537,9 @@ class ProtectionSystem:
 
         Raises
         ------
+        TypeError
+            If context is not a ProtectionContext.
+
         RuntimeError
             If an enabled ProtectionElement returns None.
 
@@ -552,9 +555,17 @@ class ProtectionSystem:
         only after every enabled ProtectionElement has completed
         successfully.
 
-        Therefore a failed evaluation cannot leave a partially
-        committed decision cycle.
+        Therefore a failed evaluation cannot leave the system with
+        a partially committed decision cycle.
         """
+
+        if not isinstance(
+            context,
+            ProtectionContext,
+        ):
+            raise TypeError(
+                "context must be a ProtectionContext."
+            )
 
         decisions: list[
             ProtectionDecision
@@ -591,7 +602,9 @@ class ProtectionSystem:
                 decision
             )
 
-        # Atomic cycle commit.
+        # --------------------------------------------------------------
+        # Atomic cycle commit
+        # --------------------------------------------------------------
 
         committed = tuple(
             decisions
@@ -654,13 +667,8 @@ class ProtectionSystem:
         """
         Return the latest decision for one ProtectionElement.
 
-        Returns
-        -------
-        ProtectionDecision | None
-            The latest decision associated with the element.
-
-            None means that the element did not participate in the
-            latest evaluation cycle.
+        Returns None when that element did not participate in the
+        latest evaluation cycle.
         """
 
         for decision in self._last_decisions:
@@ -743,9 +751,9 @@ class ProtectionSystem:
 
         ``operate`` is distinct from physical breaker operation.
 
-        This method therefore identifies protection functions that have
-        reached their operating criterion, not breakers that have
-        physically opened.
+        This method identifies protection functions that have reached
+        their operating criterion, not breakers that have physically
+        opened.
         """
 
         operated_ids = {
@@ -772,7 +780,7 @@ class ProtectionSystem:
         """
         Return elements whose latest valid decision is actionable.
 
-        An actionable ProtectionDecision is a protection output
+        An actionable ProtectionDecision is a protection-output
         request.
 
         It is NOT physical breaker operation.
@@ -958,7 +966,7 @@ class ProtectionSystem:
         """
         Return diagnostic representation of a ProtectionDecision.
 
-        ProtectionDecision is the finalized canonical decision
+        ProtectionDecision is the finalized canonical V2 decision
         contract, so diagnostics are obtained directly from its
         finalized diagnostics API.
         """
