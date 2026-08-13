@@ -1,89 +1,120 @@
-```python
 """
-GridForge Protection System
-===========================
+GridForge V2 Protection System
+==============================
 
-File:
-    core/protection/breaker_manager.py
+File
+----
+core/protection/breaker_manager.py
 
 Purpose
 -------
 Protection/control-layer manager for circuit breakers.
 
 The BreakerManager provides the command boundary between the
-protection system and the authoritative physical Breaker model.
+protection/control system and the authoritative physical Breaker
+model.
 
 Architecture
 ------------
 
     ProtectionSystem
            |
-           | Trip / Close command
+           | trip / close command
            v
     BreakerManager
            |
-           | breaker.open()
-           | breaker.close()
+           | Breaker.open()
+           | Breaker.close()
            v
     core/model/breaker.py
            |
            v
-    Physical breaker state
+    Authoritative physical breaker state
 
-
-Responsibilities
-----------------
-- Register authoritative Breaker models.
-- Remove registered breakers.
-- Retrieve registered breakers.
-- Validate breaker command references.
-- Execute trip commands.
-- Execute close commands.
-- Query breaker state.
-- Record protection/control-layer events.
-- Provide manager status.
-- Delegate physical operations to Breaker.
-
-The BreakerManager does NOT:
-
-- detect faults;
-- calculate fault current;
-- evaluate relays;
-- calculate relay operating time;
-- coordinate protection functions;
-- process CT/PT/CVT signals;
-- manage MeasurementChannel objects;
-- modify electrical topology;
-- build Y-bus;
-- modify solver state;
-- directly manipulate Breaker internal state;
-- replace the authoritative Breaker model.
 
 Authority Boundary
 ------------------
 
     core/model/breaker.py
         |
-        +-- physical state
+        +-- physical breaker identity
+        +-- physical breaker state
         +-- physical switching operation
         |
         v
-    core/protection/breaker_manager.py
+    BreakerManager
         |
+        +-- command validation
         +-- command dispatch
-        +-- protection/control event recording
+        +-- protection/control event history
+        +-- state queries
         |
         v
-    core/protection/protection_system.py
+    ProtectionSystem
+
+
+Important V2 Rules
+------------------
+
+BreakerManager:
+
+* references authoritative Breaker objects;
+* delegates physical switching exclusively to Breaker.open()
+  and Breaker.close();
+* derives physical state from the authoritative Breaker;
+* records protection/control-layer command events;
+* does not own physical breaker state;
+* does not maintain a simulation clock;
+* does not schedule simulation events;
+* does not evaluate protection functions;
+* does not calculate fault quantities;
+* does not manipulate MeasurementChannel objects;
+* does not modify network topology;
+* does not directly manipulate Breaker internal state.
+
+An unknown breaker identifier is a configuration/reference error.
+
+It is therefore never interpreted as:
+
+    closed
+    open
+    failed
+
+
+Physical Breaker Contract
+-------------------------
+
+The authoritative V2 Breaker model provides:
+
+    breaker.id
+    breaker.is_closed
+    breaker.is_open
+    breaker.is_failed
+
+and:
+
+    breaker.open()
+    breaker.close()
+
+The physical open()/close() methods take no arguments and return
+None.
+
+Therefore command success is determined from the authoritative
+post-operation physical state rather than from the return value of
+open()/close().
+
+BreakerManager does not pass simulation time to the physical
+Breaker.
+
+Simulation time belongs to the simulation/event layer.
 
 
 Event Boundary
 --------------
 
-The physical Breaker owns physical switching history when such
-history is required by the physical equipment/simulation contract.
+The physical Breaker owns physical equipment state.
 
-The BreakerManager owns protection/control-layer command events.
+BreakerManager owns protection/control command history.
 
 Therefore:
 
@@ -94,30 +125,36 @@ Therefore:
         = protection/control command history
 
 
-Important V2 Boundary
----------------------
+Event semantics
+---------------
 
-BreakerManager does not create or infer physical breaker state.
+A successful TRIP event means:
 
-An unknown breaker identifier is a configuration/reference error.
+    the manager issued Breaker.open()
+    and the authoritative breaker state is open afterward.
 
-It is therefore invalid to interpret an unknown breaker as:
+A successful CLOSE event means:
 
-    closed
-    open
-    failed
+    the manager issued Breaker.close()
+    and the authoritative breaker state is closed afterward.
 
-All breaker lookup operations used for commands or status therefore
-raise KeyError when the identifier is not registered.
+An exception raised by the physical Breaker operation is propagated
+to the caller and is not converted into a successful command event.
 
-The manager delegates physical switching exclusively to:
+Event history is manager-owned diagnostic/control history and is not
+the authoritative physical equipment history.
 
-    Breaker.open()
-    Breaker.close()
 
-The manager does not pass simulation time into those methods.
+Reset
+-----
 
-Simulation/event scheduling belongs to the simulation/event layer.
+BreakerManager.reset() clears manager-owned command history only.
+
+It does not reset physical Breaker state.
+
+The authoritative V2 Breaker model does not expose reset(), and the
+manager therefore does not invent or emulate a physical reset
+operation.
 
 
 Copyright © 2026 Subhendu Mishra
@@ -127,8 +164,10 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from math import isfinite
-from typing import Any, Dict, List, Optional
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from core.model.breaker import Breaker
 
@@ -137,41 +176,61 @@ class BreakerManager:
     """
     GridForge V2 protection/control-layer breaker manager.
 
-    The authoritative physical breaker object remains the
+    The authoritative physical breaker remains the
     ``core.model.breaker.Breaker`` instance.
 
-    BreakerManager provides only the command and management
-    boundary required by protection/control logic.
+    BreakerManager owns only:
+
+    * breaker registration;
+    * command dispatch;
+    * command-event history;
+    * authoritative state queries;
+    * manager diagnostics.
+
+    Physical breaker state is never duplicated here.
     """
 
-    # =============================================================
+    # =================================================================
+    # EVENT CONTRACT
+    # =================================================================
+
+    _TRIP_ACTION = "TRIP"
+    _CLOSE_ACTION = "CLOSE"
+
+    _VALID_ACTIONS = frozenset(
+        {
+            _TRIP_ACTION,
+            _CLOSE_ACTION,
+        }
+    )
+
+    # =================================================================
     # INITIALIZATION
-    # =============================================================
+    # =================================================================
 
     def __init__(self) -> None:
         """
         Create an empty BreakerManager.
         """
 
-        self.breakers: Dict[str, Breaker] = {}
+        self._breakers: dict[str, Breaker] = {}
+        self._events: list[dict[str, Any]] = {}
 
-        self.events: List[Dict[str, Any]] = []
+        # Correct the intentionally explicit internal type below.
+        self._events = []
 
-    # =============================================================
+    # =================================================================
     # REGISTRATION
-    # =============================================================
+    # =================================================================
 
     def add_breaker(
         self,
         breaker: Breaker,
     ) -> None:
         """
-        Register an authoritative Breaker model.
+        Register an authoritative physical Breaker.
 
-        Parameters
-        ----------
-        breaker:
-            Instance of ``core.model.breaker.Breaker``.
+        The Breaker object itself remains externally owned.
 
         Raises
         ------
@@ -179,39 +238,46 @@ class BreakerManager:
             If ``breaker`` is not a Breaker.
 
         ValueError
-            If a breaker with the same identifier is already
-            registered.
+            If the breaker identifier is invalid or already registered.
         """
 
-        if not isinstance(breaker, Breaker):
+        if not isinstance(
+            breaker,
+            Breaker,
+        ):
             raise TypeError(
                 "breaker must be an instance of "
                 "core.model.breaker.Breaker."
             )
 
-        breaker_id = breaker.id
+        breaker_id = self._normalize_id(
+            breaker.id,
+            argument="breaker.id",
+        )
 
-        if breaker_id in self.breakers:
+        if breaker_id in self._breakers:
             raise ValueError(
                 f"Breaker already exists: {breaker_id}"
             )
 
-        self.breakers[breaker_id] = breaker
+        self._breakers[breaker_id] = breaker
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     register = add_breaker
 
-    # =============================================================
+    # =================================================================
     # REMOVAL
-    # =============================================================
+    # =================================================================
 
     def remove_breaker(
         self,
         breaker_id: str,
     ) -> Breaker:
         """
-        Remove and return a registered breaker.
+        Remove and return a registered Breaker.
+
+        Removing a breaker does not modify the physical Breaker.
 
         Raises
         ------
@@ -219,36 +285,51 @@ class BreakerManager:
             If the breaker is not registered.
         """
 
-        breaker = self._require_breaker(
-            breaker_id
+        normalized_id = self._normalize_id(
+            breaker_id,
+            argument="breaker_id",
         )
 
-        del self.breakers[breaker_id]
+        breaker = self._require_breaker(
+            normalized_id
+        )
+
+        del self._breakers[normalized_id]
 
         return breaker
 
-    # =============================================================
+    # =================================================================
     # LOOKUP
-    # =============================================================
+    # =================================================================
 
     def get_breaker(
         self,
         breaker_id: str,
-    ) -> Optional[Breaker]:
+    ) -> Breaker | None:
         """
-        Return a registered Breaker.
+        Return a registered authoritative Breaker.
 
-        Returns
-        -------
-        Breaker or None
-            The authoritative Breaker when registered.
+        Returns None when the identifier is not registered.
+
+        Raises
+        ------
+        TypeError
+            If ``breaker_id`` is not a string.
+
+        ValueError
+            If ``breaker_id`` is empty or whitespace.
         """
 
-        return self.breakers.get(
-            breaker_id
+        normalized_id = self._normalize_id(
+            breaker_id,
+            argument="breaker_id",
         )
 
-    # -------------------------------------------------------------
+        return self._breakers.get(
+            normalized_id
+        )
+
+    # -----------------------------------------------------------------
 
     def has_breaker(
         self,
@@ -258,11 +339,16 @@ class BreakerManager:
         Return True when a breaker is registered.
         """
 
-        return breaker_id in self.breakers
+        normalized_id = self._normalize_id(
+            breaker_id,
+            argument="breaker_id",
+        )
 
-    # =============================================================
+        return normalized_id in self._breakers
+
+    # =================================================================
     # REQUIRED LOOKUP
-    # =============================================================
+    # =================================================================
 
     def _require_breaker(
         self,
@@ -274,40 +360,93 @@ class BreakerManager:
         Raises
         ------
         KeyError
-            If the breaker does not exist.
+            If the breaker is not registered.
         """
 
-        breaker = self.get_breaker(
-            breaker_id
+        normalized_id = self._normalize_id(
+            breaker_id,
+            argument="breaker_id",
+        )
+
+        breaker = self._breakers.get(
+            normalized_id
         )
 
         if breaker is None:
             raise KeyError(
-                f"Breaker not found: {breaker_id}"
+                f"Breaker not found: {normalized_id}"
             )
 
         return breaker
 
-    # =============================================================
+    # =================================================================
+    # IDENTIFIER VALIDATION
+    # =================================================================
+
+    @staticmethod
+    def _normalize_id(
+        value: Any,
+        *,
+        argument: str,
+    ) -> str:
+        """
+        Validate and normalize a breaker identifier.
+
+        BreakerManager uses the same semantic identity represented by
+        the authoritative Breaker model.
+
+        No identifier is silently converted from another type.
+        """
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            raise TypeError(
+                f"{argument} must be a string."
+            )
+
+        normalized = value.strip()
+
+        if not normalized:
+            raise ValueError(
+                f"{argument} cannot be empty."
+            )
+
+        return normalized
+
+    # =================================================================
     # TIME VALIDATION
-    # =============================================================
+    # =================================================================
 
     @staticmethod
     def _validate_time(
         time: float,
     ) -> float:
         """
-        Validate command/event time.
+        Validate manager-level command/event time.
 
-        Time is manager-level event metadata.
+        Time is event metadata only.
 
-        It is NOT passed into the physical Breaker.open()
-        or Breaker.close() methods.
+        It is never passed to Breaker.open() or Breaker.close().
         """
 
+        if isinstance(
+            time,
+            bool,
+        ):
+            raise TypeError(
+                "Breaker operation time must be numeric."
+            )
+
         try:
-            value = float(time)
-        except (TypeError, ValueError) as exc:
+            value = float(
+                time
+            )
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
             raise TypeError(
                 "Breaker operation time must be numeric."
             ) from exc
@@ -319,9 +458,78 @@ class BreakerManager:
 
         return value
 
-    # =============================================================
+    # =================================================================
+    # SOURCE NORMALIZATION
+    # =================================================================
+
+    @staticmethod
+    def _normalize_source(
+        source: Any,
+    ) -> Any:
+        """
+        Normalize a command source for event history.
+
+        Objects exposing an ``id`` are represented by that identifier.
+        Primitive diagnostic values are retained.
+
+        The manager does not create a second authoritative identity.
+        """
+
+        if source is None:
+            return None
+
+        if isinstance(
+            source,
+            (str, int, float, bool),
+        ):
+            return source
+
+        source_id = getattr(
+            source,
+            "id",
+            None,
+        )
+
+        if source_id is not None:
+            return source_id
+
+        return str(
+            source
+        )
+
+    # =================================================================
+    # PHYSICAL RESULT VERIFICATION
+    # =================================================================
+
+    @staticmethod
+    def _verify_trip(
+        breaker: Breaker,
+    ) -> bool:
+        """
+        Determine trip success from authoritative Breaker state.
+        """
+
+        return bool(
+            breaker.is_open
+        )
+
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _verify_close(
+        breaker: Breaker,
+    ) -> bool:
+        """
+        Determine close success from authoritative Breaker state.
+        """
+
+        return bool(
+            breaker.is_closed
+        )
+
+    # =================================================================
     # TRIP
-    # =============================================================
+    # =================================================================
 
     def trip(
         self,
@@ -336,65 +544,65 @@ class BreakerManager:
 
             Breaker.open()
 
-        Parameters
-        ----------
-        breaker_id:
-            Registered breaker identifier.
-
-        time:
-            Simulation/event time in seconds.
-
-            This is command-event metadata only. It is not passed
-            to the physical Breaker model.
-
-        source:
-            Optional command source identifier.
-
-            Typical value:
-
-                relay_id
-
-            The manager records this value but does not interpret it.
-
-        Returns
-        -------
-        bool
-            True when the Breaker accepts the operation.
+        The return value is derived from the authoritative
+        post-operation Breaker state.
 
         Raises
         ------
         KeyError
             If the breaker is not registered.
 
-        ValueError / TypeError
-            If time is invalid.
+        TypeError / ValueError
+            If the identifier or event time is invalid.
+
+        Exception
+            Any exception raised by Breaker.open() is propagated.
         """
 
-        breaker = self._require_breaker(
-            breaker_id
+        normalized_id = self._normalize_id(
+            breaker_id,
+            argument="breaker_id",
         )
 
         event_time = self._validate_time(
             time
         )
 
-        result = breaker.open()
+        breaker = self._require_breaker(
+            normalized_id
+        )
 
-        success = bool(result)
+        # -------------------------------------------------------------
+        # Physical operation
+        # -------------------------------------------------------------
+
+        breaker.open()
+
+        # -------------------------------------------------------------
+        # Authoritative post-operation state
+        # -------------------------------------------------------------
+
+        success = self._verify_trip(
+            breaker
+        )
+
+        # -------------------------------------------------------------
+        # Protection/control event
+        # -------------------------------------------------------------
 
         self._record_event(
             time=event_time,
-            breaker_id=breaker_id,
-            action="TRIP",
+            breaker_id=normalized_id,
+            action=self._TRIP_ACTION,
             success=success,
             source=source,
         )
 
         return success
 
-    # =============================================================
+    # =================================================================
     # CLOSE
-    # =============================================================
+    # =================================================================
 
     def close(
         self,
@@ -409,58 +617,65 @@ class BreakerManager:
 
             Breaker.close()
 
-        Parameters
-        ----------
-        breaker_id:
-            Registered breaker identifier.
-
-        time:
-            Simulation/event time in seconds.
-
-            This is command-event metadata only.
-
-        source:
-            Optional command source identifier.
-
-        Returns
-        -------
-        bool
-            True when the Breaker accepts the operation.
+        The return value is derived from the authoritative
+        post-operation Breaker state.
 
         Raises
         ------
         KeyError
             If the breaker is not registered.
 
-        ValueError / TypeError
-            If time is invalid.
+        TypeError / ValueError
+            If the identifier or event time is invalid.
+
+        Exception
+            Any exception raised by Breaker.close() is propagated.
         """
 
-        breaker = self._require_breaker(
-            breaker_id
+        normalized_id = self._normalize_id(
+            breaker_id,
+            argument="breaker_id",
         )
 
         event_time = self._validate_time(
             time
         )
 
-        result = breaker.close()
+        breaker = self._require_breaker(
+            normalized_id
+        )
 
-        success = bool(result)
+        # -------------------------------------------------------------
+        # Physical operation
+        # -------------------------------------------------------------
+
+        breaker.close()
+
+        # -------------------------------------------------------------
+        # Authoritative post-operation state
+        # -------------------------------------------------------------
+
+        success = self._verify_close(
+            breaker
+        )
+
+        # -------------------------------------------------------------
+        # Protection/control event
+        # -------------------------------------------------------------
 
         self._record_event(
             time=event_time,
-            breaker_id=breaker_id,
-            action="CLOSE",
+            breaker_id=normalized_id,
+            action=self._CLOSE_ACTION,
             success=success,
             source=source,
         )
 
         return success
 
-    # =============================================================
-    # STATUS
-    # =============================================================
+    # =================================================================
+    # AUTHORITATIVE STATE
+    # =================================================================
 
     def is_closed(
         self,
@@ -480,7 +695,7 @@ class BreakerManager:
             breaker.is_closed
         )
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def is_open(
         self,
@@ -500,14 +715,14 @@ class BreakerManager:
             breaker.is_open
         )
 
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def is_failed(
         self,
         breaker_id: str,
     ) -> bool:
         """
-        Return the authoritative breaker failure state.
+        Return the authoritative physical failure state.
 
         Unknown breaker identifiers raise KeyError.
         """
@@ -520,19 +735,18 @@ class BreakerManager:
             breaker.is_failed
         )
 
-    # =============================================================
-    # STATUS SNAPSHOT
-    # =============================================================
+    # =================================================================
+    # STATUS
+    # =================================================================
 
     def get_status(
         self,
         breaker_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
-        Return a structured status snapshot.
+        Return a structured authoritative Breaker status snapshot.
 
-        The snapshot exposes only state owned by the authoritative
-        Breaker model.
+        This method does not expose manager-owned mutable state.
         """
 
         breaker = self._require_breaker(
@@ -552,30 +766,43 @@ class BreakerManager:
             ),
         }
 
-    # =============================================================
-    # ALL BREAKER STATUS
-    # =============================================================
+    # =================================================================
+    # ALL STATUS
+    # =================================================================
 
     def get_all_status(
         self,
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         Return status snapshots for all registered breakers.
+
+        Returned structures are detached from manager-owned state.
         """
 
         return {
-            breaker_id: self.get_status(
-                breaker_id
-            )
-            for breaker_id in self.breakers
+            breaker_id: {
+                "id": breaker.id,
+                "closed": bool(
+                    breaker.is_closed
+                ),
+                "open": bool(
+                    breaker.is_open
+                ),
+                "failed": bool(
+                    breaker.is_failed
+                ),
+            }
+            for breaker_id, breaker
+            in self._breakers.items()
         }
 
-    # =============================================================
+    # =================================================================
     # EVENT LOGGING
-    # =============================================================
+    # =================================================================
 
     def _record_event(
         self,
+        *,
         time: float,
         breaker_id: str,
         action: str,
@@ -583,151 +810,179 @@ class BreakerManager:
         source: Any = None,
     ) -> None:
         """
-        Record a protection/control-layer command event.
+        Record one protection/control command event.
 
-        This event does not replace physical breaker state.
-
-        The event answers:
-
-            What command did the control/protection layer issue?
-
-        The Breaker model answers:
-
-            What is the physical state of the breaker?
+        This is manager-owned event history and is not physical
+        Breaker state.
         """
 
-        event: Dict[str, Any] = {
-            "time": float(time),
-            "breaker": breaker_id,
-            "action": str(action),
-            "success": bool(success),
+        normalized_id = self._normalize_id(
+            breaker_id,
+            argument="breaker_id",
+        )
+
+        if action not in self._VALID_ACTIONS:
+            raise ValueError(
+                f"Unsupported breaker command action: {action!r}"
+            )
+
+        event_time = self._validate_time(
+            time
+        )
+
+        event: dict[str, Any] = {
+            "time": event_time,
+            "breaker": normalized_id,
+            "action": action,
+            "success": bool(
+                success
+            ),
         }
 
-        if source is not None:
-            event["source"] = source
+        normalized_source = self._normalize_source(
+            source
+        )
 
-        self.events.append(
+        if normalized_source is not None:
+            event["source"] = normalized_source
+
+        self._events.append(
             event
         )
 
-    # =============================================================
+    # =================================================================
     # EVENT ACCESS
-    # =============================================================
+    # =================================================================
 
     def get_events(
         self,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
-        Return a copy of the manager event history.
+        Return a detached copy of manager event history.
 
-        Event dictionaries are copied so callers cannot directly
-        mutate the manager's internal event records.
+        The returned data cannot mutate the internal event records.
+
+        Deep copying also protects nested mutable event values.
         """
 
-        return [
-            dict(event)
-            for event in self.events
-        ]
+        return deepcopy(
+            self._events
+        )
 
-    # =============================================================
+    # -----------------------------------------------------------------
+
+    @property
+    def events(
+        self,
+    ) -> tuple[Mapping[str, Any], ...]:
+        """
+        Return a read-only diagnostic view of command events.
+
+        Event history remains manager-owned.
+        """
+
+        return tuple(
+            MappingProxyType(
+                deepcopy(event)
+            )
+            for event in self._events
+        )
+
+    # =================================================================
+    # BREAKER REGISTRY ACCESS
+    # =================================================================
+
+    @property
+    def breakers(
+        self,
+    ) -> Mapping[str, Breaker]:
+        """
+        Return a read-only view of the registered Breaker registry.
+
+        The Breaker objects themselves remain authoritative physical
+        objects; this property prevents external replacement or
+        deletion of registry entries.
+        """
+
+        return MappingProxyType(
+            self._breakers
+        )
+
+    # =================================================================
     # EVENT CLEAR
-    # =============================================================
+    # =================================================================
 
     def clear_events(self) -> None:
         """
-        Clear protection/control-layer events.
+        Clear protection/control command history.
 
-        Physical breaker state is unaffected.
+        Physical Breaker state is unaffected.
         """
 
-        self.events.clear()
+        self._events.clear()
 
-    # =============================================================
+    # =================================================================
     # RESET
-    # =============================================================
+    # =================================================================
 
-    def reset(
-        self,
-        reset_breakers: bool = False,
-    ) -> None:
+    def reset(self) -> None:
         """
-        Reset manager-level state.
+        Reset manager-owned runtime history.
 
-        Parameters
-        ----------
-        reset_breakers:
-            If True, delegate reset to each Breaker that explicitly
-            provides a reset() method.
+        Physical Breaker state is deliberately unchanged.
 
-        Notes
-        -----
-        Manager event history is always cleared.
-
-        By default, physical breaker state is NOT changed.
-
-        This is intentional: a protection/control manager reset
-        must not silently alter physical equipment state.
+        The authoritative V2 Breaker model does not provide a reset()
+        operation, so BreakerManager does not invent one.
         """
 
-        if reset_breakers:
+        self._events.clear()
 
-            for breaker in self.breakers.values():
-
-                reset = getattr(
-                    breaker,
-                    "reset",
-                    None,
-                )
-
-                if not callable(reset):
-                    raise AttributeError(
-                        f"Breaker '{breaker.id}' does not "
-                        "provide reset()."
-                    )
-
-                reset()
-
-        self.events.clear()
-
-    # =============================================================
+    # =================================================================
     # SUMMARY
-    # =============================================================
+    # =================================================================
 
     def summary(
         self,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
-        Return structured BreakerManager information.
+        Return structured BreakerManager diagnostics.
+
+        The returned structure is detached from manager-owned state.
         """
 
         return {
             "breaker_count": len(
-                self.breakers
+                self._breakers
             ),
             "breakers": self.get_all_status(),
             "event_count": len(
-                self.events
+                self._events
             ),
             "events": self.get_events(),
         }
 
-    # =============================================================
+    # =================================================================
     # REPRESENTATION
-    # =============================================================
+    # =================================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
         Return a concise developer-facing representation.
         """
 
         return (
             f"<BreakerManager "
-            f"breakers={len(self.breakers)}, "
-            f"events={len(self.events)}>"
+            f"breakers={len(self._breakers)}, "
+            f"events={len(self._events)}>"
         )
 
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
 
 __all__ = [
     "BreakerManager",
 ]
-```
