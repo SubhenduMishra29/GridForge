@@ -14,25 +14,24 @@ Architecture
         ▼
     InteractionManager
         │
-        │ activation request
+        │ lifecycle request
         ▼
     ToolManager
         │
-        ├── PluginRegistry
-        │       │
-        │       └── registered tool class
+        │ registered tool class
+        ▼
+    PluginRegistry
         │
-        └── ToolRegistry
-                │
-                └── runtime tool instance
+        ▼
+    Tool Instance
+        │
+        ▼
+    Active Tool
 
 
 Ownership
 ---------
-Controller owns:
-
-    - application-level tool selection;
-    - requested tool identifier.
+Controller owns application-level tool selection.
 
 InteractionManager owns:
 
@@ -40,17 +39,17 @@ InteractionManager owns:
     - transient interaction state;
     - PreviewLayer;
     - SnapSystem;
-    - CoordinateSystem.
+    - CoordinateSystem;
+    - forwarding the requested tool ID to ToolManager.
 
 ToolManager owns:
 
-    - tool instance creation;
-    - active tool state;
+    - active tool instance;
+    - tool creation;
     - activation;
     - deactivation;
     - cancellation;
     - lifecycle transitions;
-    - runtime registration of created tool instances;
     - transient preview cleanup at lifecycle boundaries.
 
 PluginRegistry owns:
@@ -58,13 +57,9 @@ PluginRegistry owns:
     - plugin/tool class registration;
     - plugin class lookup.
 
-ToolRegistry owns:
-
-    - runtime references to instantiated tools.
-
 ToolManager does NOT:
 
-    - subscribe directly to Controller;
+    - subscribe to Controller tool-selection events;
     - process raw mouse events;
     - process keyboard events;
     - implement tool behavior;
@@ -75,23 +70,10 @@ ToolManager does NOT:
     - perform snapping;
     - own application-level tool selection.
 
-Controller → ToolManager routing
----------------------------------
-The Controller publishes the requested tool ID.
-
-InteractionManager is the central UI input/coordinating layer
-and delegates tool activation to ToolManager.
-
-Therefore ToolManager does NOT independently subscribe to the
-Controller.
-
-This prevents duplicate activation when both Controller and
-InteractionManager are present.
-
 Tool Lifecycle
 --------------
 
-    activate(tool_id)
+    activate(new_tool)
           │
           ▼
     deactivate(old_tool)
@@ -100,22 +82,20 @@ Tool Lifecycle
     clear preview
           │
           ▼
-    lookup class in PluginRegistry
+    lookup registered class
           │
           ▼
     instantiate tool
           │
           ▼
-    register instance in ToolRegistry
-          │
-          ▼
     activate(new_tool)
+
 
 Cancellation
 ------------
 
 Cancellation aborts the current interaction but does NOT
-normally remove the active tool.
+deactivate the selected tool.
 
     ESC
      │
@@ -128,25 +108,10 @@ normally remove the active tool.
      ▼
     ActiveTool.cancel()
      │
+     ├── interaction state reset by tool
      └── preview cleared
 
-The selected tool remains active.
-
-Compatibility
--------------
-
-Existing tools may incrementally implement:
-
-    activate()
-    deactivate()
-    cancel()
-
-These lifecycle methods remain optional.
-
-If cancel() is unavailable, deactivate() is used as a
-legacy compatibility fallback. The ToolManager nevertheless
-retains the tool as the active tool until an explicit
-deactivation occurs.
+The tool remains active after cancellation.
 
 Qt Rule
 -------
@@ -158,21 +123,17 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ui.core.plugin_registry import get_plugin
-from ui.core.tool_registry import ToolRegistry
 
 
 class ToolManager:
     """
     Owns the lifecycle of the currently active interaction tool.
 
-    ToolManager is the lifecycle authority for tool instances.
+    ToolManager is deliberately independent of Controller
+    selection events.
 
-    Controller remains authoritative for the requested tool ID.
-
-    PluginRegistry remains authoritative for registered tool
-    classes.
-
-    ToolRegistry stores instantiated runtime tool references.
+    InteractionManager is the bridge between Controller tool
+    selection and this lifecycle manager.
     """
 
     # ========================================================
@@ -184,7 +145,6 @@ class ToolManager:
         controller: Any,
         interaction_manager: Optional[Any] = None,
         preview: Optional[Any] = None,
-        tool_registry: Optional[ToolRegistry] = None,
     ) -> None:
         """
         Initialize the ToolManager.
@@ -192,25 +152,28 @@ class ToolManager:
         Parameters
         ----------
         controller:
-            GridForge UI Controller.
+            Application/UI controller supplied to tool
+            constructors.
+
+            ToolManager does not subscribe to Controller
+            selection events.
 
         interaction_manager:
-            InteractionManager supplied to concrete tools.
+            Optional InteractionManager reference supplied to
+            tool constructors.
 
         preview:
-            PreviewLayer used for transient preview cleanup.
-
-        tool_registry:
-            Runtime registry for instantiated tool objects.
-
-            If omitted, a private ToolRegistry is created.
+            Optional PreviewLayer used for transient preview
+            cleanup.
 
         Notes
         -----
-        ToolManager intentionally does NOT subscribe to Controller.
+        Controller remains an injected dependency because
+        concrete tools may require access to the application
+        coordination context.
 
-        Controller tool-change notifications are routed through
-        InteractionManager, which then calls activate().
+        Tool selection itself is handled upstream by
+        InteractionManager.
         """
 
         if controller is None:
@@ -225,12 +188,6 @@ class ToolManager:
         )
 
         self.preview = preview
-
-        self.tool_registry = (
-            tool_registry
-            if tool_registry is not None
-            else ToolRegistry()
-        )
 
         # ----------------------------------------------------
         # Active tool state.
@@ -249,21 +206,17 @@ class ToolManager:
         tool_id: str,
     ) -> Any:
         """
-        Activate the requested tool.
+        Activate a registered tool.
 
         Lifecycle:
 
             deactivate old
                 ↓
-            clear preview
+            clear transient state
                 ↓
-            resolve registered class
+            lookup registered class
                 ↓
-            construct instance
-                ↓
-            register instance
-                ↓
-            establish active state
+            instantiate
                 ↓
             activate new
 
@@ -286,7 +239,8 @@ class ToolManager:
             If tool_id is empty or unregistered.
 
         RuntimeError
-            If tool construction returns None.
+            If tool construction or activation produces an
+            invalid state.
         """
 
         # ----------------------------------------------------
@@ -311,7 +265,7 @@ class ToolManager:
         # ----------------------------------------------------
         # Already active.
         #
-        # Do not recreate the current tool.
+        # Do not recreate the same tool instance.
         # ----------------------------------------------------
 
         if (
@@ -321,13 +275,13 @@ class ToolManager:
             return self.current_tool
 
         # ----------------------------------------------------
-        # Remove previous active tool.
+        # Deactivate previous tool first.
         # ----------------------------------------------------
 
         self.deactivate()
 
         # ----------------------------------------------------
-        # Resolve tool class through PluginRegistry.
+        # Resolve registered tool class.
         # ----------------------------------------------------
 
         tool_class = get_plugin(
@@ -351,11 +305,10 @@ class ToolManager:
             )
 
         # ----------------------------------------------------
-        # Construct the tool.
+        # Construct tool.
         # ----------------------------------------------------
 
         try:
-
             tool = tool_class(
                 self.controller,
                 self.interaction_manager,
@@ -363,48 +316,34 @@ class ToolManager:
 
         except Exception:
 
+            self.current_tool = None
+            self.current_tool_id = None
+
             self._clear_preview()
 
             raise
 
         if tool is None:
+
+            self.current_tool = None
+            self.current_tool_id = None
+
             self._clear_preview()
 
             raise RuntimeError(
-                "Tool class returned None during construction: "
-                f"'{tool_id}'."
+                "Tool class returned None during "
+                f"construction: '{tool_id}'."
             )
 
         # ----------------------------------------------------
-        # Register the runtime instance.
-        #
-        # ToolRegistry stores the instance.
-        # ToolManager remains the lifecycle authority.
-        # ----------------------------------------------------
-
-        try:
-
-            self.tool_registry.register(
-                tool_id,
-                tool,
-            )
-
-        except Exception:
-
-            self._clear_preview()
-
-            raise
-
-        # ----------------------------------------------------
-        # Establish authoritative active state BEFORE calling
-        # activate().
+        # Establish manager state before activate().
         # ----------------------------------------------------
 
         self.current_tool = tool
         self.current_tool_id = tool_id
 
         # ----------------------------------------------------
-        # Optional activation lifecycle callback.
+        # Optional activation callback.
         # ----------------------------------------------------
 
         activate_method = getattr(
@@ -418,24 +357,12 @@ class ToolManager:
         ):
 
             try:
-
                 activate_method()
 
             except Exception:
 
-                # --------------------------------------------
-                # The tool failed during activation.
-                #
-                # Remove it from both active manager state
-                # and runtime registry.
-                # --------------------------------------------
-
                 self.current_tool = None
                 self.current_tool_id = None
-
-                self.tool_registry.unregister(
-                    tool_id
-                )
 
                 self._clear_preview()
 
@@ -451,25 +378,17 @@ class ToolManager:
         self,
     ) -> None:
         """
-        Deactivate and release the current active tool.
+        Deactivate and release the current tool.
 
         The operation is idempotent.
 
-        Lifecycle:
+        The active tool's optional deactivate() callback is
+        invoked before the instance is released.
 
-            tool.deactivate()
-                ↓
-            clear preview
-                ↓
-            unregister runtime instance
-                ↓
-            clear active state
-
-        The ToolRegistry does not perform lifecycle operations.
+        Preview graphics are always cleared.
         """
 
         tool = self.current_tool
-        tool_id = self.current_tool_id
 
         # ----------------------------------------------------
         # No active tool.
@@ -477,12 +396,6 @@ class ToolManager:
 
         if tool is None:
 
-            if tool_id is not None:
-                self.tool_registry.unregister(
-                    tool_id
-                )
-
-            self.current_tool = None
             self.current_tool_id = None
 
             self._clear_preview()
@@ -490,7 +403,7 @@ class ToolManager:
             return
 
         # ----------------------------------------------------
-        # Tool lifecycle callback.
+        # Optional cleanup callback.
         # ----------------------------------------------------
 
         deactivate_method = getattr(
@@ -509,17 +422,10 @@ class ToolManager:
         finally:
 
             # ------------------------------------------------
-            # Regardless of lifecycle callback outcome, the
-            # manager must not retain a stale active reference.
+            # Preview cleanup is guaranteed.
             # ------------------------------------------------
 
             self._clear_preview()
-
-            if tool_id is not None:
-
-                self.tool_registry.unregister(
-                    tool_id
-                )
 
             self.current_tool = None
             self.current_tool_id = None
@@ -534,33 +440,34 @@ class ToolManager:
         """
         Cancel the current tool interaction.
 
-        Cancellation does NOT normally deactivate the active
-        tool.
+        Cancellation does NOT deactivate the active tool.
 
-        Preferred lifecycle:
-
-            tool.cancel()
-
-        Legacy compatibility fallback:
-
-            tool.deactivate()
+        A tool that does not implement cancel() simply receives
+        no tool-level cancellation callback. The manager still
+        clears transient preview state.
 
         Returns
         -------
         bool
-            True when an active tool existed.
+            True if an active tool existed.
 
-            False when no tool was active.
+            False if no tool was active.
 
         Notes
         -----
-        When an explicit cancel() method exists, the tool
-        remains active.
+        Lifecycle deactivation is deliberately NOT used as a
+        cancellation fallback.
 
-        The fallback to deactivate() is retained solely for
-        older tools that have not yet implemented cancel().
-        The manager still retains the tool as the active
-        instance until deactivate() is explicitly requested.
+        Cancellation and deactivation are different lifecycle
+        operations:
+
+            cancel()
+                → abort current interaction
+                → remain active
+
+            deactivate()
+                → leave the tool
+                → release active instance
         """
 
         tool = self.current_tool
@@ -575,6 +482,10 @@ class ToolManager:
 
             return False
 
+        # ----------------------------------------------------
+        # Explicit cancellation callback.
+        # ----------------------------------------------------
+
         cancel_method = getattr(
             tool,
             "cancel",
@@ -586,27 +497,13 @@ class ToolManager:
             if callable(
                 cancel_method
             ):
-
                 cancel_method()
 
-            else:
-
-                # --------------------------------------------
-                # Legacy compatibility.
-                # --------------------------------------------
-
-                deactivate_method = getattr(
-                    tool,
-                    "deactivate",
-                    None,
-                )
-
-                if callable(
-                    deactivate_method
-                ):
-                    deactivate_method()
-
         finally:
+
+            # ------------------------------------------------
+            # Preview belongs to transient interaction state.
+            # ------------------------------------------------
 
             self._clear_preview()
 
@@ -620,12 +517,13 @@ class ToolManager:
         self,
     ) -> None:
         """
-        Clear transient preview graphics.
+        Clear transient preview graphics when PreviewLayer is
+        available.
 
         ToolManager does not own PreviewLayer.
 
-        It merely guarantees that lifecycle boundaries do not
-        leave stale transient graphics behind.
+        It only guarantees that lifecycle transitions do not
+        leave stale transient preview graphics behind.
         """
 
         if self.preview is None:
@@ -650,7 +548,11 @@ class ToolManager:
         self,
     ) -> Optional[Any]:
         """
-        Return the currently active tool instance.
+        Return the active tool instance.
+
+        Returns
+        -------
+        object | None
         """
 
         return self.current_tool
@@ -661,7 +563,7 @@ class ToolManager:
         self,
     ) -> Optional[str]:
         """
-        Return the identifier of the currently active tool.
+        Return the identifier of the active tool.
         """
 
         return self.current_tool_id
@@ -674,10 +576,12 @@ class ToolManager:
         self,
     ) -> bool:
         """
-        Return True when an active tool exists.
+        Return True when an active tool instance exists.
         """
 
-        return self.current_tool is not None
+        return (
+            self.current_tool is not None
+        )
 
     # --------------------------------------------------------
 
@@ -709,10 +613,12 @@ class ToolManager:
         self,
     ) -> None:
         """
-        Reset the active tool lifecycle.
+        Completely reset tool lifecycle state.
 
         The current interaction is cancelled first, followed
-        by explicit deactivation and release.
+        by deactivation and release of the active tool.
+
+        This method is intentionally stronger than cancel().
         """
 
         self.cancel()
@@ -722,23 +628,6 @@ class ToolManager:
         self._clear_preview()
 
     # ========================================================
-    # TOOL REGISTRY ACCESS
-    # ========================================================
-
-    def get_tool_registry(
-        self,
-    ) -> ToolRegistry:
-        """
-        Return the runtime ToolRegistry.
-
-        The registry stores instantiated runtime tools.
-
-        ToolManager remains responsible for their lifecycle.
-        """
-
-        return self.tool_registry
-
-    # ========================================================
     # DISPOSE
     # ========================================================
 
@@ -746,13 +635,12 @@ class ToolManager:
         self,
     ) -> None:
         """
-        Release the active tool and reset the manager.
+        Release the active tool resources.
 
-        Controller subscription management is intentionally
-        absent because ToolManager does not subscribe directly
-        to Controller.
+        ToolManager has no Controller subscription and therefore
+        has no subscription-disconnection step.
 
-        InteractionManager owns Controller event routing.
+        The operation is idempotent.
         """
 
         self.reset()
@@ -774,9 +662,6 @@ class ToolManager:
             ),
             "has_active_tool": (
                 self.has_active_tool()
-            ),
-            "registered_tool_ids": (
-                self.tool_registry.list_tools()
             ),
         }
 
