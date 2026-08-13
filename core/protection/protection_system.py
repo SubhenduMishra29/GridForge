@@ -2,15 +2,16 @@
 GridForge V2 Protection System
 ==============================
 
-File:
-    core/protection/protection_system.py
+File
+----
+core/protection/protection_system.py
 
 Purpose
 -------
 Provides system-level orchestration of GridForge V2
 ProtectionElement objects.
 
-Architectural position
+Architectural Position
 ----------------------
 
     Physical Relay
@@ -18,140 +19,153 @@ Architectural position
           +-- ProtectionElement
           |       |
           |       +-- RelayBase
+          |              |
+          |              +-- RelayInput
+          |                     |
+          |                     +-- MeasurementChannel
           |
           +-- ProtectionElement
-          |       |
-          |       +-- RelayBase
           |
           +-- ProtectionElement
                   |
-                  +-- RelayBase
+                  v
+          ProtectionSystem
+                  |
+                  v
+         ProtectionDecision
+                  |
+                  v
+       Protection Output Layer
+                  |
+                  v
+            BreakerManager
 
-                         |
-                         v
+Core Responsibility
+-------------------
+ProtectionSystem is the runtime orchestration boundary for
+protection elements.
 
-                 ProtectionSystem
-                         |
-                         v
-                ProtectionDecision
-                         |
-                         v
-              Protection Output Layer
-                         |
-                         v
-                  BreakerManager
+It:
 
-ProtectionSystem is an orchestration layer.
+    * registers ProtectionElement objects;
+    * provides deterministic execution ordering;
+    * evaluates registered protection elements;
+    * retains the latest ProtectionDecision objects;
+    * provides decision and element queries;
+    * provides multifunction-relay views;
+    * provides runtime reset and diagnostics.
 
-It does NOT:
+ProtectionSystem does NOT:
 
-    - own physical Relay objects;
-    - create measurement channels;
-    - create RelayInput objects;
-    - calculate electrical quantities;
-    - perform load flow;
-    - perform short-circuit analysis;
-    - perform relay coordination;
-    - operate breakers;
-    - schedule breaker operations.
+    * own physical Relay objects;
+    * own MeasurementChannel objects;
+    * create RelayInput objects;
+    * implement protection mathematics;
+    * calculate electrical quantities;
+    * perform load flow;
+    * perform short-circuit analysis;
+    * perform relay coordination;
+    * operate breakers;
+    * schedule breaker operations;
+    * modify network topology;
+    * contain GUI state;
+    * perform persistence.
 
-Multifunction relay architecture
+Multifunction Relay Architecture
 --------------------------------
 
-GridForge V2 deliberately supports:
+A physical Relay is authoritative in:
 
-    one Relay
+    core.model.relay.Relay
+
+One Relay may host multiple independent protection functions:
+
+    Relay R1
         |
-        +-- zero or more ProtectionElements
+        +-- ProtectionElement OC51
+        |       |
+        |       +-- RelayBase
+        |
+        +-- ProtectionElement DIR67
+        |       |
+        |       +-- RelayBase
+        |
+        +-- ProtectionElement DIST21
+                |
+                +-- RelayBase
 
-Therefore a single physical relay may host:
+ProtectionSystem stores the ProtectionElement objects, not duplicate
+Relay objects.
 
-    50/51
-    67
-    21
-    27
-    59
-    81
-    87
-    50BF
-    ...
+Decision Ownership
+------------------
 
-Each ProtectionElement owns the composition identity of one
-protection function while the authoritative physical Relay remains
-in the model layer.
+ProtectionSystem retains complete ProtectionDecision objects.
 
-Execution architecture
-----------------------
+It does not reduce protection results to booleans and does not
+construct physical breaker commands.
 
-    MeasurementChannel
-            |
-            v
-       RelayInput
-            |
-            v
-      ProtectionContext
-            |
-            v
-      RelayBase.evaluate()
+The semantic flow is:
+
+    RelayBase.evaluate()
             |
             v
     ProtectionDecision
             |
             v
-     ProtectionElement
+    ProtectionElement
             |
             v
-     ProtectionSystem
+    ProtectionSystem
             |
             v
- Protection output / scheme
+    Protection Output / Scheme Layer
             |
             v
-      BreakerManager
+    BreakerManager
 
-Decision ownership
-------------------
+Execution Order
+---------------
 
-ProtectionSystem collects complete ProtectionDecision objects.
+ProtectionElement.priority is used only for deterministic
+orchestration ordering.
 
-It does NOT reduce decisions to booleans or construct breaker
-commands.
+It is NOT:
 
-A ProtectionDecision contains the semantic protection result:
+    * relay coordination priority;
+    * TMS;
+    * grading margin;
+    * breaker priority;
+    * electrical selectivity.
 
-    pickup
-    operate
-    trip_request
-    blocked
-    valid
-    operating information
-    diagnostics
+Coordination remains a separate subsystem.
 
-Physical breaker operation belongs to BreakerManager.
+Decision Cycle
+--------------
 
-Execution context
------------------
+Each call to evaluate() creates a new decision cycle.
 
-ProtectionSystem accepts an optional ProtectionContext.
+Only decisions produced during that evaluation cycle are retained as
+the system's latest decisions.
 
-The context belongs to the protection execution environment and
-provides time/state information required by protection functions.
+Disabled elements are not evaluated and therefore do not contribute a
+decision to the cycle.
 
-ProtectionSystem does not interpret electrical quantities contained
-in the context.
+If an element is removed, the cached decision cycle is invalidated.
 
-Decision lifecycle
-------------------
+Reset clears:
 
-The latest evaluation results are retained internally so that:
+    * ProtectionElement runtime state;
+    * cached system decisions.
 
-    - operated_elements()
-    - tripped_elements()
-    - latest_decisions()
-    - status()
+Reset does not reset:
 
-can operate on the actual ProtectionDecision results generated by
-the latest evaluation cycle.
+    * Relay objects;
+    * MeasurementChannels;
+    * RelayInputs;
+    * network state;
+    * simulation state;
+    * breaker state.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -160,7 +174,7 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Iterable
 
 from .context import ProtectionContext
 from .decision import ProtectionDecision
@@ -169,56 +183,44 @@ from .protection_element import ProtectionElement
 
 class ProtectionSystem:
     """
-    GridForge V2 protection-system orchestration service.
+    Runtime orchestration service for GridForge V2 protection elements.
 
-    ProtectionSystem owns the runtime registry of ProtectionElement
-    objects.
+    The system owns the registry of ProtectionElement objects and the
+    latest decision cycle.
 
-    The authoritative physical Relay remains the Relay model in
-    ``core.model.relay``.
+    It does not become an owner of the authoritative physical Relay.
     """
 
-    # =================================================================
+    # ==================================================================
     # INITIALIZATION
-    # =================================================================
+    # ==================================================================
 
     def __init__(self) -> None:
         """
-        Initialize an empty protection-system registry.
+        Create an empty protection-system registry.
         """
 
-        self._elements: Dict[Any, ProtectionElement] = {}
-
-        # Decisions produced by the most recent evaluation cycle.
+        self._elements: dict[str, ProtectionElement] = {}
 
         self._last_decisions: tuple[
             ProtectionDecision,
-            ...
+            ...,
         ] = ()
 
-    # =================================================================
+    # ==================================================================
     # ELEMENT REGISTRATION
-    # =================================================================
+    # ==================================================================
 
     def add_element(
         self,
         element: ProtectionElement,
     ) -> None:
         """
-        Register a protection element.
+        Register one ProtectionElement.
 
-        Parameters
-        ----------
-        element:
-            ProtectionElement to register.
+        ProtectionElement identity is the registry identity.
 
-        Raises
-        ------
-        TypeError
-            If the supplied object is not a ProtectionElement.
-
-        ValueError
-            If the element identifier is already registered.
+        A physical Relay may therefore safely host multiple elements.
         """
 
         if not isinstance(
@@ -229,23 +231,48 @@ class ProtectionSystem:
                 "element must be a ProtectionElement."
             )
 
-        if element.id in self._elements:
+        element_id = element.id
+
+        if not isinstance(element_id, str):
+            raise TypeError(
+                "ProtectionElement.id must be a string."
+            )
+
+        if not element_id.strip():
             raise ValueError(
-                f"Protection element '{element.id}' "
+                "ProtectionElement.id cannot be empty."
+            )
+
+        if element_id in self._elements:
+            raise ValueError(
+                f"Protection element '{element_id}' "
                 "is already registered."
             )
 
-        self._elements[element.id] = element
+        self._elements[element_id] = element
 
-    # -----------------------------------------------------------------
+        # Registry mutation invalidates the previous decision cycle.
+        self._last_decisions = ()
+
+    # ------------------------------------------------------------------
 
     def remove_element(
         self,
-        element_id: Any,
+        element_id: str,
     ) -> ProtectionElement:
         """
-        Remove and return a registered protection element.
+        Remove and return a registered ProtectionElement.
+
+        Removing an element invalidates the latest decision cycle.
         """
+
+        if not isinstance(
+            element_id,
+            str,
+        ):
+            raise TypeError(
+                "element_id must be a string."
+            )
 
         try:
             element = self._elements.pop(
@@ -257,49 +284,43 @@ class ProtectionSystem:
                 "is not registered."
             ) from exc
 
-        # The removed element may have contributed to the previous
-        # decision cycle. Clear the cached decision because the
-        # registry has changed.
-
         self._last_decisions = ()
 
         return element
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def has_element(
         self,
-        element_id: Any,
+        element_id: str,
     ) -> bool:
         """
-        Return True when an element is registered.
+        Return whether an element is registered.
         """
 
         return element_id in self._elements
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def get_element(
         self,
-        element_id: Any,
+        element_id: str,
     ) -> ProtectionElement:
         """
-        Return a registered protection element.
+        Return a registered ProtectionElement.
         """
 
         try:
-            return self._elements[
-                element_id
-            ]
+            return self._elements[element_id]
         except KeyError as exc:
             raise KeyError(
                 f"Protection element '{element_id}' "
                 "is not registered."
             ) from exc
 
-    # =================================================================
+    # ==================================================================
     # COLLECTION ACCESS
-    # =================================================================
+    # ==================================================================
 
     @property
     def elements(
@@ -308,15 +329,14 @@ class ProtectionSystem:
         """
         Return all registered protection elements.
 
-        A tuple prevents callers from modifying the internal
-        registry directly.
+        The returned tuple cannot modify the internal registry.
         """
 
         return tuple(
             self._elements.values()
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def iter_elements(
         self,
@@ -324,28 +344,23 @@ class ProtectionSystem:
         """
         Iterate over registered protection elements.
 
-        Iteration follows registration order.
-
-        Evaluation order is controlled separately by
-        ``_execution_order()``.
+        Registration order is preserved.
         """
 
         return iter(
             self._elements.values()
         )
 
-    # =================================================================
+    # ==================================================================
     # RELAY COMPOSITION
-    # =================================================================
+    # ==================================================================
 
     def elements_for_relay(
         self,
         relay_id: Any,
     ) -> tuple[ProtectionElement, ...]:
         """
-        Return all protection elements hosted by a Relay.
-
-        This is the primary multifunction-relay access pattern.
+        Return all protection elements hosted by one physical Relay.
         """
 
         return tuple(
@@ -354,68 +369,56 @@ class ProtectionSystem:
             if element.relay_id == relay_id
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def relays(
         self,
     ) -> tuple[Any, ...]:
         """
         Return unique authoritative Relay objects represented by the
-        registered protection elements.
+        registered ProtectionElements.
 
-        Relay identity and Relay state remain owned by the Relay
-        model.
+        The Relay objects themselves remain owned by the model layer.
         """
 
-        result: List[Any] = []
-
+        result: list[Any] = []
         seen: set[int] = set()
 
         for element in self._elements.values():
 
             relay = element.relay_model
 
-            identity = id(
-                relay
-            )
+            identity = id(relay)
 
             if identity in seen:
                 continue
 
-            seen.add(
-                identity
-            )
+            seen.add(identity)
+            result.append(relay)
 
-            result.append(
-                relay
-            )
+        return tuple(result)
 
-        return tuple(
-            result
-        )
-
-    # =================================================================
+    # ==================================================================
     # FUNCTION TYPE ACCESS
-    # =================================================================
+    # ==================================================================
 
     def elements_by_type(
         self,
         function_type: str,
     ) -> tuple[ProtectionElement, ...]:
         """
-        Return protection elements of a specified function type.
+        Return protection elements belonging to a function type.
 
         Examples
         --------
-
-            OVERCURRENT
-            DIRECTIONAL
-            DISTANCE
-            DIFFERENTIAL
-            VOLTAGE
-            FREQUENCY
-            POWER
-            BREAKER_FAILURE
+        OVERCURRENT
+        DIRECTIONAL
+        DISTANCE
+        DIFFERENTIAL
+        VOLTAGE
+        FREQUENCY
+        POWER
+        BREAKER_FAILURE
         """
 
         if not isinstance(
@@ -426,9 +429,7 @@ class ProtectionSystem:
                 "function_type must be a string."
             )
 
-        normalized = (
-            function_type.strip().upper()
-        )
+        normalized = function_type.strip().upper()
 
         if not normalized:
             raise ValueError(
@@ -438,36 +439,27 @@ class ProtectionSystem:
         return tuple(
             element
             for element in self._elements.values()
-            if element.function_type
-            == normalized
+            if element.function_type == normalized
         )
 
-    # =================================================================
+    # ==================================================================
     # EXECUTION ORDER
-    # =================================================================
+    # ==================================================================
 
     def _execution_order(
         self,
     ) -> tuple[ProtectionElement, ...]:
         """
-        Return protection elements in deterministic execution order.
+        Return elements in deterministic execution order.
 
-        Ordering rules
-        --------------
+        Ordering:
 
-        1. Lower priority values execute first.
-        2. Element identifier provides deterministic tie-breaking.
+            1. priority
+            2. element identifier
 
-        Priority is an orchestration ordering mechanism.
+        Priority is an execution-order mechanism only.
 
-        It is NOT interpreted as:
-
-            - relay coordination time;
-            - TMS;
-            - grading margin;
-            - electrical selectivity.
-
-        Those belong to the coordination layer.
+        It has no protection-coordination meaning.
         """
 
         return tuple(
@@ -475,32 +467,33 @@ class ProtectionSystem:
                 self._elements.values(),
                 key=lambda element: (
                     element.priority,
-                    str(element.id),
+                    element.id,
                 ),
             )
         )
 
-    # =================================================================
+    # ==================================================================
     # EVALUATION
-    # =================================================================
+    # ==================================================================
 
     def evaluate(
         self,
         context: ProtectionContext | None = None,
     ) -> tuple[ProtectionDecision, ...]:
         """
-        Evaluate all enabled protection elements.
+        Evaluate all enabled ProtectionElements.
 
         Parameters
         ----------
         context:
-            Optional ProtectionContext supplied to the protection
-            execution layer.
+            Optional ProtectionContext supplied unchanged to each
+            ProtectionElement.
 
         Returns
         -------
         tuple[ProtectionDecision, ...]
-            Complete decisions produced during this evaluation cycle.
+            Decisions produced by the elements that participated in
+            this evaluation cycle.
 
         Notes
         -----
@@ -508,20 +501,14 @@ class ProtectionSystem:
 
         It does not:
 
-            - calculate fault current;
-            - determine network electrical quantities;
-            - coordinate relays;
-            - issue breaker commands;
-            - schedule delayed trips.
-
-        Each ProtectionElement is responsible for invoking its
-        associated protection-function implementation.
-
-        The resulting ProtectionDecision is retained as the latest
-        decision for that element.
+            * calculate electrical quantities;
+            * interpret network equations;
+            * coordinate protection;
+            * operate breakers;
+            * schedule breaker operations.
         """
 
-        decisions: List[
+        decisions: list[
             ProtectionDecision
         ] = []
 
@@ -534,6 +521,14 @@ class ProtectionSystem:
                 context
             )
 
+            if decision is None:
+                raise TypeError(
+                    f"Protection element '{element.id}' "
+                    "returned None from evaluate(). "
+                    "An enabled protection element must "
+                    "return a ProtectionDecision."
+                )
+
             if not isinstance(
                 decision,
                 ProtectionDecision,
@@ -541,7 +536,8 @@ class ProtectionSystem:
                 raise TypeError(
                     f"Protection element '{element.id}' "
                     "returned an invalid evaluation result. "
-                    "Expected ProtectionDecision."
+                    "Expected ProtectionDecision, got "
+                    f"{type(decision).__name__}."
                 )
 
             decisions.append(
@@ -554,51 +550,44 @@ class ProtectionSystem:
 
         return self._last_decisions
 
-    # =================================================================
+    # ==================================================================
     # LATEST DECISIONS
-    # =================================================================
+    # ==================================================================
 
     @property
     def last_decisions(
         self,
     ) -> tuple[ProtectionDecision, ...]:
         """
-        Return the decisions produced by the most recent evaluation
-        cycle.
-
-        An immutable tuple is returned so callers cannot modify the
-        system's decision collection.
+        Return decisions produced during the latest evaluation cycle.
         """
 
         return self._last_decisions
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def latest_decisions(
         self,
     ) -> tuple[ProtectionDecision, ...]:
         """
-        Return the decisions from the most recent evaluation cycle.
-
-        This method is provided as an explicit API counterpart to the
-        ``last_decisions`` property.
+        Return decisions produced during the latest evaluation cycle.
         """
 
         return self._last_decisions
 
-    # =================================================================
+    # ==================================================================
     # DECISION LOOKUP
-    # =================================================================
+    # ==================================================================
 
     def decision_for_element(
         self,
-        element_id: Any,
+        element_id: str,
     ) -> ProtectionDecision | None:
         """
-        Return the latest decision for a specific protection element.
+        Return the latest decision for one protection element.
 
-        Returns None when the element has not participated in the most
-        recent evaluation cycle.
+        Returns None when the element did not participate in the latest
+        evaluation cycle.
         """
 
         for decision in self._last_decisions:
@@ -608,14 +597,14 @@ class ProtectionSystem:
 
         return None
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def decisions_for_relay(
         self,
         relay_id: Any,
     ) -> tuple[ProtectionDecision, ...]:
         """
-        Return latest decisions associated with a Relay.
+        Return latest decisions associated with a physical Relay.
         """
 
         return tuple(
@@ -624,7 +613,7 @@ class ProtectionSystem:
             if decision.relay_id == relay_id
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def decisions_by_function_type(
         self,
@@ -633,54 +622,37 @@ class ProtectionSystem:
         """
         Return latest decisions belonging to a function type.
 
-        The function type is obtained from the corresponding
-        ProtectionElement rather than being duplicated into the
-        ProtectionDecision contract.
+        Function type is obtained from the associated
+        ProtectionElement rather than duplicated into
+        ProtectionDecision.
         """
 
-        if not isinstance(
-            function_type,
-            str,
-        ):
-            raise TypeError(
-                "function_type must be a string."
-            )
-
-        normalized = (
-            function_type.strip().upper()
+        elements = self.elements_by_type(
+            function_type
         )
-
-        if not normalized:
-            raise ValueError(
-                "function_type cannot be empty."
-            )
 
         element_ids = {
             element.id
-            for element in self.elements_by_type(
-                normalized
-            )
+            for element in elements
         }
 
         return tuple(
             decision
             for decision in self._last_decisions
-            if decision.element_id
-            in element_ids
+            if decision.element_id in element_ids
         )
 
-    # =================================================================
+    # ==================================================================
     # DECISION QUERIES
-    # =================================================================
+    # ==================================================================
 
     def operated_elements(
         self,
     ) -> tuple[ProtectionElement, ...]:
         """
-        Return protection elements whose latest decision reports
-        ``operate=True``.
+        Return elements whose latest valid decision reports operation.
 
-        No protection-function implementation internals are inspected.
+        A protection operation is not physical breaker operation.
         """
 
         operated_ids = {
@@ -699,24 +671,29 @@ class ProtectionSystem:
             if element.id in operated_ids
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def tripped_elements(
         self,
     ) -> tuple[ProtectionElement, ...]:
         """
-        Return protection elements whose latest decision requests a
-        trip.
+        Return elements whose latest valid decision contains a trip
+        request.
 
-        A trip request is a protection decision.
+        A trip request is a protection-layer output.
 
-        It is NOT physical breaker operation.
+        Breaker operation remains the responsibility of the output
+        layer / BreakerManager.
         """
 
         trip_ids = {
             decision.element_id
             for decision in self._last_decisions
-            if decision.actionable
+            if (
+                decision.valid
+                and not decision.blocked
+                and decision.trip_request
+            )
         }
 
         return tuple(
@@ -725,14 +702,13 @@ class ProtectionSystem:
             if element.id in trip_ids
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def pickup_elements(
         self,
     ) -> tuple[ProtectionElement, ...]:
         """
-        Return protection elements whose latest decision reports
-        pickup.
+        Return elements whose latest valid decision reports pickup.
         """
 
         pickup_ids = {
@@ -741,6 +717,7 @@ class ProtectionSystem:
             if (
                 decision.valid
                 and decision.pickup
+                and not decision.blocked
             )
         }
 
@@ -750,14 +727,13 @@ class ProtectionSystem:
             if element.id in pickup_ids
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def blocked_elements(
         self,
     ) -> tuple[ProtectionElement, ...]:
         """
-        Return protection elements whose latest decision reports
-        blocking.
+        Return elements whose latest decision reports blocking.
         """
 
         blocked_ids = {
@@ -772,9 +748,9 @@ class ProtectionSystem:
             if element.id in blocked_ids
         )
 
-    # =================================================================
+    # ==================================================================
     # RESET
-    # =================================================================
+    # ==================================================================
 
     def reset(
         self,
@@ -782,6 +758,8 @@ class ProtectionSystem:
         """
         Reset all registered protection elements and clear the latest
         decision cycle.
+
+        Only protection-system/function runtime state is reset.
         """
 
         for element in self._elements.values():
@@ -789,65 +767,18 @@ class ProtectionSystem:
 
         self._last_decisions = ()
 
-    # =================================================================
-    # COMPATIBILITY VIEWS
-    # =================================================================
-
-    @property
-    def oc_relays(
-        self,
-    ) -> List[Any]:
-        """
-        Compatibility view of overcurrent protection functions.
-
-        New V2 code should prefer:
-
-            elements_by_type("OVERCURRENT")
-
-        This property does not represent authoritative storage.
-        """
-
-        return [
-            element.protection_function
-            for element in self.elements_by_type(
-                "OVERCURRENT"
-            )
-        ]
-
-    # -----------------------------------------------------------------
-
-    @property
-    def distance_relays(
-        self,
-    ) -> List[Any]:
-        """
-        Compatibility view of distance protection functions.
-
-        New V2 code should prefer:
-
-            elements_by_type("DISTANCE")
-
-        This property does not represent authoritative storage.
-        """
-
-        return [
-            element.protection_function
-            for element in self.elements_by_type(
-                "DISTANCE"
-            )
-        ]
-
-    # =================================================================
+    # ==================================================================
     # STATUS
-    # =================================================================
+    # ==================================================================
 
     def status(
         self,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
-        Return structured ProtectionSystem status.
+        Return structured diagnostic information.
 
-        The latest decisions are included as diagnostic data.
+        This is a diagnostic representation, not the authoritative
+        persistence representation.
         """
 
         return {
@@ -865,20 +796,56 @@ class ProtectionSystem:
                 for element in self._execution_order()
             ],
             "last_decisions": [
-                decision.as_dict()
+                self._decision_status(
+                    decision
+                )
                 for decision in self._last_decisions
             ],
         }
 
-    # =================================================================
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _decision_status(
+        decision: ProtectionDecision,
+    ) -> Any:
+        """
+        Obtain a diagnostic representation of a decision without
+        requiring ProtectionSystem to own decision serialization.
+
+        ``as_dict()`` is preferred when supplied by the authoritative
+        ProtectionDecision contract.
+        """
+
+        serializer = getattr(
+            decision,
+            "as_dict",
+            None,
+        )
+
+        if callable(serializer):
+            return serializer()
+
+        diagnostics = getattr(
+            decision,
+            "diagnostics",
+            None,
+        )
+
+        if callable(diagnostics):
+            return diagnostics()
+
+        return repr(decision)
+
+    # ==================================================================
     # REPRESENTATION
-    # =================================================================
+    # ==================================================================
 
     def __repr__(
         self,
     ) -> str:
         """
-        Return concise developer-facing representation.
+        Return a concise developer-facing representation.
         """
 
         return (
