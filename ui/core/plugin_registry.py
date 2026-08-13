@@ -1,206 +1,163 @@
-# ============================================================
-# File: ui/core/plugin_registry.py
-# GridForge UI Plugin Registry
-# ============================================================
-#
-# PURPOSE
-# -------
-# This module provides the central registration mechanism for
-# all GridForge UI plugins.
-#
-# The registry itself does NOT import individual plugins.
-#
-# Plugins register themselves by using:
-#
-#     @register_plugin(...)
-#
-# This keeps the architecture modular and prevents the
-# Controller, MainWindow, RenderSystem, or other central files
-# from requiring modification whenever a new plugin is added.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#     Plugin Module
-#          │
-#          │ @register_plugin(...)
-#          ▼
-#     Plugin Registry
-#          │
-#          ▼
-#     Plugin Discovery / Loader
-#          │
-#          ├── Tools
-#          ├── Renderers
-#          ├── Panels
-#          ├── Commands
-#          └── Other UI extensions
-#
-#
-# IMPORTANT
-# ---------
-# This module contains REGISTRATION infrastructure only.
-#
-# It does NOT:
-#     - create Qt widgets
-#     - create tools
-#     - create renderers
-#     - modify the model
-#     - import individual plugins
-#     - contain application logic
-#
-# ============================================================
+"""
+GridForge V2 — Plugin Registry
+==============================
+
+File:
+    ui/core/plugin_registry.py
+
+Purpose
+-------
+Central registration infrastructure for GridForge plugins.
+
+The registry maintains independent namespaces for different
+plugin categories, for example:
+
+    "ui"
+    "tool"
+    "renderer"
+    "panel"
+    "command"
+
+Plugins register themselves using:
+
+    @register_plugin("tool", "line")
+
+The registry does not import plugin modules. Plugin discovery
+and loading are responsible for importing modules, after which
+decorators register the discovered classes.
+
+Architectural Contract
+----------------------
+1. The registry contains registration infrastructure only.
+2. The registry does not import concrete plugins.
+3. The registry does not create plugin instances.
+4. The registry does not create Qt objects.
+5. The registry does not modify the GridForge model.
+6. Each plugin category has an independent identifier
+   namespace.
+7. Duplicate identifiers within a category are prohibited.
+8. Registering the same class under the same category and ID
+   is idempotent.
+9. Plugin discovery/loading is separate from registration.
+10. Registry mutation functions are primarily intended for
+    application initialization, testing, and development
+    reload scenarios.
+
+Example
+-------
+    @register_plugin("tool", "line")
+    class LineTool:
+        ...
+"""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Type
 
 
-# ============================================================
+# ============================================================================
 # INTERNAL REGISTRY
-# ============================================================
-#
-# Plugin classes are stored by:
-#
-#     plugin_type
-#         ↓
-#     plugin_id
-#         ↓
-#     plugin class
-#
-# Example:
-#
-#     {
-#         "tool": {
-#             "line": LineTool,
-#             "bus": BusTool,
-#         },
-#         "renderer": {
-#             "bus": BusRenderer,
-#             "line": LineRenderer,
-#         }
-#     }
-#
-# This allows different plugin systems to use the same central
-# registration infrastructure without sharing the same namespace.
-# ============================================================
+# ============================================================================
 
 _registry: Dict[str, Dict[str, Type[Any]]] = {}
 
 
-# ============================================================
+# ============================================================================
+# VALIDATION
+# ============================================================================
+
+def _validate_identifier(
+    value: str,
+    name: str,
+) -> str:
+    """
+    Validate and normalize a registry identifier.
+    """
+
+    if not isinstance(value, str):
+        raise TypeError(
+            f"{name} must be a string"
+        )
+
+    value = value.strip()
+
+    if not value:
+        raise ValueError(
+            f"{name} must be a non-empty string"
+        )
+
+    return value
+
+
+# ============================================================================
 # REGISTER PLUGIN
-# ============================================================
+# ============================================================================
 
 def register_plugin(
     plugin_type: str,
     plugin_id: str,
 ):
     """
-    Decorator used by GridForge plugins to register themselves.
+    Register a plugin class using a decorator.
 
     Parameters
     ----------
     plugin_type:
-        Category of the plugin.
-
-        Examples:
-            "tool"
-            "renderer"
-            "panel"
-            "command"
+        Plugin category, such as "ui", "tool", or "renderer".
 
     plugin_id:
-        Unique identifier within the plugin category.
-
-        Examples:
-            "select"
-            "bus"
-            "line"
+        Unique identifier within that category.
 
     Returns
     -------
-    decorator
-        A class decorator which registers the plugin.
+    callable
+        Class decorator.
 
-    Example
-    -------
-    @register_plugin("tool", "line")
-    class LineTool:
-        ...
+    Raises
+    ------
+    TypeError
+        If the decorated object is not a class.
 
-    IMPORTANT
-    ---------
-    Registration happens when the Python module containing the
-    plugin is imported.
-
-    Therefore the plugin discovery system is responsible for
-    importing plugin modules.
-
-    The registry itself must NEVER manually import plugins.
+    ValueError
+        If the plugin type or ID is invalid, or if a different
+        class is already registered under the same category and
+        ID.
     """
 
-    # --------------------------------------------------------
-    # Validate plugin type
-    # --------------------------------------------------------
+    plugin_type = _validate_identifier(
+        plugin_type,
+        "plugin_type",
+    )
 
-    if not isinstance(plugin_type, str) or not plugin_type.strip():
-        raise ValueError(
-            "plugin_type must be a non-empty string"
-        )
+    plugin_id = _validate_identifier(
+        plugin_id,
+        "plugin_id",
+    )
 
-    # --------------------------------------------------------
-    # Validate plugin ID
-    # --------------------------------------------------------
-
-    if not isinstance(plugin_id, str) or not plugin_id.strip():
-        raise ValueError(
-            "plugin_id must be a non-empty string"
-        )
-
-    plugin_type = plugin_type.strip()
-    plugin_id = plugin_id.strip()
-
-    # --------------------------------------------------------
-    # Actual class decorator
-    # --------------------------------------------------------
-
-    def decorator(plugin_cls: Type[Any]) -> Type[Any]:
+    def decorator(
+        plugin_cls: Type[Any],
+    ) -> Type[Any]:
         """
         Register the decorated plugin class.
         """
 
-        # ----------------------------------------------------
-        # Only classes may be registered.
-        # ----------------------------------------------------
-
         if not isinstance(plugin_cls, type):
             raise TypeError(
-                "Only classes can be registered as GridForge plugins"
+                "Only classes can be registered as "
+                "GridForge plugins"
             )
-
-        # ----------------------------------------------------
-        # Create category if it does not yet exist.
-        # ----------------------------------------------------
 
         category = _registry.setdefault(
             plugin_type,
-            {}
+            {},
         )
-
-        # ----------------------------------------------------
-        # Prevent accidental duplicate IDs.
-        #
-        # Duplicate registration of the SAME class is harmless.
-        # Duplicate registration of DIFFERENT classes is an
-        # architecture/configuration error and must be detected.
-        # ----------------------------------------------------
 
         existing = category.get(plugin_id)
 
         if existing is not None:
 
+            # Re-importing/re-registering the same class is
+            # harmless and therefore idempotent.
             if existing is plugin_cls:
                 return plugin_cls
 
@@ -211,10 +168,6 @@ def register_plugin(
                 f"{existing.__name__}"
             )
 
-        # ----------------------------------------------------
-        # Register plugin.
-        # ----------------------------------------------------
-
         category[plugin_id] = plugin_cls
 
         return plugin_cls
@@ -222,9 +175,9 @@ def register_plugin(
     return decorator
 
 
-# ============================================================
+# ============================================================================
 # GET PLUGIN
-# ============================================================
+# ============================================================================
 
 def get_plugin(
     plugin_type: str,
@@ -233,96 +186,108 @@ def get_plugin(
     """
     Retrieve a registered plugin class.
 
-    Parameters
-    ----------
-    plugin_type:
-        Plugin category.
-
-    plugin_id:
-        Plugin identifier.
-
-    Returns
-    -------
-    Type | None
-        Registered plugin class, or None if it does not exist.
-
-    Example
-    -------
-    LineTool = get_plugin("tool", "line")
+    Returns None when the requested plugin is not registered.
     """
+
+    plugin_type = _validate_identifier(
+        plugin_type,
+        "plugin_type",
+    )
+
+    plugin_id = _validate_identifier(
+        plugin_id,
+        "plugin_id",
+    )
 
     return _registry.get(
         plugin_type,
-        {}
+        {},
     ).get(plugin_id)
 
 
-# ============================================================
-# GET ALL PLUGINS OF A TYPE
-# ============================================================
+# ============================================================================
+# GET PLUGINS
+# ============================================================================
 
 def get_plugins(
     plugin_type: str,
 ) -> List[Type[Any]]:
     """
-    Return all registered plugin classes belonging to a
-    particular plugin category.
+    Return all registered plugin classes for a category.
 
-    Example
-    -------
-    tools = get_plugins("tool")
+    The returned list is a snapshot and does not expose the
+    internal registry.
     """
 
+    plugin_type = _validate_identifier(
+        plugin_type,
+        "plugin_type",
+    )
+
     return list(
-        _registry.get(plugin_type, {}).values()
+        _registry.get(
+            plugin_type,
+            {},
+        ).values()
     )
 
 
-# ============================================================
-# GET PLUGIN IDs
-# ============================================================
+# ============================================================================
+# GET PLUGIN IDS
+# ============================================================================
 
 def get_plugin_ids(
     plugin_type: str,
 ) -> List[str]:
     """
-    Return all registered plugin IDs for a plugin category.
-
-    Example
-    -------
-    get_plugin_ids("tool")
-
-    might return:
-
-        ["select", "bus", "line"]
+    Return all registered plugin IDs for a category.
     """
 
+    plugin_type = _validate_identifier(
+        plugin_type,
+        "plugin_type",
+    )
+
     return list(
-        _registry.get(plugin_type, {}).keys()
+        _registry.get(
+            plugin_type,
+            {},
+        ).keys()
     )
 
 
-# ============================================================
+# ============================================================================
 # CHECK REGISTRATION
-# ============================================================
+# ============================================================================
 
 def is_registered(
     plugin_type: str,
     plugin_id: str,
 ) -> bool:
     """
-    Check whether a plugin ID is registered.
+    Return True if a plugin is registered under the given
+    category and identifier.
     """
+
+    plugin_type = _validate_identifier(
+        plugin_type,
+        "plugin_type",
+    )
+
+    plugin_id = _validate_identifier(
+        plugin_id,
+        "plugin_id",
+    )
 
     return plugin_id in _registry.get(
         plugin_type,
-        {}
+        {},
     )
 
 
-# ============================================================
+# ============================================================================
 # UNREGISTER PLUGIN
-# ============================================================
+# ============================================================================
 
 def unregister_plugin(
     plugin_type: str,
@@ -334,24 +299,27 @@ def unregister_plugin(
     Returns
     -------
     bool
-        True if a plugin was removed.
-        False if the plugin did not exist.
+        True if a plugin was removed, otherwise False.
 
     Notes
     -----
-    This is primarily useful for:
-
-        - testing
-        - development reload
-        - optional plugin systems
-
-    Normal application execution should generally not
-    unregister plugins.
+    Intended primarily for testing and development reload
+    scenarios.
     """
+
+    plugin_type = _validate_identifier(
+        plugin_type,
+        "plugin_type",
+    )
+
+    plugin_id = _validate_identifier(
+        plugin_id,
+        "plugin_id",
+    )
 
     category = _registry.get(plugin_type)
 
-    if not category:
+    if category is None:
         return False
 
     if plugin_id not in category:
@@ -359,16 +327,15 @@ def unregister_plugin(
 
     del category[plugin_id]
 
-    # Remove empty category to keep registry clean.
     if not category:
         del _registry[plugin_type]
 
     return True
 
 
-# ============================================================
+# ============================================================================
 # CLEAR REGISTRY
-# ============================================================
+# ============================================================================
 
 def clear_registry(
     plugin_type: Optional[str] = None,
@@ -383,36 +350,40 @@ def clear_registry(
 
         If None, the entire registry is cleared.
 
-    IMPORTANT
-    ---------
-    This function is primarily intended for testing and
-    development reload scenarios.
+    Notes
+    -----
+    Primarily intended for testing and development reload
+    scenarios.
     """
 
     if plugin_type is None:
         _registry.clear()
         return
 
-    _registry.pop(plugin_type, None)
+    plugin_type = _validate_identifier(
+        plugin_type,
+        "plugin_type",
+    )
+
+    _registry.pop(
+        plugin_type,
+        None,
+    )
 
 
-# ============================================================
+# ============================================================================
 # REGISTRY SNAPSHOT
-# ============================================================
+# ============================================================================
 
-def get_registry_snapshot() -> Dict[str, Dict[str, Type[Any]]]:
+def get_registry_snapshot() -> Dict[
+    str,
+    Dict[str, Type[Any]],
+]:
     """
-    Return a copy of the current registry.
+    Return a detached snapshot of the complete registry.
 
-    This is useful for:
-
-        - diagnostics
-        - debugging
-        - plugin inspection
-        - development tools
-
-    The returned dictionary is a copy and therefore cannot
-    directly modify the internal registry.
+    Mutating the returned dictionaries does not modify the
+    internal registry.
     """
 
     return {
@@ -421,9 +392,9 @@ def get_registry_snapshot() -> Dict[str, Dict[str, Type[Any]]]:
     }
 
 
-# ============================================================
+# ============================================================================
 # PUBLIC API
-# ============================================================
+# ============================================================================
 
 __all__ = [
     "register_plugin",
