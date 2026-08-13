@@ -25,7 +25,7 @@ Architectural Position
     RelayBase                     RelayBase
         |                             |
         v                             v
- Protection evaluation           Protection evaluation
+ ProtectionDecision             ProtectionDecision
         |                             |
         +-------------+---------------+
                       |
@@ -33,10 +33,11 @@ Architectural Position
               ProtectionSystem
                       |
                       v
-             Protection output
+             Protection Output
                       |
                       v
-              BreakerManager
+               BreakerManager
+
 
 Important
 ---------
@@ -70,6 +71,7 @@ Example
                 |
                 +-- RelayBase
 
+
 Measurement Architecture
 -------------------------
 
@@ -85,7 +87,7 @@ Measurement Architecture
        RelayBase
           |
           v
-    Protection evaluation
+    ProtectionDecision
           |
           v
     ProtectionElement
@@ -93,12 +95,14 @@ Measurement Architecture
           v
     ProtectionSystem
 
+
 MeasurementChannel remains authoritative for measurement state.
 
 RelayInput remains the protection-facing measurement binding.
 
 ProtectionElement does not create, copy, transform, validate, or own
 measurement state.
+
 
 Responsibilities
 ----------------
@@ -112,7 +116,7 @@ ProtectionElement owns:
 * enable/disable state;
 * orchestration priority;
 * lifecycle/execution state;
-* latest evaluation result;
+* latest ProtectionDecision;
 * element-level metadata;
 * diagnostics.
 
@@ -128,7 +132,8 @@ ProtectionElement does NOT own:
 * system-wide coordination;
 * simulation time;
 * protection scheduling;
-* protection decisions as a separate state model.
+* ProtectionDecision as a separate decision model.
+
 
 Execution Contract
 ------------------
@@ -137,13 +142,29 @@ The executable protection function is evaluated through:
 
     function.evaluate(context)
 
-The returned object is preserved as-is by ProtectionElement.
+The required return type is:
 
-ProtectionElement does not reduce the result to a boolean.
+    ProtectionDecision
 
-ProtectionElement therefore remains compatible with the canonical V2
-protection evaluation contract without maintaining a second
-ProtectionDecision implementation.
+The returned ProtectionDecision is preserved as-is by
+ProtectionElement.
+
+ProtectionElement does not reduce the decision to a boolean and does
+not construct a second decision/result representation.
+
+
+Decision Ownership
+------------------
+
+ProtectionDecision is the canonical V2 protection-result contract.
+
+ProtectionElement stores the latest ProtectionDecision only as
+runtime evaluation state.
+
+The authoritative ProtectionDecision contract itself is defined in:
+
+    core/protection/decision.py
+
 
 State Semantics
 ---------------
@@ -152,7 +173,7 @@ ProtectionElementState represents only the lifecycle/orchestration
 state of the element.
 
 It is intentionally not a duplicate representation of the complete
-protection decision.
+ProtectionDecision.
 
 The canonical states are:
 
@@ -165,6 +186,42 @@ The canonical states are:
 
 The detailed protection result remains in ``last_decision``.
 
+
+Lifecycle
+---------
+
+Each successful call to evaluate():
+
+    1. invokes RelayBase.evaluate(context);
+    2. requires a ProtectionDecision;
+    3. stores that decision;
+    4. synchronizes the coarse lifecycle state;
+    5. returns the same ProtectionDecision object.
+
+If evaluation raises an exception:
+
+    * the element enters FAILED state;
+    * the previous successful decision is retained;
+    * the exception is propagated.
+
+This prevents a failed evaluation from silently replacing a valid
+previous decision with incomplete state.
+
+
+Reset
+-----
+
+reset() clears the element's runtime decision and returns the element
+to:
+
+    IDLE       when enabled;
+    DISABLED   when disabled.
+
+The associated RelayBase reset() method is invoked when available.
+
+The authoritative physical Relay is never reset here.
+
+
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
 Proprietary and confidential.
@@ -175,7 +232,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Mapping
 
-from core.protection.context import ProtectionContext
+from .context import ProtectionContext
+from .decision import ProtectionDecision
 
 
 # =====================================================================
@@ -189,8 +247,8 @@ class ProtectionElementState(Enum):
 
     These states provide a coarse operational view.
 
-    They are not a replacement for the detailed result returned by
-    the associated RelayBase implementation.
+    They are not a replacement for the detailed ProtectionDecision
+    returned by the associated RelayBase implementation.
     """
 
     DISABLED = "DISABLED"
@@ -220,6 +278,8 @@ class ProtectionElement:
           +-- ProtectionElement
                   |
                   +-- RelayBase
+                          |
+                          +-- ProtectionDecision
     """
 
     def __init__(
@@ -269,8 +329,8 @@ class ProtectionElement:
 
         if not callable(evaluator):
             raise TypeError(
-                "function must provide a callable evaluate(context) "
-                "method."
+                "function must provide a callable "
+                "evaluate(context) method."
             )
 
         # -------------------------------------------------------------
@@ -320,6 +380,7 @@ class ProtectionElement:
 
         if metadata is None:
             normalized_metadata: dict[str, Any] = {}
+
         elif not isinstance(
             metadata,
             Mapping,
@@ -327,6 +388,7 @@ class ProtectionElement:
             raise TypeError(
                 "metadata must be a mapping."
             )
+
         else:
             normalized_metadata = dict(
                 metadata
@@ -337,7 +399,11 @@ class ProtectionElement:
         # -------------------------------------------------------------
 
         self.id = element_id
+
+        # Authoritative physical Relay reference.
         self.relay = relay
+
+        # Executable RelayBase protection-function reference.
         self.function = function
 
         self.function_type = (
@@ -368,7 +434,8 @@ class ProtectionElement:
             else ProtectionElementState.DISABLED
         )
 
-        self._last_decision: Any = None
+        # Canonical latest ProtectionDecision.
+        self._last_decision: ProtectionDecision | None = None
 
     # =================================================================
     # VALIDATION
@@ -503,12 +570,15 @@ class ProtectionElement:
     # =================================================================
 
     @property
-    def last_decision(self) -> Any:
+    def last_decision(
+        self,
+    ) -> ProtectionDecision | None:
         """
-        Return the complete result of the most recent evaluation.
+        Return the complete ProtectionDecision from the most recent
+        successful evaluation.
 
-        The result is intentionally preserved without conversion to a
-        boolean so that protection information is not lost.
+        The canonical decision object is preserved without conversion
+        or reduction.
         """
 
         return self._last_decision
@@ -541,6 +611,9 @@ class ProtectionElement:
         Disable this protection element.
 
         Disabling the element does not modify the authoritative Relay.
+
+        The previously committed ProtectionDecision remains available
+        until the next successful evaluation or reset.
         """
 
         self.enabled = False
@@ -556,28 +629,39 @@ class ProtectionElement:
     def evaluate(
         self,
         context: ProtectionContext,
-    ) -> Any:
+    ) -> ProtectionDecision | None:
         """
         Evaluate the associated RelayBase protection function.
 
         Parameters
         ----------
         context:
-            Immutable protection execution context.
+            Protection execution context.
 
         Returns
         -------
-        Any
-            The complete result returned by RelayBase.evaluate().
+        ProtectionDecision | None
+            The canonical ProtectionDecision returned by RelayBase.
+
+            ``None`` is returned only when this element is disabled.
+
+        Raises
+        ------
+        TypeError
+            If context is not a ProtectionContext.
+
+            Also raised if RelayBase.evaluate() returns an object other
+            than ProtectionDecision.
 
         Notes
         -----
         ProtectionElement does not perform protection calculations.
 
-        The returned protection result is preserved as-is.
+        The ProtectionDecision returned by RelayBase is preserved as-is.
 
-        A disabled element does not execute its protection function
-        and returns None.
+        If evaluation fails with an exception, the element enters
+        FAILED state and the previous successful decision remains
+        retained.
         """
 
         if not isinstance(
@@ -588,15 +672,21 @@ class ProtectionElement:
                 "context must be a ProtectionContext."
             )
 
+        # -------------------------------------------------------------
+        # Disabled element
+        # -------------------------------------------------------------
+
         if not self.enabled:
 
             self._state = (
                 ProtectionElementState.DISABLED
             )
 
-            self._last_decision = None
-
             return None
+
+        # -------------------------------------------------------------
+        # Validate executable function
+        # -------------------------------------------------------------
 
         evaluator = getattr(
             self.function,
@@ -617,8 +707,12 @@ class ProtectionElement:
                 f"evaluate(context)."
             )
 
+        # -------------------------------------------------------------
+        # Execute protection function
+        # -------------------------------------------------------------
+
         try:
-            result = evaluator(
+            decision = evaluator(
                 context
             )
 
@@ -626,13 +720,38 @@ class ProtectionElement:
             self._state = (
                 ProtectionElementState.FAILED
             )
+
+            # Preserve the previous successfully committed decision.
             raise
 
-        self._last_decision = result
+        # -------------------------------------------------------------
+        # Enforce canonical V2 decision contract
+        # -------------------------------------------------------------
+
+        if not isinstance(
+            decision,
+            ProtectionDecision,
+        ):
+            self._state = (
+                ProtectionElementState.FAILED
+            )
+
+            raise TypeError(
+                f"Protection function for element "
+                f"'{self.id}' returned an invalid evaluation result. "
+                f"Expected ProtectionDecision, got "
+                f"{type(decision).__name__}."
+            )
+
+        # -------------------------------------------------------------
+        # Commit complete decision
+        # -------------------------------------------------------------
+
+        self._last_decision = decision
 
         self._synchronize_state()
 
-        return result
+        return decision
 
     # =================================================================
     # RESET
@@ -672,10 +791,18 @@ class ProtectionElement:
 
     def _synchronize_state(self) -> None:
         """
-        Synchronize the coarse element state from the latest result.
+        Synchronize coarse ProtectionElement state from the latest
+        canonical ProtectionDecision.
 
-        This method intentionally uses the canonical V2 decision
-        attributes rather than maintaining a second decision model.
+        Decision precedence is:
+
+            BLOCKED
+                ↓
+            OPERATED
+                ↓
+            PICKUP
+                ↓
+            IDLE
         """
 
         if not self.enabled:
@@ -686,9 +813,9 @@ class ProtectionElement:
 
             return
 
-        result = self._last_decision
+        decision = self._last_decision
 
-        if result is None:
+        if decision is None:
 
             self._state = (
                 ProtectionElementState.IDLE
@@ -696,13 +823,7 @@ class ProtectionElement:
 
             return
 
-        if bool(
-            getattr(
-                result,
-                "blocked",
-                False,
-            )
-        ):
+        if decision.blocked:
 
             self._state = (
                 ProtectionElementState.BLOCKED
@@ -710,13 +831,7 @@ class ProtectionElement:
 
             return
 
-        if bool(
-            getattr(
-                result,
-                "operate",
-                False,
-            )
-        ):
+        if decision.operate:
 
             self._state = (
                 ProtectionElementState.OPERATED
@@ -724,13 +839,7 @@ class ProtectionElement:
 
             return
 
-        if bool(
-            getattr(
-                result,
-                "pickup",
-                False,
-            )
-        ):
+        if decision.pickup:
 
             self._state = (
                 ProtectionElementState.PICKUP
@@ -747,7 +856,9 @@ class ProtectionElement:
     # =================================================================
 
     @property
-    def metadata(self) -> Mapping[str, Any]:
+    def metadata(
+        self,
+    ) -> Mapping[str, Any]:
         """
         Return a detached copy of element-local metadata.
         """
@@ -789,13 +900,19 @@ class ProtectionElement:
     # STATUS
     # =================================================================
 
-    def status(self) -> dict[str, Any]:
+    def status(
+        self,
+    ) -> dict[str, Any]:
         """
         Return structured diagnostic information.
 
         This is a diagnostic representation, not a persistence
         representation.
         """
+
+        # -------------------------------------------------------------
+        # Protection-function diagnostics
+        # -------------------------------------------------------------
 
         function_status = None
 
@@ -810,28 +927,21 @@ class ProtectionElement:
         ):
             function_status = status_method()
 
+        # -------------------------------------------------------------
+        # ProtectionDecision diagnostics
+        # -------------------------------------------------------------
+
         decision_status = None
 
         if self._last_decision is not None:
 
-            diagnostics = getattr(
-                self._last_decision,
-                "diagnostics",
-                None,
+            decision_status = (
+                self._last_decision.diagnostics()
             )
 
-            if callable(
-                diagnostics
-            ):
-                decision_status = diagnostics()
-
-            elif isinstance(
-                self._last_decision,
-                Mapping,
-            ):
-                decision_status = dict(
-                    self._last_decision
-                )
+        # -------------------------------------------------------------
+        # Diagnostic structure
+        # -------------------------------------------------------------
 
         return {
             "id": self.id,
@@ -852,7 +962,13 @@ class ProtectionElement:
     # REPRESENTATION
     # =================================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
+        """
+        Return concise developer-facing representation.
+        """
+
         return (
             f"<ProtectionElement "
             f"id={self.id!r}, "
