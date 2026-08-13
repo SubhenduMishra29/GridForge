@@ -1,5 +1,6 @@
 """
-GridForge V2 Protection Element Base.
+GridForge V2 Protection Function Base
+=====================================
 
 File
 ----
@@ -7,17 +8,18 @@ core/protection/relay_base.py
 
 Purpose
 -------
-Defines the common execution contract for GridForge V2 protection
-function plugins.
+Defines the canonical executable protection-function contract for
+GridForge V2.
 
-A RelayBase instance represents ONE executable protection function
-hosted by an authoritative physical Relay device.
+A RelayBase instance represents ONE protection-function instance
+hosted by an authoritative physical Relay.
 
 Examples
 --------
 50      Instantaneous Overcurrent
 51      Time Overcurrent
 21      Distance
+67      Directional Overcurrent
 87T     Transformer Differential
 87B     Bus Differential
 27      Undervoltage
@@ -27,45 +29,109 @@ Examples
 46      Negative Sequence
 50BF    Breaker Failure
 
-Architectural Boundary
+Architectural Position
 ----------------------
-The authoritative physical Relay remains:
 
-    core/model/relay.py
+    Physical Relay
+          |
+          v
+    ProtectionElement
+          |
+          v
+       RelayBase
+          |
+          +--------------------+
+          |                    |
+          v                    v
+     RelayInput          ProtectionContext
+          |                    |
+          +---------+----------+
+                    |
+                    v
+             ProtectionDecision
+                    |
+                    v
+             ProtectionSystem
+                    |
+                    v
+          Scheme / Output Logic
+                    |
+                    v
+             BreakerManager
 
-RelayBase is NOT a second relay model.
 
-A physical Relay may host multiple independent protection elements:
+Architectural Principles
+------------------------
 
-    Relay
-    ├── 50
-    ├── 51
-    ├── 46
-    └── 50BF
+1. RelayBase is an executable protection-function contract.
 
-Each protection element:
+2. RelayBase is NOT a physical Relay model.
 
-    * owns its function-specific configuration
-    * owns its transient runtime state
-    * consumes assigned RelayInput objects
-    * evaluates measurements and context
-    * produces a ProtectionDecision
+3. A physical Relay may host multiple RelayBase instances.
 
-A protection element must NOT:
+4. MeasurementChannel remains authoritative for measurements.
 
-    * own the physical Relay
-    * own CT/PT/CVT measurement infrastructure
-    * directly operate a breaker
-    * directly change network topology
-    * contain GUI state
-    * contain persistence/file I/O
-    * duplicate measurement state
+5. RelayInput provides the protection-facing measurement binding.
 
-Notes
------
-ProtectionDecision, RelayInput, and ProtectionContext are intentionally
-referenced through TYPE_CHECKING until their authoritative contracts
-are established by their respective files.
+6. ProtectionContext provides execution context.
+
+7. ProtectionDecision is the authoritative result of one evaluation.
+
+8. RelayBase never directly operates physical equipment.
+
+9. Runtime state is transient and belongs to the protection-function
+   instance.
+
+10. Function settings are distinct from transient runtime state.
+
+11. ProtectionElement provides composition/orchestration around
+    RelayBase.
+
+12. ProtectionSystem orchestrates multiple ProtectionElements.
+
+Execution Contract
+------------------
+
+The canonical execution path is:
+
+    MeasurementChannel
+            |
+            v
+        RelayInput
+            |
+            v
+         RelayBase
+            |
+            +---- ProtectionContext
+            |
+            v
+    ProtectionDecision
+            |
+            v
+    ProtectionElement
+            |
+            v
+    ProtectionSystem
+
+
+RelayBase does NOT:
+
+    * own CT/PT/CVT equipment;
+    * create MeasurementChannels;
+    * duplicate measurement values;
+    * build network topology;
+    * calculate Y-bus;
+    * perform load flow;
+    * perform short-circuit analysis;
+    * coordinate multiple protection functions;
+    * operate breakers;
+    * perform file I/O;
+    * contain GUI state;
+    * own system-wide protection state.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
+Proprietary and confidential.
 """
 
 from __future__ import annotations
@@ -76,20 +142,42 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
     from core.model.relay import Relay
-
+    from .context import ProtectionContext
     from .decision import ProtectionDecision
     from .relay_input import RelayInput
 
 
 class RelayBase(ABC):
     """
-    Abstract base class for GridForge V2 protection-function plugins.
+    Canonical abstract base class for one GridForge protection
+    function instance.
 
-    One instance represents one protection-function instance.
+    A RelayBase-derived object represents executable protection logic,
+    not a physical relay device.
 
-    A single physical Relay may therefore contain multiple
-    RelayBase-derived protection elements.
+    Example
+    -------
+
+        Relay R1
+            |
+            +-- ProtectionElement OC51
+            |       |
+            |       +-- RelayBase implementation
+            |
+            +-- ProtectionElement DIR67
+            |       |
+            |       +-- RelayBase implementation
+            |
+            +-- ProtectionElement DIST21
+                    |
+                    +-- RelayBase implementation
+
+    Concrete protection functions should inherit from this class.
     """
+
+    # ==================================================================
+    # INITIALIZATION
+    # ==================================================================
 
     def __init__(
         self,
@@ -104,7 +192,7 @@ class RelayBase(ABC):
         blocked: bool = False,
     ) -> None:
         """
-        Create a protection-function instance.
+        Initialize one executable protection-function instance.
 
         Parameters
         ----------
@@ -114,44 +202,56 @@ class RelayBase(ABC):
         element_id:
             Stable identity of this protection-function instance.
 
-            This MUST be different from relay.id because one physical
-            relay may host multiple protection functions.
+            This identifies the function instance, NOT the physical
+            Relay.
 
         function_code:
-            Protection function designation, for example ``50``,
-            ``51``, ``21`` or ``87T``.
+            Canonical protection designation.
+
+            Examples:
+
+                50
+                51
+                21
+                67
+                87T
+                50BF
 
         function_name:
-            Human-readable function name.
+            Human-readable protection-function name.
 
         relay_inputs:
-            Assigned RelayInput objects.
-
-            The protection element references these inputs but does not
-            own the measurement infrastructure.
+            Mapping of function-local input names to RelayInput
+            instances.
 
         settings:
             Function-specific configuration.
 
         enabled:
-            Whether the protection function is enabled.
+            Local function enablement.
 
         blocked:
-            Whether the protection function is statically blocked.
+            Static local blocking/inhibit state.
         """
 
         if relay is None:
-            raise ValueError("relay cannot be None.")
+            raise ValueError(
+                "relay cannot be None."
+            )
 
-        normalized_element_id = str(element_id).strip()
+        self._validate_identifier(
+            element_id,
+            "element_id",
+        )
 
-        if not normalized_element_id:
-            raise ValueError("element_id cannot be empty.")
+        self._validate_identifier(
+            function_code,
+            "function_code",
+        )
 
-        normalized_function_code = str(function_code).strip().upper()
-
-        if not normalized_function_code:
-            raise ValueError("function_code cannot be empty.")
+        # --------------------------------------------------------------
+        # Authoritative Relay reference
+        # --------------------------------------------------------------
 
         self.relay = relay
 
@@ -159,16 +259,21 @@ class RelayBase(ABC):
         # Identity
         # --------------------------------------------------------------
 
-        self.element_id = normalized_element_id
-        self.function_code = normalized_function_code
+        self.element_id = (
+            str(element_id).strip()
+        )
+
+        self.function_code = (
+            str(function_code).strip().upper()
+        )
 
         self.function_name = (
             str(function_name).strip()
-            or normalized_function_code
+            or self.function_code
         )
 
         # --------------------------------------------------------------
-        # Execution state
+        # Execution gates
         # --------------------------------------------------------------
 
         self.enabled = bool(enabled)
@@ -177,167 +282,400 @@ class RelayBase(ABC):
         # --------------------------------------------------------------
         # Function configuration
         #
-        # Settings are owned by this protection-function instance.
-        # They are configuration data, not runtime state.
-        # --------------------------------------------------------------
-
-        self._settings: dict[str, Any] = dict(settings or {})
-
-        # --------------------------------------------------------------
-        # Measurement/input assignments
+        # Settings belong to the protection-function instance.
         #
-        # These are references to externally managed RelayInput
-        # objects. The protection element does not own them.
+        # They are intentionally separate from runtime state.
         # --------------------------------------------------------------
 
-        self._relay_inputs: dict[str, RelayInput] = dict(
-            relay_inputs or {}
-        )
+        if settings is None:
+            self._settings: dict[str, Any] = {}
+
+        else:
+            if not isinstance(
+                settings,
+                Mapping,
+            ):
+                raise TypeError(
+                    "settings must be a mapping."
+                )
+
+            self._settings = dict(
+                settings
+            )
+
+        # --------------------------------------------------------------
+        # Measurement bindings
+        #
+        # These are references only.
+        #
+        # RelayBase does not own MeasurementChannel state.
+        # --------------------------------------------------------------
+
+        if relay_inputs is None:
+            self._relay_inputs: dict[
+                str,
+                RelayInput,
+            ] = {}
+
+        else:
+            if not isinstance(
+                relay_inputs,
+                Mapping,
+            ):
+                raise TypeError(
+                    "relay_inputs must be a mapping."
+                )
+
+            self._relay_inputs = {}
+
+            for name, relay_input in (
+                relay_inputs.items()
+            ):
+                self.assign_input(
+                    name,
+                    relay_input,
+                )
 
         # --------------------------------------------------------------
         # Transient execution state
         #
         # Examples:
+        #
         #     pickup timer
-        #     accumulated operating quantity
-        #     previous measurement
+        #     previous value
+        #     accumulated quantity
         #     internal state-machine state
         #
-        # This state is NOT authoritative project configuration.
+        # This is runtime state, not project configuration.
         # --------------------------------------------------------------
 
-        self._runtime: dict[str, Any] = {}
+        self._runtime: dict[
+            str,
+            Any,
+        ] = {}
 
     # ==================================================================
-    # Identity
+    # VALIDATION
+    # ==================================================================
+
+    @staticmethod
+    def _validate_identifier(
+        value: str,
+        name: str,
+    ) -> None:
+        """
+        Validate an identifier-like value.
+        """
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            raise TypeError(
+                f"{name} must be a string."
+            )
+
+        if not value.strip():
+            raise ValueError(
+                f"{name} cannot be empty."
+            )
+
+    # ==================================================================
+    # IDENTITY
     # ==================================================================
 
     @property
     def id(self) -> str:
         """
-        Return the stable identity of this protection element.
+        Return the protection-function instance identifier.
 
-        ``id`` intentionally identifies the protection-function
-        instance rather than the physical Relay.
+        This is equivalent to ``element_id``.
         """
+
         return self.element_id
+
+    # ------------------------------------------------------------------
 
     @property
     def relay_id(self) -> Any:
         """
-        Return the identity of the authoritative physical Relay.
+        Return the identifier of the authoritative physical Relay.
         """
-        return self.relay.id
+
+        return getattr(
+            self.relay,
+            "id",
+            None,
+        )
 
     # ==================================================================
-    # Configuration
+    # FUNCTION INFORMATION
+    # ==================================================================
+
+    @property
+    def code(self) -> str:
+        """
+        Return the canonical protection-function code.
+        """
+
+        return self.function_code
+
+    # ------------------------------------------------------------------
+
+    @property
+    def name(self) -> str:
+        """
+        Return the human-readable protection-function name.
+        """
+
+        return self.function_name
+
+    # ==================================================================
+    # SETTINGS
     # ==================================================================
 
     @property
     def settings(self) -> Mapping[str, Any]:
         """
-        Return read-only access to function settings.
+        Return read-only access to protection-function settings.
 
-        The returned mapping prevents accidental replacement of the
-        internal settings dictionary by consumers.
+        Settings represent function configuration.
 
-        Mutation of individual settings should be controlled by the
-        eventual protection configuration API rather than performed
-        directly by protection functions.
+        They must not be confused with transient execution state.
         """
-        return MappingProxyType(self._settings)
+
+        return MappingProxyType(
+            self._settings
+        )
+
+    # ------------------------------------------------------------------
+
+    def get_setting(
+        self,
+        name: str,
+        default: Any = None,
+    ) -> Any:
+        """
+        Return one protection-function setting.
+        """
+
+        if not isinstance(
+            name,
+            str,
+        ):
+            raise TypeError(
+                "Setting name must be a string."
+            )
+
+        return self._settings.get(
+            name,
+            default,
+        )
 
     # ==================================================================
-    # Operational State
+    # OPERATIONAL GATE
     # ==================================================================
 
     @property
     def operational(self) -> bool:
         """
-        Return whether this protection element is currently eligible
-        for evaluation.
+        Return whether the function is locally eligible for execution.
 
-        The physical Relay's operational state remains authoritative.
+        The physical Relay remains authoritative for Relay-level
+        service state.
 
-        This property only represents the local execution gate:
+        The local execution gate is:
 
-            physical relay operational
-            AND function enabled
-            AND function not statically blocked
+            Relay operational
+                AND
+            function enabled
+                AND
+            function not statically blocked
 
-        Dynamic blocking/inhibition originating from protection schemes,
-        supervision, interlocking, or external signals belongs to the
-        execution context/scheme layer and must not be embedded here.
+        Dynamic scheme blocking, supervision and interlocking should
+        normally be represented through ProtectionContext or the
+        higher-level protection scheme layer.
         """
+
+        relay_operational = bool(
+            getattr(
+                self.relay,
+                "operational",
+                True,
+            )
+        )
+
         return (
-            bool(getattr(self.relay, "operational", True))
+            relay_operational
             and self.enabled
             and not self.blocked
         )
 
     # ==================================================================
-    # Inputs
+    # RELAY INPUTS
     # ==================================================================
 
     @property
-    def inputs(self) -> Mapping[str, RelayInput]:
+    def inputs(
+        self,
+    ) -> Mapping[str, RelayInput]:
         """
         Return read-only access to assigned RelayInput objects.
 
-        RelayBase does not own these inputs.
+        RelayBase does not own the underlying measurements.
         """
-        return MappingProxyType(self._relay_inputs)
 
-    def has_input(self, name: str) -> bool:
-        """
-        Return True if an input with the supplied name is assigned.
-        """
-        return name in self._relay_inputs
+        return MappingProxyType(
+            self._relay_inputs
+        )
 
-    def get_input(self, name: str) -> RelayInput:
-        """
-        Return an assigned RelayInput.
+    # ------------------------------------------------------------------
 
-        The protection element receives the input object itself.
-
-        Interpretation of measurements remains the responsibility of
-        the RelayInput/measurement subsystem.
+    def assign_input(
+        self,
+        name: str,
+        relay_input: RelayInput,
+    ) -> None:
         """
+        Assign one RelayInput to this protection function.
+
+        The RelayInput remains externally owned.
+        """
+
+        self._validate_identifier(
+            name,
+            "input name",
+        )
+
+        if relay_input is None:
+            raise ValueError(
+                f"RelayInput '{name}' cannot be None."
+            )
+
+        self._relay_inputs[
+            str(name).strip()
+        ] = relay_input
+
+    # ------------------------------------------------------------------
+
+    def remove_input(
+        self,
+        name: str,
+    ) -> RelayInput:
+        """
+        Remove and return an assigned RelayInput.
+        """
+
+        self._validate_identifier(
+            name,
+            "input name",
+        )
+
         try:
-            return self._relay_inputs[name]
+            return self._relay_inputs.pop(
+                str(name).strip()
+            )
+
         except KeyError as exc:
             raise KeyError(
-                f"Protection element '{self.element_id}' "
-                f"({self.function_code}) on relay "
-                f"'{self.relay_id}' requires input '{name}'."
+                f"Protection function "
+                f"'{self.element_id}' ({self.function_code}) "
+                f"has no input '{name}'."
             ) from exc
 
-    def require_inputs(self, *names: str) -> None:
-        """
-        Validate that all specified inputs are assigned.
+    # ------------------------------------------------------------------
 
-        Raises
-        ------
-        ValueError
-            If one or more required inputs are missing.
+    def has_input(
+        self,
+        name: str,
+    ) -> bool:
         """
+        Return True if the specified input is assigned.
+        """
+
+        return (
+            isinstance(name, str)
+            and name.strip()
+            in self._relay_inputs
+        )
+
+    # ------------------------------------------------------------------
+
+    def get_input(
+        self,
+        name: str,
+    ) -> RelayInput:
+        """
+        Return an assigned RelayInput.
+        """
+
+        self._validate_identifier(
+            name,
+            "input name",
+        )
+
+        key = name.strip()
+
+        try:
+            return self._relay_inputs[
+                key
+            ]
+
+        except KeyError as exc:
+            raise KeyError(
+                f"Protection function "
+                f"'{self.element_id}' ({self.function_code}) "
+                f"on relay '{self.relay_id}' "
+                f"requires input '{key}'."
+            ) from exc
+
+    # ------------------------------------------------------------------
+
+    def require_inputs(
+        self,
+        *names: str,
+    ) -> None:
+        """
+        Require all specified RelayInputs to be assigned.
+
+        Concrete protection functions should use this during
+        evaluation or initialization validation.
+        """
+
         missing = [
             name
             for name in names
-            if name not in self._relay_inputs
+            if not self.has_input(name)
         ]
 
         if missing:
             raise ValueError(
-                f"Protection element '{self.element_id}' "
-                f"({self.function_code}) on relay "
-                f"'{self.relay_id}' is missing required inputs: "
+                f"Protection function "
+                f"'{self.element_id}' ({self.function_code}) "
+                f"on relay '{self.relay_id}' "
+                f"is missing required inputs: "
                 f"{missing}."
             )
 
     # ==================================================================
-    # Runtime State
+    # RUNTIME STATE
     # ==================================================================
+
+    @property
+    def runtime(
+        self,
+    ) -> Mapping[str, Any]:
+        """
+        Return read-only diagnostic access to runtime state.
+
+        Runtime state remains mutable internally.
+        """
+
+        return MappingProxyType(
+            self._runtime
+        )
+
+    # ------------------------------------------------------------------
 
     def runtime_get(
         self,
@@ -345,12 +683,15 @@ class RelayBase(ABC):
         default: Any = None,
     ) -> Any:
         """
-        Return transient protection-function runtime state.
-
-        Runtime state is deliberately separate from persistent
-        protection settings.
+        Return transient runtime state.
         """
-        return self._runtime.get(name, default)
+
+        return self._runtime.get(
+            name,
+            default,
+        )
+
+    # ------------------------------------------------------------------
 
     def runtime_set(
         self,
@@ -358,94 +699,149 @@ class RelayBase(ABC):
         value: Any,
     ) -> None:
         """
-        Store transient protection-function runtime state.
+        Store transient runtime state.
         """
-        self._runtime[name] = value
 
-    def runtime_has(self, name: str) -> bool:
+        self._validate_identifier(
+            name,
+            "runtime name",
+        )
+
+        self._runtime[
+            name.strip()
+        ] = value
+
+    # ------------------------------------------------------------------
+
+    def runtime_has(
+        self,
+        name: str,
+    ) -> bool:
         """
         Return True if a runtime-state entry exists.
         """
-        return name in self._runtime
+
+        return (
+            isinstance(name, str)
+            and name.strip()
+            in self._runtime
+        )
+
+    # ------------------------------------------------------------------
+
+    def runtime_remove(
+        self,
+        name: str,
+    ) -> Any:
+        """
+        Remove and return one runtime-state value.
+        """
+
+        self._validate_identifier(
+            name,
+            "runtime name",
+        )
+
+        try:
+            return self._runtime.pop(
+                name.strip()
+            )
+
+        except KeyError as exc:
+            raise KeyError(
+                f"Runtime state '{name}' "
+                f"does not exist for protection "
+                f"function '{self.element_id}'."
+            ) from exc
 
     # ==================================================================
-    # Evaluation
+    # EVALUATION
     # ==================================================================
 
     @abstractmethod
     def evaluate(
         self,
-        context: Any = None,
+        context: ProtectionContext | None = None,
     ) -> ProtectionDecision:
         """
-        Evaluate the protection function.
+        Evaluate this protection function once.
 
         Parameters
         ----------
         context:
             Protection execution context.
 
-            The final ProtectionContext contract will define the
-            authoritative simulation timestamp, system state,
-            execution information, supervision state, and other
-            contextual information required by protection functions.
+            The context supplies execution-time information such as
+            simulation time, supervision/inhibition information and
+            other system-level context defined by ProtectionContext.
 
         Returns
         -------
         ProtectionDecision
-            Structured result of the protection-function evaluation.
+            Structured result of the evaluation.
 
-        Architectural Rule
-        -------------------
-        The protection function must NOT directly operate physical
-        equipment.
+        Contract
+        --------
+        Concrete implementations must:
 
-        In particular, implementations must not perform actions such
-        as:
+            1. consume assigned RelayInput objects;
+            2. use ProtectionContext where required;
+            3. perform only their own protection-function logic;
+            4. return a ProtectionDecision;
+            5. preserve diagnostic information in that decision.
 
-            breaker.open()
-            breaker.trip()
-            switch.open()
-            network.topology_change()
+        Concrete implementations must NOT:
 
-        Instead, the function produces a ProtectionDecision which is
-        subsequently interpreted by the protection scheme/output
-        execution layer.
+            * open or trip breakers;
+            * modify network topology;
+            * modify MeasurementChannel state;
+            * modify CT/PT/CVT state;
+            * coordinate other protection functions;
+            * schedule physical breaker events;
+            * perform GUI operations;
+            * perform persistence/file I/O.
         """
+
         raise NotImplementedError
 
     # ==================================================================
-    # Reset
+    # RESET
     # ==================================================================
 
     def reset(self) -> None:
         """
-        Reset transient runtime state belonging to this element.
+        Reset transient execution state.
 
-        This method does NOT reset:
+        This resets only the runtime belonging to this protection
+        function.
 
-            * the physical Relay
-            * RelayInput objects
-            * measurement channels
-            * CT/PT/CVT state
-            * protection scheme state
-            * network topology
+        It does NOT reset:
+
+            * the physical Relay;
+            * RelayInput objects;
+            * MeasurementChannels;
+            * CT/PT/CVT equipment;
+            * ProtectionSystem;
+            * protection schemes;
+            * breakers;
+            * network topology.
         """
+
         self._runtime.clear()
 
     # ==================================================================
-    # Diagnostics
+    # STATUS
     # ==================================================================
 
     def status(self) -> dict[str, Any]:
         """
-        Return diagnostic information for this protection element.
+        Return diagnostic information for this function.
 
-        The returned dictionary is intended for diagnostics,
-        inspection, testing, and future monitoring interfaces.
+        This is intended for diagnostics, testing and monitoring.
 
-        It is not the authoritative persistence representation.
+        It is NOT the authoritative persistence representation.
         """
+
         return {
             "element_id": self.element_id,
             "relay_id": self.relay_id,
@@ -454,9 +850,34 @@ class RelayBase(ABC):
             "enabled": self.enabled,
             "blocked": self.blocked,
             "operational": self.operational,
-            "inputs": tuple(self._relay_inputs.keys()),
-            "runtime": dict(self._runtime),
+            "inputs": tuple(
+                self._relay_inputs.keys()
+            ),
+            "settings": dict(
+                self._settings
+            ),
+            "runtime": dict(
+                self._runtime
+            ),
         }
+
+    # ==================================================================
+    # REPRESENTATION
+    # ==================================================================
+
+    def __repr__(self) -> str:
+        """
+        Return concise developer-facing representation.
+        """
+
+        return (
+            f"<{self.__class__.__name__} "
+            f"element_id={self.element_id!r}, "
+            f"relay_id={self.relay_id!r}, "
+            f"function_code={self.function_code!r}, "
+            f"enabled={self.enabled}, "
+            f"blocked={self.blocked}>"
+        )
 
 
 __all__ = [
