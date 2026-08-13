@@ -11,16 +11,13 @@ Purpose
 Provides pure numerical primitives used by GridForge V2
 protection-function implementations.
 
-This module contains reusable protection mathematics for functions such
-as:
+This module contains reusable protection mathematics for current-based
+protection characteristics such as:
 
-    * 50 / 51  Overcurrent
+    * 50 / 51   Overcurrent
     * 50N / 51N Earth-fault overcurrent
-    * 67        Directional overcurrent
-    * 27 / 59   Voltage protection
-    * 81        Frequency protection
-    * 21        Distance protection
-    * 87        Differential protection
+    * 67         Directional overcurrent support
+    * future current-based protection functions
 
 Architectural Boundary
 ----------------------
@@ -29,6 +26,7 @@ This module is deliberately independent of:
     * core.model
     * Relay
     * RelayBase
+    * ProtectionElement
     * MeasurementChannel
     * RelayInput
     * ProtectionContext
@@ -43,7 +41,7 @@ This module is deliberately independent of:
 
 A physical Relay may host multiple protection functions. The numerical
 primitives in this module are shared by those functions but do not
-represent a relay or protection element themselves.
+represent a relay, protection element, or protection decision.
 
 Design Principles
 -----------------
@@ -61,6 +59,7 @@ Design Principles
 12. Coordination primitives provide arithmetic only; coordination
     policy belongs to the coordination subsystem.
 13. No unnecessary numerical-library dependency.
+14. Numerically stable evaluation is preferred near pickup.
 
 IEC Inverse-Time Equation
 -------------------------
@@ -79,6 +78,25 @@ Supported IEC curves:
     VI  Very Inverse
     EI  Extremely Inverse
 
+Numerical Stability
+-------------------
+The denominator:
+
+    M^alpha - 1
+
+is evaluated using:
+
+    expm1(alpha * log(M))
+
+rather than directly evaluating:
+
+    M**alpha - 1
+
+This avoids unnecessary floating-point cancellation when M is close
+to unity.
+
+The inverse equation is evaluated using ``log1p`` for the same reason.
+
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
 Proprietary and confidential.
@@ -90,21 +108,16 @@ from dataclasses import dataclass
 from enum import Enum
 from math import (
     exp,
+    expm1,
     inf,
     isfinite,
     isinf,
     isnan,
     log,
+    log1p,
 )
 from types import MappingProxyType
 from typing import Iterable, Mapping
-
-
-# =====================================================================
-# NUMERICAL CONSTANTS
-# =====================================================================
-
-_EPSILON = 1.0e-12
 
 
 # =====================================================================
@@ -194,11 +207,9 @@ IEC_CURVE_ALIASES: Mapping[str, str] = MappingProxyType(
         "NORMAL_INVERSE": "SI",
         "STANDARD": "SI",
         "NORMAL": "SI",
-
         "VI": "VI",
         "VERY_INVERSE": "VI",
         "VERY": "VI",
-
         "EI": "EI",
         "EXTREMELY_INVERSE": "EI",
         "EXTREMELY": "EI",
@@ -565,6 +576,18 @@ def inverse_time_from_multiple(
         Operating time in seconds.
 
         math.inf is returned for M <= 1.
+
+    Notes
+    -----
+    The denominator is evaluated as:
+
+        expm1(alpha * log(M))
+
+    rather than:
+
+        M**alpha - 1
+
+    to improve numerical stability close to pickup.
     """
 
     multiple = _positive_float(
@@ -577,17 +600,20 @@ def inverse_time_from_multiple(
         "TMS",
     )
 
-    definition = iec_curve_definition(curve)
+    definition = iec_curve_definition(
+        curve
+    )
 
     if multiple <= 1.0:
         return inf
 
-    denominator = (
-        multiple ** definition.alpha
-        - 1.0
+    denominator = expm1(
+        definition.alpha * log(multiple)
     )
 
-    if denominator <= _EPSILON:
+    # For M > 1 and valid IEC alpha, denominator must be positive.
+    # A non-positive result indicates a numerical/definition failure.
+    if denominator <= 0.0:
         return inf
 
     return (
@@ -609,6 +635,11 @@ def iec_time(
     ``math.inf`` represents a non-operating condition.
 
     TMS must be strictly positive.
+
+    Notes
+    -----
+    The IEC inverse-time denominator is evaluated using ``expm1`` to
+    improve numerical stability near pickup.
     """
 
     current = _finite_float(
@@ -626,26 +657,16 @@ def iec_time(
         "TMS",
     )
 
-    # Normalize and validate before numerical evaluation.
-    definition = iec_curve_definition(curve)
+    canonical_curve = normalize_iec_curve(
+        curve
+    )
 
     multiple = abs(current) / pickup
 
-    if multiple <= 1.0:
-        return inf
-
-    denominator = (
-        multiple ** definition.alpha
-        - 1.0
-    )
-
-    if denominator <= _EPSILON:
-        return inf
-
-    return (
-        TMS
-        * definition.k
-        / denominator
+    return inverse_time_from_multiple(
+        multiple=multiple,
+        curve=canonical_curve,
+        TMS=TMS,
     )
 
 
@@ -809,6 +830,9 @@ def generate_iec_curve(
         multiple
         current
         time
+
+    This function generates numerical characteristic data only.
+    Plotting and visualization belong to higher layers.
     """
 
     pickup = _positive_float(
@@ -821,7 +845,9 @@ def generate_iec_curve(
         "TMS",
     )
 
-    canonical_curve = normalize_iec_curve(curve)
+    canonical_curve = normalize_iec_curve(
+        curve
+    )
 
     if multipliers is None:
         multipliers = range(1, 21)
@@ -875,6 +901,9 @@ def current_multiple_for_time(
              M^alpha - 1
 
     for M.
+
+    The inverse expression is evaluated using ``log1p`` for numerical
+    stability.
     """
 
     operating_time_seconds = _positive_float(
@@ -887,7 +916,9 @@ def current_multiple_for_time(
         "TMS",
     )
 
-    definition = iec_curve_definition(curve)
+    definition = iec_curve_definition(
+        curve
+    )
 
     ratio = (
         definition.k
@@ -895,10 +926,9 @@ def current_multiple_for_time(
         / operating_time_seconds
     )
 
-    return (
-        ratio + 1.0
-    ) ** (
-        1.0 / definition.alpha
+    return exp(
+        log1p(ratio)
+        / definition.alpha
     )
 
 
@@ -924,6 +954,12 @@ def generate_tcc_points(
         multiple
         current
         time
+
+    The function produces numerical TCC data only.
+
+    Rendering, plotting, axes, logarithmic display configuration,
+    annotations, and graphical styling belong to the UI/visualization
+    layer.
     """
 
     pickup = _positive_float(
@@ -936,7 +972,9 @@ def generate_tcc_points(
         "TMS",
     )
 
-    canonical_curve = normalize_iec_curve(curve)
+    canonical_curve = normalize_iec_curve(
+        curve
+    )
 
     minimum_multiple = _positive_float(
         minimum_multiple,
@@ -969,8 +1007,13 @@ def generate_tcc_points(
             "points must be >= 2."
         )
 
-    log_min = log(minimum_multiple)
-    log_max = log(maximum_multiple)
+    log_min = log(
+        minimum_multiple
+    )
+
+    log_max = log(
+        maximum_multiple
+    )
 
     result: list[dict[str, float]] = []
 
@@ -1033,8 +1076,11 @@ def coordination_margin(
     ``inf - inf`` returns ``math.nan`` because two non-operating
     elements have no meaningful temporal separation.
 
-    This function performs arithmetic only. Acceptance criteria belong
-    to the coordination subsystem.
+    This function performs arithmetic only.
+
+    Acceptance criteria, grading margins, CTI, primary/backup
+    relationships, fault scenarios, and coordination policy belong to
+    the coordination subsystem.
     """
 
     upstream_time = _finite_or_positive_infinity(
@@ -1047,10 +1093,16 @@ def coordination_margin(
         "downstream_time",
     )
 
-    if isinf(upstream_time) and isinf(downstream_time):
+    if (
+        isinf(upstream_time)
+        and isinf(downstream_time)
+    ):
         return float("nan")
 
-    return upstream_time - downstream_time
+    return (
+        upstream_time
+        - downstream_time
+    )
 
 
 def _finite_or_positive_infinity(
