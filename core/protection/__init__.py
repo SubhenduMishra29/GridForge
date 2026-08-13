@@ -1,5 +1,6 @@
 """
-GridForge V2 Protection Package.
+GridForge V2 Protection Package
+================================
 
 Package
 -------
@@ -7,69 +8,121 @@ core.protection
 
 Purpose
 -------
-Provides the protection-domain execution framework for GridForge V2.
+Public API for the GridForge V2 protection subsystem.
+
+Architectural Position
+----------------------
+
+    Physical Relay
+          |
+          v
+    ProtectionElement
+          |
+          v
+       RelayBase
+          |
+          +------------------+
+          |                  |
+          v                  v
+     RelayInput      ProtectionContext
+          |                  |
+          +--------+---------+
+                   |
+                   v
+          ProtectionDecision
+                   |
+                   v
+          ProtectionSystem
+                   |
+                   v
+       Protection Scheme /
+        Output Execution
+                   |
+                   v
+            BreakerManager
+
+Public Contracts
+----------------
+
+ProtectionContext
+    Immutable execution-time context supplied to protection
+    functions.
+
+ProtectionDecision
+    Immutable structured result produced by one protection-function
+    evaluation.
+
+RelayInput
+    Protection-facing binding to an authoritative MeasurementChannel.
+
+RelayBase
+    Abstract executable protection-function contract.
+
+ProtectionElement
+    Composition object connecting one protection function to an
+    authoritative physical Relay.
+
+ProtectionElementState
+    Runtime orchestration state of a ProtectionElement.
+
+ProtectionSystem
+    System-level registration and orchestration of protection
+    elements.
 
 Architectural Boundary
 ----------------------
 
-    core.model
-        |
-        | physical equipment
-        v
-    Relay / Breaker
-        |
-        v
-    core.measurement
-        |
-        | MeasurementChannel
-        v
-    core.protection
-        |
-        +-- RelayInput
-        +-- RelayBase
-        +-- ProtectionContext
-        +-- ProtectionDecision
-        |
-        +-- protection functions
-        +-- protection schemes
-        +-- protection zones
-        +-- protection outputs
-        +-- coordination
+This package does NOT:
 
-The protection package contains executable protection-domain
-abstractions.
+    * own physical Relay definitions;
+    * own CT/PT/CVT definitions;
+    * own MeasurementChannel state;
+    * calculate network electrical quantities;
+    * calculate fault currents;
+    * build Ybus;
+    * perform load flow;
+    * perform short-circuit analysis;
+    * operate physical breakers;
+    * contain GUI state;
+    * perform persistence/file I/O.
 
-Physical equipment models remain outside this package.
+The protection subsystem consumes authoritative state from other
+GridForge subsystems and produces structured protection decisions.
 
-MeasurementChannel remains authoritative in:
-
-    core.measurement.measurement_channel
-
-Design Principles
+Public API Policy
 -----------------
 
-* Protection functions consume measurement channels through RelayInput.
-* Protection functions derive from RelayBase.
-* Protection functions return ProtectionDecision objects.
-* ProtectionContext supplies evaluation-time execution information.
-* Protection functions must not directly operate breakers.
-* Physical relay/device identity remains authoritative in the model
-  layer.
-* Measurement state remains authoritative in the measurement layer.
-* GUI and persistence concerns remain outside this package.
+Only stable protection contracts are exported from this package.
+
+Concrete protection-function implementations should normally live in
+their dedicated modules and should not be imported here merely for
+convenience.
+
+This prevents ``core.protection`` from becoming a registry of every
+protection-function plugin and preserves the plugin architecture.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
+Proprietary and confidential.
 """
 
-from __future__ import annotations
-
-from core.protection.context import ProtectionContext
-from core.protection.decision import ProtectionDecision
-from core.protection.relay_base import RelayBase
-from core.protection.relay_input import RelayInput
+from .context import ProtectionContext
+from .decision import ProtectionDecision
+from .relay_input import RelayInput
+from .relay_base import RelayBase
+from .protection_element import (
+    ProtectionElement,
+    ProtectionElementState,
+)
+from .protection_system import ProtectionSystem
 
 
 __all__ = [
     "ProtectionContext",
     "ProtectionDecision",
-    "RelayBase",
     "RelayInput",
+    "RelayBase",
+    "ProtectionElement",
+    "ProtectionElementState",
+    "ProtectionSystem",
 ]
