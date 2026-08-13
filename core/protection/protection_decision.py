@@ -125,12 +125,11 @@ Blocked decisions must never request a trip.
 
 Immutability
 ------------
-ProtectionDecision is frozen.
+ProtectionDecision is frozen and its metadata is defensively
+immutable.
 
 The object therefore represents a completed evaluation result rather
 than mutable protection state.
-
-Metadata is defensively copied during construction and serialization.
 
 Compatibility
 -------------
@@ -148,6 +147,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
@@ -168,18 +168,6 @@ class ProtectionDecision:
 
     function_code:
         Protection-function / ANSI device-function identifier.
-
-        Examples:
-
-            21
-            27
-            50
-            51
-            59
-            67
-            81
-            87
-            50BF
 
     function_id:
         Identifier of the specific ProtectionElement/function
@@ -212,8 +200,8 @@ class ProtectionDecision:
 
         ``None`` means that no operating time was determined.
 
-        ``math.inf`` is permitted for numerical characteristics that
-        represent a non-operating inverse-time condition.
+        Positive infinity is permitted for numerical characteristics
+        that represent a non-operating inverse-time condition.
 
     timestamp:
         Optional evaluation/simulation timestamp in seconds.
@@ -332,7 +320,7 @@ class ProtectionDecision:
         )
 
         # -------------------------------------------------------------
-        # Invalid and blocked decisions cannot request trips.
+        # Invalid / blocked decisions cannot request trips.
         # -------------------------------------------------------------
 
         if (
@@ -346,7 +334,7 @@ class ProtectionDecision:
             )
 
         # -------------------------------------------------------------
-        # Operating time
+        # Operating-time validation
         # -------------------------------------------------------------
 
         if self.operating_time is not None:
@@ -355,6 +343,7 @@ class ProtectionDecision:
                 operating_time = float(
                     self.operating_time
                 )
+
             except (
                 TypeError,
                 ValueError,
@@ -385,7 +374,7 @@ class ProtectionDecision:
             )
 
         # -------------------------------------------------------------
-        # Timestamp
+        # Timestamp validation
         # -------------------------------------------------------------
 
         if self.timestamp is not None:
@@ -394,6 +383,7 @@ class ProtectionDecision:
                 timestamp = float(
                     self.timestamp
                 )
+
             except (
                 TypeError,
                 ValueError,
@@ -426,33 +416,37 @@ class ProtectionDecision:
 
         # -------------------------------------------------------------
         # Metadata
+        #
+        # A frozen dataclass alone does not make a dictionary immutable.
+        # Convert metadata to a MappingProxyType so the completed
+        # decision cannot be modified through the metadata mapping.
         # -------------------------------------------------------------
 
         if self.metadata is None:
 
-            object.__setattr__(
-                self,
-                "metadata",
-                {},
-            )
+            metadata = {}
 
         else:
 
-            try:
-                metadata = dict(
-                    self.metadata
-                )
-            except (TypeError, ValueError) as exc:
-
+            if not isinstance(
+                self.metadata,
+                Mapping,
+            ):
                 raise TypeError(
                     "metadata must be a mapping."
-                ) from exc
+                )
 
-            object.__setattr__(
-                self,
-                "metadata",
-                metadata,
+            metadata = dict(
+                self.metadata
             )
+
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(
+                metadata
+            ),
+        )
 
     # =================================================================
     # DECISION SEMANTICS
@@ -475,8 +469,8 @@ class ProtectionDecision:
     @property
     def actionable(self) -> bool:
         """
-        Return True when the decision represents an actionable trip
-        request.
+        Return True when the decision represents an actionable
+        trip request.
 
         Conditions:
 
@@ -727,7 +721,7 @@ class ProtectionDecision:
         Return a dictionary representation of the decision.
 
         The returned metadata dictionary is independent from the
-        decision's internal metadata.
+        decision's internal immutable metadata.
         """
 
         return {
@@ -742,7 +736,9 @@ class ProtectionDecision:
             "operating_time": self.operating_time,
             "timestamp": self.timestamp,
             "reason": self.reason,
-            "metadata": dict(self.metadata),
+            "metadata": dict(
+                self.metadata
+            ),
         }
 
     # -----------------------------------------------------------------
@@ -758,7 +754,7 @@ class ProtectionDecision:
 
     def diagnostics(self) -> dict[str, Any]:
         """
-        Return the decision as structured diagnostic information.
+        Return structured diagnostic information.
 
         This is intentionally equivalent to the serialization-safe
         representation and exists as a semantic diagnostics API for
