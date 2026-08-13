@@ -12,7 +12,7 @@ Defines the protection-facing binding between a protection function
 and one authoritative MeasurementChannel.
 
 Architectural Position
-----------------------
+-----------------------
 
     Physical Measurement Source
               |
@@ -23,64 +23,56 @@ Architectural Position
           RelayInput
               |
               v
-          RelayBase
+      RelayBase / ProtectionElement
               |
               v
       ProtectionDecision
 
-MeasurementChannel owns the authoritative measurement state.
+Architectural Rules
+-------------------
 
-RelayInput is only a protection-facing reference/binding. It does not
-copy, transform, scale, validate, or simulate the measurement.
+RelayInput is a protection-facing reference.
 
-Architectural Principles
+It does NOT:
+
+    * own measurement state;
+    * copy measurement values;
+    * transform measurement values;
+    * scale measurement values;
+    * maintain a clock;
+    * calculate electrical quantities;
+    * perform protection logic;
+    * modify MeasurementChannel state;
+    * create physical instrumentation;
+    * operate breakers;
+    * modify network topology;
+    * perform persistence;
+    * contain GUI state.
+
+MeasurementChannel remains authoritative.
+
+The purpose of RelayInput is to provide a stable, named interface
+through which protection functions consume measurements.
+
+Measurement Architecture
 ------------------------
 
-1. MeasurementChannel is authoritative for measurement state.
+    CT / PT / CVT
+          |
+          v
+    MeasurementChannel
+          |
+          v
+       RelayInput
+          |
+          v
+    Protection Function
 
-2. RelayInput does not own measurement state.
-
-3. Protection functions consume RelayInput objects rather than
-   reaching into CT/PT/CVT implementation details.
-
-4. RelayInput does not perform electrical calculations.
-
-5. RelayInput does not maintain its own clock.
-
-6. RelayInput does not modify MeasurementChannel state.
-
-7. RelayInput does not create physical instrumentation.
-
-8. RelayInput does not perform protection logic.
-
-9. RelayInput does not operate breakers.
-
-10. RelayInput does not perform persistence.
-
-Typical Usage
--------------
-
-    RelayInput("IA", current_channel)
-    RelayInput("IB", current_channel_b)
-    RelayInput("IC", current_channel_c)
-
-A protection function can therefore declare its required inputs
-without owning the underlying measurement infrastructure.
+Multiple protection functions may reference the same
+MeasurementChannel through separate RelayInput bindings.
 
 Example
 -------
-
-    Relay
-      |
-      +-- ProtectionElement OC51
-              |
-              +-- RelayBase
-                    |
-                    +-- IA -> RelayInput -> MeasurementChannel
-                    +-- IB -> RelayInput -> MeasurementChannel
-                    +-- IC -> RelayInput -> MeasurementChannel
-
-Multifunction relays may share MeasurementChannels:
 
     Relay R1
        |
@@ -102,14 +94,15 @@ No measurement state is duplicated.
 
 Compatibility
 -------------
-This module intentionally uses a structural runtime contract rather
-than importing the concrete MeasurementChannel implementation at
-runtime. This prevents unnecessary coupling and circular imports
-while keeping the expected interface explicit.
 
-The authoritative implementation remains:
+This module intentionally uses a structural runtime contract rather
+than importing the concrete MeasurementChannel implementation.
+
+The authoritative measurement implementation remains:
 
     core.measurement.measurement_channel.MeasurementChannel
+
+This avoids unnecessary coupling and circular imports.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -119,30 +112,31 @@ Proprietary and confidential.
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
     from core.measurement.measurement_channel import MeasurementChannel
 
 
-# =====================================================================
-# RELAY INPUT
-# =====================================================================
-
-
 class RelayInput:
     """
-    Protection-facing binding to one MeasurementChannel.
+    Protection-facing binding to one authoritative
+    MeasurementChannel.
 
-    RelayInput provides a stable named interface between the
-    measurement subsystem and a protection function.
+    RelayInput owns only protection-local binding information:
 
-    It does not become an owner of the MeasurementChannel state.
+        name
+        description
+        required
+        metadata
+
+    The MeasurementChannel itself remains externally owned and
+    authoritative.
     """
 
-    # =================================================================
+    # ==================================================================
     # INITIALIZATION
-    # =================================================================
+    # ==================================================================
 
     def __init__(
         self,
@@ -153,6 +147,27 @@ class RelayInput:
         required: bool = True,
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
+        """
+        Create a protection-facing measurement binding.
+
+        Parameters
+        ----------
+        name:
+            Protection-local input name.
+
+        channel:
+            Authoritative MeasurementChannel reference.
+
+        description:
+            Optional human-readable description.
+
+        required:
+            Whether the consuming protection function requires this
+            input.
+
+        metadata:
+            Optional binding-local descriptive metadata.
+        """
 
         self._validate_name(name)
 
@@ -165,7 +180,9 @@ class RelayInput:
         self._validate_channel(channel)
 
         self._name = name.strip()
+
         self._channel = channel
+
         self._description = str(
             description
         ).strip()
@@ -176,22 +193,23 @@ class RelayInput:
 
         if metadata is None:
             self._metadata: dict[str, Any] = {}
-        else:
-            if not isinstance(
-                metadata,
-                Mapping,
-            ):
-                raise TypeError(
-                    "metadata must be a mapping."
-                )
 
+        elif not isinstance(
+            metadata,
+            Mapping,
+        ):
+            raise TypeError(
+                "RelayInput metadata must be a mapping."
+            )
+
+        else:
             self._metadata = dict(
                 metadata
             )
 
-    # =================================================================
+    # ==================================================================
     # VALIDATION
-    # =================================================================
+    # ==================================================================
 
     @staticmethod
     def _validate_name(
@@ -214,7 +232,7 @@ class RelayInput:
                 "RelayInput name cannot be empty."
             )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _validate_channel(
@@ -223,15 +241,17 @@ class RelayInput:
         """
         Validate the minimum structural MeasurementChannel contract.
 
-        RelayInput deliberately does not require a concrete
-        MeasurementChannel import at runtime.
+        Only the attributes fundamentally required by RelayInput are
+        mandatory.
+
+        Additional MeasurementChannel information is accessed
+        defensively when available.
         """
 
         required_attributes = (
             "id",
             "engineering_value",
             "available",
-            "quality",
             "is_usable",
         )
 
@@ -251,21 +271,19 @@ class RelayInput:
                 f"Missing attributes: {missing}."
             )
 
-    # =================================================================
+    # ==================================================================
     # IDENTITY
-    # =================================================================
+    # ==================================================================
 
     @property
     def id(self) -> str:
         """
-        Return the protection-local input identifier.
-
-        This is distinct from MeasurementChannel.id.
+        Return the stable protection-local input identity.
         """
 
         return self._name
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def name(self) -> str:
@@ -275,58 +293,12 @@ class RelayInput:
 
         return self._name
 
-    # -----------------------------------------------------------------
-
-    @property
-    def description(self) -> str:
-        """
-        Return the human-readable input description.
-        """
-
-        return self._description
-
-    # -----------------------------------------------------------------
-
-    @property
-    def required(self) -> bool:
-        """
-        Return whether the consuming function requires this input.
-        """
-
-        return self._required
-
-    # =================================================================
-    # MEASUREMENT CHANNEL
-    # =================================================================
-
-    @property
-    def channel(self) -> MeasurementChannel:
-        """
-        Return the authoritative MeasurementChannel reference.
-
-        No channel state is copied.
-        """
-
-        return self._channel
-
-    # -----------------------------------------------------------------
-
-    @property
-    def measurement_channel(
-        self,
-    ) -> MeasurementChannel:
-        """
-        Explicit alias for the authoritative MeasurementChannel.
-        """
-
-        return self._channel
-
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def channel_id(self) -> Any:
         """
-        Return the authoritative MeasurementChannel identifier.
+        Return the authoritative MeasurementChannel identity.
         """
 
         return getattr(
@@ -335,9 +307,57 @@ class RelayInput:
             None,
         )
 
-    # =================================================================
-    # VALUE
-    # =================================================================
+    # ==================================================================
+    # BINDING
+    # ==================================================================
+
+    @property
+    def channel(self) -> MeasurementChannel:
+        """
+        Return the authoritative MeasurementChannel reference.
+
+        The channel is referenced, never copied.
+        """
+
+        return self._channel
+
+    # ------------------------------------------------------------------
+
+    @property
+    def measurement_channel(
+        self,
+    ) -> MeasurementChannel:
+        """
+        Explicit alias for ``channel``.
+        """
+
+        return self._channel
+
+    # ==================================================================
+    # LOCAL CONFIGURATION
+    # ==================================================================
+
+    @property
+    def description(self) -> str:
+        """
+        Return the binding description.
+        """
+
+        return self._description
+
+    # ------------------------------------------------------------------
+
+    @property
+    def required(self) -> bool:
+        """
+        Return whether the input is required by its consumer.
+        """
+
+        return self._required
+
+    # ==================================================================
+    # MEASUREMENT ACCESS
+    # ==================================================================
 
     @property
     def value(self) -> Any:
@@ -349,12 +369,13 @@ class RelayInput:
 
         return self.engineering_value
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def engineering_value(self) -> Any:
         """
-        Return the current engineering value from the channel.
+        Return the current engineering value directly from the
+        authoritative MeasurementChannel.
         """
 
         return getattr(
@@ -363,14 +384,12 @@ class RelayInput:
             None,
         )
 
-    # =================================================================
-    # AVAILABILITY / QUALITY
-    # =================================================================
+    # ------------------------------------------------------------------
 
     @property
     def available(self) -> bool:
         """
-        Return the current channel availability.
+        Return the authoritative channel availability state.
         """
 
         return bool(
@@ -381,28 +400,13 @@ class RelayInput:
             )
         )
 
-    # -----------------------------------------------------------------
-
-    @property
-    def quality(self) -> Any:
-        """
-        Return the authoritative measurement quality.
-        """
-
-        return getattr(
-            self._channel,
-            "quality",
-            None,
-        )
-
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def usable(self) -> bool:
         """
-        Return whether the measurement is currently usable.
-
-        MeasurementChannel remains authoritative for this decision.
+        Return whether the authoritative MeasurementChannel considers
+        the measurement usable.
         """
 
         return bool(
@@ -413,16 +417,15 @@ class RelayInput:
             )
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def valid(self) -> bool:
         """
-        Return the channel's current basic validity state when
-        available.
+        Return the channel validity state when available.
 
-        If the MeasurementChannel does not expose ``is_valid``,
-        validity falls back to usability.
+        If the channel does not expose ``is_valid``, usability is used
+        as the fallback protection-facing validity indication.
         """
 
         value = getattr(
@@ -436,14 +439,28 @@ class RelayInput:
 
         return bool(value)
 
-    # =================================================================
+    # ------------------------------------------------------------------
+
+    @property
+    def quality(self) -> Any:
+        """
+        Return the authoritative measurement quality.
+        """
+
+        return getattr(
+            self._channel,
+            "quality",
+            None,
+        )
+
+    # ==================================================================
     # SIGNAL INFORMATION
-    # =================================================================
+    # ==================================================================
 
     @property
     def signal_type(self) -> Any:
         """
-        Return the authoritative signal type.
+        Return the authoritative signal type when available.
         """
 
         return getattr(
@@ -452,12 +469,13 @@ class RelayInput:
             None,
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def phase(self) -> Any:
         """
-        Return the authoritative phase/sequence designation.
+        Return the authoritative phase or sequence designation when
+        available.
         """
 
         return getattr(
@@ -466,12 +484,12 @@ class RelayInput:
             None,
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def unit(self) -> Any:
         """
-        Return the engineering unit.
+        Return the engineering unit when available.
         """
 
         return getattr(
@@ -480,12 +498,12 @@ class RelayInput:
             None,
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def nominal_value(self) -> Any:
         """
-        Return the channel nominal engineering value.
+        Return the channel nominal engineering value when available.
         """
 
         return getattr(
@@ -494,9 +512,9 @@ class RelayInput:
             None,
         )
 
-    # =================================================================
+    # ==================================================================
     # VALIDITY
-    # =================================================================
+    # ==================================================================
 
     def validity(
         self,
@@ -504,9 +522,9 @@ class RelayInput:
         current_time: float | None = None,
     ) -> Any:
         """
-        Return the authoritative MeasurementChannel validity state.
+        Return the authoritative channel validity state.
 
-        RelayInput does not maintain or calculate validity state.
+        RelayInput does not calculate validity.
         """
 
         method = getattr(
@@ -522,20 +540,21 @@ class RelayInput:
             return method()
 
         return method(
-            current_time=current_time,
+            current_time=current_time
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def is_valid_at(
         self,
         current_time: float | None = None,
     ) -> bool:
         """
-        Return channel validity at the requested evaluation time.
+        Return whether the channel is valid at the specified
+        evaluation time.
 
-        If the channel does not provide ``is_valid_at()``, the current
-        ``valid`` state is returned.
+        If the MeasurementChannel does not provide an explicit
+        ``is_valid_at`` method, the current ``valid`` state is used.
         """
 
         method = getattr(
@@ -545,6 +564,7 @@ class RelayInput:
         )
 
         if callable(method):
+
             if current_time is None:
                 return bool(
                     method()
@@ -556,14 +576,15 @@ class RelayInput:
 
         return self.valid
 
-    # =================================================================
+    # ==================================================================
     # SOURCE INFORMATION
-    # =================================================================
+    # ==================================================================
 
     @property
     def source(self) -> Any:
         """
-        Return the channel's source reference.
+        Return the authoritative measurement source reference when
+        available.
         """
 
         return getattr(
@@ -572,12 +593,12 @@ class RelayInput:
             None,
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def source_id(self) -> Any:
         """
-        Return the channel's source identifier.
+        Return the source identifier when available.
         """
 
         return getattr(
@@ -586,12 +607,12 @@ class RelayInput:
             None,
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def source_terminal(self) -> Any:
         """
-        Return the source terminal reference.
+        Return the source terminal reference when available.
         """
 
         return getattr(
@@ -600,12 +621,12 @@ class RelayInput:
             None,
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def source_terminal_id(self) -> Any:
         """
-        Return the source terminal identifier.
+        Return the source terminal identifier when available.
         """
 
         return getattr(
@@ -614,14 +635,14 @@ class RelayInput:
             None,
         )
 
-    # =================================================================
-    # SAMPLE / TIME INFORMATION
-    # =================================================================
+    # ==================================================================
+    # SAMPLE INFORMATION
+    # ==================================================================
 
     @property
     def timestamp(self) -> Any:
         """
-        Return the latest channel sample timestamp.
+        Return the latest authoritative measurement timestamp.
         """
 
         return getattr(
@@ -630,12 +651,13 @@ class RelayInput:
             None,
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     @property
     def sample_sequence(self) -> Any:
         """
-        Return the latest channel sample sequence.
+        Return the latest authoritative sample sequence when
+        available.
         """
 
         return getattr(
@@ -644,24 +666,23 @@ class RelayInput:
             None,
         )
 
-    # =================================================================
+    # ==================================================================
     # METADATA
-    # =================================================================
+    # ==================================================================
 
     @property
     def metadata(self) -> Mapping[str, Any]:
         """
-        Return read-only RelayInput metadata.
+        Return read-only binding-local metadata.
 
-        This metadata is descriptive only and is not authoritative
-        measurement state.
+        This metadata is not authoritative measurement state.
         """
 
         return MappingProxyType(
-            dict(self._metadata)
+            self._metadata
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def set_metadata(
         self,
@@ -669,9 +690,9 @@ class RelayInput:
         value: Any,
     ) -> None:
         """
-        Set RelayInput-local metadata.
+        Set binding-local metadata.
 
-        This must not be used to duplicate MeasurementChannel state.
+        This must not be used to duplicate measurement state.
         """
 
         if not isinstance(
@@ -682,28 +703,27 @@ class RelayInput:
                 "Metadata name must be a string."
             )
 
-        name = name.strip()
+        normalized_name = name.strip()
 
-        if not name:
+        if not normalized_name:
             raise ValueError(
                 "Metadata name cannot be empty."
             )
 
-        self._metadata[name] = value
+        self._metadata[
+            normalized_name
+        ] = value
 
-    # =================================================================
-    # STATUS
-    # =================================================================
+    # ==================================================================
+    # DIAGNOSTICS
+    # ==================================================================
 
     @staticmethod
     def _enum_value(
         value: Any,
     ) -> Any:
         """
-        Return an enum's value when applicable.
-
-        This keeps diagnostics tolerant of either enum-based or
-        string-based MeasurementChannel APIs.
+        Return the underlying value of an enum when applicable.
         """
 
         enum_value = getattr(
@@ -718,7 +738,7 @@ class RelayInput:
             else value
         )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def status(
         self,
@@ -726,13 +746,13 @@ class RelayInput:
         current_time: float | None = None,
     ) -> dict[str, Any]:
         """
-        Return diagnostic information for this RelayInput.
+        Return diagnostic information.
 
         This is not the persistence representation.
         """
 
         validity = self.validity(
-            current_time=current_time,
+            current_time=current_time
         )
 
         return {
@@ -774,9 +794,9 @@ class RelayInput:
             ),
         }
 
-    # =================================================================
+    # ==================================================================
     # REPRESENTATION
-    # =================================================================
+    # ==================================================================
 
     def __repr__(self) -> str:
         """
@@ -792,9 +812,9 @@ class RelayInput:
         )
 
 
-# =====================================================================
+# ======================================================================
 # PUBLIC API
-# =====================================================================
+# ======================================================================
 
 __all__ = [
     "RelayInput",
