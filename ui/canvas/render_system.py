@@ -1,123 +1,136 @@
-# ============================================================
-# File: ui/canvas/render_system.py
-# GridForge Render System
-# ============================================================
-#
-# PURPOSE
-# -------
-# Synchronizes the GridForge domain model with the
-# QGraphicsScene.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#                 DOMAIN MODEL
-#                       │
-#                       │
-#                       ▼
-#                RenderSystem
-#                       │
-#                       │ asks for renderer
-#                       ▼
-#              RendererRegistry
-#                       │
-#          ┌────────────┼────────────┐
-#          ▼            ▼            ▼
-#      BusRenderer  LineRenderer  FutureRenderer
-#          │            │            │
-#          ▼            ▼            ▼
-#       BusItem      LineItem    GraphicsItem
-#
-#
-# IMPORTANT
-# ---------
-#
-# RenderSystem does NOT import:
-#
-#     BusItem
-#     LineItem
-#     TransformerItem
-#     GeneratorItem
-#     LoadItem
-#     etc.
-#
-# All renderer knowledge belongs to RendererRegistry.
-#
-#
-# RESPONSIBILITIES
-# ----------------
-#
-# RenderSystem:
-#
-#     1. Reads the domain model
-#     2. Obtains appropriate renderers
-#     3. Creates graphics items through renderers
-#     4. Adds those items to the scene
-#     5. Restores persistent selection
-#     6. Keeps the scene synchronized with the model
-#
-#
-# IT DOES NOT:
-# ------------
-#
-#     - modify the domain model
-#     - calculate electrical quantities
-#     - handle mouse events
-#     - implement tool behavior
-#     - create model objects
-#     - know individual QGraphicsItem classes
-#
-#
-# GOLDEN RULE
-# -----------
-#
-# MODEL → VIEW only.
-#
-# The RenderSystem must never modify the model.
-#
-#
-# FULL REBUILD STRATEGY
-# ---------------------
-#
-# Current GridForge UI uses a deterministic full-rebuild strategy:
-#
-#     scene.clear()
-#     model → renderer → graphics items
-#
-# This is intentionally simple and reliable during the initial
-# UI architecture phase.
-#
-# Later, an incremental rendering/cache system can be introduced
-# without changing the Controller, tools, or model architecture.
-#
-# ============================================================
+"""
+GridForge V2 — Render System
+============================
+
+File:
+    ui/canvas/render_system.py
+
+Purpose
+-------
+Maintains the graphical projection of the GridForge domain
+model.
+
+The RenderSystem coordinates:
+
+    Core Model
+        ↓
+    RendererRegistry
+        ↓
+    Renderer
+        ↓
+    QGraphicsItem
+        ↓
+    QGraphicsScene
+
+The Core model remains authoritative.
+
+The QGraphicsScene is strictly a visual representation and
+must never become a second source of domain state.
+
+Responsibilities
+----------------
+The RenderSystem:
+
+    - owns the QGraphicsScene used by the canvas;
+    - owns the runtime RendererRegistry reference;
+    - creates graphics items through registered renderers;
+    - removes obsolete graphics items;
+    - rebuilds the graphical projection;
+    - maintains model-ID → QGraphicsItem mapping;
+    - listens for controller model/selection changes;
+    - mirrors authoritative Controller selection into graphics;
+    - provides controlled scene access to Canvas/View layers;
+    - exposes diagnostic state.
+
+The RenderSystem does NOT:
+
+    - modify the Core model;
+    - perform electrical calculations;
+    - handle mouse events;
+    - implement tools;
+    - determine selection semantics;
+    - create renderer classes;
+    - import concrete renderers;
+    - import concrete tools;
+    - contain application business logic;
+    - make the QGraphicsScene authoritative.
+
+Renderer Contract
+-----------------
+A renderer registered in RendererRegistry must provide:
+
+    model_type = <Core model class>
+
+and:
+
+    create_item(element, controller)
+
+The renderer returns the QGraphicsItem representing the
+supplied model element.
+
+Model Contract
+--------------
+The RenderSystem expects the application model to provide:
+
+    iter_elements()
+
+which returns the domain elements that must be represented
+on the current canvas.
+
+Each renderable element must provide a stable:
+
+    id
+
+attribute.
+
+The RenderSystem does not assume a particular Core model
+implementation beyond this explicit rendering contract.
+
+Selection Contract
+------------------
+Controller.selected_ids is authoritative.
+
+RenderSystem only mirrors that state into QGraphicsItems.
+
+Therefore:
+
+    Controller.selected_ids
+            ↓
+      RenderSystem
+            ↓
+    QGraphicsItem.setSelected()
+
+A QGraphicsItem selection state must never be used to update
+Controller state directly by the RenderSystem.
+
+InteractionManager/tools are responsible for translating
+user interaction into Controller selection changes.
+
+Threading
+---------
+The RenderSystem operates on the Qt GUI thread.
+
+Core calculations and simulation must remain outside the UI
+rendering path.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
+
+from ui.core.qt import (
+    QGraphicsItem,
+    QGraphicsScene,
+)
 
 
 class RenderSystem:
     """
-    Synchronizes the GridForge model with the graphics scene.
+    Synchronizes the GridForge domain model with a
+    QGraphicsScene.
 
-    Renderer implementations are resolved exclusively through
-    RendererRegistry.
-
-    Parameters
-    ----------
-    scene:
-        QGraphicsScene used by the GridForge canvas.
-
-    controller:
-        GridForge Controller.
-
-    renderer_registry:
-        Runtime RendererRegistry containing mappings such as:
-
-            Bus  → BusRenderer
-            Line → LineRenderer
+    The system owns the visual projection but does not own
+    domain state.
     """
 
     # ========================================================
@@ -126,30 +139,119 @@ class RenderSystem:
 
     def __init__(
         self,
-        scene: Any,
         controller: Any,
         renderer_registry: Any,
+        scene: Optional[QGraphicsScene] = None,
     ) -> None:
         """
         Initialize the RenderSystem.
 
-        The registry is injected rather than imported.
+        Parameters
+        ----------
+        controller:
+            GridForge UI Controller.
 
-        This is important because RenderSystem must remain
-        independent of concrete renderer implementations.
+            The Controller provides:
+
+                - authoritative model reference;
+                - model_changed notifications;
+                - authoritative selection state.
+
+        renderer_registry:
+            RendererRegistry instance.
+
+        scene:
+            Optional existing QGraphicsScene.
+
+            If omitted, a new QGraphicsScene is created.
+
+        Notes
+        -----
+        RenderSystem does not create the renderer registry.
+        It receives it through dependency injection.
         """
 
-        self.scene = scene
+        if controller is None:
+            raise ValueError(
+                "controller must not be None"
+            )
+
+        if renderer_registry is None:
+            raise ValueError(
+                "renderer_registry must not be None"
+            )
+
+        if not callable(
+            getattr(
+                controller,
+                "subscribe",
+                None,
+            )
+        ):
+            raise TypeError(
+                "controller must provide subscribe()"
+            )
+
+        if not callable(
+            getattr(
+                renderer_registry,
+                "get_renderer",
+                None,
+            )
+        ):
+            raise TypeError(
+                "renderer_registry must provide get_renderer()"
+            )
+
         self.controller = controller
         self.renderer_registry = renderer_registry
 
         # ----------------------------------------------------
-        # Automatically respond to relevant controller events.
-        #
-        # This makes RenderSystem a self-contained UI system.
-        #
-        # The Controller remains unaware of rendering details.
+        # GRAPHICS SCENE
         # ----------------------------------------------------
+
+        self.scene = (
+            scene
+            if scene is not None
+            else QGraphicsScene()
+        )
+
+        # ----------------------------------------------------
+        # MODEL → GRAPHICS MAPPING
+        # ----------------------------------------------------
+        #
+        # The model ID is the authoritative identity key.
+        #
+        # Never use QGraphicsItem identity as domain identity.
+        # ----------------------------------------------------
+
+        self._items: Dict[
+            str,
+            QGraphicsItem,
+        ] = {}
+
+        # ----------------------------------------------------
+        # CONNECTION STATE
+        # ----------------------------------------------------
+
+        self._connected = False
+
+        self._connect_controller()
+
+    # ========================================================
+    # CONTROLLER CONNECTION
+    # ========================================================
+
+    def _connect_controller(self) -> None:
+        """
+        Subscribe to Controller events.
+
+        RenderSystem listens only to application-level state
+        relevant to rendering.
+        """
+
+        if self._connected:
+            return
 
         self.controller.subscribe(
             "model_changed",
@@ -161,233 +263,72 @@ class RenderSystem:
             self._on_selection_changed,
         )
 
+        self._connected = True
+
     # ========================================================
-    # EVENT HANDLERS
+    # MODEL ACCESS
     # ========================================================
 
-    def _on_model_changed(
-        self,
-        *_args: Any,
-        **_kwargs: Any,
-    ) -> None:
+    def _get_model(self) -> Any:
         """
-        React to a model-changed event.
-
-        A model modification invalidates the current visual
-        representation, therefore the scene is rebuilt.
+        Return the authoritative Core model.
         """
 
-        self.rebuild()
+        return getattr(
+            self.controller,
+            "model",
+            None,
+        )
 
     # --------------------------------------------------------
 
-    def _on_selection_changed(
-        self,
-        *_args: Any,
-        **_kwargs: Any,
-    ) -> None:
+    def _iter_model_elements(self) -> Iterable[Any]:
         """
-        React to a selection change.
+        Return renderable model elements.
 
-        For the current full-rebuild architecture, selection
-        changes also rebuild the scene.
+        Canonical model contract:
 
-        This keeps selection visuals deterministic.
+            model.iter_elements()
 
-        Later this can be optimized to update only affected
-        graphics items without changing the public architecture.
+        The method is deliberately kept here as the single
+        boundary between RenderSystem and model traversal.
         """
 
-        self.rebuild()
+        model = self._get_model()
 
-    # ========================================================
-    # MAIN RENDER ENTRY POINT
-    # ========================================================
+        if model is None:
+            return ()
 
-    def rebuild(self) -> None:
-        """
-        Rebuild the entire graphics scene from the model.
+        iterator = getattr(
+            model,
+            "iter_elements",
+            None,
+        )
 
-        Processing order:
-
-            1. Clear scene
-            2. Obtain model
-            3. Render model elements
-            4. Restore selection
-
-        The model is read only.
-
-        No model object is created, deleted, or modified here.
-        """
-
-        # ----------------------------------------------------
-        # 1. Clear existing graphics
-        # ----------------------------------------------------
-        #
-        # QGraphicsScene owns the visual representation.
-        #
-        # Clearing the scene does NOT clear Controller selection
-        # because selection is stored independently using model IDs.
-        # ----------------------------------------------------
-
-        self.scene.clear()
-
-        # ----------------------------------------------------
-        # 2. Obtain the domain model
-        # ----------------------------------------------------
-
-        model = self.controller.model
-
-        # ----------------------------------------------------
-        # 3. Render all model elements
-        # ----------------------------------------------------
-        #
-        # We deliberately do not write:
-        #
-        #     BusItem(...)
-        #     LineItem(...)
-        #
-        # here.
-        #
-        # RendererRegistry decides which renderer handles each
-        # model element.
-        # ----------------------------------------------------
-
-        for element in self._iter_model_elements(model):
-
-            self._render_element(
-                element,
-                model,
+        if not callable(iterator):
+            raise TypeError(
+                "GridForge model must provide "
+                "iter_elements() for rendering"
             )
 
-    # ========================================================
-    # MODEL ELEMENT ITERATION
-    # ========================================================
+        elements = iterator()
 
-    def _iter_model_elements(
-        self,
-        model: Any,
-    ) -> Iterable[Any]:
-        """
-        Yield model elements that should be displayed.
+        if elements is None:
+            return ()
 
-        Current GridForge model structure:
-
-            model.graph.buses
-            model.graph.lines
-
-        This method intentionally isolates knowledge of the
-        current Graph storage structure.
-
-        When Graph later exposes a generic iterable of network
-        elements, only this method needs to change.
-
-        IMPORTANT
-        ---------
-        This method does not import Bus or Line classes.
-        """
-
-        graph = model.graph
-
-        # ----------------------------------------------------
-        # Buses
-        # ----------------------------------------------------
-
-        for bus in graph.buses.values():
-            yield bus
-
-        # ----------------------------------------------------
-        # Lines
-        # ----------------------------------------------------
-
-        for line in graph.lines.values():
-            yield line
+        return elements
 
     # ========================================================
-    # ELEMENT RENDERING
+    # ELEMENT ID
     # ========================================================
 
-    def _render_element(
-        self,
+    @staticmethod
+    def _get_element_id(
         element: Any,
-        model: Any,
-    ) -> Optional[Any]:
+    ) -> str:
         """
-        Render one model element.
-
-        Parameters
-        ----------
-        element:
-            Model object to render.
-
-        model:
-            Complete GridForge model.
-
-        Returns
-        -------
-        QGraphicsItem | None
-            Created graphics item.
-
-        Renderer contract
-        -----------------
-        A renderer should provide:
-
-            create_item(element, controller)
-
-        The renderer is responsible for constructing the
-        appropriate QGraphicsItem.
+        Return the stable domain ID of a renderable element.
         """
-
-        # ----------------------------------------------------
-        # Resolve renderer based on the actual model class.
-        # ----------------------------------------------------
-
-        renderer_class = (
-            self.renderer_registry.get_renderer(
-                type(element)
-            )
-        )
-
-        # ----------------------------------------------------
-        # No renderer registered.
-        # ----------------------------------------------------
-        #
-        # We intentionally skip unsupported model elements
-        # rather than crashing the entire canvas.
-        #
-        # This allows the model to contain future elements that
-        # have not yet received a UI renderer.
-        # ----------------------------------------------------
-
-        if renderer_class is None:
-            return None
-
-        # ----------------------------------------------------
-        # Create the graphics item.
-        # ----------------------------------------------------
-        #
-        # Renderer classes are responsible for their own
-        # construction details.
-        #
-        # RenderSystem only knows the renderer contract.
-        # ----------------------------------------------------
-
-        item = renderer_class.create_item(
-            element,
-            self.controller,
-        )
-
-        if item is None:
-            return None
-
-        # ----------------------------------------------------
-        # Restore persistent selection.
-        #
-        # Selection is stored by MODEL ID in Controller.
-        #
-        # Graphics items are disposable and therefore must
-        # never be the source of truth for selection.
-        # ----------------------------------------------------
 
         element_id = getattr(
             element,
@@ -395,89 +336,459 @@ class RenderSystem:
             None,
         )
 
-        if (
-            element_id is not None
-            and element_id
-            in self.controller.selected_ids
+        if not isinstance(
+            element_id,
+            str,
         ):
+            raise TypeError(
+                "Renderable model elements must provide "
+                "a string 'id' attribute"
+            )
 
-            if hasattr(item, "setSelected"):
-                item.setSelected(True)
+        element_id = element_id.strip()
 
-        # ----------------------------------------------------
-        # Add visual item to scene.
-        # ----------------------------------------------------
+        if not element_id:
+            raise ValueError(
+                "Renderable model element ID "
+                "must not be empty"
+            )
 
-        self.scene.addItem(item)
+        return element_id
+
+    # ========================================================
+    # RENDERER LOOKUP
+    # ========================================================
+
+    def _get_renderer(
+        self,
+        element: Any,
+    ) -> type:
+        """
+        Resolve the renderer class for a model element.
+        """
+
+        renderer = self.renderer_registry.get_renderer(
+            type(element)
+        )
+
+        if renderer is None:
+            raise KeyError(
+                "No renderer registered for model type "
+                f"'{type(element).__name__}'"
+            )
+
+        return renderer
+
+    # ========================================================
+    # ITEM CREATION
+    # ========================================================
+
+    def _create_item(
+        self,
+        element: Any,
+    ) -> QGraphicsItem:
+        """
+        Create the graphics item for a model element.
+
+        Renderer instances are not owned by RenderSystem.
+
+        The renderer class provides create_item().
+        """
+
+        renderer = self._get_renderer(
+            element
+        )
+
+        create_item = getattr(
+            renderer,
+            "create_item",
+            None,
+        )
+
+        if not callable(create_item):
+            raise TypeError(
+                f"Renderer '{renderer.__name__}' must provide "
+                "callable create_item()"
+            )
+
+        item = create_item(
+            element,
+            self.controller,
+        )
+
+        if not isinstance(
+            item,
+            QGraphicsItem,
+        ):
+            raise TypeError(
+                f"Renderer '{renderer.__name__}.create_item()' "
+                "must return QGraphicsItem"
+            )
 
         return item
 
     # ========================================================
-    # SELECTION UPDATE
+    # FULL SYNCHRONIZATION
+    # ========================================================
+
+    def rebuild(self) -> None:
+        """
+        Rebuild the complete graphical projection.
+
+        Process:
+
+            1. Remove existing graphics items.
+            2. Read the authoritative model.
+            3. Resolve renderers.
+            4. Create graphics items.
+            5. Add them to the scene.
+            6. Reapply Controller selection.
+
+        The Core model is never modified.
+        """
+
+        self.clear()
+
+        for element in self._iter_model_elements():
+
+            element_id = self._get_element_id(
+                element
+            )
+
+            if element_id in self._items:
+                raise ValueError(
+                    "Duplicate renderable model ID: "
+                    f"'{element_id}'"
+                )
+
+            item = self._create_item(
+                element
+            )
+
+            self.scene.addItem(
+                item
+            )
+
+            self._items[element_id] = item
+
+        self._apply_selection()
+
+    # ========================================================
+    # SYNCHRONIZATION ALIAS
+    # ========================================================
+
+    def sync(self) -> None:
+        """
+        Synchronize the complete graphical projection with the
+        authoritative model.
+
+        Currently synchronization is implemented as a complete
+        rebuild.
+
+        This is intentional for the initial V2 UI architecture:
+        correctness and deterministic reconstruction take
+        priority over premature incremental-scene optimization.
+
+        Incremental synchronization may be introduced later
+        without changing the Controller/model authority contract.
+        """
+
+        self.rebuild()
+
+    # ========================================================
+    # MODEL CHANGE HANDLER
+    # ========================================================
+
+    def _on_model_changed(
+        self,
+        model: Any,
+    ) -> None:
+        """
+        Handle Controller model_changed notification.
+
+        The Controller remains authoritative; the supplied
+        model argument is not copied into RenderSystem state.
+        """
+
+        if model is not self._get_model():
+            # A stale or foreign model notification must not
+            # replace the authoritative Controller model.
+            return
+
+        self.sync()
+
+    # ========================================================
+    # SELECTION HANDLER
+    # ========================================================
+
+    def _on_selection_changed(
+        self,
+        selected_ids: Any,
+    ) -> None:
+        """
+        Mirror Controller selection into graphics items.
+
+        Controller selection remains authoritative.
+        """
+
+        self._apply_selection()
+
+    # ========================================================
+    # APPLY SELECTION
+    # ========================================================
+
+    def _apply_selection(self) -> None:
+        """
+        Apply authoritative Controller selection to all
+        graphics items.
+        """
+
+        selected_ids = set(
+            self.controller.get_selection()
+        )
+
+        for element_id, item in self._items.items():
+
+            item.setSelected(
+                element_id in selected_ids
+            )
+
+    # ========================================================
+    # ITEM LOOKUP
+    # ========================================================
+
+    def get_item(
+        self,
+        element_id: str,
+    ) -> Optional[QGraphicsItem]:
+        """
+        Return the graphics item associated with a model ID.
+
+        Returns None when no item exists.
+        """
+
+        if not isinstance(
+            element_id,
+            str,
+        ):
+            raise TypeError(
+                "element_id must be a string"
+            )
+
+        return self._items.get(
+            element_id
+        )
+
+    # ========================================================
+    # REQUIRED ITEM LOOKUP
+    # ========================================================
+
+    def require_item(
+        self,
+        element_id: str,
+    ) -> QGraphicsItem:
+        """
+        Return the graphics item associated with a model ID.
+
+        Raises KeyError if no item exists.
+        """
+
+        item = self.get_item(
+            element_id
+        )
+
+        if item is None:
+            raise KeyError(
+                "No graphics item exists for model ID "
+                f"'{element_id}'"
+            )
+
+        return item
+
+    # ========================================================
+    # ITEM EXISTENCE
+    # ========================================================
+
+    def contains(
+        self,
+        element_id: str,
+    ) -> bool:
+        """
+        Return True if a graphics item exists for the model ID.
+        """
+
+        if not isinstance(
+            element_id,
+            str,
+        ):
+            raise TypeError(
+                "element_id must be a string"
+            )
+
+        return element_id in self._items
+
+    # ========================================================
+    # ALL ITEMS
+    # ========================================================
+
+    def items(
+        self,
+    ) -> Dict[
+        str,
+        QGraphicsItem,
+    ]:
+        """
+        Return a detached mapping of model IDs to graphics
+        items.
+
+        The internal mapping cannot be modified through the
+        returned dictionary.
+        """
+
+        return dict(
+            self._items
+        )
+
+    # ========================================================
+    # SCENE ACCESS
+    # ========================================================
+
+    def get_scene(self) -> QGraphicsScene:
+        """
+        Return the managed QGraphicsScene.
+        """
+
+        return self.scene
+
+    # ========================================================
+    # CLEAR
+    # ========================================================
+
+    def clear(self) -> None:
+        """
+        Remove all graphics items from the managed scene.
+
+        This only modifies the visual projection.
+
+        It does NOT modify the Core model or Controller
+        selection state.
+        """
+
+        for item in list(
+            self._items.values()
+        ):
+            self.scene.removeItem(
+                item
+            )
+
+        self._items.clear()
+
+    # ========================================================
+    # REFRESH SELECTION
     # ========================================================
 
     def refresh_selection(self) -> None:
         """
-        Refresh selection visuals without changing model state.
-
-        This method is currently implemented using a full rebuild
-        because the GridForge renderer architecture is still in
-        the deterministic full-render phase.
-
-        It exists as a separate API so that a future incremental
-        selection renderer can replace the implementation without
-        changing Controller or tool code.
+        Reapply Controller selection to current graphics items.
         """
 
-        self.rebuild()
+        self._apply_selection()
 
     # ========================================================
-    # MANUAL REFRESH
+    # REFRESH
     # ========================================================
 
     def refresh(self) -> None:
         """
-        Explicitly request a complete visual refresh.
+        Rebuild the graphical projection.
 
-        Useful during:
-
-            - application startup
-            - canvas reset
-            - model import
-            - project loading
-            - debugging
+        Alias for sync().
         """
 
-        self.rebuild()
+        self.sync()
 
     # ========================================================
-    # DEBUG / INTROSPECTION
+    # DIAGNOSTICS
     # ========================================================
 
-    def renderer_for(
-        self,
-        element: Any,
-    ) -> Optional[type]:
+    def item_count(self) -> int:
         """
-        Return the renderer class responsible for a model element.
-
-        This is primarily a diagnostic/helper API.
+        Return the number of currently rendered model elements.
         """
 
-        return self.renderer_registry.get_renderer(
-            type(element)
+        return len(
+            self._items
         )
 
     # --------------------------------------------------------
 
-    def renderer_status(self) -> dict[str, str]:
+    def get_state(self) -> Dict[str, Any]:
         """
-        Return the current renderer registry state.
-
-        Useful for diagnostics and startup validation.
+        Return a diagnostic snapshot of RenderSystem state.
         """
 
-        return self.renderer_registry.list_renderers()
+        return {
+            "item_count": len(
+                self._items
+            ),
+            "item_ids": list(
+                self._items.keys()
+            ),
+            "scene_item_count": len(
+                self.scene.items()
+            ),
+            "connected": self._connected,
+        }
+
+    # ========================================================
+    # CLEANUP
+    # ========================================================
+
+    def dispose(self) -> None:
+        """
+        Release the visual projection and disconnect from the
+        Controller.
+
+        The Controller's unsubscribe mechanism is used when
+        available.
+        """
+
+        if self._connected:
+
+            unsubscribe = getattr(
+                self.controller,
+                "unsubscribe",
+                None,
+            )
+
+            if callable(unsubscribe):
+
+                unsubscribe(
+                    "model_changed",
+                    self._on_model_changed,
+                )
+
+                unsubscribe(
+                    "selection_changed",
+                    self._on_selection_changed,
+                )
+
+            self._connected = False
+
+        self.clear()
+
+    # ========================================================
+    # LENGTH
+    # ========================================================
+
+    def __len__(self) -> int:
+        """
+        Return the number of rendered model elements.
+        """
+
+        return len(
+            self._items
+        )
 
     # ========================================================
     # DEBUG REPRESENTATION
@@ -490,8 +801,8 @@ class RenderSystem:
 
         return (
             "RenderSystem("
-            f"scene={type(self.scene).__name__}, "
-            f"renderers={len(self.renderer_registry)}"
+            f"items={len(self._items)}, "
+            f"connected={self._connected}"
             ")"
         )
 
@@ -503,4 +814,3 @@ class RenderSystem:
 __all__ = [
     "RenderSystem",
 ]
-```
