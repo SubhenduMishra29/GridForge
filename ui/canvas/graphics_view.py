@@ -1,85 +1,66 @@
 # ============================================================
 # File: ui/canvas/graphics_view.py
-# GridForge Canvas Graphics View
+# GridForge V2 — Graphics View
 # ============================================================
-#
-# PURPOSE
-# -------
-# Qt boundary for the GridForge graphical canvas.
-#
-# GraphicsView owns:
-#
-#     - QGraphicsScene
-#     - viewport configuration
-#     - raw Qt input events
-#     - CoordinateSystem
-#     - GridSystem
-#     - InteractionManager
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#              Qt
-#               │
-#               ▼
-#        ┌───────────────┐
-#        │ GraphicsView  │
-#        └───────┬───────┘
-#                │
-#                ▼
-#       InteractionManager
-#                │
-#                ▼
-#           ToolManager
-#                │
-#                ▼
-#              Tool
-#                │
-#                ▼
-#           Controller
-#                │
-#                ▼
-#             Core Model
-#
-#
-# IMPORTANT RULES
-# ---------------
-#
-# GraphicsView:
-#
-#     DOES
-#         - receive raw Qt events
-#         - convert them into the canvas interaction boundary
-#         - forward events to InteractionManager
-#         - own the QGraphicsScene
-#         - configure viewport behavior
-#
-#     DOES NOT
-#         - implement tool logic
-#         - modify the model
-#         - create permanent model graphics
-#         - perform electrical calculations
-#         - own tool lifecycle
-#         - perform selection logic
-#         - implement snapping logic
-#         - implement rendering logic
-#
-#
-# QT RULE
-# -------
-#
-# All Qt imports MUST come through:
-#
-#     ui.core.qt
-#
-# No direct PySide6 / PyQt imports are permitted.
-#
-# ============================================================
+"""
+Custom QGraphicsView for the GridForge canvas.
+
+Responsibilities
+----------------
+GraphicsView is the Qt viewport boundary for the canvas.
+
+It is responsible for:
+
+    - owning the QGraphicsScene used by the canvas;
+    - receiving raw Qt input events;
+    - forwarding input to InteractionManager;
+    - enabling mouse tracking;
+    - exposing the scene through a stable accessor;
+    - providing the future boundary for navigation behavior.
+
+GraphicsView does NOT:
+
+    - modify the Core model;
+    - implement tool logic;
+    - perform snapping;
+    - perform selection logic;
+    - create electrical model objects;
+    - calculate electrical quantities;
+    - own tool lifecycle;
+    - render permanent model objects.
+
+Architecture
+------------
+
+    Qt input
+        │
+        ▼
+    GraphicsView
+        │
+        ▼
+    InteractionManager
+        │
+        ▼
+    ToolManager / Active Tool
+        │
+        ▼
+    Controller
+        │
+        ▼
+    Core Model
+
+Qt rule
+-------
+All Qt classes must be imported through:
+
+    ui.core.qt
+
+No direct PySide6/PyQt imports are permitted.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from ui.core.qt import (
     QGraphicsScene,
@@ -87,20 +68,16 @@ from ui.core.qt import (
     Qt,
 )
 
-from ui.canvas.coordinate_system import CoordinateSystem
-from ui.canvas.grid_system import GridSystem
-from ui.canvas.interaction_manager import InteractionManager
-
 
 class GraphicsView(QGraphicsView):
     """
-    Main graphical canvas view for GridForge.
+    GridForge canvas viewport.
 
-    GraphicsView is deliberately a thin Qt adapter.
+    GraphicsView is intentionally thin.
 
-    Raw Qt input enters here and is forwarded to the
-    InteractionManager. Application behavior is implemented
-    outside this class.
+    Raw Qt events enter here and are delegated to the
+    InteractionManager. Canvas interaction policy remains outside
+    the Qt viewport itself.
     """
 
     # ========================================================
@@ -110,25 +87,28 @@ class GraphicsView(QGraphicsView):
     def __init__(
         self,
         controller: Any,
-        parent: Any = None,
+        parent: Optional[Any] = None,
     ) -> None:
         """
-        Initialize the GridForge canvas.
+        Initialize the GridForge graphics view.
 
         Parameters
         ----------
         controller:
-            GridForge UI Controller.
+            GridForge UI/Core controller.
 
         parent:
             Optional Qt parent widget.
         """
 
-        super().__init__(parent)
+        if controller is None:
+            raise ValueError(
+                "controller must not be None."
+            )
 
-        # ----------------------------------------------------
-        # Controller
-        # ----------------------------------------------------
+        super().__init__(
+            parent
+        )
 
         self.controller = controller
 
@@ -136,53 +116,36 @@ class GraphicsView(QGraphicsView):
         # Scene
         # ----------------------------------------------------
         #
-        # GraphicsView owns the canvas scene.
+        # GraphicsView owns the Qt scene container.
         #
-        # The scene is a UI representation container only.
-        # The authoritative application state remains in Core.
+        # The scene contains UI graphics only. It is not the
+        # authoritative electrical model.
         # ----------------------------------------------------
 
-        self._scene = QGraphicsScene(self)
+        self._scene = QGraphicsScene(
+            self
+        )
 
-        self.setScene(self._scene)
-
-        # ----------------------------------------------------
-        # Grid system
-        # ----------------------------------------------------
-        #
-        # GridSystem provides visual/grid-coordinate services.
-        #
-        # It does not own snapping decisions.
-        # ----------------------------------------------------
-
-        self.grid_system = GridSystem(
+        self.setScene(
             self._scene
         )
 
         # ----------------------------------------------------
-        # Coordinate system
-        # ----------------------------------------------------
-        #
-        # CoordinateSystem depends on the view and GridSystem.
-        # ----------------------------------------------------
-
-        self.coordinate_system = CoordinateSystem(
-            view=self,
-            grid_system=self.grid_system,
-        )
-
-        # ----------------------------------------------------
-        # Interaction manager
+        # Interaction system
         # ----------------------------------------------------
         #
         # InteractionManager owns transient interaction state,
         # PreviewLayer, SnapSystem and ToolManager.
         # ----------------------------------------------------
 
+        from ui.canvas.interaction_manager import (
+            InteractionManager,
+        )
+
         self.interaction_manager = (
             InteractionManager(
-                view=self,
-                controller=controller,
+                self,
+                controller,
             )
         )
 
@@ -190,74 +153,22 @@ class GraphicsView(QGraphicsView):
         # View configuration
         # ----------------------------------------------------
 
-        self._configure_viewport()
-
-    # ========================================================
-    # VIEW CONFIGURATION
-    # ========================================================
-
-    def _configure_viewport(self) -> None:
-        """
-        Configure the basic canvas viewport.
-
-        This method contains only presentation/input
-        configuration. It does not implement application logic.
-        """
-
-        # ----------------------------------------------------
-        # Receive mouse-move events even when no button is
-        # pressed.
-        #
-        # Required for:
-        #
-        #     - tool previews
-        #     - hover feedback
-        #     - snapping feedback
-        #     - coordinate display
-        # ----------------------------------------------------
-
-        self.setMouseTracking(True)
-
-        # ----------------------------------------------------
-        # Keyboard focus
-        #
-        # Required for:
-        #
-        #     - ESC cancellation
-        #     - tool keyboard shortcuts
-        #     - future canvas commands
-        # ----------------------------------------------------
-
-        self.setFocusPolicy(
-            Qt.StrongFocus
+        # Mouse move events must be generated even when no
+        # mouse button is pressed. This is required for cursor
+        # tracking, snapping and placement previews.
+        self.setMouseTracking(
+            True
         )
 
-        # ----------------------------------------------------
-        # Scroll bars
-        #
-        # Canvas navigation is expected to be handled by the
-        # future NavigationController rather than relying on
-        # standard scroll-bar interaction.
-        # ----------------------------------------------------
-
+        # Scrollbars are deliberately disabled because canvas
+        # navigation is expected to be handled by the future
+        # NavigationController rather than by visible scrollbars.
         self.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff
         )
 
         self.setVerticalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff
-        )
-
-        # ----------------------------------------------------
-        # View interaction defaults
-        #
-        # Individual tools own application interaction.
-        # Disable built-in drag behavior so QGraphicsView does
-        # not compete with GridForge tools.
-        # ----------------------------------------------------
-
-        self.setDragMode(
-            QGraphicsView.NoDrag
         )
 
     # ========================================================
@@ -269,15 +180,15 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Receive a raw Qt mouse-press event.
+        Forward mouse-press events to InteractionManager.
 
-        The event is routed exclusively through
-        InteractionManager.
+        The InteractionManager is the canvas interaction boundary.
 
-        GraphicsView does not execute tool logic itself.
+        The base QGraphicsView is intentionally not invoked after
+        routing because the active tool owns interpretation of the
+        interaction. This prevents Qt's default scene interaction
+        from competing with GridForge's tool system.
         """
-
-        self.setFocus()
 
         self.interaction_manager.mouse_press(
             event
@@ -290,9 +201,7 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Receive a raw Qt mouse-move event.
-
-        The event is routed to InteractionManager.
+        Forward mouse-move events to InteractionManager.
         """
 
         self.interaction_manager.mouse_move(
@@ -306,10 +215,7 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Receive a raw Qt mouse-release event.
-
-        The event is routed exclusively through
-        InteractionManager.
+        Forward mouse-release events to InteractionManager.
         """
 
         self.interaction_manager.mouse_release(
@@ -317,7 +223,7 @@ class GraphicsView(QGraphicsView):
         )
 
     # ========================================================
-    # KEYBOARD EVENTS
+    # KEY EVENTS
     # ========================================================
 
     def keyPressEvent(
@@ -325,13 +231,11 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Receive a raw Qt keyboard-press event.
+        Forward keyboard-press events to InteractionManager.
 
-        InteractionManager decides whether the active tool
-        consumes the event.
-
-        Unhandled events are passed to QGraphicsView so normal
-        Qt behavior remains available where appropriate.
+        If the interaction layer does not consume the event,
+        normal QGraphicsView keyboard handling is allowed to
+        process it.
         """
 
         handled = (
@@ -352,7 +256,10 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Receive a raw Qt keyboard-release event.
+        Forward keyboard-release events to InteractionManager.
+
+        If the interaction layer does not consume the event,
+        normal QGraphicsView keyboard handling is allowed.
         """
 
         handled = (
@@ -376,62 +283,25 @@ class GraphicsView(QGraphicsView):
         """
         Return the canvas QGraphicsScene.
 
-        The explicit accessor keeps scene ownership inside
-        GraphicsView while allowing other UI systems to obtain
-        the scene when necessary.
-        """
-
-        return self._scene
-
-    # --------------------------------------------------------
-
-    @property
-    def scene_object(
-        self,
-    ) -> QGraphicsScene:
-        """
-        Return the canvas scene.
-
-        This property exists as a convenient read-only access
-        path for UI infrastructure.
+        This explicit accessor keeps scene ownership inside
+        GraphicsView while providing a stable API to the other
+        canvas subsystems.
         """
 
         return self._scene
 
     # ========================================================
-    # CANVAS SYSTEM ACCESS
+    # INTERACTION ACCESS
     # ========================================================
 
     def get_interaction_manager(
         self,
-    ) -> InteractionManager:
+    ) -> Any:
         """
-        Return the InteractionManager.
+        Return the canvas InteractionManager.
         """
 
         return self.interaction_manager
-
-    # --------------------------------------------------------
-
-    def get_coordinate_system(
-        self,
-    ) -> CoordinateSystem:
-        """
-        Return the CoordinateSystem.
-        """
-
-        return self.coordinate_system
-
-    # --------------------------------------------------------
-
-    def get_grid_system(
-        self,
-    ) -> GridSystem:
-        """
-        Return the GridSystem.
-        """
-
-        return self.grid_system
 
     # ========================================================
     # RESET
@@ -443,38 +313,41 @@ class GraphicsView(QGraphicsView):
         """
         Reset transient canvas interaction state.
 
-        This does NOT modify the domain model and does NOT
-        destroy the authoritative application state.
+        This does not modify the Core model and does not replace
+        the QGraphicsScene.
         """
 
         self.interaction_manager.reset()
 
     # ========================================================
-    # DEBUG / STATE
+    # DEBUG STATE
     # ========================================================
 
     def get_state(
         self,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Return diagnostic canvas state.
         """
 
         return {
-            "scene": self._scene,
+            "scene": self._scene is not None,
+            "scene_item_count": (
+                len(
+                    self._scene.items()
+                )
+            ),
+            "mouse_tracking": (
+                self.hasMouseTracking()
+            ),
             "interaction_manager": (
-                self.interaction_manager.get_state()
-            ),
-            "grid": (
-                self.grid_system.get_grid_info()
-            ),
-            "coordinates": (
-                self.coordinate_system.get_state()
+                self.interaction_manager
+                is not None
             ),
         }
 
     # ========================================================
-    # DEBUG REPRESENTATION
+    # REPRESENTATION
     # ========================================================
 
     def __repr__(
@@ -486,8 +359,9 @@ class GraphicsView(QGraphicsView):
 
         return (
             "GraphicsView("
-            f"scene_items={len(self._scene.items())}, "
-            f"grid_visible={self.grid_system.visible}"
+            f"items={len(self._scene.items())}, "
+            f"mouse_tracking="
+            f"{self.hasMouseTracking()}"
             ")"
         )
 
