@@ -1,7 +1,6 @@
-```python
 """
-GridForge Relay Coordination
-============================
+GridForge V2 Relay Coordination
+===============================
 
 File:
     core/protection/relay_coordination.py
@@ -108,15 +107,30 @@ class OvercurrentSettings:
 
     They must come from an engineering coordination calculation
     or be explicitly supplied by the user/study.
+
+    Stored values are canonical floats.
     """
 
     pickup: float
     TMS: float
 
     def __post_init__(self) -> None:
+        """
+        Normalize and validate overcurrent settings.
 
-        pickup = float(self.pickup)
-        tms = float(self.TMS)
+        The frozen dataclass stores canonical float values so that
+        downstream coordination logic never has to handle numeric
+        strings or mixed numeric representations.
+        """
+
+        try:
+            pickup = float(self.pickup)
+            tms = float(self.TMS)
+
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Overcurrent pickup and TMS must be numeric."
+            ) from exc
 
         if not isfinite(pickup) or pickup < 0.0:
             raise ValueError(
@@ -127,6 +141,18 @@ class OvercurrentSettings:
             raise ValueError(
                 "Overcurrent TMS must be finite and >= 0."
             )
+
+        object.__setattr__(
+            self,
+            "pickup",
+            pickup,
+        )
+
+        object.__setattr__(
+            self,
+            "TMS",
+            tms,
+        )
 
 
 @dataclass(frozen=True)
@@ -158,41 +184,89 @@ class DistanceSettings:
     grading_margin: float = DEFAULT_GRADING_MARGIN
 
     def __post_init__(self) -> None:
+        """
+        Normalize and validate distance settings.
+
+        Stored values are canonical floats.
+        """
+
+        try:
+            zone1_reach = float(
+                self.zone1_reach
+            )
+            zone2_reach = float(
+                self.zone2_reach
+            )
+            zone2_delay = float(
+                self.zone2_delay
+            )
+            grading_margin = float(
+                self.grading_margin
+            )
+
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Distance settings must be numeric."
+            ) from exc
 
         values = (
-            self.zone1_reach,
-            self.zone2_reach,
-            self.zone2_delay,
-            self.grading_margin,
+            zone1_reach,
+            zone2_reach,
+            zone2_delay,
+            grading_margin,
         )
 
         if not all(
-            isfinite(float(value))
+            isfinite(value)
             for value in values
         ):
             raise ValueError(
                 "Distance settings must be finite."
             )
 
-        if self.zone1_reach <= 0.0:
+        if zone1_reach <= 0.0:
             raise ValueError(
                 "Zone-1 reach must be greater than zero."
             )
 
-        if self.zone2_reach <= self.zone1_reach:
+        if zone2_reach <= zone1_reach:
             raise ValueError(
                 "Zone-2 reach must be greater than Zone-1 reach."
             )
 
-        if self.zone2_delay < 0.0:
+        if zone2_delay < 0.0:
             raise ValueError(
                 "Zone-2 delay cannot be negative."
             )
 
-        if self.grading_margin < 0.0:
+        if grading_margin < 0.0:
             raise ValueError(
                 "Grading margin cannot be negative."
             )
+
+        object.__setattr__(
+            self,
+            "zone1_reach",
+            zone1_reach,
+        )
+
+        object.__setattr__(
+            self,
+            "zone2_reach",
+            zone2_reach,
+        )
+
+        object.__setattr__(
+            self,
+            "zone2_delay",
+            zone2_delay,
+        )
+
+        object.__setattr__(
+            self,
+            "grading_margin",
+            grading_margin,
+        )
 
 
 # =====================================================================
@@ -212,12 +286,19 @@ class RelayCoordinator:
     Relay model.
     """
 
+    # =================================================================
+    # INITIALIZATION
+    # =================================================================
+
     def __init__(
         self,
         network: Any,
         *,
         grading_margin: float = DEFAULT_GRADING_MARGIN,
     ) -> None:
+        """
+        Initialize the relay coordination service.
+        """
 
         if network is None:
             raise ValueError(
@@ -230,6 +311,7 @@ class RelayCoordinator:
             grading_margin = float(
                 grading_margin
             )
+
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 "grading_margin must be numeric."
@@ -296,7 +378,6 @@ class RelayCoordinator:
             "lines",
             [],
         ):
-
             if not getattr(
                 line,
                 "in_service",
@@ -345,7 +426,6 @@ class RelayCoordinator:
             "transformers",
             [],
         ):
-
             if not getattr(
                 transformer,
                 "in_service",
@@ -400,6 +480,7 @@ class RelayCoordinator:
         This is a graph metric only.
 
         It MUST NOT be interpreted as:
+
             - electrical distance
             - impedance
             - fault-current severity
@@ -428,7 +509,6 @@ class RelayCoordinator:
             "generators",
             [],
         ):
-
             if not getattr(
                 generator,
                 "in_service",
@@ -451,12 +531,10 @@ class RelayCoordinator:
                 bus_id,
                 float("inf"),
             ) != 0.0:
-
                 distances[bus_id] = 0.0
                 queue.append(bus_id)
 
         while queue:
-
             current = queue.popleft()
 
             current_distance = distances[
@@ -467,7 +545,6 @@ class RelayCoordinator:
                 current,
                 [],
             ):
-
                 new_distance = (
                     current_distance + 1.0
                 )
@@ -476,7 +553,6 @@ class RelayCoordinator:
                     neighbour not in distances
                     or new_distance < distances[neighbour]
                 ):
-
                     distances[neighbour] = (
                         new_distance
                     )
@@ -500,6 +576,14 @@ class RelayCoordinator:
         source.
 
         Topological depth is used only for ordering.
+
+        Known locations are ordered by descending topological depth.
+
+        Relays whose location cannot be determined are always placed
+        after all known-location relays.
+
+        Unknown location is therefore NOT interpreted as maximum
+        electrical depth.
         """
 
         distances = (
@@ -517,6 +601,11 @@ class RelayCoordinator:
         def depth(
             relay_algorithm: Any,
         ) -> float:
+            """
+            Resolve the topological depth of a relay algorithm.
+
+            Unknown or invalid location returns infinity.
+            """
 
             relay = getattr(
                 relay_algorithm,
@@ -551,10 +640,58 @@ class RelayCoordinator:
                 float("inf"),
             )
 
+        def sort_key(
+            relay_algorithm: Any,
+        ) -> tuple[bool, float, str]:
+            """
+            Produce deterministic ordering.
+
+            Ordering:
+
+                1. known locations before unknown locations;
+                2. known locations by descending depth;
+                3. relay identity as deterministic tie-breaker.
+
+            Unknown locations retain deterministic ordering by relay
+            identity as well.
+            """
+
+            relay_depth = depth(
+                relay_algorithm
+            )
+
+            relay = getattr(
+                relay_algorithm,
+                "relay",
+                relay_algorithm,
+            )
+
+            relay_id = getattr(
+                relay,
+                "id",
+                None,
+            )
+
+            identity = str(
+                relay_id
+            )
+
+            if relay_depth == float("inf"):
+                return (
+                    True,
+                    0.0,
+                    identity,
+                )
+
+            return (
+                False,
+                -relay_depth,
+                identity,
+            )
+
         return sorted(
             relays,
-            key=depth,
-            reverse=True,
+            key=sort_key,
         )
 
     # =================================================================
@@ -590,7 +727,21 @@ class RelayCoordinator:
             relay,
         )
 
-        relay_model.set_pickup(
+        set_pickup = getattr(
+            relay_model,
+            "set_pickup",
+            None,
+        )
+
+        if not callable(
+            set_pickup
+        ):
+            raise AttributeError(
+                "Relay model must provide callable "
+                "set_pickup() for overcurrent coordination."
+            )
+
+        set_pickup(
             settings.pickup
         )
 
@@ -621,10 +772,18 @@ class RelayCoordinator:
 
         if settings is not None:
 
+            if not isinstance(
+                settings,
+                dict,
+            ):
+                raise TypeError(
+                    "settings must be a dictionary mapping "
+                    "relay IDs to OvercurrentSettings."
+                )
+
             for relay_id, relay_settings in (
                 settings.items()
             ):
-
                 if not isinstance(
                     relay_settings,
                     OvercurrentSettings,
@@ -716,11 +875,32 @@ class RelayCoordinator:
         """
         Configure distance-protection coordination settings.
 
-        The protected-line impedance is obtained from the associated
-        line model.
-
         Zone settings remain external to the frozen Relay model.
         """
+
+        if settings is not None:
+
+            if not isinstance(
+                settings,
+                dict,
+            ):
+                raise TypeError(
+                    "settings must be a dictionary mapping "
+                    "relay IDs to DistanceSettings."
+                )
+
+            for relay_id, relay_settings in (
+                settings.items()
+            ):
+                if not isinstance(
+                    relay_settings,
+                    DistanceSettings,
+                ):
+                    raise TypeError(
+                        "Distance settings for relay "
+                        f"{relay_id!r} must be a "
+                        "DistanceSettings instance."
+                    )
 
         relays = list(
             getattr(
@@ -857,6 +1037,10 @@ class RelayCoordinator:
         }
 
 
+# =====================================================================
+# PUBLIC API
+# =====================================================================
+
 __all__ = [
     "RelayCoordinator",
     "OvercurrentSettings",
@@ -865,4 +1049,3 @@ __all__ = [
     "DEFAULT_ZONE2_REACH",
     "DEFAULT_GRADING_MARGIN",
 ]
-```
