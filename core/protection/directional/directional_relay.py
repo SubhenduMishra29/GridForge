@@ -18,7 +18,7 @@ The function combines:
     4. ProtectionDecision generation.
 
 Architectural Position
------------------------
+----------------------
 
     CT / PT / CVT
           |
@@ -163,7 +163,7 @@ import math
 from typing import Any, Mapping
 
 from core.protection.context import ProtectionContext
-from core.protection.protection_decision import ProtectionDecision
+from core.protection.decision import ProtectionDecision
 from core.protection.relay_base import RelayBase
 
 
@@ -199,7 +199,7 @@ class DirectionalProtectionSettings:
         the assigned current RelayInput.
 
     forward_angle:
-        Maximum-torque / forward reference angle in degrees.
+        Forward reference angle in degrees.
 
     tolerance:
         Permitted angular deviation from the forward reference angle.
@@ -222,17 +222,12 @@ class DirectionalProtectionSettings:
         forward_angle = float(self.forward_angle)
         tolerance = float(self.tolerance)
 
-        if (
-            not math.isfinite(pickup)
-            or pickup <= 0.0
-        ):
+        if not math.isfinite(pickup) or pickup <= 0.0:
             raise ValueError(
                 "pickup must be finite and positive."
             )
 
-        if not math.isfinite(
-            forward_angle
-        ):
+        if not math.isfinite(forward_angle):
             raise ValueError(
                 "forward_angle must be finite."
             )
@@ -251,13 +246,11 @@ class DirectionalProtectionSettings:
             "pickup",
             pickup,
         )
-
         object.__setattr__(
             self,
             "forward_angle",
             forward_angle,
         )
-
         object.__setattr__(
             self,
             "tolerance",
@@ -273,6 +266,9 @@ class DirectionalProtectionSettings:
 class DirectionalRelay(RelayBase):
     """
     GridForge V2 directional overcurrent protection function.
+
+    This class represents an ANSI 67 protection element, not the
+    physical Relay device.
 
     Parameters
     ----------
@@ -382,25 +378,19 @@ class DirectionalRelay(RelayBase):
 
     @property
     def pickup(self) -> float:
-        """
-        Return configured current pickup.
-        """
+        """Return configured current pickup."""
 
         return self.settings.pickup
 
     @property
     def forward_angle(self) -> float:
-        """
-        Return configured forward reference angle.
-        """
+        """Return configured forward reference angle."""
 
         return self.settings.forward_angle
 
     @property
     def tolerance(self) -> float:
-        """
-        Return configured directional angular tolerance.
-        """
+        """Return configured directional angular tolerance."""
 
         return self.settings.tolerance
 
@@ -411,11 +401,54 @@ class DirectionalRelay(RelayBase):
     def current_signal(self) -> Any:
         """
         Return the current engineering signal from RelayInput.
+
+        MeasurementChannel remains the authoritative measurement
+        infrastructure. The directional element consumes the
+        resulting RelayInput value only.
         """
 
-        return self.get_input(
+        relay_input = self.get_input(
             self.CURRENT_INPUT
-        ).engineering_value
+        )
+
+        if hasattr(relay_input, "engineering_value"):
+            return relay_input.engineering_value
+
+        return relay_input.value
+
+    # ----------------------------------------------------------------
+
+    @staticmethod
+    def _complex_measurement(
+        value: Any,
+        *,
+        name: str,
+    ) -> complex:
+        """
+        Convert and validate a measurement as a finite complex value.
+        """
+
+        if isinstance(value, bool):
+            raise TypeError(
+                f"{name} measurement cannot be bool."
+            )
+
+        try:
+            value = complex(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} measurement must be numeric."
+            ) from exc
+
+        if not (
+            math.isfinite(value.real)
+            and math.isfinite(value.imag)
+        ):
+            raise ValueError(
+                f"{name} measurement must be finite."
+            )
+
+        return value
 
     # ----------------------------------------------------------------
 
@@ -426,37 +459,15 @@ class DirectionalRelay(RelayBase):
         Complex current values are accepted because the measurement
         subsystem may expose a phasor.
 
-        Pickup uses the magnitude:
+        Pickup uses:
 
             |I|
         """
 
-        value = self.current_signal()
-
-        if isinstance(
-            value,
-            bool,
-        ):
-            raise TypeError(
-                "Current measurement cannot be bool."
-            )
-
-        try:
-            value = complex(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "Current measurement must be numeric."
-            ) from exc
-
-        if not (
-            math.isfinite(value.real)
-            and math.isfinite(value.imag)
-        ):
-            raise ValueError(
-                "Current measurement must be finite."
-            )
-
-        return value
+        return self._complex_measurement(
+            self.current_signal(),
+            name="Current",
+        )
 
     # ================================================================
     # CURRENT PICKUP
@@ -496,7 +507,12 @@ class DirectionalRelay(RelayBase):
             [-180, 180)
         """
 
-        angle = float(angle)
+        try:
+            angle = float(angle)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Angle must be numeric."
+            ) from exc
 
         if not math.isfinite(angle):
             raise ValueError(
@@ -504,8 +520,7 @@ class DirectionalRelay(RelayBase):
             )
 
         return (
-            (angle + 180.0)
-            % ANGLE_RANGE
+            (angle + 180.0) % ANGLE_RANGE
         ) - 180.0
 
     # ================================================================
@@ -521,38 +536,32 @@ class DirectionalRelay(RelayBase):
         """
         Determine forward/reverse direction.
 
-        Parameters
-        ----------
-        voltage_angle:
-            Polarizing voltage angle in degrees.
+        The baseline characteristic is:
 
-        current_angle:
-            Current angle in degrees.
+            Δθ = θV - θI
 
-        Returns
-        -------
-        str
-            "FORWARD" or "REVERSE".
+            reference_error =
+                normalize(Δθ - forward_angle)
+
+        Forward operation occurs when:
+
+            |reference_error| <= tolerance
         """
 
-        voltage_angle = float(
-            voltage_angle
-        )
+        try:
+            voltage_angle = float(voltage_angle)
+            current_angle = float(current_angle)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Voltage and current angles must be numeric."
+            ) from exc
 
-        current_angle = float(
-            current_angle
-        )
-
-        if not math.isfinite(
-            voltage_angle
-        ):
+        if not math.isfinite(voltage_angle):
             raise ValueError(
                 "voltage_angle must be finite."
             )
 
-        if not math.isfinite(
-            current_angle
-        ):
+        if not math.isfinite(current_angle):
             raise ValueError(
                 "current_angle must be finite."
             )
@@ -565,26 +574,14 @@ class DirectionalRelay(RelayBase):
             angle_difference - self.forward_angle
         )
 
-        self._last_voltage_angle = (
-            voltage_angle
-        )
-
-        self._last_current_angle = (
-            current_angle
-        )
-
-        self._last_angle_difference = (
-            angle_difference
-        )
-
+        self._last_voltage_angle = voltage_angle
+        self._last_current_angle = current_angle
+        self._last_angle_difference = angle_difference
         self._last_reference_difference = (
             reference_difference
         )
 
-        if (
-            abs(reference_difference)
-            <= self.tolerance
-        ):
+        if abs(reference_difference) <= self.tolerance:
             direction = "FORWARD"
         else:
             direction = "REVERSE"
@@ -627,8 +624,8 @@ class DirectionalRelay(RelayBase):
         Expected metadata:
 
             {
-                "voltage_angle": ...,
-                "current_angle": ...,
+                "voltage_angle": <degrees>,
+                "current_angle": <degrees>,
             }
         """
 
@@ -639,12 +636,13 @@ class DirectionalRelay(RelayBase):
                 "'voltage_angle' and 'current_angle'."
             )
 
-        metadata = context.metadata
+        metadata = getattr(
+            context,
+            "metadata",
+            None,
+        )
 
-        if not isinstance(
-            metadata,
-            Mapping,
-        ):
+        if not isinstance(metadata, Mapping):
             raise ValueError(
                 "ProtectionContext.metadata must provide "
                 "directional phase-angle data."
@@ -665,14 +663,30 @@ class DirectionalRelay(RelayBase):
                 f"required angle metadata: {missing}."
             )
 
-        return (
-            float(
+        try:
+            voltage_angle = float(
                 metadata["voltage_angle"]
-            ),
-            float(
+            )
+            current_angle = float(
                 metadata["current_angle"]
-            ),
-        )
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Directional protection phase angles "
+                "must be numeric."
+            ) from exc
+
+        if not math.isfinite(voltage_angle):
+            raise ValueError(
+                "voltage_angle must be finite."
+            )
+
+        if not math.isfinite(current_angle):
+            raise ValueError(
+                "current_angle must be finite."
+            )
+
+        return voltage_angle, current_angle
 
     # ================================================================
     # EVALUATION
@@ -690,7 +704,7 @@ class DirectionalRelay(RelayBase):
             1. operational-state validation;
             2. current acquisition through RelayInput;
             3. current pickup;
-            4. polarizing angle acquisition from context;
+            4. polarizing-angle acquisition from context;
             5. forward/reverse discrimination;
             6. ProtectionDecision generation.
 
@@ -702,10 +716,9 @@ class DirectionalRelay(RelayBase):
             - operate a breaker;
             - schedule a trip event.
 
-        Returns
-        -------
-        ProtectionDecision
-            Structured directional-protection result.
+        Directional operation is instantaneous at this function
+        boundary. Timing/event scheduling belongs to the higher-level
+        protection/simulation architecture.
         """
 
         timestamp = self._context_time(
@@ -727,7 +740,6 @@ class DirectionalRelay(RelayBase):
             self._clear_runtime_state()
 
             if self.blocked:
-
                 decision = ProtectionDecision.blocked_decision(
                     relay_id=self.relay_id,
                     function_code=self.FUNCTION_CODE,
@@ -738,9 +750,7 @@ class DirectionalRelay(RelayBase):
                     ),
                     timestamp=timestamp,
                 )
-
             else:
-
                 decision = ProtectionDecision.no_operation(
                     relay_id=self.relay_id,
                     function_code=self.FUNCTION_CODE,
@@ -784,14 +794,43 @@ class DirectionalRelay(RelayBase):
 
         self._last_current = current
 
-        pickup = self.check_pickup(
-            current
-        )
+        # --------------------------------------------------------------
+        # Pickup
+        # --------------------------------------------------------------
+
+        try:
+            pickup = self.check_pickup(
+                current
+            )
+
+        except (TypeError, ValueError) as exc:
+
+            self._clear_runtime_state()
+
+            decision = ProtectionDecision.invalid(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                reason=(
+                    "Invalid directional pickup evaluation: "
+                    f"{exc}"
+                ),
+                timestamp=timestamp,
+                metadata={
+                    "current": current,
+                    "current_magnitude": abs(current),
+                    "pickup_setting": self.pickup,
+                },
+            )
+
+            self._last_decision = decision
+
+            return decision
 
         self._last_pickup = pickup
 
         # --------------------------------------------------------------
-        # Pickup is false
+        # Pickup absent
         # --------------------------------------------------------------
 
         if not pickup:
@@ -810,7 +849,7 @@ class DirectionalRelay(RelayBase):
                 metadata={
                     "current": current,
                     "current_magnitude": abs(current),
-                    "pickup": self.pickup,
+                    "pickup_setting": self.pickup,
                     "direction": None,
                 },
             )
@@ -824,6 +863,7 @@ class DirectionalRelay(RelayBase):
         # --------------------------------------------------------------
 
         try:
+
             voltage_angle, current_angle = (
                 self._context_angles(
                     context
@@ -900,7 +940,7 @@ class DirectionalRelay(RelayBase):
             return decision
 
         # --------------------------------------------------------------
-        # Forward directional operation
+        # Forward operation
         # --------------------------------------------------------------
 
         decision = ProtectionDecision.trip(
@@ -987,9 +1027,7 @@ class DirectionalRelay(RelayBase):
                 "timestamp must be numeric."
             ) from exc
 
-        if not math.isfinite(
-            timestamp
-        ):
+        if not math.isfinite(timestamp):
             raise ValueError(
                 "timestamp must be finite."
             )
@@ -1002,9 +1040,9 @@ class DirectionalRelay(RelayBase):
 
     def _clear_runtime_state(self) -> None:
         """
-        Clear transient directional state.
+        Clear transient directional-function state.
 
-        The authoritative Relay is never modified here.
+        The authoritative Relay is never modified.
         """
 
         self._direction = None
@@ -1083,75 +1121,55 @@ class DirectionalRelay(RelayBase):
 
     @property
     def direction(self) -> str | None:
-        """
-        Return the last directional classification.
-        """
+        """Return the last directional classification."""
 
         return self._direction
 
     @property
     def last_current(self) -> complex | None:
-        """
-        Return the last sampled current.
-
-        Diagnostic state only.
-        """
+        """Return the last sampled current."""
 
         return self._last_current
 
     @property
     def last_voltage_angle(self) -> float | None:
-        """
-        Return the last evaluated voltage angle.
-        """
+        """Return the last evaluated voltage angle."""
 
         return self._last_voltage_angle
 
     @property
     def last_current_angle(self) -> float | None:
-        """
-        Return the last evaluated current angle.
-        """
+        """Return the last evaluated current angle."""
 
         return self._last_current_angle
 
     @property
     def last_angle_difference(self) -> float | None:
-        """
-        Return the normalized V-I angle difference.
-        """
+        """Return the normalized V-I angle difference."""
 
         return self._last_angle_difference
 
     @property
     def last_reference_difference(self) -> float | None:
-        """
-        Return the normalized difference from the forward reference.
-        """
+        """Return the normalized difference from forward reference."""
 
         return self._last_reference_difference
 
     @property
     def last_pickup(self) -> bool:
-        """
-        Return the pickup result from the most recent evaluation.
-        """
+        """Return the pickup result from the most recent evaluation."""
 
         return self._last_pickup
 
     @property
     def last_timestamp(self) -> float | None:
-        """
-        Return the most recent evaluation timestamp.
-        """
+        """Return the most recent evaluation timestamp."""
 
         return self._last_timestamp
 
     @property
     def last_decision(self) -> ProtectionDecision | None:
-        """
-        Return the most recent ProtectionDecision.
-        """
+        """Return the most recent ProtectionDecision."""
 
         return self._last_decision
 
@@ -1170,12 +1188,8 @@ class DirectionalRelay(RelayBase):
 
         result.update(
             {
-                "function": (
-                    "DIRECTIONAL_OVERCURRENT"
-                ),
-                "function_code": (
-                    self.FUNCTION_CODE
-                ),
+                "function": "DIRECTIONAL_OVERCURRENT",
+                "function_code": self.FUNCTION_CODE,
                 "pickup": self.pickup,
                 "current": self._last_current,
                 "current_magnitude": (
@@ -1183,33 +1197,17 @@ class DirectionalRelay(RelayBase):
                     if self._last_current is not None
                     else None
                 ),
-                "forward_angle": (
-                    self.forward_angle
-                ),
-                "tolerance": (
-                    self.tolerance
-                ),
-                "voltage_angle": (
-                    self._last_voltage_angle
-                ),
-                "current_angle": (
-                    self._last_current_angle
-                ),
-                "angle_difference": (
-                    self._last_angle_difference
-                ),
+                "forward_angle": self.forward_angle,
+                "tolerance": self.tolerance,
+                "voltage_angle": self._last_voltage_angle,
+                "current_angle": self._last_current_angle,
+                "angle_difference": self._last_angle_difference,
                 "reference_difference": (
                     self._last_reference_difference
                 ),
-                "direction": (
-                    self._direction
-                ),
-                "last_pickup": (
-                    self._last_pickup
-                ),
-                "last_timestamp": (
-                    self._last_timestamp
-                ),
+                "direction": self._direction,
+                "last_pickup": self._last_pickup,
+                "last_timestamp": self._last_timestamp,
                 "last_decision": (
                     self._last_decision.to_dict()
                     if self._last_decision is not None
@@ -1225,9 +1223,7 @@ class DirectionalRelay(RelayBase):
     # ================================================================
 
     def __repr__(self) -> str:
-        """
-        Developer-friendly representation.
-        """
+        """Developer-friendly representation."""
 
         relay_id = getattr(
             self.relay,
