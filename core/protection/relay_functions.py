@@ -1,76 +1,99 @@
-```python
 """
-GridForge Protection Relay Functions
-====================================
+GridForge V2 Protection Relay Functions
+=======================================
 
-File:
-    core/protection/relay_functions.py
+File
+----
+core/protection/relay_functions.py
 
 Purpose
 -------
-Pure numerical primitives used by GridForge V2 protection-function
-plugins.
+Provides pure numerical primitives used by GridForge V2
+protection-function implementations.
 
-This module is intentionally independent of:
+This module contains reusable protection mathematics for functions such
+as:
 
-    - core.model
-    - Relay
-    - RelayBase
-    - MeasurementChannel
-    - ProtectionSystem
-    - BreakerManager
-    - Network topology
-    - Network solvers
-    - Fault studies
-    - Coordination state
-    - Event scheduling
+    * 50 / 51  Overcurrent
+    * 50N / 51N Earth-fault overcurrent
+    * 67        Directional overcurrent
+    * 27 / 59   Voltage protection
+    * 81        Frequency protection
+    * 21        Distance protection
+    * 87        Differential protection
 
-It provides reusable protection mathematics for protection
-functions such as:
+Architectural Boundary
+----------------------
+This module is deliberately independent of:
 
-    - overcurrent
-    - directional overcurrent
-    - earth-fault overcurrent
-    - voltage
-    - frequency
-    - distance
-    - differential
-    - future protection functions
+    * core.model
+    * Relay
+    * RelayBase
+    * MeasurementChannel
+    * RelayInput
+    * ProtectionContext
+    * ProtectionDecision
+    * ProtectionSystem
+    * BreakerManager
+    * network topology
+    * power-system solvers
+    * simulation scheduling
+    * GUI state
+    * persistence
 
-Architectural Principle
------------------------
-A physical relay may contain multiple protection elements.
+A physical Relay may host multiple protection functions. The numerical
+primitives in this module are shared by those functions but do not
+represent a relay or protection element themselves.
 
-For example:
+Example
+-------
 
     Relay
       |
-      +-- 50  Instantaneous overcurrent
-      +-- 51  IDMT overcurrent
-      +-- 50N Earth-fault instantaneous
-      +-- 51N Earth-fault IDMT
-      +-- 67  Directional overcurrent
-      +-- 21  Distance
-      +-- 27  Undervoltage
-      +-- 59  Overvoltage
-      +-- 81  Frequency
-      +-- 87  Differential
+      +-- 50
+      +-- 51
+      +-- 50N
+      +-- 51N
+      +-- 67
+      +-- 21
+      +-- 87
+             |
+             v
+      relay_functions.py
 
-This module contains the mathematical primitives required by those
-elements. It does not attempt to model the relay itself.
+Design Principles
+-----------------
+1. Pure numerical behaviour.
+2. Deterministic results.
+3. Explicit input validation.
+4. No hidden protection state.
+5. No equipment control.
+6. No topology modification.
+7. No duplicated measurement state.
+8. IEC inverse-time equations are centralized.
+9. Pickup and operating-time evaluation remain distinct.
+10. Non-operating characteristics are represented by ``math.inf``.
+11. TCC generation is numerical only; plotting belongs elsewhere.
+12. Coordination primitives provide arithmetic only; coordination
+    policy belongs to the coordination subsystem.
+13. No unnecessary numerical-library dependency.
 
-Design goals
-------------
-- deterministic numerical behaviour;
-- explicit validation;
-- standards-oriented curve definitions;
-- reusable pickup/time primitives;
-- no duplicated IEC equations;
-- clear distinction between pickup and operating time;
-- explicit handling of non-operating conditions;
-- extensibility for future standards;
-- compatibility with TCC and coordination layers;
-- no protection-system state.
+IEC Inverse-Time Equation
+-------------------------
+
+                       k * TMS
+    t = -----------------------------
+         M^alpha - 1
+
+where:
+
+    M = |I| / Pickup
+
+Supported IEC curves:
+
+    SI  Standard / Normal Inverse
+    VI  Very Inverse
+    EI  Extremely Inverse
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -99,7 +122,7 @@ _EPSILON = 1.0e-12
 
 class ProtectionCharacteristic(str, Enum):
     """
-    Canonical protection operating characteristics.
+    Canonical current-based protection characteristics.
     """
 
     INVERSE = "INVERSE"
@@ -112,7 +135,7 @@ class ProtectionCharacteristic(str, Enum):
 # =====================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class IECCurveDefinition:
     """
     Immutable IEC inverse-time curve definition.
@@ -133,7 +156,7 @@ class IECCurveDefinition:
 
     Equation
     --------
-                       k × TMS
+                       k * TMS
         t = -----------------------------
              M^alpha - 1
 
@@ -145,6 +168,10 @@ class IECCurveDefinition:
     alpha: float
     description: str
 
+
+# =====================================================================
+# IEC CURVE REGISTRY
+# =====================================================================
 
 IEC_CURVES: Mapping[str, IECCurveDefinition] = {
     "SI": IECCurveDefinition(
@@ -169,20 +196,23 @@ IEC_CURVES: Mapping[str, IECCurveDefinition] = {
 
 
 # =====================================================================
-# CURVE ALIASES
+# IEC CURVE ALIASES
 # =====================================================================
-
 
 IEC_CURVE_ALIASES: Mapping[str, str] = {
     "SI": "SI",
     "STANDARD_INVERSE": "SI",
     "NORMAL_INVERSE": "SI",
+    "STANDARD": "SI",
+    "NORMAL": "SI",
 
     "VI": "VI",
     "VERY_INVERSE": "VI",
+    "VERY": "VI",
 
     "EI": "EI",
     "EXTREMELY_INVERSE": "EI",
+    "EXTREMELY": "EI",
 }
 
 
@@ -197,6 +227,9 @@ def _finite_float(
 ) -> float:
     """
     Convert a value to float and require finiteness.
+
+    This helper is used where infinity is not a valid configured or
+    measured input.
     """
 
     try:
@@ -219,7 +252,7 @@ def _positive_float(
     name: str,
 ) -> float:
     """
-    Convert a value to float and require it to be positive.
+    Convert a value to float and require it to be strictly positive.
     """
 
     result = _finite_float(
@@ -256,6 +289,37 @@ def _non_negative_float(
     return result
 
 
+def _positive_integer(
+    value: int,
+    name: str,
+) -> int:
+    """
+    Convert a value to an integer and require it to be positive.
+
+    Boolean values are rejected explicitly because ``bool`` is an
+    ``int`` subclass in Python.
+    """
+
+    if isinstance(value, bool):
+        raise ValueError(
+            f"{name} must be an integer."
+        )
+
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{name} must be an integer."
+        ) from exc
+
+    if result <= 0:
+        raise ValueError(
+            f"{name} must be positive."
+        )
+
+    return result
+
+
 # =====================================================================
 # CURVE NORMALIZATION
 # =====================================================================
@@ -272,16 +336,26 @@ def normalize_iec_curve(
         SI
         VI
         EI
+
+    Supported aliases include:
+
+        STANDARD_INVERSE
+        NORMAL_INVERSE
+        VERY_INVERSE
+        EXTREMELY_INVERSE
     """
 
-    if curve is None:
-        raise ValueError(
-            "IEC curve cannot be None."
+    if not isinstance(curve, str):
+        raise TypeError(
+            "IEC curve must be a string."
         )
 
-    normalized = str(
-        curve
-    ).strip().upper()
+    normalized = curve.strip().upper()
+
+    if not normalized:
+        raise ValueError(
+            "IEC curve cannot be empty."
+        )
 
     try:
         return IEC_CURVE_ALIASES[
@@ -291,8 +365,8 @@ def normalize_iec_curve(
         raise ValueError(
             f"Unsupported IEC curve '{curve}'. "
             "Supported curves: SI, VI, EI, "
-            "NORMAL_INVERSE, VERY_INVERSE, "
-            "EXTREMELY_INVERSE."
+            "STANDARD_INVERSE, NORMAL_INVERSE, "
+            "VERY_INVERSE, EXTREMELY_INVERSE."
         ) from None
 
 
@@ -343,6 +417,62 @@ def iec_curve_constants(
 
 
 # =====================================================================
+# CHARACTERISTIC NORMALIZATION
+# =====================================================================
+
+
+def normalize_characteristic(
+    characteristic: ProtectionCharacteristic | str,
+) -> ProtectionCharacteristic:
+    """
+    Normalize a protection characteristic.
+
+    Parameters
+    ----------
+    characteristic:
+        ProtectionCharacteristic instance or string.
+
+    Returns
+    -------
+    ProtectionCharacteristic
+        Canonical characteristic enumeration.
+    """
+
+    if isinstance(
+        characteristic,
+        ProtectionCharacteristic,
+    ):
+        return characteristic
+
+    if not isinstance(
+        characteristic,
+        str,
+    ):
+        raise TypeError(
+            "Protection characteristic must be a "
+            "ProtectionCharacteristic or string."
+        )
+
+    normalized = characteristic.strip().upper()
+
+    if not normalized:
+        raise ValueError(
+            "Protection characteristic cannot be empty."
+        )
+
+    try:
+        return ProtectionCharacteristic(
+            normalized
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"Unsupported protection characteristic "
+            f"'{characteristic}'. Supported characteristics: "
+            "INVERSE, DEFINITE_TIME, INSTANTANEOUS."
+        ) from exc
+
+
+# =====================================================================
 # CURRENT MULTIPLIER
 # =====================================================================
 
@@ -352,7 +482,7 @@ def current_multiplier(
     pickup: float,
 ) -> float:
     """
-    Calculate multiple of pickup.
+    Calculate the multiple of pickup.
 
         M = |I| / Pickup
 
@@ -370,14 +500,14 @@ def current_multiplier(
         Current multiple M.
     """
 
-    pickup = _positive_float(
-        pickup,
-        "pickup",
-    )
-
     current = _finite_float(
         current,
         "current",
+    )
+
+    pickup = _positive_float(
+        pickup,
+        "pickup",
     )
 
     return abs(current) / pickup
@@ -393,21 +523,21 @@ def pickup_exceeded(
     pickup: float,
 ) -> bool:
     """
-    Return True when current is strictly above pickup.
-
-    The comparison is intentionally:
+    Return True when the absolute current is strictly above pickup.
 
         |I| > Pickup
-    """
 
-    pickup = _positive_float(
-        pickup,
-        "pickup",
-    )
+    Equality is intentionally treated as non-pickup.
+    """
 
     current = _finite_float(
         current,
         "current",
+    )
+
+    pickup = _positive_float(
+        pickup,
+        "pickup",
     )
 
     return abs(current) > pickup
@@ -428,7 +558,7 @@ def pickup_margin(
         margin = 0
 
     M = 2.0
-        margin = 1.0
+        margin = 1
     """
 
     return (
@@ -466,11 +596,11 @@ def iec_time(
     TMS: float = 1.0,
 ) -> float:
     """
-    Calculate IEC 60255 inverse-time operating time.
+    Calculate IEC inverse-time operating time.
 
     Equation
     --------
-                       k × TMS
+                       k * TMS
         t = -----------------------------
              M^alpha - 1
 
@@ -479,17 +609,23 @@ def iec_time(
     Returns
     -------
     float
-        Operating time in seconds.
+        Operating time.
 
         math.inf is returned when:
 
             |I| <= Pickup
 
+    Raises
+    ------
+    ValueError
+        If pickup or TMS is invalid.
+
     Notes
     -----
-    This function does not impose a relay trip.
+    TMS must be strictly positive for an inverse-time characteristic.
 
-    It only evaluates the mathematical characteristic.
+    This function evaluates only the mathematical characteristic.
+    It does not generate a protection trip or operate equipment.
     """
 
     current = _finite_float(
@@ -502,7 +638,7 @@ def iec_time(
         "pickup",
     )
 
-    TMS = _non_negative_float(
+    TMS = _positive_float(
         TMS,
         "TMS",
     )
@@ -547,11 +683,17 @@ def definite_time(
     Returns
     -------
     float
-        Configured delay when pickup is exceeded,
-        otherwise math.inf.
+        Configured delay when pickup is exceeded.
 
-    This is a numerical primitive only.
+        math.inf otherwise.
+
+    This is a numerical characteristic only.
     """
+
+    current = _finite_float(
+        current,
+        "current",
+    )
 
     pickup = _positive_float(
         pickup,
@@ -561,11 +703,6 @@ def definite_time(
     delay = _non_negative_float(
         delay,
         "delay",
-    )
-
-    current = _finite_float(
-        current,
-        "current",
     )
 
     if abs(current) <= pickup:
@@ -584,18 +721,17 @@ def instantaneous_operating_time(
     pickup: float,
 ) -> float:
     """
-    Evaluate an instantaneous protection characteristic.
+    Evaluate an ideal instantaneous protection characteristic.
 
     Returns
     -------
     float
-        0.0 when pickup is exceeded,
-        otherwise math.inf.
+        0.0 when pickup is exceeded.
 
-    The function represents the ideal protection characteristic.
+        math.inf otherwise.
 
-    Actual breaker operating time, relay processing time, and event
-    scheduling belong to higher layers.
+    Actual relay processing time, breaker operating time, and event
+    scheduling belong to higher execution layers.
     """
 
     if pickup_exceeded(
@@ -628,13 +764,21 @@ def operating_time(
 
     Parameters
     ----------
+    current:
+        Measured current.
+
+    pickup:
+        Protection pickup current.
+
     characteristic:
-        INVERSE
-        DEFINITE_TIME
-        INSTANTANEOUS
+        One of:
+
+            INVERSE
+            DEFINITE_TIME
+            INSTANTANEOUS
 
     curve:
-        IEC curve used when characteristic is INVERSE.
+        IEC curve used for INVERSE.
 
     TMS:
         IEC Time Multiplier Setting.
@@ -645,29 +789,22 @@ def operating_time(
     Returns
     -------
     float
-        Protection operating time in seconds, or math.inf when
-        the element does not operate.
+        Operating time or math.inf when the element does not operate.
+
+    Notes
+    -----
+    Parameters not relevant to the selected characteristic are not
+    interpreted by that characteristic.
     """
 
-    if isinstance(
-        characteristic,
-        ProtectionCharacteristic,
-    ):
-        characteristic_value = characteristic
-    else:
-        try:
-            characteristic_value = (
-                ProtectionCharacteristic(
-                    str(characteristic).strip().upper()
-                )
-            )
-        except ValueError as exc:
-            raise ValueError(
-                f"Unsupported protection characteristic "
-                f"'{characteristic}'."
-            ) from exc
+    characteristic_value = normalize_characteristic(
+        characteristic
+    )
 
-    if characteristic_value is ProtectionCharacteristic.INVERSE:
+    if (
+        characteristic_value
+        is ProtectionCharacteristic.INVERSE
+    ):
         return iec_time(
             current=current,
             pickup=pickup,
@@ -694,9 +831,8 @@ def operating_time(
             pickup=pickup,
         )
 
-    raise ValueError(
-        f"Unsupported protection characteristic "
-        f"'{characteristic_value}'."
+    raise RuntimeError(
+        "Unhandled ProtectionCharacteristic."
     )
 
 
@@ -712,7 +848,7 @@ def generate_iec_curve(
     multipliers: Iterable[float] | None = None,
 ) -> list[dict[str, float]]:
     """
-    Generate time-current characteristic data.
+    Generate IEC time-current characteristic data.
 
     Parameters
     ----------
@@ -723,12 +859,12 @@ def generate_iec_curve(
         IEC curve identifier or alias.
 
     TMS:
-        Time Multiplier Setting.
+        IEC Time Multiplier Setting.
 
     multipliers:
         Iterable of current multiples.
 
-        Defaults to:
+        If omitted:
 
             1, 2, ..., 20
 
@@ -747,13 +883,12 @@ def generate_iec_curve(
         "pickup",
     )
 
-    TMS = _non_negative_float(
+    TMS = _positive_float(
         TMS,
         "TMS",
     )
 
-    # Validate curve before generating points.
-    normalize_iec_curve(
+    canonical_curve = normalize_iec_curve(
         curve
     )
 
@@ -780,7 +915,7 @@ def generate_iec_curve(
         time = iec_time(
             current=current,
             pickup=pickup,
-            curve=curve,
+            curve=canonical_curve,
             TMS=TMS,
         )
 
@@ -808,8 +943,15 @@ def inverse_time_from_multiple(
     """
     Calculate IEC operating time directly from current multiple.
 
-    This is useful for TCC and coordination calculations where the
-    current multiple is already known.
+    This is useful when TCC or coordination calculations already
+    operate in normalized current-multiple space.
+
+    Returns
+    -------
+    float
+        Operating time.
+
+        math.inf is returned for M <= 1.
     """
 
     multiple = _positive_float(
@@ -817,7 +959,7 @@ def inverse_time_from_multiple(
         "multiple",
     )
 
-    TMS = _non_negative_float(
+    TMS = _positive_float(
         TMS,
         "TMS",
     )
@@ -855,12 +997,12 @@ def current_multiple_for_time(
     TMS: float = 1.0,
 ) -> float:
     """
-    Calculate the current multiple corresponding to an IEC
-    inverse-time operating point.
+    Calculate the current multiple corresponding to an IEC inverse-time
+    operating point.
 
     Solves:
 
-                       k × TMS
+                       k * TMS
         t = -----------------------------
              M^alpha - 1
 
@@ -874,7 +1016,7 @@ def current_multiple_for_time(
     Raises
     ------
     ValueError
-        If operating time is not positive.
+        If operating time or TMS is invalid.
     """
 
     operating_time_seconds = _positive_float(
@@ -882,15 +1024,10 @@ def current_multiple_for_time(
         "operating_time_seconds",
     )
 
-    TMS = _non_negative_float(
+    TMS = _positive_float(
         TMS,
         "TMS",
     )
-
-    if TMS == 0.0:
-        raise ValueError(
-            "TMS must be > 0 when solving an inverse curve."
-        )
 
     definition = iec_curve_definition(
         curve
@@ -924,13 +1061,48 @@ def generate_tcc_points(
     points: int = 200,
 ) -> list[dict[str, float]]:
     """
-    Generate smoothly distributed TCC points.
+    Generate logarithmically distributed IEC TCC points.
 
     Logarithmic spacing is used because inverse-time characteristics
-    span a large current range and are normally displayed on
-    logarithmic axes.
+    normally span several decades of current.
 
-    This function performs no plotting.
+    Parameters
+    ----------
+    pickup:
+        Relay pickup current.
+
+    curve:
+        IEC curve identifier or alias.
+
+    TMS:
+        IEC Time Multiplier Setting.
+
+    minimum_multiple:
+        Minimum current multiple.
+
+        Must be > 1.
+
+    maximum_multiple:
+        Maximum current multiple.
+
+    points:
+        Number of generated points.
+
+        Must be >= 2.
+
+    Returns
+    -------
+    list[dict]
+        Each point contains:
+
+            multiple
+            current
+            time
+
+    Notes
+    -----
+    This function intentionally uses only the Python standard library.
+    It performs no plotting.
     """
 
     pickup = _positive_float(
@@ -938,9 +1110,13 @@ def generate_tcc_points(
         "pickup",
     )
 
-    TMS = _non_negative_float(
+    TMS = _positive_float(
         TMS,
         "TMS",
+    )
+
+    canonical_curve = normalize_iec_curve(
+        curve
     )
 
     minimum_multiple = _positive_float(
@@ -964,33 +1140,40 @@ def generate_tcc_points(
             "minimum_multiple."
         )
 
-    try:
-        points = int(points)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "points must be an integer."
-        ) from exc
+    points = _positive_integer(
+        points,
+        "points",
+    )
 
     if points < 2:
         raise ValueError(
             "points must be >= 2."
         )
 
-    # Import locally so this numerical module remains lightweight.
-    import numpy as np
+    log_min = math.log(
+        minimum_multiple
+    )
 
-    multipliers = np.geomspace(
-        minimum_multiple,
-        maximum_multiple,
-        points,
+    log_max = math.log(
+        maximum_multiple
     )
 
     result: list[dict[str, float]] = []
 
-    for multiple in multipliers:
+    for index in range(points):
 
-        multiple = float(
-            multiple
+        fraction = (
+            index
+            / (points - 1)
+        )
+
+        multiple = math.exp(
+            log_min
+            + fraction
+            * (
+                log_max
+                - log_min
+            )
         )
 
         current = (
@@ -1001,7 +1184,7 @@ def generate_tcc_points(
         time = iec_time(
             current=current,
             pickup=pickup,
-            curve=curve,
+            curve=canonical_curve,
             TMS=TMS,
         )
 
@@ -1030,21 +1213,68 @@ def coordination_margin(
 
         margin = upstream_time - downstream_time
 
-    Positive value means the upstream element operates later.
+    Positive value
+        Upstream operation occurs later.
+
+    Zero
+        Simultaneous operating time.
+
+    Negative value
+        Upstream operation occurs earlier.
+
+    Infinity handling
+    ------------------
+    ``math.inf`` is a valid protection-analysis value because an
+    element that does not operate is represented by infinite operating
+    time.
+
+    Therefore:
+
+        finite - inf = -inf
+        inf - finite = inf
+        inf - inf     = nan
+
+    The ``inf - inf`` case is retained as ``math.nan`` because two
+    non-operating elements do not have a meaningful temporal
+    coordination margin.
 
     This function does not determine whether a margin is acceptable.
-    Acceptance criteria belong to the coordination layer.
+    Acceptance criteria belong to the coordination subsystem.
     """
 
-    upstream_time = _finite_float(
-        upstream_time,
-        "upstream_time",
-    )
+    try:
+        upstream_time = float(
+            upstream_time
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "upstream_time must be numeric."
+        ) from exc
 
-    downstream_time = _finite_float(
-        downstream_time,
-        "downstream_time",
-    )
+    try:
+        downstream_time = float(
+            downstream_time
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "downstream_time must be numeric."
+        ) from exc
+
+    if math.isnan(upstream_time):
+        raise ValueError(
+            "upstream_time cannot be NaN."
+        )
+
+    if math.isnan(downstream_time):
+        raise ValueError(
+            "downstream_time cannot be NaN."
+        )
+
+    if (
+        math.isinf(upstream_time)
+        and math.isinf(downstream_time)
+    ):
+        return math.nan
 
     return (
         upstream_time
@@ -1065,6 +1295,7 @@ __all__ = [
     "normalize_iec_curve",
     "iec_curve_definition",
     "iec_curve_constants",
+    "normalize_characteristic",
     "current_multiplier",
     "pickup_exceeded",
     "pickup_margin",
@@ -1079,4 +1310,3 @@ __all__ = [
     "generate_tcc_points",
     "coordination_margin",
 ]
-```
