@@ -11,119 +11,12 @@ Purpose
 Defines the immutable execution context supplied to protection
 functions during evaluation.
 
-Architectural Position
-----------------------
+ProtectionContext is an execution-time snapshot. It carries temporal,
+event, supervision, metadata, and authoritative subsystem references
+required by protection-function evaluation.
 
-    MeasurementChannel
-           |
-       RelayInput
-           |
-    ProtectionElement
-           |
-      RelayBase
-           |
-    ProtectionContext
-           |
-           v
-    ProtectionDecision
-
-ProtectionContext carries evaluation-time information required by
-protection-function execution.
-
-It does NOT:
-
-    * own network state;
-    * own measurement state;
-    * own relay state;
-    * execute protection functions;
-    * perform power-system calculations;
-    * operate breakers;
-    * modify topology;
-    * schedule simulation events;
-    * own simulation time;
-    * contain GUI state;
-    * perform persistence;
-    * become a simulation-state container.
-
-Authoritative ownership remains with the appropriate GridForge
-subsystems.
-
-Design Principles
------------------
-
-1. Protection functions receive execution-time information through an
-   explicit context rather than through global state.
-
-2. MeasurementChannel remains authoritative for measurement state.
-
-3. RelayInput remains the protection-facing measurement binding.
-
-4. Network objects remain authoritative for network state.
-
-5. Simulation objects remain authoritative for simulation state.
-
-6. ProtectionContext may reference authoritative objects but does not
-   copy or own their state.
-
-7. Simulation time is supplied by the caller. ProtectionContext does
-   not own an independent clock.
-
-8. Supervision information is carried explicitly and is not
-   automatically interpreted by this class.
-
-9. The context is immutable after construction.
-
-10. Mapping fields are defensively copied and exposed through
-    read-only MappingProxyType wrappers.
-
-11. Mapping immutability is shallow. Values contained inside mappings
-    remain owned by the caller/authoritative subsystem.
-
-12. ProtectionContext contains no protection-function logic.
-
-13. ProtectionContext does not convert measurement values or perform
-    electrical calculations.
-
-14. ProtectionContext may be freely constructed by simulation,
-    protection orchestration, testing, or other execution layers.
-
-Temporal Semantics
-------------------
-
-``time`` is the authoritative evaluation timestamp supplied by the
-caller.
-
-``timestep`` is the elapsed time since the previous evaluation when
-known.
-
-ProtectionContext does not advance time and does not maintain a clock.
-
-Referenced State
-----------------
-
-``network_state`` and ``simulation_state`` are references only.
-
-They are deliberately not copied, serialized, or interpreted by this
-class.
-
-The context therefore remains an execution-context object rather than
-a second network or simulation state container.
-
-Supervision
------------
-
-The ``supervision`` mapping carries explicit execution-time
-information such as:
-
-    blocking
-    permissive
-    interlock
-    test_mode
-
-ProtectionContext does not decide what these values mean.
-
-For convenience, ``is_supervised()`` returns True only when the stored
-value is literally ``True``.
+It does not own simulation time, network state, measurement state,
+relay state, or protection state.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -139,11 +32,87 @@ from typing import Any, Mapping
 
 
 # =====================================================================
+# VALIDATION HELPERS
+# =====================================================================
+
+
+def _normalize_mapping(
+    value: Mapping[str, Any],
+    name: str,
+) -> MappingProxyType:
+    """
+    Validate, normalize, copy, and freeze a string-keyed mapping.
+
+    Mapping values remain opaque caller-owned objects.
+
+    Keys must be non-empty strings after stripping whitespace.
+    Normalization collisions are rejected.
+    """
+
+    if not isinstance(value, Mapping):
+        raise TypeError(
+            f"{name} must be a mapping."
+        )
+
+    normalized: dict[str, Any] = {}
+
+    for key, item in value.items():
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"{name} keys must be strings."
+            )
+
+        normalized_key = key.strip()
+
+        if not normalized_key:
+            raise ValueError(
+                f"{name} keys cannot be empty."
+            )
+
+        if normalized_key in normalized:
+            raise ValueError(
+                f"Duplicate normalized {name} key "
+                f"'{normalized_key}'."
+            )
+
+        normalized[normalized_key] = item
+
+    return MappingProxyType(normalized)
+
+
+def _normalize_optional_string(
+    value: Any,
+    name: str,
+) -> str | None:
+    """
+    Normalize an optional string.
+
+    Empty or whitespace-only strings become None.
+    """
+
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        raise TypeError(
+            f"{name} must be a string or None."
+        )
+
+    normalized = value.strip()
+
+    return normalized or None
+
+
+# =====================================================================
 # PROTECTION EXECUTION CONTEXT
 # =====================================================================
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(
+    frozen=True,
+    slots=True,
+)
 class ProtectionContext:
     """
     Immutable execution context for one protection evaluation.
@@ -153,27 +122,23 @@ class ProtectionContext:
     time:
         Current protection-evaluation time.
 
-        The unit is defined by the simulation/execution environment.
-        ProtectionContext does not impose a simulation-time unit and
-        does not own a clock.
+        GridForge protection execution time is represented as a
+        non-negative finite scalar supplied by the caller.
+
+        ProtectionContext does not own a clock and does not advance
+        time.
 
     timestep:
-        Optional elapsed time since the previous protection
-        evaluation.
+        Optional non-negative elapsed time since the previous
+        protection evaluation.
 
     event_id:
-        Optional event identifier associated with this evaluation.
+        Optional event identifier.
 
     event_type:
         Optional event classification.
 
-        Examples:
-
-            FAULT
-            SWITCHING
-            DISTURBANCE
-            RECOVERY
-            SIMULATION_STEP
+        Stored in canonical uppercase form.
 
     network_state:
         Optional reference to authoritative network state.
@@ -186,54 +151,49 @@ class ProtectionContext:
         The object is referenced, not copied or owned.
 
     supervision:
-        Explicit supervision information supplied by the caller.
+        Explicit execution-time supervision information.
 
     metadata:
         Optional non-authoritative execution metadata.
 
     Notes
     -----
-    The dataclass is frozen, preventing reassignment of context
-    attributes.
+    The dataclass is frozen.
 
-    Mapping fields are additionally wrapped in MappingProxyType.
+    Mapping fields are copied into new dictionaries and exposed through
+    MappingProxyType.
 
-    This provides shallow mapping immutability:
-
-        context.supervision["x"] = value
-
-    is prohibited.
-
-    However, mutable objects stored as mapping values are not copied or
-    recursively frozen. Their ownership remains with the caller or
-    authoritative subsystem.
+    This provides shallow mapping immutability. Mutable objects stored
+    as mapping values remain caller-owned.
     """
 
-    # ==================================================================
+    # =================================================================
     # TEMPORAL INFORMATION
-    # ==================================================================
+    # =================================================================
 
     time: float
 
     timestep: float | None = None
 
-    # ==================================================================
+    # =================================================================
     # EVENT INFORMATION
-    # ==================================================================
+    # =================================================================
 
     event_id: str | None = None
+
     event_type: str | None = None
 
-    # ==================================================================
+    # =================================================================
     # AUTHORITATIVE REFERENCES
-    # ==================================================================
+    # =================================================================
 
     network_state: Any = None
+
     simulation_state: Any = None
 
-    # ==================================================================
+    # =================================================================
     # EXECUTION INFORMATION
-    # ==================================================================
+    # =================================================================
 
     supervision: Mapping[str, Any] = field(
         default_factory=dict
@@ -243,21 +203,22 @@ class ProtectionContext:
         default_factory=dict
     )
 
-    # ==================================================================
+    # =================================================================
     # INITIALIZATION / VALIDATION
-    # ==================================================================
+    # =================================================================
 
     def __post_init__(self) -> None:
         """
         Validate and normalize the execution context.
         """
 
-        # --------------------------------------------------------------
+        # -------------------------------------------------------------
         # Evaluation time
-        # --------------------------------------------------------------
+        # -------------------------------------------------------------
 
         try:
             time = float(self.time)
+
         except (TypeError, ValueError) as exc:
             raise TypeError(
                 "ProtectionContext.time must be numeric."
@@ -268,20 +229,26 @@ class ProtectionContext:
                 "ProtectionContext.time must be finite."
             )
 
+        if time < 0.0:
+            raise ValueError(
+                "ProtectionContext.time cannot be negative."
+            )
+
         object.__setattr__(
             self,
             "time",
             time,
         )
 
-        # --------------------------------------------------------------
+        # -------------------------------------------------------------
         # Timestep
-        # --------------------------------------------------------------
+        # -------------------------------------------------------------
 
         if self.timestep is not None:
 
             try:
                 timestep = float(self.timestep)
+
             except (TypeError, ValueError) as exc:
                 raise TypeError(
                     "ProtectionContext.timestep must be numeric "
@@ -304,103 +271,66 @@ class ProtectionContext:
                 timestep,
             )
 
-        # --------------------------------------------------------------
+        # -------------------------------------------------------------
         # Event identifier
-        # --------------------------------------------------------------
+        # -------------------------------------------------------------
 
-        if self.event_id is not None:
-
-            if not isinstance(
+        object.__setattr__(
+            self,
+            "event_id",
+            _normalize_optional_string(
                 self.event_id,
-                str,
-            ):
-                raise TypeError(
-                    "ProtectionContext.event_id must be a string "
-                    "or None."
-                )
-
-            event_id = self.event_id.strip()
-
-            object.__setattr__(
-                self,
-                "event_id",
-                event_id or None,
-            )
-
-        # --------------------------------------------------------------
-        # Event type
-        # --------------------------------------------------------------
-
-        if self.event_type is not None:
-
-            if not isinstance(
-                self.event_type,
-                str,
-            ):
-                raise TypeError(
-                    "ProtectionContext.event_type must be a string "
-                    "or None."
-                )
-
-            event_type = self.event_type.strip()
-
-            object.__setattr__(
-                self,
-                "event_type",
-                event_type or None,
-            )
-
-        # --------------------------------------------------------------
-        # Supervision mapping
-        # --------------------------------------------------------------
-
-        if not isinstance(
-            self.supervision,
-            Mapping,
-        ):
-            raise TypeError(
-                "ProtectionContext.supervision must be a mapping."
-            )
-
-        supervision = dict(
-            self.supervision
+                "ProtectionContext.event_id",
+            ),
         )
+
+        # -------------------------------------------------------------
+        # Event type
+        # -------------------------------------------------------------
+
+        event_type = _normalize_optional_string(
+            self.event_type,
+            "ProtectionContext.event_type",
+        )
+
+        if event_type is not None:
+            event_type = event_type.upper()
+
+        object.__setattr__(
+            self,
+            "event_type",
+            event_type,
+        )
+
+        # -------------------------------------------------------------
+        # Supervision mapping
+        # -------------------------------------------------------------
 
         object.__setattr__(
             self,
             "supervision",
-            MappingProxyType(
-                supervision
+            _normalize_mapping(
+                self.supervision,
+                "ProtectionContext.supervision",
             ),
         )
 
-        # --------------------------------------------------------------
+        # -------------------------------------------------------------
         # Metadata mapping
-        # --------------------------------------------------------------
-
-        if not isinstance(
-            self.metadata,
-            Mapping,
-        ):
-            raise TypeError(
-                "ProtectionContext.metadata must be a mapping."
-            )
-
-        metadata = dict(
-            self.metadata
-        )
+        # -------------------------------------------------------------
 
         object.__setattr__(
             self,
             "metadata",
-            MappingProxyType(
-                metadata
+            _normalize_mapping(
+                self.metadata,
+                "ProtectionContext.metadata",
             ),
         )
 
-    # ==================================================================
+    # =================================================================
     # TEMPORAL ACCESS
-    # ==================================================================
+    # =================================================================
 
     @property
     def current_time(self) -> float:
@@ -410,40 +340,29 @@ class ProtectionContext:
 
         return self.time
 
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @property
     def elapsed_time(self) -> float | None:
         """
         Return the elapsed time since the previous evaluation.
-
-        Returns None when no timestep was supplied.
         """
 
         return self.timestep
 
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def measurement_time(self) -> float:
         """
-        Return the time to use for time-dependent measurement-validity
-        evaluation.
-
-        ProtectionContext does not own measurement state.
-
-        Example
-        -------
-
-            relay_input.is_valid(
-                current_time=context.measurement_time()
-            )
+        Return the timestamp to use for time-dependent measurement
+        validity evaluation.
         """
 
         return self.time
 
-    # ==================================================================
+    # =================================================================
     # EVENT ACCESS
-    # ==================================================================
+    # =================================================================
 
     @property
     def has_event(self) -> bool:
@@ -453,7 +372,7 @@ class ProtectionContext:
 
         return self.event_id is not None
 
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def is_event_type(
         self,
@@ -466,10 +385,7 @@ class ProtectionContext:
         whitespace.
         """
 
-        if not isinstance(
-            event_type,
-            str,
-        ):
+        if not isinstance(event_type, str):
             return False
 
         if self.event_type is None:
@@ -485,9 +401,9 @@ class ProtectionContext:
             == normalized.casefold()
         )
 
-    # ==================================================================
+    # =================================================================
     # SUPERVISION
-    # ==================================================================
+    # =================================================================
 
     def supervision_get(
         self,
@@ -497,13 +413,10 @@ class ProtectionContext:
         """
         Return explicitly supplied supervision information.
 
-        This method does not interpret the value.
+        The value is not interpreted.
         """
 
-        if not isinstance(
-            name,
-            str,
-        ):
+        if not isinstance(name, str):
             raise TypeError(
                 "Supervision name must be a string."
             )
@@ -520,24 +433,21 @@ class ProtectionContext:
             default,
         )
 
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def is_supervised(
         self,
         name: str,
     ) -> bool:
         """
-        Return True only when the named supervision state is explicitly
+        Return True only when the named supervision state is literally
         the boolean value True.
 
-        Truthy values such as 1 or non-empty strings are not
-        automatically interpreted as asserted supervision.
+        Truthy values such as 1 or "true" are not interpreted as
+        asserted supervision.
         """
 
-        if not isinstance(
-            name,
-            str,
-        ):
+        if not isinstance(name, str):
             raise TypeError(
                 "Supervision name must be a string."
             )
@@ -550,13 +460,15 @@ class ProtectionContext:
             )
 
         return (
-            self.supervision.get(normalized_name)
+            self.supervision.get(
+                normalized_name
+            )
             is True
         )
 
-    # ==================================================================
+    # =================================================================
     # METADATA
-    # ==================================================================
+    # =================================================================
 
     def metadata_get(
         self,
@@ -567,10 +479,7 @@ class ProtectionContext:
         Return optional execution metadata.
         """
 
-        if not isinstance(
-            name,
-            str,
-        ):
+        if not isinstance(name, str):
             raise TypeError(
                 "Metadata name must be a string."
             )
@@ -587,9 +496,9 @@ class ProtectionContext:
             default,
         )
 
-    # ==================================================================
+    # =================================================================
     # DERIVATION
-    # ==================================================================
+    # =================================================================
 
     def with_time(
         self,
@@ -602,15 +511,7 @@ class ProtectionContext:
 
         The original context remains unchanged.
 
-        Parameters
-        ----------
-        time:
-            New evaluation time.
-
-        timestep:
-            New elapsed timestep.
-
-            If omitted, the existing timestep is retained.
+        If ``timestep`` is omitted, the existing timestep is retained.
         """
 
         return ProtectionContext(
@@ -632,18 +533,19 @@ class ProtectionContext:
             ),
         )
 
-    # ==================================================================
+    # =================================================================
     # DIAGNOSTICS
-    # ==================================================================
+    # =================================================================
 
     def diagnostics(self) -> dict[str, Any]:
         """
         Return a detached diagnostic representation.
 
-        Referenced authoritative objects are represented by their
+        Authoritative referenced objects are represented by their
         identifiers where available.
 
-        This method does not serialize or copy referenced objects.
+        Referenced objects themselves are neither serialized nor
+        copied.
         """
 
         return {
@@ -677,9 +579,9 @@ class ProtectionContext:
             ),
         }
 
-    # ==================================================================
+    # =================================================================
     # REPRESENTATION
-    # ==================================================================
+    # =================================================================
 
     def __repr__(self) -> str:
         """
@@ -695,9 +597,9 @@ class ProtectionContext:
         )
 
 
-# ======================================================================
+# =====================================================================
 # PUBLIC API
-# ======================================================================
+# =====================================================================
 
 __all__ = [
     "ProtectionContext",
