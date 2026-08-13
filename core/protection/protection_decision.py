@@ -1,103 +1,143 @@
-```python
 """
 GridForge V2 Protection Decision
 ================================
 
-File:
-    core/protection/protection_decision.py
+File
+----
+core/protection/protection_decision.py
 
 Purpose
 -------
-Defines the canonical decision contract produced by GridForge V2
-protection-function plugins.
-
-A ProtectionDecision represents the result of one protection-element
-evaluation cycle.
+Defines the canonical immutable decision contract produced by
+GridForge V2 protection-function implementations.
 
 Architecture
 ------------
 
     MeasurementChannel
             |
-        RelayInput
+            v
+       RelayInput
             |
-    Protection Element
+            v
+      ProtectionContext
+            |
+            v
+       RelayBase
             |
             v
     ProtectionDecision
             |
             v
+    ProtectionElement
+            |
+            v
     ProtectionSystem
             |
             v
-       TripRequest
+     Protection Output
             |
             v
       BreakerManager
 
 Design Principle
 ----------------
-Protection elements make protection decisions.
+A protection function produces a protection decision.
 
-They do not directly operate circuit breakers.
+The decision is an information-bearing result. It is not a breaker
+command and does not directly operate physical equipment.
 
-This module therefore provides the boundary between:
+One physical Relay may contain multiple ProtectionElement instances,
+and each element may independently produce a ProtectionDecision.
 
-    protection-function execution
+A ProtectionDecision therefore identifies:
 
-and:
-
-    protection-system orchestration / breaker operation.
-
-A ProtectionDecision is an immutable result object. It does not
-modify the Relay model, Network, Breaker, MeasurementChannel, or
-ProtectionSystem.
-
-The decision object is deliberately generic enough to support:
-
-    - overcurrent
-    - directional overcurrent
-    - distance
-    - differential
-    - voltage
-    - frequency
-    - negative sequence
-    - thermal
-    - breaker failure
-    - generator protection
-    - transformer protection
-    - busbar protection
-    - motor protection
-    - custom/vendor-specific protection functions
-
-The object also supports future time-domain and event-driven
-protection execution without coupling this layer to a particular
-simulation engine.
+    - authoritative relay;
+    - protection-function instance;
+    - protection function code;
+    - pickup state;
+    - operating state;
+    - trip-request state;
+    - blocking state;
+    - validity;
+    - operating time;
+    - evaluation timestamp;
+    - diagnostic reason;
+    - extensible metadata.
 
 Responsibilities
 ----------------
 This module provides:
 
     - canonical protection decision representation;
-    - decision validity;
-    - pickup/operate/trip-request state;
-    - intentional operating time;
+    - immutable decision semantics;
+    - validity semantics;
+    - pickup / operate / trip-request state;
+    - blocking state;
+    - operating-time information;
     - evaluation timestamp;
-    - function and relay identity;
-    - blocking information;
-    - reason/diagnostic information;
-    - extensible metadata;
-    - safe decision construction.
+    - diagnostic information;
+    - safe decision constructors;
+    - serialization/diagnostic representation.
 
 This module does NOT:
 
-    - calculate fault current;
-    - calculate relay characteristics;
+    - calculate electrical quantities;
+    - calculate protection characteristics;
+    - access network topology;
     - operate breakers;
-    - modify relay state;
-    - modify network topology;
     - schedule simulation events;
-    - coordinate multiple protection elements.
+    - coordinate protection functions;
+    - modify Relay state;
+    - modify ProtectionSystem state.
+
+Trip semantics
+--------------
+The distinction between the following states is intentional:
+
+    pickup
+        The protection pickup criterion has been satisfied.
+
+    operate
+        The protection function has reached its operating criterion.
+
+    trip_request
+        The protection function requests a trip action.
+
+A trip request is not physical breaker operation.
+
+The downstream protection/output layer is responsible for converting
+an actionable trip request into the appropriate system action.
+
+Validity semantics
+------------------
+A decision with ``valid=False`` represents an unusable or invalid
+evaluation result.
+
+Invalid decisions must never request a trip.
+
+Blocking semantics
+------------------
+A blocked decision represents a valid protection evaluation in which
+the protection function was intentionally prevented from operating.
+
+Blocked decisions must never request a trip.
+
+Immutability
+------------
+ProtectionDecision is frozen.
+
+The object therefore represents a completed evaluation result rather
+than mutable protection state.
+
+Metadata is defensively copied during construction and serialization.
+
+Compatibility
+-------------
+``__bool__`` returns the value of ``actionable``.
+
+This permits controlled migration from legacy boolean protection APIs
+while retaining the complete ProtectionDecision contract.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -108,7 +148,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 
 # =====================================================================
@@ -119,101 +159,85 @@ from typing import Any, Mapping, Optional
 @dataclass(frozen=True)
 class ProtectionDecision:
     """
-    Immutable result of one protection-element evaluation.
+    Immutable result of one protection-function evaluation.
 
     Parameters
     ----------
     relay_id:
-        Identifier of the authoritative physical relay device.
+        Identifier of the authoritative physical Relay.
 
     function_code:
-        Protection function / ANSI device-function identifier.
+        Protection-function / ANSI device-function identifier.
 
         Examples:
 
             21
+            27
             50
             51
+            59
             67
-            87T
+            81
+            87
             50BF
 
     function_id:
-        Identifier of the specific protection element instance.
+        Identifier of the specific ProtectionElement/function
+        instance.
 
-        This is distinct from ``relay_id`` because one physical relay
-        may host many protection elements.
+        This is distinct from ``relay_id`` because one physical Relay
+        may contain multiple protection functions.
 
     pickup:
-        True when the protection element's pickup criterion is met.
+        True when the pickup criterion is satisfied.
 
     operate:
-        True when the element has reached its operating criterion.
-
-        For instantaneous functions this may be equivalent to pickup.
-
-        For time-dependent functions pickup may occur before operation.
+        True when the protection function has reached its operating
+        criterion.
 
     trip_request:
-        True when the protection element requests a trip action.
+        True when the protection function requests a trip action.
 
-        This is a request only. It does not operate a breaker.
+        This does not operate a physical breaker.
 
     blocked:
-        True when the element was prevented from operating by a
-        protection blocking/interlocking condition.
+        True when the protection function is prevented from operating
+        by a blocking/interlocking condition.
 
     valid:
-        True when the decision was produced from valid usable inputs
-        and is suitable for downstream protection processing.
+        True when the decision was produced from valid usable inputs.
 
     operating_time:
-        Optional intentional/calculated operating time in seconds.
+        Calculated or intentional operating time in seconds.
 
         ``None`` means that no operating time was determined.
 
-        ``math.inf`` may be used by numerical protection functions
-        to represent an inverse-time condition that has not reached
-        pickup, although such a decision would normally have
-        ``pickup=False``.
+        ``math.inf`` is permitted for numerical characteristics that
+        represent a non-operating inverse-time condition.
 
     timestamp:
-        Optional simulation/event/evaluation timestamp.
+        Optional evaluation/simulation timestamp in seconds.
 
     reason:
-        Human-readable diagnostic reason.
+        Human-readable diagnostic explanation.
 
     metadata:
-        Extensible immutable decision metadata.
-
-    Notes
-    -----
-    The decision object contains no direct reference to a Breaker.
-
-    A protection system may convert a valid trip request into a
-    breaker command according to its own coordination and topology
-    rules.
+        Extensible decision-specific metadata.
     """
 
     relay_id: Any
-
     function_code: str
-
     function_id: Any
 
     pickup: bool = False
-
     operate: bool = False
-
     trip_request: bool = False
 
     blocked: bool = False
-
     valid: bool = True
 
-    operating_time: Optional[float] = None
-
-    timestamp: Optional[float] = None
+    operating_time: float | None = None
+    timestamp: float | None = None
 
     reason: str = ""
 
@@ -227,12 +251,26 @@ class ProtectionDecision:
 
     def __post_init__(self) -> None:
         """
-        Validate the immutable decision contract.
+        Validate and normalize the immutable decision contract.
         """
 
-        function_code = str(
+        # -------------------------------------------------------------
+        # Function code
+        # -------------------------------------------------------------
+
+        if not isinstance(
+            self.function_code,
+            str,
+        ):
+            raise TypeError(
+                "function_code must be a string."
+            )
+
+        function_code = (
             self.function_code
-        ).strip().upper()
+            .strip()
+            .upper()
+        )
 
         if not function_code:
             raise ValueError(
@@ -245,6 +283,10 @@ class ProtectionDecision:
             function_code,
         )
 
+        # -------------------------------------------------------------
+        # Identity
+        # -------------------------------------------------------------
+
         if self.relay_id is None:
             raise ValueError(
                 "relay_id cannot be None."
@@ -255,50 +297,9 @@ class ProtectionDecision:
                 "function_id cannot be None."
             )
 
-        if (
-            self.operating_time is not None
-        ):
-
-            operating_time = float(
-                self.operating_time
-            )
-
-            if (
-                not isfinite(operating_time)
-                and operating_time != float("inf")
-            ):
-                raise ValueError(
-                    "operating_time must be finite "
-                    "or positive infinity."
-                )
-
-            if operating_time < 0.0:
-                raise ValueError(
-                    "operating_time cannot be negative."
-                )
-
-            object.__setattr__(
-                self,
-                "operating_time",
-                operating_time,
-            )
-
-        if self.timestamp is not None:
-
-            timestamp = float(
-                self.timestamp
-            )
-
-            if not isfinite(timestamp):
-                raise ValueError(
-                    "timestamp must be finite."
-                )
-
-            object.__setattr__(
-                self,
-                "timestamp",
-                timestamp,
-            )
+        # -------------------------------------------------------------
+        # Boolean fields
+        # -------------------------------------------------------------
 
         object.__setattr__(
             self,
@@ -330,23 +331,127 @@ class ProtectionDecision:
             bool(self.valid),
         )
 
+        # -------------------------------------------------------------
+        # Invalid and blocked decisions cannot request trips.
+        # -------------------------------------------------------------
+
+        if (
+            not self.valid
+            or self.blocked
+        ) and self.trip_request:
+
+            raise ValueError(
+                "Invalid or blocked protection decisions "
+                "cannot request a trip."
+            )
+
+        # -------------------------------------------------------------
+        # Operating time
+        # -------------------------------------------------------------
+
+        if self.operating_time is not None:
+
+            try:
+                operating_time = float(
+                    self.operating_time
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as exc:
+
+                raise ValueError(
+                    "operating_time must be numeric."
+                ) from exc
+
+            if (
+                not isfinite(operating_time)
+                and operating_time != float("inf")
+            ):
+                raise ValueError(
+                    "operating_time must be finite "
+                    "or positive infinity."
+                )
+
+            if operating_time < 0.0:
+                raise ValueError(
+                    "operating_time cannot be negative."
+                )
+
+            object.__setattr__(
+                self,
+                "operating_time",
+                operating_time,
+            )
+
+        # -------------------------------------------------------------
+        # Timestamp
+        # -------------------------------------------------------------
+
+        if self.timestamp is not None:
+
+            try:
+                timestamp = float(
+                    self.timestamp
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as exc:
+
+                raise ValueError(
+                    "timestamp must be numeric."
+                ) from exc
+
+            if not isfinite(timestamp):
+                raise ValueError(
+                    "timestamp must be finite."
+                )
+
+            object.__setattr__(
+                self,
+                "timestamp",
+                timestamp,
+            )
+
+        # -------------------------------------------------------------
+        # Reason
+        # -------------------------------------------------------------
+
         object.__setattr__(
             self,
             "reason",
             str(self.reason),
         )
 
+        # -------------------------------------------------------------
+        # Metadata
+        # -------------------------------------------------------------
+
         if self.metadata is None:
+
             object.__setattr__(
                 self,
                 "metadata",
                 {},
             )
+
         else:
+
+            try:
+                metadata = dict(
+                    self.metadata
+                )
+            except (TypeError, ValueError) as exc:
+
+                raise TypeError(
+                    "metadata must be a mapping."
+                ) from exc
+
             object.__setattr__(
                 self,
                 "metadata",
-                dict(self.metadata),
+                metadata,
             )
 
     # =================================================================
@@ -356,7 +461,7 @@ class ProtectionDecision:
     @property
     def active(self) -> bool:
         """
-        Return True when the protection element has picked up or
+        Return True when the protection function has picked up or
         operated.
         """
 
@@ -370,10 +475,10 @@ class ProtectionDecision:
     @property
     def actionable(self) -> bool:
         """
-        Return whether the decision represents a valid actionable
-        protection trip request.
+        Return True when the decision represents an actionable trip
+        request.
 
-        A decision is actionable only when:
+        Conditions:
 
             valid
             AND
@@ -393,8 +498,10 @@ class ProtectionDecision:
     @property
     def asserted(self) -> bool:
         """
-        Alias indicating that the protection element is actively
-        requesting operation.
+        Alias for ``actionable``.
+
+        Indicates that the protection decision is actively requesting
+        a trip.
         """
 
         return self.actionable
@@ -411,16 +518,13 @@ class ProtectionDecision:
         function_code: str,
         function_id: Any,
         reason: str,
-        timestamp: Optional[float] = None,
-        metadata: Optional[
-            Mapping[str, Any]
-        ] = None,
+        timestamp: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> "ProtectionDecision":
         """
-        Construct a decision indicating invalid protection inputs
-        or an invalid evaluation condition.
+        Construct an invalid protection decision.
 
-        Invalid decisions must never request a trip.
+        Invalid decisions cannot request a trip.
         """
 
         return cls(
@@ -448,15 +552,13 @@ class ProtectionDecision:
         function_code: str,
         function_id: Any,
         reason: str = "Protection element blocked.",
-        timestamp: Optional[float] = None,
-        metadata: Optional[
-            Mapping[str, Any]
-        ] = None,
+        timestamp: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> "ProtectionDecision":
         """
-        Construct a blocked protection decision.
+        Construct a valid blocked protection decision.
 
-        A blocked element cannot request a trip.
+        A blocked decision cannot request a trip.
         """
 
         return cls(
@@ -484,14 +586,12 @@ class ProtectionDecision:
         function_code: str,
         function_id: Any,
         reason: str = "",
-        timestamp: Optional[float] = None,
-        operating_time: Optional[float] = None,
-        metadata: Optional[
-            Mapping[str, Any]
-        ] = None,
+        timestamp: float | None = None,
+        operating_time: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> "ProtectionDecision":
         """
-        Construct a valid non-operating decision.
+        Construct a valid non-operating protection decision.
         """
 
         return cls(
@@ -512,6 +612,80 @@ class ProtectionDecision:
     # -----------------------------------------------------------------
 
     @classmethod
+    def pickup_decision(
+        cls,
+        *,
+        relay_id: Any,
+        function_code: str,
+        function_id: Any,
+        reason: str = "",
+        timestamp: float | None = None,
+        operating_time: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "ProtectionDecision":
+        """
+        Construct a valid pickup-only decision.
+
+        The protection element has picked up but has not yet reached
+        its operating/trip criterion.
+        """
+
+        return cls(
+            relay_id=relay_id,
+            function_code=function_code,
+            function_id=function_id,
+            pickup=True,
+            operate=False,
+            trip_request=False,
+            blocked=False,
+            valid=True,
+            operating_time=operating_time,
+            timestamp=timestamp,
+            reason=reason,
+            metadata=metadata or {},
+        )
+
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def operated(
+        cls,
+        *,
+        relay_id: Any,
+        function_code: str,
+        function_id: Any,
+        trip_request: bool = False,
+        reason: str = "",
+        timestamp: float | None = None,
+        operating_time: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "ProtectionDecision":
+        """
+        Construct a valid operated decision.
+
+        ``trip_request`` is explicit because an operated protection
+        function does not necessarily imply that the downstream
+        system must immediately issue a breaker trip.
+        """
+
+        return cls(
+            relay_id=relay_id,
+            function_code=function_code,
+            function_id=function_id,
+            pickup=True,
+            operate=True,
+            trip_request=trip_request,
+            blocked=False,
+            valid=True,
+            operating_time=operating_time,
+            timestamp=timestamp,
+            reason=reason,
+            metadata=metadata or {},
+        )
+
+    # -----------------------------------------------------------------
+
+    @classmethod
     def trip(
         cls,
         *,
@@ -519,14 +693,12 @@ class ProtectionDecision:
         function_code: str,
         function_id: Any,
         reason: str = "",
-        timestamp: Optional[float] = None,
-        operating_time: Optional[float] = None,
-        metadata: Optional[
-            Mapping[str, Any]
-        ] = None,
+        timestamp: float | None = None,
+        operating_time: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> "ProtectionDecision":
         """
-        Construct a valid trip-request decision.
+        Construct a valid actionable trip-request decision.
 
         This does not operate a physical breaker.
         """
@@ -552,10 +724,10 @@ class ProtectionDecision:
 
     def to_dict(self) -> dict[str, Any]:
         """
-        Return a serialization-safe decision representation.
+        Return a dictionary representation of the decision.
 
-        Metadata is copied so callers cannot mutate the decision's
-        stored metadata through the returned dictionary.
+        The returned metadata dictionary is independent from the
+        decision's internal metadata.
         """
 
         return {
@@ -575,15 +747,37 @@ class ProtectionDecision:
 
     # -----------------------------------------------------------------
 
+    def as_dict(self) -> dict[str, Any]:
+        """
+        Compatibility alias for ``to_dict()``.
+        """
+
+        return self.to_dict()
+
+    # -----------------------------------------------------------------
+
+    def diagnostics(self) -> dict[str, Any]:
+        """
+        Return the decision as structured diagnostic information.
+
+        This is intentionally equivalent to the serialization-safe
+        representation and exists as a semantic diagnostics API for
+        ProtectionElement and ProtectionSystem.
+        """
+
+        return self.to_dict()
+
+    # =================================================================
+    # BOOLEAN COMPATIBILITY
+    # =================================================================
+
     def __bool__(self) -> bool:
         """
-        Boolean compatibility.
+        Return whether this decision is actionable.
 
-        A ProtectionDecision evaluates to True only when it represents
-        an actionable protection trip request.
-
-        This permits controlled migration from legacy boolean
-        protection APIs without changing the decision semantics.
+        This supports controlled migration from legacy boolean
+        protection APIs without discarding the complete decision
+        object.
         """
 
         return self.actionable
@@ -596,4 +790,3 @@ class ProtectionDecision:
 __all__ = [
     "ProtectionDecision",
 ]
-```
