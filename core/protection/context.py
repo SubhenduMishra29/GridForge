@@ -73,32 +73,57 @@ Design Principles
 
 9. The context is immutable after construction.
 
-10. Mapping fields are defensively copied and exposed read-only.
+10. Mapping fields are defensively copied and exposed through
+    read-only MappingProxyType wrappers.
 
-Typical Usage
--------------
+11. Mapping immutability is shallow. Values contained inside mappings
+    remain owned by the caller/authoritative subsystem.
 
-    context = ProtectionContext(
-        time=simulation_time,
-        timestep=simulation_timestep,
-        event_id="FAULT_001",
-        event_type="FAULT",
-    )
+12. ProtectionContext contains no protection-function logic.
 
-    decision = protection_function.evaluate(
-        context
-    )
+13. ProtectionContext does not convert measurement values or perform
+    electrical calculations.
 
-Measurement access remains through RelayInput:
+14. ProtectionContext may be freely constructed by simulation,
+    protection orchestration, testing, or other execution layers.
 
-    RelayBase
-        |
-        +-- RelayInput
-                |
-                +-- MeasurementChannel
+Temporal Semantics
+------------------
 
-ProtectionContext therefore complements RelayInput; it does not
-replace it.
+``time`` is the authoritative evaluation timestamp supplied by the
+caller.
+
+``timestep`` is the elapsed time since the previous evaluation when
+known.
+
+ProtectionContext does not advance time and does not maintain a clock.
+
+Referenced State
+----------------
+
+``network_state`` and ``simulation_state`` are references only.
+
+They are deliberately not copied, serialized, or interpreted by this
+class.
+
+The context therefore remains an execution-context object rather than
+a second network or simulation state container.
+
+Supervision
+-----------
+
+The ``supervision`` mapping carries explicit execution-time
+information such as:
+
+    blocking
+    permissive
+    interlock
+    test_mode
+
+ProtectionContext does not decide what these values mean.
+
+For convenience, ``is_supervised()`` returns True only when the stored
+value is literally ``True``.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -113,6 +138,11 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 
+# =====================================================================
+# PROTECTION EXECUTION CONTEXT
+# =====================================================================
+
+
 @dataclass(frozen=True, slots=True)
 class ProtectionContext:
     """
@@ -124,16 +154,15 @@ class ProtectionContext:
         Current protection-evaluation time.
 
         The unit is defined by the simulation/execution environment.
-        This class does not impose a simulation-time unit and does not
-        own a clock.
+        ProtectionContext does not impose a simulation-time unit and
+        does not own a clock.
 
     timestep:
         Optional elapsed time since the previous protection
         evaluation.
 
     event_id:
-        Optional identifier of the event associated with this
-        evaluation.
+        Optional event identifier associated with this evaluation.
 
     event_type:
         Optional event classification.
@@ -159,25 +188,25 @@ class ProtectionContext:
     supervision:
         Explicit supervision information supplied by the caller.
 
-        Examples:
-
-            blocking
-            permissive
-            interlock
-            test_mode
-
-        ProtectionContext does not automatically interpret these
-        values.
-
     metadata:
         Optional non-authoritative execution metadata.
 
     Notes
     -----
-    ``frozen=True`` prevents reassignment of context attributes.
+    The dataclass is frozen, preventing reassignment of context
+    attributes.
 
-    Mapping fields are additionally wrapped in MappingProxyType so
-    callers cannot mutate them through the context.
+    Mapping fields are additionally wrapped in MappingProxyType.
+
+    This provides shallow mapping immutability:
+
+        context.supervision["x"] = value
+
+    is prohibited.
+
+    However, mutable objects stored as mapping values are not copied or
+    recursively frozen. Their ownership remains with the caller or
+    authoritative subsystem.
     """
 
     # ==================================================================
@@ -220,7 +249,7 @@ class ProtectionContext:
 
     def __post_init__(self) -> None:
         """
-        Normalize immutable/public values and validate the context.
+        Validate and normalize the execution context.
         """
 
         # --------------------------------------------------------------
@@ -228,14 +257,8 @@ class ProtectionContext:
         # --------------------------------------------------------------
 
         try:
-            time = float(
-                self.time
-            )
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
-
+            time = float(self.time)
+        except (TypeError, ValueError) as exc:
             raise TypeError(
                 "ProtectionContext.time must be numeric."
             ) from exc
@@ -258,14 +281,8 @@ class ProtectionContext:
         if self.timestep is not None:
 
             try:
-                timestep = float(
-                    self.timestep
-                )
-            except (
-                TypeError,
-                ValueError,
-            ) as exc:
-
+                timestep = float(self.timestep)
+            except (TypeError, ValueError) as exc:
                 raise TypeError(
                     "ProtectionContext.timestep must be numeric "
                     "or None."
@@ -278,8 +295,7 @@ class ProtectionContext:
 
             if timestep < 0.0:
                 raise ValueError(
-                    "ProtectionContext.timestep "
-                    "cannot be negative."
+                    "ProtectionContext.timestep cannot be negative."
                 )
 
             object.__setattr__(
@@ -289,14 +305,21 @@ class ProtectionContext:
             )
 
         # --------------------------------------------------------------
-        # Event identity
+        # Event identifier
         # --------------------------------------------------------------
 
         if self.event_id is not None:
 
-            event_id = str(
-                self.event_id
-            ).strip()
+            if not isinstance(
+                self.event_id,
+                str,
+            ):
+                raise TypeError(
+                    "ProtectionContext.event_id must be a string "
+                    "or None."
+                )
+
+            event_id = self.event_id.strip()
 
             object.__setattr__(
                 self,
@@ -310,9 +333,16 @@ class ProtectionContext:
 
         if self.event_type is not None:
 
-            event_type = str(
-                self.event_type
-            ).strip()
+            if not isinstance(
+                self.event_type,
+                str,
+            ):
+                raise TypeError(
+                    "ProtectionContext.event_type must be a string "
+                    "or None."
+                )
+
+            event_type = self.event_type.strip()
 
             object.__setattr__(
                 self,
@@ -324,18 +354,17 @@ class ProtectionContext:
         # Supervision mapping
         # --------------------------------------------------------------
 
-        try:
-            supervision = dict(
-                self.supervision
-            )
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
-
+        if not isinstance(
+            self.supervision,
+            Mapping,
+        ):
             raise TypeError(
                 "ProtectionContext.supervision must be a mapping."
-            ) from exc
+            )
+
+        supervision = dict(
+            self.supervision
+        )
 
         object.__setattr__(
             self,
@@ -349,18 +378,17 @@ class ProtectionContext:
         # Metadata mapping
         # --------------------------------------------------------------
 
-        try:
-            metadata = dict(
-                self.metadata
-            )
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
-
+        if not isinstance(
+            self.metadata,
+            Mapping,
+        ):
             raise TypeError(
                 "ProtectionContext.metadata must be a mapping."
-            ) from exc
+            )
+
+        metadata = dict(
+            self.metadata
+        )
 
         object.__setattr__(
             self,
@@ -447,9 +475,14 @@ class ProtectionContext:
         if self.event_type is None:
             return False
 
+        normalized = event_type.strip()
+
+        if not normalized:
+            return False
+
         return (
             self.event_type.casefold()
-            == event_type.strip().casefold()
+            == normalized.casefold()
         )
 
     # ==================================================================
@@ -475,8 +508,15 @@ class ProtectionContext:
                 "Supervision name must be a string."
             )
 
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError(
+                "Supervision name cannot be empty."
+            )
+
         return self.supervision.get(
-            name,
+            normalized_name,
             default,
         )
 
@@ -487,8 +527,8 @@ class ProtectionContext:
         name: str,
     ) -> bool:
         """
-        Return True only when the named supervision state is
-        explicitly the boolean value True.
+        Return True only when the named supervision state is explicitly
+        the boolean value True.
 
         Truthy values such as 1 or non-empty strings are not
         automatically interpreted as asserted supervision.
@@ -502,8 +542,15 @@ class ProtectionContext:
                 "Supervision name must be a string."
             )
 
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError(
+                "Supervision name cannot be empty."
+            )
+
         return (
-            self.supervision.get(name)
+            self.supervision.get(normalized_name)
             is True
         )
 
@@ -528,8 +575,15 @@ class ProtectionContext:
                 "Metadata name must be a string."
             )
 
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError(
+                "Metadata name cannot be empty."
+            )
+
         return self.metadata.get(
-            name,
+            normalized_name,
             default,
         )
 
@@ -584,12 +638,12 @@ class ProtectionContext:
 
     def diagnostics(self) -> dict[str, Any]:
         """
-        Return a diagnostic representation.
+        Return a detached diagnostic representation.
 
         Referenced authoritative objects are represented by their
         identifiers where available.
 
-        This method does not serialize the referenced objects.
+        This method does not serialize or copy referenced objects.
         """
 
         return {
@@ -640,6 +694,10 @@ class ProtectionContext:
             f"event_type={self.event_type!r}>"
         )
 
+
+# ======================================================================
+# PUBLIC API
+# ======================================================================
 
 __all__ = [
     "ProtectionContext",
