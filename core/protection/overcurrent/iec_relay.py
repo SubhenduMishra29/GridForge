@@ -1,90 +1,71 @@
-# Final `core/protection/overcurrent/iec_relay.py`
-
 """
-GridForge IEC Overcurrent Protection Function
-==============================================
+GridForge V2 IEC Overcurrent Protection Function
+================================================
 
-File:
-    core/protection/overcurrent/iec_relay.py
+File
+----
+core/protection/overcurrent/iec_relay.py
 
 Purpose
 -------
-Implements an IEC 60255 inverse-time overcurrent protection
-function for GridForge V2.
+Implements an IEC 60255 inverse-time overcurrent protection function
+for GridForge V2.
+
+This class represents ONE protection function / element (IEC 51)
+hosted by an authoritative physical Relay.
 
 Architectural Position
------------------------
-
-    CurrentTransformer
-            |
-            v
-    MeasurementChannel
-            |
-            v
-       RelayInput
-            |
-            v
-       RelayBase
-            |
-            v
-    IECOvercurrentRelay
-            |
-            v
-    ProtectionDecision
-            |
-            v
-      ProtectionSystem
-            |
-            v
-    Protection Output Layer
-            |
-            v
-       BreakerManager
-
-Important V2 Principle
 ----------------------
-This class represents ONE protection function / element.
 
-It is not a second physical relay model.
+    CT / PT / CVT
+          |
+          v
+    MeasurementChannel
+          |
+          v
+       RelayInput
+          |
+          v
+       RelayBase
+          |
+          v
+    IECOvercurrentRelay
+          |
+          v
+    ProtectionDecision
+          |
+          v
+    ProtectionSystem
+          |
+          v
+    Protection Output Layer
+          |
+          v
+      BreakerManager
 
-A physical GridForge Relay may contain multiple protection
-functions, for example:
+Architectural Rules
+-------------------
+This class:
 
-    50       Instantaneous phase overcurrent
-    51       IEC inverse-time overcurrent
-    50N/50G  Instantaneous earth fault
-    51N/51G  Earth-fault inverse time
-    67       Directional overcurrent
+    * owns IEC 51 function configuration;
+    * references RelayInput;
+    * owns transient IEC timing state;
+    * evaluates the protection characteristic;
+    * produces ProtectionDecision.
 
-This implementation therefore owns only the algorithm-specific
-configuration and transient execution state associated with the
-IEC 51 function.
+This class does NOT:
 
-Responsibilities
-----------------
-This module is responsible for:
-
-    - consuming a configured current RelayInput;
-    - validating the measurement signal;
-    - evaluating pickup;
-    - evaluating the IEC inverse-time characteristic;
-    - maintaining algorithm-specific timing state;
-    - producing ProtectionDecision objects;
-    - exposing protection-function diagnostic state.
-
-It does NOT:
-
-    - create CTs;
-    - create MeasurementChannels;
-    - calculate fault current;
-    - access Network topology;
-    - perform load flow;
-    - perform short-circuit calculations;
-    - coordinate multiple relays;
-    - operate breakers;
-    - schedule simulation events;
-    - modify the authoritative Relay model;
-    - own a simulation clock.
+    * represent the physical Relay;
+    * own CT/PT/MeasurementChannel state;
+    * calculate electrical quantities;
+    * access network topology;
+    * execute power-system solvers;
+    * operate breakers;
+    * schedule simulation events;
+    * modify network topology;
+    * coordinate other protection functions;
+    * own a simulation clock;
+    * perform persistence or file I/O.
 
 Timing Boundary
 ---------------
@@ -92,16 +73,11 @@ IEC inverse-time mathematics is provided by:
 
     core.protection.relay_functions
 
-Simulation/evaluation time is supplied by the caller through
-ProtectionContext.
+Evaluation time is supplied by:
 
-The protection function records pickup timing state and determines
-whether the IEC operating criterion has been reached.
+    ProtectionContext.time
 
-It does not own a global clock or schedule simulation events.
-
-The resulting ProtectionDecision is consumed by the higher-level
-protection/event/output architecture.
+The protection function does not own a clock.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -112,7 +88,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 from core.protection.context import ProtectionContext
 from core.protection.decision import ProtectionDecision
@@ -139,32 +115,31 @@ CURRENT_INPUT = "current"
 
 
 # =====================================================================
-# ELEMENT SETTINGS
+# SETTINGS
 # =====================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class IECOvercurrentSettings:
     """
-    Immutable settings for one IEC inverse-time overcurrent element.
+    Immutable configuration for one IEC 51 overcurrent function.
 
     Parameters
     ----------
     pickup:
         Pickup current in the engineering convention of the assigned
-        measurement channel.
+        RelayInput / MeasurementChannel.
 
     curve:
         IEC inverse-time characteristic.
 
     TMS:
-        Time Multiplier Setting.
+        IEC Time Multiplier Setting.
 
     Notes
     -----
-    This object contains function-specific algorithm settings.
-
-    It does not replace or duplicate the authoritative Relay model.
+    These settings belong exclusively to this protection function.
+    They do not replace or duplicate physical Relay configuration.
     """
 
     pickup: float
@@ -172,20 +147,33 @@ class IECOvercurrentSettings:
     TMS: float = DEFAULT_TMS
 
     def __post_init__(self) -> None:
-        pickup = float(self.pickup)
+        try:
+            pickup = float(self.pickup)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "pickup must be numeric."
+            ) from exc
 
         if not math.isfinite(pickup) or pickup <= 0.0:
             raise ValueError(
                 "pickup must be finite and positive."
             )
 
-        curve = normalize_iec_curve(self.curve)
+        curve = normalize_iec_curve(
+            self.curve
+        )
 
-        TMS = float(self.TMS)
-
-        if not math.isfinite(TMS) or TMS < 0.0:
+        try:
+            TMS = float(self.TMS)
+        except (TypeError, ValueError) as exc:
             raise ValueError(
-                "TMS must be finite and >= 0."
+                "TMS must be numeric."
+            ) from exc
+
+        # relay_functions.iec_time() requires TMS > 0.
+        if not math.isfinite(TMS) or TMS <= 0.0:
+            raise ValueError(
+                "TMS must be finite and positive."
             )
 
         object.__setattr__(
@@ -214,47 +202,32 @@ class IECOvercurrentSettings:
 
 class IECOvercurrentRelay(RelayBase):
     """
-    GridForge V2 IEC inverse-time overcurrent protection function.
+    IEC 51 inverse-time overcurrent protection function.
 
-    This implementation represents an IEC 51 protection element,
-    not a physical Relay.
+    This class is a protection-function implementation, not a physical
+    relay model.
 
-    Parameters
-    ----------
-    relay:
-        Authoritative GridForge Relay model.
+    A physical Relay may host multiple protection functions, for
+    example:
 
-    relay_inputs:
-        Mapping containing the assigned current RelayInput.
+        Relay R1
+            |
+            +-- 50
+            +-- 51
+            +-- 46
+            +-- 50BF
 
-    settings:
-        IEC overcurrent element settings.
-
-    element_id:
-        Stable identity of this protection-function instance.
-
-        This must be distinct from the physical relay identity because
-        one physical relay may host multiple protection functions.
-
-    Notes
-    -----
-    The protection function reads current exclusively through its
-    assigned RelayInput.
-
-    It does not read:
-
-        relay.current
-
-    and does not calculate electrical current itself.
+    The function reads current exclusively through its assigned
+    RelayInput.
     """
 
     CURRENT_INPUT = CURRENT_INPUT
     FUNCTION_CODE = FUNCTION_CODE
     FUNCTION_NAME = FUNCTION_NAME
 
-    # ================================================================
+    # =================================================================
     # INITIALIZATION
-    # ================================================================
+    # =================================================================
 
     def __init__(
         self,
@@ -266,6 +239,9 @@ class IECOvercurrentRelay(RelayBase):
         enabled: bool = True,
         blocked: bool = False,
     ) -> None:
+        """
+        Initialize one IEC 51 protection function.
+        """
 
         if not isinstance(
             settings,
@@ -291,13 +267,14 @@ class IECOvercurrentRelay(RelayBase):
             blocked=blocked,
         )
 
-        self.settings = settings
+        # Typed immutable configuration.
+        #
+        # RelayBase.settings remains the canonical read-only mapping
+        # exposed by the base class.
+        self._iec_settings = settings
 
         # --------------------------------------------------------------
-        # Algorithm-specific transient state.
-        #
-        # This is local execution state only.
-        # It does not duplicate Relay or MeasurementChannel state.
+        # Transient execution state
         # --------------------------------------------------------------
 
         self._pickup_start_time: float | None = None
@@ -305,55 +282,75 @@ class IECOvercurrentRelay(RelayBase):
         self._last_current: float | None = None
         self._last_operating_time: float | None = None
         self._last_decision: ProtectionDecision | None = None
+        self._operated: bool = False
 
         self.require_inputs(
             self.CURRENT_INPUT
         )
 
-    # ================================================================
+    # =================================================================
     # SETTINGS
-    # ================================================================
+    # =================================================================
+
+    @property
+    def iec_settings(
+        self,
+    ) -> IECOvercurrentSettings:
+        """
+        Return the immutable typed IEC settings.
+        """
+
+        return self._iec_settings
+
+    # -----------------------------------------------------------------
 
     @property
     def pickup(self) -> float:
-        """Return configured element pickup current."""
+        """Return configured pickup current."""
 
-        return self.settings.pickup
+        return self._iec_settings.pickup
+
+    # -----------------------------------------------------------------
 
     @property
     def curve(self) -> str:
         """Return canonical IEC curve identifier."""
 
-        return self.settings.curve
+        return self._iec_settings.curve
+
+    # -----------------------------------------------------------------
 
     @property
     def TMS(self) -> float:
-        """Return configured Time Multiplier Setting."""
+        """Return configured IEC Time Multiplier Setting."""
 
-        return self.settings.TMS
+        return self._iec_settings.TMS
 
-    # ================================================================
+    # =================================================================
     # MEASUREMENT
-    # ================================================================
+    # =================================================================
 
     def current_signal(self) -> Any:
         """
-        Obtain the current signal from the configured RelayInput.
+        Read the current signal from the assigned RelayInput.
 
-        The RelayInput remains authoritative for the measurement.
+        RelayInput remains the measurement boundary.
+
+        Supported RelayInput access patterns are:
+
+            value
+            signal
+            read()
         """
 
         relay_input = self.get_input(
             self.CURRENT_INPUT
         )
 
-        # RelayInput is the measurement boundary. The preferred API is
-        # a signal/value accessor exposed by RelayInput.
-        #
-        # Supporting both common access forms keeps this function
-        # independent of the concrete measurement implementation while
-        # preserving RelayInput ownership of the signal.
-        if hasattr(relay_input, "value"):
+        if hasattr(
+            relay_input,
+            "value",
+        ):
             value = getattr(
                 relay_input,
                 "value",
@@ -364,7 +361,10 @@ class IECOvercurrentRelay(RelayBase):
 
             return value
 
-        if hasattr(relay_input, "signal"):
+        if hasattr(
+            relay_input,
+            "signal",
+        ):
             signal = getattr(
                 relay_input,
                 "signal",
@@ -375,7 +375,10 @@ class IECOvercurrentRelay(RelayBase):
 
             return signal
 
-        if hasattr(relay_input, "read"):
+        if hasattr(
+            relay_input,
+            "read",
+        ):
             return relay_input.read()
 
         raise AttributeError(
@@ -383,16 +386,17 @@ class IECOvercurrentRelay(RelayBase):
             "accessor. Expected 'value', 'signal', or 'read'."
         )
 
-    # ----------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def current_value(self) -> float:
         """
-        Return a validated scalar current magnitude.
+        Return the validated current magnitude.
 
-        Complex current values are accepted because protection
-        measurement chains may expose phasors.
+        Scalar and complex phasor values are accepted.
 
-        The IEC magnitude characteristic uses abs(I).
+        The IEC characteristic operates on:
+
+            |I|
         """
 
         value = self.current_signal()
@@ -422,18 +426,17 @@ class IECOvercurrentRelay(RelayBase):
 
         return abs(value)
 
-    # ================================================================
+    # =================================================================
     # PICKUP
-    # ================================================================
+    # =================================================================
 
     def check_pickup(self) -> bool:
         """
         Evaluate the IEC overcurrent pickup criterion.
 
-        Returns
-        -------
-        bool
-            True when measured current is strictly above pickup.
+        Criterion:
+
+            |I| > Pickup
         """
 
         return iec_pickup(
@@ -441,23 +444,18 @@ class IECOvercurrentRelay(RelayBase):
             pickup=self.pickup,
         )
 
-    # ================================================================
+    # =================================================================
     # CURRENT MULTIPLE
-    # ================================================================
+    # =================================================================
 
     def current_multiple(
         self,
         current: float | None = None,
     ) -> float:
         """
-        Return current multiple M.
+        Return current multiple:
 
-        Parameters
-        ----------
-        current:
-            Optional already-sampled current magnitude.
-
-            When omitted, the current is read from RelayInput.
+            M = |I| / Pickup
         """
 
         if current is None:
@@ -468,29 +466,20 @@ class IECOvercurrentRelay(RelayBase):
             pickup=self.pickup,
         )
 
-    # ================================================================
+    # =================================================================
     # OPERATING TIME
-    # ================================================================
+    # =================================================================
 
     def operating_time(
         self,
         current: float | None = None,
     ) -> float:
         """
-        Calculate the IEC characteristic operating time.
+        Calculate IEC inverse-time operating time.
 
-        Returns
-        -------
-        float
-            Operating time in seconds.
+        Returns math.inf when the current does not exceed pickup.
 
-            math.inf is returned when the element is not picked up.
-
-        Notes
-        -----
-        This method evaluates the mathematical characteristic only.
-
-        It does not operate the protection function or request a trip.
+        This method evaluates only the numerical characteristic.
         """
 
         if current is None:
@@ -503,59 +492,25 @@ class IECOvercurrentRelay(RelayBase):
             TMS=self.TMS,
         )
 
-    # ================================================================
+    # =================================================================
     # EVALUATION
-    # ================================================================
+    # =================================================================
 
     def evaluate(
         self,
         context: ProtectionContext | None = None,
     ) -> ProtectionDecision:
         """
-        Evaluate one IEC overcurrent protection cycle.
+        Evaluate the IEC 51 protection function.
 
-        Parameters
-        ----------
-        context:
-            Protection execution context.
+        A timed IEC 51 element requires an authoritative evaluation
+        timestamp. Therefore context=None is permitted only while the
+        function is not required to maintain a timed pickup interval.
 
-            When supplied, ``context.time`` is the authoritative
-            evaluation timestamp.
+        In normal simulation execution, ProtectionContext.time must be
+        supplied by the simulation/protection execution layer.
 
-        Returns
-        -------
-        ProtectionDecision
-            Canonical immutable result of this protection-function
-            evaluation.
-
-        Behaviour
-        ---------
-        The method:
-
-            1. validates execution state;
-            2. obtains the evaluation timestamp;
-            3. reads current through RelayInput;
-            4. evaluates pickup;
-            5. calculates IEC operating time;
-            6. maintains pickup timing state;
-            7. determines whether the operating criterion is due;
-            8. returns a ProtectionDecision.
-
-        Important
-        ---------
-        This method does NOT:
-
-            - operate a breaker;
-            - call breaker.open();
-            - call breaker.trip();
-            - schedule an event;
-            - modify the authoritative Relay model.
-
-        A trip request is represented only in the returned
-        ProtectionDecision.
-
-        The higher-level protection/event/output layer owns event
-        scheduling and physical breaker operation.
+        The method never operates equipment or schedules events.
         """
 
         timestamp = self._context_time(
@@ -566,24 +521,46 @@ class IECOvercurrentRelay(RelayBase):
             timestamp
         )
 
-        self._last_timestamp = timestamp
-
         # --------------------------------------------------------------
-        # Disabled / blocked / non-operational state
+        # Disabled / blocked / non-operational
         # --------------------------------------------------------------
 
         if not self.operational:
             self._clear_pickup_timing()
 
-            decision = ProtectionDecision.no_operation(
-                relay_id=self.relay_id,
-                function_code=self.FUNCTION_CODE,
-                function_id=self.element_id,
+            decision = self.no_operation(
                 reason=self._inactive_reason(),
                 timestamp=timestamp,
                 operating_time=None,
             )
 
+            self._last_timestamp = timestamp
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # A previously operated element remains operated until reset.
+        # --------------------------------------------------------------
+
+        if self._operated:
+            decision = self.trip_decision(
+                reason=(
+                    "IEC overcurrent element remains operated "
+                    "until reset."
+                ),
+                timestamp=timestamp,
+                operating_time=self._last_operating_time,
+                metadata={
+                    "current": self._last_current,
+                    "pickup": self.pickup,
+                    "curve": self.curve,
+                    "TMS": self.TMS,
+                    "latched": True,
+                },
+            )
+
+            self._last_timestamp = timestamp
             self._last_decision = decision
 
             return decision
@@ -594,14 +571,18 @@ class IECOvercurrentRelay(RelayBase):
 
         try:
             current = self.current_value()
-        except (TypeError, ValueError, AttributeError) as exc:
+
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+        ) as exc:
 
             self._clear_pickup_timing()
+            self._last_current = None
+            self._last_operating_time = None
 
-            decision = ProtectionDecision.invalid(
-                relay_id=self.relay_id,
-                function_code=self.FUNCTION_CODE,
-                function_id=self.element_id,
+            decision = self.invalid_decision(
                 reason=(
                     "Invalid current measurement: "
                     f"{exc}"
@@ -612,6 +593,7 @@ class IECOvercurrentRelay(RelayBase):
                 },
             )
 
+            self._last_timestamp = timestamp
             self._last_decision = decision
 
             return decision
@@ -629,16 +611,46 @@ class IECOvercurrentRelay(RelayBase):
 
         if not picked_up:
             self._clear_pickup_timing()
-
             self._last_operating_time = None
 
-            decision = ProtectionDecision.no_operation(
-                relay_id=self.relay_id,
-                function_code=self.FUNCTION_CODE,
-                function_id=self.element_id,
-                reason="Current below IEC overcurrent pickup.",
+            decision = self.no_operation(
+                reason=(
+                    "Current below IEC overcurrent pickup."
+                ),
                 timestamp=timestamp,
                 operating_time=None,
+                metadata={
+                    "current": current,
+                    "pickup": self.pickup,
+                    "current_multiple": self.current_multiple(
+                        current
+                    ),
+                    "curve": self.curve,
+                    "TMS": self.TMS,
+                },
+            )
+
+            self._last_timestamp = timestamp
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # Timed IEC operation requires a simulation/evaluation time.
+        # --------------------------------------------------------------
+
+        if timestamp is None:
+            self._clear_pickup_timing()
+            self._last_operating_time = self.operating_time(
+                current
+            )
+
+            decision = self.invalid_decision(
+                reason=(
+                    "IEC inverse-time evaluation requires "
+                    "ProtectionContext.time."
+                ),
+                timestamp=None,
                 metadata={
                     "current": current,
                     "pickup": self.pickup,
@@ -655,7 +667,7 @@ class IECOvercurrentRelay(RelayBase):
             return decision
 
         # --------------------------------------------------------------
-        # Start / continue pickup interval
+        # Start / continue pickup timing
         # --------------------------------------------------------------
 
         if self._pickup_start_time is None:
@@ -666,10 +678,6 @@ class IECOvercurrentRelay(RelayBase):
         )
 
         self._last_operating_time = operating_time
-
-        # --------------------------------------------------------------
-        # Determine whether operation is due
-        # --------------------------------------------------------------
 
         elapsed = (
             timestamp
@@ -692,44 +700,38 @@ class IECOvercurrentRelay(RelayBase):
             "pickup_start_time": self._pickup_start_time,
             "elapsed_time": elapsed,
             "operation_due": operation_due,
+            "latched": False,
         }
 
         # --------------------------------------------------------------
-        # Pickup but not yet operated
+        # Pickup but operating time not yet reached
         # --------------------------------------------------------------
 
         if not operation_due:
-
-            decision = ProtectionDecision(
-                relay_id=self.relay_id,
-                function_code=self.FUNCTION_CODE,
-                function_id=self.element_id,
-                pickup=True,
-                operate=False,
-                trip_request=False,
-                blocked=False,
-                valid=True,
-                operating_time=operating_time,
-                timestamp=timestamp,
+            decision = self.pickup_decision(
                 reason=(
                     "IEC overcurrent pickup active; "
                     "operating time not yet reached."
                 ),
+                timestamp=timestamp,
+                operating_time=operating_time,
                 metadata=metadata,
             )
 
+            self._last_timestamp = timestamp
             self._last_decision = decision
 
             return decision
 
         # --------------------------------------------------------------
-        # Operation criterion reached
+        # IEC operation reached
         # --------------------------------------------------------------
 
-        decision = ProtectionDecision.trip(
-            relay_id=self.relay_id,
-            function_code=self.FUNCTION_CODE,
-            function_id=self.element_id,
+        self._operated = True
+
+        metadata["latched"] = True
+
+        decision = self.trip_decision(
             reason=(
                 "IEC overcurrent operating time reached."
             ),
@@ -738,23 +740,23 @@ class IECOvercurrentRelay(RelayBase):
             metadata=metadata,
         )
 
+        self._last_timestamp = timestamp
         self._last_decision = decision
 
         return decision
 
-    # ================================================================
+    # =================================================================
     # TIMESTAMP
-    # ================================================================
+    # =================================================================
 
     @staticmethod
     def _context_time(
         context: ProtectionContext | None,
     ) -> float | None:
         """
-        Extract the caller-supplied evaluation time.
+        Extract the authoritative evaluation timestamp.
 
-        ProtectionContext does not own a clock. Its ``time`` value is
-        supplied by the execution environment.
+        ProtectionContext supplies time; it does not own a clock.
         """
 
         if context is None:
@@ -771,20 +773,17 @@ class IECOvercurrentRelay(RelayBase):
             timestamp
         )
 
-    # ----------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def _validate_timestamp_order(
         self,
         timestamp: float | None,
     ) -> None:
         """
-        Validate monotonic evaluation time.
+        Reject backwards evaluation time.
 
-        A timestamp-less evaluation is permitted for compatibility
-        with instantaneous/static evaluation.
-
-        Once a stateful timed sequence has started, supplied timestamps
-        must not move backwards.
+        Timestamp-less evaluation is permitted only for static
+        non-timed evaluation paths.
         """
 
         if timestamp is None:
@@ -801,14 +800,14 @@ class IECOvercurrentRelay(RelayBase):
                 "backwards."
             )
 
-    # ----------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @staticmethod
     def _validate_timestamp(
         timestamp: float,
     ) -> float:
         """
-        Validate an evaluation timestamp.
+        Validate one evaluation timestamp.
         """
 
         try:
@@ -825,31 +824,33 @@ class IECOvercurrentRelay(RelayBase):
 
         return timestamp
 
-    # ================================================================
+    # =================================================================
     # STATE
-    # ================================================================
+    # =================================================================
 
     def _clear_pickup_timing(self) -> None:
         """
-        Clear the transient pickup timing interval.
-
-        This does not modify the authoritative Relay state.
+        Clear the current pickup interval.
         """
 
         self._pickup_start_time = None
 
-    # ----------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def _inactive_reason(self) -> str:
         """
-        Return a diagnostic explanation for inactive evaluation.
+        Return the reason why the function is not operational.
         """
 
         if not self.enabled:
-            return "IEC overcurrent function is disabled."
+            return (
+                "IEC overcurrent function is disabled."
+            )
 
         if self.blocked:
-            return "IEC overcurrent function is statically blocked."
+            return (
+                "IEC overcurrent function is statically blocked."
+            )
 
         if not bool(
             getattr(
@@ -858,26 +859,30 @@ class IECOvercurrentRelay(RelayBase):
                 True,
             )
         ):
-            return "Authoritative relay is not operational."
+            return (
+                "Authoritative relay is not operational."
+            )
 
-        return "IEC overcurrent function is not operational."
+        return (
+            "IEC overcurrent function is not operational."
+        )
 
-    # ================================================================
+    # =================================================================
     # RESET
-    # ================================================================
+    # =================================================================
 
     def reset(self) -> None:
         """
-        Reset transient IEC protection-function state.
+        Reset all transient IEC 51 execution state.
 
-        This method does not modify:
+        Does not modify:
 
-            - the physical Relay;
-            - RelayInput;
-            - MeasurementChannel;
-            - breaker state;
-            - network topology;
-            - protection-system state.
+            * physical Relay;
+            * RelayInput;
+            * MeasurementChannel;
+            * breaker;
+            * network;
+            * ProtectionSystem.
         """
 
         super().reset()
@@ -887,67 +892,94 @@ class IECOvercurrentRelay(RelayBase):
         self._last_current = None
         self._last_operating_time = None
         self._last_decision = None
+        self._operated = False
 
-    # ================================================================
+    # =================================================================
     # TIMING STATE
-    # ================================================================
+    # =================================================================
 
     @property
-    def pickup_start_time(self) -> float | None:
+    def pickup_start_time(
+        self,
+    ) -> float | None:
         """
-        Return the timestamp at which pickup was first observed during
-        the current pickup interval.
+        Return the beginning of the current pickup interval.
         """
 
         return self._pickup_start_time
 
+    # -----------------------------------------------------------------
+
     @property
-    def last_timestamp(self) -> float | None:
+    def last_timestamp(
+        self,
+    ) -> float | None:
         """
-        Return the last supplied evaluation timestamp.
+        Return the last evaluation timestamp.
         """
 
         return self._last_timestamp
 
+    # -----------------------------------------------------------------
+
     @property
-    def last_current(self) -> float | None:
+    def last_current(
+        self,
+    ) -> float | None:
         """
         Return the last sampled current magnitude.
-
-        This is diagnostic state only.
         """
 
         return self._last_current
 
-    @property
-    def last_operating_time(self) -> float | None:
-        """
-        Return the most recently calculated IEC operating time.
+    # -----------------------------------------------------------------
 
-        None means that the latest evaluation did not determine an
-        operating time.
+    @property
+    def last_operating_time(
+        self,
+    ) -> float | None:
+        """
+        Return the most recently calculated operating time.
         """
 
         return self._last_operating_time
 
+    # -----------------------------------------------------------------
+
     @property
-    def last_decision(self) -> ProtectionDecision | None:
+    def last_decision(
+        self,
+    ) -> ProtectionDecision | None:
         """
-        Return the most recently produced ProtectionDecision.
+        Return the most recently produced decision.
         """
 
         return self._last_decision
 
-    # ================================================================
+    # -----------------------------------------------------------------
+
+    @property
+    def operated(
+        self,
+    ) -> bool:
+        """
+        Return whether the function has reached its operating criterion.
+
+        The operated state is transient execution state and is cleared
+        by reset().
+        """
+
+        return self._operated
+
+    # =================================================================
     # STATUS
-    # ================================================================
+    # =================================================================
 
     def status(self) -> dict[str, Any]:
         """
-        Return protection-function diagnostic status.
+        Return diagnostic protection-function status.
 
-        The status is diagnostic information only. It is not the
-        authoritative persistence representation.
+        This is not the persistence representation.
         """
 
         result = super().status()
@@ -976,6 +1008,7 @@ class IECOvercurrentRelay(RelayBase):
                 "last_timestamp": (
                     self._last_timestamp
                 ),
+                "operated": self._operated,
                 "last_decision": (
                     self._last_decision.to_dict()
                     if self._last_decision is not None
@@ -986,6 +1019,28 @@ class IECOvercurrentRelay(RelayBase):
 
         return result
 
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
+
+    def __repr__(self) -> str:
+        """
+        Return concise developer-facing representation.
+        """
+
+        return (
+            f"<{self.__class__.__name__} "
+            f"id={self.element_id!r}, "
+            f"relay_id={self.relay_id!r}, "
+            f"code={self.FUNCTION_CODE!r}, "
+            f"pickup={self.pickup!r}, "
+            f"curve={self.curve!r}, "
+            f"TMS={self.TMS!r}, "
+            f"enabled={self.enabled}, "
+            f"blocked={self.blocked}, "
+            f"operated={self._operated}>"
+        )
+
 
 # =====================================================================
 # PUBLIC API
@@ -995,4 +1050,3 @@ __all__ = [
     "IECOvercurrentSettings",
     "IECOvercurrentRelay",
 ]
-```
