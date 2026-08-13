@@ -2,109 +2,97 @@
 # File: ui/canvas/coordinate_system.py
 # GridForge V2 — Canvas Coordinate System
 # ============================================================
-#
-# PURPOSE
-# -------
-# Centralized coordinate conversion and presentation service
-# for the GridForge canvas.
-#
-# Coordinate spaces:
-#
-#     VIEWPORT
-#         Widget / mouse coordinates.
-#
-#     SCENE
-#         QGraphicsScene coordinates.
-#
-#     GRID
-#         Scene coordinates resolved against GridSystem
-#         geometry.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#     Mouse / Widget
-#           │
-#           ▼
-#       VIEWPORT
-#           │
-#           ▼
-#     CoordinateSystem
-#           │
-#        ┌──┴──┐
-#        ▼     ▼
-#      SCENE  GRID
-#        │     │
-#        └──┬──┘
-#           ▼
-#        UI / Tools
-#
-#
-# RESPONSIBILITIES
-# ----------------
-#
-# CoordinateSystem:
-#
-#     - viewport → scene conversion
-#     - scene → viewport conversion
-#     - scene → grid resolution
-#     - viewport → grid conversion
-#     - geometric utilities
-#     - coordinate formatting
-#     - status-bar coordinate data
-#
-#
-# CoordinateSystem does NOT:
-#
-#     - modify the Core model
-#     - perform electrical calculations
-#     - create QGraphicsItems
-#     - manage tools
-#     - perform selection
-#     - own navigation state
-#     - decide snapping priority
-#     - perform object snapping
-#     - perform engineering-unit conversion
-#
-#
-# SNAP ARCHITECTURE
-# -----------------
-#
-# GridSystem provides grid geometry.
-#
-# SnapSystem owns snapping policy.
-#
-# Therefore:
-#
-#     CoordinateSystem
-#          │
-#          ▼
-#     GridSystem.snap_point()
-#
-# is only a coordinate/grid-resolution operation.
-#
-# Tools requiring actual snapping policy must use SnapSystem.
-#
-#
-# UNIT HANDLING
-# -------------
-#
-# ``unit`` is display metadata only.
-#
-# No unit conversion is performed here.
-#
-#
-# QT RULE
-# -------
-#
-# All Qt dependencies must be imported through:
-#
-#     ui.core.qt
-#
-# No direct PySide6/PyQt imports are permitted.
-#
-# ============================================================
+"""
+Centralized coordinate conversion and presentation service
+for the GridForge canvas.
+
+Coordinate spaces
+-----------------
+GridForge uses three UI coordinate representations:
+
+    VIEWPORT
+        Widget / mouse coordinates.
+
+    SCENE
+        QGraphicsScene coordinates.
+
+    GRID
+        Scene coordinates resolved against GridSystem geometry.
+
+Architecture
+------------
+
+    Mouse / Widget
+          │
+          ▼
+      VIEWPORT
+          │
+          ▼
+    CoordinateSystem
+          │
+       ┌──┴──┐
+       ▼     ▼
+     SCENE  GRID
+       │     │
+       └──┬──┘
+          ▼
+       UI / Tools
+
+Responsibilities
+----------------
+CoordinateSystem:
+
+    - viewport → scene conversion;
+    - scene → viewport conversion;
+    - scene → grid coordinate resolution;
+    - viewport → grid conversion;
+    - geometric utilities;
+    - coordinate formatting;
+    - status-bar coordinate data.
+
+CoordinateSystem does NOT:
+
+    - modify the Core model;
+    - perform electrical calculations;
+    - create QGraphicsItems;
+    - manage tools;
+    - perform selection;
+    - own navigation state;
+    - decide snapping priority;
+    - perform object snapping;
+    - perform engineering-unit conversion.
+
+Snapping architecture
+---------------------
+GridSystem provides grid geometry.
+
+SnapSystem owns snapping policy.
+
+Therefore:
+
+    CoordinateSystem
+         │
+         ▼
+    GridSystem.snap_point()
+
+is only a coordinate/grid-resolution operation.
+
+Tools requiring actual snapping policy must use SnapSystem.
+
+Unit handling
+-------------
+``unit`` is display metadata only.
+
+No engineering-unit conversion is performed here.
+
+Qt rule
+-------
+All Qt dependencies must be imported through:
+
+    ui.core.qt
+
+No direct PySide6/PyQt imports are permitted.
+"""
 
 from __future__ import annotations
 
@@ -144,7 +132,7 @@ class CoordinateSystem:
         Parameters
         ----------
         view:
-            Graphics view used for viewport/scene conversion.
+            GraphicsView used for viewport/scene conversion.
 
         grid_system:
             Optional GridSystem used for grid-coordinate
@@ -159,13 +147,8 @@ class CoordinateSystem:
         self.view = view
         self.grid_system = grid_system
 
-        self.decimals = (
-            self.DEFAULT_DECIMALS
-        )
-
-        self.unit = (
-            self.DEFAULT_UNIT
-        )
+        self.decimals = self.DEFAULT_DECIMALS
+        self.unit = self.DEFAULT_UNIT
 
     # ========================================================
     # VIEWPORT → SCENE
@@ -178,22 +161,16 @@ class CoordinateSystem:
         """
         Convert viewport coordinates to scene coordinates.
 
-        ``QPointF`` is accepted for convenience and converted
-        to ``QPoint`` because QGraphicsView.mapToScene() uses
-        integer viewport coordinates.
+        The method accepts either QPoint or QPointF-compatible
+        input.
+
+        QGraphicsView.mapToScene() is used as the authoritative
+        Qt transformation boundary.
         """
 
         if viewport_pos is None:
             raise ValueError(
                 "viewport_pos must not be None."
-            )
-
-        if hasattr(
-            viewport_pos,
-            "toPoint",
-        ):
-            viewport_pos = (
-                viewport_pos.toPoint()
             )
 
         map_to_scene = getattr(
@@ -207,8 +184,30 @@ class CoordinateSystem:
                 "view must provide mapToScene()."
             )
 
-        return map_to_scene(
+        # QGraphicsView.mapToScene() commonly accepts QPoint.
+        #
+        # If QPointF is supplied, convert it through toPoint()
+        # rather than relying on implicit Qt conversion.
+        #
+        # Mouse events normally provide QPoint directly.
+        if hasattr(
+            viewport_pos,
+            "toPoint",
+        ):
+            viewport_pos = viewport_pos.toPoint()
+
+        result = map_to_scene(
             viewport_pos
+        )
+
+        self._validate_point(
+            result,
+            "scene result",
+        )
+
+        return QPointF(
+            result.x(),
+            result.y(),
         )
 
     # ========================================================
@@ -221,6 +220,9 @@ class CoordinateSystem:
     ) -> Any:
         """
         Convert scene coordinates to viewport coordinates.
+
+        The returned object is the Qt viewport coordinate
+        produced by QGraphicsView.mapFromScene().
         """
 
         self._validate_point(
@@ -268,13 +270,12 @@ class CoordinateSystem:
         scene_pos: QPointF,
     ) -> QPointF:
         """
-        Resolve a scene position against the configured
-        GridSystem.
+        Resolve a scene coordinate against GridSystem geometry.
 
-        This is a coordinate-resolution operation only.
+        This method does NOT decide whether grid snapping should
+        occur.
 
-        CoordinateSystem does not decide whether grid snapping
-        should occur. SnapSystem owns that policy.
+        SnapSystem owns snapping policy.
         """
 
         self._validate_point(
@@ -338,10 +339,8 @@ class CoordinateSystem:
               grid
         """
 
-        scene_pos = (
-            self.viewport_to_scene(
-                viewport_pos
-            )
+        scene_pos = self.viewport_to_scene(
+            viewport_pos
         )
 
         return self.scene_to_grid(
@@ -360,8 +359,9 @@ class CoordinateSystem:
         """
         Return Euclidean distance between two scene points.
 
-        This is purely geometric and has no electrical or
-        engineering-unit meaning.
+        This is purely geometric.
+
+        No physical or electrical unit is implied.
         """
 
         self._validate_point(
@@ -586,37 +586,29 @@ class CoordinateSystem:
         viewport_pos: Any,
     ) -> dict[str, Any]:
         """
-        Return coordinate data suitable for the StatusBar.
+        Return coordinate data suitable for StatusBar.
 
         Both raw coordinates and formatted representations are
         provided.
         """
 
-        scene_pos = (
-            self.viewport_to_scene(
-                viewport_pos
-            )
+        scene_pos = self.viewport_to_scene(
+            viewport_pos
         )
 
-        grid_pos = (
-            self.scene_to_grid(
-                scene_pos
-            )
+        grid_pos = self.scene_to_grid(
+            scene_pos
         )
 
         return {
             "viewport": viewport_pos,
             "scene": scene_pos,
             "grid": grid_pos,
-            "scene_text": (
-                self.format_position(
-                    scene_pos
-                )
+            "scene_text": self.format_position(
+                scene_pos
             ),
-            "grid_text": (
-                self.format_position(
-                    grid_pos
-                )
+            "grid_text": self.format_position(
+                grid_pos
             ),
         }
 
