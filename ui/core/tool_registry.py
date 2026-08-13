@@ -1,75 +1,85 @@
 # ============================================================
 # File: ui/core/tool_registry.py
-# GridForge Tool Registry
+# GridForge V2 — Runtime Tool Registry
 # ============================================================
-#
-# PURPOSE
-# -------
-# Manages the ACTIVE tool instances used by the GridForge UI.
-#
-# IMPORTANT ARCHITECTURAL DISTINCTION
-# -----------------------------------
-#
-# ui/core/plugin_registry.py
-#     → registers plugin CLASSES
-#
-# ui/core/tool_registry.py
-#     → manages active TOOL INSTANCES
-#
-# This separation is intentional.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#     @register_plugin("tool", "line")
-#                  │
-#                  ▼
-#          Plugin Registry
-#                  │
-#                  │ class
-#                  ▼
-#          Controller / Tool Manager
-#                  │
-#                  │ instance
-#                  ▼
-#             ToolRegistry
-#                  │
-#          ┌───────┼────────┐
-#          ▼       ▼        ▼
-#       Select    Bus      Line
-#
-#
-# GOLDEN RULE
-# -----------
-# ToolRegistry does NOT import individual tools.
-#
-# It only manages tool instances supplied to it.
-#
-# ============================================================
+"""
+Runtime registry for instantiated GridForge interaction tools.
+
+Architecture
+------------
+
+    PluginRegistry
+        │
+        │ registered tool class / factory
+        ▼
+    ToolManager
+        │
+        │ creates tool instance
+        ▼
+    ToolRegistry
+        │
+        │ runtime registration
+        ▼
+    Tool instance
+
+
+Architectural distinction
+-------------------------
+
+ui/core/plugin_registry.py
+    Registers plugin definitions/classes/factories.
+
+ui/core/tool_registry.py
+    Registers already-created tool instances for a particular
+    UI runtime.
+
+ui/core/tool_manager.py
+    Owns the lifecycle of the currently active tool instance.
+
+This distinction is intentional.
+
+ToolRegistry does NOT:
+
+    - import individual tools;
+    - create tool instances;
+    - activate tools;
+    - deactivate tools;
+    - cancel tools;
+    - process input;
+    - modify the Core model;
+    - perform rendering;
+    - perform snapping;
+    - own Controller tool selection;
+    - own tool lifecycle.
+
+ToolManager remains the lifecycle authority.
+
+Golden rule
+-----------
+ToolRegistry stores instances supplied to it.
+
+Construction remains outside this class.
+
+Qt rule
+-------
+This module has no direct Qt dependency.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 
 class ToolRegistry:
     """
-    Runtime registry for active GridForge tool instances.
+    Runtime registry of instantiated GridForge tools.
 
-    A ToolRegistry belongs to a particular UI/controller
-    runtime and therefore stores INSTANCES, not classes.
+    A ToolRegistry belongs to one UI/application runtime.
 
-    Examples of tools:
+    It stores tool instances by stable tool identifier.
 
-        "select"
-        "bus"
-        "line"
-        "transformer"
-        "load"
-
-    The registry provides a stable interface for retrieving
-    and managing those tools.
+    ToolRegistry is deliberately passive. It does not determine
+    how tools are constructed and does not control their lifecycle.
     """
 
     # ========================================================
@@ -79,10 +89,6 @@ class ToolRegistry:
     def __init__(self) -> None:
         """
         Create an empty runtime tool registry.
-
-        Mapping:
-
-            tool_id -> tool instance
         """
 
         self._tools: Dict[str, Any] = {}
@@ -97,12 +103,12 @@ class ToolRegistry:
         tool_instance: Any,
     ) -> Any:
         """
-        Register a tool instance.
+        Register an already-created tool instance.
 
         Parameters
         ----------
         tool_id:
-            Unique identifier of the tool.
+            Stable identifier associated with the tool.
 
         tool_instance:
             Already-created tool object.
@@ -110,66 +116,65 @@ class ToolRegistry:
         Returns
         -------
         object
-            The registered tool instance.
+            The registered instance.
+
+        Raises
+        ------
+        TypeError
+            If tool_id is not a string.
+
+        ValueError
+            If tool_id is empty or tool_instance is None.
+
+        KeyError
+            If a different instance is already registered under
+            the same identifier.
 
         Notes
         -----
-        Tool creation is deliberately outside this class.
-
-        This keeps construction separate from runtime storage.
-
-        Example:
-
-            tool_registry.register(
-                "line",
-                LineTool(controller, interaction_manager)
-            )
+        ToolRegistry never creates the supplied instance.
         """
 
-        # ----------------------------------------------------
-        # Validate tool ID
-        # ----------------------------------------------------
-
-        if not isinstance(tool_id, str) or not tool_id.strip():
-            raise ValueError(
-                "tool_id must be a non-empty string"
+        if not isinstance(
+            tool_id,
+            str,
+        ):
+            raise TypeError(
+                "tool_id must be a string."
             )
 
         tool_id = tool_id.strip()
 
-        # ----------------------------------------------------
-        # Validate instance
-        # ----------------------------------------------------
+        if not tool_id:
+            raise ValueError(
+                "tool_id cannot be empty."
+            )
 
         if tool_instance is None:
             raise ValueError(
-                f"Cannot register None as tool '{tool_id}'"
+                f"Cannot register None as tool '{tool_id}'."
             )
 
-        # ----------------------------------------------------
-        # Prevent accidental replacement.
-        #
-        # Replacing an active tool silently can leave the
-        # controller holding references to the old instance.
-        # ----------------------------------------------------
+        existing = self._tools.get(
+            tool_id
+        )
 
-        existing = self._tools.get(tool_id)
-
-        if existing is not None and existing is not tool_instance:
-            raise ValueError(
-                f"Tool '{tool_id}' is already registered"
+        if (
+            existing is not None
+            and existing is not tool_instance
+        ):
+            raise KeyError(
+                f"Tool '{tool_id}' is already registered."
             )
 
-        # ----------------------------------------------------
-        # Store instance
-        # ----------------------------------------------------
-
-        self._tools[tool_id] = tool_instance
+        self._tools[
+            tool_id
+        ] = tool_instance
 
         return tool_instance
 
     # ========================================================
-    # UNREGISTER
+    # UNREGISTRATION
     # ========================================================
 
     def unregister(
@@ -177,19 +182,37 @@ class ToolRegistry:
         tool_id: str,
     ) -> bool:
         """
-        Remove a tool instance from the registry.
+        Remove a registered tool instance.
 
         Returns
         -------
         bool
-            True if removed.
-            False if the tool was not registered.
+            True when an instance was removed.
+
+            False when no instance was registered.
         """
+
+        if not isinstance(
+            tool_id,
+            str,
+        ):
+            raise TypeError(
+                "tool_id must be a string."
+            )
+
+        tool_id = tool_id.strip()
+
+        if not tool_id:
+            raise ValueError(
+                "tool_id cannot be empty."
+            )
 
         if tool_id not in self._tools:
             return False
 
-        del self._tools[tool_id]
+        del self._tools[
+            tool_id
+        ]
 
         return True
 
@@ -202,12 +225,22 @@ class ToolRegistry:
         tool_id: str,
     ) -> Optional[Any]:
         """
-        Retrieve a tool instance by ID.
+        Return the registered tool instance.
 
-        Returns None if the tool is not registered.
+        Returns None when the identifier is not registered.
         """
 
-        return self._tools.get(tool_id)
+        if not isinstance(
+            tool_id,
+            str,
+        ):
+            raise TypeError(
+                "tool_id must be a string."
+            )
+
+        return self._tools.get(
+            tool_id.strip()
+        )
 
     # ========================================================
     # REQUIRED ACCESS
@@ -218,28 +251,27 @@ class ToolRegistry:
         tool_id: str,
     ) -> Any:
         """
-        Retrieve a tool instance.
+        Return a registered tool instance.
 
         Raises
         ------
         KeyError
-            If the requested tool does not exist.
-
-        Use this when absence of the tool represents an
-        application configuration error.
+            If the requested tool is not registered.
         """
 
-        tool = self._tools.get(tool_id)
+        tool = self.get(
+            tool_id
+        )
 
         if tool is None:
             raise KeyError(
-                f"Tool '{tool_id}' is not registered"
+                f"Tool '{tool_id}' is not registered."
             )
 
         return tool
 
     # ========================================================
-    # EXISTENCE CHECK
+    # EXISTENCE
     # ========================================================
 
     def contains(
@@ -250,58 +282,100 @@ class ToolRegistry:
         Return True when a tool is registered.
         """
 
-        return tool_id in self._tools
+        if not isinstance(
+            tool_id,
+            str,
+        ):
+            raise TypeError(
+                "tool_id must be a string."
+            )
+
+        return (
+            tool_id.strip()
+            in self._tools
+        )
 
     # ========================================================
-    # LIST TOOLS
+    # LIST
     # ========================================================
 
-    def list_tools(self) -> List[str]:
+    def list_tools(
+        self,
+    ) -> List[str]:
         """
-        Return the IDs of all registered tools.
+        Return registered tool identifiers.
 
-        Example:
-
-            [
-                "select",
-                "bus",
-                "line"
-            ]
+        Registration order is preserved.
         """
 
-        return list(self._tools.keys())
+        return list(
+            self._tools.keys()
+        )
 
     # ========================================================
     # ITERATION
     # ========================================================
 
-    def items(self):
+    def items(
+        self,
+    ) -> Iterator[tuple[str, Any]]:
         """
-        Iterate over:
+        Iterate over registered:
 
             (tool_id, tool_instance)
 
         pairs.
-
-        This is useful for controller initialization,
-        diagnostics, and UI integration.
         """
 
-        return self._tools.items()
+        return iter(
+            self._tools.items()
+        )
+
+    # --------------------------------------------------------
+
+    def values(
+        self,
+    ) -> Iterator[Any]:
+        """
+        Iterate over registered tool instances.
+        """
+
+        return iter(
+            self._tools.values()
+        )
+
+    # --------------------------------------------------------
+
+    def keys(
+        self,
+    ) -> Iterator[str]:
+        """
+        Iterate over registered tool identifiers.
+        """
+
+        return iter(
+            self._tools.keys()
+        )
 
     # ========================================================
     # CLEAR
     # ========================================================
 
-    def clear(self) -> None:
+    def clear(
+        self,
+    ) -> None:
         """
-        Remove all registered tool instances.
+        Remove all registered instances.
 
-        Primarily intended for:
+        This method only removes registry references.
 
-            - testing
-            - application shutdown
-            - development reload
+        It does NOT call:
+
+            deactivate()
+            cancel()
+            dispose()
+
+        Lifecycle operations belong to ToolManager.
         """
 
         self._tools.clear()
@@ -310,28 +384,56 @@ class ToolRegistry:
     # LENGTH
     # ========================================================
 
-    def __len__(self) -> int:
+    def __len__(
+        self,
+    ) -> int:
         """
-        Return the number of registered tools.
+        Return the number of registered tool instances.
         """
 
-        return len(self._tools)
+        return len(
+            self._tools
+        )
 
     # ========================================================
-    # DEBUG REPRESENTATION
+    # STATE
     # ========================================================
 
-    def __repr__(self) -> str:
+    def get_state(
+        self,
+    ) -> dict[str, Any]:
+        """
+        Return diagnostic registry state.
+        """
+
+        return {
+            "count": len(
+                self._tools
+            ),
+            "tool_ids": list(
+                self._tools.keys()
+            ),
+        }
+
+    # ========================================================
+    # REPRESENTATION
+    # ========================================================
+
+    def __repr__(
+        self,
+    ) -> str:
         """
         Return a concise diagnostic representation.
         """
 
-        tools = ", ".join(self._tools.keys())
+        tools = ", ".join(
+            self._tools.keys()
+        )
 
         return (
-            f"ToolRegistry("
+            "ToolRegistry("
             f"tools=[{tools}]"
-            f")"
+            ")"
         )
 
 
