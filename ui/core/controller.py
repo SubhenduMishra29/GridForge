@@ -1,107 +1,79 @@
-```python
-# ============================================================
-# File: ui/core/controller.py
-# GridForge UI Controller
-# ============================================================
-#
-# PURPOSE
-# -------
-# Central coordination layer between:
-#
-#     Domain Model
-#          │
-#          ▼
-#      Controller
-#          │
-#     ┌────┼───────────────┐
-#     ▼    ▼               ▼
-#  Tools Selection     UI Systems
-#
-#
-# RESPONSIBILITIES
-# ----------------
-#
-# Controller:
-#
-# - stores the application model reference
-# - stores the active tool ID
-# - provides access to the registered active tool
-# - maintains persistent selection state
-# - publishes application events
-# - provides a stable coordination API
-#
-#
-# CONTROLLER DOES NOT:
-# -------------------
-#
-# - handle mouse events
-# - render graphics
-# - create QGraphicsItems
-# - modify QGraphicsScene
-# - import concrete tools
-# - import renderers
-# - perform electrical calculations
-#
-#
-# TOOL ARCHITECTURE
-# -----------------
-#
-# Controller stores:
-#
-#     current_tool_id = "line"
-#
-# ToolRegistry stores:
-#
-#     "line" -> LineTool instance
-#
-# InteractionManager obtains:
-#
-#     controller.get_current_tool()
-#
-#
-# Therefore:
-#
-#     Controller
-#          │
-#          │ tool ID
-#          ▼
-#     ToolRegistry
-#          │
-#          │ tool instance
-#          ▼
-#     InteractionManager
-#          │
-#          ▼
-#     Active Tool
-#
-#
-# ============================================================
+"""
+GridForge V2 — UI Controller
+============================
+
+File:
+    ui/core/controller.py
+
+Purpose
+-------
+Provides the central coordination state for the GridForge UI.
+
+The Controller sits between UI systems and the authoritative
+GridForge application/domain layer.
+
+It owns UI coordination state such as:
+
+    - active tool identifier
+    - persistent selection identifiers
+    - UI-level event subscriptions
+
+It does not own domain state and does not perform domain
+mutations.
+
+Architectural Contract
+----------------------
+1. The Core/domain model remains authoritative.
+2. The Controller does not perform electrical calculations.
+3. The Controller does not directly mutate the domain model.
+4. The Controller does not render graphics.
+5. The Controller does not handle Qt input events.
+6. The Controller does not instantiate concrete tools.
+7. Tool instances remain owned by ToolRegistry.
+8. Selection is stored using model object IDs only.
+9. The Controller contains no Qt dependency.
+10. UI event notification is distinct from authoritative
+    domain events.
+11. Core mutations must occur through the established
+    command/application boundary.
+
+Dependency Direction
+--------------------
+    UI Input
+       |
+       v
+    InteractionManager / Tool
+       |
+       v
+    Application / Command Boundary
+       |
+       v
+    GridForge Core
+
+    Controller
+       |
+       +---- active tool ID
+       |
+       +---- selection state
+       |
+       +---- UI coordination events
+       |
+       +---- injected service references
+"""
 
 from __future__ import annotations
 
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Set,
-)
+from typing import Any, Callable, Dict, List, Optional, Set
 
 
 class Controller:
     """
-    Central coordination controller for the GridForge UI.
+    Central UI coordination controller.
 
-    The Controller is deliberately lightweight.
-
-    It manages application state and publishes events,
-    while specialized systems perform the actual work.
+    The Controller deliberately contains only UI coordination
+    state. It is not the authoritative application/domain
+    controller.
     """
-
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
 
     def __init__(
         self,
@@ -109,56 +81,26 @@ class Controller:
         tool_registry: Optional[Any] = None,
     ) -> None:
         """
-        Initialize the GridForge Controller.
+        Initialize the UI Controller.
 
         Parameters
         ----------
         model:
-            GridForge domain/application model.
+            Reference to the authoritative GridForge model or
+            application-facing model context.
 
         tool_registry:
-            Optional ToolRegistry instance.
+            Optional injected ToolRegistry.
 
-            The registry is injected rather than imported,
-            keeping the Controller independent from concrete
-            tool implementations.
+            The Controller does not import, construct, or own
+            concrete tool implementations.
         """
 
-        # ----------------------------------------------------
-        # DOMAIN MODEL
-        # ----------------------------------------------------
-
         self.model = model
-
-        # ----------------------------------------------------
-        # TOOL REGISTRY
-        # ----------------------------------------------------
-        #
-        # The Controller does not create tools.
-        #
-        # It only keeps a reference to the registry so that
-        # systems such as InteractionManager can obtain the
-        # currently active tool through the Controller.
-        # ----------------------------------------------------
-
         self.tool_registry = tool_registry
 
         # ----------------------------------------------------
-        # EVENT SYSTEM
-        # ----------------------------------------------------
-        #
-        # Structure:
-        #
-        # {
-        #     "tool_changed": [
-        #         callback1,
-        #         callback2
-        #     ],
-        #
-        #     "model_changed": [
-        #         callback1
-        #     ]
-        # }
+        # UI-level event subscribers
         # ----------------------------------------------------
 
         self._subscribers: Dict[
@@ -167,12 +109,10 @@ class Controller:
         ] = {}
 
         # ----------------------------------------------------
-        # ACTIVE TOOL
+        # Active tool
         # ----------------------------------------------------
         #
-        # IMPORTANT:
-        #
-        # Only the identifier is stored here.
+        # Only the registered tool identifier is stored here.
         #
         # Example:
         #
@@ -180,31 +120,24 @@ class Controller:
         #     "bus"
         #     "line"
         #
-        # The actual tool instance belongs to ToolRegistry.
+        # The concrete instance belongs to ToolRegistry.
         # ----------------------------------------------------
 
         self.current_tool_id: Optional[str] = None
 
         # ----------------------------------------------------
-        # PERSISTENT SELECTION
+        # Persistent logical selection
         # ----------------------------------------------------
         #
-        # Stores MODEL IDs only.
+        # Only authoritative model object IDs are stored.
         #
-        # Never store:
-        #
-        #     QGraphicsItem
-        #     QGraphicsObject
-        #     QWidget
-        #
-        # This allows RenderSystem to safely rebuild the
-        # graphics scene without losing logical selection.
+        # Graphics objects must never be stored here.
         # ----------------------------------------------------
 
         self.selected_ids: Set[str] = set()
 
     # ========================================================
-    # EVENT SYSTEM
+    # UI EVENT SYSTEM
     # ========================================================
 
     def subscribe(
@@ -213,20 +146,7 @@ class Controller:
         callback: Callable[..., Any],
     ) -> Callable[..., Any]:
         """
-        Subscribe a callback to an application event.
-
-        Parameters
-        ----------
-        event_name:
-            Name of the event.
-
-        callback:
-            Callable that receives the event notification.
-
-        Returns
-        -------
-        callable
-            The registered callback.
+        Subscribe a callback to a UI coordination event.
         """
 
         if (
@@ -247,16 +167,10 @@ class Controller:
             [],
         )
 
-        # ----------------------------------------------------
-        # Prevent duplicate subscriptions.
-        # ----------------------------------------------------
-
         if callback not in subscribers:
             subscribers.append(callback)
 
         return callback
-
-    # --------------------------------------------------------
 
     def unsubscribe(
         self,
@@ -264,18 +178,16 @@ class Controller:
         callback: Callable[..., Any],
     ) -> bool:
         """
-        Remove a callback from an event.
+        Remove a callback from a UI coordination event.
 
         Returns
         -------
         bool
-            True if removed.
+            True if the callback was removed.
             False if it was not registered.
         """
 
-        subscribers = self._subscribers.get(
-            event_name
-        )
+        subscribers = self._subscribers.get(event_name)
 
         if not subscribers:
             return False
@@ -290,8 +202,6 @@ class Controller:
 
         return True
 
-    # --------------------------------------------------------
-
     def notify(
         self,
         event_name: str,
@@ -299,14 +209,10 @@ class Controller:
         **kwargs: Any,
     ) -> None:
         """
-        Publish an event to all subscribers.
+        Notify all subscribers of a UI coordination event.
 
-        Example
-        -------
-        controller.notify(
-            "model_changed",
-            model
-        )
+        Subscriber iteration uses a snapshot so callbacks may
+        safely subscribe or unsubscribe during notification.
         """
 
         callbacks = list(
@@ -333,13 +239,8 @@ class Controller:
         """
         Set the active interaction tool.
 
-        The Controller stores only the tool ID.
-
-        The actual tool instance remains inside ToolRegistry.
-
-        Example
-        -------
-        controller.set_tool("line")
+        The Controller stores only the tool identifier.
+        ToolRegistry owns the actual tool instance.
         """
 
         if (
@@ -352,113 +253,53 @@ class Controller:
 
         tool_id = tool_id.strip()
 
-        # ----------------------------------------------------
-        # Validate registration when a registry is available.
-        #
-        # ToolRegistry must provide:
-        #
-        #     contains(tool_id)
-        #
-        # ----------------------------------------------------
-
         if self.tool_registry is not None:
-
-            if not self.tool_registry.contains(
-                tool_id
-            ):
+            if not self.tool_registry.contains(tool_id):
                 raise KeyError(
                     f"Tool '{tool_id}' is not registered"
                 )
 
-        # ----------------------------------------------------
-        # Ignore redundant tool changes.
-        # ----------------------------------------------------
-
         if self.current_tool_id == tool_id:
             return
 
-        # ----------------------------------------------------
-        # Update state.
-        # ----------------------------------------------------
-
+        previous_tool_id = self.current_tool_id
         self.current_tool_id = tool_id
-
-        print(
-            f"[Controller] Tool set: {tool_id}"
-        )
-
-        # ----------------------------------------------------
-        # Notify InteractionManager.
-        # ----------------------------------------------------
 
         self.notify(
             "tool_changed",
             tool_id,
+            previous_tool_id,
         )
-
-    # --------------------------------------------------------
 
     def clear_tool(self) -> None:
         """
-        Clear the currently active tool.
-
-        This publishes:
-
-            tool_changed(None)
-
-        so InteractionManager can clear its transient
-        interaction state and preview graphics.
+        Clear the active interaction tool.
         """
 
         if self.current_tool_id is None:
             return
 
-        previous_tool = (
-            self.current_tool_id
-        )
-
+        previous_tool_id = self.current_tool_id
         self.current_tool_id = None
-
-        print(
-            "[Controller] Tool cleared: "
-            f"{previous_tool}"
-        )
 
         self.notify(
             "tool_changed",
             None,
+            previous_tool_id,
         )
 
-    # --------------------------------------------------------
-
-    def get_current_tool_id(
-        self,
-    ) -> Optional[str]:
+    def get_current_tool_id(self) -> Optional[str]:
         """
-        Return the active tool ID.
-
-        Returns
-        -------
-        str | None
+        Return the active tool identifier.
         """
 
         return self.current_tool_id
 
-    # --------------------------------------------------------
-
-    def get_current_tool(
-        self,
-    ) -> Optional[Any]:
+    def get_current_tool(self) -> Optional[Any]:
         """
-        Return the active tool instance.
+        Return the active tool instance from ToolRegistry.
 
-        The Controller does not create the instance.
-
-        ToolRegistry owns the actual tool object.
-
-        Returns
-        -------
-        object | None
+        The Controller never creates or owns the tool.
         """
 
         if (
@@ -475,25 +316,10 @@ class Controller:
     # SELECTION MANAGEMENT
     # ========================================================
 
-    def select(
-        self,
-        obj_id: str,
-        multi: bool = False,
-    ) -> None:
+    @staticmethod
+    def _validate_object_id(obj_id: str) -> str:
         """
-        Select or toggle an object.
-
-        Parameters
-        ----------
-        obj_id:
-            Model object ID.
-
-        multi:
-            False:
-                Replace current selection.
-
-            True:
-                Toggle the object in the current selection.
+        Validate and normalize a model object identifier.
         """
 
         if (
@@ -504,38 +330,51 @@ class Controller:
                 "obj_id must be a non-empty string"
             )
 
-        obj_id = obj_id.strip()
+        return obj_id.strip()
 
-        # ----------------------------------------------------
-        # Single-selection mode.
-        # ----------------------------------------------------
+    def select(
+        self,
+        obj_id: str,
+        multi: bool = False,
+    ) -> None:
+        """
+        Select an object.
 
-        if not multi:
-            self.selected_ids.clear()
+        Parameters
+        ----------
+        obj_id:
+            Authoritative model object ID.
 
-        # ----------------------------------------------------
-        # Toggle selection.
-        # ----------------------------------------------------
+        multi:
+            False:
+                Replace the current selection with obj_id.
 
-        if obj_id in self.selected_ids:
-            self.selected_ids.remove(
-                obj_id
-            )
+            True:
+                Toggle obj_id in the current selection.
+        """
+
+        obj_id = self._validate_object_id(obj_id)
+
+        if multi:
+            if obj_id in self.selected_ids:
+                self.selected_ids.remove(obj_id)
+            else:
+                self.selected_ids.add(obj_id)
+
         else:
-            self.selected_ids.add(
-                obj_id
-            )
+            if (
+                len(self.selected_ids) == 1
+                and obj_id in self.selected_ids
+            ):
+                return
 
-        # ----------------------------------------------------
-        # Notify UI.
-        # ----------------------------------------------------
+            self.selected_ids.clear()
+            self.selected_ids.add(obj_id)
 
         self.notify(
             "selection_changed",
             self.selected_ids.copy(),
         )
-
-    # --------------------------------------------------------
 
     def add_to_selection(
         self,
@@ -544,33 +383,20 @@ class Controller:
         """
         Add an object to the current selection.
 
-        Unlike select(..., multi=True), this method does not
-        toggle an already-selected object.
+        This operation is idempotent.
         """
 
-        if (
-            not isinstance(obj_id, str)
-            or not obj_id.strip()
-        ):
-            raise ValueError(
-                "obj_id must be a non-empty string"
-            )
-
-        obj_id = obj_id.strip()
+        obj_id = self._validate_object_id(obj_id)
 
         if obj_id in self.selected_ids:
             return
 
-        self.selected_ids.add(
-            obj_id
-        )
+        self.selected_ids.add(obj_id)
 
         self.notify(
             "selection_changed",
             self.selected_ids.copy(),
         )
-
-    # --------------------------------------------------------
 
     def remove_from_selection(
         self,
@@ -580,25 +406,21 @@ class Controller:
         Remove an object from the current selection.
         """
 
+        obj_id = self._validate_object_id(obj_id)
+
         if obj_id not in self.selected_ids:
             return
 
-        self.selected_ids.remove(
-            obj_id
-        )
+        self.selected_ids.remove(obj_id)
 
         self.notify(
             "selection_changed",
             self.selected_ids.copy(),
         )
 
-    # --------------------------------------------------------
-
-    def clear_selection(
-        self,
-    ) -> None:
+    def clear_selection(self) -> None:
         """
-        Clear all selected objects.
+        Clear the current selection.
         """
 
         if not self.selected_ids:
@@ -611,43 +433,39 @@ class Controller:
             set(),
         )
 
-    # --------------------------------------------------------
-
     def is_selected(
         self,
         obj_id: str,
     ) -> bool:
         """
-        Return True if the object is selected.
+        Return whether an object is currently selected.
         """
+
+        obj_id = self._validate_object_id(obj_id)
 
         return obj_id in self.selected_ids
 
-    # --------------------------------------------------------
-
-    def get_selection(
-        self,
-    ) -> Set[str]:
+    def get_selection(self) -> Set[str]:
         """
-        Return a copy of the current selection.
+        Return a copy of the current logical selection.
         """
 
         return self.selected_ids.copy()
 
     # ========================================================
-    # MODEL CHANGE NOTIFICATION
+    # MODEL/UI SYNCHRONIZATION
     # ========================================================
 
-    def model_changed(
-        self,
-    ) -> None:
+    def model_changed(self) -> None:
         """
-        Notify UI systems that the domain model changed.
+        Notify UI subscribers that the authoritative model
+        state has changed.
 
-        The Controller does not render the change.
+        This method does not mutate the model.
 
-        RenderSystem and other subscribers decide what
-        action is required.
+        The authoritative application/core event mechanism
+        remains responsible for determining that a domain
+        mutation occurred.
         """
 
         self.notify(
@@ -656,7 +474,7 @@ class Controller:
         )
 
     # ========================================================
-    # GENERIC STATE NOTIFICATION
+    # GENERIC UI STATE
     # ========================================================
 
     def state_changed(
@@ -665,9 +483,10 @@ class Controller:
         value: Any = None,
     ) -> None:
         """
-        Publish a generic application-state change.
+        Publish a UI/application-state notification.
 
-        This provides an extension point for future UI state.
+        This is intended for coordination state that does not
+        warrant a dedicated Controller method.
         """
 
         if (
@@ -680,12 +499,12 @@ class Controller:
 
         self.notify(
             "state_changed",
-            state_name,
+            state_name.strip(),
             value,
         )
 
     # ========================================================
-    # DEBUG / INTROSPECTION
+    # DIAGNOSTICS
     # ========================================================
 
     def subscriber_count(
@@ -703,34 +522,25 @@ class Controller:
             )
         )
 
-    # --------------------------------------------------------
-
-    def get_state(
-        self,
-    ) -> Dict[str, Any]:
+    def get_state(self) -> Dict[str, Any]:
         """
         Return a diagnostic snapshot of Controller state.
+
+        The returned structure is detached from internal
+        mutable selection state.
         """
 
         return {
-            "current_tool_id": (
-                self.current_tool_id
-            ),
-            "selected_ids": (
-                self.selected_ids.copy()
-            ),
-            "events": list(
-                self._subscribers.keys()
-            ),
+            "current_tool_id": self.current_tool_id,
+            "selected_ids": self.selected_ids.copy(),
+            "events": list(self._subscribers.keys()),
         }
 
     # ========================================================
-    # DEBUG REPRESENTATION
+    # REPRESENTATION
     # ========================================================
 
-    def __repr__(
-        self,
-    ) -> str:
+    def __repr__(self) -> str:
         """
         Return a concise diagnostic representation.
         """
@@ -738,8 +548,7 @@ class Controller:
         return (
             "Controller("
             f"tool={self.current_tool_id!r}, "
-            f"selected="
-            f"{len(self.selected_ids)}"
+            f"selected={len(self.selected_ids)}"
             ")"
         )
 
@@ -751,4 +560,3 @@ class Controller:
 __all__ = [
     "Controller",
 ]
-```
