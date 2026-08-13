@@ -66,14 +66,7 @@ The authoritative physical Relay remains:
     core.model.relay.Relay
 
 A physical Relay may host multiple independent protection
-functions:
-
-    Relay R1
-        |
-        +-- 50
-        +-- 51
-        +-- 46
-        +-- 50BF
+functions.
 
 Each RelayBase-derived function:
 
@@ -158,6 +151,49 @@ The removed legacy module:
     core.protection.protection_decision
 
 must not be imported or referenced.
+
+State Ownership
+---------------
+
+RelayBase owns only function-local configuration and transient
+execution state.
+
+The following remain authoritative elsewhere:
+
+    Physical Relay
+        -> core.model.relay.Relay
+
+    MeasurementChannel
+        -> core.measurement.measurement_channel.MeasurementChannel
+
+    ProtectionDecision
+        -> core.protection.decision.ProtectionDecision
+
+    ProtectionElement lifecycle
+        -> core.protection.protection_element.ProtectionElement
+
+    Breaker operation
+        -> core.model.breaker.Breaker
+           through the protection/control boundary
+
+Threading / Concurrency
+-----------------------
+
+RelayBase does not provide thread synchronization.
+
+Its runtime state is intended to be accessed by the owning
+simulation/protection execution context.
+
+Concurrent evaluation of the same RelayBase instance is therefore
+outside this class's contract.
+
+Persistence
+-----------
+
+RelayBase contains no persistence or serialization logic.
+
+The settings and runtime mappings exposed by this class are
+configuration/runtime interfaces only.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -246,7 +282,7 @@ class RelayBase(ABC):
         """
 
         # --------------------------------------------------------------
-        # Physical Relay
+        # Authoritative physical Relay
         # --------------------------------------------------------------
 
         if relay is None:
@@ -260,65 +296,38 @@ class RelayBase(ABC):
             None,
         )
 
-        if relay_id is None:
-            raise TypeError(
-                "RelayBase relay must expose an 'id' attribute."
-            )
-
-        # --------------------------------------------------------------
-        # Element identity
-        # --------------------------------------------------------------
-
         if not isinstance(
-            element_id,
+            relay_id,
             str,
         ):
             raise TypeError(
-                "RelayBase element_id must be a string."
+                "RelayBase relay must expose a string 'id' attribute."
             )
 
-        normalized_element_id = element_id.strip()
-
-        if not normalized_element_id:
+        if not relay_id.strip():
             raise ValueError(
-                "RelayBase element_id cannot be empty."
+                "RelayBase relay id cannot be empty."
             )
 
         # --------------------------------------------------------------
-        # Function code
+        # Protection-function identity
         # --------------------------------------------------------------
 
-        if not isinstance(
-            function_code,
-            str,
-        ):
-            raise TypeError(
-                "RelayBase function_code must be a string."
-            )
-
-        normalized_function_code = (
-            function_code.strip().upper()
+        normalized_element_id = self._normalize_identifier(
+            element_id,
+            field="element_id",
         )
 
-        if not normalized_function_code:
-            raise ValueError(
-                "RelayBase function_code cannot be empty."
-            )
-
-        # --------------------------------------------------------------
-        # Function name
-        # --------------------------------------------------------------
-
-        if not isinstance(
-            function_name,
-            str,
-        ):
-            raise TypeError(
-                "RelayBase function_name must be a string."
-            )
+        normalized_function_code = self._normalize_identifier(
+            function_code,
+            field="function_code",
+        ).upper()
 
         normalized_function_name = (
-            function_name.strip()
+            self._normalize_optional_string(
+                function_name,
+                field="function_name",
+            )
         )
 
         if not normalized_function_name:
@@ -327,163 +336,55 @@ class RelayBase(ABC):
             )
 
         # --------------------------------------------------------------
-        # Enabled / blocked state
+        # Boolean state
         # --------------------------------------------------------------
 
-        if not isinstance(
+        self._validate_bool(
             enabled,
-            bool,
-        ):
-            raise TypeError(
-                "RelayBase enabled must be a boolean."
-            )
+            field="enabled",
+        )
 
-        if not isinstance(
+        self._validate_bool(
             blocked,
-            bool,
-        ):
-            raise TypeError(
-                "RelayBase blocked must be a boolean."
-            )
-
-        # --------------------------------------------------------------
-        # Relay-input validation
-        # --------------------------------------------------------------
-
-        normalized_inputs: dict[
-            str,
-            RelayInput,
-        ] = {}
-
-        if relay_inputs is not None and not isinstance(
-            relay_inputs,
-            Mapping,
-        ):
-            raise TypeError(
-                "RelayBase relay_inputs must be a mapping."
-            )
-
-        for name, relay_input in (
-            dict(relay_inputs or {})
-        ).items():
-
-            if not isinstance(
-                name,
-                str,
-            ):
-                raise TypeError(
-                    "RelayBase relay-input names must be strings."
-                )
-
-            normalized_name = name.strip()
-
-            if not normalized_name:
-                raise ValueError(
-                    "RelayBase relay-input names cannot be empty."
-                )
-
-            if relay_input is None:
-                raise ValueError(
-                    f"RelayBase input '{normalized_name}' "
-                    "cannot be None."
-                )
-
-            # Runtime import is deliberately local. This avoids a
-            # module-level dependency cycle while still validating the
-            # authoritative RelayInput contract.
-            from .relay_input import RelayInput
-
-            if not isinstance(
-                relay_input,
-                RelayInput,
-            ):
-                raise TypeError(
-                    f"RelayBase input '{normalized_name}' "
-                    "must be a RelayInput."
-                )
-
-            if normalized_name in normalized_inputs:
-                raise ValueError(
-                    f"Duplicate normalized RelayBase input name "
-                    f"'{normalized_name}'."
-                )
-
-            normalized_inputs[
-                normalized_name
-            ] = relay_input
-
-        # --------------------------------------------------------------
-        # Function configuration validation
-        # --------------------------------------------------------------
-
-        if settings is not None and not isinstance(
-            settings,
-            Mapping,
-        ):
-            raise TypeError(
-                "RelayBase settings must be a mapping."
-            )
-
-        normalized_settings: dict[
-            str,
-            Any,
-        ] = {}
-
-        for name, value in dict(
-            settings or {}
-        ).items():
-
-            if not isinstance(
-                name,
-                str,
-            ):
-                raise TypeError(
-                    "RelayBase setting names must be strings."
-                )
-
-            normalized_name = name.strip()
-
-            if not normalized_name:
-                raise ValueError(
-                    "RelayBase setting names cannot be empty."
-                )
-
-            if normalized_name in normalized_settings:
-                raise ValueError(
-                    f"Duplicate normalized RelayBase setting "
-                    f"name '{normalized_name}'."
-                )
-
-            normalized_settings[
-                normalized_name
-            ] = value
-
-        # --------------------------------------------------------------
-        # Authoritative physical Relay reference
-        # --------------------------------------------------------------
-
-        self.relay = relay
-
-        # --------------------------------------------------------------
-        # Protection-function identity
-        # --------------------------------------------------------------
-
-        self.element_id = normalized_element_id
-
-        self.function_code = (
-            normalized_function_code
+            field="blocked",
         )
 
-        self.function_name = (
-            normalized_function_name
+        # --------------------------------------------------------------
+        # Relay inputs
+        # --------------------------------------------------------------
+
+        normalized_inputs = self._normalize_inputs(
+            relay_inputs
         )
+
+        # --------------------------------------------------------------
+        # Function settings
+        # --------------------------------------------------------------
+
+        normalized_settings = self._normalize_settings(
+            settings
+        )
+
+        # --------------------------------------------------------------
+        # Authoritative references
+        # --------------------------------------------------------------
+
+        self._relay = relay
+
+        # --------------------------------------------------------------
+        # Stable function identity
+        # --------------------------------------------------------------
+
+        self._element_id = normalized_element_id
+        self._function_code = normalized_function_code
+        self._function_name = normalized_function_name
 
         # --------------------------------------------------------------
         # Local execution state
         # --------------------------------------------------------------
 
-        self.enabled = enabled
-        self.blocked = blocked
+        self._enabled = enabled
+        self._blocked = blocked
 
         # --------------------------------------------------------------
         # Function configuration
@@ -501,10 +402,235 @@ class RelayBase(ABC):
         # Transient execution state
         # --------------------------------------------------------------
 
-        self._runtime: dict[
+        self._runtime: dict[str, Any] = {}
+
+    # ==================================================================
+    # VALIDATION HELPERS
+    # ==================================================================
+
+    @staticmethod
+    def _normalize_identifier(
+        value: str,
+        *,
+        field: str,
+    ) -> str:
+        """
+        Validate and normalize a required string identifier.
+        """
+
+        if not isinstance(
+            value,
             str,
-            Any,
-        ] = {}
+        ):
+            raise TypeError(
+                f"RelayBase {field} must be a string."
+            )
+
+        normalized = value.strip()
+
+        if not normalized:
+            raise ValueError(
+                f"RelayBase {field} cannot be empty."
+            )
+
+        return normalized
+
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_optional_string(
+        value: str,
+        *,
+        field: str,
+    ) -> str:
+        """
+        Validate and normalize an optional string field.
+
+        Empty strings are accepted and normalized to ``""``.
+        """
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            raise TypeError(
+                f"RelayBase {field} must be a string."
+            )
+
+        return value.strip()
+
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_bool(
+        value: bool,
+        *,
+        field: str,
+    ) -> None:
+        """
+        Validate a strict boolean value.
+
+        ``bool`` is intentionally validated explicitly because Python
+        treats integers as a subclass of ``int`` and permissive coercion
+        would hide configuration errors.
+        """
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"RelayBase {field} must be a boolean."
+            )
+
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _normalize_inputs(
+        cls,
+        relay_inputs: Mapping[str, RelayInput] | None,
+    ) -> dict[str, RelayInput]:
+        """
+        Validate and normalize RelayInput bindings.
+        """
+
+        if relay_inputs is None:
+            return {}
+
+        if not isinstance(
+            relay_inputs,
+            Mapping,
+        ):
+            raise TypeError(
+                "RelayBase relay_inputs must be a mapping."
+            )
+
+        # Local import intentionally avoids a module-level cycle.
+        from .relay_input import RelayInput
+
+        normalized: dict[str, RelayInput] = {}
+
+        for name, relay_input in relay_inputs.items():
+
+            normalized_name = cls._normalize_identifier(
+                name,
+                field="relay-input name",
+            )
+
+            if not isinstance(
+                relay_input,
+                RelayInput,
+            ):
+                raise TypeError(
+                    f"RelayBase input '{normalized_name}' "
+                    "must be a RelayInput."
+                )
+
+            if normalized_name in normalized:
+                raise ValueError(
+                    f"Duplicate normalized RelayBase input name "
+                    f"'{normalized_name}'."
+                )
+
+            normalized[
+                normalized_name
+            ] = relay_input
+
+        return normalized
+
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _normalize_settings(
+        cls,
+        settings: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        """
+        Validate and normalize function-specific settings.
+        """
+
+        if settings is None:
+            return {}
+
+        if not isinstance(
+            settings,
+            Mapping,
+        ):
+            raise TypeError(
+                "RelayBase settings must be a mapping."
+            )
+
+        normalized: dict[str, Any] = {}
+
+        for name, value in settings.items():
+
+            normalized_name = cls._normalize_identifier(
+                name,
+                field="setting name",
+            )
+
+            if normalized_name in normalized:
+                raise ValueError(
+                    f"Duplicate normalized RelayBase setting "
+                    f"name '{normalized_name}'."
+                )
+
+            normalized[
+                normalized_name
+            ] = value
+
+        return normalized
+
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_runtime_name(
+        name: str,
+    ) -> str:
+        """
+        Validate and normalize a runtime-state key.
+        """
+
+        if not isinstance(
+            name,
+            str,
+        ):
+            raise TypeError(
+                "Runtime-state name must be a string."
+            )
+
+        normalized = name.strip()
+
+        if not normalized:
+            raise ValueError(
+                "Runtime-state name cannot be empty."
+            )
+
+        return normalized
+
+    # ==================================================================
+    # AUTHORITATIVE RELAY
+    # ==================================================================
+
+    @property
+    def relay(self) -> Relay:
+        """
+        Return the authoritative physical Relay reference.
+
+        The reference is intentionally read-only through this API.
+        """
+
+        return self._relay
+
+    # ------------------------------------------------------------------
+
+    @property
+    def relay_id(self) -> str:
+        """
+        Return the identity of the authoritative physical Relay.
+        """
+
+        return self._relay.id
 
     # ==================================================================
     # IDENTITY
@@ -520,17 +646,27 @@ class RelayBase(ABC):
         It is not the physical Relay identity.
         """
 
-        return self.element_id
+        return self._element_id
 
     # ------------------------------------------------------------------
 
     @property
-    def relay_id(self) -> Any:
+    def element_id(self) -> str:
         """
-        Return the identity of the authoritative physical Relay.
+        Return the stable protection-function instance identity.
         """
 
-        return self.relay.id
+        return self._element_id
+
+    # ------------------------------------------------------------------
+
+    @property
+    def function_code(self) -> str:
+        """
+        Return the canonical protection-function designation.
+        """
+
+        return self._function_code
 
     # ------------------------------------------------------------------
 
@@ -542,7 +678,71 @@ class RelayBase(ABC):
         Alias for ``function_code``.
         """
 
-        return self.function_code
+        return self._function_code
+
+    # ------------------------------------------------------------------
+
+    @property
+    def function_name(self) -> str:
+        """
+        Return the human-readable protection-function name.
+        """
+
+        return self._function_name
+
+    # ==================================================================
+    # ENABLE / BLOCK STATE
+    # ==================================================================
+
+    @property
+    def enabled(self) -> bool:
+        """
+        Return whether this protection function is enabled.
+        """
+
+        return self._enabled
+
+    @enabled.setter
+    def enabled(
+        self,
+        value: bool,
+    ) -> None:
+        """
+        Set the local enabled state.
+        """
+
+        self._validate_bool(
+            value,
+            field="enabled",
+        )
+
+        self._enabled = value
+
+    # ------------------------------------------------------------------
+
+    @property
+    def blocked(self) -> bool:
+        """
+        Return the static local blocking state.
+        """
+
+        return self._blocked
+
+    @blocked.setter
+    def blocked(
+        self,
+        value: bool,
+    ) -> None:
+        """
+        Set the static local blocking state.
+        """
+
+        self._validate_bool(
+            value,
+            field="blocked",
+        )
+
+        self._blocked = value
 
     # ==================================================================
     # CONFIGURATION
@@ -576,20 +776,10 @@ class RelayBase(ABC):
         Return one function-specific setting.
         """
 
-        if not isinstance(
+        normalized_name = self._normalize_identifier(
             name,
-            str,
-        ):
-            raise TypeError(
-                "Setting name must be a string."
-            )
-
-        normalized_name = name.strip()
-
-        if not normalized_name:
-            raise ValueError(
-                "Setting name cannot be empty."
-            )
+            field="setting name",
+        )
 
         return self._settings.get(
             normalized_name,
@@ -617,11 +807,14 @@ class RelayBase(ABC):
         Dynamic supervision, interlocking, permissive logic,
         scheme-level blocking and other dynamic inhibition belong to
         ProtectionContext or the protection-system/scheme layer.
+
+        If the authoritative Relay does not expose ``operational``,
+        the Relay is treated as operational by compatibility fallback.
         """
 
         relay_operational = bool(
             getattr(
-                self.relay,
+                self._relay,
                 "operational",
                 True,
             )
@@ -629,8 +822,8 @@ class RelayBase(ABC):
 
         return (
             relay_operational
-            and self.enabled
-            and not self.blocked
+            and self._enabled
+            and not self._blocked
         )
 
     # ------------------------------------------------------------------
@@ -671,20 +864,10 @@ class RelayBase(ABC):
         Return True when the specified input is assigned.
         """
 
-        if not isinstance(
+        normalized_name = self._normalize_identifier(
             name,
-            str,
-        ):
-            raise TypeError(
-                "Protection input name must be a string."
-            )
-
-        normalized_name = name.strip()
-
-        if not normalized_name:
-            raise ValueError(
-                "Protection input name cannot be empty."
-            )
+            field="protection input name",
+        )
 
         return normalized_name in self._relay_inputs
 
@@ -703,20 +886,10 @@ class RelayBase(ABC):
             If the requested input is not assigned.
         """
 
-        if not isinstance(
+        normalized_name = self._normalize_identifier(
             name,
-            str,
-        ):
-            raise TypeError(
-                "Protection input name must be a string."
-            )
-
-        normalized_name = name.strip()
-
-        if not normalized_name:
-            raise ValueError(
-                "Protection input name cannot be empty."
-            )
+            field="protection input name",
+        )
 
         try:
             return self._relay_inputs[
@@ -726,8 +899,8 @@ class RelayBase(ABC):
         except KeyError as exc:
 
             raise KeyError(
-                f"Protection element '{self.element_id}' "
-                f"({self.function_code}) on relay "
+                f"Protection element '{self._element_id}' "
+                f"({self._function_code}) on relay "
                 f"'{self.relay_id}' requires input "
                 f"'{normalized_name}'."
             ) from exc
@@ -745,30 +918,22 @@ class RelayBase(ABC):
         evaluating their required measurement set.
         """
 
-        missing: list[str] = []
-        seen: set[str] = set()
+        missing: list[str] = set()
+        normalized_names: set[str] = set()
 
         for name in names:
 
-            if not isinstance(
+            normalized_name = self._normalize_identifier(
                 name,
-                str,
-            ):
-                raise TypeError(
-                    "Protection input names must be strings."
-                )
+                field="protection input name",
+            )
 
-            normalized_name = name.strip()
-
-            if not normalized_name:
-                raise ValueError(
-                    "Protection input names cannot be empty."
-                )
-
-            if normalized_name in seen:
+            if normalized_name in normalized_names:
                 continue
 
-            seen.add(normalized_name)
+            normalized_names.add(
+                normalized_name
+            )
 
             if normalized_name not in self._relay_inputs:
                 missing.append(
@@ -777,8 +942,8 @@ class RelayBase(ABC):
 
         if missing:
             raise ValueError(
-                f"Protection element '{self.element_id}' "
-                f"({self.function_code}) on relay "
+                f"Protection element '{self._element_id}' "
+                f"({self._function_code}) on relay "
                 f"'{self.relay_id}' is missing required "
                 f"inputs: {missing}."
             )
@@ -796,20 +961,9 @@ class RelayBase(ABC):
         Return transient protection-function runtime state.
         """
 
-        if not isinstance(
-            name,
-            str,
-        ):
-            raise TypeError(
-                "Runtime-state name must be a string."
-            )
-
-        normalized_name = name.strip()
-
-        if not normalized_name:
-            raise ValueError(
-                "Runtime-state name cannot be empty."
-            )
+        normalized_name = self._normalize_runtime_name(
+            name
+        )
 
         return self._runtime.get(
             normalized_name,
@@ -827,20 +981,9 @@ class RelayBase(ABC):
         Set transient protection-function runtime state.
         """
 
-        if not isinstance(
-            name,
-            str,
-        ):
-            raise TypeError(
-                "Runtime-state name must be a string."
-            )
-
-        normalized_name = name.strip()
-
-        if not normalized_name:
-            raise ValueError(
-                "Runtime-state name cannot be empty."
-            )
+        normalized_name = self._normalize_runtime_name(
+            name
+        )
 
         self._runtime[
             normalized_name
@@ -856,22 +999,42 @@ class RelayBase(ABC):
         Return True when a runtime-state entry exists.
         """
 
-        if not isinstance(
-            name,
-            str,
-        ):
-            raise TypeError(
-                "Runtime-state name must be a string."
-            )
-
-        normalized_name = name.strip()
-
-        if not normalized_name:
-            raise ValueError(
-                "Runtime-state name cannot be empty."
-            )
+        normalized_name = self._normalize_runtime_name(
+            name
+        )
 
         return normalized_name in self._runtime
+
+    # ------------------------------------------------------------------
+
+    def runtime_remove(
+        self,
+        name: str,
+    ) -> Any:
+        """
+        Remove and return one transient runtime-state entry.
+
+        Raises
+        ------
+        KeyError
+            If the runtime-state entry does not exist.
+        """
+
+        normalized_name = self._normalize_runtime_name(
+            name
+        )
+
+        try:
+            return self._runtime.pop(
+                normalized_name
+            )
+
+        except KeyError as exc:
+
+            raise KeyError(
+                f"Runtime-state entry not found: "
+                f"{normalized_name}"
+            ) from exc
 
     # ------------------------------------------------------------------
 
@@ -883,6 +1046,8 @@ class RelayBase(ABC):
         Return read-only access to transient runtime state.
 
         Intended primarily for diagnostics and testing.
+
+        Runtime values themselves are not deep-copied.
         """
 
         return MappingProxyType(
@@ -926,8 +1091,8 @@ class RelayBase(ABC):
 
         return ProtectionDecision(
             relay_id=self.relay_id,
-            element_id=self.element_id,
-            function_code=self.function_code,
+            element_id=self._element_id,
+            function_code=self._function_code,
             pickup=pickup,
             operate=operate,
             trip_request=trip_request,
@@ -936,7 +1101,7 @@ class RelayBase(ABC):
             operating_time=operating_time,
             timestamp=timestamp,
             reason=reason,
-            metadata=metadata or {},
+            metadata={} if metadata is None else metadata,
         )
 
     # ------------------------------------------------------------------
@@ -957,8 +1122,8 @@ class RelayBase(ABC):
 
         return ProtectionDecision.no_operation(
             relay_id=self.relay_id,
-            element_id=self.element_id,
-            function_code=self.function_code,
+            element_id=self._element_id,
+            function_code=self._function_code,
             reason=reason,
             timestamp=timestamp,
             operating_time=operating_time,
@@ -983,8 +1148,8 @@ class RelayBase(ABC):
 
         return ProtectionDecision.pickup_decision(
             relay_id=self.relay_id,
-            element_id=self.element_id,
-            function_code=self.function_code,
+            element_id=self._element_id,
+            function_code=self._function_code,
             reason=reason,
             timestamp=timestamp,
             operating_time=operating_time,
@@ -1018,8 +1183,8 @@ class RelayBase(ABC):
 
         return ProtectionDecision.trip(
             relay_id=self.relay_id,
-            element_id=self.element_id,
-            function_code=self.function_code,
+            element_id=self._element_id,
+            function_code=self._function_code,
             reason=reason,
             timestamp=timestamp,
             operating_time=operating_time,
@@ -1043,8 +1208,8 @@ class RelayBase(ABC):
 
         return ProtectionDecision.blocked_decision(
             relay_id=self.relay_id,
-            element_id=self.element_id,
-            function_code=self.function_code,
+            element_id=self._element_id,
+            function_code=self._function_code,
             reason=reason,
             timestamp=timestamp,
             metadata=metadata,
@@ -1083,8 +1248,8 @@ class RelayBase(ABC):
 
         return ProtectionDecision.invalid(
             relay_id=self.relay_id,
-            element_id=self.element_id,
-            function_code=self.function_code,
+            element_id=self._element_id,
+            function_code=self._function_code,
             reason=reason,
             timestamp=timestamp,
             metadata=metadata,
@@ -1097,7 +1262,7 @@ class RelayBase(ABC):
     @abstractmethod
     def evaluate(
         self,
-        context: ProtectionContext | None = None,
+        context: ProtectionContext,
     ) -> ProtectionDecision:
         """
         Evaluate this protection function.
@@ -1169,12 +1334,12 @@ class RelayBase(ABC):
         """
 
         return {
-            "element_id": self.element_id,
+            "element_id": self._element_id,
             "relay_id": self.relay_id,
-            "function_code": self.function_code,
-            "function_name": self.function_name,
-            "enabled": self.enabled,
-            "blocked": self.blocked,
+            "function_code": self._function_code,
+            "function_name": self._function_name,
+            "enabled": self._enabled,
+            "blocked": self._blocked,
             "operational": self.operational,
             "inputs": tuple(
                 self._relay_inputs.keys()
@@ -1197,11 +1362,11 @@ class RelayBase(ABC):
 
         return (
             f"<{self.__class__.__name__} "
-            f"id={self.element_id!r}, "
+            f"id={self._element_id!r}, "
             f"relay_id={self.relay_id!r}, "
-            f"code={self.function_code!r}, "
-            f"enabled={self.enabled}, "
-            f"blocked={self.blocked}>"
+            f"code={self._function_code!r}, "
+            f"enabled={self._enabled}, "
+            f"blocked={self._blocked}>"
         )
 
 
