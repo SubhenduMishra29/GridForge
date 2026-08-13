@@ -7,36 +7,65 @@ File:
 
 Purpose
 -------
-Provides transient, non-model graphics used during canvas
+Owns transient graphics used exclusively during canvas
 interaction.
 
-Typical uses include:
+Preview graphics are presentation-only and are never part of
+the authoritative GridForge model.
 
-    - rubber-band line previews;
-    - placement previews;
-    - hover indicators;
-    - temporary snap indicators;
-    - future transient interaction graphics.
+Typical uses:
 
-Architectural Rules
--------------------
-Preview graphics:
+    - rubber-band line previews
+    - placement previews
+    - hover indicators
+    - temporary snap indicators
+    - future transient interaction graphics
 
-    - are NOT part of the Core model;
-    - are NOT persisted;
-    - are NOT authoritative;
-    - are NOT rendered by RenderSystem;
-    - exist only for the duration of an interaction;
-    - are owned by the canvas interaction layer.
+Architecture
+------------
+
+    InteractionManager
+           │
+           ▼
+      PreviewLayer
+           │
+           ▼
+      QGraphicsScene
+           │
+           ▼
+    transient graphics
+
 
 Ownership
 ---------
-InteractionManager owns PreviewLayer.
+InteractionManager owns the PreviewLayer.
 
-PreviewLayer owns the temporary QGraphicsItems that it creates.
+PreviewLayer owns the transient QGraphicsItems that it creates.
 
-Tools may request preview changes through the interaction layer,
-but tools do not own the preview graphics themselves.
+Tools do not directly own preview graphics. They request preview
+changes through the interaction layer.
+
+Architectural boundaries
+------------------------
+PreviewLayer does NOT:
+
+    - modify the Core model;
+    - create domain objects;
+    - persist state;
+    - participate in undo/redo;
+    - render authoritative model graphics;
+    - perform snapping;
+    - perform coordinate conversion;
+    - implement tool logic;
+    - perform electrical calculations.
+
+RenderSystem
+------------
+Preview graphics are deliberately outside RenderSystem ownership.
+
+RenderSystem is responsible for authoritative/persistent model
+visualization. PreviewLayer is responsible only for transient
+interaction feedback.
 
 Qt Rule
 -------
@@ -63,10 +92,9 @@ class PreviewLayer:
     """
     Manager for transient canvas preview graphics.
 
-    PreviewLayer deliberately contains no domain-model logic.
-
-    It operates exclusively on temporary graphics associated
-    with the canvas scene.
+    The class contains no domain-model state and no interaction
+    policy. It only manages temporary graphics attached to the
+    canvas scene.
     """
 
     # ========================================================
@@ -83,22 +111,40 @@ class PreviewLayer:
         Parameters
         ----------
         scene:
-            QGraphicsScene on which transient preview graphics
-            will be displayed.
+            QGraphicsScene receiving transient preview items.
         """
 
         if scene is None:
             raise ValueError(
-                "scene must not be None"
+                "scene must not be None."
+            )
+
+        if not callable(
+            getattr(
+                scene,
+                "addItem",
+                None,
+            )
+        ):
+            raise TypeError(
+                "scene must provide addItem()."
+            )
+
+        if not callable(
+            getattr(
+                scene,
+                "removeItem",
+                None,
+            )
+        ):
+            raise TypeError(
+                "scene must provide removeItem()."
             )
 
         self.scene = scene
 
         # ----------------------------------------------------
-        # Active line preview
-        # ----------------------------------------------------
-        #
-        # None means no line preview currently exists.
+        # Active line preview.
         # ----------------------------------------------------
 
         self._line_item: Optional[
@@ -106,7 +152,7 @@ class PreviewLayer:
         ] = None
 
         # ----------------------------------------------------
-        # Default preview style
+        # Default transient preview style.
         # ----------------------------------------------------
 
         self._pen = QPen(
@@ -125,40 +171,34 @@ class PreviewLayer:
         end_pos: Any,
     ) -> QGraphicsLineItem:
         """
-        Create or update a transient line preview.
+        Create or update the active line preview.
 
         Parameters
         ----------
         start_pos:
-            Scene-space point providing the line origin.
+            Scene-space start point.
 
         end_pos:
-            Scene-space point providing the line endpoint.
+            Scene-space end point.
 
         Returns
         -------
         QGraphicsLineItem
-            The active preview line item.
-
-        Notes
-        -----
-        The returned item is transient and must not be inserted
-        into the Core model or treated as an authoritative
-        graphical representation.
+            The active transient preview item.
         """
 
-        if start_pos is None:
-            raise ValueError(
-                "start_pos must not be None"
-            )
+        self._validate_point(
+            start_pos,
+            "start_pos",
+        )
 
-        if end_pos is None:
-            raise ValueError(
-                "end_pos must not be None"
-            )
+        self._validate_point(
+            end_pos,
+            "end_pos",
+        )
 
         # ----------------------------------------------------
-        # Create the preview item lazily.
+        # Create lazily.
         # ----------------------------------------------------
 
         if self._line_item is None:
@@ -196,7 +236,7 @@ class PreviewLayer:
         self,
     ) -> bool:
         """
-        Return True when a line preview is currently active.
+        Return whether a line preview currently exists.
         """
 
         return self._line_item is not None
@@ -207,11 +247,7 @@ class PreviewLayer:
         self,
     ) -> Optional[QGraphicsLineItem]:
         """
-        Return the active line preview item.
-
-        Returns
-        -------
-        QGraphicsLineItem | None
+        Return the active line preview item, if any.
         """
 
         return self._line_item
@@ -224,18 +260,19 @@ class PreviewLayer:
         self,
     ) -> None:
         """
-        Remove all currently active preview graphics.
+        Remove all active transient preview graphics.
 
-        This operation is idempotent.
+        The operation is idempotent.
         """
 
-        if self._line_item is not None:
+        if self._line_item is None:
+            return
 
-            self.scene.removeItem(
-                self._line_item
-            )
+        self.scene.removeItem(
+            self._line_item
+        )
 
-            self._line_item = None
+        self._line_item = None
 
     # ========================================================
     # RESET
@@ -246,10 +283,6 @@ class PreviewLayer:
     ) -> None:
         """
         Reset all transient preview state.
-
-        Currently equivalent to clear(), but kept as an
-        explicit lifecycle operation so additional preview
-        types can be added without changing callers.
         """
 
         self.clear()
@@ -263,18 +296,14 @@ class PreviewLayer:
         pen: QPen,
     ) -> None:
         """
-        Set the pen used for subsequently created or updated
-        line previews.
+        Set the pen used by line previews.
 
-        Parameters
-        ----------
-        pen:
-            QPen defining the preview line appearance.
+        The active preview, if present, is updated immediately.
         """
 
-        if not isinstance(pen, QPen):
-            raise TypeError(
-                "pen must be a QPen"
+        if pen is None:
+            raise ValueError(
+                "pen must not be None."
             )
 
         self._pen = pen
@@ -303,10 +332,52 @@ class PreviewLayer:
         self,
     ) -> Any:
         """
-        Return the QGraphicsScene owned by this preview layer.
+        Return the scene receiving transient preview graphics.
         """
 
         return self.scene
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_point(
+        point: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a QPointF-compatible object.
+
+        Only the x()/y() interface is required.
+        """
+
+        if point is None:
+            raise ValueError(
+                f"{name} must not be None."
+            )
+
+        if not callable(
+            getattr(
+                point,
+                "x",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide x()."
+            )
+
+        if not callable(
+            getattr(
+                point,
+                "y",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide y()."
+            )
 
     # ========================================================
     # DEBUG STATE
@@ -316,7 +387,7 @@ class PreviewLayer:
         self,
     ) -> dict[str, Any]:
         """
-        Return a diagnostic snapshot of preview state.
+        Return diagnostic preview state.
         """
 
         return {
