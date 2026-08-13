@@ -1,6 +1,6 @@
 """
 GridForge V2 Protection Decision
-================================
+=================================
 
 File
 ----
@@ -9,7 +9,7 @@ core/protection/decision.py
 Purpose
 -------
 Defines the canonical immutable decision contract produced by
-GridForge V2 protection-function plugins.
+GridForge V2 protection-function implementations.
 
 A ProtectionDecision represents the result of one protection-element
 evaluation cycle.
@@ -109,11 +109,16 @@ operate
 trip_request
     Protection element requests a protection output/trip action.
 
+    This does NOT operate a physical breaker.
+
 blocked
     Protection operation was intentionally prevented.
 
 valid
     Decision was produced from valid usable evaluation conditions.
+
+active
+    True when pickup or operate is asserted.
 
 actionable
     True only when:
@@ -122,8 +127,43 @@ actionable
         AND not blocked
         AND trip_request
 
-The decision is a request/result object only. Physical breaker
-operation belongs to a higher protection-output layer.
+Canonical invariants
+--------------------
+The decision contract enforces the following relationships:
+
+    trip_request -> operate
+    operate      -> pickup
+
+and:
+
+    blocked      -> not operate
+    blocked      -> not trip_request
+
+and:
+
+    not valid    -> not pickup
+    not valid    -> not operate
+    not valid    -> not trip_request
+
+Therefore an actionable decision is necessarily:
+
+    valid
+    pickup
+    operate
+    trip_request
+    not blocked
+
+Immutability
+------------
+The ProtectionDecision dataclass is frozen.
+
+The metadata container is additionally wrapped in
+``MappingProxyType`` so callers cannot mutate the decision through
+``decision.metadata``.
+
+Metadata values themselves are intentionally treated as opaque
+application-owned objects. GridForge does not perform arbitrary deep
+copying of metadata values.
 
 Compatibility
 -------------
@@ -142,8 +182,162 @@ Proprietary and confidential.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import isfinite
+from math import isfinite, isinf, isnan
+from types import MappingProxyType
 from typing import Any, Mapping
+
+
+# =====================================================================
+# VALIDATION HELPERS
+# =====================================================================
+
+
+def _require_non_empty_string(
+    value: Any,
+    name: str,
+) -> str:
+    """
+    Require a non-empty string and return its normalized form.
+    """
+
+    if not isinstance(value, str):
+        raise TypeError(
+            f"{name} must be a string."
+        )
+
+    result = value.strip()
+
+    if not result:
+        raise ValueError(
+            f"{name} cannot be empty."
+        )
+
+    return result
+
+
+def _require_bool(
+    value: Any,
+    name: str,
+) -> bool:
+    """
+    Require an actual bool.
+
+    Boolean coercion is intentionally not performed.
+
+    For example:
+
+        bool("false") == True
+
+    is unsafe for a protection-state contract.
+    """
+
+    if not isinstance(value, bool):
+        raise TypeError(
+            f"{name} must be a boolean."
+        )
+
+    return value
+
+
+def _normalize_optional_time(
+    value: Any,
+    name: str,
+) -> float | None:
+    """
+    Validate an optional protection time.
+
+    Accepted:
+
+        None
+        finite value >= 0
+        positive infinity
+
+    Rejected:
+
+        NaN
+        negative values
+        negative infinity
+    """
+
+    if value is None:
+        return None
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{name} must be numeric or None."
+        ) from exc
+
+    if isnan(result):
+        raise ValueError(
+            f"{name} cannot be NaN."
+        )
+
+    if result == float("-inf"):
+        raise ValueError(
+            f"{name} cannot be negative infinity."
+        )
+
+    if result < 0.0:
+        raise ValueError(
+            f"{name} cannot be negative."
+        )
+
+    if not isfinite(result) and not isinf(result):
+        raise ValueError(
+            f"{name} must be finite or positive infinity."
+        )
+
+    return result
+
+
+def _normalize_timestamp(
+    value: Any,
+) -> float | None:
+    """
+    Validate an optional finite evaluation timestamp.
+    """
+
+    if value is None:
+        return None
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "timestamp must be numeric or None."
+        ) from exc
+
+    if not isfinite(result):
+        raise ValueError(
+            "timestamp must be finite."
+        )
+
+    return result
+
+
+def _normalize_metadata(
+    value: Mapping[str, Any] | None,
+) -> Mapping[str, Any]:
+    """
+    Copy and freeze the metadata mapping.
+
+    The mapping container becomes read-only through
+    MappingProxyType.
+    """
+
+    if value is None:
+        return MappingProxyType({})
+
+    if not isinstance(value, Mapping):
+        raise TypeError(
+            "metadata must be a mapping or None."
+        )
+
+    return MappingProxyType(
+        dict(value)
+    )
 
 
 # =====================================================================
@@ -151,7 +345,10 @@ from typing import Any, Mapping
 # =====================================================================
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(
+    frozen=True,
+    slots=True,
+)
 class ProtectionDecision:
     """
     Immutable result of one protection-element evaluation.
@@ -164,25 +361,8 @@ class ProtectionDecision:
     element_id:
         Stable identity of the ProtectionElement instance.
 
-        This is the canonical decision identity and is intentionally
-        distinct from ``relay_id``.
-
     function_code:
         Canonical protection function designation.
-
-        Examples:
-
-            21
-            27
-            32
-            46
-            50
-            51
-            59
-            67
-            81
-            87T
-            50BF
 
     pickup:
         True when the protection pickup criterion is satisfied.
@@ -205,8 +385,7 @@ class ProtectionDecision:
         inputs and is suitable for downstream processing.
 
     operating_time:
-        Optional calculated or intentional protection operating time
-        in seconds.
+        Optional protection operating time in seconds.
 
         ``None`` means no operating time was determined.
 
@@ -214,7 +393,7 @@ class ProtectionDecision:
         inverse-time condition.
 
     timestamp:
-        Optional evaluation/simulation/event timestamp.
+        Optional finite evaluation/simulation/event timestamp.
 
     reason:
         Human-readable diagnostic explanation.
@@ -224,11 +403,10 @@ class ProtectionDecision:
 
     Notes
     -----
-    The object is frozen and therefore cannot be mutated after
-    construction.
+    The object is frozen after construction.
 
-    Metadata is copied during construction so that the decision does
-    not retain ownership of the caller's mutable mapping.
+    The metadata mapping itself is also read-only. The metadata values
+    are opaque caller-owned objects and are not deep-copied.
     """
 
     # =================================================================
@@ -236,7 +414,9 @@ class ProtectionDecision:
     # =================================================================
 
     relay_id: Any
+
     element_id: Any
+
     function_code: str
 
     # =================================================================
@@ -244,9 +424,13 @@ class ProtectionDecision:
     # =================================================================
 
     pickup: bool = False
+
     operate: bool = False
+
     trip_request: bool = False
+
     blocked: bool = False
+
     valid: bool = True
 
     # =================================================================
@@ -254,6 +438,7 @@ class ProtectionDecision:
     # =================================================================
 
     operating_time: float | None = None
+
     timestamp: float | None = None
 
     # =================================================================
@@ -263,7 +448,9 @@ class ProtectionDecision:
     reason: str = ""
 
     metadata: Mapping[str, Any] = field(
-        default_factory=dict
+        default_factory=dict,
+        compare=True,
+        hash=False,
     )
 
     # =================================================================
@@ -272,27 +459,11 @@ class ProtectionDecision:
 
     def __post_init__(self) -> None:
         """
-        Validate and normalize the immutable decision.
+        Validate and normalize the decision contract.
+
+        This method enforces the semantic invariants of a protection
+        decision rather than merely validating individual fields.
         """
-
-        # -------------------------------------------------------------
-        # Function code
-        # -------------------------------------------------------------
-
-        function_code = str(
-            self.function_code
-        ).strip().upper()
-
-        if not function_code:
-            raise ValueError(
-                "function_code cannot be empty."
-            )
-
-        object.__setattr__(
-            self,
-            "function_code",
-            function_code,
-        )
 
         # -------------------------------------------------------------
         # Relay identity
@@ -313,114 +484,174 @@ class ProtectionDecision:
             )
 
         # -------------------------------------------------------------
-        # Boolean normalization
+        # Function code
+        # -------------------------------------------------------------
+
+        function_code = _require_non_empty_string(
+            self.function_code,
+            "function_code",
+        )
+
+        object.__setattr__(
+            self,
+            "function_code",
+            function_code.upper(),
+        )
+
+        # -------------------------------------------------------------
+        # Boolean state
+        # -------------------------------------------------------------
+
+        pickup = _require_bool(
+            self.pickup,
+            "pickup",
+        )
+
+        operate = _require_bool(
+            self.operate,
+            "operate",
+        )
+
+        trip_request = _require_bool(
+            self.trip_request,
+            "trip_request",
+        )
+
+        blocked = _require_bool(
+            self.blocked,
+            "blocked",
+        )
+
+        valid = _require_bool(
+            self.valid,
+            "valid",
+        )
+
+        # -------------------------------------------------------------
+        # State invariants
+        # -------------------------------------------------------------
+        #
+        # Protection progression:
+        #
+        #     pickup -> operate -> trip_request
+        #
+        # More precisely:
+        #
+        #     operate requires pickup
+        #     trip_request requires operate
+        #
+        # Blocking and invalidity suppress operation.
+        # -------------------------------------------------------------
+
+        if operate and not pickup:
+            raise ValueError(
+                "operate cannot be True when pickup is False."
+            )
+
+        if trip_request and not operate:
+            raise ValueError(
+                "trip_request cannot be True when operate is False."
+            )
+
+        if blocked and operate:
+            raise ValueError(
+                "blocked decisions cannot have operate=True."
+            )
+
+        if blocked and trip_request:
+            raise ValueError(
+                "blocked decisions cannot have trip_request=True."
+            )
+
+        if not valid:
+            if pickup or operate or trip_request:
+                raise ValueError(
+                    "Invalid decisions cannot assert pickup, "
+                    "operate, or trip_request."
+                )
+
+        # -------------------------------------------------------------
+        # Store normalized boolean state
         # -------------------------------------------------------------
 
         object.__setattr__(
             self,
             "pickup",
-            bool(self.pickup),
+            pickup,
         )
 
         object.__setattr__(
             self,
             "operate",
-            bool(self.operate),
+            operate,
         )
 
         object.__setattr__(
             self,
             "trip_request",
-            bool(self.trip_request),
+            trip_request,
         )
 
         object.__setattr__(
             self,
             "blocked",
-            bool(self.blocked),
+            blocked,
         )
 
         object.__setattr__(
             self,
             "valid",
-            bool(self.valid),
+            valid,
         )
 
         # -------------------------------------------------------------
         # Operating time
         # -------------------------------------------------------------
 
-        if self.operating_time is not None:
-
-            try:
-                operating_time = float(
-                    self.operating_time
-                )
-            except (
-                TypeError,
-                ValueError,
-            ) as exc:
-                raise ValueError(
-                    "operating_time must be numeric."
-                ) from exc
-
-            if (
-                not isfinite(operating_time)
-                and operating_time != float("inf")
-            ):
-                raise ValueError(
-                    "operating_time must be finite "
-                    "or positive infinity."
-                )
-
-            if operating_time < 0.0:
-                raise ValueError(
-                    "operating_time cannot be negative."
-                )
-
-            object.__setattr__(
-                self,
+        object.__setattr__(
+            self,
+            "operating_time",
+            _normalize_optional_time(
+                self.operating_time,
                 "operating_time",
-                operating_time,
-            )
+            ),
+        )
 
         # -------------------------------------------------------------
         # Timestamp
         # -------------------------------------------------------------
 
-        if self.timestamp is not None:
-
-            try:
-                timestamp = float(
-                    self.timestamp
-                )
-            except (
-                TypeError,
-                ValueError,
-            ) as exc:
-                raise ValueError(
-                    "timestamp must be numeric."
-                ) from exc
-
-            if not isfinite(timestamp):
-                raise ValueError(
-                    "timestamp must be finite."
-                )
-
-            object.__setattr__(
-                self,
-                "timestamp",
-                timestamp,
-            )
+        object.__setattr__(
+            self,
+            "timestamp",
+            _normalize_timestamp(
+                self.timestamp,
+            ),
+        )
 
         # -------------------------------------------------------------
         # Reason
         # -------------------------------------------------------------
 
+        if self.reason is None:
+            normalized_reason = ""
+        else:
+            if not isinstance(
+                self.reason,
+                str,
+            ):
+                raise TypeError(
+                    "reason must be a string."
+                )
+
+            normalized_reason = (
+                self.reason.strip()
+            )
+
         object.__setattr__(
             self,
             "reason",
-            str(self.reason).strip(),
+            normalized_reason,
         )
 
         # -------------------------------------------------------------
@@ -430,7 +661,9 @@ class ProtectionDecision:
         object.__setattr__(
             self,
             "metadata",
-            dict(self.metadata or {}),
+            _normalize_metadata(
+                self.metadata,
+            ),
         )
 
     # =================================================================
@@ -458,15 +691,6 @@ class ProtectionDecision:
         """
         Return True when this decision represents a valid actionable
         trip request.
-
-        Definition
-        ----------
-
-            valid
-            AND
-            not blocked
-            AND
-            trip_request
         """
 
         return (
@@ -480,9 +704,7 @@ class ProtectionDecision:
     @property
     def asserted(self) -> bool:
         """
-        Return whether the protection decision is actionable.
-
-        ``asserted`` is retained as a semantic convenience alias.
+        Semantic alias for ``actionable``.
         """
 
         return self.actionable
@@ -505,8 +727,22 @@ class ProtectionDecision:
         """
         Construct an invalid protection decision.
 
-        Invalid decisions can never request a trip.
+        Invalid decisions cannot request a trip.
         """
+
+        if not isinstance(
+            reason,
+            str,
+        ):
+            raise TypeError(
+                "Invalid protection decision reason "
+                "must be a string."
+            )
+
+        if not reason.strip():
+            raise ValueError(
+                "Invalid protection decisions require a reason."
+            )
 
         return cls(
             relay_id=relay_id,
@@ -520,7 +756,7 @@ class ProtectionDecision:
             operating_time=None,
             timestamp=timestamp,
             reason=reason,
-            metadata=metadata or {},
+            metadata=metadata,
         )
 
     # -----------------------------------------------------------------
@@ -542,6 +778,22 @@ class ProtectionDecision:
         A blocked decision cannot request a trip.
         """
 
+        if not isinstance(
+            reason,
+            str,
+        ):
+            raise TypeError(
+                "Blocked protection decision reason "
+                "must be a string."
+            )
+
+        normalized_reason = reason.strip()
+
+        if not normalized_reason:
+            raise ValueError(
+                "Blocked protection decisions require a reason."
+            )
+
         return cls(
             relay_id=relay_id,
             element_id=element_id,
@@ -553,8 +805,8 @@ class ProtectionDecision:
             valid=True,
             operating_time=None,
             timestamp=timestamp,
-            reason=reason,
-            metadata=metadata or {},
+            reason=normalized_reason,
+            metadata=metadata,
         )
 
     # -----------------------------------------------------------------
@@ -587,7 +839,7 @@ class ProtectionDecision:
             operating_time=operating_time,
             timestamp=timestamp,
             reason=reason,
-            metadata=metadata or {},
+            metadata=metadata,
         )
 
     # -----------------------------------------------------------------
@@ -623,7 +875,56 @@ class ProtectionDecision:
             operating_time=operating_time,
             timestamp=timestamp,
             reason=reason,
-            metadata=metadata or {},
+            metadata=metadata,
+        )
+
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def operate_decision(
+        cls,
+        *,
+        relay_id: Any,
+        element_id: Any,
+        function_code: str,
+        trip_request: bool = False,
+        reason: str = "",
+        timestamp: float | None = None,
+        operating_time: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "ProtectionDecision":
+        """
+        Construct a valid operating decision.
+
+        ``trip_request`` may be False when the protection function has
+        operated internally but the function does not itself request
+        a protection output.
+
+        This is useful for protection functions whose operating state
+        is consumed by a higher-level scheme.
+        """
+
+        if not isinstance(
+            trip_request,
+            bool,
+        ):
+            raise TypeError(
+                "trip_request must be a boolean."
+            )
+
+        return cls(
+            relay_id=relay_id,
+            element_id=element_id,
+            function_code=function_code,
+            pickup=True,
+            operate=True,
+            trip_request=trip_request,
+            blocked=False,
+            valid=True,
+            operating_time=operating_time,
+            timestamp=timestamp,
+            reason=reason,
+            metadata=metadata,
         )
 
     # -----------------------------------------------------------------
@@ -658,7 +959,7 @@ class ProtectionDecision:
             operating_time=operating_time,
             timestamp=timestamp,
             reason=reason,
-            metadata=metadata or {},
+            metadata=metadata,
         )
 
     # =================================================================
@@ -669,8 +970,8 @@ class ProtectionDecision:
         """
         Return a detached dictionary representation of the decision.
 
-        The returned mapping is not authoritative decision state and
-        may safely be modified by diagnostic consumers.
+        The returned mapping is mutable and is not authoritative
+        decision state.
         """
 
         return {
@@ -694,9 +995,7 @@ class ProtectionDecision:
         """
         Return diagnostic information.
 
-        This is intentionally equivalent to ``to_dict()`` while
-        providing an explicit diagnostics-oriented API used by
-        ProtectionElement.status().
+        Equivalent to ``to_dict()``.
         """
 
         return self.to_dict()
@@ -760,13 +1059,30 @@ class ProtectionDecision:
 
         A ProtectionDecision evaluates to True only when it represents
         an actionable protection trip request.
-
-        This supports controlled migration from legacy boolean
-        protection APIs without discarding the complete decision
-        object.
         """
 
         return self.actionable
+
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
+
+    def __repr__(self) -> str:
+        """
+        Return a concise developer-facing representation.
+        """
+
+        return (
+            f"<ProtectionDecision "
+            f"relay_id={self.relay_id!r}, "
+            f"element_id={self.element_id!r}, "
+            f"function_code={self.function_code!r}, "
+            f"pickup={self.pickup}, "
+            f"operate={self.operate}, "
+            f"trip_request={self.trip_request}, "
+            f"blocked={self.blocked}, "
+            f"valid={self.valid}>"
+        )
 
 
 # =====================================================================
