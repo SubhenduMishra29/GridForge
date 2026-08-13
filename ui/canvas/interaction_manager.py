@@ -11,7 +11,7 @@ Central input-routing layer for the GridForge canvas.
 
 The InteractionManager receives raw canvas input from
 GraphicsView, converts input into canonical canvas coordinates,
-and delegates interaction to the active tool.
+and delegates interaction to the currently active tool.
 
 Architecture
 ------------
@@ -57,12 +57,21 @@ The InteractionManager does NOT:
     - perform electrical calculations;
     - perform selection;
     - own application-level tool selection;
+    - own tool instances;
+    - subscribe to Controller tool-selection events;
+    - invoke tool lifecycle callbacks directly;
     - own the ToolManager lifecycle contract.
 
 Tool Ownership
 --------------
-ToolManager is the single owner of tool creation, activation,
-deactivation, and lifecycle.
+ToolManager is the single owner of:
+
+    - tool creation;
+    - active tool instance;
+    - activation;
+    - deactivation;
+    - cancellation;
+    - lifecycle transitions.
 
 InteractionManager only asks ToolManager for the active tool
 and routes input to it.
@@ -71,10 +80,17 @@ Controller Ownership
 --------------------
 Controller owns application-level tool selection.
 
-The Controller stores the requested tool identifier.
+Controller stores only the requested tool identifier.
 
-ToolManager resolves that identifier to the corresponding tool
-instance.
+The Controller emits:
+
+    tool_changed(new_tool_id, previous_tool_id)
+
+ToolManager subscribes to this event and owns the resulting
+tool lifecycle.
+
+InteractionManager deliberately does NOT subscribe to
+"tool_changed". This prevents duplicate activation paths.
 
 Coordinate Ownership
 --------------------
@@ -90,6 +106,10 @@ PreviewLayer owns transient preview graphics.
 
 Preview graphics are never part of the Core model and are not
 persisted.
+
+ToolManager may request preview cleanup at lifecycle boundaries,
+but InteractionManager remains the owner of the PreviewLayer
+instance.
 
 Snapping Ownership
 ------------------
@@ -124,7 +144,7 @@ class InteractionManager(QObject):
     """
     Central input-routing service for the GridForge canvas.
 
-    The class deliberately remains thin:
+    The InteractionManager is deliberately a thin routing layer:
 
         raw input
             ↓
@@ -132,9 +152,11 @@ class InteractionManager(QObject):
             ↓
         active tool
 
-    Transient preview and snapping services are centralized
-    here so individual tools do not create competing UI
-    infrastructure.
+    Coordinate conversion, preview management, and snapping are
+    centralized here.
+
+    Concrete tool ownership and lifecycle remain exclusively with
+    ToolManager.
     """
 
     # ========================================================
@@ -172,10 +194,12 @@ class InteractionManager(QObject):
 
         Notes
         -----
-        Optional dependency injection keeps this class compatible
-        with the existing GraphicsView construction while allowing
-        the final Canvas composition layer to provide shared
-        services explicitly.
+        Tool lifecycle is delegated entirely to ToolManager.
+
+        InteractionManager does not subscribe to Controller's
+        "tool_changed" event. ToolManager is the sole subscriber
+        responsible for converting the Controller's requested
+        tool ID into an active tool instance.
         """
 
         super().__init__()
@@ -215,10 +239,8 @@ class InteractionManager(QObject):
         # Coordinate service
         # ----------------------------------------------------
         #
-        # CoordinateSystem is the single coordinate conversion
-        # boundary for the canvas.
-        #
-        # It is intentionally independent of tool logic.
+        # CoordinateSystem is the canonical coordinate
+        # conversion boundary for the canvas.
         # ----------------------------------------------------
 
         self.coordinate_system = (
@@ -239,7 +261,10 @@ class InteractionManager(QObject):
         # Preview layer.
         # ----------------------------------------------------
         #
-        # PreviewLayer owns temporary graphics.
+        # InteractionManager owns the PreviewLayer instance.
+        #
+        # ToolManager receives the same service reference only
+        # so lifecycle transitions can guarantee cleanup.
         # ----------------------------------------------------
 
         self.preview = PreviewLayer(
@@ -248,11 +273,6 @@ class InteractionManager(QObject):
 
         # ----------------------------------------------------
         # Central snapping service.
-        # ----------------------------------------------------
-        #
-        # The final canvas composition layer may inject a
-        # SnapSystem so that CoordinateSystem/GridSystem and
-        # SnapSystem share the same GridSystem instance.
         # ----------------------------------------------------
 
         self.snap_system = (
@@ -267,8 +287,14 @@ class InteractionManager(QObject):
         # Tool manager.
         # ----------------------------------------------------
         #
-        # ToolManager owns concrete tool instances and their
-        # lifecycle.
+        # ToolManager is the sole owner of concrete tool
+        # instances and lifecycle.
+        #
+        # It also owns the Controller "tool_changed"
+        # subscription.
+        #
+        # InteractionManager deliberately does not duplicate
+        # that subscription.
         # ----------------------------------------------------
 
         self.tool_manager = ToolManager(
@@ -278,69 +304,30 @@ class InteractionManager(QObject):
         )
 
         # ----------------------------------------------------
-        # Controller subscription.
+        # InteractionManager has no Controller subscription.
+        #
+        # Tool selection flow is:
+        #
+        # Controller.set_tool()
+        #       ↓
+        # Controller.tool_changed
+        #       ↓
+        # ToolManager
+        #       ↓
+        # tool lifecycle
+        #
+        # Input flow is:
+        #
+        # GraphicsView
+        #       ↓
+        # InteractionManager
+        #       ↓
+        # ToolManager
+        #       ↓
+        # Active Tool
         # ----------------------------------------------------
-
-        self._connected = False
-
-        self.controller.subscribe(
-            "tool_changed",
-            self._on_tool_changed,
-        )
 
         self._connected = True
-
-        # ----------------------------------------------------
-        # Synchronize with an already-selected tool.
-        # ----------------------------------------------------
-
-        get_tool_id = getattr(
-            self.controller,
-            "get_current_tool_id",
-            None,
-        )
-
-        if not callable(get_tool_id):
-            raise TypeError(
-                "controller must provide "
-                "get_current_tool_id()"
-            )
-
-        initial_tool_id = get_tool_id()
-
-        if initial_tool_id is not None:
-            self._on_tool_changed(
-                initial_tool_id
-            )
-
-    # ========================================================
-    # TOOL MANAGEMENT
-    # ========================================================
-
-    def _on_tool_changed(
-        self,
-        tool_id: Optional[str],
-    ) -> None:
-        """
-        Handle a Controller tool-change notification.
-
-        Controller selects the requested tool ID.
-
-        ToolManager owns the actual tool activation lifecycle.
-
-        InteractionManager only clears transient interaction
-        state and delegates activation.
-        """
-
-        self._clear_interaction_state()
-
-        if tool_id is None:
-            self.tool_manager.deactivate()
-            return
-
-        self.tool_manager.activate(
-            tool_id
-        )
 
     # ========================================================
     # ACTIVE TOOL ACCESS
@@ -351,6 +338,8 @@ class InteractionManager(QObject):
     ) -> Optional[Any]:
         """
         Return the currently active tool.
+
+        ToolManager remains the owner of the instance.
         """
 
         return self.tool_manager.get_current_tool()
@@ -362,6 +351,8 @@ class InteractionManager(QObject):
     ) -> Optional[str]:
         """
         Return the identifier of the currently active tool.
+
+        The identifier comes from ToolManager's lifecycle state.
         """
 
         return self.tool_manager.get_current_tool_id()
@@ -374,9 +365,9 @@ class InteractionManager(QObject):
         self,
     ) -> None:
         """
-        Clear all transient interaction state.
+        Clear transient InteractionManager state.
 
-        This does not deactivate the active tool.
+        This method does not perform tool lifecycle operations.
         """
 
         self.dragging = False
@@ -395,11 +386,19 @@ class InteractionManager(QObject):
         """
         Route a mouse-press event to the active tool.
 
+        The event position is first converted through the
+        canonical CoordinateSystem.
+
         Returns
         -------
         bool
             True when an active tool handled the event.
         """
+
+        if event is None:
+            raise ValueError(
+                "event must not be None"
+            )
 
         scene_pos = self.map_to_scene(
             event
@@ -450,6 +449,11 @@ class InteractionManager(QObject):
             True when an active tool handled the event.
         """
 
+        if event is None:
+            raise ValueError(
+                "event must not be None"
+            )
+
         scene_pos = self.map_to_scene(
             event
         )
@@ -492,6 +496,11 @@ class InteractionManager(QObject):
 
         Generic drag state is cleared after the release.
         """
+
+        if event is None:
+            raise ValueError(
+                "event must not be None"
+            )
 
         scene_pos = self.map_to_scene(
             event
@@ -549,6 +558,7 @@ class InteractionManager(QObject):
             )
 
         if event.key() == Qt.Key_Escape:
+
             handled = self.cancel_tool()
 
             event.accept()
@@ -626,12 +636,12 @@ class InteractionManager(QObject):
         self,
     ) -> bool:
         """
-        Cancel the current tool operation.
+        Cancel the current tool interaction.
 
-        ToolManager remains responsible for tool cancellation.
+        ToolManager owns cancellation semantics.
 
-        InteractionManager always clears transient interaction
-        state.
+        InteractionManager only clears its own transient state
+        and preview after cancellation.
         """
 
         result = self.tool_manager.cancel()
@@ -665,7 +675,7 @@ class InteractionManager(QObject):
                 "event must not be None"
             )
 
-        pos = getattr(
+        position = getattr(
             event,
             "position",
             None,
@@ -675,10 +685,10 @@ class InteractionManager(QObject):
         # Qt 6 mouse events normally expose position().
         # ----------------------------------------------------
 
-        if callable(pos):
+        if callable(position):
 
             return self.coordinate_system.viewport_to_scene(
-                pos()
+                position()
             )
 
         # ----------------------------------------------------
@@ -686,16 +696,16 @@ class InteractionManager(QObject):
         # pos().
         # ----------------------------------------------------
 
-        pos = getattr(
+        position = getattr(
             event,
             "pos",
             None,
         )
 
-        if callable(pos):
+        if callable(position):
 
             return self.coordinate_system.viewport_to_scene(
-                pos()
+                position()
             )
 
         raise TypeError(
@@ -769,7 +779,7 @@ class InteractionManager(QObject):
         self.preview.clear()
 
     # ========================================================
-    # TOOL DEACTIVATION
+    # TOOL LIFECYCLE REQUESTS
     # ========================================================
 
     def deactivate_tool(
@@ -779,6 +789,10 @@ class InteractionManager(QObject):
         Deactivate the current tool through ToolManager.
 
         Tool lifecycle methods are never invoked directly here.
+
+        Controller tool selection remains separate from this
+        operation. This method operates on the currently active
+        ToolManager state only.
         """
 
         self.tool_manager.deactivate()
@@ -801,6 +815,8 @@ class InteractionManager(QObject):
             - resetting a canvas;
             - closing a workspace;
             - recovering from invalid interaction.
+
+        Tool lifecycle remains delegated to ToolManager.
         """
 
         self.tool_manager.reset()
@@ -853,31 +869,21 @@ class InteractionManager(QObject):
         """
         Release interaction resources.
 
-        Controller subscription is removed when supported.
+        ToolManager remains responsible for its Controller
+        subscription and active-tool lifecycle.
 
-        Tool lifecycle remains delegated to ToolManager.
+        InteractionManager has no independent Controller
+        subscription to remove.
         """
 
-        if self._connected:
+        if not self._connected:
+            return
 
-            unsubscribe = getattr(
-                self.controller,
-                "unsubscribe",
-                None,
-            )
-
-            if callable(unsubscribe):
-
-                unsubscribe(
-                    "tool_changed",
-                    self._on_tool_changed,
-                )
-
-            self._connected = False
-
-        self.tool_manager.reset()
+        self.tool_manager.dispose()
 
         self._clear_interaction_state()
+
+        self._connected = False
 
     # ========================================================
     # DEBUG REPRESENTATION
