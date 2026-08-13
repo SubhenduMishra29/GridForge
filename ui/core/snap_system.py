@@ -1,101 +1,70 @@
 # ============================================================
 # File: ui/core/snap_system.py
-# GridForge Snap System
+# GridForge V2 — Snap System
 # ============================================================
-#
-# PURPOSE
-# -------
-# Centralized spatial snapping system for the GridForge UI.
-#
-# The SnapSystem determines whether a cursor position should
-# be attached to a nearby electrical object or grid position.
-#
-# CURRENTLY SUPPORTED
-# -------------------
-#
-#     1. Snap to nearest Bus
-#     2. Snap to Grid
-#
-# The system is designed so additional snapping targets can
-# be added later without putting spatial-query logic into tools.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#                  Mouse Position
-#                        │
-#                        ▼
-#                   SnapSystem
-#                        │
-#              ┌─────────┴─────────┐
-#              │                   │
-#          Bus Snap            Grid Snap
-#              │                   │
-#              └─────────┬─────────┘
-#                        ▼
-#                  SnapResult
-#
-#
-# IMPORTANT DESIGN RULE
-# ---------------------
-#
-# Tools must NOT independently calculate snapping distances.
-#
-# For example, LineTool should NOT contain:
-#
-#     snap_to_bus(...)
-#
-# Instead:
-#
-#     result = snap_system.resolve(position)
-#
-# This guarantees that:
-#
-#     BusTool
-#     LineTool
-#     TransformerTool
-#     GeneratorTool
-#     LoadTool
-#
-# all use exactly the same snapping rules.
-#
-#
-# SNAP PRIORITY
-# -------------
-#
-# The current priority is:
-#
-#     1. Bus
-#     2. Grid
-#     3. Original cursor position
-#
-# A future priority system can introduce:
-#
-#     - line terminals
-#     - transformer terminals
-#     - generator terminals
-#     - breaker terminals
-#     - custom connection points
-#
-#
-# QT RULE
-# -------
-#
-# All Qt classes are imported through:
-#
-#     ui.core.qt
-#
-# No direct PySide6 or PyQt imports are permitted.
-#
-# ============================================================
+"""
+Centralized spatial snapping service for the GridForge UI.
+
+The SnapSystem resolves a scene-space cursor position against
+the currently supported snapping targets.
+
+Current snapping targets
+------------------------
+1. Bus
+2. Grid
+3. Original cursor position
+
+Resolution priority
+-------------------
+    Bus
+      ↓
+    Grid
+      ↓
+    Original position
+
+Architectural responsibilities
+------------------------------
+SnapSystem:
+
+    - owns snapping policy;
+    - determines snap priority;
+    - determines snap radius;
+    - queries authoritative model topology for bus targets;
+    - delegates grid-coordinate calculation to GridSystem;
+    - returns an immutable SnapResult;
+    - provides common snapping APIs to tools.
+
+SnapSystem does NOT:
+
+    - create model objects;
+    - modify the Core model;
+    - perform topology mutation;
+    - create graphics items;
+    - render previews;
+    - implement individual tool behavior;
+    - perform electrical calculations.
+
+Tools must not implement their own snapping algorithms.
+
+Instead of:
+
+    tool.snap_to_bus(...)
+
+tools should use:
+
+    result = interaction_manager.snap_system.resolve(position)
+
+Qt rule
+-------
+All Qt dependencies are imported through ui.core.qt.
+No direct PySide6/PyQt imports are permitted.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from math import hypot
 from typing import Any, Optional
-
 
 from ui.core.qt import QPointF
 
@@ -104,58 +73,54 @@ from ui.core.qt import QPointF
 # SNAP RESULT
 # ============================================================
 
+
 @dataclass(frozen=True)
 class SnapResult:
     """
-    Immutable result returned by the SnapSystem.
+    Immutable result of a snapping operation.
 
     Attributes
     ----------
     position:
-        Final resolved scene position.
+        Final resolved scene-space position.
 
     target:
-        Model object to which the position was snapped.
+        Authoritative model object selected by the snap
+        operation.
 
-        For example:
-            Bus instance
-
-        None means that no model object was selected.
+        Currently this is normally a Bus for ``snap_type="bus"``.
+        It is None for grid and unsnapped positions.
 
     snap_type:
-        Identifies how the position was resolved.
+        Resolution type.
 
-        Possible values currently include:
+        Current values:
 
             "bus"
             "grid"
             "none"
 
     distance:
-        Original cursor distance from the selected target.
+        Euclidean scene-space distance from the original cursor
+        position to the resolved target.
 
-        For grid snapping this represents the distance from
-        the original cursor position to the grid position.
-
-        None means that no target was selected.
+        None means that no snapping target was selected.
     """
 
     position: QPointF
-
     target: Optional[Any] = None
-
     snap_type: str = "none"
-
     distance: Optional[float] = None
 
-    # --------------------------------------------------------
-    # Convenience properties
-    # --------------------------------------------------------
+    # ========================================================
+    # CONVENIENCE
+    # ========================================================
 
     @property
     def snapped(self) -> bool:
         """
-        Return True if a snapping operation occurred.
+        Return True when the cursor was resolved to a snap
+        target.
         """
 
         return self.snap_type != "none"
@@ -163,14 +128,11 @@ class SnapResult:
     # --------------------------------------------------------
 
     @property
-    def bus(self):
+    def bus(self) -> Optional[Any]:
         """
-        Return the snapped Bus if the target is a bus.
+        Return the snapped Bus.
 
-        Returns None for all other snap types.
-
-        This convenience property keeps tools from needing
-        to inspect the snap_type manually.
+        Returns None when the result is not a bus snap.
         """
 
         if self.snap_type == "bus":
@@ -183,32 +145,31 @@ class SnapResult:
 # SNAP SYSTEM
 # ============================================================
 
+
 class SnapSystem:
     """
-    Central spatial snapping service.
+    Central spatial snapping service for GridForge.
 
-    The SnapSystem is intentionally independent from tools.
+    The service is intentionally independent of individual tools.
 
-    It receives:
-        - controller
-        - cursor position
+    Parameters
+    ----------
+    controller:
+        GridForge UI controller providing access to the
+        authoritative Core model.
 
-    and returns:
-        - resolved position
-        - snapping target
-        - snap type
-        - distance
+    radius:
+        Maximum scene-space distance for model-object snapping.
+
+    grid_system:
+        Optional GridSystem used for grid-coordinate resolution.
     """
 
     # ========================================================
     # DEFAULT CONFIGURATION
     # ========================================================
 
-    # Default snapping radius in scene coordinates.
-
     DEFAULT_RADIUS = 20.0
-
-    # Default grid snapping state.
 
     DEFAULT_GRID_ENABLED = False
 
@@ -218,45 +179,24 @@ class SnapSystem:
 
     def __init__(
         self,
-        controller,
+        controller: Any,
         radius: float = DEFAULT_RADIUS,
-        grid_system=None,
+        grid_system: Optional[Any] = None,
     ) -> None:
         """
         Initialize the SnapSystem.
-
-        Parameters
-        ----------
-        controller:
-            GridForge UI Controller.
-
-        radius:
-            Maximum scene-space distance within which a model
-            object can be selected as a snap target.
-
-        grid_system:
-            Optional GridSystem instance.
-
-            It is kept optional because grid snapping should
-            not be required for bus snapping.
         """
 
-        if radius <= 0:
+        if controller is None:
             raise ValueError(
-                "Snap radius must be greater than zero."
+                "controller must not be None."
             )
 
+        self._validate_radius(radius)
+
         self.controller = controller
-
         self.radius = float(radius)
-
         self.grid_system = grid_system
-
-        # ----------------------------------------------------
-        # Grid snapping is deliberately disabled by default.
-        #
-        # Bus snapping remains available independently.
-        # ----------------------------------------------------
 
         self.grid_enabled = (
             self.DEFAULT_GRID_ENABLED
@@ -271,18 +211,10 @@ class SnapSystem:
         radius: float,
     ) -> None:
         """
-        Change the maximum snapping distance.
-
-        Parameters
-        ----------
-        radius:
-            New snapping radius in scene coordinates.
+        Set the maximum model-object snapping radius.
         """
 
-        if radius <= 0:
-            raise ValueError(
-                "Snap radius must be greater than zero."
-            )
+        self._validate_radius(radius)
 
         self.radius = float(radius)
 
@@ -313,12 +245,36 @@ class SnapSystem:
         Returns
         -------
         bool
-            New grid snapping state.
+            New grid-enabled state.
         """
 
         self.grid_enabled = not self.grid_enabled
 
         return self.grid_enabled
+
+    # --------------------------------------------------------
+
+    def set_grid_system(
+        self,
+        grid_system: Optional[Any],
+    ) -> None:
+        """
+        Attach or replace the GridSystem.
+
+        Passing None disables grid snapping capability while
+        preserving the current grid-enabled preference.
+        """
+
+        self.grid_system = grid_system
+
+    # --------------------------------------------------------
+
+    def get_grid_system(self) -> Optional[Any]:
+        """
+        Return the currently attached GridSystem.
+        """
+
+        return self.grid_system
 
     # ========================================================
     # BUS SNAP
@@ -329,109 +285,108 @@ class SnapSystem:
         pos: QPointF,
     ) -> SnapResult:
         """
-        Find the nearest Bus within the snapping radius.
+        Resolve the cursor against the nearest Bus.
 
-        Parameters
-        ----------
-        pos:
-            Cursor position in scene coordinates.
+        A bus is selected only when its scene-space position lies
+        within ``self.radius``.
+
+        Boundary behavior
+        -----------------
+        A bus exactly on the snapping-radius boundary is accepted.
+
+        Tie behavior
+        ------------
+        When two buses have exactly equal distance, the first bus
+        returned by the authoritative graph iteration is retained.
+        This makes the result deterministic without introducing a
+        UI-specific ordering policy.
 
         Returns
         -------
         SnapResult
-            If a bus is within range:
+            ``snap_type="bus"`` when a bus is found.
 
-                position = bus position
-                target   = bus
-                snap_type = "bus"
-
-            Otherwise:
-
-                position = original cursor position
-                target   = None
-                snap_type = "none"
+            Otherwise ``snap_type="none"``.
         """
 
-        graph = (
-            self.controller.model.graph
+        self._validate_point(
+            pos,
+            "pos",
         )
 
-        nearest_bus = None
+        graph = self._get_graph()
 
-        min_distance = float("inf")
+        if graph is None:
+            return self._none_result(pos)
 
-        px = pos.x()
-        py = pos.y()
+        all_buses = getattr(
+            graph,
+            "all_buses",
+            None,
+        )
 
-        # ----------------------------------------------------
-        # Search every bus in the graph.
-        #
-        # The comparison uses squared distance so that we do
-        # not repeatedly calculate square roots.
-        # ----------------------------------------------------
+        if not callable(all_buses):
+            raise TypeError(
+                "controller.model.graph must provide "
+                "all_buses()."
+            )
+
+        px = float(pos.x())
+        py = float(pos.y())
 
         radius_squared = (
             self.radius * self.radius
         )
 
-        nearest_distance_squared = (
-            radius_squared
-        )
+        nearest_bus = None
+        nearest_distance_squared = float("inf")
 
-        for bus in graph.all_buses():
+        for bus in all_buses():
 
-            dx = bus.x - px
-            dy = bus.y - py
+            bx, by = self._bus_position(bus)
+
+            dx = bx - px
+            dy = by - py
 
             distance_squared = (
                 dx * dx
                 + dy * dy
             )
 
+            # Strictly smaller wins.
+            #
+            # This intentionally preserves the first bus in an
+            # exact-distance tie and therefore provides stable
+            # deterministic behavior.
             if (
-                distance_squared
-                <= nearest_distance_squared
+                distance_squared <= radius_squared
+                and distance_squared < nearest_distance_squared
             ):
-
+                nearest_bus = bus
                 nearest_distance_squared = (
                     distance_squared
                 )
 
-                nearest_bus = bus
+        if nearest_bus is None:
+            return self._none_result(pos)
 
-        # ----------------------------------------------------
-        # A valid bus was found.
-        # ----------------------------------------------------
+        bx, by = self._bus_position(
+            nearest_bus
+        )
 
-        if nearest_bus is not None:
-
-            distance = hypot(
-                nearest_bus.x - px,
-                nearest_bus.y - py,
-            )
-
-            return SnapResult(
-                position=QPointF(
-                    nearest_bus.x,
-                    nearest_bus.y,
-                ),
-                target=nearest_bus,
-                snap_type="bus",
-                distance=distance,
-            )
-
-        # ----------------------------------------------------
-        # No bus found.
-        # ----------------------------------------------------
+        distance = hypot(
+            bx - px,
+            by - py,
+        )
 
         return SnapResult(
             position=QPointF(
-                px,
-                py,
+                bx,
+                by,
             ),
-            target=None,
-            snap_type="none",
-            distance=None,
+            target=nearest_bus,
+            snap_type="bus",
+            distance=distance,
         )
 
     # ========================================================
@@ -443,29 +398,38 @@ class SnapSystem:
         pos: QPointF,
     ) -> SnapResult:
         """
-        Snap a scene position to the nearest grid point.
+        Resolve a scene-space position against GridSystem.
 
-        GridSystem performs the actual grid-coordinate
-        calculation.
+        GridSystem owns the actual grid-coordinate calculation.
 
-        If no GridSystem has been configured, the original
-        position is returned unchanged.
+        If no GridSystem is attached, no grid snap is possible and
+        an unsnapped result is returned.
         """
 
-        if self.grid_system is None:
+        self._validate_point(
+            pos,
+            "pos",
+        )
 
-            return SnapResult(
-                position=QPointF(
-                    pos.x(),
-                    pos.y(),
-                ),
-                target=None,
-                snap_type="none",
-                distance=None,
+        if self.grid_system is None:
+            return self._none_result(pos)
+
+        snap_point = getattr(
+            self.grid_system,
+            "snap_point",
+            None,
+        )
+
+        if not callable(snap_point):
+            raise TypeError(
+                "grid_system must provide snap_point()."
             )
 
-        snapped = (
-            self.grid_system.snap_point(pos)
+        snapped = snap_point(pos)
+
+        self._validate_point(
+            snapped,
+            "grid_system.snap_point() result",
         )
 
         distance = hypot(
@@ -474,14 +438,17 @@ class SnapSystem:
         )
 
         return SnapResult(
-            position=snapped,
+            position=QPointF(
+                snapped.x(),
+                snapped.y(),
+            ),
             target=None,
             snap_type="grid",
             distance=distance,
         )
 
     # ========================================================
-    # MASTER SNAP RESOLUTION
+    # MASTER RESOLUTION
     # ========================================================
 
     def resolve(
@@ -489,62 +456,50 @@ class SnapSystem:
         pos: QPointF,
     ) -> SnapResult:
         """
-        Resolve the final snapping position.
+        Resolve the final snap position.
 
-        This is the primary API that tools should use.
-
-        SNAP PRIORITY
-        -------------
-
+        Priority
+        --------
         1. Bus
-        2. Grid
-        3. Original position
+        2. Grid, when enabled
+        3. Original cursor position
 
-        Therefore, if the cursor is close enough to a bus,
-        the bus always wins over the grid.
-
-        Parameters
-        ----------
-        pos:
-            Cursor position in scene coordinates.
-
-        Returns
-        -------
-        SnapResult
-            Final resolved snap result.
+        This is the primary API intended for tools.
         """
 
+        self._validate_point(
+            pos,
+            "pos",
+        )
+
         # ----------------------------------------------------
-        # 1. Try Bus snapping first.
+        # 1. Model-object snapping.
         # ----------------------------------------------------
 
-        bus_result = self.snap_to_bus(pos)
+        bus_result = self.snap_to_bus(
+            pos
+        )
 
         if bus_result.snapped:
-
             return bus_result
 
         # ----------------------------------------------------
-        # 2. Try Grid snapping if enabled.
+        # 2. Grid snapping.
         # ----------------------------------------------------
 
         if self.grid_enabled:
+            grid_result = self.snap_to_grid(
+                pos
+            )
 
-            return self.snap_to_grid(pos)
+            if grid_result.snapped:
+                return grid_result
 
         # ----------------------------------------------------
-        # 3. No snapping.
+        # 3. Original cursor position.
         # ----------------------------------------------------
 
-        return SnapResult(
-            position=QPointF(
-                pos.x(),
-                pos.y(),
-            ),
-            target=None,
-            snap_type="none",
-            distance=None,
-        )
+        return self._none_result(pos)
 
     # ========================================================
     # BUS-ONLY RESOLUTION
@@ -553,20 +508,16 @@ class SnapSystem:
     def resolve_bus(
         self,
         pos: QPointF,
-    ):
+    ) -> Optional[Any]:
         """
-        Convenience method for tools that specifically require
-        a Bus connection.
+        Return the Bus selected by the snapping rules.
 
-        Example:
-            LineTool
-
-        Returns
-        -------
-        Bus or None
+        Returns None when no Bus is within the snap radius.
         """
 
-        result = self.snap_to_bus(pos)
+        result = self.snap_to_bus(
+            pos
+        )
 
         return result.bus
 
@@ -579,26 +530,181 @@ class SnapSystem:
         pos: QPointF,
     ) -> QPointF:
         """
-        Return only the final resolved position.
-
-        Useful for tools such as BusTool where the tool needs
-        the snapped location but not necessarily the target.
+        Return only the resolved scene-space position.
         """
 
-        return self.resolve(pos).position
+        return self.resolve(
+            pos
+        ).position
+
+    # ========================================================
+    # MODEL ACCESS
+    # ========================================================
+
+    def _get_graph(self) -> Any:
+        """
+        Return the authoritative Core graph.
+
+        The SnapSystem does not own or cache the graph.
+
+        This is important because the Core model may be replaced
+        during project loading/reset operations.
+        """
+
+        model = getattr(
+            self.controller,
+            "model",
+            None,
+        )
+
+        if model is None:
+            return None
+
+        return getattr(
+            model,
+            "graph",
+            None,
+        )
+
+    # ========================================================
+    # BUS POSITION
+    # ========================================================
+
+    @staticmethod
+    def _bus_position(
+        bus: Any,
+    ) -> tuple[float, float]:
+        """
+        Extract the authoritative scene position of a Bus.
+
+        Current GridForge model contract:
+
+            bus.x
+            bus.y
+
+        The SnapSystem does not maintain a second spatial
+        representation.
+        """
+
+        if bus is None:
+            raise TypeError(
+                "Bus target must not be None."
+            )
+
+        try:
+            x = float(bus.x)
+            y = float(bus.y)
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                "Bus snap targets must provide numeric "
+                "x and y attributes."
+            ) from exc
+
+        return x, y
+
+    # ========================================================
+    # RESULT HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _none_result(
+        pos: QPointF,
+    ) -> SnapResult:
+        """
+        Construct an explicit unsnapped result.
+
+        A copy of the position is returned so the result does
+        not depend on mutable external QPointF state.
+        """
+
+        return SnapResult(
+            position=QPointF(
+                pos.x(),
+                pos.y(),
+            ),
+            target=None,
+            snap_type="none",
+            distance=None,
+        )
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_point(
+        point: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a QPointF-compatible object.
+        """
+
+        if point is None:
+            raise ValueError(
+                f"{name} must not be None."
+            )
+
+        if not callable(
+            getattr(point, "x", None)
+        ):
+            raise TypeError(
+                f"{name} must provide x()."
+            )
+
+        if not callable(
+            getattr(point, "y", None)
+        ):
+            raise TypeError(
+                f"{name} must provide y()."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_radius(
+        radius: float,
+    ) -> None:
+        """
+        Validate a snap radius.
+        """
+
+        if isinstance(
+            radius,
+            bool,
+        ):
+            raise TypeError(
+                "radius must be a positive number."
+            )
+
+        try:
+            numeric_radius = float(radius)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                "radius must be a positive number."
+            ) from exc
+
+        if numeric_radius <= 0:
+            raise ValueError(
+                "Snap radius must be greater than zero."
+            )
 
     # ========================================================
     # DEBUG / INTROSPECTION
     # ========================================================
 
-    def get_state(self) -> dict:
+    def get_state(
+        self,
+    ) -> dict[str, Any]:
         """
-        Return current snapping configuration.
-
-        Useful for:
-            - debugging
-            - future UI settings
-            - persistence
+        Return the current snapping configuration.
         """
 
         return {
@@ -613,7 +719,9 @@ class SnapSystem:
     # REPRESENTATION
     # ========================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
         Return a concise diagnostic representation.
         """
@@ -621,7 +729,9 @@ class SnapSystem:
         return (
             "SnapSystem("
             f"radius={self.radius}, "
-            f"grid_enabled={self.grid_enabled}"
+            f"grid_enabled={self.grid_enabled}, "
+            f"grid_system="
+            f"{self.grid_system is not None}"
             ")"
         )
 
