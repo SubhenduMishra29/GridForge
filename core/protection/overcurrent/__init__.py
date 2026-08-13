@@ -1,23 +1,51 @@
-```python
 """
-GridForge Overcurrent Protection
-================================
+GridForge V2 Overcurrent Protection
+===================================
 
-Overcurrent protection plugin package.
+Overcurrent protection-function package.
 
-Provides:
-    IECOvercurrentRelay
+Provides
+--------
+IECOvercurrentRelay
+    IEC 51 inverse-time overcurrent protection function.
 
-IEC protection algorithms are implemented in:
+IECOvercurrentSettings
+    Immutable configuration for an IEC 51 protection function.
 
-    core.protection.overcurrent.iec_relay
+Architecture
+------------
+Physical Relay
+    |
+    +-- ProtectionElement
+            |
+            +-- IECOvercurrentRelay
+                    |
+                    +-- RelayInput
+                    |
+                    +-- ProtectionDecision
+
+IEC protection mathematics is implemented in:
+
+    core.protection.relay_functions
+
+The package does not own:
+
+    * physical Relay state;
+    * MeasurementChannel state;
+    * network topology;
+    * breaker state;
+    * simulation scheduling;
+    * persistence;
+    * GUI state.
 """
 
 from core.protection.overcurrent.iec_relay import (
     IECOvercurrentRelay,
+    IECOvercurrentSettings,
 )
+
 
 __all__ = [
     "IECOvercurrentRelay",
+    "IECOvercurrentSettings",
 ]
-```
