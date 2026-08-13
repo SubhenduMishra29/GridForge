@@ -43,6 +43,20 @@ Architectural Contract
     application initialization, testing, and development
     reload scenarios.
 
+UI Composition Contract
+-----------------------
+The UI registry may call:
+
+    get_plugins()
+
+which resolves to the "ui" plugin namespace.
+
+Other plugin categories must be requested explicitly:
+
+    get_plugins("tool")
+    get_plugins("renderer")
+    get_plugins("panel")
+
 Example
 -------
     @register_plugin("tool", "line")
@@ -141,7 +155,10 @@ def register_plugin(
         Register the decorated plugin class.
         """
 
-        if not isinstance(plugin_cls, type):
+        if not isinstance(
+            plugin_cls,
+            type,
+        ):
             raise TypeError(
                 "Only classes can be registered as "
                 "GridForge plugins"
@@ -152,12 +169,13 @@ def register_plugin(
             {},
         )
 
-        existing = category.get(plugin_id)
+        existing = category.get(
+            plugin_id
+        )
 
         if existing is not None:
 
-            # Re-importing/re-registering the same class is
-            # harmless and therefore idempotent.
+            # Re-registering the same class is harmless.
             if existing is plugin_cls:
                 return plugin_cls
 
@@ -168,7 +186,9 @@ def register_plugin(
                 f"{existing.__name__}"
             )
 
-        category[plugin_id] = plugin_cls
+        category[
+            plugin_id
+        ] = plugin_cls
 
         return plugin_cls
 
@@ -202,7 +222,9 @@ def get_plugin(
     return _registry.get(
         plugin_type,
         {},
-    ).get(plugin_id)
+    ).get(
+        plugin_id
+    )
 
 
 # ============================================================================
@@ -210,13 +232,29 @@ def get_plugin(
 # ============================================================================
 
 def get_plugins(
-    plugin_type: str,
+    plugin_type: str = "ui",
 ) -> List[Type[Any]]:
     """
     Return all registered plugin classes for a category.
 
-    The returned list is a snapshot and does not expose the
-    internal registry.
+    Parameters
+    ----------
+    plugin_type:
+        Plugin category.
+
+        Defaults to "ui" because the primary consumer of the
+        no-argument form is ui.ui_registry.build_ui().
+
+    Returns
+    -------
+    list[type]
+        Snapshot of registered plugin classes.
+
+    Notes
+    -----
+    The returned list does not expose the internal registry.
+
+    Registration order is preserved.
     """
 
     plugin_type = _validate_identifier(
@@ -279,9 +317,12 @@ def is_registered(
         "plugin_id",
     )
 
-    return plugin_id in _registry.get(
-        plugin_type,
-        {},
+    return (
+        plugin_id
+        in _registry.get(
+            plugin_type,
+            {},
+        )
     )
 
 
@@ -317,7 +358,9 @@ def unregister_plugin(
         "plugin_id",
     )
 
-    category = _registry.get(plugin_type)
+    category = _registry.get(
+        plugin_type
+    )
 
     if category is None:
         return False
@@ -325,10 +368,14 @@ def unregister_plugin(
     if plugin_id not in category:
         return False
 
-    del category[plugin_id]
+    del category[
+        plugin_id
+    ]
 
     if not category:
-        del _registry[plugin_type]
+        del _registry[
+            plugin_type
+        ]
 
     return True
 
@@ -388,7 +435,8 @@ def get_registry_snapshot() -> Dict[
 
     return {
         plugin_type: dict(plugins)
-        for plugin_type, plugins in _registry.items()
+        for plugin_type, plugins
+        in _registry.items()
     }
 
 
