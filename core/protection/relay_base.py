@@ -306,6 +306,47 @@ class RelayBase(ABC):
             )
 
         # --------------------------------------------------------------
+        # Function name
+        # --------------------------------------------------------------
+
+        if not isinstance(
+            function_name,
+            str,
+        ):
+            raise TypeError(
+                "RelayBase function_name must be a string."
+            )
+
+        normalized_function_name = (
+            function_name.strip()
+        )
+
+        if not normalized_function_name:
+            normalized_function_name = (
+                normalized_function_code
+            )
+
+        # --------------------------------------------------------------
+        # Enabled / blocked state
+        # --------------------------------------------------------------
+
+        if not isinstance(
+            enabled,
+            bool,
+        ):
+            raise TypeError(
+                "RelayBase enabled must be a boolean."
+            )
+
+        if not isinstance(
+            blocked,
+            bool,
+        ):
+            raise TypeError(
+                "RelayBase blocked must be a boolean."
+            )
+
+        # --------------------------------------------------------------
         # Relay-input validation
         # --------------------------------------------------------------
 
@@ -313,6 +354,14 @@ class RelayBase(ABC):
             str,
             RelayInput,
         ] = {}
+
+        if relay_inputs is not None and not isinstance(
+            relay_inputs,
+            Mapping,
+        ):
+            raise TypeError(
+                "RelayBase relay_inputs must be a mapping."
+            )
 
         for name, relay_input in (
             dict(relay_inputs or {})
@@ -353,9 +402,61 @@ class RelayBase(ABC):
                     "must be a RelayInput."
                 )
 
+            if normalized_name in normalized_inputs:
+                raise ValueError(
+                    f"Duplicate normalized RelayBase input name "
+                    f"'{normalized_name}'."
+                )
+
             normalized_inputs[
                 normalized_name
             ] = relay_input
+
+        # --------------------------------------------------------------
+        # Function configuration validation
+        # --------------------------------------------------------------
+
+        if settings is not None and not isinstance(
+            settings,
+            Mapping,
+        ):
+            raise TypeError(
+                "RelayBase settings must be a mapping."
+            )
+
+        normalized_settings: dict[
+            str,
+            Any,
+        ] = {}
+
+        for name, value in dict(
+            settings or {}
+        ).items():
+
+            if not isinstance(
+                name,
+                str,
+            ):
+                raise TypeError(
+                    "RelayBase setting names must be strings."
+                )
+
+            normalized_name = name.strip()
+
+            if not normalized_name:
+                raise ValueError(
+                    "RelayBase setting names cannot be empty."
+                )
+
+            if normalized_name in normalized_settings:
+                raise ValueError(
+                    f"Duplicate normalized RelayBase setting "
+                    f"name '{normalized_name}'."
+                )
+
+            normalized_settings[
+                normalized_name
+            ] = value
 
         # --------------------------------------------------------------
         # Authoritative physical Relay reference
@@ -374,52 +475,27 @@ class RelayBase(ABC):
         )
 
         self.function_name = (
-            str(function_name).strip()
-            or normalized_function_code
+            normalized_function_name
         )
 
         # --------------------------------------------------------------
         # Local execution state
         # --------------------------------------------------------------
 
-        self.enabled = bool(
-            enabled
-        )
-
-        self.blocked = bool(
-            blocked
-        )
+        self.enabled = enabled
+        self.blocked = blocked
 
         # --------------------------------------------------------------
         # Function configuration
         # --------------------------------------------------------------
 
-        if settings is None:
-            self._settings: dict[
-                str,
-                Any,
-            ] = {}
-
-        elif not isinstance(
-            settings,
-            Mapping,
-        ):
-            raise TypeError(
-                "RelayBase settings must be a mapping."
-            )
-
-        else:
-            self._settings = dict(
-                settings
-            )
+        self._settings = normalized_settings
 
         # --------------------------------------------------------------
         # Measurement bindings
         # --------------------------------------------------------------
 
-        self._relay_inputs = (
-            normalized_inputs
-        )
+        self._relay_inputs = normalized_inputs
 
         # --------------------------------------------------------------
         # Transient execution state
@@ -670,6 +746,7 @@ class RelayBase(ABC):
         """
 
         missing: list[str] = []
+        seen: set[str] = set()
 
         for name in names:
 
@@ -687,6 +764,11 @@ class RelayBase(ABC):
                 raise ValueError(
                     "Protection input names cannot be empty."
                 )
+
+            if normalized_name in seen:
+                continue
+
+            seen.add(normalized_name)
 
             if normalized_name not in self._relay_inputs:
                 missing.append(
@@ -835,6 +917,9 @@ class RelayBase(ABC):
 
         Concrete protection functions should normally use this helper
         rather than constructing ProtectionDecision directly.
+
+        Decision-state validation remains the responsibility of
+        ProtectionDecision.
         """
 
         from .decision import ProtectionDecision
