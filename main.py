@@ -1,64 +1,99 @@
 """
-File: main.py
-Location: gridforge/main.py
+GridForge V2 — Application Entry Point
+=======================================
 
-Purpose:
-    Application entry point.
+File:
+    main.py
 
-Why this file exists:
-    Every Qt application requires:
-        1. QApplication instance
-        2. Main window creation
-        3. Event loop execution
+Purpose
+-------
+Application bootstrap entry point for GridForge.
 
-Responsibilities:
-    - Initialize QApplication
-    - Create MainWindow
-    - Launch UI
+Responsibilities
+----------------
+This module is responsible only for:
 
-Architecture Role:
-    Application Bootstrap Layer
+    1. Creating the QApplication instance.
+    2. Creating the MainWindow.
+    3. Showing the MainWindow.
+    4. Starting the Qt event loop.
 
-    This is NOT:
-    - Not UI logic
-    - Not business logic
-    - Not controller
+Architecture Role
+-----------------
+Application Bootstrap Layer
 
-Design Decisions:
-    - Keep minimal and clean
-    - No logic beyond startup
+This module does NOT:
+
+    - implement UI logic;
+    - own application/domain state;
+    - create the Controller;
+    - create tools;
+    - manage tool lifecycle;
+    - perform rendering;
+    - handle canvas input;
+    - perform electrical calculations;
+    - perform simulation;
+    - mutate the Core model.
+
+Qt Architecture
+---------------
+Qt access is routed through the GridForge Qt abstraction
+boundary:
+
+    ui.core.qt
+
+No direct PySide6/PyQt imports are used here.
 """
+
+from __future__ import annotations
 
 import sys
 
-from PySide6.QtWidgets import QApplication
+from ui.core.qt import QApplication
 from ui.main_window import MainWindow
 
 
-def main():
+def main() -> None:
     """
-    Application entry function.
+    Bootstrap and launch the GridForge application.
+
+    Application lifecycle:
+
+        QApplication
+             │
+             ▼
+        MainWindow
+             │
+             ▼
+        Qt Event Loop
     """
 
-    # --------------------------------------------------
-    # Create Qt Application
-    # --------------------------------------------------
+    # --------------------------------------------------------
+    # Create the Qt application.
+    # --------------------------------------------------------
+
     app = QApplication(sys.argv)
 
-    # --------------------------------------------------
-    # Create Main Window
-    # --------------------------------------------------
+    # --------------------------------------------------------
+    # Create the main application window.
+    #
+    # MainWindow is the composition boundary for the UI.
+    # --------------------------------------------------------
+
     window = MainWindow()
     window.show()
 
-    # --------------------------------------------------
-    # Start Event Loop
-    # --------------------------------------------------
+    # --------------------------------------------------------
+    # Start the Qt event loop.
+    # --------------------------------------------------------
+
     sys.exit(app.exec())
 
 
-# ------------------------------------------------------
-# Python Entry Guard
-# ------------------------------------------------------
 if __name__ == "__main__":
     main()
+
+
+__all__ = [
+    "main",
+]
