@@ -1,794 +1,509 @@
-```python
 """
-GridForge V2 Relay Input
-========================
+GridForge V2 Relay Input.
 
-File:
-    core/protection/relay_input.py
+File
+----
+core/protection/relay_input.py
 
 Purpose
 -------
-Defines the canonical GridForge V2 RelayInput abstraction.
+Defines the protection-facing binding between a protection function
+and an authoritative MeasurementChannel.
 
-RelayInput is the logical interface between the protection
-measurement architecture and protection functions.
+Architectural Position
+----------------------
 
-Architectural position
------------------------
-
-    CT / PT / CVT
-          |
-          v
+    Physical Instrument
+        |
+        v
+    Measurement Interface
+        |
+        v
     MeasurementChannel
-          |
-          v
-       RelayInput
-          |
-          +-------------------------------+
-          |               |               |
-          v               v               v
-      50/51/67         21/27/59          87
-    Overcurrent         Voltage       Differential
+        |
+        v
+    RelayInput
+        |
+        v
+    Protection Function
+        |
+        v
+    ProtectionDecision
 
-RelayInput is NOT a physical measurement device.
+MeasurementChannel is authoritative for the logical measurement.
 
-It is a logical consumer-facing binding to an existing
-MeasurementChannel.
-
-Design principles
------------------
-1. MeasurementChannel owns the measurement signal.
-2. RelayInput references the channel; it does not duplicate it.
-3. Multiple protection functions may consume the same input.
-4. One multifunction relay may contain many RelayInputs.
-5. Protection functions must consume signals through this
-   abstraction rather than directly accessing CT/PT/CVT objects.
-6. Invalid or unavailable measurements must be detectable before
-   protection algorithms consume them.
+RelayInput does not duplicate measurement state and does not perform
+measurement conversion.
 
 Responsibilities
-----------------
-RelayInput provides:
+-----------------
+RelayInput:
 
-- input identity;
-- logical name;
-- functional role;
-- MeasurementChannel association;
-- expected signal type;
-- expected phase;
-- enable/disable state;
-- signal access;
-- quality access;
-- availability access;
-- validity checking;
-- diagnostic status.
+    * identifies a named protection input
+    * references one MeasurementChannel
+    * exposes the channel's engineering value
+    * exposes channel availability and quality
+    * exposes measurement metadata required by protection functions
+    * provides a stable protection-facing binding
 
 RelayInput does NOT:
 
-- create MeasurementChannel objects;
-- create CT/PT/CVT objects;
-- simulate instruments;
-- calculate protection quantities;
-- perform relay logic;
-- coordinate relays;
-- operate breakers;
-- modify network topology;
-- own global protection state.
+    * model CT/PT/CVT equipment
+    * calculate CT/PT/CVT ratios
+    * perform scaling
+    * perform polarity transformation
+    * simulate measurements
+    * own measurement state
+    * implement protection logic
+    * operate breakers
+    * modify network topology
+    * contain GUI state
+    * perform persistence
 
-Multifunction relay support
----------------------------
+The authoritative measurement implementation is:
 
-A single relay may contain:
-
-    Ia
-    Ib
-    Ic
-    In
-    Va
-    Vb
-    Vc
-    Vn
-    V1
-    I1
-    I2
-    I0
-    V0
-
-These logical inputs may then be shared by multiple protection
-functions.
-
-Example:
-
-    Ia/Ib/Ic
-        |
-        +----> 50/51
-        |
-        +----> 67
-        |
-        +----> 87
-        |
-        +----> fault recording
-
-Likewise:
-
-    Va/Vb/Vc + Ia/Ib/Ic
-        |
-        +----> 21 Distance
-        |
-        +----> 67 Directional
-        |
-        +----> 27/59 Voltage
-        |
-        +----> 81 Frequency
-
-No protection function should create another copy of the
-measurement.
-
-Future architecture
---------------------
-This contract is intentionally suitable for future support of:
-
-- instantaneous signals;
-- RMS signals;
-- phasors;
-- sequence components;
-- frequency;
-- power;
-- impedance;
-- digital/binary signals;
-- sampled values;
-- simulation-time measurements;
-- event timestamps;
-- signal-quality states;
-- redundant measurement channels;
-- measurement selection logic.
-
-The RelayInput itself remains a logical binding and should not
-become a measurement-processing engine.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
-Proprietary and confidential.
+    core/measurement/measurement_channel.py
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from types import MappingProxyType
+from typing import Any, TYPE_CHECKING, Mapping
 
-from .measurement_channel import (
-    MeasurementChannel,
-    MeasurementPhase,
-    MeasurementQuality,
-    MeasurementSignalType,
-)
-
-
-# =====================================================================
-# RELAY INPUT
-# =====================================================================
+if TYPE_CHECKING:
+    from core.measurement.measurement_channel import (
+        MeasurementChannel,
+    )
 
 
 class RelayInput:
     """
-    Canonical GridForge V2 logical protection input.
+    Protection-facing binding to one MeasurementChannel.
 
-    Parameters
-    ----------
-    id:
-        Unique RelayInput identifier.
+    A RelayInput is intentionally a lightweight reference object.
 
-    channel:
-        Existing MeasurementChannel consumed by this input.
+    Examples
+    --------
+    A 50/51 function may receive:
 
-    name:
-        Human-readable input name.
+        IA -> MeasurementChannel
+        IB -> MeasurementChannel
+        IC -> MeasurementChannel
 
-    role:
-        Functional role of the input.
+    A voltage function may receive:
 
-        Examples:
+        VA -> MeasurementChannel
 
-            PHASE_A_CURRENT
-            PHASE_B_CURRENT
-            PHASE_C_CURRENT
-            RESIDUAL_CURRENT
-            PHASE_A_VOLTAGE
-            POSITIVE_SEQUENCE_CURRENT
-            POSITIVE_SEQUENCE_VOLTAGE
-            ZERO_SEQUENCE_CURRENT
-            ZERO_SEQUENCE_VOLTAGE
+    A frequency function may receive:
 
-    expected_signal_type:
-        Optional expected signal classification.
+        FREQ -> MeasurementChannel
 
-    expected_phase:
-        Optional expected phase/sequence classification.
-
-    enabled:
-        Whether this logical input is enabled.
-
-    Notes
-    -----
-    RelayInput stores only a reference to the authoritative
-    MeasurementChannel.
-
-    It does not maintain a second measurement value.
+    The protection function consumes RelayInput rather than reaching
+    directly into CT/PT/CVT implementation details.
     """
-
-    # =================================================================
-    # INITIALIZATION
-    # =================================================================
 
     def __init__(
         self,
-        id: str,
+        name: str,
         channel: MeasurementChannel,
         *,
-        name: str = "",
-        role: str = "",
-        expected_signal_type: Optional[
-            MeasurementSignalType
-        ] = None,
-        expected_phase: Optional[
-            MeasurementPhase
-        ] = None,
-        enabled: bool = True,
-    ) -> None:
-
-        self._validate_id(id)
-
-        if not isinstance(
-            channel,
-            MeasurementChannel,
-        ):
-            raise TypeError(
-                "channel must be a MeasurementChannel."
-            )
-
-        if not isinstance(
-            name,
-            str,
-        ):
-            raise TypeError(
-                "name must be a string."
-            )
-
-        if not isinstance(
-            role,
-            str,
-        ):
-            raise TypeError(
-                "role must be a string."
-            )
-
-        if (
-            expected_signal_type is not None
-            and not isinstance(
-                expected_signal_type,
-                MeasurementSignalType,
-            )
-        ):
-            raise TypeError(
-                "expected_signal_type must be a "
-                "MeasurementSignalType or None."
-            )
-
-        if (
-            expected_phase is not None
-            and not isinstance(
-                expected_phase,
-                MeasurementPhase,
-            )
-        ):
-            raise TypeError(
-                "expected_phase must be a "
-                "MeasurementPhase or None."
-            )
-
-        self.id = id
-        self.name = name
-        self.role = role
-
-        # -------------------------------------------------------------
-        # Authoritative measurement reference
-        # -------------------------------------------------------------
-
-        self.channel = channel
-
-        self.expected_signal_type = (
-            expected_signal_type
-        )
-
-        self.expected_phase = (
-            expected_phase
-        )
-
-        self.enabled = bool(
-            enabled
-        )
-
-    # =================================================================
-    # VALIDATION
-    # =================================================================
-
-    @staticmethod
-    def _validate_id(
-        value: str,
+        description: str = "",
+        required: bool = True,
+        metadata: Mapping[str, Any] | None = None,
     ) -> None:
         """
-        Validate RelayInput identity.
-        """
-
-        if not isinstance(
-            value,
-            str,
-        ):
-            raise TypeError(
-                "RelayInput id must be a string."
-            )
-
-        if not value.strip():
-            raise ValueError(
-                "RelayInput id cannot be empty."
-            )
-
-    # =================================================================
-    # CHANNEL
-    # =================================================================
-
-    @property
-    def measurement_channel(
-        self,
-    ) -> MeasurementChannel:
-        """
-        Return the authoritative MeasurementChannel.
-        """
-
-        return self.channel
-
-    # -----------------------------------------------------------------
-
-    @property
-    def channel_id(
-        self,
-    ) -> str:
-        """
-        Return the associated measurement-channel ID.
-        """
-
-        return self.channel.id
-
-    # =================================================================
-    # SIGNAL CLASSIFICATION
-    # =================================================================
-
-    @property
-    def signal_type(
-        self,
-    ) -> MeasurementSignalType:
-        """
-        Return the actual signal type supplied by the channel.
-        """
-
-        return self.channel.signal_type
-
-    # -----------------------------------------------------------------
-
-    @property
-    def phase(
-        self,
-    ) -> MeasurementPhase:
-        """
-        Return the actual phase or sequence designation.
-        """
-
-        return self.channel.phase
-
-    # -----------------------------------------------------------------
-
-    @property
-    def unit(
-        self,
-    ) -> str:
-        """
-        Return the engineering unit.
-        """
-
-        return self.channel.unit
-
-    # =================================================================
-    # SIGNAL VALUE
-    # =================================================================
-
-    @property
-    def value(
-        self,
-    ) -> float | complex:
-        """
-        Return the channel's stored value.
-
-        This is a direct view of MeasurementChannel state.
-        """
-
-        return self.channel.value
-
-    # -----------------------------------------------------------------
-
-    @property
-    def engineering_value(
-        self,
-    ) -> float | complex:
-        """
-        Return the engineering-domain channel value.
-
-        Scaling and polarity are resolved by MeasurementChannel.
-        """
-
-        return self.channel.engineering_value
-
-    # -----------------------------------------------------------------
-
-    def read(
-        self,
-        *,
-        require_valid: bool = True,
-    ) -> float | complex:
-        """
-        Read the current engineering signal.
+        Create a protection input binding.
 
         Parameters
         ----------
-        require_valid:
-            If True, the input must be enabled and the associated
-            channel must be available with GOOD quality.
+        name:
+            Function-local input name.
 
-        Returns
-        -------
-        float | complex
-            Current engineering value.
+            Examples:
+                IA
+                IB
+                IC
+                IN
+                VA
+                VB
+                VC
+                FREQ
+                P
+                Q
+
+        channel:
+            Authoritative MeasurementChannel providing the signal.
+
+        description:
+            Optional human-readable description.
+
+        required:
+            Whether the input is required by the consuming protection
+            function.
+
+        metadata:
+            Optional non-authoritative input metadata.
         """
 
-        if require_valid:
-            self.require_valid()
-        else:
-            self.validate_contract()
+        if not isinstance(name, str):
+            raise TypeError(
+                "RelayInput name must be a string."
+            )
 
-        return self.engineering_value
+        name = name.strip()
 
-    # =================================================================
-    # QUALITY / AVAILABILITY
-    # =================================================================
+        if not name:
+            raise ValueError(
+                "RelayInput name cannot be empty."
+            )
 
-    @property
-    def available(
-        self,
-    ) -> bool:
-        """
-        Return channel availability.
-        """
+        if channel is None:
+            raise ValueError(
+                f"RelayInput '{name}' requires a "
+                "MeasurementChannel."
+            )
 
-        return bool(
-            self.channel.available
+        # Avoid importing the concrete MeasurementChannel at runtime
+        # solely for type checking. The authoritative object contract
+        # is nevertheless explicitly defined in:
+        #
+        #     core.measurement.measurement_channel
+        #
+        # A runtime structural check is used only for a clear failure
+        # message if an incompatible object is supplied.
+        required_attributes = (
+            "id",
+            "engineering_value",
+            "available",
+            "quality",
+            "is_usable",
+            "validity",
         )
 
-    # -----------------------------------------------------------------
+        missing = [
+            attribute
+            for attribute in required_attributes
+            if not hasattr(channel, attribute)
+        ]
+
+        if missing:
+            raise TypeError(
+                f"RelayInput '{name}' requires a "
+                "MeasurementChannel-compatible object; "
+                f"missing attributes: {missing}."
+            )
+
+        self.name = name
+        self.channel = channel
+        self.description = str(description).strip()
+        self.required = bool(required)
+
+        self._metadata = dict(
+            metadata or {}
+        )
+
+    # ==================================================================
+    # IDENTITY
+    # ==================================================================
 
     @property
-    def quality(
-        self,
-    ) -> MeasurementQuality:
+    def id(self) -> str:
         """
-        Return channel signal quality.
-        """
+        Return the input identity within its consuming protection
+        function.
 
+        RelayInput identity is deliberately separate from the
+        MeasurementChannel identity.
+        """
+        return self.name
+
+    @property
+    def channel_id(self) -> str:
+        """
+        Return the authoritative MeasurementChannel identity.
+        """
+        return self.channel.id
+
+    # ==================================================================
+    # CHANNEL
+    # ==================================================================
+
+    @property
+    def measurement_channel(self) -> MeasurementChannel:
+        """
+        Return the authoritative MeasurementChannel.
+
+        This property makes the architectural relationship explicit
+        without copying channel state.
+        """
+        return self.channel
+
+    # ==================================================================
+    # VALUE
+    # ==================================================================
+
+    @property
+    def value(self) -> float | complex:
+        """
+        Return the current engineering value.
+
+        MeasurementChannel is authoritative for scaling and polarity.
+        """
+        return self.channel.engineering_value
+
+    @property
+    def engineering_value(self) -> float | complex:
+        """
+        Return the current engineering value.
+
+        This is the preferred semantic property for protection code.
+        """
+        return self.channel.engineering_value
+
+    @property
+    def signal(self) -> float | complex:
+        """
+        Return the current engineering signal.
+
+        Delegates directly to MeasurementChannel.signal.
+        """
+        return self.channel.signal
+
+    # ==================================================================
+    # SIGNAL INFORMATION
+    # ==================================================================
+
+    @property
+    def signal_type(self) -> Any:
+        """
+        Return the MeasurementChannel signal type.
+        """
+        return self.channel.signal_type
+
+    @property
+    def phase(self) -> Any:
+        """
+        Return the MeasurementChannel phase/sequence designation.
+        """
+        return self.channel.phase
+
+    @property
+    def unit(self) -> str:
+        """
+        Return the engineering unit of the measurement.
+        """
+        return self.channel.unit
+
+    @property
+    def nominal_value(self) -> float:
+        """
+        Return the channel nominal engineering magnitude.
+        """
+        return self.channel.nominal_value
+
+    # ==================================================================
+    # QUALITY / AVAILABILITY
+    # ==================================================================
+
+    @property
+    def available(self) -> bool:
+        """
+        Return whether the logical measurement path is available.
+        """
+        return self.channel.available
+
+    @property
+    def quality(self) -> Any:
+        """
+        Return the current MeasurementQuality.
+        """
         return self.channel.quality
 
-    # -----------------------------------------------------------------
+    @property
+    def usable(self) -> bool:
+        """
+        Return whether the channel currently provides a usable
+        measurement.
+
+        This delegates to the authoritative MeasurementChannel
+        usability contract.
+        """
+        return self.channel.is_usable
 
     @property
-    def is_valid(
+    def valid(self) -> bool:
+        """
+        Return basic measurement validity.
+
+        This delegates to MeasurementChannel.is_valid.
+        """
+        return self.channel.is_valid
+
+    def validity(
         self,
-    ) -> bool:
-        """
-        Return whether this input currently provides a valid signal.
-        """
-
-        return (
-            self.enabled
-            and self.channel.available
-            and self.channel.quality
-            == MeasurementQuality.GOOD
-        )
-
-    # -----------------------------------------------------------------
-
-    @property
-    def is_usable(
-        self,
-    ) -> bool:
-        """
-        Protection-consumer-facing validity alias.
-        """
-
-        return self.is_valid
-
-    # =================================================================
-    # TIME
-    # =================================================================
-
-    @property
-    def timestamp(
-        self,
-    ) -> Optional[float]:
-        """
-        Return the source measurement timestamp.
-        """
-
-        return self.channel.timestamp
-
-    # =================================================================
-    # SOURCE
-    # =================================================================
-
-    @property
-    def source(
-        self,
+        *,
+        current_time: float | None = None,
     ) -> Any:
         """
-        Return the associated physical measurement source.
-        """
+        Return the authoritative MeasurementValidity state.
 
+        ``current_time`` is supplied by the protection execution
+        context when staleness evaluation is required.
+
+        RelayInput does not maintain its own clock or validity state.
+        """
+        return self.channel.validity(
+            current_time=current_time,
+        )
+
+    def is_valid_at(
+        self,
+        current_time: float | None = None,
+    ) -> bool:
+        """
+        Return whether the measurement is valid at a specified time.
+        """
+        return self.channel.is_valid_at(
+            current_time,
+        )
+
+    # ==================================================================
+    # SOURCE INFORMATION
+    # ==================================================================
+
+    @property
+    def source(self) -> Any:
+        """
+        Return the channel's measurement source reference.
+        """
         return self.channel.source
 
-    # -----------------------------------------------------------------
-
     @property
-    def source_id(
-        self,
-    ) -> Optional[str]:
+    def source_id(self) -> str | None:
         """
-        Return source equipment ID.
+        Return the source equipment identifier, if available.
         """
-
         return self.channel.source_id
 
-    # -----------------------------------------------------------------
-
     @property
-    def source_terminal(
-        self,
-    ) -> Any:
+    def source_terminal(self) -> Any:
         """
-        Return the associated source terminal.
+        Return the channel's source-terminal reference.
         """
-
         return self.channel.source_terminal
 
-    # -----------------------------------------------------------------
-
     @property
-    def source_terminal_id(
-        self,
-    ) -> Optional[str]:
+    def source_terminal_id(self) -> str | None:
         """
-        Return source-terminal ID.
+        Return the source-terminal identifier, if available.
         """
-
         return self.channel.source_terminal_id
 
-    # =================================================================
-    # CONTRACT VALIDATION
-    # =================================================================
+    # ==================================================================
+    # TIME / SAMPLE INFORMATION
+    # ==================================================================
 
-    def validate_contract(
-        self,
-    ) -> None:
+    @property
+    def timestamp(self) -> float | None:
         """
-        Validate the configured RelayInput contract.
-
-        This checks configuration compatibility only.
-
-        It does not require the signal to currently be available.
+        Return the channel's latest sample timestamp.
         """
+        return self.channel.timestamp
 
-        if (
-            self.expected_signal_type is not None
-            and self.signal_type
-            != self.expected_signal_type
-        ):
-            raise ValueError(
-                f"RelayInput '{self.id}' expects signal type "
-                f"'{self.expected_signal_type.value}', but channel "
-                f"'{self.channel_id}' provides "
-                f"'{self.signal_type.value}'."
-            )
-
-        if (
-            self.expected_phase is not None
-            and self.phase
-            != self.expected_phase
-        ):
-            raise ValueError(
-                f"RelayInput '{self.id}' expects phase "
-                f"'{self.expected_phase.value}', but channel "
-                f"'{self.channel_id}' provides "
-                f"'{self.phase.value}'."
-            )
-
-    # -----------------------------------------------------------------
-
-    def require_valid(
-        self,
-    ) -> None:
+    @property
+    def sample_sequence(self) -> int | None:
         """
-        Require this input to be usable by a protection function.
+        Return the channel's latest sample/update sequence number.
         """
+        return self.channel.sample_sequence
 
-        self.validate_contract()
+    # ==================================================================
+    # METADATA
+    # ==================================================================
 
-        if not self.enabled:
-            raise RuntimeError(
-                f"RelayInput '{self.id}' is disabled."
-            )
-
-        if not self.channel.available:
-            raise RuntimeError(
-                f"MeasurementChannel '{self.channel_id}' "
-                "is unavailable."
-            )
-
-        if (
-            self.channel.quality
-            != MeasurementQuality.GOOD
-        ):
-            raise RuntimeError(
-                f"MeasurementChannel '{self.channel_id}' "
-                f"has quality "
-                f"'{self.channel.quality.value}'."
-            )
-
-    # =================================================================
-    # CONFIGURATION
-    # =================================================================
-
-    def set_enabled(
-        self,
-        enabled: bool,
-    ) -> None:
+    @property
+    def metadata(self) -> Mapping[str, Any]:
         """
-        Enable or disable this logical input.
+        Return read-only input metadata.
 
-        The associated MeasurementChannel is not modified.
+        Metadata is descriptive information and is not authoritative
+        measurement state.
         """
-
-        self.enabled = bool(
-            enabled
+        return MappingProxyType(
+            self._metadata
         )
 
-    # -----------------------------------------------------------------
-
-    def set_channel(
-        self,
-        channel: MeasurementChannel,
-    ) -> None:
-        """
-        Replace the associated MeasurementChannel.
-
-        The replacement must satisfy the configured contract.
-        """
-
-        if not isinstance(
-            channel,
-            MeasurementChannel,
-        ):
-            raise TypeError(
-                "channel must be a MeasurementChannel."
-            )
-
-        old_channel = self.channel
-
-        self.channel = channel
-
-        try:
-            self.validate_contract()
-        except Exception:
-            self.channel = old_channel
-            raise
-
-    # =================================================================
+    # ==================================================================
     # DIAGNOSTICS
-    # =================================================================
+    # ==================================================================
 
     def status(
         self,
+        *,
+        current_time: float | None = None,
     ) -> dict[str, Any]:
         """
-        Return structured RelayInput diagnostic information.
+        Return diagnostic information for this RelayInput.
 
-        Measurement state is obtained from the authoritative
-        MeasurementChannel at call time.
+        This is intended for inspection and diagnostics, not as the
+        authoritative persistence representation.
         """
+
+        validity = self.validity(
+            current_time=current_time,
+        )
 
         return {
             "id": self.id,
             "name": self.name,
-            "role": self.role,
-            "enabled": self.enabled,
-
+            "description": self.description,
+            "required": self.required,
             "channel_id": self.channel_id,
-
             "signal_type": (
-                self.signal_type.value
+                self.channel.signal_type.value
             ),
-
             "phase": (
-                self.phase.value
+                self.channel.phase.value
             ),
-
-            "expected_signal_type": (
-                self.expected_signal_type.value
-                if self.expected_signal_type is not None
-                else None
-            ),
-
-            "expected_phase": (
-                self.expected_phase.value
-                if self.expected_phase is not None
-                else None
-            ),
-
             "unit": self.unit,
-
-            "value": self.value,
-
+            "nominal_value": self.nominal_value,
             "engineering_value": (
                 self.engineering_value
+                if self.available
+                else None
             ),
-
             "available": self.available,
-
-            "quality": (
-                self.quality.value
-            ),
-
-            "usable": self.is_usable,
-
+            "quality": self.quality.value,
+            "valid": self.valid,
+            "usable": self.usable,
+            "validity": validity.value,
             "timestamp": self.timestamp,
-
-            "source": self.source_id,
-
-            "source_terminal": (
+            "sample_sequence": self.sample_sequence,
+            "source_id": self.source_id,
+            "source_terminal_id": (
                 self.source_terminal_id
             ),
+            "metadata": dict(self._metadata),
         }
 
-    # =================================================================
+    # ==================================================================
     # REPRESENTATION
-    # =================================================================
+    # ==================================================================
 
-    def __repr__(
-        self,
-    ) -> str:
+    def __repr__(self) -> str:
         """
-        Return concise developer-facing representation.
+        Return a concise developer-facing representation.
         """
 
         return (
             f"<RelayInput "
-            f"id={self.id}, "
-            f"role={self.role!r}, "
-            f"channel={self.channel_id}, "
-            f"type={self.signal_type.value}, "
-            f"phase={self.phase.value}, "
-            f"enabled={self.enabled}>"
+            f"name={self.name!r}, "
+            f"channel={self.channel_id!r}, "
+            f"value={self.engineering_value!r}, "
+            f"usable={self.usable}>"
         )
 
-
-# =====================================================================
-# PUBLIC API
-# =====================================================================
 
 __all__ = [
     "RelayInput",
 ]
-```
