@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
-    from .measurement_channel import MeasurementChannel
+    from core.measurement.measurement_channel import MeasurementChannel
 
 
 @dataclass(frozen=True, slots=True)
