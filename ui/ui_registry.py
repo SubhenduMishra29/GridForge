@@ -177,7 +177,11 @@ def build_ui(
         # Validate build contract
         # ----------------------------------------------------
 
-        build = getattr(plugin, "build", None)
+        build = getattr(
+            plugin,
+            "build",
+            None,
+        )
 
         if not callable(build):
             raise TypeError(
