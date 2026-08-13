@@ -15,6 +15,7 @@ It is responsible for:
     - receiving raw Qt input events;
     - forwarding input to InteractionManager;
     - enabling mouse tracking;
+    - receiving keyboard focus;
     - exposing the scene through a stable accessor;
     - providing the future boundary for navigation behavior.
 
@@ -68,6 +69,8 @@ from ui.core.qt import (
     Qt,
 )
 
+from ui.canvas.interaction_manager import InteractionManager
+
 
 class GraphicsView(QGraphicsView):
     """
@@ -106,9 +109,7 @@ class GraphicsView(QGraphicsView):
                 "controller must not be None."
             )
 
-        super().__init__(
-            parent
-        )
+        super().__init__(parent)
 
         self.controller = controller
 
@@ -122,13 +123,9 @@ class GraphicsView(QGraphicsView):
         # authoritative electrical model.
         # ----------------------------------------------------
 
-        self._scene = QGraphicsScene(
-            self
-        )
+        self._scene = QGraphicsScene(self)
 
-        self.setScene(
-            self._scene
-        )
+        self.setScene(self._scene)
 
         # ----------------------------------------------------
         # Interaction system
@@ -138,31 +135,51 @@ class GraphicsView(QGraphicsView):
         # PreviewLayer, SnapSystem and ToolManager.
         # ----------------------------------------------------
 
-        from ui.canvas.interaction_manager import (
-            InteractionManager,
-        )
-
-        self.interaction_manager = (
-            InteractionManager(
-                self,
-                controller,
-            )
+        self.interaction_manager = InteractionManager(
+            self,
+            controller,
         )
 
         # ----------------------------------------------------
-        # View configuration
+        # Mouse tracking
+        # ----------------------------------------------------
+        #
+        # Required for:
+        #
+        #     - cursor tracking
+        #     - snapping
+        #     - placement previews
+        #     - line previews
+        #
+        # MouseMove events must therefore arrive even when no
+        # mouse button is pressed.
         # ----------------------------------------------------
 
-        # Mouse move events must be generated even when no
-        # mouse button is pressed. This is required for cursor
-        # tracking, snapping and placement previews.
-        self.setMouseTracking(
-            True
+        self.setMouseTracking(True)
+
+        # ----------------------------------------------------
+        # Keyboard focus
+        # ----------------------------------------------------
+        #
+        # InteractionManager centrally handles keyboard input,
+        # including ESC cancellation.
+        #
+        # The view must therefore be capable of receiving
+        # keyboard focus.
+        # ----------------------------------------------------
+
+        self.setFocusPolicy(
+            Qt.StrongFocus
         )
 
-        # Scrollbars are deliberately disabled because canvas
-        # navigation is expected to be handled by the future
-        # NavigationController rather than by visible scrollbars.
+        # ----------------------------------------------------
+        # Scrollbars
+        # ----------------------------------------------------
+        #
+        # Canvas navigation is a separate architectural concern.
+        # Visible scrollbars are therefore disabled.
+        # ----------------------------------------------------
+
         self.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff
         )
@@ -182,13 +199,15 @@ class GraphicsView(QGraphicsView):
         """
         Forward mouse-press events to InteractionManager.
 
-        The InteractionManager is the canvas interaction boundary.
-
-        The base QGraphicsView is intentionally not invoked after
-        routing because the active tool owns interpretation of the
-        interaction. This prevents Qt's default scene interaction
-        from competing with GridForge's tool system.
+        The active GridForge tool owns interpretation of the
+        interaction. Qt's default scene interaction is therefore
+        not invoked here.
         """
+
+        # Ensure the canvas receives subsequent keyboard input.
+        self.setFocus(
+            Qt.MouseFocusReason
+        )
 
         self.interaction_manager.mouse_press(
             event
@@ -234,14 +253,11 @@ class GraphicsView(QGraphicsView):
         Forward keyboard-press events to InteractionManager.
 
         If the interaction layer does not consume the event,
-        normal QGraphicsView keyboard handling is allowed to
-        process it.
+        normal QGraphicsView keyboard handling is allowed.
         """
 
-        handled = (
-            self.interaction_manager.key_press(
-                event
-            )
+        handled = self.interaction_manager.key_press(
+            event
         )
 
         if not handled:
@@ -262,10 +278,8 @@ class GraphicsView(QGraphicsView):
         normal QGraphicsView keyboard handling is allowed.
         """
 
-        handled = (
-            self.interaction_manager.key_release(
-                event
-            )
+        handled = self.interaction_manager.key_release(
+            event
         )
 
         if not handled:
@@ -283,9 +297,7 @@ class GraphicsView(QGraphicsView):
         """
         Return the canvas QGraphicsScene.
 
-        This explicit accessor keeps scene ownership inside
-        GraphicsView while providing a stable API to the other
-        canvas subsystems.
+        GraphicsView remains the owner of the scene container.
         """
 
         return self._scene
@@ -296,7 +308,7 @@ class GraphicsView(QGraphicsView):
 
     def get_interaction_manager(
         self,
-    ) -> Any:
+    ) -> InteractionManager:
         """
         Return the canvas InteractionManager.
         """
@@ -332,19 +344,32 @@ class GraphicsView(QGraphicsView):
 
         return {
             "scene": self._scene is not None,
-            "scene_item_count": (
-                len(
-                    self._scene.items()
-                )
+            "scene_item_count": len(
+                self._scene.items()
             ),
-            "mouse_tracking": (
-                self.hasMouseTracking()
-            ),
+            "mouse_tracking": self.hasMouseTracking(),
+            "focus_policy": self.focusPolicy(),
             "interaction_manager": (
-                self.interaction_manager
-                is not None
+                self.interaction_manager is not None
             ),
         }
+
+    # ========================================================
+    # CLEANUP
+    # ========================================================
+
+    def dispose(
+        self,
+    ) -> None:
+        """
+        Release transient interaction resources.
+
+        GraphicsView does not own the Controller or Core model,
+        so neither is modified or destroyed here.
+        """
+
+        if self.interaction_manager is not None:
+            self.interaction_manager.dispose()
 
     # ========================================================
     # REPRESENTATION
