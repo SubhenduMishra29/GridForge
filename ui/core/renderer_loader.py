@@ -1,205 +1,265 @@
+# ============================================================
+# File: ui/core/renderer_loader.py
+# GridForge Renderer Loader
+# ============================================================
+
 """
-GridForge V2 — Renderer Loader
-==============================
+Automatic renderer-plugin discovery and registration.
 
-File:
-    ui/core/renderer_loader.py
+Architecture
+------------
 
-Purpose
--------
-Discovers renderer implementations from a Python package and
-registers them with a RendererRegistry.
+    ui.renderers/
+          │
+          ├── bus_renderer.py
+          ├── line_renderer.py
+          ├── ...
+          │
+          ▼
+    RendererLoader
+          │
+          ▼
+    RendererRegistry
+          │
+          ▼
+    RenderSystem
 
-The loader is responsible for:
 
-    1. importing the renderer package;
-    2. discovering its Python modules;
-    3. importing those modules;
-    4. identifying valid renderer classes;
-    5. registering those classes with RendererRegistry.
+Responsibilities
+----------------
+RendererLoader:
 
-The loader does not:
+    - discovers renderer modules
+    - imports renderer modules
+    - identifies renderer classes
+    - validates the renderer contract
+    - registers renderer classes in RendererRegistry
 
-    - instantiate renderers;
-    - create QGraphicsItems;
-    - modify the Core model;
-    - perform rendering;
-    - depend on Qt.
+RendererLoader does NOT:
 
-Renderer Contract
------------------
-A renderer class discovered by this loader must provide:
+    - create QGraphicsItems
+    - create renderer instances
+    - modify the Core model
+    - own a QGraphicsScene
+    - perform rendering
+    - implement renderer behavior
+    - contain individual renderer implementations
+
+
+Renderer plugin contract
+------------------------
+
+Every renderer class must provide:
 
     model_type = <Core model class>
 
-and:
+    create_item(element, controller)
 
-    create_item(...)
+The create_item member must be callable.
 
-The renderer registry stores the renderer class. Renderer
-lifecycle and invocation belong to RenderSystem.
+A renderer may optionally provide:
 
-Architectural Contract
-----------------------
-    Renderer Package
-          |
-          v
-    RendererLoader
-          |
-          v
-    RendererRegistry
-          |
-          v
-    RenderSystem
-          |
-          v
-    Renderer
-          |
-          v
-    QGraphicsItem
+    update_item(item, element, controller)
+
+RenderSystem is responsible for invoking that optional update
+contract.
+
+Important
+---------
+
+The loader deliberately does not import individual renderer
+classes directly.
+
+Importing the renderer module causes the class definitions to
+become available, after which the loader inspects only classes
+defined by that module.
+
+Discovery is deterministic.
+
+Registration errors are NOT silently converted into successful
+loads. A duplicate renderer registration is an architectural
+configuration error and must propagate to the caller.
 """
 
 from __future__ import annotations
 
 import importlib
 import inspect
-import pkgutil
-from types import ModuleType
-from typing import Any, List
+import os
+from typing import List, Optional, Type, Any
 
 
-DEFAULT_RENDERER_PACKAGE = "ui.renderers"
+# ============================================================
+# INTERNAL HELPERS
+# ============================================================
+
+def _package_directory(
+    package: str,
+) -> str:
+    """
+    Convert a Python package path into a filesystem directory.
+
+    Example
+    -------
+
+        ui.renderers
+            ↓
+        ui/renderers
+    """
+
+    return package.replace(
+        ".",
+        os.sep,
+    )
 
 
-def _discover_modules(
+# ------------------------------------------------------------
+
+def _discover_module_names(
     package: str,
 ) -> List[str]:
     """
-    Discover Python modules contained by a renderer package.
+    Discover Python modules contained directly in a package.
 
-    The returned module names are deterministic.
+    Private modules and __init__.py are ignored.
+
+    Returned module names are sorted to guarantee deterministic
+    discovery order.
     """
 
-    try:
-        package_module = importlib.import_module(package)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to import renderer package '{package}'"
-        ) from exc
+    package_path = _package_directory(
+        package
+    )
 
-    package_path = getattr(
-        package_module,
-        "__path__",
+    if not os.path.isdir(package_path):
+        return []
+
+    module_names = []
+
+    for filename in os.listdir(
+        package_path
+    ):
+
+        if not filename.endswith(".py"):
+            continue
+
+        if filename.startswith("_"):
+            continue
+
+        module_names.append(
+            filename[:-3]
+        )
+
+    return sorted(
+        module_names
+    )
+
+
+# ------------------------------------------------------------
+
+def _is_renderer_class(
+    obj: Any,
+    module_name: str,
+) -> bool:
+    """
+    Determine whether an inspected class satisfies the GridForge
+    renderer-plugin contract.
+
+    Only classes defined by the inspected module are accepted.
+
+    Required:
+
+        model_type
+        create_item(...)
+    """
+
+    if not inspect.isclass(obj):
+        return False
+
+    # --------------------------------------------------------
+    # Do not accidentally register imported classes.
+    # --------------------------------------------------------
+
+    if obj.__module__ != module_name:
+        return False
+
+    # --------------------------------------------------------
+    # Renderer must declare the model type.
+    # --------------------------------------------------------
+
+    model_type = getattr(
+        obj,
+        "model_type",
         None,
     )
 
-    if package_path is None:
-        raise TypeError(
-            f"Renderer package '{package}' is not a package"
-        )
+    if not isinstance(
+        model_type,
+        type,
+    ):
+        return False
 
-    module_names = [
-        module_info.name
-        for module_info in pkgutil.iter_modules(
-            package_path
-        )
-        if not module_info.name.startswith("_")
-    ]
+    # --------------------------------------------------------
+    # Renderer must provide a callable create_item().
+    # --------------------------------------------------------
 
-    module_names.sort()
+    create_item = getattr(
+        obj,
+        "create_item",
+        None,
+    )
 
-    return module_names
+    if not callable(
+        create_item
+    ):
+        return False
+
+    return True
 
 
-def _import_renderer_modules(
-    package: str,
-) -> List[ModuleType]:
+# ------------------------------------------------------------
+
+def _renderer_classes(
+    module: Any,
+    module_name: str,
+) -> List[Type[Any]]:
     """
-    Import all renderer modules from a package.
+    Return renderer classes defined by a module.
 
-    Import failures are propagated because a renderer module
-    failure represents an invalid UI configuration.
-    """
-
-    modules: List[ModuleType] = []
-
-    for module_name in _discover_modules(package):
-
-        full_module_name = (
-            f"{package}.{module_name}"
-        )
-
-        try:
-            module = importlib.import_module(
-                full_module_name
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                "Failed to import renderer module "
-                f"'{full_module_name}'"
-            ) from exc
-
-        modules.append(module)
-
-    return modules
-
-
-def _find_renderers(
-    module: ModuleType,
-) -> List[type]:
-    """
-    Find valid renderer classes defined directly in a module.
-
-    A valid renderer must:
-
-        - be a class;
-        - be defined by the inspected module;
-        - expose a model_type class attribute;
-        - expose a callable create_item attribute.
+    Classes are returned in deterministic name order.
     """
 
-    renderers: List[type] = []
+    classes = []
 
-    for _, obj in inspect.getmembers(
+    for class_name, obj in inspect.getmembers(
         module,
         inspect.isclass,
     ):
 
-        if obj.__module__ != module.__name__:
-            continue
-
-        model_type = getattr(
+        if _is_renderer_class(
             obj,
-            "model_type",
-            None,
-        )
-
-        create_item = getattr(
-            obj,
-            "create_item",
-            None,
-        )
-
-        if not isinstance(
-            model_type,
-            type,
+            module_name,
         ):
-            continue
+            classes.append(
+                obj
+            )
 
-        if not callable(create_item):
-            continue
+    return sorted(
+        classes,
+        key=lambda cls: cls.__name__,
+    )
 
-        renderers.append(obj)
 
-    return renderers
-
+# ============================================================
+# LOAD RENDERERS
+# ============================================================
 
 def load_renderers(
-    registry: Any,
-    package: str = DEFAULT_RENDERER_PACKAGE,
-) -> int:
+    registry,
+    package: str = "ui.renderers",
+) -> List[Type[Any]]:
     """
-    Discover and register renderer classes.
+    Discover and register renderer plugins.
 
     Parameters
     ----------
@@ -211,23 +271,34 @@ def load_renderers(
 
     Returns
     -------
-    int
-        Number of renderer classes registered.
+    list[type]
+        Renderer classes successfully discovered and registered.
 
     Raises
     ------
     TypeError
-        If registry does not provide the required register()
-        operation.
+        If registry does not provide the required registration API.
 
-    RuntimeError
-        If a renderer package or renderer module cannot be
-        imported.
+    ImportError
+        If a renderer module cannot be imported.
 
     ValueError
-        If RendererRegistry detects duplicate/conflicting
-        renderer registration.
+        If a renderer registration conflicts with an existing
+        renderer.
+
+    Notes
+    -----
+    Renderer module import failures are deliberately propagated.
+
+    A renderer module failing to import means the renderer set is
+    incomplete. Silently continuing would make the application
+    appear valid while leaving the canvas unable to render a model
+    element.
     """
+
+    # --------------------------------------------------------
+    # Validate registry interface.
+    # --------------------------------------------------------
 
     register = getattr(
         registry,
@@ -235,34 +306,152 @@ def load_renderers(
         None,
     )
 
-    if not callable(register):
+    if not callable(
+        register
+    ):
         raise TypeError(
-            "registry must provide a callable register() method"
+            "registry must provide a callable register() method."
         )
 
-    registered_count = 0
+    # --------------------------------------------------------
+    # Discover modules.
+    # --------------------------------------------------------
 
-    modules = _import_renderer_modules(package)
+    module_names = _discover_module_names(
+        package
+    )
 
-    for module in modules:
+    if not module_names:
 
-        renderers = _find_renderers(module)
+        package_path = _package_directory(
+            package
+        )
 
-        for renderer in renderers:
-
-            model_type = renderer.model_type
-
-            registry.register(
-                model_type,
-                renderer,
+        if not os.path.isdir(
+            package_path
+        ):
+            raise ImportError(
+                "Renderer package directory not found: "
+                f"'{package_path}'."
             )
 
-            registered_count += 1
+        return []
 
-    return registered_count
+    loaded_renderers = []
 
+    # --------------------------------------------------------
+    # Import and inspect modules.
+    # --------------------------------------------------------
+
+    for module_name in module_names:
+
+        full_module_name = (
+            f"{package}.{module_name}"
+        )
+
+        # ----------------------------------------------------
+        # Import module.
+        #
+        # Import errors are intentionally propagated.
+        # ----------------------------------------------------
+
+        module = importlib.import_module(
+            full_module_name
+        )
+
+        # ----------------------------------------------------
+        # Find renderer classes defined by this module.
+        # ----------------------------------------------------
+
+        renderer_classes = _renderer_classes(
+            module,
+            full_module_name,
+        )
+
+        # ----------------------------------------------------
+        # Register every renderer.
+        #
+        # RendererRegistry handles duplicate protection.
+        # ----------------------------------------------------
+
+        for renderer_cls in renderer_classes:
+
+            model_type = getattr(
+                renderer_cls,
+                "model_type",
+            )
+
+            register(
+                model_type,
+                renderer_cls,
+            )
+
+            loaded_renderers.append(
+                renderer_cls
+            )
+
+    return loaded_renderers
+
+
+# ============================================================
+# OPTIONAL SINGLE-PACKAGE DISCOVERY
+# ============================================================
+
+def discover_renderers(
+    package: str = "ui.renderers",
+) -> List[Type[Any]]:
+    """
+    Discover renderer classes without registering them.
+
+    This is primarily useful for diagnostics and tests.
+
+    Unlike load_renderers(), this function does not require a
+    RendererRegistry.
+    """
+
+    module_names = _discover_module_names(
+        package
+    )
+
+    package_path = _package_directory(
+        package
+    )
+
+    if not os.path.isdir(
+        package_path
+    ):
+        raise ImportError(
+            "Renderer package directory not found: "
+            f"'{package_path}'."
+        )
+
+    discovered = []
+
+    for module_name in module_names:
+
+        full_module_name = (
+            f"{package}.{module_name}"
+        )
+
+        module = importlib.import_module(
+            full_module_name
+        )
+
+        discovered.extend(
+            _renderer_classes(
+                module,
+                full_module_name,
+            )
+        )
+
+    return discovered
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 __all__ = [
-    "DEFAULT_RENDERER_PACKAGE",
     "load_renderers",
+    "discover_renderers",
 ]
