@@ -1,49 +1,92 @@
 """
-Main application window (ROOT UI CONTAINER)
+GridForge V2 — Main Application Window
+======================================
 
-Architecture Role:
-------------------
-This class is intentionally THIN.
+File:
+    ui/main_window.py
 
-It does NOT:
-- create toolbars
-- create docks
-- create status bars
-- import UI components
-
-Instead, it delegates ALL UI construction to the plugin system.
-
-Why?
-----
-To enforce a PLUGIN-BASED ARCHITECTURE where:
-- UI components are decoupled
-- Features are plug-and-play
-- No file needs modification when adding new UI
-
-Golden Rule:
-------------
-If you feel the urge to modify this file to add UI...
-➡️ STOP — create a plugin instead.
-
-Flow:
------
-MainWindow
-    → build_ui()
-        → loads registered plugins
-            → each plugin attaches itself to the window
-
-Result:
+Purpose
 -------
-self.components = {
-    "toolbar": QToolBar,
-    "properties": QDockWidget,
-    ...
-}
+Root Qt window for the GridForge application.
+
+Architectural Role
+------------------
+MainWindow is the root UI container.
+
+It owns:
+
+    - the Qt top-level window;
+    - the UI Controller reference;
+    - references to UI components assembled by the
+      plugin-driven UI registry.
+
+It does NOT own:
+
+    - domain state;
+    - application/business logic;
+    - electrical calculations;
+    - tool instances;
+    - tool lifecycle;
+    - canvas interaction;
+    - rendering logic;
+    - individual UI component construction.
+
+UI Construction
+---------------
+All UI assembly is delegated to the central UI registry.
+
+    MainWindow
+        |
+        v
+    build_ui()
+        |
+        v
+    registered UI plugins
+        |
+        v
+    UI components
+
+Plugin Architecture
+--------------------
+UI features are added through plugins rather than by modifying
+this class.
+
+Adding a new UI feature should therefore follow:
+
+    1. Create the UI component/plugin.
+    2. Register the plugin.
+    3. Allow the UI registry to discover it.
+
+MainWindow itself should remain stable.
+
+Controller Boundary
+--------------------
+The supplied Controller is the UI coordination controller.
+
+It may provide:
+
+    - requested tool identifier;
+    - logical selection state;
+    - UI coordination notifications;
+    - reference to the authoritative application/domain context.
+
+MainWindow does not perform domain mutations through the
+Controller.
+
+Qt Rule
+-------
+This module is a Qt UI boundary and may use Qt through the
+established GridForge Qt abstraction policy.
+
+The window remains a presentation/container layer.
 """
+
+from __future__ import annotations
+
+from typing import Any, Optional
 
 from PySide6.QtWidgets import QMainWindow
 
-# Central UI builder (plugin-driven)
 from ui.ui_registry import build_ui
 
 
@@ -51,86 +94,223 @@ class MainWindow(QMainWindow):
     """
     Root application window.
 
-    Responsibilities:
-    - Own the Qt window
-    - Initialize base window settings
-    - Delegate UI construction
-    - Store references to UI components
+    MainWindow is intentionally thin and stable.
 
-    It MUST remain simple and stable.
+    Its primary responsibilities are:
+
+        1. Own the top-level Qt window.
+        2. Retain the UI Controller reference.
+        3. Configure minimal window properties.
+        4. Delegate UI construction to the plugin registry.
+        5. Retain references to constructed UI components.
     """
 
-    def __init__(self, controller):
+    # ============================================================
+    # INITIALIZATION
+    # ============================================================
+
+    def __init__(
+        self,
+        controller: Any,
+    ) -> None:
+        """
+        Initialize the GridForge root window.
+
+        Parameters
+        ----------
+        controller:
+            GridForge UI Controller.
+
+            The Controller provides UI coordination state and
+            access to the application-facing model context.
+
+            MainWindow does not become the owner of that state.
+        """
+
+        if controller is None:
+            raise ValueError(
+                "controller must not be None."
+            )
+
         super().__init__()
 
-        # Core app controller (business logic layer)
+        # --------------------------------------------------------
+        # UI coordination controller
+        # --------------------------------------------------------
+
         self.controller = controller
 
-        # Stores all UI components created by plugins
-        # Example:
-        # {
-        #     "toolbar": MainToolbar,
-        #     "layers": LayersDock,
-        # }
-        self.components = {}
+        # --------------------------------------------------------
+        # Plugin-created UI components
+        # --------------------------------------------------------
+        #
+        # The registry is responsible for constructing the
+        # registered UI components.
+        #
+        # MainWindow only retains the resulting references.
+        # --------------------------------------------------------
 
-        # Initialize window
+        self.components: dict[str, Any] = {}
+
+        # --------------------------------------------------------
+        # Base window configuration
+        # --------------------------------------------------------
+
         self._setup_window()
 
-        # Build UI via plugin system
+        # --------------------------------------------------------
+        # Plugin-driven UI construction
+        # --------------------------------------------------------
+
         self._build_ui()
 
-    # ------------------------------------------------------------------
-    # Window Setup
-    # ------------------------------------------------------------------
-    def _setup_window(self):
+    # ============================================================
+    # WINDOW SETUP
+    # ============================================================
+
+    def _setup_window(
+        self,
+    ) -> None:
         """
-        Configure base window properties.
+        Configure minimal root-window properties.
 
-        Keep this minimal — no UI logic here.
+        This method must remain free of feature-specific UI
+        construction.
         """
-        self.setWindowTitle("GridForge")
-        self.resize(1200, 800)
 
-    # ------------------------------------------------------------------
-    # UI Construction (PLUGIN ENTRY POINT)
-    # ------------------------------------------------------------------
-    def _build_ui(self):
+        self.setWindowTitle(
+            "GridForge"
+        )
+
+        self.resize(
+            1200,
+            800,
+        )
+
+    # ============================================================
+    # UI CONSTRUCTION
+    # ============================================================
+
+    def _build_ui(
+        self,
+    ) -> None:
         """
-        Build UI using plugin registry.
+        Assemble the UI through the central plugin registry.
 
-        This is the ONLY place where UI is assembled.
+        MainWindow deliberately contains no component-specific
+        construction logic.
 
-        What happens here:
-        ------------------
-        1. Registry discovers all plugins
-        2. Each plugin builds its UI component
-        3. Each plugin attaches itself to this window
-        4. Components are collected into a dictionary
+        The UI registry is responsible for:
 
-        Important:
+            - discovering registered UI plugins;
+            - constructing their components;
+            - attaching components to this window;
+            - returning component references.
+
+        The resulting references are retained in
+        ``self.components``.
+        """
+
+        components = build_ui(
+            self,
+            self.controller,
+        )
+
+        if components is None:
+            self.components = {}
+            return
+
+        if not isinstance(
+            components,
+            dict,
+        ):
+            raise TypeError(
+                "build_ui() must return a dictionary "
+                "of UI components."
+            )
+
+        self.components = components
+
+    # ============================================================
+    # COMPONENT ACCESS
+    # ============================================================
+
+    def get_component(
+        self,
+        name: str,
+    ) -> Optional[Any]:
+        """
+        Return a UI component registered under ``name``.
+
+        Parameters
         ----------
-        - This method must NOT contain UI creation logic
-        - Do NOT add widgets here
-        - Do NOT import UI components here
+        name:
+            Registry component identifier.
 
-        To add new UI:
-        --------------
-        1. Create a new plugin class
-        2. Register it using @register
-        3. Done — it will load automatically
+        Returns
+        -------
+        object | None
+            Registered component, or None when no component with
+            that identifier exists.
         """
 
-        self.components = build_ui(self, self.controller)
+        if not isinstance(
+            name,
+            str,
+        ):
+            raise TypeError(
+                "component name must be a string."
+            )
 
-    # ------------------------------------------------------------------
-    # Optional Helper Accessors
-    # ------------------------------------------------------------------
-    def get_component(self, name):
-        """
-        Safely retrieve a UI component by name.
+        name = name.strip()
 
-        Example:
-            toolbar = self.get_component("toolbar")
+        if not name:
+            raise ValueError(
+                "component name must not be empty."
+            )
+
+        return self.components.get(
+            name
+        )
+
+    # ============================================================
+    # DIAGNOSTICS
+    # ============================================================
+
+    def get_components(
+        self,
+    ) -> dict[str, Any]:
         """
-        return self.components.get(name)
+        Return a detached mapping of registered UI components.
+
+        The mapping itself is copied so callers cannot directly
+        modify ``self.components``.
+        """
+
+        return self.components.copy()
+
+    # ============================================================
+    # REPRESENTATION
+    # ============================================================
+
+    def __repr__(
+        self,
+    ) -> str:
+        """
+        Return a concise diagnostic representation.
+        """
+
+        return (
+            "MainWindow("
+            f"components={len(self.components)}"
+            ")"
+        )
+
+
+# ================================================================
+# PUBLIC API
+# ================================================================
+
+__all__ = [
+    "MainWindow",
+]
