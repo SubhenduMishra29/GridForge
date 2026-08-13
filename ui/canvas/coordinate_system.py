@@ -1,94 +1,110 @@
-"""
-GridForge V2 — Canvas Coordinate System
-=======================================
-
-File:
-    ui/canvas/coordinate_system.py
-
-Purpose
--------
-Centralized coordinate conversion and presentation service for
-the GridForge canvas.
-
-Coordinate spaces
------------------
-GridForge uses three canvas coordinate representations:
-
-    1. VIEWPORT
-       Widget / mouse coordinates.
-
-    2. SCENE
-       QGraphicsScene coordinates.
-
-    3. GRID
-       Scene coordinates resolved against GridSystem snapping.
-
-The CoordinateSystem is the single UI service responsible for
-converting between these representations.
-
-Architecture
-------------
-
-    Mouse / Widget
-          │
-          ▼
-      VIEWPORT
-          │
-          ▼
-    CoordinateSystem
-          │
-       ┌──┴──┐
-       ▼     ▼
-     SCENE  GRID
-       │     │
-       └──┬──┘
-          ▼
-       UI / Tools
-
-Responsibilities
-----------------
-CoordinateSystem:
-
-    - converts viewport coordinates to scene coordinates;
-    - converts scene coordinates to viewport coordinates;
-    - resolves scene coordinates against GridSystem;
-    - provides geometric utilities;
-    - formats coordinates for UI display;
-    - provides status-bar coordinate data.
-
-CoordinateSystem does NOT:
-
-    - modify the Core model;
-    - perform electrical calculations;
-    - create QGraphicsItems;
-    - manage tools;
-    - perform selection;
-    - own navigation state;
-    - perform engineering-unit conversion.
-
-Unit handling
--------------
-The optional `unit` attribute is display metadata only.
-
-This class does not perform:
-
-    mm ↔ m
-    pixel ↔ engineering distance
-    drawing-unit ↔ physical-unit
-
-conversion.
-
-Those responsibilities belong to a future engineering/unit
-system.
-
-Qt Rule
--------
-All Qt dependencies must be imported through:
-
-    ui.core.qt
-
-No direct PySide6/PyQt imports are permitted.
-"""
+# ============================================================
+# File: ui/canvas/coordinate_system.py
+# GridForge V2 — Canvas Coordinate System
+# ============================================================
+#
+# PURPOSE
+# -------
+# Centralized coordinate conversion and presentation service
+# for the GridForge canvas.
+#
+# Coordinate spaces:
+#
+#     VIEWPORT
+#         Widget / mouse coordinates.
+#
+#     SCENE
+#         QGraphicsScene coordinates.
+#
+#     GRID
+#         Scene coordinates resolved against GridSystem
+#         geometry.
+#
+#
+# ARCHITECTURE
+# ------------
+#
+#     Mouse / Widget
+#           │
+#           ▼
+#       VIEWPORT
+#           │
+#           ▼
+#     CoordinateSystem
+#           │
+#        ┌──┴──┐
+#        ▼     ▼
+#      SCENE  GRID
+#        │     │
+#        └──┬──┘
+#           ▼
+#        UI / Tools
+#
+#
+# RESPONSIBILITIES
+# ----------------
+#
+# CoordinateSystem:
+#
+#     - viewport → scene conversion
+#     - scene → viewport conversion
+#     - scene → grid resolution
+#     - viewport → grid conversion
+#     - geometric utilities
+#     - coordinate formatting
+#     - status-bar coordinate data
+#
+#
+# CoordinateSystem does NOT:
+#
+#     - modify the Core model
+#     - perform electrical calculations
+#     - create QGraphicsItems
+#     - manage tools
+#     - perform selection
+#     - own navigation state
+#     - decide snapping priority
+#     - perform object snapping
+#     - perform engineering-unit conversion
+#
+#
+# SNAP ARCHITECTURE
+# -----------------
+#
+# GridSystem provides grid geometry.
+#
+# SnapSystem owns snapping policy.
+#
+# Therefore:
+#
+#     CoordinateSystem
+#          │
+#          ▼
+#     GridSystem.snap_point()
+#
+# is only a coordinate/grid-resolution operation.
+#
+# Tools requiring actual snapping policy must use SnapSystem.
+#
+#
+# UNIT HANDLING
+# -------------
+#
+# ``unit`` is display metadata only.
+#
+# No unit conversion is performed here.
+#
+#
+# QT RULE
+# -------
+#
+# All Qt dependencies must be imported through:
+#
+#     ui.core.qt
+#
+# No direct PySide6/PyQt imports are permitted.
+#
+# ============================================================
 
 from __future__ import annotations
 
@@ -100,9 +116,10 @@ from ui.core.qt import QPointF
 
 class CoordinateSystem:
     """
-    Central coordinate conversion and formatting service.
+    Central coordinate conversion and presentation service.
 
-    The class intentionally contains no domain-model state.
+    The class contains no domain-model state and does not own
+    navigation or interaction state.
     """
 
     # ========================================================
@@ -127,23 +144,28 @@ class CoordinateSystem:
         Parameters
         ----------
         view:
-            GridForge QGraphicsView used for viewport/scene
-            transformations.
+            Graphics view used for viewport/scene conversion.
 
         grid_system:
-            Optional GridSystem used for scene-to-grid snapping.
+            Optional GridSystem used for grid-coordinate
+            resolution.
         """
 
         if view is None:
             raise ValueError(
-                "view must not be None"
+                "view must not be None."
             )
 
         self.view = view
         self.grid_system = grid_system
 
-        self.decimals = self.DEFAULT_DECIMALS
-        self.unit = self.DEFAULT_UNIT
+        self.decimals = (
+            self.DEFAULT_DECIMALS
+        )
+
+        self.unit = (
+            self.DEFAULT_UNIT
+        )
 
     # ========================================================
     # VIEWPORT → SCENE
@@ -156,24 +178,14 @@ class CoordinateSystem:
         """
         Convert viewport coordinates to scene coordinates.
 
-        Parameters
-        ----------
-        viewport_pos:
-            Qt viewport coordinate, normally QPoint.
-
-            QPointF is also accepted and converted to QPoint
-            because QGraphicsView.mapToScene() uses integer
-            viewport coordinates.
-
-        Returns
-        -------
-        QPointF
-            Scene-space coordinate.
+        ``QPointF`` is accepted for convenience and converted
+        to ``QPoint`` because QGraphicsView.mapToScene() uses
+        integer viewport coordinates.
         """
 
         if viewport_pos is None:
             raise ValueError(
-                "viewport_pos must not be None"
+                "viewport_pos must not be None."
             )
 
         if hasattr(
@@ -184,7 +196,18 @@ class CoordinateSystem:
                 viewport_pos.toPoint()
             )
 
-        return self.view.mapToScene(
+        map_to_scene = getattr(
+            self.view,
+            "mapToScene",
+            None,
+        )
+
+        if not callable(map_to_scene):
+            raise TypeError(
+                "view must provide mapToScene()."
+            )
+
+        return map_to_scene(
             viewport_pos
         )
 
@@ -198,12 +221,6 @@ class CoordinateSystem:
     ) -> Any:
         """
         Convert scene coordinates to viewport coordinates.
-
-        Returns
-        -------
-        QPoint
-            Viewport coordinate suitable for QGraphicsView
-            and QWidget operations.
         """
 
         self._validate_point(
@@ -211,7 +228,18 @@ class CoordinateSystem:
             "scene_pos",
         )
 
-        return self.view.mapFromScene(
+        map_from_scene = getattr(
+            self.view,
+            "mapFromScene",
+            None,
+        )
+
+        if not callable(map_from_scene):
+            raise TypeError(
+                "view must provide mapFromScene()."
+            )
+
+        return map_from_scene(
             scene_pos
         )
 
@@ -224,10 +252,7 @@ class CoordinateSystem:
         viewport_pos: Any,
     ) -> QPointF:
         """
-        Convert a viewport position to scene coordinates.
-
-        This is an explicit semantic alias for
-        viewport_to_scene().
+        Semantic alias for viewport_to_scene().
         """
 
         return self.viewport_to_scene(
@@ -243,14 +268,13 @@ class CoordinateSystem:
         scene_pos: QPointF,
     ) -> QPointF:
         """
-        Resolve a scene coordinate against the GridSystem.
+        Resolve a scene position against the configured
+        GridSystem.
 
-        If no GridSystem is attached, a copy of the original
-        scene coordinate is returned.
+        This is a coordinate-resolution operation only.
 
-        GridSystem is responsible for the actual snapping policy.
-        CoordinateSystem only provides the coordinate-space
-        boundary.
+        CoordinateSystem does not decide whether grid snapping
+        should occur. SnapSystem owns that policy.
         """
 
         self._validate_point(
@@ -272,8 +296,7 @@ class CoordinateSystem:
 
         if not callable(snap_point):
             raise TypeError(
-                "grid_system must provide "
-                "snap_point()"
+                "grid_system must provide snap_point()."
             )
 
         result = snap_point(
@@ -282,10 +305,18 @@ class CoordinateSystem:
 
         if result is None:
             raise RuntimeError(
-                "GridSystem.snap_point() returned None"
+                "GridSystem.snap_point() returned None."
             )
 
-        return result
+        self._validate_point(
+            result,
+            "grid_system result",
+        )
+
+        return QPointF(
+            result.x(),
+            result.y(),
+        )
 
     # ========================================================
     # VIEWPORT → GRID
@@ -296,20 +327,21 @@ class CoordinateSystem:
         viewport_pos: Any,
     ) -> QPointF:
         """
-        Convert viewport coordinates directly to grid
-        coordinates.
+        Convert viewport coordinates to grid coordinates.
 
         Processing:
 
             viewport
                 ↓
-            scene
+             scene
                 ↓
-             grid
+              grid
         """
 
-        scene_pos = self.viewport_to_scene(
-            viewport_pos
+        scene_pos = (
+            self.viewport_to_scene(
+                viewport_pos
+            )
         )
 
         return self.scene_to_grid(
@@ -328,9 +360,8 @@ class CoordinateSystem:
         """
         Return Euclidean distance between two scene points.
 
-        This is purely geometric.
-
-        No physical/electrical unit is implied.
+        This is purely geometric and has no electrical or
+        engineering-unit meaning.
         """
 
         self._validate_point(
@@ -395,7 +426,9 @@ class CoordinateSystem:
 
             X: 125.00    Y: 80.00
 
-        The configured unit is appended when non-empty.
+        If a display unit is configured:
+
+            X: 125.00 m    Y: 80.00 m
         """
 
         self._validate_point(
@@ -475,11 +508,6 @@ class CoordinateSystem:
     ) -> None:
         """
         Set the number of decimal places used for display.
-
-        Parameters
-        ----------
-        decimals:
-            Non-negative integer.
         """
 
         if isinstance(
@@ -490,12 +518,12 @@ class CoordinateSystem:
             int,
         ):
             raise TypeError(
-                "decimals must be a non-negative integer"
+                "decimals must be a non-negative integer."
             )
 
         if decimals < 0:
             raise ValueError(
-                "decimals cannot be negative"
+                "decimals cannot be negative."
             )
 
         self.decimals = decimals
@@ -517,10 +545,37 @@ class CoordinateSystem:
             str,
         ):
             raise TypeError(
-                "unit must be a string"
+                "unit must be a string."
             )
 
         self.unit = unit.strip()
+
+    # ========================================================
+    # GRID SYSTEM
+    # ========================================================
+
+    def set_grid_system(
+        self,
+        grid_system: Optional[Any],
+    ) -> None:
+        """
+        Attach or replace the GridSystem.
+
+        Passing None disables grid-coordinate resolution.
+        """
+
+        self.grid_system = grid_system
+
+    # --------------------------------------------------------
+
+    def get_grid_system(
+        self,
+    ) -> Optional[Any]:
+        """
+        Return the currently attached GridSystem.
+        """
+
+        return self.grid_system
 
     # ========================================================
     # STATUS BAR DATA
@@ -531,18 +586,22 @@ class CoordinateSystem:
         viewport_pos: Any,
     ) -> dict[str, Any]:
         """
-        Return coordinate information suitable for StatusBar.
+        Return coordinate data suitable for the StatusBar.
 
-        The result contains both raw coordinates and formatted
-        display strings.
+        Both raw coordinates and formatted representations are
+        provided.
         """
 
-        scene_pos = self.viewport_to_scene(
-            viewport_pos
+        scene_pos = (
+            self.viewport_to_scene(
+                viewport_pos
+            )
         )
 
-        grid_pos = self.scene_to_grid(
-            scene_pos
+        grid_pos = (
+            self.scene_to_grid(
+                scene_pos
+            )
         )
 
         return {
@@ -562,34 +621,6 @@ class CoordinateSystem:
         }
 
     # ========================================================
-    # GRID SYSTEM
-    # ========================================================
-
-    def set_grid_system(
-        self,
-        grid_system: Optional[Any],
-    ) -> None:
-        """
-        Attach or replace the GridSystem.
-
-        Passing None disables grid resolution while preserving
-        the scene coordinate system.
-        """
-
-        self.grid_system = grid_system
-
-    # --------------------------------------------------------
-
-    def get_grid_system(
-        self,
-    ) -> Optional[Any]:
-        """
-        Return the currently attached GridSystem.
-        """
-
-        return self.grid_system
-
-    # ========================================================
     # VALIDATION
     # ========================================================
 
@@ -599,22 +630,26 @@ class CoordinateSystem:
         name: str,
     ) -> None:
         """
-        Validate that an object provides QPointF-compatible
-        x() and y() accessors.
+        Validate a QPointF-compatible object.
         """
 
         if point is None:
             raise ValueError(
-                f"{name} must not be None"
+                f"{name} must not be None."
             )
 
         if not callable(
             getattr(point, "x", None)
-        ) or not callable(
+        ):
+            raise TypeError(
+                f"{name} must provide x()."
+            )
+
+        if not callable(
             getattr(point, "y", None)
         ):
             raise TypeError(
-                f"{name} must provide x() and y()"
+                f"{name} must provide y()."
             )
 
     # ========================================================
@@ -625,7 +660,7 @@ class CoordinateSystem:
         self,
     ) -> dict[str, Any]:
         """
-        Return current coordinate-system configuration.
+        Return diagnostic coordinate-system state.
         """
 
         return {
