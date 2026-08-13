@@ -5,11 +5,6 @@ Purpose:
 --------
 Provides all scene, view, and interaction-related systems.
 
-This layer is responsible for:
-- Rendering surface (QGraphicsView / QGraphicsScene)
-- User interaction routing
-- Preview visuals
-
 Design Notes:
 -------------
 - No business logic here
@@ -17,11 +12,15 @@ Design Notes:
 - Acts as UI infrastructure only
 """
 
-# ------------------------------------------------------
-# Expose key classes for clean imports
-# ------------------------------------------------------
-
 from .graphics_view import GraphicsView
 from .interaction_manager import InteractionManager
 from .render_system import RenderSystem
 from .preview_layer import PreviewLayer
+
+
+__all__ = [
+    "GraphicsView",
+    "InteractionManager",
+    "RenderSystem",
+    "PreviewLayer",
+]
