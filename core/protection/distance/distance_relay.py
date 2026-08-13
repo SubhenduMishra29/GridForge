@@ -1,52 +1,132 @@
-```python
 """
-GridForge Distance Relay
-========================
+GridForge Distance Protection Function
+=======================================
 
 File:
     core/protection/distance/distance_relay.py
 
 Purpose
 -------
-Transmission-line impedance protection algorithm.
+Implements the baseline transmission-line distance protection
+function for GridForge V2.
 
-Functions
----------
-- Calculate apparent impedance.
-- Determine active protection zone.
-- Determine pickup condition.
-- Determine operating time.
-- Set the authoritative Relay trip state.
-
-The authoritative relay device model is:
-
-    core/model/relay.py
-
-The common protection interface is:
-
-    core/protection/relay_base.py
-
-This module does NOT:
-- Calculate system-wide faults.
-- Operate circuit breakers.
-- Coordinate multiple relays.
-- Modify the network model.
-
-Current baseline
-----------------
-The baseline zone decision uses apparent-impedance magnitude:
+The baseline characteristic is an impedance-magnitude reach
+characteristic:
 
     |Z_seen| <= |Z_zone|
 
 Advanced distance characteristics are intentionally deferred.
 
-Future extensions
+Architectural Position
+-----------------------
+
+    PT / CVT + CT
+          |
+          v
+    MeasurementChannel
+          |
+          v
+       RelayInput
+          |
+          v
+       RelayBase
+          |
+          v
+    DistanceRelay
+          |
+          v
+    ProtectionDecision
+          |
+          v
+    ProtectionSystem
+          |
+          v
+    Protection Output Layer
+          |
+          v
+      BreakerManager
+
+Important V2 Principle
+----------------------
+This class represents ONE distance protection function / element.
+
+It is not the physical Relay model.
+
+A physical GridForge Relay may contain multiple protection
+functions, for example:
+
+    21       Distance protection
+    50/51    Overcurrent
+    67       Directional overcurrent
+    50BF     Breaker failure
+
+This implementation therefore owns only distance-protection
+settings and algorithm-specific transient execution state.
+
+Responsibilities
+----------------
+This module is responsible for:
+
+    - consuming configured voltage/current RelayInputs;
+    - validating measurement signals;
+    - calculating apparent impedance;
+    - determining the active protection zone;
+    - determining pickup;
+    - determining intentional operating time;
+    - maintaining algorithm-specific timing state;
+    - producing ProtectionDecision objects;
+    - exposing diagnostic status.
+
+It does NOT:
+
+    - create CTs/PTs/CVTs;
+    - create MeasurementChannels;
+    - calculate system-wide fault currents;
+    - access Network topology;
+    - perform load flow;
+    - perform short-circuit calculations;
+    - coordinate multiple protection elements;
+    - operate breakers;
+    - modify the authoritative Relay model;
+    - schedule simulation events;
+    - own a simulation clock.
+
+Baseline Characteristic
+-----------------------
+The baseline distance characteristic is intentionally simple:
+
+    |Z_seen| <= |Z_zone|
+
+The phase angle of impedance is therefore retained for diagnostics,
+but the baseline zone discriminator uses impedance magnitude only.
+
+Future Extensions
 -----------------
-- Mho characteristic
-- Quadrilateral characteristic
-- Load encroachment
-- Power swing blocking
-- Out-of-step protection
+The architecture is intended to support:
+
+    - Mho characteristic;
+    - quadrilateral characteristic;
+    - reactance characteristic;
+    - load encroachment;
+    - power swing blocking;
+    - out-of-step protection;
+    - memory polarization;
+    - zero-sequence compensation;
+    - phase/ground distance elements.
+
+Timing Boundary
+---------------
+Zone operating times are protection-function characteristics.
+
+The protection function does not own a simulation clock and does not
+schedule events.
+
+When ProtectionContext provides an evaluation timestamp, the function
+maintains its pickup interval and determines whether the configured
+zone operating time has elapsed.
+
+The resulting ProtectionDecision is interpreted by the higher-level
+protection/event/output architecture.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -55,20 +135,40 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
-from typing import Optional
+from dataclasses import dataclass
+import math
+from typing import Any, Mapping
 
+from core.protection.context import ProtectionContext
+from core.protection.decision import ProtectionDecision
 from core.protection.relay_base import RelayBase
 
 
-class DistanceRelay(RelayBase):
+# =====================================================================
+# CONSTANTS
+# =====================================================================
+
+FUNCTION_CODE = "21"
+FUNCTION_NAME = "DISTANCE PROTECTION"
+
+VOLTAGE_INPUT = "voltage"
+CURRENT_INPUT = "current"
+
+ZERO_CURRENT_EPSILON = 1.0e-12
+
+
+# =====================================================================
+# DISTANCE SETTINGS
+# =====================================================================
+
+
+@dataclass(frozen=True)
+class DistanceProtectionSettings:
     """
-    Transmission-line distance protection algorithm.
+    Immutable settings for one baseline distance-protection element.
 
     Parameters
     ----------
-    relay:
-        Authoritative Relay model from core.model.relay.
-
     zone1_reach:
         Zone-1 impedance reach.
 
@@ -79,80 +179,51 @@ class DistanceRelay(RelayBase):
         Zone-3 impedance reach.
 
     zone1_time:
-        Zone-1 operating time in seconds.
+        Zone-1 intentional operating time in seconds.
 
     zone2_time:
-        Zone-2 operating time in seconds.
+        Zone-2 intentional operating time in seconds.
 
     zone3_time:
-        Zone-3 operating time in seconds.
+        Zone-3 intentional operating time in seconds.
 
     Notes
     -----
-    Relay identity, measurements, settings and trip state remain
-    owned by core.model.relay.Relay.
+    Zone reach is represented as a complex impedance because future
+    directional/characteristic implementations may require the full
+    impedance value.
 
-    Zone configuration and distance-protection algorithm state
-    belong to this protection layer.
+    The current baseline discriminator uses only:
+
+        abs(zone_reach)
     """
 
-    # =========================================================
-    # INITIALIZATION
-    # =========================================================
+    zone1_reach: complex
+    zone2_reach: complex
+    zone3_reach: complex
 
-    def __init__(
-        self,
-        relay,
-        zone1_reach: complex,
-        zone2_reach: complex,
-        zone3_reach: complex,
-        zone1_time: float = 0.0,
-        zone2_time: float = 0.3,
-        zone3_time: float = 1.0,
-    ) -> None:
+    zone1_time: float = 0.0
+    zone2_time: float = 0.3
+    zone3_time: float = 1.0
 
-        super().__init__(
-            relay
-        )
+    def __post_init__(self) -> None:
+        zone1 = complex(self.zone1_reach)
+        zone2 = complex(self.zone2_reach)
+        zone3 = complex(self.zone3_reach)
 
-        self.zone1_reach = complex(
-            zone1_reach
-        )
-
-        self.zone2_reach = complex(
-            zone2_reach
-        )
-
-        self.zone3_reach = complex(
-            zone3_reach
-        )
-
-        self.zone_times = {
-            "ZONE1": float(zone1_time),
-            "ZONE2": float(zone2_time),
-            "ZONE3": float(zone3_time),
-        }
-
-        self.active_zone: Optional[str] = None
-
-        self._validate_settings()
-
-    # =========================================================
-    # VALIDATION
-    # =========================================================
-
-    def _validate_settings(self) -> None:
-        """
-        Validate distance-zone settings.
-        """
-
-        reaches = {
-            "zone1_reach": self.zone1_reach,
-            "zone2_reach": self.zone2_reach,
-            "zone3_reach": self.zone3_reach,
-        }
-
-        for name, reach in reaches.items():
+        for name, reach in (
+            ("zone1_reach", zone1),
+            ("zone2_reach", zone2),
+            ("zone3_reach", zone3),
+        ):
+            if not (
+                math.isfinite(reach.real)
+                and math.isfinite(reach.imag)
+            ):
+                raise ValueError(
+                    f"{name} must contain finite real and "
+                    "imaginary components."
+                )
 
             if abs(reach) <= 0.0:
                 raise ValueError(
@@ -160,264 +231,1022 @@ class DistanceRelay(RelayBase):
                 )
 
         if not (
-            abs(self.zone1_reach)
-            < abs(self.zone2_reach)
-            < abs(self.zone3_reach)
+            abs(zone1)
+            < abs(zone2)
+            < abs(zone3)
         ):
             raise ValueError(
                 "Distance zone reaches must satisfy "
                 "|Z1| < |Z2| < |Z3|."
             )
 
-        for zone, operating_time in self.zone_times.items():
+        zone1_time = float(self.zone1_time)
+        zone2_time = float(self.zone2_time)
+        zone3_time = float(self.zone3_time)
 
-            if operating_time < 0.0:
+        for name, operating_time in (
+            ("zone1_time", zone1_time),
+            ("zone2_time", zone2_time),
+            ("zone3_time", zone3_time),
+        ):
+            if (
+                not math.isfinite(operating_time)
+                or operating_time < 0.0
+            ):
                 raise ValueError(
-                    f"{zone} operating time must be >= 0."
+                    f"{name} must be finite and >= 0."
                 )
 
-    # =========================================================
-    # IMPEDANCE CALCULATION
-    # =========================================================
+        object.__setattr__(
+            self,
+            "zone1_reach",
+            zone1,
+        )
+        object.__setattr__(
+            self,
+            "zone2_reach",
+            zone2,
+        )
+        object.__setattr__(
+            self,
+            "zone3_reach",
+            zone3,
+        )
+
+        object.__setattr__(
+            self,
+            "zone1_time",
+            zone1_time,
+        )
+        object.__setattr__(
+            self,
+            "zone2_time",
+            zone2_time,
+        )
+        object.__setattr__(
+            self,
+            "zone3_time",
+            zone3_time,
+        )
+
+    @property
+    def zone_times(self) -> Mapping[str, float]:
+        """
+        Return zone operating times as a read-only mapping.
+        """
+
+        return {
+            "ZONE1": self.zone1_time,
+            "ZONE2": self.zone2_time,
+            "ZONE3": self.zone3_time,
+        }
+
+
+# =====================================================================
+# DISTANCE PROTECTION FUNCTION
+# =====================================================================
+
+
+class DistanceRelay(RelayBase):
+    """
+    GridForge V2 baseline distance protection function.
+
+    This class represents an ANSI 21 protection element, not the
+    physical Relay device.
+
+    Parameters
+    ----------
+    relay:
+        Authoritative physical Relay model.
+
+    relay_inputs:
+        Mapping containing the required voltage and current RelayInput
+        objects.
+
+        Required names:
+
+            "voltage"
+            "current"
+
+    settings:
+        DistanceProtectionSettings instance.
+
+    element_id:
+        Stable identity of this protection-function instance.
+
+        This is distinct from the physical relay identity because a
+        physical relay may host multiple protection elements.
+
+    enabled:
+        Local function enable state.
+
+    blocked:
+        Static protection-function block state.
+    """
+
+    FUNCTION_CODE = FUNCTION_CODE
+    FUNCTION_NAME = FUNCTION_NAME
+
+    VOLTAGE_INPUT = VOLTAGE_INPUT
+    CURRENT_INPUT = CURRENT_INPUT
+
+    # ================================================================
+    # INITIALIZATION
+    # ================================================================
+
+    def __init__(
+        self,
+        relay: Any,
+        *,
+        element_id: str,
+        relay_inputs: Mapping[str, Any] | None = None,
+        settings: DistanceProtectionSettings,
+        enabled: bool = True,
+        blocked: bool = False,
+    ) -> None:
+
+        if not isinstance(
+            settings,
+            DistanceProtectionSettings,
+        ):
+            raise TypeError(
+                "settings must be a "
+                "DistanceProtectionSettings instance."
+            )
+
+        super().__init__(
+            relay=relay,
+            element_id=element_id,
+            function_code=self.FUNCTION_CODE,
+            function_name=self.FUNCTION_NAME,
+            relay_inputs=relay_inputs,
+            settings={
+                "zone1_reach": settings.zone1_reach,
+                "zone2_reach": settings.zone2_reach,
+                "zone3_reach": settings.zone3_reach,
+                "zone1_time": settings.zone1_time,
+                "zone2_time": settings.zone2_time,
+                "zone3_time": settings.zone3_time,
+            },
+            enabled=enabled,
+            blocked=blocked,
+        )
+
+        self.settings = settings
+
+        # --------------------------------------------------------------
+        # Algorithm-specific transient state.
+        # --------------------------------------------------------------
+
+        self._active_zone: str | None = None
+        self._pickup_start_time: float | None = None
+        self._last_timestamp: float | None = None
+
+        self._last_voltage: complex | None = None
+        self._last_current: complex | None = None
+        self._last_impedance: complex | None = None
+
+        self._last_operating_time: float | None = None
+        self._last_decision: ProtectionDecision | None = None
+
+        self.require_inputs(
+            self.VOLTAGE_INPUT,
+            self.CURRENT_INPUT,
+        )
+
+    # ================================================================
+    # SETTINGS
+    # ================================================================
+
+    @property
+    def zone1_reach(self) -> complex:
+        """Return Zone-1 impedance reach."""
+
+        return self.settings.zone1_reach
+
+    @property
+    def zone2_reach(self) -> complex:
+        """Return Zone-2 impedance reach."""
+
+        return self.settings.zone2_reach
+
+    @property
+    def zone3_reach(self) -> complex:
+        """Return Zone-3 impedance reach."""
+
+        return self.settings.zone3_reach
+
+    @property
+    def zone_times(self) -> Mapping[str, float]:
+        """Return configured zone operating times."""
+
+        return self.settings.zone_times
+
+    # ================================================================
+    # MEASUREMENT
+    # ================================================================
+
+    def voltage_signal(self) -> Any:
+        """
+        Return the voltage signal from the assigned RelayInput.
+        """
+
+        return self.get_input(
+            self.VOLTAGE_INPUT
+        ).value
+
+    # ----------------------------------------------------------------
+
+    def current_signal(self) -> Any:
+        """
+        Return the current signal from the assigned RelayInput.
+        """
+
+        return self.get_input(
+            self.CURRENT_INPUT
+        ).value
+
+    # ----------------------------------------------------------------
+
+    @staticmethod
+    def _complex_measurement(
+        value: Any,
+        *,
+        name: str,
+    ) -> complex:
+        """
+        Convert and validate a measurement as a finite complex value.
+        """
+
+        if isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} measurement cannot be bool."
+            )
+
+        try:
+            value = complex(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} measurement must be numeric."
+            ) from exc
+
+        if not (
+            math.isfinite(value.real)
+            and math.isfinite(value.imag)
+        ):
+            raise ValueError(
+                f"{name} measurement must be finite."
+            )
+
+        return value
+
+    # ----------------------------------------------------------------
+
+    def voltage_value(self) -> complex:
+        """
+        Return the validated voltage measurement.
+        """
+
+        return self._complex_measurement(
+            self.voltage_signal(),
+            name="Voltage",
+        )
+
+    # ----------------------------------------------------------------
+
+    def current_value(self) -> complex:
+        """
+        Return the validated current measurement.
+        """
+
+        return self._complex_measurement(
+            self.current_signal(),
+            name="Current",
+        )
+
+    # ================================================================
+    # IMPEDANCE
+    # ================================================================
 
     @staticmethod
     def calculate_impedance(
-        voltage,
-        current,
+        voltage: complex,
+        current: complex,
     ) -> complex:
         """
         Calculate apparent impedance:
 
             Z = V / I
 
-        Near-zero current is treated as infinite impedance.
+        Near-zero current is represented as infinite impedance.
         """
 
-        if abs(current) < 1e-12:
+        voltage = DistanceRelay._complex_measurement(
+            voltage,
+            name="Voltage",
+        )
+
+        current = DistanceRelay._complex_measurement(
+            current,
+            name="Current",
+        )
+
+        if abs(current) < ZERO_CURRENT_EPSILON:
             return complex(
                 float("inf"),
                 0.0,
             )
 
-        return complex(
-            voltage / current
-        )
+        return voltage / current
 
-    # =========================================================
-    # MEASUREMENT UPDATE
-    # =========================================================
+    # ----------------------------------------------------------------
 
-    def measure(
+    def apparent_impedance(
         self,
-        voltage,
-        current,
+        *,
+        voltage: complex | None = None,
+        current: complex | None = None,
     ) -> complex:
         """
-        Calculate apparent impedance and update the
-        authoritative Relay model.
+        Calculate apparent impedance from the supplied or current
+        RelayInput measurements.
 
-        Returns
-        -------
-        complex
-            Calculated apparent impedance.
+        This method does not modify the authoritative Relay model.
         """
 
-        impedance = self.calculate_impedance(
+        if voltage is None:
+            voltage = self.voltage_value()
+
+        if current is None:
+            current = self.current_value()
+
+        return self.calculate_impedance(
             voltage,
             current,
         )
 
-        super().measure(
-            current=abs(current),
-            voltage=abs(voltage),
-            impedance=impedance,
-        )
-
-        return impedance
-
-    # =========================================================
+    # ================================================================
     # ZONE DETECTION
-    # =========================================================
+    # ================================================================
 
-    def check_zone(self) -> Optional[str]:
+    def determine_zone(
+        self,
+        impedance: complex,
+    ) -> str | None:
         """
         Determine the active distance-protection zone.
 
-        Baseline criterion:
+        Baseline characteristic:
 
             |Z_seen| <= |Z_zone|
 
         Returns
         -------
-        str or None
-            ZONE1, ZONE2, ZONE3 or None.
+        str | None
+            "ZONE1", "ZONE2", "ZONE3", or None.
         """
 
-        Z = abs(
-            self.relay.impedance
+        impedance = self._complex_measurement(
+            impedance,
+            name="Impedance",
         )
 
+        Z = abs(impedance)
+
         if Z <= abs(self.zone1_reach):
+            return "ZONE1"
 
-            self.active_zone = "ZONE1"
+        if Z <= abs(self.zone2_reach):
+            return "ZONE2"
 
-        elif Z <= abs(self.zone2_reach):
+        if Z <= abs(self.zone3_reach):
+            return "ZONE3"
 
-            self.active_zone = "ZONE2"
+        return None
 
-        elif Z <= abs(self.zone3_reach):
+    # ----------------------------------------------------------------
 
-            self.active_zone = "ZONE3"
+    def check_zone(
+        self,
+        impedance: complex | None = None,
+    ) -> str | None:
+        """
+        Determine the active zone from the current measurement.
 
-        else:
+        The calculated result is stored as local algorithm state.
+        """
 
-            self.active_zone = None
+        if impedance is None:
+            impedance = self.apparent_impedance()
 
-        return self.active_zone
+        zone = self.determine_zone(
+            impedance
+        )
 
-    # =========================================================
+        self._active_zone = zone
+
+        return zone
+
+    # ================================================================
     # PICKUP
-    # =========================================================
+    # ================================================================
 
-    def check_pickup(self) -> bool:
+    def check_pickup(
+        self,
+        impedance: complex | None = None,
+    ) -> bool:
         """
-        Determine whether the distance element picks up.
+        Determine whether the distance element has picked up.
         """
 
-        if not self.relay.in_service:
-            self.active_zone = None
+        if not self.operational:
+            self._active_zone = None
             return False
 
-        return self.check_zone() is not None
+        return (
+            self.check_zone(
+                impedance
+            )
+            is not None
+        )
 
-    # =========================================================
+    # ================================================================
     # OPERATING TIME
-    # =========================================================
+    # ================================================================
 
-    def operating_time(self) -> float:
+    def operating_time(
+        self,
+        zone: str | None = None,
+    ) -> float:
         """
-        Return the operating time for the active zone.
+        Return the configured operating time for a zone.
 
         Returns
         -------
         float
-            Configured zone operating time.
+            Operating time in seconds.
 
-            float("inf")
-                when no zone operates.
+        math.inf
+            When no protection zone is active.
         """
 
-        if self.active_zone is None:
-            self.check_zone()
+        if zone is None:
+            zone = self._active_zone
 
-        if self.active_zone is None:
-            return float("inf")
+        if zone is None:
+            return math.inf
 
-        return self.zone_times[
-            self.active_zone
-        ]
+        try:
+            return self.zone_times[zone]
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown distance protection zone: {zone!r}."
+            ) from exc
 
-    # =========================================================
+    # ================================================================
     # EVALUATION
-    # =========================================================
+    # ================================================================
 
-    def evaluate(self) -> bool:
+    def evaluate(
+        self,
+        context: ProtectionContext | None = None,
+    ) -> ProtectionDecision:
         """
-        Evaluate the distance protection element.
+        Evaluate one distance-protection cycle.
+
+        Parameters
+        ----------
+        context:
+            Protection execution context.
 
         Returns
         -------
-        bool
-            True when the distance element operates.
+        ProtectionDecision
+            Canonical result of the distance protection evaluation.
 
-        Notes
-        -----
-        This method establishes the relay trip state only.
+        Behaviour
+        ---------
+        The function:
 
-        Actual time-domain execution and breaker operation belong
-        to the higher-level protection/simulation layers.
+            1. obtains evaluation time;
+            2. validates operational state;
+            3. reads voltage/current from RelayInput;
+            4. calculates apparent impedance;
+            5. determines the active zone;
+            6. determines pickup;
+            7. maintains pickup timing;
+            8. determines whether zone operating time has elapsed;
+            9. returns ProtectionDecision.
+
+        It does NOT:
+
+            - modify the physical Relay;
+            - set Relay trip state;
+            - call trip();
+            - operate a breaker;
+            - schedule an event.
         """
 
-        if not self.relay.in_service:
-
-            self.active_zone = None
-
-            self.relay.set_trip(
-                False
-            )
-
-            return False
-
-        if self.check_pickup():
-
-            self.trip()
-
-            return True
-
-        self.relay.set_trip(
-            False
+        timestamp = self._context_time(
+            context
         )
 
-        return False
+        self._validate_timestamp_order(
+            timestamp
+        )
 
-    # =========================================================
+        self._last_timestamp = timestamp
+
+        # --------------------------------------------------------------
+        # Operational gate
+        # --------------------------------------------------------------
+
+        if not self.operational:
+
+            self._clear_runtime_state()
+
+            if self.blocked:
+                decision = ProtectionDecision.blocked_decision(
+                    relay_id=self.relay_id,
+                    function_code=self.FUNCTION_CODE,
+                    function_id=self.element_id,
+                    reason="Distance function is blocked.",
+                    timestamp=timestamp,
+                )
+            else:
+                decision = ProtectionDecision.no_operation(
+                    relay_id=self.relay_id,
+                    function_code=self.FUNCTION_CODE,
+                    function_id=self.element_id,
+                    reason=self._inactive_reason(),
+                    timestamp=timestamp,
+                )
+
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # Measurement acquisition
+        # --------------------------------------------------------------
+
+        try:
+            voltage = self.voltage_value()
+            current = self.current_value()
+
+            impedance = self.calculate_impedance(
+                voltage,
+                current,
+            )
+
+        except (TypeError, ValueError) as exc:
+
+            self._clear_runtime_state()
+
+            decision = ProtectionDecision.invalid(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                reason=(
+                    "Invalid distance-protection measurement: "
+                    f"{exc}"
+                ),
+                timestamp=timestamp,
+                metadata={
+                    "voltage_input": self.VOLTAGE_INPUT,
+                    "current_input": self.CURRENT_INPUT,
+                },
+            )
+
+            self._last_decision = decision
+
+            return decision
+
+        self._last_voltage = voltage
+        self._last_current = current
+        self._last_impedance = impedance
+
+        # --------------------------------------------------------------
+        # Zone
+        # --------------------------------------------------------------
+
+        zone = self.determine_zone(
+            impedance
+        )
+
+        self._active_zone = zone
+
+        # --------------------------------------------------------------
+        # No pickup
+        # --------------------------------------------------------------
+
+        if zone is None:
+
+            self._pickup_start_time = None
+            self._last_operating_time = None
+
+            decision = ProtectionDecision.no_operation(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                reason=(
+                    "Apparent impedance is outside all configured "
+                    "distance-protection zones."
+                ),
+                timestamp=timestamp,
+                metadata={
+                    "voltage": voltage,
+                    "current": current,
+                    "impedance": impedance,
+                    "impedance_magnitude": abs(impedance),
+                    "active_zone": None,
+                },
+            )
+
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # Pickup begins / continues
+        # --------------------------------------------------------------
+
+        if self._pickup_start_time is None:
+
+            self._pickup_start_time = timestamp
+
+        operating_time = self.operating_time(
+            zone
+        )
+
+        self._last_operating_time = operating_time
+
+        elapsed = (
+            timestamp
+            - self._pickup_start_time
+        )
+
+        operation_due = (
+            elapsed >= operating_time
+        )
+
+        metadata = {
+            "voltage": voltage,
+            "current": current,
+            "impedance": impedance,
+            "impedance_magnitude": abs(impedance),
+            "active_zone": zone,
+            "pickup_start_time": self._pickup_start_time,
+            "elapsed_time": elapsed,
+            "operation_due": operation_due,
+            "zone_reach": getattr(
+                self,
+                f"{zone.lower()}_reach",
+            ),
+        }
+
+        # --------------------------------------------------------------
+        # Pickup but not yet operated
+        # --------------------------------------------------------------
+
+        if not operation_due:
+
+            decision = ProtectionDecision(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                pickup=True,
+                operate=False,
+                trip_request=False,
+                blocked=False,
+                valid=True,
+                operating_time=operating_time,
+                timestamp=timestamp,
+                reason=(
+                    f"{zone} pickup active; "
+                    "zone operating time not yet reached."
+                ),
+                metadata=metadata,
+            )
+
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # Operation criterion reached
+        # --------------------------------------------------------------
+
+        decision = ProtectionDecision.trip(
+            relay_id=self.relay_id,
+            function_code=self.FUNCTION_CODE,
+            function_id=self.element_id,
+            reason=(
+                f"{zone} distance operating time reached."
+            ),
+            timestamp=timestamp,
+            operating_time=operating_time,
+            metadata=metadata,
+        )
+
+        self._last_decision = decision
+
+        return decision
+
+    # ================================================================
+    # TIMING
+    # ================================================================
+
+    @staticmethod
+    def _context_time(
+        context: ProtectionContext | None,
+    ) -> float | None:
+        """
+        Return the evaluation timestamp from ProtectionContext.
+        """
+
+        if context is None:
+            return None
+
+        try:
+            timestamp = context.time
+        except AttributeError as exc:
+            raise TypeError(
+                "context must provide a 'time' attribute."
+            ) from exc
+
+        return DistanceRelay._validate_timestamp(
+            timestamp
+        )
+
+    # ----------------------------------------------------------------
+
+    def _validate_timestamp_order(
+        self,
+        timestamp: float | None,
+    ) -> None:
+        """
+        Ensure supplied stateful evaluation timestamps do not move
+        backwards.
+        """
+
+        if timestamp is None:
+            return
+
+        previous = self._last_timestamp
+
+        if (
+            previous is not None
+            and timestamp < previous
+        ):
+            raise ValueError(
+                "Protection evaluation timestamp cannot move "
+                "backwards."
+            )
+
+    # ----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_timestamp(
+        timestamp: float,
+    ) -> float:
+        """
+        Validate a protection evaluation timestamp.
+        """
+
+        try:
+            timestamp = float(timestamp)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "timestamp must be numeric."
+            ) from exc
+
+        if not math.isfinite(timestamp):
+            raise ValueError(
+                "timestamp must be finite."
+            )
+
+        return timestamp
+
+    # ================================================================
+    # STATE
+    # ================================================================
+
+    def _clear_runtime_state(self) -> None:
+        """
+        Clear transient distance-function timing/measurement state.
+
+        This does not modify the authoritative Relay.
+        """
+
+        self._active_zone = None
+        self._pickup_start_time = None
+        self._last_operating_time = None
+
+    # ----------------------------------------------------------------
+
+    def _inactive_reason(self) -> str:
+        """
+        Return a diagnostic explanation for inactive evaluation.
+        """
+
+        if not self.enabled:
+            return "Distance function is disabled."
+
+        if self.blocked:
+            return "Distance function is blocked."
+
+        if not bool(
+            getattr(
+                self.relay,
+                "operational",
+                True,
+            )
+        ):
+            return "Authoritative relay is not operational."
+
+        return "Distance function is not operational."
+
+    # ================================================================
     # RESET
-    # =========================================================
+    # ================================================================
 
     def reset(self) -> None:
         """
-        Reset protection algorithm state and authoritative
-        relay operating state.
+        Reset transient distance-function state.
 
-        Protection settings are retained.
+        Protection settings and authoritative physical Relay state
+        remain unchanged.
         """
-
-        self.active_zone = None
 
         super().reset()
 
-    # =========================================================
-    # SUMMARY
-    # =========================================================
+        self._active_zone = None
+        self._pickup_start_time = None
+        self._last_timestamp = None
 
-    def summary(self) -> dict:
+        self._last_voltage = None
+        self._last_current = None
+        self._last_impedance = None
+
+        self._last_operating_time = None
+        self._last_decision = None
+
+    # ================================================================
+    # DIAGNOSTICS
+    # ================================================================
+
+    @property
+    def active_zone(self) -> str | None:
         """
-        Return structured distance-relay information.
+        Return the locally determined active zone.
         """
 
-        return {
-            "relay_id": self.relay.id,
-            "zone1_reach": self.zone1_reach,
-            "zone2_reach": self.zone2_reach,
-            "zone3_reach": self.zone3_reach,
-            "zone1_time": self.zone_times["ZONE1"],
-            "zone2_time": self.zone_times["ZONE2"],
-            "zone3_time": self.zone_times["ZONE3"],
-            "impedance": self.relay.impedance,
-            "active_zone": self.active_zone,
-            "operating_time": self.operating_time(),
-            "in_service": self.relay.in_service,
-            "trip": self.relay.trip,
-        }
+        return self._active_zone
 
-    # =========================================================
-    # DEBUG
-    # =========================================================
+    @property
+    def pickup_start_time(self) -> float | None:
+        """
+        Return the beginning of the current pickup interval.
+        """
+
+        return self._pickup_start_time
+
+    @property
+    def last_timestamp(self) -> float | None:
+        """
+        Return the last evaluation timestamp.
+        """
+
+        return self._last_timestamp
+
+    @property
+    def last_voltage(self) -> complex | None:
+        """
+        Return the last sampled voltage.
+
+        Diagnostic state only.
+        """
+
+        return self._last_voltage
+
+    @property
+    def last_current(self) -> complex | None:
+        """
+        Return the last sampled current.
+
+        Diagnostic state only.
+        """
+
+        return self._last_current
+
+    @property
+    def last_impedance(self) -> complex | None:
+        """
+        Return the last calculated apparent impedance.
+
+        Diagnostic state only.
+        """
+
+        return self._last_impedance
+
+    @property
+    def last_operating_time(self) -> float | None:
+        """
+        Return the most recently calculated zone operating time.
+        """
+
+        return self._last_operating_time
+
+    @property
+    def last_decision(self) -> ProtectionDecision | None:
+        """
+        Return the most recently generated protection decision.
+        """
+
+        return self._last_decision
+
+    # ----------------------------------------------------------------
+
+    def status(self) -> dict[str, Any]:
+        """
+        Return diagnostic information for this distance function.
+
+        This is not the authoritative persistence representation.
+        """
+
+        result = super().status()
+
+        result.update(
+            {
+                "function": "DISTANCE",
+                "function_code": self.FUNCTION_CODE,
+                "zone1_reach": self.zone1_reach,
+                "zone2_reach": self.zone2_reach,
+                "zone3_reach": self.zone3_reach,
+                "zone1_time": self.zone_times["ZONE1"],
+                "zone2_time": self.zone_times["ZONE2"],
+                "zone3_time": self.zone_times["ZONE3"],
+                "voltage": self._last_voltage,
+                "current": self._last_current,
+                "impedance": self._last_impedance,
+                "impedance_magnitude": (
+                    abs(self._last_impedance)
+                    if self._last_impedance is not None
+                    else None
+                ),
+                "active_zone": self._active_zone,
+                "operating_time": (
+                    self._last_operating_time
+                ),
+                "pickup_start_time": (
+                    self._pickup_start_time
+                ),
+                "last_timestamp": (
+                    self._last_timestamp
+                ),
+                "last_decision": (
+                    self._last_decision.to_dict()
+                    if self._last_decision is not None
+                    else None
+                ),
+            }
+        )
+
+        return result
+
+    # ================================================================
+    # REPRESENTATION
+    # ================================================================
 
     def __repr__(self) -> str:
         """
         Developer-friendly representation.
         """
 
+        relay_id = getattr(
+            self.relay,
+            "id",
+            self.relay_id,
+        )
+
         return (
             f"<DistanceRelay "
-            f"relay={self.relay.id}, "
-            f"zone={self.active_zone}, "
-            f"Z={self.relay.impedance}>"
+            f"relay={relay_id!r}, "
+            f"element={self.element_id!r}, "
+            f"zone={self._active_zone!r}, "
+            f"Z={self._last_impedance!r}>"
         )
 
 
+# =====================================================================
+# PUBLIC API
+# =====================================================================
+
 __all__ = [
+    "DistanceProtectionSettings",
     "DistanceRelay",
 ]
-```
