@@ -51,7 +51,7 @@ Architectural Position
            ProtectionSystem
                     |
                     v
-        Scheme / Output Layer
+        Protection Output Layer
                     |
                     v
              BreakerManager
@@ -180,7 +180,7 @@ if TYPE_CHECKING:
 
 class RelayBase(ABC):
     """
-    Abstract base class for one executable protection-function
+    Abstract base class for ONE executable protection-function
     instance.
 
     RelayBase represents protection-function execution.
@@ -245,40 +245,14 @@ class RelayBase(ABC):
         measurement model.
         """
 
+        # --------------------------------------------------------------
+        # Physical Relay
+        # --------------------------------------------------------------
+
         if relay is None:
             raise ValueError(
                 "RelayBase relay cannot be None."
             )
-
-        # --------------------------------------------------------------
-        # Element identity
-        # --------------------------------------------------------------
-
-        normalized_element_id = str(
-            element_id
-        ).strip()
-
-        if not normalized_element_id:
-            raise ValueError(
-                "RelayBase element_id cannot be empty."
-            )
-
-        # --------------------------------------------------------------
-        # Function code
-        # --------------------------------------------------------------
-
-        normalized_function_code = str(
-            function_code
-        ).strip().upper()
-
-        if not normalized_function_code:
-            raise ValueError(
-                "RelayBase function_code cannot be empty."
-            )
-
-        # --------------------------------------------------------------
-        # Physical Relay identity
-        # --------------------------------------------------------------
 
         relay_id = getattr(
             relay,
@@ -289,6 +263,46 @@ class RelayBase(ABC):
         if relay_id is None:
             raise TypeError(
                 "RelayBase relay must expose an 'id' attribute."
+            )
+
+        # --------------------------------------------------------------
+        # Element identity
+        # --------------------------------------------------------------
+
+        if not isinstance(
+            element_id,
+            str,
+        ):
+            raise TypeError(
+                "RelayBase element_id must be a string."
+            )
+
+        normalized_element_id = element_id.strip()
+
+        if not normalized_element_id:
+            raise ValueError(
+                "RelayBase element_id cannot be empty."
+            )
+
+        # --------------------------------------------------------------
+        # Function code
+        # --------------------------------------------------------------
+
+        if not isinstance(
+            function_code,
+            str,
+        ):
+            raise TypeError(
+                "RelayBase function_code must be a string."
+            )
+
+        normalized_function_code = (
+            function_code.strip().upper()
+        )
+
+        if not normalized_function_code:
+            raise ValueError(
+                "RelayBase function_code cannot be empty."
             )
 
         # --------------------------------------------------------------
@@ -325,12 +339,26 @@ class RelayBase(ABC):
                     "cannot be None."
                 )
 
+            # Runtime import is deliberately local. This avoids a
+            # module-level dependency cycle while still validating the
+            # authoritative RelayInput contract.
+            from .relay_input import RelayInput
+
+            if not isinstance(
+                relay_input,
+                RelayInput,
+            ):
+                raise TypeError(
+                    f"RelayBase input '{normalized_name}' "
+                    "must be a RelayInput."
+                )
+
             normalized_inputs[
                 normalized_name
             ] = relay_input
 
         # --------------------------------------------------------------
-        # Authoritative references
+        # Authoritative physical Relay reference
         # --------------------------------------------------------------
 
         self.relay = relay
@@ -340,7 +368,10 @@ class RelayBase(ABC):
         # --------------------------------------------------------------
 
         self.element_id = normalized_element_id
-        self.function_code = normalized_function_code
+
+        self.function_code = (
+            normalized_function_code
+        )
 
         self.function_name = (
             str(function_name).strip()
@@ -363,18 +394,32 @@ class RelayBase(ABC):
         # Function configuration
         # --------------------------------------------------------------
 
-        self._settings: dict[
-            str,
-            Any,
-        ] = dict(
-            settings or {}
-        )
+        if settings is None:
+            self._settings: dict[
+                str,
+                Any,
+            ] = {}
+
+        elif not isinstance(
+            settings,
+            Mapping,
+        ):
+            raise TypeError(
+                "RelayBase settings must be a mapping."
+            )
+
+        else:
+            self._settings = dict(
+                settings
+            )
 
         # --------------------------------------------------------------
         # Measurement bindings
         # --------------------------------------------------------------
 
-        self._relay_inputs = normalized_inputs
+        self._relay_inputs = (
+            normalized_inputs
+        )
 
         # --------------------------------------------------------------
         # Transient execution state
@@ -418,7 +463,7 @@ class RelayBase(ABC):
         """
         Return the canonical protection-function designation.
 
-        This is an alias for ``function_code``.
+        Alias for ``function_code``.
         """
 
         return self.function_code
@@ -463,8 +508,15 @@ class RelayBase(ABC):
                 "Setting name must be a string."
             )
 
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError(
+                "Setting name cannot be empty."
+            )
+
         return self._settings.get(
-            name,
+            normalized_name,
             default,
         )
 
@@ -551,7 +603,14 @@ class RelayBase(ABC):
                 "Protection input name must be a string."
             )
 
-        return name.strip() in self._relay_inputs
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError(
+                "Protection input name cannot be empty."
+            )
+
+        return normalized_name in self._relay_inputs
 
     # ------------------------------------------------------------------
 
@@ -635,7 +694,6 @@ class RelayBase(ABC):
                 )
 
         if missing:
-
             raise ValueError(
                 f"Protection element '{self.element_id}' "
                 f"({self.function_code}) on relay "
@@ -664,8 +722,15 @@ class RelayBase(ABC):
                 "Runtime-state name must be a string."
             )
 
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError(
+                "Runtime-state name cannot be empty."
+            )
+
         return self._runtime.get(
-            name,
+            normalized_name,
             default,
         )
 
@@ -717,7 +782,14 @@ class RelayBase(ABC):
                 "Runtime-state name must be a string."
             )
 
-        return name in self._runtime
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError(
+                "Runtime-state name cannot be empty."
+            )
+
+        return normalized_name in self._runtime
 
     # ------------------------------------------------------------------
 
@@ -728,7 +800,7 @@ class RelayBase(ABC):
         """
         Return read-only access to transient runtime state.
 
-        This is primarily intended for diagnostics and testing.
+        Intended primarily for diagnostics and testing.
         """
 
         return MappingProxyType(
@@ -908,7 +980,16 @@ class RelayBase(ABC):
         Invalid decisions cannot request a trip.
         """
 
-        if not str(reason).strip():
+        if not isinstance(
+            reason,
+            str,
+        ):
+            raise TypeError(
+                "Invalid protection decision reason "
+                "must be a string."
+            )
+
+        if not reason.strip():
             raise ValueError(
                 "Invalid protection decisions require a reason."
             )
@@ -1038,6 +1119,10 @@ class RelayBase(ABC):
             f"blocked={self.blocked}>"
         )
 
+
+# ======================================================================
+# PUBLIC API
+# ======================================================================
 
 __all__ = [
     "RelayBase",
