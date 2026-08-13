@@ -10,96 +10,45 @@ Purpose
 -------
 Public API for the GridForge V2 protection subsystem.
 
-Architectural Position
-----------------------
-
-    Physical Relay
-          |
-          v
-    ProtectionElement
-          |
-          v
-       RelayBase
-          |
-          +------------------+
-          |                  |
-          v                  v
-     RelayInput      ProtectionContext
-          |                  |
-          +--------+---------+
-                   |
-                   v
-          ProtectionDecision
-                   |
-                   v
-          ProtectionSystem
-                   |
-                   v
-       Protection Scheme /
-        Output Execution
-                   |
-                   v
-            BreakerManager
-
-Public Contracts
-----------------
-
-ProtectionContext
-    Immutable execution-time context supplied to protection
-    functions.
-
-ProtectionDecision
-    Immutable structured result produced by one protection-function
-    evaluation.
-
-RelayInput
-    Protection-facing binding to an authoritative MeasurementChannel.
-
-RelayBase
-    Abstract executable protection-function contract.
-
-ProtectionElement
-    Composition object connecting one protection function to an
-    authoritative physical Relay.
-
-ProtectionElementState
-    Runtime orchestration state of a ProtectionElement.
-
-ProtectionSystem
-    System-level registration and orchestration of protection
-    elements.
+This package exposes only the stable foundational protection
+contracts. Concrete protection-function implementations remain in
+their dedicated subpackages.
 
 Architectural Boundary
 ----------------------
 
-This package does NOT:
+The protection package consumes authoritative state from other
+GridForge subsystems and produces structured protection decisions.
+
+It does not:
 
     * own physical Relay definitions;
     * own CT/PT/CVT definitions;
     * own MeasurementChannel state;
     * calculate network electrical quantities;
     * calculate fault currents;
-    * build Ybus;
+    * build Y-bus;
     * perform load flow;
     * perform short-circuit analysis;
     * operate physical breakers;
     * contain GUI state;
-    * perform persistence/file I/O.
-
-The protection subsystem consumes authoritative state from other
-GridForge subsystems and produces structured protection decisions.
+    * perform persistence or file I/O.
 
 Public API Policy
 -----------------
 
-Only stable protection contracts are exported from this package.
+Only stable protection contracts are exported here.
 
-Concrete protection-function implementations should normally live in
-their dedicated modules and should not be imported here merely for
-convenience.
+Concrete protection functions are intentionally NOT re-exported from
+this package. They remain available from their dedicated modules:
 
-This prevents ``core.protection`` from becoming a registry of every
-protection-function plugin and preserves the plugin architecture.
+    core.protection.overcurrent
+    core.protection.directional
+    core.protection.distance
+    core.protection.coordination
+
+This prevents ``core.protection`` from becoming a concrete-function
+registry and preserves the intended plugin architecture.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
