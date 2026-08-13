@@ -146,36 +146,49 @@ The required return type is:
 
     ProtectionDecision
 
-The returned ProtectionDecision is preserved as-is by
-ProtectionElement.
+The returned ProtectionDecision is preserved as-is.
 
-ProtectionElement does not reduce the decision to a boolean and does
-not construct a second decision/result representation.
+ProtectionElement additionally verifies that the returned decision
+belongs to this ProtectionElement and its authoritative Relay.
+
+This prevents a protection-function implementation from accidentally
+returning a decision belonging to another protection element.
 
 
-Decision Ownership
-------------------
+Decision Identity Contract
+--------------------------
 
-ProtectionDecision is the canonical V2 protection-result contract.
+The canonical ProtectionDecision identity is:
 
-ProtectionElement stores the latest ProtectionDecision only as
-runtime evaluation state.
+    decision.element_id
 
-The authoritative ProtectionDecision contract itself is defined in:
+The authoritative physical Relay identity is:
 
-    core/protection/decision.py
+    decision.relay_id
+
+Therefore, after successful evaluation:
+
+    decision.element_id == self.id
+
+and, when the authoritative Relay exposes ``id``:
+
+    decision.relay_id == self.relay_id
+
+A decision violating either identity constraint is rejected and the
+element enters FAILED state.
+
+This is an integrity boundary, not protection logic.
 
 
 State Semantics
 ---------------
 
-ProtectionElementState represents only the lifecycle/orchestration
-state of the element.
+ProtectionElementState represents only lifecycle/orchestration state.
 
 It is intentionally not a duplicate representation of the complete
 ProtectionDecision.
 
-The canonical states are:
+Canonical states:
 
     DISABLED
     IDLE
@@ -186,17 +199,24 @@ The canonical states are:
 
 The detailed protection result remains in ``last_decision``.
 
+``OPERATED`` means that the protection decision reports
+``operate=True``.
+
+It does NOT mean that a physical breaker has operated.
+
 
 Lifecycle
 ---------
 
 Each successful call to evaluate():
 
-    1. invokes RelayBase.evaluate(context);
-    2. requires a ProtectionDecision;
-    3. stores that decision;
-    4. synchronizes the coarse lifecycle state;
-    5. returns the same ProtectionDecision object.
+    1. validates the execution context;
+    2. invokes RelayBase.evaluate(context);
+    3. requires a ProtectionDecision;
+    4. validates decision identity;
+    5. stores that exact decision object;
+    6. synchronizes the coarse lifecycle state;
+    7. returns the same ProtectionDecision object.
 
 If evaluation raises an exception:
 
@@ -204,20 +224,31 @@ If evaluation raises an exception:
     * the previous successful decision is retained;
     * the exception is propagated.
 
-This prevents a failed evaluation from silently replacing a valid
-previous decision with incomplete state.
+If the function returns an invalid result:
+
+    * the element enters FAILED state;
+    * the previous successful decision is retained;
+    * the invalid result is not committed.
 
 
 Reset
 -----
 
-reset() clears the element's runtime decision and returns the element
-to:
-
-    IDLE       when enabled;
-    DISABLED   when disabled.
+reset() clears runtime decision state.
 
 The associated RelayBase reset() method is invoked when available.
+
+If RelayBase.reset() raises an exception:
+
+    * the element enters FAILED state;
+    * the previous decision is retained;
+    * the exception is propagated.
+
+If reset succeeds:
+
+    * last_decision becomes None;
+    * state becomes IDLE when enabled;
+    * state becomes DISABLED when disabled.
 
 The authoritative physical Relay is never reset here.
 
@@ -230,6 +261,7 @@ Proprietary and confidential.
 from __future__ import annotations
 
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from .context import ProtectionContext
@@ -243,12 +275,12 @@ from .decision import ProtectionDecision
 
 class ProtectionElementState(Enum):
     """
-    Lifecycle/orchestration state of a ProtectionElement.
+    Coarse lifecycle/orchestration state of a ProtectionElement.
 
-    These states provide a coarse operational view.
+    These states are derived from element execution state and the
+    latest canonical ProtectionDecision.
 
-    They are not a replacement for the detailed ProtectionDecision
-    returned by the associated RelayBase implementation.
+    They are not a replacement for ProtectionDecision.
     """
 
     DISABLED = "DISABLED"
@@ -266,21 +298,18 @@ class ProtectionElementState(Enum):
 
 class ProtectionElement:
     """
-    Composition object representing one protection function hosted by
-    an authoritative physical Relay.
+    Composition boundary between an authoritative Relay and one
+    executable RelayBase protection function.
 
-    A ProtectionElement does not implement protection mathematics.
+    ProtectionElement owns orchestration state only.
 
-    It owns the relationship between:
-
-        Relay
-          |
-          +-- ProtectionElement
-                  |
-                  +-- RelayBase
-                          |
-                          +-- ProtectionDecision
+    It does not perform protection calculations and does not own
+    measurement, network, simulation, or breaker state.
     """
+
+    # =================================================================
+    # INITIALIZATION
+    # =================================================================
 
     def __init__(
         self,
@@ -294,9 +323,8 @@ class ProtectionElement:
         priority: int = 0,
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
-
         # -------------------------------------------------------------
-        # Identity
+        # Element identity
         # -------------------------------------------------------------
 
         self._validate_id(id)
@@ -311,6 +339,25 @@ class ProtectionElement:
             raise ValueError(
                 "relay cannot be None."
             )
+
+        relay_id = getattr(
+            relay,
+            "id",
+            None,
+        )
+
+        if relay_id is None:
+            raise TypeError(
+                "relay must expose a non-None 'id' attribute."
+            )
+
+        # A physical Relay identity must be stable enough to
+        # participate in ProtectionDecision identity validation.
+        if isinstance(relay_id, str):
+            if not relay_id.strip():
+                raise ValueError(
+                    "relay.id cannot be empty."
+                )
 
         # -------------------------------------------------------------
         # Executable protection function
@@ -406,6 +453,9 @@ class ProtectionElement:
         # Executable RelayBase protection-function reference.
         self.function = function
 
+        # Element-level classification.
+        #
+        # This is intentionally distinct from function.function_code.
         self.function_type = (
             normalized_function_type
         )
@@ -523,8 +573,7 @@ class ProtectionElement:
     @property
     def function_code(self) -> str | None:
         """
-        Return the canonical protection-function code exposed by the
-        RelayBase implementation.
+        Return the protection-function code exposed by RelayBase.
 
         ProtectionElement does not maintain a second function-code
         identity.
@@ -539,9 +588,11 @@ class ProtectionElement:
         if value is None:
             return None
 
-        return str(
+        normalized = str(
             value
         ).strip().upper()
+
+        return normalized or None
 
     # =================================================================
     # STATE
@@ -550,7 +601,7 @@ class ProtectionElement:
     @property
     def state(self) -> ProtectionElementState:
         """
-        Return the current element lifecycle state.
+        Return the current lifecycle state.
         """
 
         return self._state
@@ -574,11 +625,9 @@ class ProtectionElement:
         self,
     ) -> ProtectionDecision | None:
         """
-        Return the complete ProtectionDecision from the most recent
-        successful evaluation.
+        Return the latest successfully committed ProtectionDecision.
 
-        The canonical decision object is preserved without conversion
-        or reduction.
+        The exact canonical decision object is preserved.
         """
 
         return self._last_decision
@@ -591,18 +640,15 @@ class ProtectionElement:
         """
         Enable this protection element.
 
-        Enabling the element does not modify the authoritative Relay.
+        Enabling does not clear the previous decision.
+
+        Enabling does not modify the authoritative Relay.
         """
 
         self.enabled = True
 
-        if (
-            self._state
-            == ProtectionElementState.DISABLED
-        ):
-            self._state = (
-                ProtectionElementState.IDLE
-            )
+        if self._state == ProtectionElementState.DISABLED:
+            self._state = ProtectionElementState.IDLE
 
     # -----------------------------------------------------------------
 
@@ -610,10 +656,10 @@ class ProtectionElement:
         """
         Disable this protection element.
 
-        Disabling the element does not modify the authoritative Relay.
+        The previous successful decision remains available until
+        reset() or a later successful evaluation.
 
-        The previously committed ProtectionDecision remains available
-        until the next successful evaluation or reset.
+        Disabling does not modify the authoritative Relay.
         """
 
         self.enabled = False
@@ -636,33 +682,45 @@ class ProtectionElement:
         Parameters
         ----------
         context:
-            Protection execution context.
+            Canonical immutable ProtectionContext.
 
         Returns
         -------
         ProtectionDecision | None
-            The canonical ProtectionDecision returned by RelayBase.
+            The exact canonical ProtectionDecision returned by the
+            RelayBase implementation.
 
             ``None`` is returned only when this element is disabled.
 
         Raises
         ------
         TypeError
-            If context is not a ProtectionContext.
+            If context is not ProtectionContext or the function returns
+            an invalid result.
 
-            Also raised if RelayBase.evaluate() returns an object other
-            than ProtectionDecision.
+        ValueError
+            If the returned ProtectionDecision has an identity mismatch.
 
-        Notes
-        -----
-        ProtectionElement does not perform protection calculations.
+        Exception
+            Any exception raised by the underlying protection function
+            is propagated after the element enters FAILED state.
 
-        The ProtectionDecision returned by RelayBase is preserved as-is.
+        Transaction Semantics
+        ---------------------
+        A decision is committed only after:
 
-        If evaluation fails with an exception, the element enters
-        FAILED state and the previous successful decision remains
-        retained.
+            1. function evaluation succeeds;
+            2. result type is valid;
+            3. element identity matches;
+            4. Relay identity matches.
+
+        Therefore a failed evaluation never destroys the previous
+        successfully committed decision.
         """
+
+        # -------------------------------------------------------------
+        # Context contract
+        # -------------------------------------------------------------
 
         if not isinstance(
             context,
@@ -721,11 +779,11 @@ class ProtectionElement:
                 ProtectionElementState.FAILED
             )
 
-            # Preserve the previous successfully committed decision.
+            # Previous successful decision remains untouched.
             raise
 
         # -------------------------------------------------------------
-        # Enforce canonical V2 decision contract
+        # Canonical decision contract
         # -------------------------------------------------------------
 
         if not isinstance(
@@ -744,13 +802,50 @@ class ProtectionElement:
             )
 
         # -------------------------------------------------------------
-        # Commit complete decision
+        # Decision identity integrity
+        # -------------------------------------------------------------
+
+        if decision.element_id != self.id:
+
+            self._state = (
+                ProtectionElementState.FAILED
+            )
+
+            raise ValueError(
+                f"Protection decision identity mismatch for "
+                f"element '{self.id}': "
+                f"expected element_id={self.id!r}, "
+                f"received {decision.element_id!r}."
+            )
+
+        # -------------------------------------------------------------
+        # Relay identity integrity
+        # -------------------------------------------------------------
+
+        expected_relay_id = self.relay_id
+
+        if decision.relay_id != expected_relay_id:
+
+            self._state = (
+                ProtectionElementState.FAILED
+            )
+
+            raise ValueError(
+                f"Protection decision Relay identity mismatch "
+                f"for element '{self.id}': "
+                f"expected relay_id={expected_relay_id!r}, "
+                f"received {decision.relay_id!r}."
+            )
+
+        # -------------------------------------------------------------
+        # Commit canonical decision
         # -------------------------------------------------------------
 
         self._last_decision = decision
 
         self._synchronize_state()
 
+        # Return the exact object supplied by RelayBase.
         return decision
 
     # =================================================================
@@ -759,11 +854,15 @@ class ProtectionElement:
 
     def reset(self) -> None:
         """
-        Reset this ProtectionElement runtime state.
+        Reset runtime state.
 
-        The associated RelayBase runtime is reset when supported.
+        RelayBase.reset() is delegated when available.
 
-        The authoritative physical Relay is never reset here.
+        The authoritative physical Relay is never reset.
+
+        Reset is transactional with respect to the element's
+        ProtectionDecision: the previous decision is retained if the
+        underlying function reset fails.
         """
 
         resetter = getattr(
@@ -775,7 +874,16 @@ class ProtectionElement:
         if callable(
             resetter
         ):
-            resetter()
+            try:
+                resetter()
+
+            except Exception:
+                self._state = (
+                    ProtectionElementState.FAILED
+                )
+
+                # Preserve previous successful decision.
+                raise
 
         self._last_decision = None
 
@@ -791,10 +899,10 @@ class ProtectionElement:
 
     def _synchronize_state(self) -> None:
         """
-        Synchronize coarse ProtectionElement state from the latest
-        canonical ProtectionDecision.
+        Synchronize coarse lifecycle state from the canonical
+        ProtectionDecision.
 
-        Decision precedence is:
+        Precedence:
 
             BLOCKED
                 ↓
@@ -803,6 +911,8 @@ class ProtectionElement:
             PICKUP
                 ↓
             IDLE
+
+        The decision remains authoritative for detailed semantics.
         """
 
         if not self.enabled:
@@ -860,10 +970,16 @@ class ProtectionElement:
         self,
     ) -> Mapping[str, Any]:
         """
-        Return a detached copy of element-local metadata.
+        Return read-only element-local metadata.
+
+        Metadata is descriptive/orchestration information only.
         """
 
-        return self._metadata.copy()
+        return MappingProxyType(
+            dict(
+                self._metadata
+            )
+        )
 
     # -----------------------------------------------------------------
 
@@ -875,8 +991,7 @@ class ProtectionElement:
         """
         Set element-local metadata.
 
-        Metadata must not duplicate authoritative Relay state or
-        RelayBase protection settings.
+        This does not modify authoritative Relay or RelayBase state.
         """
 
         if not isinstance(
@@ -887,14 +1002,16 @@ class ProtectionElement:
                 "Metadata name must be a string."
             )
 
-        name = name.strip()
+        normalized_name = name.strip()
 
-        if not name:
+        if not normalized_name:
             raise ValueError(
                 "Metadata name cannot be empty."
             )
 
-        self._metadata[name] = value
+        self._metadata[
+            normalized_name
+        ] = value
 
     # =================================================================
     # STATUS
@@ -928,13 +1045,12 @@ class ProtectionElement:
             function_status = status_method()
 
         # -------------------------------------------------------------
-        # ProtectionDecision diagnostics
+        # Decision diagnostics
         # -------------------------------------------------------------
 
         decision_status = None
 
         if self._last_decision is not None:
-
             decision_status = (
                 self._last_decision.diagnostics()
             )
@@ -954,7 +1070,9 @@ class ProtectionElement:
             "priority": self.priority,
             "state": self.state.value,
             "last_decision": decision_status,
-            "metadata": self.metadata,
+            "metadata": dict(
+                self._metadata
+            ),
             "function_status": function_status,
         }
 
