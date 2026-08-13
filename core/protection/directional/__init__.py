@@ -1,4 +1,3 @@
-```python
 """
 GridForge Directional Protection
 ================================
@@ -26,4 +25,3 @@ from core.protection.directional.directional_relay import (
 __all__ = [
     "DirectionalRelay",
 ]
-```
