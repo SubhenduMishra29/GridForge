@@ -1,48 +1,155 @@
-```python
 """
-GridForge Directional Relay
-===========================
+GridForge Directional Protection Function
+=========================================
 
 File:
     core/protection/directional/directional_relay.py
 
 Purpose
 -------
-Directional protection element.
+Implements the baseline directional overcurrent protection function
+for GridForge V2.
 
-Functions
----------
-- Current pickup
-- Directional decision
-- Forward/reverse discrimination
-- Trip permission
+The function combines:
 
-The authoritative relay device model is:
+    1. Current pickup.
+    2. Polarizing voltage/current angular relationship.
+    3. Forward/reverse discrimination.
+    4. ProtectionDecision generation.
 
-    core/model/relay.py
+Architectural Position
+-----------------------
 
-The common protection interface is:
+    CT / PT / CVT
+          |
+          v
+    MeasurementChannel
+          |
+          v
+       RelayInput
+          |
+          v
+       RelayBase
+          |
+          v
+    DirectionalRelay
+          |
+          v
+    ProtectionDecision
+          |
+          v
+    ProtectionSystem
+          |
+          v
+    Protection Output Layer
+          |
+          v
+      BreakerManager
 
-    core/protection/relay_base.py
+Important V2 Principle
+----------------------
+This class represents ONE directional protection function / element.
 
-This module does NOT:
-- Calculate system-wide faults.
-- Operate circuit breakers.
-- Coordinate multiple relays.
-- Modify the network model.
+It is not the physical Relay model.
 
-Notes
------
-The locked Relay model does not store voltage/current phase angles.
-Therefore phase-angle inputs are supplied directly to the directional
-evaluation methods.
+A physical GridForge Relay may contain multiple protection
+functions, for example:
 
-Future extensions
------------------
-- Polarizing memory voltage
-- Negative-sequence directional element
-- Zero-sequence directional element
-- IEC directional overcurrent coordination
+    50/51    Overcurrent
+    67       Directional overcurrent
+    21       Distance
+    50BF     Breaker failure
+
+Each function is independently executable and may share the same
+authoritative MeasurementChannel / RelayInput infrastructure.
+
+Responsibilities
+----------------
+This module is responsible for:
+
+    - consuming a configured current RelayInput;
+    - validating current magnitude;
+    - evaluating current pickup;
+    - evaluating directional discrimination;
+    - determining forward/reverse direction;
+    - producing ProtectionDecision objects;
+    - maintaining algorithm-specific diagnostic state.
+
+It does NOT:
+
+    - create CTs/PTs/CVTs;
+    - create MeasurementChannels;
+    - calculate fault current;
+    - access Network topology;
+    - perform load flow;
+    - perform short-circuit calculations;
+    - coordinate multiple protection functions;
+    - operate breakers;
+    - modify the authoritative Relay model;
+    - schedule protection events;
+    - own a simulation clock.
+
+Directional Evaluation
+----------------------
+The baseline directional criterion uses:
+
+    angle_difference = V_angle - I_angle
+
+The result is compared against the configured forward reference
+angle:
+
+    reference_difference =
+        normalize(angle_difference - forward_angle)
+
+Forward operation occurs when:
+
+    abs(reference_difference) <= tolerance
+
+Otherwise the element is classified as REVERSE.
+
+This is intentionally a baseline directional characteristic.
+
+Future extensions may introduce:
+
+    - memory polarization;
+    - positive-sequence polarization;
+    - negative-sequence directional elements;
+    - zero-sequence directional elements;
+    - voltage-polarized directional overcurrent;
+    - current-polarized directional logic;
+    - IEC directional overcurrent coordination;
+    - configurable maximum-torque-angle characteristics.
+
+Phase-Angle Boundary
+--------------------
+The authoritative MeasurementChannel remains responsible for
+measurement magnitude/scaling.
+
+The locked Relay model does not own voltage/current phase angles.
+
+Therefore the baseline directional phase angles are supplied through
+ProtectionContext metadata.
+
+Expected context metadata:
+
+    {
+        "voltage_angle": <degrees>,
+        "current_angle": <degrees>,
+    }
+
+This keeps phase-angle evaluation inputs explicit and avoids adding
+duplicated phasor-angle state to the Relay model.
+
+Timing Boundary
+---------------
+This function is instantaneous at the directional-element level.
+
+It does not own a simulation clock.
+
+ProtectionContext supplies the evaluation timestamp when available.
+
+Event scheduling and physical breaker operation belong to higher
+protection/simulation/output layers.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -51,134 +158,368 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
-from typing import Optional
+from dataclasses import dataclass
+import math
+from typing import Any, Mapping
 
+from core.protection.context import ProtectionContext
+from core.protection.protection_decision import ProtectionDecision
 from core.protection.relay_base import RelayBase
 
 
-class DirectionalRelay(RelayBase):
+# =====================================================================
+# CONSTANTS
+# =====================================================================
+
+FUNCTION_CODE = "67"
+FUNCTION_NAME = "DIRECTIONAL OVERCURRENT"
+
+CURRENT_INPUT = "current"
+
+DEFAULT_FORWARD_ANGLE = 90.0
+DEFAULT_TOLERANCE = 90.0
+
+ANGLE_RANGE = 360.0
+
+
+# =====================================================================
+# DIRECTIONAL SETTINGS
+# =====================================================================
+
+
+@dataclass(frozen=True)
+class DirectionalProtectionSettings:
     """
-    Directional protection algorithm.
+    Immutable settings for one directional protection function.
 
     Parameters
     ----------
-    relay:
-        Authoritative Relay model from core.model.relay.
+    pickup:
+        Current pickup magnitude in the engineering convention of
+        the assigned current RelayInput.
 
     forward_angle:
         Maximum-torque / forward reference angle in degrees.
 
     tolerance:
-        Acceptable angular deviation from the forward reference
-        angle in degrees.
+        Permitted angular deviation from the forward reference angle.
 
     Notes
     -----
-    Relay pickup is obtained from:
+    Pickup is owned by the directional protection function.
 
-        relay.pickup
-
-    Relay current is obtained from:
-
-        relay.current
-
-    Relay service and trip state remain owned by the Relay model.
+    It is deliberately not read from relay.pickup because the
+    authoritative physical Relay model is not the protection-function
+    configuration container.
     """
 
-    # =========================================================
+    pickup: float
+    forward_angle: float = DEFAULT_FORWARD_ANGLE
+    tolerance: float = DEFAULT_TOLERANCE
+
+    def __post_init__(self) -> None:
+        pickup = float(self.pickup)
+        forward_angle = float(self.forward_angle)
+        tolerance = float(self.tolerance)
+
+        if (
+            not math.isfinite(pickup)
+            or pickup <= 0.0
+        ):
+            raise ValueError(
+                "pickup must be finite and positive."
+            )
+
+        if not math.isfinite(
+            forward_angle
+        ):
+            raise ValueError(
+                "forward_angle must be finite."
+            )
+
+        if (
+            not math.isfinite(tolerance)
+            or not 0.0 <= tolerance <= 180.0
+        ):
+            raise ValueError(
+                "tolerance must be finite and between "
+                "0 and 180 degrees."
+            )
+
+        object.__setattr__(
+            self,
+            "pickup",
+            pickup,
+        )
+
+        object.__setattr__(
+            self,
+            "forward_angle",
+            forward_angle,
+        )
+
+        object.__setattr__(
+            self,
+            "tolerance",
+            tolerance,
+        )
+
+
+# =====================================================================
+# DIRECTIONAL PROTECTION FUNCTION
+# =====================================================================
+
+
+class DirectionalRelay(RelayBase):
+    """
+    GridForge V2 directional overcurrent protection function.
+
+    Parameters
+    ----------
+    relay:
+        Authoritative physical Relay model.
+
+    relay_inputs:
+        Mapping containing the required current RelayInput.
+
+        Required name:
+
+            "current"
+
+    settings:
+        DirectionalProtectionSettings instance.
+
+    element_id:
+        Stable identity of this protection-function instance.
+
+        This is distinct from the physical Relay identity.
+
+    enabled:
+        Local function enable state.
+
+    blocked:
+        Static protection-function block state.
+
+    Notes
+    -----
+    Voltage/current phase angles are obtained from ProtectionContext
+    metadata because the locked Relay model does not own phase-angle
+    state.
+    """
+
+    FUNCTION_CODE = FUNCTION_CODE
+    FUNCTION_NAME = FUNCTION_NAME
+
+    CURRENT_INPUT = CURRENT_INPUT
+
+    # ================================================================
     # INITIALIZATION
-    # =========================================================
+    # ================================================================
 
     def __init__(
         self,
-        relay,
-        forward_angle: float = 90.0,
-        tolerance: float = 90.0,
+        relay: Any,
+        *,
+        element_id: str,
+        relay_inputs: Mapping[str, Any] | None = None,
+        settings: DirectionalProtectionSettings,
+        enabled: bool = True,
+        blocked: bool = False,
     ) -> None:
 
-        super().__init__(
-            relay
-        )
-
-        self.forward_angle = float(
-            forward_angle
-        )
-
-        self.tolerance = float(
-            tolerance
-        )
-
-        self.direction: Optional[str] = None
-
-        self._validate_settings()
-
-    # =========================================================
-    # VALIDATION
-    # =========================================================
-
-    def _validate_settings(self) -> None:
-        """
-        Validate directional protection settings.
-        """
-
-        if not (
-            0.0 <= self.tolerance <= 180.0
+        if not isinstance(
+            settings,
+            DirectionalProtectionSettings,
         ):
-            raise ValueError(
-                "Directional tolerance must be "
-                "between 0 and 180 degrees."
+            raise TypeError(
+                "settings must be a "
+                "DirectionalProtectionSettings instance."
             )
 
-    # =========================================================
+        super().__init__(
+            relay=relay,
+            element_id=element_id,
+            function_code=self.FUNCTION_CODE,
+            function_name=self.FUNCTION_NAME,
+            relay_inputs=relay_inputs,
+            settings={
+                "pickup": settings.pickup,
+                "forward_angle": settings.forward_angle,
+                "tolerance": settings.tolerance,
+            },
+            enabled=enabled,
+            blocked=blocked,
+        )
+
+        self.settings = settings
+
+        # --------------------------------------------------------------
+        # Algorithm-specific diagnostic state.
+        # --------------------------------------------------------------
+
+        self._direction: str | None = None
+
+        self._last_timestamp: float | None = None
+
+        self._last_current: complex | None = None
+
+        self._last_voltage_angle: float | None = None
+        self._last_current_angle: float | None = None
+        self._last_angle_difference: float | None = None
+        self._last_reference_difference: float | None = None
+
+        self._last_pickup: bool = False
+
+        self._last_decision: ProtectionDecision | None = None
+
+        self.require_inputs(
+            self.CURRENT_INPUT
+        )
+
+    # ================================================================
+    # SETTINGS
+    # ================================================================
+
+    @property
+    def pickup(self) -> float:
+        """
+        Return configured current pickup.
+        """
+
+        return self.settings.pickup
+
+    @property
+    def forward_angle(self) -> float:
+        """
+        Return configured forward reference angle.
+        """
+
+        return self.settings.forward_angle
+
+    @property
+    def tolerance(self) -> float:
+        """
+        Return configured directional angular tolerance.
+        """
+
+        return self.settings.tolerance
+
+    # ================================================================
+    # MEASUREMENT
+    # ================================================================
+
+    def current_signal(self) -> Any:
+        """
+        Return the current engineering signal from RelayInput.
+        """
+
+        return self.get_input(
+            self.CURRENT_INPUT
+        ).engineering_value
+
+    # ----------------------------------------------------------------
+
+    def current_value(self) -> complex:
+        """
+        Return the validated current measurement.
+
+        Complex current values are accepted because the measurement
+        subsystem may expose a phasor.
+
+        Pickup uses the magnitude:
+
+            |I|
+        """
+
+        value = self.current_signal()
+
+        if isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                "Current measurement cannot be bool."
+            )
+
+        try:
+            value = complex(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Current measurement must be numeric."
+            ) from exc
+
+        if not (
+            math.isfinite(value.real)
+            and math.isfinite(value.imag)
+        ):
+            raise ValueError(
+                "Current measurement must be finite."
+            )
+
+        return value
+
+    # ================================================================
+    # CURRENT PICKUP
+    # ================================================================
+
+    def check_pickup(
+        self,
+        current: complex | None = None,
+    ) -> bool:
+        """
+        Evaluate the directional-element current pickup criterion.
+
+        Criterion:
+
+            |I| >= pickup
+        """
+
+        if not self.operational:
+            return False
+
+        if current is None:
+            current = self.current_value()
+
+        return abs(current) >= self.pickup
+
+    # ================================================================
     # ANGLE NORMALIZATION
-    # =========================================================
+    # ================================================================
 
     @staticmethod
-    def _normalize_angle(
+    def normalize_angle(
         angle: float,
     ) -> float:
         """
-        Normalize an angle to the range [-180, 180).
+        Normalize an angle to:
+
+            [-180, 180)
         """
+
+        angle = float(angle)
+
+        if not math.isfinite(angle):
+            raise ValueError(
+                "Angle must be finite."
+            )
 
         return (
-            float(angle) + 180.0
-        ) % 360.0 - 180.0
+            (angle + 180.0)
+            % ANGLE_RANGE
+        ) - 180.0
 
-    # =========================================================
-    # CURRENT PICKUP
-    # =========================================================
+    # ================================================================
+    # DIRECTIONAL DISCRIMINATION
+    # ================================================================
 
-    def check_pickup(self) -> bool:
-        """
-        Evaluate the current pickup condition.
-
-        The authoritative pickup setting and current measurement
-        are obtained from the Relay model.
-        """
-
-        if not self.relay.in_service:
-            return False
-
-        if self.relay.pickup <= 0.0:
-            return False
-
-        return (
-            abs(self.relay.current)
-            >= self.relay.pickup
-        )
-
-    # =========================================================
-    # DIRECTIONAL ELEMENT
-    # =========================================================
-
-    def check_direction(
+    def direction_from_angles(
         self,
+        *,
         voltage_angle: float,
         current_angle: float,
     ) -> str:
         """
-        Determine forward or reverse direction.
+        Determine forward/reverse direction.
 
         Parameters
         ----------
@@ -192,155 +533,722 @@ class DirectionalRelay(RelayBase):
         -------
         str
             "FORWARD" or "REVERSE".
-
-        Notes
-        -----
-        Phase angles are transient evaluation inputs.
-
-        They are deliberately not stored in the authoritative
-        Relay model because core/model/relay.py does not define
-        phase-angle state.
         """
 
-        angle_difference = (
-            float(voltage_angle)
-            - float(current_angle)
+        voltage_angle = float(
+            voltage_angle
         )
 
-        angle_difference = (
-            self._normalize_angle(
-                angle_difference
+        current_angle = float(
+            current_angle
+        )
+
+        if not math.isfinite(
+            voltage_angle
+        ):
+            raise ValueError(
+                "voltage_angle must be finite."
             )
-        )
 
-        reference_difference = (
-            self._normalize_angle(
-                angle_difference
-                - self.forward_angle
+        if not math.isfinite(
+            current_angle
+        ):
+            raise ValueError(
+                "current_angle must be finite."
             )
+
+        angle_difference = self.normalize_angle(
+            voltage_angle - current_angle
         )
 
-        if abs(
+        reference_difference = self.normalize_angle(
+            angle_difference - self.forward_angle
+        )
+
+        self._last_voltage_angle = (
+            voltage_angle
+        )
+
+        self._last_current_angle = (
+            current_angle
+        )
+
+        self._last_angle_difference = (
+            angle_difference
+        )
+
+        self._last_reference_difference = (
             reference_difference
-        ) <= self.tolerance:
+        )
 
-            self.direction = "FORWARD"
-
+        if (
+            abs(reference_difference)
+            <= self.tolerance
+        ):
+            direction = "FORWARD"
         else:
+            direction = "REVERSE"
 
-            self.direction = "REVERSE"
+        self._direction = direction
 
-        return self.direction
+        return direction
 
-    # =========================================================
-    # EVALUATION
-    # =========================================================
+    # ----------------------------------------------------------------
 
-    def evaluate(
+    def check_direction(
         self,
+        *,
         voltage_angle: float,
         current_angle: float,
-    ) -> bool:
+    ) -> str:
         """
-        Evaluate the complete directional protection element.
+        Public directional discriminator.
 
-        Returns
-        -------
-        bool
-            True when both:
-
-            1. Current pickup is satisfied.
-            2. The measured direction is FORWARD.
-
-        Notes
-        -----
-        The authoritative Relay trip state is updated through
-        Relay.set_trip().
-
-        This method does not operate a breaker.
+        Phase angles are evaluation inputs and are not written into
+        the authoritative Relay model.
         """
 
-        if not self.relay.in_service:
-
-            self.direction = None
-
-            self.relay.set_trip(
-                False
-            )
-
-            return False
-
-        pickup = self.check_pickup()
-
-        direction = self.check_direction(
+        return self.direction_from_angles(
             voltage_angle=voltage_angle,
             current_angle=current_angle,
         )
 
-        operates = (
-            pickup
-            and direction == "FORWARD"
+    # ================================================================
+    # CONTEXT ANGLES
+    # ================================================================
+
+    @staticmethod
+    def _context_angles(
+        context: ProtectionContext | None,
+    ) -> tuple[float, float]:
+        """
+        Extract voltage/current phase angles from ProtectionContext.
+
+        Expected metadata:
+
+            {
+                "voltage_angle": ...,
+                "current_angle": ...,
+            }
+        """
+
+        if context is None:
+            raise ValueError(
+                "Directional protection requires a "
+                "ProtectionContext containing "
+                "'voltage_angle' and 'current_angle'."
+            )
+
+        metadata = context.metadata
+
+        if not isinstance(
+            metadata,
+            Mapping,
+        ):
+            raise ValueError(
+                "ProtectionContext.metadata must provide "
+                "directional phase-angle data."
+            )
+
+        missing = [
+            name
+            for name in (
+                "voltage_angle",
+                "current_angle",
+            )
+            if name not in metadata
+        ]
+
+        if missing:
+            raise ValueError(
+                "Directional protection context is missing "
+                f"required angle metadata: {missing}."
+            )
+
+        return (
+            float(
+                metadata["voltage_angle"]
+            ),
+            float(
+                metadata["current_angle"]
+            ),
         )
 
-        self.relay.set_trip(
-            operates
+    # ================================================================
+    # EVALUATION
+    # ================================================================
+
+    def evaluate(
+        self,
+        context: ProtectionContext | None = None,
+    ) -> ProtectionDecision:
+        """
+        Evaluate one directional protection cycle.
+
+        The evaluation performs:
+
+            1. operational-state validation;
+            2. current acquisition through RelayInput;
+            3. current pickup;
+            4. polarizing angle acquisition from context;
+            5. forward/reverse discrimination;
+            6. ProtectionDecision generation.
+
+        The function does NOT:
+
+            - modify Relay trip state;
+            - call Relay.set_trip();
+            - call trip();
+            - operate a breaker;
+            - schedule a trip event.
+
+        Returns
+        -------
+        ProtectionDecision
+            Structured directional-protection result.
+        """
+
+        timestamp = self._context_time(
+            context
         )
 
-        return operates
+        self._validate_timestamp_order(
+            timestamp
+        )
 
-    # =========================================================
+        self._last_timestamp = timestamp
+
+        # --------------------------------------------------------------
+        # Operational gate
+        # --------------------------------------------------------------
+
+        if not self.operational:
+
+            self._clear_runtime_state()
+
+            if self.blocked:
+
+                decision = ProtectionDecision.blocked_decision(
+                    relay_id=self.relay_id,
+                    function_code=self.FUNCTION_CODE,
+                    function_id=self.element_id,
+                    reason=(
+                        "Directional protection function "
+                        "is blocked."
+                    ),
+                    timestamp=timestamp,
+                )
+
+            else:
+
+                decision = ProtectionDecision.no_operation(
+                    relay_id=self.relay_id,
+                    function_code=self.FUNCTION_CODE,
+                    function_id=self.element_id,
+                    reason=self._inactive_reason(),
+                    timestamp=timestamp,
+                )
+
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # Current measurement
+        # --------------------------------------------------------------
+
+        try:
+            current = self.current_value()
+
+        except (TypeError, ValueError) as exc:
+
+            self._clear_runtime_state()
+
+            decision = ProtectionDecision.invalid(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                reason=(
+                    "Invalid directional current measurement: "
+                    f"{exc}"
+                ),
+                timestamp=timestamp,
+                metadata={
+                    "current_input": self.CURRENT_INPUT,
+                },
+            )
+
+            self._last_decision = decision
+
+            return decision
+
+        self._last_current = current
+
+        pickup = self.check_pickup(
+            current
+        )
+
+        self._last_pickup = pickup
+
+        # --------------------------------------------------------------
+        # Pickup is false
+        # --------------------------------------------------------------
+
+        if not pickup:
+
+            self._direction = None
+
+            decision = ProtectionDecision.no_operation(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                reason=(
+                    "Directional overcurrent pickup "
+                    "criterion is not satisfied."
+                ),
+                timestamp=timestamp,
+                metadata={
+                    "current": current,
+                    "current_magnitude": abs(current),
+                    "pickup": self.pickup,
+                    "direction": None,
+                },
+            )
+
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # Directional phase-angle evaluation
+        # --------------------------------------------------------------
+
+        try:
+            voltage_angle, current_angle = (
+                self._context_angles(
+                    context
+                )
+            )
+
+            direction = self.direction_from_angles(
+                voltage_angle=voltage_angle,
+                current_angle=current_angle,
+            )
+
+        except (TypeError, ValueError) as exc:
+
+            self._direction = None
+
+            decision = ProtectionDecision.invalid(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                reason=(
+                    "Invalid directional phase-angle "
+                    f"evaluation: {exc}"
+                ),
+                timestamp=timestamp,
+                metadata={
+                    "current": current,
+                    "current_magnitude": abs(current),
+                    "pickup": pickup,
+                },
+            )
+
+            self._last_decision = decision
+
+            return decision
+
+        metadata = {
+            "current": current,
+            "current_magnitude": abs(current),
+            "pickup": pickup,
+            "pickup_setting": self.pickup,
+            "voltage_angle": voltage_angle,
+            "current_angle": current_angle,
+            "angle_difference": (
+                self._last_angle_difference
+            ),
+            "reference_difference": (
+                self._last_reference_difference
+            ),
+            "forward_angle": self.forward_angle,
+            "tolerance": self.tolerance,
+            "direction": direction,
+        }
+
+        # --------------------------------------------------------------
+        # Reverse direction
+        # --------------------------------------------------------------
+
+        if direction != "FORWARD":
+
+            decision = ProtectionDecision.no_operation(
+                relay_id=self.relay_id,
+                function_code=self.FUNCTION_CODE,
+                function_id=self.element_id,
+                reason=(
+                    "Current pickup is present but the measured "
+                    "direction is REVERSE."
+                ),
+                timestamp=timestamp,
+                metadata=metadata,
+            )
+
+            self._last_decision = decision
+
+            return decision
+
+        # --------------------------------------------------------------
+        # Forward directional operation
+        # --------------------------------------------------------------
+
+        decision = ProtectionDecision.trip(
+            relay_id=self.relay_id,
+            function_code=self.FUNCTION_CODE,
+            function_id=self.element_id,
+            reason=(
+                "Directional overcurrent pickup and "
+                "FORWARD directional criterion are satisfied."
+            ),
+            timestamp=timestamp,
+            operating_time=0.0,
+            metadata=metadata,
+        )
+
+        self._last_decision = decision
+
+        return decision
+
+    # ================================================================
+    # TIMING
+    # ================================================================
+
+    @staticmethod
+    def _context_time(
+        context: ProtectionContext | None,
+    ) -> float | None:
+        """
+        Return the evaluation timestamp from ProtectionContext.
+        """
+
+        if context is None:
+            return None
+
+        try:
+            timestamp = context.time
+        except AttributeError as exc:
+            raise TypeError(
+                "context must provide a 'time' attribute."
+            ) from exc
+
+        return DirectionalRelay._validate_timestamp(
+            timestamp
+        )
+
+    # ----------------------------------------------------------------
+
+    def _validate_timestamp_order(
+        self,
+        timestamp: float | None,
+    ) -> None:
+        """
+        Ensure stateful evaluation timestamps do not move backwards.
+        """
+
+        if timestamp is None:
+            return
+
+        previous = self._last_timestamp
+
+        if (
+            previous is not None
+            and timestamp < previous
+        ):
+            raise ValueError(
+                "Protection evaluation timestamp cannot move "
+                "backwards."
+            )
+
+    # ----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_timestamp(
+        timestamp: float,
+    ) -> float:
+        """
+        Validate a protection evaluation timestamp.
+        """
+
+        try:
+            timestamp = float(timestamp)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "timestamp must be numeric."
+            ) from exc
+
+        if not math.isfinite(
+            timestamp
+        ):
+            raise ValueError(
+                "timestamp must be finite."
+            )
+
+        return timestamp
+
+    # ================================================================
+    # STATE
+    # ================================================================
+
+    def _clear_runtime_state(self) -> None:
+        """
+        Clear transient directional state.
+
+        The authoritative Relay is never modified here.
+        """
+
+        self._direction = None
+
+        self._last_current = None
+
+        self._last_voltage_angle = None
+        self._last_current_angle = None
+        self._last_angle_difference = None
+        self._last_reference_difference = None
+
+        self._last_pickup = False
+
+    # ----------------------------------------------------------------
+
+    def _inactive_reason(self) -> str:
+        """
+        Return a diagnostic explanation for inactive evaluation.
+        """
+
+        if not self.enabled:
+            return (
+                "Directional protection function is disabled."
+            )
+
+        if self.blocked:
+            return (
+                "Directional protection function is blocked."
+            )
+
+        if not bool(
+            getattr(
+                self.relay,
+                "operational",
+                True,
+            )
+        ):
+            return (
+                "Authoritative relay is not operational."
+            )
+
+        return (
+            "Directional protection function is not operational."
+        )
+
+    # ================================================================
     # RESET
-    # =========================================================
+    # ================================================================
 
     def reset(self) -> None:
         """
-        Reset directional operating state.
+        Reset transient directional-function state.
 
-        Protection settings are retained.
+        Protection settings and authoritative physical Relay state
+        remain unchanged.
         """
-
-        self.direction = None
 
         super().reset()
 
-    # =========================================================
+        self._direction = None
+        self._last_timestamp = None
+
+        self._last_current = None
+
+        self._last_voltage_angle = None
+        self._last_current_angle = None
+        self._last_angle_difference = None
+        self._last_reference_difference = None
+
+        self._last_pickup = False
+        self._last_decision = None
+
+    # ================================================================
+    # DIAGNOSTICS
+    # ================================================================
+
+    @property
+    def direction(self) -> str | None:
+        """
+        Return the last directional classification.
+        """
+
+        return self._direction
+
+    @property
+    def last_current(self) -> complex | None:
+        """
+        Return the last sampled current.
+
+        Diagnostic state only.
+        """
+
+        return self._last_current
+
+    @property
+    def last_voltage_angle(self) -> float | None:
+        """
+        Return the last evaluated voltage angle.
+        """
+
+        return self._last_voltage_angle
+
+    @property
+    def last_current_angle(self) -> float | None:
+        """
+        Return the last evaluated current angle.
+        """
+
+        return self._last_current_angle
+
+    @property
+    def last_angle_difference(self) -> float | None:
+        """
+        Return the normalized V-I angle difference.
+        """
+
+        return self._last_angle_difference
+
+    @property
+    def last_reference_difference(self) -> float | None:
+        """
+        Return the normalized difference from the forward reference.
+        """
+
+        return self._last_reference_difference
+
+    @property
+    def last_pickup(self) -> bool:
+        """
+        Return the pickup result from the most recent evaluation.
+        """
+
+        return self._last_pickup
+
+    @property
+    def last_timestamp(self) -> float | None:
+        """
+        Return the most recent evaluation timestamp.
+        """
+
+        return self._last_timestamp
+
+    @property
+    def last_decision(self) -> ProtectionDecision | None:
+        """
+        Return the most recent ProtectionDecision.
+        """
+
+        return self._last_decision
+
+    # ================================================================
     # STATUS
-    # =========================================================
+    # ================================================================
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         """
-        Return directional protection status.
+        Return diagnostic status for the directional function.
+
+        This is not the authoritative persistence representation.
         """
 
-        return {
-            "relay_id": self.relay.id,
-            "pickup": self.relay.pickup,
-            "current": self.relay.current,
-            "in_service": self.relay.in_service,
-            "direction": self.direction,
-            "trip": self.relay.trip,
-            "forward_angle": self.forward_angle,
-            "tolerance": self.tolerance,
-        }
+        result = super().status()
 
-    # =========================================================
-    # DEBUG
-    # =========================================================
+        result.update(
+            {
+                "function": (
+                    "DIRECTIONAL_OVERCURRENT"
+                ),
+                "function_code": (
+                    self.FUNCTION_CODE
+                ),
+                "pickup": self.pickup,
+                "current": self._last_current,
+                "current_magnitude": (
+                    abs(self._last_current)
+                    if self._last_current is not None
+                    else None
+                ),
+                "forward_angle": (
+                    self.forward_angle
+                ),
+                "tolerance": (
+                    self.tolerance
+                ),
+                "voltage_angle": (
+                    self._last_voltage_angle
+                ),
+                "current_angle": (
+                    self._last_current_angle
+                ),
+                "angle_difference": (
+                    self._last_angle_difference
+                ),
+                "reference_difference": (
+                    self._last_reference_difference
+                ),
+                "direction": (
+                    self._direction
+                ),
+                "last_pickup": (
+                    self._last_pickup
+                ),
+                "last_timestamp": (
+                    self._last_timestamp
+                ),
+                "last_decision": (
+                    self._last_decision.to_dict()
+                    if self._last_decision is not None
+                    else None
+                ),
+            }
+        )
+
+        return result
+
+    # ================================================================
+    # REPRESENTATION
+    # ================================================================
 
     def __repr__(self) -> str:
         """
         Developer-friendly representation.
         """
 
+        relay_id = getattr(
+            self.relay,
+            "id",
+            self.relay_id,
+        )
+
         return (
             f"<DirectionalRelay "
-            f"relay={self.relay.id}, "
-            f"direction={self.direction}, "
-            f"trip={self.relay.trip}>"
+            f"relay={relay_id!r}, "
+            f"element={self.element_id!r}, "
+            f"direction={self._direction!r}, "
+            f"pickup={self._last_pickup}>"
         )
 
 
+# =====================================================================
+# PUBLIC API
+# =====================================================================
+
 __all__ = [
+    "DirectionalProtectionSettings",
     "DirectionalRelay",
 ]
-```
