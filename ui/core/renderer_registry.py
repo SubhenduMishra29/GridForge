@@ -1,130 +1,88 @@
-```python
-# ============================================================
-# File: ui/core/renderer_registry.py
-# GridForge Renderer Registry
-# ============================================================
-#
-# PURPOSE
-# -------
-# Maintains the runtime mapping between GridForge model
-# element types and their renderer implementations.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#     Core Model
-#         │
-#         │ model element
-#         ▼
-#     RendererRegistry
-#         │
-#         │ renderer class
-#         ▼
-#     Renderer
-#         │
-#         │ graphics representation
-#         ▼
-#     QGraphicsItem
-#
-#
-# Example
-# -------
-#
-#     Bus
-#       ↓
-#     BusRenderer
-#       ↓
-#     BusItem
-#
-#     Line
-#       ↓
-#     LineRenderer
-#       ↓
-#     LineItem
-#
-#
-# IMPORTANT ARCHITECTURAL RULES
-# -----------------------------
-#
-# 1. This registry must NOT import individual renderers.
-#
-# 2. This registry must NOT import Qt.
-#
-# 3. This registry must NOT modify the core model.
-#
-# 4. This registry stores renderer IMPLEMENTATIONS, not
-#    graphics items.
-#
-# 5. RenderSystem is responsible for obtaining the renderer
-#    and invoking it.
-#
-# 6. A renderer registration must not silently replace another
-#    renderer. Duplicate registration is considered an
-#    architectural/configuration error.
-#
-#
-# FUTURE PLUGIN ARCHITECTURE
-# --------------------------
-#
-# The central plugin system lives in:
-#
-#     ui/core/plugin_registry.py
-#
-# Renderer plugins can eventually self-register there:
-#
-#     @register_plugin("renderer", "bus")
-#     class BusRenderer:
-#         ...
-#
-# A loader can then populate this runtime registry.
-#
-# This means RenderSystem does not need to know which renderer
-# classes exist.
-#
-# ============================================================
+"""
+GridForge V2 — Renderer Registry
+================================
+
+File:
+    ui/core/renderer_registry.py
+
+Purpose
+-------
+Maintains the runtime mapping between GridForge model element
+types and their renderer implementations.
+
+The registry stores renderer CLASSES, not renderer instances.
+
+Architectural Contract
+----------------------
+1. The registry is Qt-independent.
+2. The registry does not import concrete renderers.
+3. The registry does not instantiate renderers.
+4. The registry does not modify the Core model.
+5. RenderSystem owns renderer invocation and lifecycle.
+6. A model type may have only one directly registered renderer.
+7. Re-registering the same renderer class is idempotent.
+8. Registering a different renderer for the same model type
+   raises an error.
+9. Renderer lookup first uses an exact type match.
+10. Renderer lookup then follows the model type's MRO.
+11. The registry is a runtime mapping, separate from the
+    central plugin-discovery registry.
+
+Architecture
+------------
+    Core Model
+        │
+        │ model type
+        ▼
+    RendererRegistry
+        │
+        │ renderer class
+        ▼
+    RenderSystem
+        │
+        ▼
+    Renderer
+        │
+        ▼
+    Graphics representation
+"""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, Iterator, List, Optional, Type
 
 
 class RendererRegistry:
     """
-    Runtime registry mapping model element classes to renderer
-    implementations.
-
-    Example
-    -------
-
-        registry.register(Bus, BusRenderer)
-
-        renderer = registry.get_renderer(Bus)
-
-    The registry stores renderer CLASSES.
-
-    Renderer instances are created by the rendering layer when
-    required. This prevents renderer lifetime and registration
-    concerns from being mixed together.
+    Runtime mapping from model classes to renderer classes.
     """
-
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
 
     def __init__(self) -> None:
         """
         Create an empty renderer registry.
-
-        Internal mapping:
-
-            ModelClass -> RendererClass
         """
 
         self._renderers: Dict[
             Type[Any],
             Type[Any],
         ] = {}
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_model_type(
+        model_type: Type[Any],
+    ) -> None:
+        """
+        Validate a model type argument.
+        """
+
+        if not isinstance(model_type, type):
+            raise TypeError(
+                "model_type must be a class"
+            )
 
     # ========================================================
     # REGISTRATION
@@ -136,73 +94,26 @@ class RendererRegistry:
         renderer: Type[Any],
     ) -> Type[Any]:
         """
-        Register a renderer for a model element type.
+        Register a renderer class for a model class.
 
-        Parameters
-        ----------
-        model_type:
-            Model class handled by the renderer.
+        Duplicate registration of the same renderer is
+        idempotent.
 
-            Example:
-                Bus
-
-        renderer:
-            Renderer class responsible for visualizing the
-            model element.
-
-            Example:
-                BusRenderer
-
-        Returns
-        -------
-        Type
-            The registered renderer class.
-
-        Raises
-        ------
-        TypeError
-            If model_type or renderer is not a class.
-
-        ValueError
-            If a different renderer is already registered for
-            the same model type.
-
-        Notes
-        -----
-        Duplicate registration of the SAME renderer is harmless.
-
-        Duplicate registration of a DIFFERENT renderer is rejected
-        because silently replacing a renderer can create difficult
-        rendering bugs.
+        Registering a different renderer for an already
+        registered model type raises ValueError.
         """
 
-        # ----------------------------------------------------
-        # Validate model type
-        # ----------------------------------------------------
-
-        if not isinstance(model_type, type):
-            raise TypeError(
-                "model_type must be a class"
-            )
-
-        # ----------------------------------------------------
-        # Validate renderer
-        # ----------------------------------------------------
+        self._validate_model_type(model_type)
 
         if not isinstance(renderer, type):
             raise TypeError(
                 "renderer must be a class"
             )
 
-        # ----------------------------------------------------
-        # Check existing registration
-        # ----------------------------------------------------
-
         existing = self._renderers.get(model_type)
 
         if existing is not None:
 
-            # Registering the exact same renderer again is safe.
             if existing is renderer:
                 return renderer
 
@@ -211,10 +122,6 @@ class RendererRegistry:
                 f"{model_type.__name__}: "
                 f"{existing.__name__}"
             )
-
-        # ----------------------------------------------------
-        # Register renderer
-        # ----------------------------------------------------
 
         self._renderers[model_type] = renderer
 
@@ -229,14 +136,12 @@ class RendererRegistry:
         model_type: Type[Any],
     ) -> bool:
         """
-        Remove the renderer registered for a model type.
+        Remove the directly registered renderer for a model type.
 
-        Returns
-        -------
-        bool
-            True if a renderer was removed.
-            False if no renderer was registered.
+        Returns True when a registration was removed.
         """
+
+        self._validate_model_type(model_type)
 
         if model_type not in self._renderers:
             return False
@@ -256,29 +161,16 @@ class RendererRegistry:
         """
         Retrieve the renderer class for a model type.
 
-        Lookup order
-        ------------
-        1. Exact model-type match
-        2. Registered base-class match
+        Lookup order:
 
-        Example
-        -------
+        1. Exact model-type registration.
+        2. Registered base classes according to the model
+           type's Python MRO.
 
-        If:
-
-            ElectricalElement
-                ↑
-              Bus
-
-        and only ElectricalElement has a renderer, Bus will use
-        the ElectricalElement renderer unless Bus has its own
-        renderer.
-
-        Returns
-        -------
-        Type | None
-            Renderer class, or None when no renderer exists.
+        Returns None if no renderer is registered.
         """
+
+        self._validate_model_type(model_type)
 
         # ----------------------------------------------------
         # Exact match
@@ -290,24 +182,10 @@ class RendererRegistry:
             return renderer
 
         # ----------------------------------------------------
-        # Inheritance fallback
-        # ----------------------------------------------------
-        #
-        # Iterate through the Python method-resolution order
-        # rather than checking every registered type manually.
-        #
-        # This gives deterministic base-class lookup.
+        # Base-class fallback
         # ----------------------------------------------------
 
-        for base_type in getattr(
-            model_type,
-            "__mro__",
-            (),
-        ):
-
-            if base_type is model_type:
-                continue
-
+        for base_type in model_type.__mro__[1:]:
             renderer = self._renderers.get(base_type)
 
             if renderer is not None:
@@ -324,12 +202,12 @@ class RendererRegistry:
         model_type: Type[Any],
     ) -> Type[Any]:
         """
-        Retrieve a renderer and raise an explicit error if none
-        is registered.
+        Retrieve a renderer class.
 
-        This should be used by RenderSystem when absence of a
-        renderer represents an invalid UI configuration.
+        Raises KeyError when no applicable renderer exists.
         """
+
+        self._validate_model_type(model_type)
 
         renderer = self.get_renderer(model_type)
 
@@ -352,15 +230,15 @@ class RendererRegistry:
         """
         Return True when an exact renderer registration exists.
 
-        Note:
-        This checks direct registration only. It does not perform
-        inheritance fallback.
+        This intentionally does not perform inheritance lookup.
         """
+
+        self._validate_model_type(model_type)
 
         return model_type in self._renderers
 
     # ========================================================
-    # LIST REGISTERED MODEL TYPES
+    # REGISTERED MODEL TYPES
     # ========================================================
 
     def list_model_types(self) -> List[Type[Any]]:
@@ -372,23 +250,19 @@ class RendererRegistry:
         return list(self._renderers.keys())
 
     # ========================================================
-    # DEBUG / INTROSPECTION
+    # DIAGNOSTICS
     # ========================================================
 
     def list_renderers(self) -> Dict[str, str]:
         """
-        Return a human-readable representation of the current
-        renderer registry.
+        Return a human-readable renderer mapping.
 
-        Example result:
-
-            {
-                "Bus": "BusRenderer",
-                "Line": "LineRenderer"
-            }
-
-        This method is intended for diagnostics, logging, and
-        development tools.
+        Example
+        -------
+        {
+            "Bus": "BusRenderer",
+            "Line": "LineRenderer",
+        }
         """
 
         return {
@@ -401,16 +275,17 @@ class RendererRegistry:
     # ITERATION
     # ========================================================
 
-    def items(self):
+    def items(
+        self,
+    ) -> Iterator[
+        tuple[Type[Any], Type[Any]]
+    ]:
         """
-        Iterate over registered:
-
-            (model_type, renderer_class)
-
-        pairs.
+        Iterate over directly registered
+        (model_type, renderer_class) pairs.
         """
 
-        return self._renderers.items()
+        return iter(self._renderers.items())
 
     # ========================================================
     # CLEAR
@@ -420,14 +295,8 @@ class RendererRegistry:
         """
         Remove all renderer registrations.
 
-        Primarily intended for:
-
-            - automated tests
-            - development reload
-            - controlled application reset
-
-        Normal application execution should generally not call
-        this method.
+        Primarily intended for testing and controlled
+        development reload scenarios.
         """
 
         self._renderers.clear()
@@ -444,7 +313,7 @@ class RendererRegistry:
         return len(self._renderers)
 
     # ========================================================
-    # DEBUG REPRESENTATION
+    # REPRESENTATION
     # ========================================================
 
     def __repr__(self) -> str:
@@ -471,4 +340,3 @@ class RendererRegistry:
 __all__ = [
     "RendererRegistry",
 ]
-```
