@@ -7,93 +7,163 @@ File:
 
 Purpose
 -------
-Application bootstrap entry point for GridForge.
+Application bootstrap and composition root for GridForge V2.
 
-Responsibilities
-----------------
-This module is responsible only for:
+Architectural Role
+------------------
+main.py is the executable composition root.
 
-    1. Creating the QApplication instance.
-    2. Creating the MainWindow.
-    3. Showing the MainWindow.
-    4. Starting the Qt event loop.
+It is responsible only for:
 
-Architecture Role
------------------
-Application Bootstrap Layer
+    1. Creating the Qt application.
+    2. Creating the authoritative application/domain context.
+    3. Creating the UI Controller.
+    4. Creating the MainWindow.
+    5. Showing the main window.
+    6. Starting the Qt event loop.
 
-This module does NOT:
+It does NOT:
 
     - implement UI logic;
-    - own application/domain state;
-    - create the Controller;
+    - implement business logic;
+    - perform electrical calculations;
+    - manipulate the electrical model;
+    - create individual UI components;
     - create tools;
     - manage tool lifecycle;
+    - handle canvas interaction;
     - perform rendering;
-    - handle canvas input;
-    - perform electrical calculations;
     - perform simulation;
-    - mutate the Core model.
+    - perform analysis.
 
-Qt Architecture
----------------
-Qt access is routed through the GridForge Qt abstraction
-boundary:
+Composition
+-----------
 
-    ui.core.qt
+    QApplication
+         |
+         v
+    Grid
+    (authoritative domain model)
+         |
+         v
+    Controller
+    (UI coordination state)
+         |
+         v
+    MainWindow
+         |
+         v
+    UI Plugin System
 
-No direct PySide6/PyQt imports are used here.
+
+Dependency Direction
+--------------------
+
+    Application Bootstrap
+            |
+            +---- Core / Domain
+            |
+            +---- UI Controller
+            |
+            +---- MainWindow
+                       |
+                       v
+                  UI Plugins
+
+Qt Boundary
+-----------
+
+Qt is permitted here because main.py is part of the
+application bootstrap layer.
+
+No Qt implementation details are propagated into the
+GridForge domain model.
 """
 
 from __future__ import annotations
 
 import sys
 
-from ui.core.qt import QApplication
+from PySide6.QtWidgets import QApplication
+
+from core.model.grid import Grid
+from ui.core.controller import Controller
 from ui.main_window import MainWindow
 
 
-def main() -> None:
+def main() -> int:
     """
-    Bootstrap and launch the GridForge application.
+    Start the GridForge application.
 
-    Application lifecycle:
-
-        QApplication
-             │
-             ▼
-        MainWindow
-             │
-             ▼
-        Qt Event Loop
+    Returns
+    -------
+    int
+        Qt application exit code.
     """
 
-    # --------------------------------------------------------
-    # Create the Qt application.
-    # --------------------------------------------------------
+    # ============================================================
+    # APPLICATION
+    # ============================================================
 
     app = QApplication(sys.argv)
 
-    # --------------------------------------------------------
-    # Create the main application window.
+    # ============================================================
+    # AUTHORITATIVE DOMAIN MODEL
+    # ============================================================
     #
-    # MainWindow is the composition boundary for the UI.
-    # --------------------------------------------------------
+    # Grid is the central GridForge electrical-network container.
+    #
+    # It is created here because main.py is the composition root.
+    #
+    # The UI does not create or own the electrical model.
+    # ============================================================
 
-    window = MainWindow()
+    model = Grid(
+        name="GridForge"
+    )
+
+    # ============================================================
+    # UI CONTROLLER
+    # ============================================================
+    #
+    # Controller stores UI coordination state only.
+    #
+    # It receives the authoritative model as a reference but does
+    # not become its owner and does not perform domain mutations.
+    # ============================================================
+
+    controller = Controller(
+        model=model
+    )
+
+    # ============================================================
+    # ROOT WINDOW
+    # ============================================================
+    #
+    # MainWindow is the root UI container.
+    #
+    # UI construction remains delegated to the plugin-driven
+    # build_ui() mechanism inside MainWindow.
+    # ============================================================
+
+    window = MainWindow(
+        controller=controller
+    )
+
     window.show()
 
-    # --------------------------------------------------------
-    # Start the Qt event loop.
-    # --------------------------------------------------------
+    # ============================================================
+    # EVENT LOOP
+    # ============================================================
 
-    sys.exit(app.exec())
+    return app.exec()
 
+
+# ================================================================
+# PYTHON ENTRY GUARD
+# ================================================================
 
 if __name__ == "__main__":
-    main()
-
-
-__all__ = [
-    "main",
-]
+    sys.exit(
+        main()
+    )
