@@ -13,11 +13,12 @@ It is responsible for:
 
     - owning the QGraphicsScene used by the canvas;
     - receiving raw Qt input events;
-    - forwarding input to InteractionManager;
+    - forwarding tool interaction to InteractionManager;
+    - forwarding navigation input to NavigationController;
     - enabling mouse tracking;
     - receiving keyboard focus;
     - exposing the scene through a stable accessor;
-    - providing the future boundary for navigation behavior.
+    - exposing canvas navigation operations.
 
 GraphicsView does NOT:
 
@@ -33,22 +34,25 @@ GraphicsView does NOT:
 Architecture
 ------------
 
-    Qt input
-        │
-        ▼
-    GraphicsView
-        │
-        ▼
-    InteractionManager
-        │
-        ▼
-    ToolManager / Active Tool
-        │
-        ▼
-    Controller
-        │
-        ▼
-    Core Model
+                         Qt Input
+                            │
+                            ▼
+                     ┌─────────────┐
+                     │ GraphicsView│
+                     └──────┬──────┘
+                            │
+                ┌───────────┴───────────┐
+                ▼                       ▼
+      InteractionManager       NavigationController
+                │                       │
+                ▼                       ▼
+             Tools                 View navigation
+                │
+                ▼
+           Controller
+                │
+                ▼
+              Core
 
 Qt rule
 -------
@@ -70,17 +74,18 @@ from ui.core.qt import (
 )
 
 from ui.canvas.interaction_manager import InteractionManager
+from ui.canvas.navigation_controller import NavigationController
 
 
 class GraphicsView(QGraphicsView):
     """
     GridForge canvas viewport.
 
-    GraphicsView is intentionally thin.
+    GraphicsView is the thin Qt event boundary.
 
-    Raw Qt events enter here and are delegated to the
-    InteractionManager. Canvas interaction policy remains outside
-    the Qt viewport itself.
+    Tool interaction is delegated to InteractionManager.
+
+    View navigation is delegated to NavigationController.
     """
 
     # ========================================================
@@ -116,56 +121,48 @@ class GraphicsView(QGraphicsView):
         # ----------------------------------------------------
         # Scene
         # ----------------------------------------------------
-        #
-        # GraphicsView owns the Qt scene container.
-        #
-        # The scene contains UI graphics only. It is not the
-        # authoritative electrical model.
-        # ----------------------------------------------------
 
         self._scene = QGraphicsScene(self)
 
-        self.setScene(self._scene)
+        self.setScene(
+            self._scene
+        )
 
         # ----------------------------------------------------
         # Interaction system
         # ----------------------------------------------------
+
+        self.interaction_manager = (
+            InteractionManager(
+                self,
+                controller,
+            )
+        )
+
+        # ----------------------------------------------------
+        # Navigation system
+        # ----------------------------------------------------
         #
-        # InteractionManager owns transient interaction state,
-        # PreviewLayer, SnapSystem and ToolManager.
+        # NavigationController owns zoom/pan/fit behavior.
+        # GraphicsView only routes the relevant Qt events.
         # ----------------------------------------------------
 
-        self.interaction_manager = InteractionManager(
-            self,
-            controller,
+        self.navigation_controller = (
+            NavigationController(
+                self,
+            )
         )
 
         # ----------------------------------------------------
         # Mouse tracking
         # ----------------------------------------------------
-        #
-        # Required for:
-        #
-        #     - cursor tracking
-        #     - snapping
-        #     - placement previews
-        #     - line previews
-        #
-        # MouseMove events must therefore arrive even when no
-        # mouse button is pressed.
-        # ----------------------------------------------------
 
-        self.setMouseTracking(True)
+        self.setMouseTracking(
+            True
+        )
 
         # ----------------------------------------------------
         # Keyboard focus
-        # ----------------------------------------------------
-        #
-        # InteractionManager centrally handles keyboard input,
-        # including ESC cancellation.
-        #
-        # The view must therefore be capable of receiving
-        # keyboard focus.
         # ----------------------------------------------------
 
         self.setFocusPolicy(
@@ -176,8 +173,9 @@ class GraphicsView(QGraphicsView):
         # Scrollbars
         # ----------------------------------------------------
         #
-        # Canvas navigation is a separate architectural concern.
-        # Visible scrollbars are therefore disabled.
+        # Navigation is handled by NavigationController.
+        # Scrollbars are therefore not part of the visible
+        # GridForge canvas UI.
         # ----------------------------------------------------
 
         self.setHorizontalScrollBarPolicy(
@@ -197,17 +195,37 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Forward mouse-press events to InteractionManager.
+        Route mouse-press events.
 
-        The active GridForge tool owns interpretation of the
-        interaction. Qt's default scene interaction is therefore
-        not invoked here.
+        Middle mouse belongs to canvas navigation.
+
+        Other mouse buttons belong to the interaction/tool
+        system.
         """
 
-        # Ensure the canvas receives subsequent keyboard input.
         self.setFocus(
             Qt.MouseFocusReason
         )
+
+        # ----------------------------------------------------
+        # Middle mouse → navigation
+        # ----------------------------------------------------
+
+        if (
+            event.button()
+            == Qt.MiddleButton
+        ):
+            self.navigation_controller.start_pan(
+                event.position().toPoint()
+            )
+
+            event.accept()
+
+            return
+
+        # ----------------------------------------------------
+        # Tool interaction
+        # ----------------------------------------------------
 
         self.interaction_manager.mouse_press(
             event
@@ -220,8 +238,21 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Forward mouse-move events to InteractionManager.
+        Route mouse-move events.
+
+        An active middle-button pan takes precedence over
+        normal tool interaction.
         """
+
+        if self.navigation_controller.is_panning:
+
+            self.navigation_controller.update_pan(
+                event.position().toPoint()
+            )
+
+            event.accept()
+
+            return
 
         self.interaction_manager.mouse_move(
             event
@@ -234,10 +265,43 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Forward mouse-release events to InteractionManager.
+        Route mouse-release events.
+
+        Middle mouse terminates navigation.
+
+        Other mouse buttons are delegated to the active tool.
         """
 
+        if (
+            event.button()
+            == Qt.MiddleButton
+        ):
+            self.navigation_controller.end_pan()
+
+            event.accept()
+
+            return
+
         self.interaction_manager.mouse_release(
+            event
+        )
+
+    # ========================================================
+    # WHEEL / ZOOM
+    # ========================================================
+
+    def wheelEvent(
+        self,
+        event: Any,
+    ) -> None:
+        """
+        Forward mouse-wheel navigation to
+        NavigationController.
+
+        Zoom is centered on the cursor position.
+        """
+
+        self.navigation_controller.handle_wheel(
             event
         )
 
@@ -250,14 +314,16 @@ class GraphicsView(QGraphicsView):
         event: Any,
     ) -> None:
         """
-        Forward keyboard-press events to InteractionManager.
+        Forward keyboard input to InteractionManager.
 
-        If the interaction layer does not consume the event,
-        normal QGraphicsView keyboard handling is allowed.
+        If the interaction system does not consume the event,
+        normal QGraphicsView handling is allowed.
         """
 
-        handled = self.interaction_manager.key_press(
-            event
+        handled = (
+            self.interaction_manager.key_press(
+                event
+            )
         )
 
         if not handled:
@@ -273,19 +339,84 @@ class GraphicsView(QGraphicsView):
     ) -> None:
         """
         Forward keyboard-release events to InteractionManager.
-
-        If the interaction layer does not consume the event,
-        normal QGraphicsView keyboard handling is allowed.
         """
 
-        handled = self.interaction_manager.key_release(
-            event
+        handled = (
+            self.interaction_manager.key_release(
+                event
+            )
         )
 
         if not handled:
             super().keyReleaseEvent(
                 event
             )
+
+    # ========================================================
+    # NAVIGATION ACCESS
+    # ========================================================
+
+    def get_navigation_controller(
+        self,
+    ) -> NavigationController:
+        """
+        Return the canvas NavigationController.
+        """
+
+        return self.navigation_controller
+
+    # --------------------------------------------------------
+
+    def zoom_in(
+        self,
+        steps: int = 1,
+    ) -> None:
+        """
+        Zoom into the canvas.
+        """
+
+        self.navigation_controller.zoom_in(
+            steps
+        )
+
+    # --------------------------------------------------------
+
+    def zoom_out(
+        self,
+        steps: int = 1,
+    ) -> None:
+        """
+        Zoom out of the canvas.
+        """
+
+        self.navigation_controller.zoom_out(
+            steps
+        )
+
+    # --------------------------------------------------------
+
+    def reset_view(
+        self,
+    ) -> None:
+        """
+        Reset canvas navigation.
+        """
+
+        self.navigation_controller.reset_view()
+
+    # --------------------------------------------------------
+
+    def fit_content(
+        self,
+        margin: float = 50.0,
+    ) -> None:
+        """
+        Fit visible scene content into the viewport.
+        """
+
+        self.navigation_controller.fit_content(
+            margin
+        )
 
     # ========================================================
     # SCENE ACCESS
@@ -296,8 +427,6 @@ class GraphicsView(QGraphicsView):
     ) -> QGraphicsScene:
         """
         Return the canvas QGraphicsScene.
-
-        GraphicsView remains the owner of the scene container.
         """
 
         return self._scene
@@ -331,6 +460,8 @@ class GraphicsView(QGraphicsView):
 
         self.interaction_manager.reset()
 
+        self.navigation_controller.end_pan()
+
     # ========================================================
     # DEBUG STATE
     # ========================================================
@@ -347,10 +478,20 @@ class GraphicsView(QGraphicsView):
             "scene_item_count": len(
                 self._scene.items()
             ),
-            "mouse_tracking": self.hasMouseTracking(),
-            "focus_policy": self.focusPolicy(),
+            "mouse_tracking": (
+                self.hasMouseTracking()
+            ),
+            "focus_policy": (
+                self.focusPolicy()
+            ),
             "interaction_manager": (
                 self.interaction_manager is not None
+            ),
+            "navigation_controller": (
+                self.navigation_controller is not None
+            ),
+            "navigation": (
+                self.navigation_controller.get_state()
             ),
         }
 
@@ -362,11 +503,13 @@ class GraphicsView(QGraphicsView):
         self,
     ) -> None:
         """
-        Release transient interaction resources.
+        Release transient canvas resources.
 
-        GraphicsView does not own the Controller or Core model,
-        so neither is modified or destroyed here.
+        GraphicsView does not own the Controller or Core model.
         """
+
+        if self.navigation_controller is not None:
+            self.navigation_controller.end_pan()
 
         if self.interaction_manager is not None:
             self.interaction_manager.dispose()
@@ -386,7 +529,9 @@ class GraphicsView(QGraphicsView):
             "GraphicsView("
             f"items={len(self._scene.items())}, "
             f"mouse_tracking="
-            f"{self.hasMouseTracking()}"
+            f"{self.hasMouseTracking()}, "
+            f"zoom="
+            f"{self.navigation_controller.zoom_factor}"
             ")"
         )
 
