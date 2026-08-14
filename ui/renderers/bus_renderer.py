@@ -2,95 +2,63 @@
 # File: ui/renderers/bus_renderer.py
 # GridForge Bus Renderer
 # ============================================================
-#
-# PURPOSE
-# -------
-# Converts a Core Bus model object into its graphical
-# representation used by the GridForge canvas.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#     Core Bus Model
-#           │
-#           ▼
-#      BusRenderer
-#           │
-#           ▼
-#        BusItem
-#           │
-#           ▼
-#      QGraphicsScene
-#
-#
-# IMPORTANT
-# ---------
-#
-# This class is a RENDERER.
-#
-# It does NOT:
-#
-#     - modify the Bus model
-#     - handle mouse events
-#     - perform snapping
-#     - determine the active tool
-#     - manage selection state
-#     - manage the graphics scene
-#
-#
-# Hover highlighting belongs to BusItem because hover is a
-# graphics/interaction state, not a renderer-registry concern.
-#
-#
-# REGISTRATION
-# ------------
-#
-# Renderer registration is performed through the renderer
-# registry decorator.
-#
-# The renderer loader is responsible for importing this module.
-# Importing the module therefore registers BusRenderer.
-#
-# The package initializer does not perform registration.
-#
-#
-# Qt IMPORT RULE
-# --------------
-#
-# This renderer does not directly depend on Qt.
-# Any Qt dependency belongs to the graphical item layer.
-#
-#
-# RENDERER CONTRACT
-# -----------------
-#
-# RenderSystem expects every renderer to provide:
-#
-#     create_item(element, controller)
-#
-# Therefore BusRenderer implements exactly that contract.
-#
-# ============================================================
+
+"""
+GridForge Bus Renderer
+======================
+
+Converts a Core Bus model object into its graphical
+representation used by the GridForge canvas.
+
+Architecture
+------------
+
+    core.model.bus.Bus
+            │
+            ▼
+       BusRenderer
+            │
+            ▼
+         BusItem
+            │
+            ▼
+      QGraphicsScene
+
+The renderer:
+
+    - declares the Core model type it renders;
+    - creates the corresponding graphics item;
+    - does not own renderer state;
+    - does not modify the Core model;
+    - does not perform snapping;
+    - does not handle tools;
+    - does not manage selection;
+    - does not manage the scene.
+
+Renderer registration is performed by RendererLoader.
+
+Qt dependencies belong to the graphics-item layer.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from ui.core.renderer_registry import register_renderer
+from core.model.bus import Bus
 
 
-@register_renderer("bus")
 class BusRenderer:
     """
-    Renderer responsible for converting a Bus model object
-    into a BusItem graphics object.
+    Renderer for the GridForge Core Bus model.
 
-    The renderer contains no persistent UI state.
-
-    Renderer instances may therefore be created whenever
-    RenderSystem requires them.
+    Renderer instances contain no persistent rendering state.
     """
+
+    # ========================================================
+    # RENDERER CONTRACT
+    # ========================================================
+
+    model_type = Bus
 
     # ========================================================
     # ITEM CREATION
@@ -98,7 +66,7 @@ class BusRenderer:
 
     @staticmethod
     def create_item(
-        element: Any,
+        element: Bus,
         controller: Any,
     ) -> Any:
         """
@@ -107,24 +75,22 @@ class BusRenderer:
         Parameters
         ----------
         element:
-            GridForge Bus model object.
+            Core GridForge Bus model object.
 
         controller:
-            GridForge application controller passed to the
-            graphical item when required by the established
-            item/controller contract.
+            GridForge application controller.
 
         Returns
         -------
         Any
-            The BusItem representing the supplied Bus model.
-
-        Notes
-        -----
-        BusItem is imported locally so that the renderer
-        registry does not need to know about individual
-        graphics-item implementations.
+            BusItem representing the supplied Bus.
         """
+
+        if not isinstance(element, Bus):
+            raise TypeError(
+                "BusRenderer.create_item() requires a "
+                "core.model.bus.Bus instance."
+            )
 
         from ui.items.bus_item import BusItem
 
