@@ -40,17 +40,26 @@
 #
 #
 # Hover highlighting belongs to BusItem because hover is a
-# graphics/interaction state, not a rendering-registry concern.
+# graphics/interaction state, not a renderer-registry concern.
+#
+#
+# REGISTRATION
+# ------------
+#
+# Renderer registration is performed through the renderer
+# registry decorator.
+#
+# The renderer loader is responsible for importing this module.
+# Importing the module therefore registers BusRenderer.
+#
+# The package initializer does not perform registration.
 #
 #
 # Qt IMPORT RULE
 # --------------
 #
-# Qt classes MUST be imported through:
-#
-#     ui.core.qt
-#
-# Never import PySide6/PyQt directly from this file.
+# This renderer does not directly depend on Qt.
+# Any Qt dependency belongs to the graphical item layer.
 #
 #
 # RENDERER CONTRACT
@@ -68,17 +77,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from ui.core.renderer_registry import register_renderer
 
+
+@register_renderer("bus")
 class BusRenderer:
     """
     Renderer responsible for converting a Bus model object
     into a BusItem graphics object.
 
-    The renderer itself contains no persistent UI state.
+    The renderer contains no persistent UI state.
 
-    This is intentional.
-
-    Renderer instances are therefore safe to create whenever
+    Renderer instances may therefore be created whenever
     RenderSystem requires them.
     """
 
@@ -92,7 +102,7 @@ class BusRenderer:
         controller: Any,
     ) -> Any:
         """
-        Create the graphics representation of a Bus.
+        Create the graphical representation of a Bus.
 
         Parameters
         ----------
@@ -100,75 +110,28 @@ class BusRenderer:
             GridForge Bus model object.
 
         controller:
-            GridForge Controller.
-
-            It is passed to the BusItem so that the graphics
-            item can communicate with the application through
-            the Controller when required.
+            GridForge application controller passed to the
+            graphical item when required by the established
+            item/controller contract.
 
         Returns
         -------
-        BusItem
-            Graphics representation of the Bus.
+        Any
+            The BusItem representing the supplied Bus model.
 
         Notes
         -----
-        The renderer deliberately imports BusItem locally.
-
-        This keeps renderer registration independent from
-        RenderSystem.
-
-        The RenderSystem itself never imports BusItem.
+        BusItem is imported locally so that the renderer
+        registry does not need to know about individual
+        graphics-item implementations.
         """
-
-        # ----------------------------------------------------
-        # Local import
-        # ----------------------------------------------------
-        #
-        # The registry/RenderSystem layer must not know about
-        # individual graphics item implementations.
-        #
-        # The renderer is the correct architectural boundary
-        # for this dependency.
-        # ----------------------------------------------------
 
         from ui.items.bus_item import BusItem
 
-        # ----------------------------------------------------
-        # Validate the supplied model object at the renderer
-        # boundary.
-        #
-        # We intentionally use attribute validation rather than
-        # importing the concrete Bus model here.
-        #
-        # This keeps the renderer decoupled from the Core model
-        # package structure.
-        # ----------------------------------------------------
-
-        required_attributes = (
-            "id",
-            "x",
-            "y",
-        )
-
-        for attribute in required_attributes:
-
-            if not hasattr(element, attribute):
-                raise TypeError(
-                    "BusRenderer expected a bus-like model "
-                    f"object containing '{attribute}'"
-                )
-
-        # ----------------------------------------------------
-        # Create the graphical item.
-        # ----------------------------------------------------
-
-        item = BusItem(
+        return BusItem(
             element,
             controller,
         )
-
-        return item
 
 
 # ============================================================
@@ -178,4 +141,3 @@ class BusRenderer:
 __all__ = [
     "BusRenderer",
 ]
-```
