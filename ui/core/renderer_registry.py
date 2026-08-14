@@ -3,132 +3,257 @@
 # GridForge V2 — Renderer Registry
 # ============================================================
 """
-Central registry for GridForge UI renderers.
+Central registry for GridForge canvas renderers.
 
 Architecture
 ------------
 
+    RenderSystem
+         │
+         ▼
     RendererRegistry
-          │
-          ├── renderer_id → renderer factory
-          │
-          ▼
-      RenderSystem
-          │
-          ▼
-    Renderer instance
-          │
-          ▼
-    QGraphicsScene / Graphics Items
+         │
+    ┌────┼────────────┐
+    ▼    ▼            ▼
+   Bus  Line       Future Renderer
+Renderer Renderer
+
+Purpose
+-------
+RendererRegistry provides the stable lookup boundary between
+the canvas rendering system and concrete renderer
+implementations.
+
+The registry maps:
+
+    renderer_id
+        ↓
+    renderer registration
+        ↓
+    renderer implementation
+
+The registry does not perform rendering.
 
 Responsibilities
 ----------------
 RendererRegistry:
 
-    - stores renderer registrations;
-    - maps stable renderer IDs to renderer factories;
-    - validates registrations;
-    - provides renderer lookup;
-    - creates renderer instances on request;
-    - exposes registered renderer IDs;
-    - prevents accidental duplicate registrations;
-    - provides diagnostic state.
+    - register renderer implementations;
+    - unregister renderers;
+    - resolve renderers by stable ID;
+    - resolve renderers by model type;
+    - expose renderer registrations;
+    - detect duplicate renderer IDs;
+    - optionally replace registrations;
+    - provide deterministic diagnostics.
 
 RendererRegistry does NOT:
 
-    - own the active renderer;
-    - manage renderer lifecycle;
-    - perform rendering itself;
-    - own the QGraphicsScene;
-    - create or mutate Core model objects;
-    - implement electrical calculations;
+    - create graphics items;
+    - create model objects;
+    - render objects;
+    - own RenderSystem;
+    - own QGraphicsScene;
     - perform selection;
     - perform snapping;
-    - manage tools;
-    - decide which objects should be rendered;
-    - subscribe to Controller events.
+    - perform navigation;
+    - modify Core state;
+    - calculate electrical quantities;
+    - decide rendering order;
+    - decide whether an object should be rendered;
+    - manage renderer lifecycle.
 
 Renderer Ownership
 ------------------
-RendererRegistry owns only renderer registration/factory
-definitions.
+The registry does not create renderer instances.
 
-RenderSystem owns renderer instances and rendering lifecycle.
+The component registering a renderer is responsible for creating
+the renderer instance.
 
 Therefore:
 
-    RendererRegistry
-        = registration + factory lookup
+    registry.register(...)
+        ≠
+    registry creates renderer
 
-    RenderSystem
-        = renderer ownership + rendering orchestration
+and:
 
-Concrete Renderers
-------------------
-The registry deliberately does NOT import concrete renderer
-classes.
+    registry.unregister(...)
+        ≠
+    registry destroys renderer
 
-Concrete renderer registration is performed explicitly by the
-UI composition/bootstrap layer.
-
-This keeps registration explicit and prevents the registry from
-becoming an implicit plugin loader.
-
-Registration Contract
-----------------------
-A renderer registration consists of:
+Renderer Resolution
+-------------------
+A renderer can be registered with:
 
     renderer_id
-    factory
+    renderer
+    model_type
 
-The factory must be callable.
+The model_type association allows RenderSystem to resolve a
+renderer from an authoritative Core model object's type without
+hard-coding concrete renderer imports into RenderSystem.
 
-The registry does not impose a concrete constructor signature.
-Constructor dependencies are supplied by RenderSystem.
+Example:
 
-Stable IDs
-----------
-Renderer IDs are application-level identifiers.
+    registry.register(
+        "bus",
+        BusRenderer(...),
+        model_type=Bus,
+    )
 
-Examples include:
+    renderer = registry.get_for_object(bus)
 
-    "bus"
-    "line"
+The registry performs only lookup.
 
-Additional renderer types may be registered by future UI
-composition code without modifying this registry.
+Rendering policy remains owned by RenderSystem.
+
+Model Dependency
+----------------
+RendererRegistry may store a model type as metadata.
+
+It does not import Core model classes itself.
+
+This keeps the registry independent of the concrete model
+hierarchy and prevents dependency inversion problems.
 
 Qt Architecture
 ---------------
-This registry contains no Qt dependency.
+This module intentionally does not import Qt.
 
-All Qt dependencies, where required by concrete renderers, must
-remain behind ui.core.qt.
+Concrete renderers may use ui.core.qt.
+
+No direct PySide6/PyQt imports are permitted anywhere in this
+module.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional
 
 
-RendererFactory = Callable[..., Any]
+# ============================================================
+# RENDERER REGISTRATION
+# ============================================================
+
+
+@dataclass(frozen=True)
+class RendererRegistration:
+    """
+    Immutable registration record for one renderer.
+
+    Parameters
+    ----------
+    renderer_id:
+        Stable renderer identifier.
+
+    renderer:
+        Existing concrete renderer instance.
+
+    model_type:
+        Optional model class/type handled by this renderer.
+
+        The registry treats this as an opaque lookup key.
+
+    priority:
+        Optional resolution priority.
+
+        Higher values are preferred when multiple registrations
+        match the same model type.
+
+    metadata:
+        Additional renderer metadata.
+
+    Notes
+    -----
+    The registration stores an existing renderer instance.
+    It never creates or destroys that instance.
+    """
+
+    renderer_id: str
+    renderer: Any
+
+    model_type: Optional[type] = None
+
+    priority: int = 0
+
+    metadata: Mapping[str, Any] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self) -> None:
+        """
+        Validate registration data.
+        """
+
+        if not isinstance(
+            self.renderer_id,
+            str,
+        ):
+            raise TypeError(
+                "renderer_id must be a string."
+            )
+
+        renderer_id = self.renderer_id.strip()
+
+        if not renderer_id:
+            raise ValueError(
+                "renderer_id must not be empty."
+            )
+
+        if self.renderer is None:
+            raise ValueError(
+                "renderer must not be None."
+            )
+
+        if self.model_type is not None:
+            if not isinstance(
+                self.model_type,
+                type,
+            ):
+                raise TypeError(
+                    "model_type must be a type or None."
+                )
+
+        if isinstance(
+            self.priority,
+            bool,
+        ) or not isinstance(
+            self.priority,
+            int,
+        ):
+            raise TypeError(
+                "priority must be an integer."
+            )
+
+        if self.metadata is None:
+            raise ValueError(
+                "metadata must not be None."
+            )
+
+        if not isinstance(
+            self.metadata,
+            Mapping,
+        ):
+            raise TypeError(
+                "metadata must be a mapping."
+            )
+
+
+# ============================================================
+# RENDERER REGISTRY
+# ============================================================
 
 
 class RendererRegistry:
     """
-    Registry of available GridForge UI renderers.
+    Central registry for GridForge renderers.
 
-    The registry is independent of concrete renderer classes.
+    RendererRegistry is deliberately independent of Qt,
+    QGraphicsScene, RenderSystem, and concrete Core models.
 
-    Example:
-
-        registry.register(
-            "bus",
-            BusRenderer,
-        )
-
-    RenderSystem is responsible for deciding when and how the
-    registered renderer is instantiated.
+    It is a registration and resolution service only.
     """
 
     # ========================================================
@@ -140,9 +265,9 @@ class RendererRegistry:
         Initialize an empty renderer registry.
         """
 
-        self._factories: dict[
+        self._registrations: dict[
             str,
-            RendererFactory,
+            RendererRegistration,
         ] = {}
 
     # ========================================================
@@ -152,92 +277,241 @@ class RendererRegistry:
     def register(
         self,
         renderer_id: str,
-        factory: RendererFactory,
+        renderer: Any,
         *,
+        model_type: Optional[type] = None,
+        priority: int = 0,
+        metadata: Optional[
+            Mapping[str, Any]
+        ] = None,
         replace: bool = False,
-    ) -> None:
+    ) -> RendererRegistration:
         """
-        Register a renderer factory.
+        Register an existing renderer instance.
 
         Parameters
         ----------
         renderer_id:
-            Stable application-level renderer identifier.
+            Stable renderer identifier.
 
-        factory:
-            Callable used to construct the renderer.
+        renderer:
+            Concrete renderer instance.
+
+        model_type:
+            Optional model type handled by the renderer.
+
+        priority:
+            Resolution priority for model-type lookup.
+
+        metadata:
+            Optional additional renderer metadata.
 
         replace:
-            When False, duplicate registration raises ValueError.
+            Replace an existing registration when True.
 
-            When True, an existing registration is replaced.
+        Returns
+        -------
+        RendererRegistration
+            The resulting registration.
+
+        Raises
+        ------
+        ValueError
+            If renderer_id is already registered and replace=False.
         """
 
-        normalized_id = self._validate_renderer_id(
+        normalized_id = self._normalize_id(
             renderer_id
         )
 
-        if not callable(factory):
-            raise TypeError(
-                "factory must be callable."
+        if renderer is None:
+            raise ValueError(
+                "renderer must not be None."
             )
 
         if (
-            normalized_id in self._factories
+            normalized_id in self._registrations
             and not replace
         ):
             raise ValueError(
-                f"Renderer {normalized_id!r} "
-                "is already registered."
+                f"Renderer already registered: "
+                f"{normalized_id!r}"
             )
 
-        self._factories[
+        if metadata is None:
+            metadata = {}
+
+        if not isinstance(
+            metadata,
+            Mapping,
+        ):
+            raise TypeError(
+                "metadata must be a mapping."
+            )
+
+        registration = RendererRegistration(
+            renderer_id=normalized_id,
+            renderer=renderer,
+            model_type=model_type,
+            priority=priority,
+            metadata=dict(metadata),
+        )
+
+        self._registrations[
             normalized_id
-        ] = factory
+        ] = registration
+
+        return registration
 
     # --------------------------------------------------------
+
+    def register_renderer(
+        self,
+        registration: RendererRegistration,
+        *,
+        replace: bool = False,
+    ) -> RendererRegistration:
+        """
+        Register an explicit RendererRegistration.
+        """
+
+        if not isinstance(
+            registration,
+            RendererRegistration,
+        ):
+            raise TypeError(
+                "registration must be a "
+                "RendererRegistration."
+            )
+
+        return self.register(
+            registration.renderer_id,
+            registration.renderer,
+            model_type=registration.model_type,
+            priority=registration.priority,
+            metadata=registration.metadata,
+            replace=replace,
+        )
+
+    # ========================================================
+    # UNREGISTRATION
+    # ========================================================
 
     def unregister(
         self,
         renderer_id: str,
-    ) -> RendererFactory:
+    ) -> Optional[RendererRegistration]:
         """
-        Remove and return a registered renderer factory.
+        Remove a renderer registration.
 
-        Raises
-        ------
-        KeyError
-            If the renderer is not registered.
+        The renderer instance itself is not destroyed.
         """
 
-        normalized_id = self._validate_renderer_id(
+        normalized_id = self._normalize_id(
+            renderer_id
+        )
+
+        return self._registrations.pop(
+            normalized_id,
+            None,
+        )
+
+    # --------------------------------------------------------
+
+    def unregister_renderer(
+        self,
+        renderer_id: str,
+    ) -> Optional[RendererRegistration]:
+        """
+        Alias for unregister().
+        """
+
+        return self.unregister(
+            renderer_id
+        )
+
+    # ========================================================
+    # ID LOOKUP
+    # ========================================================
+
+    def get(
+        self,
+        renderer_id: str,
+    ) -> Optional[RendererRegistration]:
+        """
+        Return a renderer registration by ID.
+
+        Returns None when no registration exists.
+        """
+
+        normalized_id = self._normalize_id(
+            renderer_id
+        )
+
+        return self._registrations.get(
+            normalized_id
+        )
+
+    # --------------------------------------------------------
+
+    def get_renderer(
+        self,
+        renderer_id: str,
+    ) -> Optional[Any]:
+        """
+        Return a renderer instance by ID.
+        """
+
+        registration = self.get(
+            renderer_id
+        )
+
+        if registration is None:
+            return None
+
+        return registration.renderer
+
+    # --------------------------------------------------------
+
+    def require(
+        self,
+        renderer_id: str,
+    ) -> RendererRegistration:
+        """
+        Return a registration or raise KeyError.
+        """
+
+        normalized_id = self._normalize_id(
             renderer_id
         )
 
         try:
-            return self._factories.pop(
+            return self._registrations[
                 normalized_id
-            )
-        except KeyError:
+            ]
+
+        except KeyError as exc:
             raise KeyError(
-                f"Renderer {normalized_id!r} "
-                "is not registered."
-            ) from None
+                f"Renderer is not registered: "
+                f"{normalized_id!r}"
+            ) from exc
 
     # --------------------------------------------------------
 
-    def clear(self) -> None:
+    def require_renderer(
+        self,
+        renderer_id: str,
+    ) -> Any:
         """
-        Remove all renderer registrations.
-
-        Existing renderer instances owned by RenderSystem are
-        unaffected.
+        Return a renderer or raise KeyError.
         """
 
-        self._factories.clear()
+        return self.require(
+            renderer_id
+        ).renderer
 
     # ========================================================
-    # REGISTRATION QUERIES
+    # CONTAINS
     # ========================================================
 
     def contains(
@@ -248,23 +522,23 @@ class RendererRegistry:
         Return True when renderer_id is registered.
         """
 
-        normalized_id = self._validate_renderer_id(
+        normalized_id = self._normalize_id(
             renderer_id
         )
 
         return (
             normalized_id
-            in self._factories
+            in self._registrations
         )
 
     # --------------------------------------------------------
 
-    def has_renderer(
+    def has(
         self,
         renderer_id: str,
     ) -> bool:
         """
-        Semantic alias for contains().
+        Alias for contains().
         """
 
         return self.contains(
@@ -273,230 +547,453 @@ class RendererRegistry:
 
     # --------------------------------------------------------
 
-    def get_factory(
+    def __contains__(
         self,
         renderer_id: str,
-    ) -> RendererFactory:
+    ) -> bool:
         """
-        Return the factory registered for renderer_id.
+        Support:
 
-        The factory is not executed.
+            "bus" in registry
         """
 
-        normalized_id = self._validate_renderer_id(
+        return self.contains(
             renderer_id
         )
-
-        try:
-            return self._factories[
-                normalized_id
-            ]
-        except KeyError:
-            raise KeyError(
-                f"Renderer {normalized_id!r} "
-                "is not registered."
-            ) from None
 
     # --------------------------------------------------------
 
-    def get_optional_factory(
+    def __len__(
         self,
-        renderer_id: str,
-    ) -> Optional[RendererFactory]:
+    ) -> int:
         """
-        Return a registered factory or None when absent.
+        Return number of registered renderers.
         """
 
-        normalized_id = self._validate_renderer_id(
-            renderer_id
-        )
-
-        return self._factories.get(
-            normalized_id
+        return len(
+            self._registrations
         )
 
     # ========================================================
-    # RENDERER CREATION
+    # MODEL-TYPE RESOLUTION
     # ========================================================
 
-    def create(
+    def get_for_type(
         self,
-        renderer_id: str,
-        **kwargs: Any,
+        model_type: type,
+    ) -> Optional[Any]:
+        """
+        Resolve the highest-priority renderer for model_type.
+
+        Exact type matches are preferred over base-class matches.
+
+        Resolution order:
+
+            1. exact model_type match;
+            2. compatible base-class match;
+            3. highest priority;
+            4. registration order as deterministic tie-breaker.
+        """
+
+        if not isinstance(
+            model_type,
+            type,
+        ):
+            raise TypeError(
+                "model_type must be a type."
+            )
+
+        exact_matches = [
+            registration
+            for registration
+            in self._registrations.values()
+            if registration.model_type
+            is model_type
+        ]
+
+        if exact_matches:
+            return self._select_best(
+                exact_matches
+            ).renderer
+
+        compatible_matches = [
+            registration
+            for registration
+            in self._registrations.values()
+            if (
+                registration.model_type is not None
+                and issubclass(
+                    model_type,
+                    registration.model_type,
+                )
+            )
+        ]
+
+        if not compatible_matches:
+            return None
+
+        return self._select_best(
+            compatible_matches
+        ).renderer
+
+    # --------------------------------------------------------
+
+    def get_for_object(
+        self,
+        model_object: Any,
+    ) -> Optional[Any]:
+        """
+        Resolve a renderer for a concrete model object.
+
+        The object's concrete Python type is used for lookup.
+
+        Returns None when no compatible renderer is registered.
+        """
+
+        if model_object is None:
+            return None
+
+        return self.get_for_type(
+            type(model_object)
+        )
+
+    # --------------------------------------------------------
+
+    def require_for_type(
+        self,
+        model_type: type,
     ) -> Any:
         """
-        Create a renderer instance using its registered factory.
-
-        Parameters
-        ----------
-        renderer_id:
-            Registered renderer identifier.
-
-        **kwargs:
-            Constructor dependencies supplied by RenderSystem.
-
-        Returns
-        -------
-        object
-            Newly created renderer instance.
-
-        Notes
-        -----
-        RendererRegistry does not retain ownership of the created
-        renderer.
+        Resolve a renderer for a model type or raise KeyError.
         """
 
-        factory = self.get_factory(
-            renderer_id
+        renderer = self.get_for_type(
+            model_type
         )
 
-        return factory(
-            **kwargs
-        )
+        if renderer is None:
+            raise KeyError(
+                "No renderer registered for "
+                f"model type {model_type!r}."
+            )
 
-    # ========================================================
-    # RENDERER IDS
-    # ========================================================
-
-    def renderer_ids(
-        self,
-    ) -> tuple[str, ...]:
-        """
-        Return all registered renderer IDs.
-
-        Registration order is preserved.
-        """
-
-        return tuple(
-            self._factories.keys()
-        )
+        return renderer
 
     # --------------------------------------------------------
+
+    def require_for_object(
+        self,
+        model_object: Any,
+    ) -> Any:
+        """
+        Resolve a renderer for a model object or raise KeyError.
+        """
+
+        if model_object is None:
+            raise ValueError(
+                "model_object must not be None."
+            )
+
+        return self.require_for_type(
+            type(model_object)
+        )
+
+    # ========================================================
+    # MODEL-TYPE REGISTRATION QUERIES
+    # ========================================================
+
+    def get_registrations_for_type(
+        self,
+        model_type: type,
+    ) -> tuple[
+        RendererRegistration,
+        ...,
+    ]:
+        """
+        Return all registrations compatible with model_type.
+
+        Results are ordered by descending priority and then
+        registration order.
+        """
+
+        if not isinstance(
+            model_type,
+            type,
+        ):
+            raise TypeError(
+                "model_type must be a type."
+            )
+
+        matches = [
+            registration
+            for registration
+            in self._registrations.values()
+            if (
+                registration.model_type is not None
+                and (
+                    registration.model_type
+                    is model_type
+                    or issubclass(
+                        model_type,
+                        registration.model_type,
+                    )
+                )
+            )
+        ]
+
+        return self._sort_registrations(
+            matches
+        )
+
+    # ========================================================
+    # REGISTRATION ACCESS
+    # ========================================================
 
     def get_renderer_ids(
         self,
     ) -> tuple[str, ...]:
         """
-        Semantic alias for renderer_ids().
+        Return renderer IDs in registration order.
         """
 
-        return self.renderer_ids()
-
-    # --------------------------------------------------------
-
-    def count(self) -> int:
-        """
-        Return the number of registered renderers.
-        """
-
-        return len(
-            self._factories
-        )
-
-    # ========================================================
-    # REQUIRED RENDERER VALIDATION
-    # ========================================================
-
-    def require(
-        self,
-        renderer_id: str,
-    ) -> RendererFactory:
-        """
-        Require a renderer registration.
-
-        Intended for UI bootstrap validation.
-        """
-
-        return self.get_factory(
-            renderer_id
+        return tuple(
+            self._registrations.keys()
         )
 
     # --------------------------------------------------------
 
-    def require_renderers(
+    @property
+    def renderer_ids(
         self,
-        renderer_ids: tuple[str, ...] | list[str],
-    ) -> None:
+    ) -> tuple[str, ...]:
         """
-        Verify that all supplied renderer IDs are registered.
-
-        Raises
-        ------
-        KeyError
-            If any required renderer is missing.
+        Read-only convenience property.
         """
 
-        if renderer_ids is None:
-            raise ValueError(
-                "renderer_ids must not be None."
-            )
+        return self.get_renderer_ids()
 
-        for renderer_id in renderer_ids:
-            self.require(
-                renderer_id
-            )
+    # --------------------------------------------------------
+
+    def get_registrations(
+        self,
+    ) -> tuple[
+        RendererRegistration,
+        ...,
+    ]:
+        """
+        Return all registrations in registration order.
+        """
+
+        return tuple(
+            self._registrations.values()
+        )
+
+    # --------------------------------------------------------
+
+    def values(
+        self,
+    ) -> tuple[
+        RendererRegistration,
+        ...,
+    ]:
+        """
+        Return all renderer registrations.
+        """
+
+        return self.get_registrations()
+
+    # --------------------------------------------------------
+
+    def items(
+        self,
+    ) -> tuple[
+        tuple[str, RendererRegistration],
+        ...,
+    ]:
+        """
+        Return renderer ID/registration pairs.
+        """
+
+        return tuple(
+            self._registrations.items()
+        )
 
     # ========================================================
-    # FACTORY REPLACEMENT
+    # FILTERING
+    # ========================================================
+
+    def get_by_priority(
+        self,
+        priority: int,
+    ) -> tuple[
+        RendererRegistration,
+        ...,
+    ]:
+        """
+        Return renderers having the specified priority.
+        """
+
+        if isinstance(
+            priority,
+            bool,
+        ) or not isinstance(
+            priority,
+            int,
+        ):
+            raise TypeError(
+                "priority must be an integer."
+            )
+
+        return tuple(
+            registration
+            for registration
+            in self._registrations.values()
+            if registration.priority == priority
+        )
+
+    # ========================================================
+    # REPLACEMENT
     # ========================================================
 
     def replace(
         self,
         renderer_id: str,
-        factory: RendererFactory,
-    ) -> None:
+        renderer: Any,
+        *,
+        model_type: Optional[type] = None,
+        priority: int = 0,
+        metadata: Optional[
+            Mapping[str, Any]
+        ] = None,
+    ) -> RendererRegistration:
         """
         Replace an existing renderer registration.
 
-        A missing registration is treated as an error.
+        The previous renderer instance is not destroyed.
         """
 
-        normalized_id = self._validate_renderer_id(
+        normalized_id = self._normalize_id(
             renderer_id
         )
 
-        if not callable(factory):
-            raise TypeError(
-                "factory must be callable."
-            )
-
-        if normalized_id not in self._factories:
+        if normalized_id not in self._registrations:
             raise KeyError(
-                f"Renderer {normalized_id!r} "
-                "is not registered."
+                f"Renderer is not registered: "
+                f"{normalized_id!r}"
             )
 
-        self._factories[
-            normalized_id
-        ] = factory
+        return self.register(
+            normalized_id,
+            renderer,
+            model_type=model_type,
+            priority=priority,
+            metadata=metadata,
+            replace=True,
+        )
+
+    # ========================================================
+    # CLEAR
+    # ========================================================
+
+    def clear(
+        self,
+    ) -> tuple[
+        RendererRegistration,
+        ...,
+    ]:
+        """
+        Remove all renderer registrations.
+
+        Renderer instances are not destroyed.
+        """
+
+        registrations = self.get_registrations()
+
+        self._registrations.clear()
+
+        return registrations
 
     # ========================================================
     # SNAPSHOT
     # ========================================================
 
-    def get_factories(
+    def snapshot(
         self,
-    ) -> dict[str, RendererFactory]:
+    ) -> dict[
+        str,
+        RendererRegistration,
+    ]:
         """
-        Return a shallow copy of registered factories.
-
-        The internal registry dictionary is never exposed.
+        Return a shallow registry snapshot.
         """
 
         return dict(
-            self._factories
+            self._registrations
         )
+
+    # ========================================================
+    # INTERNAL RESOLUTION
+    # ========================================================
+
+    @staticmethod
+    def _sort_registrations(
+        registrations: list[
+            RendererRegistration
+        ],
+    ) -> tuple[
+        RendererRegistration,
+        ...,
+    ]:
+        """
+        Sort registrations deterministically.
+
+        Higher priority is preferred.
+
+        Python's stable sorting preserves original registration
+        order for equal priorities.
+        """
+
+        return tuple(
+            sorted(
+                registrations,
+                key=lambda registration: (
+                    -registration.priority,
+                ),
+            )
+        )
+
+    # --------------------------------------------------------
+
+    @classmethod
+    def _select_best(
+        cls,
+        registrations: list[
+            RendererRegistration
+        ],
+    ) -> RendererRegistration:
+        """
+        Select the highest-priority registration.
+        """
+
+        if not registrations:
+            raise ValueError(
+                "registrations must not be empty."
+            )
+
+        return cls._sort_registrations(
+            registrations
+        )[0]
 
     # ========================================================
     # VALIDATION
     # ========================================================
 
     @staticmethod
-    def _validate_renderer_id(
+    def _normalize_id(
         renderer_id: str,
     ) -> str:
         """
-        Validate and normalize a renderer identifier.
+        Validate and normalize renderer identifier.
         """
 
         if not isinstance(
@@ -507,14 +1004,14 @@ class RendererRegistry:
                 "renderer_id must be a string."
             )
 
-        normalized_id = renderer_id.strip()
+        normalized = renderer_id.strip()
 
-        if not normalized_id:
+        if not normalized:
             raise ValueError(
                 "renderer_id must not be empty."
             )
 
-        return normalized_id
+        return normalized
 
     # ========================================================
     # DEBUG STATE
@@ -524,16 +1021,29 @@ class RendererRegistry:
         self,
     ) -> dict[str, Any]:
         """
-        Return a diagnostic snapshot of registry state.
+        Return a diagnostic registry snapshot.
         """
 
+        model_type_count = sum(
+            registration.model_type is not None
+            for registration
+            in self._registrations.values()
+        )
+
         return {
-            "renderer_count": self.count(),
-            "renderer_ids": self.renderer_ids(),
+            "count": len(
+                self._registrations
+            ),
+            "renderer_ids": (
+                self.get_renderer_ids()
+            ),
+            "model_type_registrations": (
+                model_type_count
+            ),
         }
 
     # ========================================================
-    # DEBUG REPRESENTATION
+    # REPRESENTATION
     # ========================================================
 
     def __repr__(
@@ -545,7 +1055,9 @@ class RendererRegistry:
 
         return (
             "RendererRegistry("
-            f"renderers={self.renderer_ids()!r}"
+            f"count={len(self)}, "
+            f"renderers="
+            f"{self.get_renderer_ids()!r}"
             ")"
         )
 
@@ -555,6 +1067,6 @@ class RendererRegistry:
 # ============================================================
 
 __all__ = [
-    "RendererFactory",
+    "RendererRegistration",
     "RendererRegistry",
 ]
