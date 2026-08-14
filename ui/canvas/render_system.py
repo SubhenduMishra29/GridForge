@@ -8,8 +8,8 @@ Central rendering orchestration layer for the GridForge canvas.
 
 Responsibilities
 ----------------
-RenderSystem is responsible for synchronizing the authoritative
-Core model with permanent graphics in the QGraphicsScene.
+RenderSystem synchronizes the authoritative Core model with
+permanent graphics in the QGraphicsScene.
 
 It:
 
@@ -19,6 +19,8 @@ It:
     - tracks rendered model elements
     - removes graphics when model elements disappear
     - refreshes graphics when requested
+    - reconciles graphics against authoritative model elements
+    - synchronizes graphical selection
     - provides renderer lookup
     - provides rendering diagnostics
 
@@ -64,10 +66,10 @@ the authoritative representation of an electrical element.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, Iterable, Optional, Type
 
-from ui.core.renderer_registry import RendererRegistry
 from ui.core.renderer_loader import load_renderers
+from ui.core.renderer_registry import RendererRegistry
 
 
 class RenderSystem:
@@ -80,7 +82,7 @@ class RenderSystem:
         QGraphicsScene owned by the canvas.
 
     controller:
-        GridForge application controller.
+        GridForge application Controller.
 
     renderer_registry:
         Optional preconfigured RendererRegistry.
@@ -103,6 +105,16 @@ class RenderSystem:
         renderer_package: str = "ui.renderers",
     ) -> None:
 
+        if scene is None:
+            raise ValueError(
+                "RenderSystem requires a valid graphics scene."
+            )
+
+        if controller is None:
+            raise ValueError(
+                "RenderSystem requires a valid controller."
+            )
+
         self.scene = scene
         self.controller = controller
 
@@ -117,24 +129,19 @@ class RenderSystem:
         )
 
         # ----------------------------------------------------
-        # Rendered element mapping
+        # Rendered element mapping.
         #
-        # Model object identity is used deliberately.
+        # Python object identity is used deliberately.
         #
-        # The scene is NOT used as the source of truth.
+        # _elements retains the corresponding model references,
+        # preventing identity ambiguity while rendered.
         # ----------------------------------------------------
 
         self._items: Dict[int, Any] = {}
-
-        # Keep the corresponding model references for diagnostics
-        # and identity-safe reconciliation.
         self._elements: Dict[int, Any] = {}
 
         # ----------------------------------------------------
         # Load renderer plugins.
-        #
-        # Renderer loading is explicit and belongs to the
-        # rendering layer.
         # ----------------------------------------------------
 
         load_renderers(
@@ -152,35 +159,15 @@ class RenderSystem:
     ) -> Any:
         """
         Create and attach the permanent graphics representation
-        for one model element.
+        for one authoritative model element.
 
-        Parameters
-        ----------
-        element:
-            Authoritative Core model element.
-
-        Returns
-        -------
-        object
-            Renderer-created graphics item.
-
-        Raises
-        ------
-        ValueError
-            If element is None.
-
-        KeyError
-            If no renderer is registered.
+        Existing graphics for the same model object are reused.
         """
 
         if element is None:
             raise ValueError(
                 "Cannot render a None model element."
             )
-
-        # ----------------------------------------------------
-        # Avoid duplicate graphics for the same model object.
-        # ----------------------------------------------------
 
         element_key = id(element)
 
@@ -190,22 +177,12 @@ class RenderSystem:
             return existing
 
         # ----------------------------------------------------
-        # Determine renderer from the model class.
+        # Resolve renderer from the model type.
         # ----------------------------------------------------
 
         renderer_cls = self.registry.require_renderer(
             type(element)
         )
-
-        # ----------------------------------------------------
-        # Renderer contract.
-        #
-        # Renderer classes expose:
-        #
-        #     create_item(element, controller)
-        #
-        # The renderer creates the visual representation.
-        # ----------------------------------------------------
 
         create_item = getattr(
             renderer_cls,
@@ -218,6 +195,10 @@ class RenderSystem:
                 f"{renderer_cls.__name__} must implement "
                 "create_item(element, controller)"
             )
+
+        # ----------------------------------------------------
+        # Renderer creates the graphics item.
+        # ----------------------------------------------------
 
         item = create_item(
             element,
@@ -237,7 +218,7 @@ class RenderSystem:
         self.scene.addItem(item)
 
         # ----------------------------------------------------
-        # Track visual projection.
+        # Track model → graphics projection.
         # ----------------------------------------------------
 
         self._items[element_key] = item
@@ -251,10 +232,10 @@ class RenderSystem:
 
     def render_all(
         self,
-        elements,
+        elements: Iterable[Any],
     ) -> Dict[int, Any]:
         """
-        Render a collection of model elements.
+        Render a collection of authoritative model elements.
 
         Existing rendered elements are reused.
 
@@ -264,7 +245,7 @@ class RenderSystem:
             Mapping of model identity to graphics item.
         """
 
-        rendered = {}
+        rendered: Dict[int, Any] = {}
 
         for element in elements:
             item = self.render(element)
@@ -284,9 +265,8 @@ class RenderSystem:
         Remove the permanent graphics belonging to a model
         element.
 
-        This method removes only the visual projection.
-
-        It does NOT modify the Core model.
+        This method modifies only the visual projection.
+        The Core model is never modified.
         """
 
         if element is None:
@@ -322,9 +302,7 @@ class RenderSystem:
         The Core model is not modified.
         """
 
-        for item in list(
-            self._items.values()
-        ):
+        for item in tuple(self._items.values()):
             self.scene.removeItem(item)
 
         self._items.clear()
@@ -345,9 +323,7 @@ class RenderSystem:
         if element is None:
             return None
 
-        return self._items.get(
-            id(element)
-        )
+        return self._items.get(id(element))
 
     # --------------------------------------------------------
 
@@ -356,8 +332,8 @@ class RenderSystem:
         element: Any,
     ) -> bool:
         """
-        Return True when an element currently has a rendered
-        graphics representation.
+        Return True when a model element currently has a
+        rendered graphics representation.
         """
 
         if element is None:
@@ -376,12 +352,17 @@ class RenderSystem:
         """
         Refresh one rendered model element.
 
-        Renderer implementations may optionally provide:
+        The preferred path is an item-level:
 
-            update_item(item, element, controller)
+            refresh_from_model()
 
-        If unavailable, the existing item is removed and the
-        element is rendered again.
+        method.
+
+        If the item does not provide that method, the visual
+        projection is recreated through the canonical renderer
+        contract.
+
+        The Core model is never modified.
         """
 
         if element is None:
@@ -391,60 +372,33 @@ class RenderSystem:
 
         element_key = id(element)
 
-        item = self._items.get(
-            element_key
-        )
+        item = self._items.get(element_key)
 
         # ----------------------------------------------------
-        # Element is not currently rendered.
+        # Not currently rendered.
         # ----------------------------------------------------
 
         if item is None:
             return self.render(element)
 
         # ----------------------------------------------------
-        # Obtain renderer.
+        # Prefer item-level model synchronization.
         # ----------------------------------------------------
 
-        renderer_cls = self.registry.require_renderer(
-            type(element)
-        )
-
-        update_item = getattr(
-            renderer_cls,
-            "update_item",
+        refresh_from_model = getattr(
+            item,
+            "refresh_from_model",
             None,
         )
 
-        # ----------------------------------------------------
-        # Renderer supports in-place update.
-        # ----------------------------------------------------
-
-        if callable(update_item):
-
-            result = update_item(
-                item,
-                element,
-                self.controller,
-            )
-
-            # Renderer may return a replacement item.
-            if result is not None and result is not item:
-
-                self.scene.removeItem(item)
-
-                self._items[element_key] = result
-
-                self.scene.addItem(result)
-
-                return result
-
+        if callable(refresh_from_model):
+            refresh_from_model()
             return item
 
         # ----------------------------------------------------
-        # No update contract.
+        # No in-place item refresh contract.
         #
-        # Recreate the visual projection.
+        # Recreate using the canonical renderer contract.
         # ----------------------------------------------------
 
         self.remove(element)
@@ -457,7 +411,7 @@ class RenderSystem:
 
     def refresh_all(
         self,
-        elements=None,
+        elements: Optional[Iterable[Any]] = None,
     ) -> None:
         """
         Refresh all currently rendered elements.
@@ -467,11 +421,11 @@ class RenderSystem:
         """
 
         if elements is None:
-            elements = list(
+            elements = tuple(
                 self._elements.values()
             )
 
-        for element in list(elements):
+        for element in tuple(elements):
             self.refresh(element)
 
     # ========================================================
@@ -480,29 +434,26 @@ class RenderSystem:
 
     def reconcile(
         self,
-        elements,
+        elements: Iterable[Any],
     ) -> None:
         """
-        Reconcile the permanent graphics with an authoritative
+        Reconcile permanent graphics against an authoritative
         collection of model elements.
 
-        This is the preferred synchronization operation after
-        loading/rebuilding a model.
-
-        The algorithm:
+        The algorithm is:
 
             authoritative model
                     │
                     ├── missing graphics → render
                     │
-                    ├── existing graphics → retain
+                    ├── existing graphics → refresh
                     │
                     └── stale graphics → remove
 
         The Core model remains authoritative.
         """
 
-        authoritative = list(elements)
+        authoritative = tuple(elements)
 
         authoritative_ids = {
             id(element)
@@ -513,21 +464,76 @@ class RenderSystem:
         # Remove stale graphics.
         # ----------------------------------------------------
 
-        for element_key, element in list(
+        for element_key, element in tuple(
             self._elements.items()
         ):
-
             if element_key not in authoritative_ids:
                 self.remove(element)
 
         # ----------------------------------------------------
-        # Render missing elements.
+        # Render or refresh authoritative elements.
         # ----------------------------------------------------
 
         for element in authoritative:
 
-            if id(element) not in self._items:
+            if id(element) in self._items:
+                self.refresh(element)
+            else:
                 self.render(element)
+
+    # ========================================================
+    # SELECTION SYNCHRONIZATION
+    # ========================================================
+
+    def refresh_selection(
+        self,
+        selected_ids: Optional[Iterable[str]] = None,
+    ) -> None:
+        """
+        Synchronize QGraphicsItem selection with authoritative
+        Controller selection.
+
+        Parameters
+        ----------
+        selected_ids:
+            Iterable of authoritative model IDs.
+
+            If omitted, the method attempts to read
+            ``controller.selected_ids``.
+
+        Notes
+        -----
+        Selection in the graphics scene is a projection of
+        application selection.
+
+        The graphics scene does not become the selection
+        authority.
+        """
+
+        if selected_ids is None:
+            selected_ids = getattr(
+                self.controller,
+                "selected_ids",
+                (),
+            )
+
+        selected = set(selected_ids)
+
+        for item in tuple(self._items.values()):
+
+            object_id = getattr(
+                item,
+                "object_id",
+                None,
+            )
+
+            if object_id is None:
+                item.setSelected(False)
+                continue
+
+            item.setSelected(
+                object_id in selected
+            )
 
     # ========================================================
     # RENDERER LOOKUP
