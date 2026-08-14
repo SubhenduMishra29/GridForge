@@ -4,23 +4,59 @@
 # ============================================================
 
 """
-GridForge UI plugin package.
+GridForge V2 UI plugin bootstrap.
 
-Importing this package loads the built-in UI plugins so their
-registration decorators execute automatically.
+Purpose
+-------
+Import built-in plugin modules so their registration decorators
+execute during application/plugin initialization.
 
-Plugin discovery/loading remains separate from the registry
-itself.
+Architecture
+------------
+This module is responsible only for plugin-module bootstrap.
+
+It does NOT:
+
+    - maintain the plugin registry;
+    - create plugin instances;
+    - construct UI components;
+    - manage plugin lifecycle;
+    - select tools;
+    - modify the Core model.
+
+Plugin registration is performed by
+ui.core.plugin_registry.
+
+Plugin loading/discovery remains conceptually separate from the
+registry itself.
 """
 
-from ui.plugins.toolbar_plugin import MainToolbarPlugin
-from ui.plugins.properties_plugin import PropertiesPlugin
-from ui.plugins.layers_plugin import LayersPlugin
-from ui.plugins.status_plugin import StatusPlugin
+from __future__ import annotations
+
+# ============================================================
+# BUILT-IN UI PLUGINS
+# ============================================================
+
+from ui.plugins import toolbar_plugin
+from ui.plugins import properties_plugin
+from ui.plugins import layers_plugin
+from ui.plugins import status_plugin
+
+# ============================================================
+# BUILT-IN TOOL UI PLUGINS
+# ============================================================
+
+from ui.plugins.tools import basic_tools_plugin
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 __all__ = [
-    "MainToolbarPlugin",
-    "PropertiesPlugin",
-    "LayersPlugin",
-    "StatusPlugin",
+    "toolbar_plugin",
+    "properties_plugin",
+    "layers_plugin",
+    "status_plugin",
+    "basic_tools_plugin",
 ]
