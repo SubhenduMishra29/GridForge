@@ -34,7 +34,7 @@
 #     - hover visual feedback
 #     - selection visual feedback
 #     - exposing the associated model object
-#     - notifying the Controller when selected
+#     - forwarding selection requests to the Controller
 #
 #
 # BusItem does NOT:
@@ -45,25 +45,25 @@
 #     - decide which tool is active
 #     - create lines
 #     - render other model elements
+#     - own persistent application selection
 #
 #
 # STATE OWNERSHIP
-# --------------
+# ---------------
 #
-# Persistent application selection belongs to:
+# Persistent application selection belongs to the Controller.
 #
-#     Controller.selected_ids
+# QGraphicsItem selection state is treated as the graphical
+# representation of that application state.
 #
-# BusItem.selected state is therefore only a visual
-# representation of Controller state.
+# The Controller/UI synchronization layer is responsible for
+# keeping the two states consistent.
 #
 #
 # HOVER
 # -----
 #
 # Hover is transient graphics state and belongs here.
-#
-# This avoids forcing BusRenderer to know which tool is active.
 #
 #
 # QT RULE
@@ -85,6 +85,7 @@ from ui.core.qt import (
     QBrush,
     QColor,
     QGraphicsEllipseItem,
+    QGraphicsItem,
     QPen,
     Qt,
 )
@@ -94,34 +95,23 @@ class BusItem(QGraphicsEllipseItem):
     """
     Graphical representation of a GridForge Bus.
 
-    The BusItem is intentionally lightweight.
+    The underlying model object remains authoritative.
 
-    The underlying model object remains the authoritative source
-    of bus data.
+    The item owns only presentation and transient graphics state.
     """
 
     # ========================================================
     # VISUAL CONSTANTS
     # ========================================================
 
-    # Radius of the normal bus symbol in scene units.
     RADIUS = 6.0
 
-    # Width of the normal outline.
     NORMAL_PEN_WIDTH = 1.0
-
-    # Width of the highlighted outline.
     HOVER_PEN_WIDTH = 2.0
-
-    # Width of the selected outline.
     SELECTED_PEN_WIDTH = 2.5
 
     # ========================================================
     # COLORS
-    # ========================================================
-    #
-    # Centralized here so visual state can evolve without
-    # changing BusRenderer.
     # ========================================================
 
     NORMAL_OUTLINE = QColor(0, 0, 0)
@@ -151,18 +141,11 @@ class BusItem(QGraphicsEllipseItem):
             GridForge Bus model object.
 
         controller:
-            GridForge Controller.
+            GridForge application Controller.
 
-        The model object is stored by reference. The BusItem does
-        not copy or replace the model data.
+        The model object is stored by reference and remains the
+        authoritative source of engineering state.
         """
-
-        self.bus = bus
-        self.controller = controller
-
-        # ----------------------------------------------------
-        # Initialize geometry from the model.
-        # ----------------------------------------------------
 
         super().__init__(
             -self.RADIUS,
@@ -171,42 +154,50 @@ class BusItem(QGraphicsEllipseItem):
             self.RADIUS * 2.0,
         )
 
+        self.bus = bus
+        self.controller = controller
+
         # ----------------------------------------------------
-        # Graphics flags
-        # ----------------------------------------------------
+        # Selection is permitted at the Qt graphics level.
         #
-        # ItemIsSelectable:
-        #     Allows Qt to represent selection visually.
-        #
-        # ItemIsMovable is deliberately NOT enabled here.
-        #
-        # Movement must eventually be controlled by the proper
-        # GridForge interaction tool so that moving a bus updates
-        # the model rather than only moving the QGraphicsItem.
+        # Persistent application selection remains owned by
+        # Controller.
         # ----------------------------------------------------
 
         self.setFlag(
-            QGraphicsEllipseItem.ItemIsSelectable,
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
             True,
         )
 
         # ----------------------------------------------------
-        # Enable Qt hover events.
+        # Direct graphical movement is deliberately disabled.
+        #
+        # Model-backed movement must pass through the proper
+        # GridForge interaction/command path.
+        # ----------------------------------------------------
+
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+            False,
+        )
+
+        # ----------------------------------------------------
+        # Enable transient hover feedback.
         # ----------------------------------------------------
 
         self.setAcceptHoverEvents(True)
 
+        self._hovered = False
+
         # ----------------------------------------------------
-        # Store model coordinates as the item's scene position.
+        # Initial synchronization from authoritative model.
         # ----------------------------------------------------
 
         self._sync_position_from_model()
 
         # ----------------------------------------------------
-        # Set initial visual state.
+        # Initial visual state.
         # ----------------------------------------------------
-
-        self._hovered = False
 
         self._apply_visual_state()
 
@@ -216,9 +207,9 @@ class BusItem(QGraphicsEllipseItem):
 
     def _sync_position_from_model(self) -> None:
         """
-        Synchronize the graphical position with the Bus model.
+        Synchronize graphical position from the Bus model.
 
-        The Bus model remains authoritative.
+        The model remains authoritative.
         """
 
         self.setPos(
@@ -235,13 +226,10 @@ class BusItem(QGraphicsEllipseItem):
         event: Any,
     ) -> None:
         """
-        Handle mouse entering the bus graphics item.
-
-        Hover is transient UI state and does not modify the model.
+        Enter transient hover state.
         """
 
         self._hovered = True
-
         self._apply_visual_state()
 
         super().hoverEnterEvent(event)
@@ -253,17 +241,16 @@ class BusItem(QGraphicsEllipseItem):
         event: Any,
     ) -> None:
         """
-        Handle mouse leaving the bus graphics item.
+        Leave transient hover state.
         """
 
         self._hovered = False
-
         self._apply_visual_state()
 
         super().hoverLeaveEvent(event)
 
     # ========================================================
-    # SELECTION HANDLING
+    # SELECTION REQUEST
     # ========================================================
 
     def mousePressEvent(
@@ -271,16 +258,11 @@ class BusItem(QGraphicsEllipseItem):
         event: Any,
     ) -> None:
         """
-        Handle mouse press on the BusItem.
+        Forward a selection request to the Controller.
 
-        Selection is delegated to the Controller.
-
-        The graphics item does not become the source of truth.
+        The Controller remains the authoritative owner of
+        persistent application selection.
         """
-
-        # ----------------------------------------------------
-        # Determine whether a multi-selection modifier is held.
-        # ----------------------------------------------------
 
         modifiers = event.modifiers()
 
@@ -292,19 +274,15 @@ class BusItem(QGraphicsEllipseItem):
             )
         )
 
-        # ----------------------------------------------------
-        # Update persistent application selection.
-        # ----------------------------------------------------
-
         self.controller.select(
             self.bus.id,
             multi=multi_select,
         )
 
-        # ----------------------------------------------------
-        # Let QGraphicsItem process the original event as well.
-        # ----------------------------------------------------
-
+        # Allow the Qt graphics system to process the event.
+        #
+        # The Controller/UI synchronization layer remains
+        # responsible for authoritative selection state.
         super().mousePressEvent(event)
 
     # ========================================================
@@ -313,7 +291,7 @@ class BusItem(QGraphicsEllipseItem):
 
     def _apply_visual_state(self) -> None:
         """
-        Apply the correct visual appearance.
+        Apply the current graphical state.
 
         Priority:
 
@@ -322,16 +300,9 @@ class BusItem(QGraphicsEllipseItem):
             Hover
                 ↓
             Normal
-
-        Selection has higher visual priority than hover.
         """
 
-        # ----------------------------------------------------
-        # Selected state
-        # ----------------------------------------------------
-
         if self.isSelected():
-
             self.setPen(
                 QPen(
                     self.SELECTED_OUTLINE,
@@ -340,19 +311,12 @@ class BusItem(QGraphicsEllipseItem):
             )
 
             self.setBrush(
-                QBrush(
-                    self.SELECTED_FILL
-                )
+                QBrush(self.SELECTED_FILL)
             )
 
             return
 
-        # ----------------------------------------------------
-        # Hover state
-        # ----------------------------------------------------
-
         if self._hovered:
-
             self.setPen(
                 QPen(
                     self.HOVER_OUTLINE,
@@ -361,16 +325,10 @@ class BusItem(QGraphicsEllipseItem):
             )
 
             self.setBrush(
-                QBrush(
-                    self.HOVER_FILL
-                )
+                QBrush(self.HOVER_FILL)
             )
 
             return
-
-        # ----------------------------------------------------
-        # Normal state
-        # ----------------------------------------------------
 
         self.setPen(
             QPen(
@@ -380,9 +338,7 @@ class BusItem(QGraphicsEllipseItem):
         )
 
         self.setBrush(
-            QBrush(
-                self.NORMAL_FILL
-            )
+            QBrush(self.NORMAL_FILL)
         )
 
     # ========================================================
@@ -395,10 +351,10 @@ class BusItem(QGraphicsEllipseItem):
         value: Any,
     ) -> Any:
         """
-        React when Qt changes the item's selection state.
+        React to Qt graphics-item state changes.
 
-        This ensures the visual style always follows the actual
-        QGraphicsItem selection state.
+        Selection changes update only the visual representation.
+        They do not mutate the Core model.
         """
 
         result = super().itemChange(
@@ -406,10 +362,7 @@ class BusItem(QGraphicsEllipseItem):
             value,
         )
 
-        if (
-            change
-            == QGraphicsEllipseItem.GraphicsItemChange.ItemSelectedChange
-        ):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
             self._apply_visual_state()
 
         return result
@@ -422,9 +375,6 @@ class BusItem(QGraphicsEllipseItem):
     def model_object(self) -> Any:
         """
         Return the underlying Bus model object.
-
-        This provides a consistent interface for future
-        selection and inspection systems.
         """
 
         return self.bus
@@ -466,4 +416,3 @@ class BusItem(QGraphicsEllipseItem):
 __all__ = [
     "BusItem",
 ]
-```
