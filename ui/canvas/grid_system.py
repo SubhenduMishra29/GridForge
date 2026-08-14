@@ -2,78 +2,52 @@
 # File: ui/canvas/grid_system.py
 # GridForge Canvas Grid System
 # ============================================================
-#
-# PURPOSE
-# -------
-# Provides the visual engineering grid used by the GridForge
-# canvas.
-#
-# The GridSystem is a canvas/view infrastructure service.
-#
-# It provides:
-#
-#     - grid visibility
-#     - grid spacing
-#     - major/minor grid configuration
-#     - grid-coordinate calculation
-#     - grid rendering
-#
-# It does NOT:
-#
-#     - modify the Core model
-#     - create electrical objects
-#     - perform topology operations
-#     - manage tools
-#     - perform selection
-#     - decide whether snapping is enabled
-#     - perform object-target snapping
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#                 QGraphicsScene/View
-#                         │
-#                         ▼
-#                    GridSystem
-#                         │
-#                  ┌──────┴──────┐
-#                  ▼             ▼
-#             Grid Geometry   Rendering
-#                  │
-#                  ▼
-#              SnapSystem
-#
-#
-# IMPORTANT
-# ---------
-#
-# Grid display and snapping are separate concerns.
-#
-# GridSystem:
-#
-#     visual grid
-#     grid geometry
-#     scene-space grid calculation
-#
-# SnapSystem:
-#
-#     snapping policy
-#     snap priority
-#     bus/object snapping
-#     grid snapping enable/disable
-#
-#
-# QT RULE
-# -------
-#
-# All Qt classes must be imported through:
-#
-#     ui.core.qt
-#
-# No direct PySide6 / PyQt imports are permitted.
-#
-# ============================================================
+
+"""
+GridForge V2 — Canvas Grid System
+
+Provides the visual engineering grid and pure grid geometry
+used by the GridForge canvas.
+
+GridSystem owns:
+
+    - grid visibility
+    - minor-grid spacing
+    - major-grid interval
+    - grid coordinate calculation
+    - grid rendering
+
+GridSystem does NOT:
+
+    - modify the Core model
+    - create electrical objects
+    - perform topology operations
+    - manage tools
+    - perform selection
+    - decide whether snapping is enabled
+    - perform object-target snapping
+
+Grid display and snapping are separate concerns.
+
+    GridSystem
+        │
+        ├── grid geometry
+        ├── grid rendering
+        └── grid-point calculation
+                    │
+                    ▼
+               SnapSystem
+
+SnapSystem owns snapping policy.
+
+Qt Rule
+-------
+All Qt classes must be imported through:
+
+    ui.core.qt
+
+No direct PySide6 / PyQt imports are permitted.
+"""
 
 from __future__ import annotations
 
@@ -91,10 +65,10 @@ from ui.core.qt import (
 
 class GridSystem:
     """
-    Provides the visual and geometric engineering grid for the
-    GridForge canvas.
+    Visual and geometric engineering grid for the GridForge
+    canvas.
 
-    GridSystem is deliberately independent of:
+    GridSystem is independent of:
 
         - Core model
         - Controller
@@ -102,8 +76,8 @@ class GridSystem:
         - InteractionManager
         - SnapSystem
 
-    SnapSystem may use ``snap_point()`` when grid snapping is
-    enabled.
+    SnapSystem may use ``snap_point()`` when grid snapping
+    policy requires grid snapping.
     """
 
     # ========================================================
@@ -111,9 +85,7 @@ class GridSystem:
     # ========================================================
 
     DEFAULT_MINOR_SPACING = 20.0
-
     DEFAULT_MAJOR_INTERVAL = 5
-
     DEFAULT_VISIBLE = True
 
     # --------------------------------------------------------
@@ -133,7 +105,6 @@ class GridSystem:
     )
 
     DEFAULT_MINOR_WIDTH = 0.5
-
     DEFAULT_MAJOR_WIDTH = 1.0
 
     # ========================================================
@@ -154,14 +125,15 @@ class GridSystem:
         scene:
             QGraphicsScene associated with the canvas.
 
-            GridSystem does not own or mutate the scene.
+            GridSystem retains this reference for canvas
+            integration but does not own or mutate the scene.
 
         minor_spacing:
             Distance between adjacent minor grid lines in
             scene coordinates.
 
         major_interval:
-            Number of minor grid cells between major grid lines.
+            Number of minor cells between major grid lines.
         """
 
         if scene is None:
@@ -191,10 +163,6 @@ class GridSystem:
             self.DEFAULT_VISIBLE
         )
 
-        # ----------------------------------------------------
-        # Visual configuration.
-        # ----------------------------------------------------
-
         self.minor_color = QColor(
             self.DEFAULT_MINOR_COLOR
         )
@@ -223,7 +191,10 @@ class GridSystem:
         Validate grid spacing.
         """
 
-        if not isinstance(
+        if isinstance(
+            spacing,
+            bool,
+        ) or not isinstance(
             spacing,
             (int, float),
         ):
@@ -315,11 +286,6 @@ class GridSystem:
     ) -> None:
         """
         Change the minor grid spacing.
-
-        Parameters
-        ----------
-        spacing:
-            New spacing in scene coordinates.
         """
 
         self._validate_spacing(
@@ -373,21 +339,10 @@ class GridSystem:
         """
         Return the nearest grid intersection.
 
-        This method performs only the geometric grid
-        calculation.
+        This performs only grid geometry.
 
-        It does NOT determine whether grid snapping should
-        occur. That policy belongs to SnapSystem.
-
-        Parameters
-        ----------
-        point:
-            Scene-space position.
-
-        Returns
-        -------
-        QPointF
-            Nearest grid position.
+        Whether snapping should occur is a SnapSystem policy
+        decision.
         """
 
         if point is None:
@@ -425,14 +380,11 @@ class GridSystem:
         coordinate: float,
     ) -> int:
         """
-        Return the nearest integer grid index.
+        Return the nearest integer grid index for a coordinate.
 
-        This helper is used only for determining major/minor
-        classification.
-
-        Python's round() is intentionally used so that the
-        classification corresponds to the same grid geometry
-        used by snap_point().
+        The same rounding rule used by ``snap_point()`` is used
+        here so grid classification and grid snapping share the
+        same geometric definition.
         """
 
         return int(
@@ -446,26 +398,19 @@ class GridSystem:
     # GRID RANGE
     # ========================================================
 
-    def _first_grid_value(
+    def _first_grid_index(
         self,
         minimum: float,
-        spacing: float,
-    ) -> float:
+    ) -> int:
         """
-        Return the first grid coordinate at or before
-        ``minimum``.
+        Return the first grid index whose coordinate is at or
+        before ``minimum``.
 
-        ``math.floor`` is required here.
-
-        Using ``int()`` would be incorrect for negative scene
-        coordinates because int() truncates toward zero.
+        Floor is required for negative scene coordinates.
         """
 
-        return (
-            math.floor(
-                minimum / spacing
-            )
-            * spacing
+        return math.floor(
+            minimum / self.minor_spacing
         )
 
     # ========================================================
@@ -483,17 +428,19 @@ class GridSystem:
         Parameters
         ----------
         painter:
-            QPainter supplied by the canvas/view.
+            QPainter supplied by the canvas background-rendering
+            path.
 
         rect:
             Scene-space rectangle requiring grid rendering.
 
         Notes
         -----
-        Grid coordinates are scene coordinates.
+        The painter state is preserved.
 
-        Consequently the grid naturally follows the scene
-        transformation during zooming and panning.
+        Grid coordinates are scene coordinates, allowing the grid
+        to follow the scene transformation during zooming and
+        panning.
         """
 
         if not self.visible:
@@ -514,14 +461,24 @@ class GridSystem:
 
         minor = self.minor_spacing
 
-        first_x = self._first_grid_value(
-            rect.left(),
-            minor,
+        first_x_index = (
+            self._first_grid_index(
+                rect.left()
+            )
         )
 
-        first_y = self._first_grid_value(
-            rect.top(),
-            minor,
+        first_y_index = (
+            self._first_grid_index(
+                rect.top()
+            )
+        )
+
+        last_x_index = math.floor(
+            rect.right() / minor
+        )
+
+        last_y_index = math.floor(
+            rect.bottom() / minor
         )
 
         minor_pen = QPen(
@@ -534,81 +491,88 @@ class GridSystem:
             self.major_width,
         )
 
-        # ----------------------------------------------------
-        # Vertical lines
-        # ----------------------------------------------------
+        painter.save()
 
-        x = first_x
+        try:
 
-        while x <= rect.right():
+            # ------------------------------------------------
+            # Vertical lines
+            # ------------------------------------------------
 
-            grid_index = self._grid_index(
-                x
-            )
-
-            if (
-                grid_index
-                % self.major_interval
-                == 0
+            for grid_index in range(
+                first_x_index,
+                last_x_index + 1,
             ):
-                painter.setPen(
-                    major_pen
-                )
-            else:
-                painter.setPen(
-                    minor_pen
+
+                x = (
+                    grid_index
+                    * minor
                 )
 
-            painter.drawLine(
-                QPointF(
-                    x,
-                    rect.top(),
-                ),
-                QPointF(
-                    x,
-                    rect.bottom(),
-                ),
-            )
+                if (
+                    grid_index
+                    % self.major_interval
+                    == 0
+                ):
+                    painter.setPen(
+                        major_pen
+                    )
+                else:
+                    painter.setPen(
+                        minor_pen
+                    )
 
-            x += minor
+                painter.drawLine(
+                    QPointF(
+                        x,
+                        rect.top(),
+                    ),
+                    QPointF(
+                        x,
+                        rect.bottom(),
+                    ),
+                )
 
-        # ----------------------------------------------------
-        # Horizontal lines
-        # ----------------------------------------------------
+            # ------------------------------------------------
+            # Horizontal lines
+            # ------------------------------------------------
 
-        y = first_y
-
-        while y <= rect.bottom():
-
-            grid_index = self._grid_index(
-                y
-            )
-
-            if (
-                grid_index
-                % self.major_interval
-                == 0
+            for grid_index in range(
+                first_y_index,
+                last_y_index + 1,
             ):
-                painter.setPen(
-                    major_pen
-                )
-            else:
-                painter.setPen(
-                    minor_pen
+
+                y = (
+                    grid_index
+                    * minor
                 )
 
-            painter.drawLine(
-                QPointF(
-                    rect.left(),
-                    y,
-                ),
-                QPointF(
-                    rect.right(),
-                    y,
-                ),
-            )
+                if (
+                    grid_index
+                    % self.major_interval
+                    == 0
+                ):
+                    painter.setPen(
+                        major_pen
+                    )
+                else:
+                    painter.setPen(
+                        minor_pen
+                    )
 
-            y += minor
+                painter.drawLine(
+                    QPointF(
+                        rect.left(),
+                        y,
+                    ),
+                    QPointF(
+                        rect.right(),
+                        y,
+                    ),
+                )
+
+        finally:
+            painter.restore()
 
     # ========================================================
     # GRID INFORMATION
@@ -632,10 +596,7 @@ class GridSystem:
 
     def reset(self) -> None:
         """
-        Restore the default grid configuration.
-
-        Visual styling is also restored because reset is
-        defined as a complete GridSystem configuration reset.
+        Restore the complete default GridSystem configuration.
         """
 
         self.minor_spacing = (
