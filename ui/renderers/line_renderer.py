@@ -2,90 +2,72 @@
 # File: ui/renderers/line_renderer.py
 # GridForge Line Renderer
 # ============================================================
-#
-# PURPOSE
-# -------
-# Converts a Core Line model object into its graphical
-# representation used by the GridForge canvas.
-#
-#
-# ARCHITECTURE
-# ------------
-#
-#                  Core Line Model
-#                         │
-#                         ▼
-#                   LineRenderer
-#                         │
-#                         ▼
-#                      LineItem
-#                         │
-#                         ▼
-#                  QGraphicsScene
-#
-#
-# RENDERER CONTRACT
-# -----------------
-#
-# Every GridForge renderer provides:
-#
-#     create_item(element, controller)
-#
-# RenderSystem therefore remains independent of concrete
-# graphical item implementations.
-#
-#
-# RESPONSIBILITIES
-# ----------------
-#
-# LineRenderer:
-#
-#     - accepts a Line model object
-#     - creates the corresponding LineItem
-#     - passes the application Controller to the graphical item
-#
-#
-# IT DOES NOT:
-# ------------
-#
-#     - modify the Line model
-#     - calculate power flow
-#     - perform topology operations
-#     - handle mouse interaction
-#     - perform snapping
-#     - manage selection state
-#     - manage scene lifecycle
-#
-#
-# REGISTRATION
-# ------------
-#
-# The renderer is registered through RendererRegistry.
-#
-# RendererLoader is responsible for importing this module.
-# Importing the module therefore activates registration.
-#
-# ============================================================
+
+"""
+GridForge Line Renderer
+=======================
+
+Converts a Core Line model object into its graphical
+representation used by the GridForge canvas.
+
+Architecture
+------------
+
+    core.model.line.Line
+            │
+            ▼
+       LineRenderer
+            │
+            ▼
+         LineItem
+            │
+            ▼
+      QGraphicsScene
+
+The renderer:
+
+    - declares the Core model type it renders;
+    - creates the corresponding graphics item;
+    - does not own persistent rendering state;
+    - does not modify the Core model;
+    - does not perform topology operations;
+    - does not perform snapping;
+    - does not handle tools;
+    - does not manage selection;
+    - does not manage scene lifecycle.
+
+Renderer registration is performed by RendererLoader.
+
+Qt dependencies belong to the graphics-item layer.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from ui.core.renderer_registry import register_renderer
+from core.model.line import Line
 
 
-@register_renderer("line")
 class LineRenderer:
     """
-    Renderer responsible for converting a Line model object
-    into a LineItem graphics object.
+    Renderer for the GridForge Core Line model.
 
-    The renderer contains no persistent UI state.
+    Renderer instances contain no persistent rendering state.
     """
+
+    # ========================================================
+    # RENDERER CONTRACT
+    # ========================================================
+
+    model_type = Line
+
+    # ========================================================
+    # ITEM CREATION
+    # ========================================================
 
     @staticmethod
     def create_item(
-        element: Any,
+        element: Line,
         controller: Any,
     ) -> Any:
         """
@@ -94,27 +76,33 @@ class LineRenderer:
         Parameters
         ----------
         element:
-            GridForge Line model object.
+            Core GridForge Line model object.
 
         controller:
             GridForge application Controller.
 
-            The controller is passed to the graphical item
-            according to the established renderer/item contract.
-
         Returns
         -------
         Any
-            The LineItem representing the supplied Line.
+            LineItem representing the supplied Line.
 
-        Notes
-        -----
-        The renderer does not modify the supplied model object.
-
-        LineItem is imported locally so that the renderer
-        registry and RenderSystem remain independent of concrete
-        graphics-item implementations.
+        Raises
+        ------
+        TypeError
+            If element is not a Line instance.
         """
+
+        if not isinstance(element, Line):
+            raise TypeError(
+                "LineRenderer.create_item() requires a "
+                "core.model.line.Line instance."
+            )
+
+        # ----------------------------------------------------
+        # Local import keeps the renderer layer independent
+        # from concrete graphics-item imports during renderer
+        # discovery.
+        # ----------------------------------------------------
 
         from ui.items.line_item import LineItem
 
