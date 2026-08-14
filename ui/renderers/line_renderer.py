@@ -27,12 +27,12 @@
 # RENDERER CONTRACT
 # -----------------
 #
-# Every GridForge renderer must provide:
+# Every GridForge renderer provides:
 #
 #     create_item(element, controller)
 #
-# The RenderSystem therefore does not need to know whether the
-# element is a Bus, Line, Transformer, Generator, Load, etc.
+# RenderSystem therefore remains independent of concrete
+# graphical item implementations.
 #
 #
 # RESPONSIBILITIES
@@ -41,8 +41,8 @@
 # LineRenderer:
 #
 #     - accepts a Line model object
-#     - provides the LineItem implementation
-#     - passes the Controller to the graphical item
+#     - creates the corresponding LineItem
+#     - passes the application Controller to the graphical item
 #
 #
 # IT DOES NOT:
@@ -52,37 +52,18 @@
 #     - calculate power flow
 #     - perform topology operations
 #     - handle mouse interaction
-#     - manage snapping
+#     - perform snapping
+#     - manage selection state
 #     - manage scene lifecycle
 #
 #
-# MODEL ACCESS
+# REGISTRATION
 # ------------
 #
-# A Line contains references to its endpoint buses through:
+# The renderer is registered through RendererRegistry.
 #
-#     line.from_bus
-#     line.to_bus
-#
-# LineItem is responsible for resolving the corresponding
-# graphical positions using the model.
-#
-#
-# AUTO REGISTRATION
-# -----------------
-#
-# The renderer exposes:
-#
-#     model_type = Line
-#
-# This metadata is intentionally kept on the renderer class.
-#
-# The future renderer auto-loader will use this information to
-# discover:
-#
-#     Line → LineRenderer
-#
-# without requiring RenderSystem to import this class.
+# RendererLoader is responsible for importing this module.
+# Importing the module therefore activates registration.
 #
 # ============================================================
 
@@ -90,33 +71,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.models.line import Line
+from ui.core.renderer_registry import register_renderer
 
 
+@register_renderer("line")
 class LineRenderer:
     """
     Renderer responsible for converting a Line model object
     into a LineItem graphics object.
+
+    The renderer contains no persistent UI state.
     """
-
-    # ========================================================
-    # RENDERER REGISTRATION METADATA
-    # ========================================================
-    #
-    # RendererRegistry/auto-loader uses this attribute to
-    # determine which model class this renderer handles.
-    #
-    # Example:
-    #
-    #     Line → LineRenderer
-    #
-    # ========================================================
-
-    model_type = Line
-
-    # ========================================================
-    # ITEM CREATION
-    # ========================================================
 
     @staticmethod
     def create_item(
@@ -129,95 +94,34 @@ class LineRenderer:
         Parameters
         ----------
         element:
-            Line model instance.
+            GridForge Line model object.
 
         controller:
-            GridForge Controller.
+            GridForge application Controller.
 
-            The Controller provides access to the complete model
-            and application state.
+            The controller is passed to the graphical item
+            according to the established renderer/item contract.
 
         Returns
         -------
-        LineItem
-            Graphics representation of the Line.
-
-        Raises
-        ------
-        TypeError
-            If the supplied object is not a Line instance.
+        Any
+            The LineItem representing the supplied Line.
 
         Notes
         -----
-        The renderer does not modify the supplied Line.
+        The renderer does not modify the supplied model object.
+
+        LineItem is imported locally so that the renderer
+        registry and RenderSystem remain independent of concrete
+        graphics-item implementations.
         """
-
-        # ----------------------------------------------------
-        # Validate model type.
-        #
-        # Unlike BusRenderer, the Line class is imported here
-        # because model_type registration requires the actual
-        # class object.
-        # ----------------------------------------------------
-
-        if not isinstance(element, Line):
-            raise TypeError(
-                "LineRenderer expected a Line model object, "
-                f"got {type(element).__name__}"
-            )
-
-        # ----------------------------------------------------
-        # Local import of the graphics implementation.
-        #
-        # RenderSystem must remain completely unaware of
-        # LineItem.
-        #
-        # LineRenderer is the correct architectural boundary
-        # for this dependency.
-        # ----------------------------------------------------
 
         from ui.items.line_item import LineItem
 
-        # ----------------------------------------------------
-        # Access the complete application model.
-        #
-        # LineItem needs the model to resolve:
-        #
-        #     line.from_bus
-        #     line.to_bus
-        #
-        # into actual Bus objects and their coordinates.
-        # ----------------------------------------------------
-
-        model = controller.model
-
-        # ----------------------------------------------------
-        # Create the graphical item.
-        # ----------------------------------------------------
-
-        item = LineItem(
+        return LineItem(
             element,
-            model,
+            controller,
         )
-
-        # ----------------------------------------------------
-        # Optional Controller injection.
-        #
-        # This is useful if LineItem later needs to communicate
-        # with Controller for:
-        #
-        #     - selection
-        #     - inspection
-        #     - context menus
-        #     - topology interaction
-        #
-        # We do not require it today.
-        # ----------------------------------------------------
-
-        if hasattr(item, "set_controller"):
-            item.set_controller(controller)
-
-        return item
 
 
 # ============================================================
@@ -227,4 +131,3 @@ class LineRenderer:
 __all__ = [
     "LineRenderer",
 ]
-```
