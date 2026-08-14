@@ -1,17 +1,9 @@
+# ============================================================
+# File: ui/canvas/interaction_manager.py
+# GridForge V2 — Canvas Interaction Manager
+# ============================================================
 """
-GridForge V2 — Canvas Interaction Manager
-=========================================
-
-File:
-    ui/canvas/interaction_manager.py
-
-Purpose
--------
 Central input-routing layer for the GridForge canvas.
-
-The InteractionManager receives raw canvas input from
-GraphicsView, converts input into canonical canvas coordinates,
-and delegates interaction to the currently active tool.
 
 Architecture
 ------------
@@ -35,7 +27,7 @@ Architecture
 
 Responsibilities
 ----------------
-The InteractionManager:
+InteractionManager:
 
     - receives canvas mouse events;
     - receives keyboard events;
@@ -48,7 +40,7 @@ The InteractionManager:
     - handles generic ESC cancellation;
     - provides interaction diagnostics.
 
-The InteractionManager does NOT:
+InteractionManager does NOT:
 
     - implement tool logic;
     - create concrete tools;
@@ -62,9 +54,10 @@ The InteractionManager does NOT:
     - invoke tool lifecycle callbacks directly;
     - own the ToolManager lifecycle contract.
 
+
 Tool Ownership
 --------------
-ToolManager is the single owner of:
+ToolManager is the sole owner of:
 
     - tool creation;
     - active tool instance;
@@ -73,24 +66,20 @@ ToolManager is the single owner of:
     - cancellation;
     - lifecycle transitions.
 
-InteractionManager only asks ToolManager for the active tool
-and routes input to it.
+InteractionManager only queries ToolManager for the active tool
+and delegates lifecycle operations to it.
+
 
 Controller Ownership
 --------------------
 Controller owns application-level tool selection.
 
-Controller stores only the requested tool identifier.
+InteractionManager does NOT subscribe to Controller tool
+selection events.
 
-The Controller emits:
+Tool selection and tool lifecycle are deliberately kept separate
+from raw canvas input routing.
 
-    tool_changed(new_tool_id, previous_tool_id)
-
-ToolManager subscribes to this event and owns the resulting
-tool lifecycle.
-
-InteractionManager deliberately does NOT subscribe to
-"tool_changed". This prevents duplicate activation paths.
 
 Coordinate Ownership
 --------------------
@@ -100,6 +89,11 @@ boundary.
 InteractionManager must not independently implement viewport
 to scene conversion.
 
+The most recent canonical scene position is retained as
+transient interaction state and is available through
+get_scene_position().
+
+
 Preview Ownership
 -----------------
 PreviewLayer owns transient preview graphics.
@@ -107,17 +101,20 @@ PreviewLayer owns transient preview graphics.
 Preview graphics are never part of the Core model and are not
 persisted.
 
-ToolManager may request preview cleanup at lifecycle boundaries,
-but InteractionManager remains the owner of the PreviewLayer
-instance.
+InteractionManager owns the PreviewLayer instance.
+
+ToolManager receives the same PreviewLayer reference only so
+that lifecycle transitions can guarantee preview cleanup.
+
 
 Snapping Ownership
 ------------------
 SnapSystem is the centralized spatial snapping service.
 
-Tools must obtain snapping through the InteractionManager's
+Tools should obtain snapping through the InteractionManager's
 SnapSystem rather than implementing independent spatial-query
 logic.
+
 
 Qt Architecture
 ---------------
@@ -144,19 +141,19 @@ class InteractionManager(QObject):
     """
     Central input-routing service for the GridForge canvas.
 
-    The InteractionManager is deliberately a thin routing layer:
+    InteractionManager is deliberately a routing layer:
 
         raw input
             ↓
-        coordinate conversion
+        canonical coordinate conversion
             ↓
         active tool
 
     Coordinate conversion, preview management, and snapping are
     centralized here.
 
-    Concrete tool ownership and lifecycle remain exclusively with
-    ToolManager.
+    Concrete tool ownership and lifecycle remain exclusively
+    with ToolManager.
     """
 
     # ========================================================
@@ -194,50 +191,35 @@ class InteractionManager(QObject):
 
         Notes
         -----
-        Tool lifecycle is delegated entirely to ToolManager.
+        InteractionManager has no Controller subscription.
 
-        InteractionManager does not subscribe to Controller's
-        "tool_changed" event. ToolManager is the sole subscriber
-        responsible for converting the Controller's requested
-        tool ID into an active tool instance.
+        Tool lifecycle is delegated entirely to ToolManager.
         """
 
         super().__init__()
 
         if view is None:
             raise ValueError(
-                "view must not be None"
+                "view must not be None."
             )
 
         if controller is None:
             raise ValueError(
-                "controller must not be None"
-            )
-
-        if not callable(
-            getattr(
-                controller,
-                "subscribe",
-                None,
-            )
-        ):
-            raise TypeError(
-                "controller must provide subscribe()"
+                "controller must not be None."
             )
 
         scene = view.scene()
 
         if scene is None:
             raise RuntimeError(
-                "InteractionManager requires a QGraphicsScene"
+                "InteractionManager requires a QGraphicsScene."
             )
 
         self.view = view
         self.controller = controller
 
         # ----------------------------------------------------
-        # Coordinate service
-        # ----------------------------------------------------
+        # Coordinate service.
         #
         # CoordinateSystem is the canonical coordinate
         # conversion boundary for the canvas.
@@ -259,12 +241,8 @@ class InteractionManager(QObject):
 
         # ----------------------------------------------------
         # Preview layer.
-        # ----------------------------------------------------
         #
-        # InteractionManager owns the PreviewLayer instance.
-        #
-        # ToolManager receives the same service reference only
-        # so lifecycle transitions can guarantee cleanup.
+        # InteractionManager owns this instance.
         # ----------------------------------------------------
 
         self.preview = PreviewLayer(
@@ -285,16 +263,17 @@ class InteractionManager(QObject):
 
         # ----------------------------------------------------
         # Tool manager.
-        # ----------------------------------------------------
         #
-        # ToolManager is the sole owner of concrete tool
-        # instances and lifecycle.
+        # ToolManager owns:
         #
-        # It also owns the Controller "tool_changed"
-        # subscription.
+        #   - tool instances
+        #   - creation
+        #   - activation
+        #   - deactivation
+        #   - cancellation
         #
-        # InteractionManager deliberately does not duplicate
-        # that subscription.
+        # InteractionManager does not subscribe to Controller
+        # tool-selection events.
         # ----------------------------------------------------
 
         self.tool_manager = ToolManager(
@@ -304,27 +283,10 @@ class InteractionManager(QObject):
         )
 
         # ----------------------------------------------------
-        # InteractionManager has no Controller subscription.
+        # Lifecycle state.
         #
-        # Tool selection flow is:
-        #
-        # Controller.set_tool()
-        #       ↓
-        # Controller.tool_changed
-        #       ↓
-        # ToolManager
-        #       ↓
-        # tool lifecycle
-        #
-        # Input flow is:
-        #
-        # GraphicsView
-        #       ↓
-        # InteractionManager
-        #       ↓
-        # ToolManager
-        #       ↓
-        # Active Tool
+        # This represents InteractionManager itself, not a
+        # Controller subscription.
         # ----------------------------------------------------
 
         self._connected = True
@@ -352,7 +314,7 @@ class InteractionManager(QObject):
         """
         Return the identifier of the currently active tool.
 
-        The identifier comes from ToolManager's lifecycle state.
+        The identifier comes from ToolManager lifecycle state.
         """
 
         return self.tool_manager.get_current_tool_id()
@@ -386,18 +348,17 @@ class InteractionManager(QObject):
         """
         Route a mouse-press event to the active tool.
 
-        The event position is first converted through the
-        canonical CoordinateSystem.
+        The event position is converted through the canonical
+        CoordinateSystem before the event is delegated.
 
-        Returns
-        -------
-        bool
-            True when an active tool handled the event.
+        The canonical scene position is retained as transient
+        interaction state and can be queried through
+        get_scene_position().
         """
 
         if event is None:
             raise ValueError(
-                "event must not be None"
+                "event must not be None."
             )
 
         scene_pos = self.map_to_scene(
@@ -412,8 +373,6 @@ class InteractionManager(QObject):
             self.dragging = False
             return False
 
-        self.dragging = True
-
         handler = getattr(
             tool,
             "mouse_press",
@@ -421,16 +380,23 @@ class InteractionManager(QObject):
         )
 
         if not callable(handler):
+            self.dragging = False
             return False
 
         result = handler(
             event
         )
 
-        if result is None:
-            return True
+        handled = (
+            True
+            if result is None
+            else bool(result)
+        )
 
-        return bool(result)
+        if handled:
+            self.dragging = True
+
+        return handled
 
     # ========================================================
     # MOUSE MOVE
@@ -443,15 +409,13 @@ class InteractionManager(QObject):
         """
         Route a mouse-move event to the active tool.
 
-        Returns
-        -------
-        bool
-            True when an active tool handled the event.
+        The canonical scene position is updated before the
+        active tool receives the event.
         """
 
         if event is None:
             raise ValueError(
-                "event must not be None"
+                "event must not be None."
             )
 
         scene_pos = self.map_to_scene(
@@ -499,7 +463,7 @@ class InteractionManager(QObject):
 
         if event is None:
             raise ValueError(
-                "event must not be None"
+                "event must not be None."
             )
 
         scene_pos = self.map_to_scene(
@@ -554,7 +518,7 @@ class InteractionManager(QObject):
 
         if event is None:
             raise ValueError(
-                "event must not be None"
+                "event must not be None."
             )
 
         if event.key() == Qt.Key_Escape:
@@ -602,7 +566,7 @@ class InteractionManager(QObject):
 
         if event is None:
             raise ValueError(
-                "event must not be None"
+                "event must not be None."
             )
 
         tool = self.get_current_tool()
@@ -640,6 +604,8 @@ class InteractionManager(QObject):
 
         ToolManager owns cancellation semantics.
 
+        Cancellation does NOT deactivate the active tool.
+
         InteractionManager only clears its own transient state
         and preview after cancellation.
         """
@@ -672,7 +638,7 @@ class InteractionManager(QObject):
 
         if event is None:
             raise ValueError(
-                "event must not be None"
+                "event must not be None."
             )
 
         position = getattr(
@@ -709,7 +675,7 @@ class InteractionManager(QObject):
             )
 
         raise TypeError(
-            "event must provide position() or pos()"
+            "event must provide position() or pos()."
         )
 
     # ========================================================
@@ -720,7 +686,9 @@ class InteractionManager(QObject):
         self,
     ) -> Optional[Any]:
         """
-        Return the most recently known scene position.
+        Return the most recently known canonical scene position.
+
+        Returns None when no canvas input has been received.
         """
 
         return self.last_scene_pos
@@ -789,10 +757,6 @@ class InteractionManager(QObject):
         Deactivate the current tool through ToolManager.
 
         Tool lifecycle methods are never invoked directly here.
-
-        Controller tool selection remains separate from this
-        operation. This method operates on the currently active
-        ToolManager state only.
         """
 
         self.tool_manager.deactivate()
@@ -847,7 +811,7 @@ class InteractionManager(QObject):
             "last_scene_pos": (
                 self.last_scene_pos
             ),
-            "preview_active": (
+            "preview_available": (
                 self.preview is not None
             ),
             "snap_system": (
@@ -869,11 +833,10 @@ class InteractionManager(QObject):
         """
         Release interaction resources.
 
-        ToolManager remains responsible for its Controller
-        subscription and active-tool lifecycle.
+        InteractionManager has no Controller subscription to
+        disconnect.
 
-        InteractionManager has no independent Controller
-        subscription to remove.
+        ToolManager remains responsible for its own lifecycle.
         """
 
         if not self._connected:
