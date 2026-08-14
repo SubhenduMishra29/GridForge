@@ -10,11 +10,7 @@ Architecture
 
     Controller
         │
-        │ requested tool ID
-        ▼
-    InteractionManager
-        │
-        │ lifecycle request
+        │ tool_changed(new_tool_id, previous_tool_id)
         ▼
     ToolManager
         │
@@ -33,17 +29,13 @@ Ownership
 ---------
 Controller owns application-level tool selection.
 
-InteractionManager owns:
+Controller stores the requested tool identifier and emits:
 
-    - raw input routing;
-    - transient interaction state;
-    - PreviewLayer;
-    - SnapSystem;
-    - CoordinateSystem;
-    - forwarding the requested tool ID to ToolManager.
+    tool_changed(new_tool_id, previous_tool_id)
 
-ToolManager owns:
+ToolManager owns the resulting tool lifecycle:
 
+    - subscription to Controller tool selection;
     - active tool instance;
     - tool creation;
     - activation;
@@ -52,6 +44,14 @@ ToolManager owns:
     - lifecycle transitions;
     - transient preview cleanup at lifecycle boundaries.
 
+InteractionManager owns:
+
+    - raw input routing;
+    - transient interaction state;
+    - PreviewLayer;
+    - SnapSystem;
+    - CoordinateSystem.
+
 PluginRegistry owns:
 
     - plugin/tool class registration;
@@ -59,7 +59,6 @@ PluginRegistry owns:
 
 ToolManager does NOT:
 
-    - subscribe to Controller tool-selection events;
     - process raw mouse events;
     - process keyboard events;
     - implement tool behavior;
@@ -68,12 +67,44 @@ ToolManager does NOT:
     - perform electrical calculations;
     - create QGraphicsItems;
     - perform snapping;
-    - own application-level tool selection.
+    - own application-level tool selection state;
+    - implement canvas coordinate conversion.
+
+
+Tool Selection
+--------------
+
+Controller owns the requested tool identifier.
+
+The selection flow is:
+
+    Controller.set_tool(tool_id)
+              │
+              ▼
+    Controller.tool_changed
+              │
+              ▼
+    ToolManager._on_tool_changed()
+              │
+              ▼
+    ToolManager.activate(tool_id)
+
+
+ToolManager is therefore the sole component responsible for
+converting a requested tool identifier into an active tool
+instance.
+
+InteractionManager deliberately does NOT subscribe to
+Controller.tool_changed.
+
 
 Tool Lifecycle
 --------------
 
     activate(new_tool)
+          │
+          ▼
+    resolve registered class
           │
           ▼
     deactivate(old_tool)
@@ -82,10 +113,7 @@ Tool Lifecycle
     clear preview
           │
           ▼
-    lookup registered class
-          │
-          ▼
-    instantiate tool
+    instantiate new tool
           │
           ▼
     activate(new_tool)
@@ -108,10 +136,11 @@ deactivate the selected tool.
      ▼
     ActiveTool.cancel()
      │
-     ├── interaction state reset by tool
+     ├── tool interaction state reset by tool
      └── preview cleared
 
 The tool remains active after cancellation.
+
 
 Qt Rule
 -------
@@ -129,11 +158,13 @@ class ToolManager:
     """
     Owns the lifecycle of the currently active interaction tool.
 
-    ToolManager is deliberately independent of Controller
-    selection events.
+    ToolManager is the sole subscriber to the Controller's
+    tool_changed event.
 
-    InteractionManager is the bridge between Controller tool
-    selection and this lifecycle manager.
+    Controller owns tool selection state.
+
+    ToolManager owns the concrete tool instance and its
+    lifecycle.
     """
 
     # ========================================================
@@ -152,15 +183,14 @@ class ToolManager:
         Parameters
         ----------
         controller:
-            Application/UI controller supplied to tool
-            constructors.
+            Application/UI controller.
 
-            ToolManager does not subscribe to Controller
-            selection events.
+            The Controller owns the requested tool identifier
+            and emits the tool_changed event.
 
         interaction_manager:
             Optional InteractionManager reference supplied to
-            tool constructors.
+            concrete tool constructors.
 
         preview:
             Optional PreviewLayer used for transient preview
@@ -168,17 +198,36 @@ class ToolManager:
 
         Notes
         -----
-        Controller remains an injected dependency because
-        concrete tools may require access to the application
-        coordination context.
+        ToolManager subscribes to Controller.tool_changed.
 
-        Tool selection itself is handled upstream by
-        InteractionManager.
+        InteractionManager does not subscribe to that event.
         """
 
         if controller is None:
             raise ValueError(
                 "controller must not be None."
+            )
+
+        subscribe = getattr(
+            controller,
+            "subscribe",
+            None,
+        )
+
+        if not callable(subscribe):
+            raise TypeError(
+                "controller must provide subscribe()."
+            )
+
+        unsubscribe = getattr(
+            controller,
+            "unsubscribe",
+            None,
+        )
+
+        if not callable(unsubscribe):
+            raise TypeError(
+                "controller must provide unsubscribe()."
             )
 
         self.controller = controller
@@ -197,6 +246,91 @@ class ToolManager:
 
         self.current_tool_id: Optional[str] = None
 
+        # ----------------------------------------------------
+        # Controller subscription state.
+        # ----------------------------------------------------
+
+        self._connected = False
+
+        self._subscribe_to_tool_changes()
+
+    # ========================================================
+    # CONTROLLER SUBSCRIPTION
+    # ========================================================
+
+    def _subscribe_to_tool_changes(
+        self,
+    ) -> None:
+        """
+        Subscribe to Controller tool-selection changes.
+
+        ToolManager is the sole owner of this subscription.
+        """
+
+        if self._connected:
+            return
+
+        self.controller.subscribe(
+            "tool_changed",
+            self._on_tool_changed,
+        )
+
+        self._connected = True
+
+    # --------------------------------------------------------
+
+    def _unsubscribe_from_tool_changes(
+        self,
+    ) -> None:
+        """
+        Remove the Controller tool-selection subscription.
+
+        The operation is idempotent.
+        """
+
+        if not self._connected:
+            return
+
+        self.controller.unsubscribe(
+            "tool_changed",
+            self._on_tool_changed,
+        )
+
+        self._connected = False
+
+    # --------------------------------------------------------
+
+    def _on_tool_changed(
+        self,
+        new_tool_id: str,
+        previous_tool_id: Optional[str] = None,
+    ) -> None:
+        """
+        Handle a Controller tool-selection event.
+
+        Controller owns the selection request.
+
+        ToolManager owns the lifecycle transition resulting
+        from that request.
+
+        Parameters
+        ----------
+        new_tool_id:
+            Newly requested tool identifier.
+
+        previous_tool_id:
+            Previously requested tool identifier.
+
+            The value is informational here. ToolManager uses
+            its own active-tool state as the lifecycle authority.
+        """
+
+        del previous_tool_id
+
+        self.activate(
+            new_tool_id
+        )
+
     # ========================================================
     # TOOL ACTIVATION
     # ========================================================
@@ -210,15 +344,19 @@ class ToolManager:
 
         Lifecycle:
 
-            deactivate old
+            validate identifier
+                ↓
+            resolve registered class
+                ↓
+            deactivate old tool
                 ↓
             clear transient state
                 ↓
-            lookup registered class
+            instantiate new tool
                 ↓
-            instantiate
+            establish active state
                 ↓
-            activate new
+            activate new tool
 
         Parameters
         ----------
@@ -275,13 +413,11 @@ class ToolManager:
             return self.current_tool
 
         # ----------------------------------------------------
-        # Deactivate previous tool first.
-        # ----------------------------------------------------
-
-        self.deactivate()
-
-        # ----------------------------------------------------
-        # Resolve registered tool class.
+        # Resolve the requested class BEFORE destroying the
+        # current tool.
+        #
+        # This prevents an invalid tool ID from unnecessarily
+        # deactivating a valid active tool.
         # ----------------------------------------------------
 
         tool_class = get_plugin(
@@ -305,13 +441,21 @@ class ToolManager:
             )
 
         # ----------------------------------------------------
-        # Construct tool.
+        # Deactivate previous tool.
+        # ----------------------------------------------------
+
+        self.deactivate()
+
+        # ----------------------------------------------------
+        # Construct new tool.
         # ----------------------------------------------------
 
         try:
             tool = tool_class(
-                self.controller,
-                self.interaction_manager,
+                controller=self.controller,
+                interaction_manager=(
+                    self.interaction_manager
+                ),
             )
 
         except Exception:
@@ -337,6 +481,9 @@ class ToolManager:
 
         # ----------------------------------------------------
         # Establish manager state before activate().
+        #
+        # This allows the tool's activate() callback to observe
+        # itself as the active tool through the manager.
         # ----------------------------------------------------
 
         self.current_tool = tool
@@ -452,22 +599,6 @@ class ToolManager:
             True if an active tool existed.
 
             False if no tool was active.
-
-        Notes
-        -----
-        Lifecycle deactivation is deliberately NOT used as a
-        cancellation fallback.
-
-        Cancellation and deactivation are different lifecycle
-        operations:
-
-            cancel()
-                → abort current interaction
-                → remain active
-
-            deactivate()
-                → leave the tool
-                → release active instance
         """
 
         tool = self.current_tool
@@ -549,10 +680,6 @@ class ToolManager:
     ) -> Optional[Any]:
         """
         Return the active tool instance.
-
-        Returns
-        -------
-        object | None
         """
 
         return self.current_tool
@@ -618,7 +745,9 @@ class ToolManager:
         The current interaction is cancelled first, followed
         by deactivation and release of the active tool.
 
-        This method is intentionally stronger than cancel().
+        Controller selection state is deliberately not changed.
+
+        This method is stronger than cancel().
         """
 
         self.cancel()
@@ -635,15 +764,24 @@ class ToolManager:
         self,
     ) -> None:
         """
-        Release the active tool resources.
+        Release ToolManager resources.
 
-        ToolManager has no Controller subscription and therefore
-        has no subscription-disconnection step.
+        Disposal:
 
-        The operation is idempotent.
+            - resets the active tool;
+            - removes the Controller subscription;
+            - becomes idempotent.
+
+        ToolManager does not own the Controller itself.
         """
 
+        if not self._connected:
+            self.reset()
+            return
+
         self.reset()
+
+        self._unsubscribe_from_tool_changes()
 
     # ========================================================
     # DEBUG STATE
@@ -663,6 +801,9 @@ class ToolManager:
             "has_active_tool": (
                 self.has_active_tool()
             ),
+            "connected": (
+                self._connected
+            ),
         }
 
     # ========================================================
@@ -679,7 +820,9 @@ class ToolManager:
         return (
             "ToolManager("
             f"current_tool="
-            f"{self.current_tool_id!r}"
+            f"{self.current_tool_id!r}, "
+            f"connected="
+            f"{self._connected}"
             ")"
         )
 
