@@ -21,6 +21,7 @@ Typical uses:
     - temporary snap indicators
     - future transient interaction graphics
 
+
 Architecture
 ------------
 
@@ -45,6 +46,7 @@ PreviewLayer owns the transient QGraphicsItems that it creates.
 Tools do not directly own preview graphics. They request preview
 changes through the interaction layer.
 
+
 Architectural boundaries
 ------------------------
 PreviewLayer does NOT:
@@ -57,15 +59,20 @@ PreviewLayer does NOT:
     - perform snapping;
     - perform coordinate conversion;
     - implement tool logic;
-    - perform electrical calculations.
+    - perform electrical calculations;
+    - handle mouse interaction.
+
 
 RenderSystem
 ------------
 Preview graphics are deliberately outside RenderSystem ownership.
 
 RenderSystem is responsible for authoritative/persistent model
-visualization. PreviewLayer is responsible only for transient
-interaction feedback.
+visualization.
+
+PreviewLayer is responsible only for transient interaction
+feedback.
+
 
 Qt Rule
 -------
@@ -93,9 +100,22 @@ class PreviewLayer:
     Manager for transient canvas preview graphics.
 
     The class contains no domain-model state and no interaction
-    policy. It only manages temporary graphics attached to the
-    canvas scene.
+    policy.
+
+    It only manages temporary graphics attached to the canvas
+    scene.
     """
+
+    # ========================================================
+    # VISUAL CONSTANTS
+    # ========================================================
+
+    # Preview graphics must remain visually above normal
+    # permanent model graphics without becoming interaction
+    # targets.
+    PREVIEW_Z_VALUE = 1000.0
+
+    PREVIEW_PEN_WIDTH = 2.0
 
     # ========================================================
     # INITIALIZATION
@@ -157,7 +177,7 @@ class PreviewLayer:
 
         self._pen = QPen(
             QColor("gray"),
-            2,
+            self.PREVIEW_PEN_WIDTH,
             Qt.PenStyle.DashLine,
         )
 
@@ -185,6 +205,14 @@ class PreviewLayer:
         -------
         QGraphicsLineItem
             The active transient preview item.
+
+        Notes
+        -----
+        The supplied points are already expected to be in
+        scene coordinates.
+
+        Coordinate conversion and snapping belong to their
+        respective systems and are not performed here.
         """
 
         self._validate_point(
@@ -203,16 +231,39 @@ class PreviewLayer:
 
         if self._line_item is None:
 
-            self._line_item = (
-                QGraphicsLineItem()
+            item = QGraphicsLineItem()
+
+            # ------------------------------------------------
+            # Preview graphics are strictly presentation-only.
+            #
+            # They must never:
+            #
+            #     - receive mouse interaction;
+            #     - become selected;
+            #     - interfere with tools.
+            # ------------------------------------------------
+
+            item.setAcceptedMouseButtons(
+                Qt.MouseButton.NoButton
             )
 
-            self._line_item.setPen(
+            item.setFlag(
+                QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable,
+                False,
+            )
+
+            item.setZValue(
+                self.PREVIEW_Z_VALUE
+            )
+
+            item.setPen(
                 self._pen
             )
 
+            self._line_item = item
+
             self.scene.addItem(
-                self._line_item
+                item
             )
 
         # ----------------------------------------------------
@@ -220,10 +271,10 @@ class PreviewLayer:
         # ----------------------------------------------------
 
         self._line_item.setLine(
-            start_pos.x(),
-            start_pos.y(),
-            end_pos.x(),
-            end_pos.y(),
+            float(start_pos.x()),
+            float(start_pos.y()),
+            float(end_pos.x()),
+            float(end_pos.y()),
         )
 
         return self._line_item
