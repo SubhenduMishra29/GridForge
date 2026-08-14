@@ -34,6 +34,7 @@
 #     - selection visual feedback
 #     - hover visual feedback
 #     - exposing the associated Line model
+#     - refreshing graphical geometry from the model
 #
 #
 # LineItem does NOT:
@@ -45,16 +46,16 @@
 #     - decide which tool is active
 #     - move buses
 #     - manage the graphics scene
+#     - mutate the Core model
 #
 #
 # STATE OWNERSHIP
-# --------------
+# ---------------
 #
-# Persistent selection belongs to:
+# Persistent application selection belongs to the Controller.
 #
-#     Controller.selected_ids
-#
-# LineItem only represents that state visually.
+# The QGraphicsItem selection state is only its graphical
+# representation.
 #
 #
 # MODEL OWNERSHIP
@@ -67,11 +68,10 @@
 #
 # These are bus IDs.
 #
-# LineItem resolves those IDs through:
+# The LineItem resolves those IDs through the authoritative
+# application model exposed by the Controller.
 #
-#     model.graph.buses
-#
-# The model remains authoritative.
+# All access is read-only.
 #
 #
 # QT RULE
@@ -90,10 +90,11 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ui.core.qt import (
-    QColor,
+    QGraphicsItem,
     QGraphicsLineItem,
     QLineF,
     QPen,
+    Qt,
 )
 
 
@@ -101,10 +102,10 @@ class LineItem(QGraphicsLineItem):
     """
     Graphical representation of a GridForge Line.
 
-    The LineItem is a view object only.
+    The LineItem is a presentation object only.
 
-    The underlying Line model remains the authoritative source
-    of topology and electrical data.
+    The underlying Line model remains authoritative for topology
+    and electrical state.
     """
 
     # ========================================================
@@ -115,9 +116,9 @@ class LineItem(QGraphicsLineItem):
     HOVER_WIDTH = 3.0
     SELECTED_WIDTH = 4.0
 
-    NORMAL_COLOR = QColor(40, 40, 40)
-    HOVER_COLOR = QColor(255, 200, 0)
-    SELECTED_COLOR = QColor(0, 120, 255)
+    NORMAL_COLOR = Qt.GlobalColor.black
+    HOVER_COLOR = Qt.GlobalColor.yellow
+    SELECTED_COLOR = Qt.GlobalColor.blue
 
     # ========================================================
     # INITIALIZATION
@@ -126,7 +127,7 @@ class LineItem(QGraphicsLineItem):
     def __init__(
         self,
         line: Any,
-        model: Any,
+        controller: Any,
     ) -> None:
         """
         Create a graphical LineItem.
@@ -136,74 +137,72 @@ class LineItem(QGraphicsLineItem):
         line:
             GridForge Line model object.
 
-        model:
-            Complete GridForge model.
+        controller:
+            GridForge application Controller.
 
-        The model is used only for resolving the endpoint buses.
+        The Line model and application model are accessed
+        read-only by this presentation object.
         """
 
         super().__init__()
 
         self.line_model = line
-        self.model = model
-
-        # Optional Controller reference.
-        #
-        # LineRenderer may inject this later through
-        # set_controller().
-        self.controller: Optional[Any] = None
+        self.controller = controller
 
         # ----------------------------------------------------
-        # Transient visual state.
+        # Transient graphics state.
         # ----------------------------------------------------
 
         self._hovered = False
 
         # ----------------------------------------------------
-        # Enable selection.
+        # Selection.
+        #
+        # Direct movement is intentionally disabled.
         # ----------------------------------------------------
 
         self.setFlag(
-            QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable,
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
             True,
         )
 
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+            False,
+        )
+
         # ----------------------------------------------------
-        # Enable hover events.
+        # Hover feedback.
         # ----------------------------------------------------
 
         self.setAcceptHoverEvents(True)
 
         # ----------------------------------------------------
-        # Build initial geometry.
+        # Initial geometry and appearance.
         # ----------------------------------------------------
 
         self._sync_geometry()
-
-        # ----------------------------------------------------
-        # Apply initial visual appearance.
-        # ----------------------------------------------------
-
         self._apply_visual_state()
 
     # ========================================================
-    # CONTROLLER
+    # AUTHORITATIVE MODEL ACCESS
     # ========================================================
 
-    def set_controller(
-        self,
-        controller: Any,
-    ) -> None:
+    def _get_model(self) -> Optional[Any]:
         """
-        Attach the GridForge Controller.
+        Return the authoritative application model.
 
-        This method intentionally does not require the
-        Controller during initial construction.
-
-        That keeps LineRenderer flexible.
+        The access is read-only from the LineItem perspective.
         """
 
-        self.controller = controller
+        if self.controller is None:
+            return None
+
+        return getattr(
+            self.controller,
+            "model",
+            None,
+        )
 
     # ========================================================
     # ENDPOINT RESOLUTION
@@ -214,19 +213,19 @@ class LineItem(QGraphicsLineItem):
         bus_id: str,
     ) -> Optional[Any]:
         """
-        Resolve a bus ID to the corresponding Bus model object.
+        Resolve a bus ID to its corresponding Bus model object.
 
-        Returns
-        -------
-        Bus | None
-
-        None is returned when the endpoint cannot be resolved.
-
-        This method performs read-only model access.
+        Returns None when the application model or endpoint
+        cannot currently be resolved.
         """
 
+        model = self._get_model()
+
+        if model is None:
+            return None
+
         graph = getattr(
-            self.model,
+            model,
             "graph",
             None,
         )
@@ -247,15 +246,15 @@ class LineItem(QGraphicsLineItem):
 
     # --------------------------------------------------------
 
-    def _get_endpoint_buses(self) -> tuple[
-        Optional[Any],
-        Optional[Any],
-    ]:
+    def _get_endpoint_buses(
+        self,
+    ) -> tuple[Optional[Any], Optional[Any]]:
         """
         Resolve both endpoint buses of the Line.
 
-        Returns:
-
+        Returns
+        -------
+        tuple
             (from_bus, to_bus)
         """
 
@@ -275,39 +274,24 @@ class LineItem(QGraphicsLineItem):
 
     def _sync_geometry(self) -> None:
         """
-        Synchronize the graphics geometry with the model.
+        Synchronize graphical geometry from the authoritative
+        model.
 
-        The Line model contains endpoint IDs rather than
-        graphics coordinates.
-
-        Therefore the graphical line is calculated from the
-        current positions of the endpoint Bus objects.
+        The Line stores endpoint IDs. The endpoint Bus objects
+        provide their current graphical coordinates.
         """
 
         from_bus, to_bus = self._get_endpoint_buses()
 
         # ----------------------------------------------------
-        # Invalid topology reference.
-        # ----------------------------------------------------
+        # Endpoint not currently resolvable.
         #
-        # A line whose endpoint cannot be resolved should not
-        # crash the entire UI.
-        #
-        # The line is simply rendered as zero-length until the
-        # model becomes valid.
+        # Keep the item valid without inventing geometry.
         # ----------------------------------------------------
 
         if from_bus is None or to_bus is None:
-
-            self.setLine(
-                QLineF()
-            )
-
+            self.setLine(QLineF())
             return
-
-        # ----------------------------------------------------
-        # Create graphical line from bus coordinates.
-        # ----------------------------------------------------
 
         self.setLine(
             QLineF(
@@ -327,11 +311,10 @@ class LineItem(QGraphicsLineItem):
         event: Any,
     ) -> None:
         """
-        Highlight the line when the mouse enters it.
+        Enter transient hover state.
         """
 
         self._hovered = True
-
         self._apply_visual_state()
 
         super().hoverEnterEvent(event)
@@ -343,11 +326,10 @@ class LineItem(QGraphicsLineItem):
         event: Any,
     ) -> None:
         """
-        Remove hover highlighting when the mouse leaves.
+        Leave transient hover state.
         """
 
         self._hovered = False
-
         self._apply_visual_state()
 
         super().hoverLeaveEvent(event)
@@ -361,9 +343,10 @@ class LineItem(QGraphicsLineItem):
         event: Any,
     ) -> None:
         """
-        Handle selection of the Line.
+        Forward a selection request to the Controller.
 
-        Persistent selection is delegated to Controller.
+        Persistent application selection remains outside the
+        graphics item.
         """
 
         if self.controller is not None:
@@ -391,7 +374,7 @@ class LineItem(QGraphicsLineItem):
 
     def _apply_visual_state(self) -> None:
         """
-        Apply the appropriate visual appearance.
+        Apply the current visual state.
 
         Priority:
 
@@ -402,12 +385,7 @@ class LineItem(QGraphicsLineItem):
             Normal
         """
 
-        # ----------------------------------------------------
-        # Selected
-        # ----------------------------------------------------
-
         if self.isSelected():
-
             self.setPen(
                 QPen(
                     self.SELECTED_COLOR,
@@ -417,15 +395,9 @@ class LineItem(QGraphicsLineItem):
                     Qt.PenJoinStyle.RoundJoin,
                 )
             )
-
             return
 
-        # ----------------------------------------------------
-        # Hover
-        # ----------------------------------------------------
-
         if self._hovered:
-
             self.setPen(
                 QPen(
                     self.HOVER_COLOR,
@@ -435,12 +407,7 @@ class LineItem(QGraphicsLineItem):
                     Qt.PenJoinStyle.RoundJoin,
                 )
             )
-
             return
-
-        # ----------------------------------------------------
-        # Normal
-        # ----------------------------------------------------
 
         self.setPen(
             QPen(
@@ -462,10 +429,7 @@ class LineItem(QGraphicsLineItem):
         value: Any,
     ) -> Any:
         """
-        React to Qt selection-state changes.
-
-        This keeps the line appearance synchronized with the
-        QGraphicsItem selection state.
+        React to QGraphicsItem selection-state changes.
         """
 
         result = super().itemChange(
@@ -473,10 +437,7 @@ class LineItem(QGraphicsLineItem):
             value,
         )
 
-        if (
-            change
-            == QGraphicsLineItem.GraphicsItemChange.ItemSelectedChange
-        ):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
             self._apply_visual_state()
 
         return result
@@ -487,13 +448,9 @@ class LineItem(QGraphicsLineItem):
 
     def refresh_from_model(self) -> None:
         """
-        Refresh line geometry from the current model.
+        Refresh graphical geometry from the current model state.
 
-        This method is intentionally read-only with respect
-        to the model.
-
-        It will become useful when the canvas moves to
-        incremental rendering.
+        This method performs no model mutation.
         """
 
         self._sync_geometry()
@@ -527,7 +484,7 @@ class LineItem(QGraphicsLineItem):
     @property
     def from_bus(self) -> Optional[Any]:
         """
-        Return the resolved 'from' Bus model object.
+        Return the currently resolved 'from' Bus model object.
         """
 
         return self._get_bus(
@@ -539,7 +496,7 @@ class LineItem(QGraphicsLineItem):
     @property
     def to_bus(self) -> Optional[Any]:
         """
-        Return the resolved 'to' Bus model object.
+        Return the currently resolved 'to' Bus model object.
         """
 
         return self._get_bus(
@@ -571,4 +528,3 @@ class LineItem(QGraphicsLineItem):
 __all__ = [
     "LineItem",
 ]
-```
