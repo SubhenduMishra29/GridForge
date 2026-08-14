@@ -1,133 +1,88 @@
 # ============================================================
 # File: ui/tools/line_tool.py
-# GridForge Line Tool
+# GridForge V2 — Line Tool
 # ============================================================
-#
-# PURPOSE
-# -------
-# Provides the interactive tool used to create electrical
-# connections between two Bus objects.
-#
-#
-# INTERACTION FLOW
-# ----------------
-#
-#     Mouse Click 1
-#          │
-#          ▼
-#     SnapSystem
-#          │
-#          ▼
-#     Start Bus
-#
-#     Mouse Move
-#          │
-#          ▼
-#     SnapSystem
-#          │
-#          ▼
-#     Cursor / Bus Position
-#          │
-#          ▼
-#     PreviewLayer
-#
-#     Mouse Click 2
-#          │
-#          ▼
-#     SnapSystem
-#          │
-#          ▼
-#     Destination Bus
-#          │
-#          ▼
-#     Topology Validation
-#          │
-#          ▼
-#     Graph.add_line(...)
-#          │
-#          ▼
-#     Controller.model_changed()
-#          │
-#          ▼
-#     RenderSystem
-#
-#
-# RESPONSIBILITIES
-# ----------------
-#
-# LineTool is responsible for:
-#
-#   - Maintaining line-drawing interaction state
-#   - Selecting the start bus
-#   - Selecting the destination bus
-#   - Requesting snap information from SnapSystem
-#   - Managing the temporary line preview
-#   - Preventing self-connections
-#   - Preventing duplicate lines
-#   - Requesting creation of the model line
-#
-#
-# LineTool DOES NOT:
-# ------------------
-#
-#   - calculate snapping distances
-#   - implement its own snap algorithm
-#   - create QGraphicsItems
-#   - directly manipulate the QGraphicsScene
-#   - own the PreviewLayer
-#   - create itself
-#   - manage its own lifecycle
-#   - render permanent graphics
-#   - calculate electrical quantities
-#
-#
-# ARCHITECTURAL OWNERSHIP
-# -----------------------
-#
-# Controller
-#     │
-#     ├── Application state
-#     ├── Model reference
-#     └── Tool selection
-#
-# ToolManager
-#     │
-#     └── Tool lifecycle / active instance
-#
-# InteractionManager
-#     │
-#     ├── Qt event routing
-#     ├── scene coordinates
-#     ├── PreviewLayer
-#     └── SnapSystem
-#
-# LineTool
-#     │
-#     └── Line interaction logic
-#
-# Graph / Model
-#     │
-#     └── Persistent electrical topology
-#
-# RenderSystem
-#     │
-#     └── Model → visual representation
-#
-#
-# IMPORTANT
-# ---------
-#
-# This tool uses the GridForge Qt abstraction.
-#
-# Direct imports from:
-#
-#     PySide6
-#     PyQt6
-#     PyQt5
-#
-# are prohibited here.
-#
-# ============================================================
+"""
+Interactive electrical line-creation tool for GridForge.
+
+Responsibilities
+----------------
+LineTool is responsible for:
+
+    - maintaining two-click line-creation state;
+    - resolving buses through the centralized SnapSystem;
+    - requesting temporary line previews;
+    - preventing self-connections;
+    - preventing duplicate connections;
+    - requesting persistent line creation through Controller.
+
+LineTool does NOT:
+
+    - own QGraphicsScene;
+    - perform coordinate conversion itself;
+    - implement snapping algorithms;
+    - create QGraphicsItems;
+    - render permanent graphics;
+    - own PreviewLayer;
+    - directly mutate Core objects;
+    - create commands directly;
+    - perform electrical calculations.
+
+Architecture
+------------
+
+    InteractionManager
+        │
+        ├── coordinate conversion
+        ├── SnapSystem
+        └── PreviewLayer
+                │
+                ▼
+             LineTool
+                │
+                ▼
+            Controller
+                │
+                ▼
+          Command / Core
+                │
+                ▼
+          RenderSystem
+
+Interaction
+-----------
+
+    First click
+        ↓
+    Resolve start Bus
+        ↓
+    Mouse movement
+        ↓
+    Resolve preview position
+        ↓
+    PreviewLayer
+        ↓
+    Second click
+        ↓
+    Resolve destination Bus
+        ↓
+    Validate topology constraints
+        ↓
+    Controller.create_line(...)
+        ↓
+    Reset interaction
+
+ToolManager owns activation/deactivation.
+
+Qt Architecture
+---------------
+
+All Qt imports must pass through:
+
+    ui.core.qt
+
+No direct PySide6/PyQt imports are permitted.
+"""
 
 from __future__ import annotations
 
@@ -142,16 +97,13 @@ class LineTool:
     """
     Interactive electrical line-creation tool.
 
-    The tool creates a connection between two existing buses.
+    A line is created between two distinct existing buses.
 
-    A line can only be created when:
-
-        1. A valid start bus has been selected.
-        2. A different destination bus has been selected.
-        3. An identical connection does not already exist.
-
-    Spatial snapping is delegated completely to SnapSystem.
+    Snapping and temporary graphics are delegated to the
+    centralized interaction infrastructure.
     """
+
+    tool_id = "line"
 
     # ========================================================
     # INITIALIZATION
@@ -163,80 +115,39 @@ class LineTool:
         interaction_manager: Any,
     ) -> None:
         """
-        Initialize the LineTool.
-
-        Parameters
-        ----------
-        controller:
-            GridForge Controller.
-
-            Provides access to:
-                - domain model
-                - application events
-                - persistent application state
-
-        interaction_manager:
-            GridForge InteractionManager.
-
-            Provides access to:
-                - scene coordinates
-                - PreviewLayer
-                - centralized SnapSystem
+        Initialize LineTool.
         """
 
-        # ----------------------------------------------------
-        # Controller reference
-        # ----------------------------------------------------
-        #
-        # The Controller is used as the bridge to the
-        # application model and event system.
-        #
-        # The LineTool does not own the model.
-        # ----------------------------------------------------
+        if controller is None:
+            raise ValueError(
+                "controller must not be None."
+            )
+
+        if interaction_manager is None:
+            raise ValueError(
+                "interaction_manager must not be None."
+            )
 
         self.controller = controller
-
-        # ----------------------------------------------------
-        # InteractionManager reference
-        # ----------------------------------------------------
-        #
-        # InteractionManager owns the interaction infrastructure.
-        #
-        # The tool uses it rather than accessing the QGraphicsView
-        # or PreviewLayer directly.
-        # ----------------------------------------------------
-
         self.im = interaction_manager
 
+        self.snap_system = getattr(
+            interaction_manager,
+            "snap_system",
+            None,
+        )
+
+        if self.snap_system is None:
+            raise AttributeError(
+                "InteractionManager must provide "
+                "snap_system."
+            )
+
         # ----------------------------------------------------
-        # Centralized SnapSystem
-        # ----------------------------------------------------
-        #
-        # IMPORTANT:
-        #
-        # LineTool must NOT calculate distances to buses itself.
-        #
-        # All tools must use the same snapping rules.
-        #
-        # Therefore the tool obtains the shared SnapSystem
-        # from InteractionManager.
+        # Temporary interaction state.
         # ----------------------------------------------------
 
-        self.snap_system = self.im.snap_system
-
-        # ====================================================
-        # LINE INTERACTION STATE
-        # ====================================================
-        #
-        # These values represent temporary interaction state.
-        #
-        # They are NOT part of the electrical model.
-        # ----------------------------------------------------
-
-        # Bus selected by the first mouse click.
         self.start_bus: Optional[Any] = None
-
-        # Current resolved cursor position used by the preview.
         self.current_pos: Optional[QPointF] = None
 
     # ========================================================
@@ -245,13 +156,7 @@ class LineTool:
 
     def activate(self) -> None:
         """
-        Activate the LineTool.
-
-        ToolManager owns lifecycle management.
-
-        Activation must start with a clean interaction state
-        so an unfinished line from an earlier session cannot
-        leak into the new interaction.
+        Activate the tool with a clean interaction state.
         """
 
         self.reset()
@@ -260,79 +165,24 @@ class LineTool:
 
     def deactivate(self) -> None:
         """
-        Deactivate the LineTool.
-
-        Any unfinished line interaction is cancelled.
-
-        No persistent model data is modified here.
+        Deactivate the tool and cancel unfinished interaction.
         """
 
         self.reset()
 
-    # ========================================================
-    # STATE MANAGEMENT
-    # ========================================================
+    # --------------------------------------------------------
 
     def reset(self) -> None:
         """
-        Reset all temporary line-drawing state.
+        Cancel the current line interaction.
 
-        Reset performs three operations:
-
-            1. Forget the selected start bus.
-            2. Forget the current preview position.
-            3. Remove temporary preview graphics.
-
-        IMPORTANT:
-        ----------
-        This method never modifies the electrical model.
+        No persistent model state is modified.
         """
 
         self.start_bus = None
         self.current_pos = None
 
-        # PreviewLayer is owned by InteractionManager.
-        #
-        # The tool only requests that the preview be cleared.
-        if self.im.preview is not None:
-            self.im.preview.clear()
-
-    # ========================================================
-    # HOVER / SNAP INFORMATION
-    # ========================================================
-
-    def get_hover_bus(self) -> Optional[Any]:
-        """
-        Return the bus currently under the cursor.
-
-        This method is primarily used by the renderer to provide
-        visual hover feedback.
-
-        The renderer can therefore ask:
-
-            tool.get_hover_bus()
-
-        without implementing its own spatial query.
-
-        Returns
-        -------
-        Bus | None
-            The nearest bus within SnapSystem's configured
-            snapping radius, or None when no bus is close enough.
-        """
-
-        # InteractionManager maintains the authoritative
-        # scene-space cursor position.
-        pos = self.im.get_scene_position()
-
-        if pos is None:
-            return None
-
-        # resolve_bus() performs a bus-only snap operation.
-        #
-        # It intentionally does not apply grid snapping because
-        # hover highlighting requires an actual Bus target.
-        return self.snap_system.resolve_bus(pos)
+        self._clear_preview()
 
     # ========================================================
     # MOUSE PRESS
@@ -343,43 +193,25 @@ class LineTool:
         event: Any,
     ) -> None:
         """
-        Handle a mouse-press event.
+        Handle one stage of the two-click line interaction.
 
-        Interaction sequence
-        --------------------
         First click:
-            Select the starting bus.
+            Select start Bus.
 
         Second click:
-            Select the destination bus and attempt to create
-            the electrical line.
-
-        The actual event routing is performed by
-        InteractionManager.
+            Validate destination and request line creation.
         """
 
-        # ----------------------------------------------------
-        # Convert the mouse position to scene coordinates.
-        # ----------------------------------------------------
-        #
-        # InteractionManager owns coordinate conversion.
-        #
-        # The tool therefore does not access QGraphicsView
-        # directly.
-        # ----------------------------------------------------
+        position = self.im.map_to_scene(
+            event
+        )
 
-        pos = self.im.map_to_scene(event)
+        if position is None:
+            return
 
-        # ----------------------------------------------------
-        # Ask the centralized SnapSystem for a Bus.
-        # ----------------------------------------------------
-        #
-        # LineTool requires actual Bus objects for topology
-        # creation. Therefore resolve_bus() is used instead
-        # of implementing a local distance calculation.
-        # ----------------------------------------------------
-
-        snapped_bus = self.snap_system.resolve_bus(pos)
+        snapped_bus = self._resolve_bus(
+            position
+        )
 
         # ====================================================
         # FIRST CLICK
@@ -387,27 +219,15 @@ class LineTool:
 
         if self.start_bus is None:
 
-            # ------------------------------------------------
-            # A first click is accepted only when it resolves
-            # to a valid Bus.
-            # ------------------------------------------------
+            if snapped_bus is None:
+                return
 
-            if snapped_bus is not None:
+            self.start_bus = snapped_bus
 
-                self.start_bus = snapped_bus
-
-                # Keep the preview state aligned with the
-                # selected starting bus.
-                self.current_pos = QPointF(
-                    snapped_bus.x,
-                    snapped_bus.y,
-                )
-
-            # ------------------------------------------------
-            # If no bus was selected, simply ignore the click.
-            #
-            # The user can move the cursor and try again.
-            # ------------------------------------------------
+            self.current_pos = QPointF(
+                snapped_bus.x,
+                snapped_bus.y,
+            )
 
             return
 
@@ -415,89 +235,42 @@ class LineTool:
         # SECOND CLICK
         # ====================================================
 
-        # ----------------------------------------------------
-        # The second click must also resolve to a Bus.
-        #
-        # Do not reset the interaction if it does not.
-        #
-        # This allows the user to continue searching for a
-        # valid destination.
-        # ----------------------------------------------------
-
         if snapped_bus is None:
             return
 
         # ----------------------------------------------------
-        # Prevent connecting a bus to itself.
-        #
-        # This is a topology rule rather than a snapping rule.
+        # Prevent self-connection.
         # ----------------------------------------------------
 
-        if snapped_bus == self.start_bus:
+        if self._same_bus(
+            self.start_bus,
+            snapped_bus,
+        ):
             return
 
         # ----------------------------------------------------
-        # Prevent duplicate physical connections.
-        #
-        # Direction is ignored because:
-        #
-        #     A → B
-        #
-        # and
-        #
-        #     B → A
-        #
-        # represent the same physical line for duplicate
-        # detection.
+        # Prevent duplicate connection.
         # ----------------------------------------------------
 
         if self._line_exists(
             self.start_bus.id,
             snapped_bus.id,
         ):
-
-            # The attempted operation is complete from the
-            # user's perspective, so cancel the unfinished
-            # interaction.
             self.reset()
-
             return
 
-        # ====================================================
-        # CREATE MODEL LINE
-        # ====================================================
-
-        graph = self.controller.model.graph
-
         # ----------------------------------------------------
-        # Request the persistent topology change from the
-        # domain graph.
-        #
-        # LineTool does not create a LineItem.
-        # It only modifies the model through the graph API.
+        # Request persistent topology mutation through
+        # Controller.
         # ----------------------------------------------------
 
-        graph.add_line(
-            self.start_bus.id,
-            snapped_bus.id,
-            r=0.01,
-            x=0.05,
-            b=0.0,
+        self._create_line(
+            self.start_bus,
+            snapped_bus,
         )
 
         # ----------------------------------------------------
-        # Notify the Controller that the model has changed.
-        #
-        # RenderSystem and other interested systems can respond
-        # through the Controller event system.
-        # ----------------------------------------------------
-
-        self.controller.model_changed()
-
-        # ----------------------------------------------------
-        # The line has now been successfully created.
-        #
-        # Clear the temporary interaction.
+        # Successful creation ends the interaction.
         # ----------------------------------------------------
 
         self.reset()
@@ -511,68 +284,29 @@ class LineTool:
         event: Any,
     ) -> None:
         """
-        Handle mouse movement.
-
-        Before the first click:
-            No line preview is displayed.
-
-        After the first click:
-            A temporary line is displayed from the starting
-            bus to the resolved cursor position.
-
-        The InteractionManager updates last_scene_pos before
-        calling this method, so LineTool does not modify that
-        state itself.
+        Update the temporary line preview.
         """
-
-        # ----------------------------------------------------
-        # Convert mouse position to scene coordinates.
-        # ----------------------------------------------------
-
-        pos = self.im.map_to_scene(event)
-
-        # ----------------------------------------------------
-        # No start bus means that line drawing has not started.
-        #
-        # Hover detection remains available through
-        # get_hover_bus().
-        # ----------------------------------------------------
 
         if self.start_bus is None:
             return
 
-        # ----------------------------------------------------
-        # Resolve the cursor position through SnapSystem.
-        #
-        # SnapSystem applies the application's centralized
-        # snapping rules:
-        #
-        #     Bus
-        #       ↓
-        #     Grid (if enabled)
-        #       ↓
-        #     Original cursor position
-        # ----------------------------------------------------
+        position = self.im.map_to_scene(
+            event
+        )
 
-        snap_result = self.snap_system.resolve(pos)
+        if position is None:
+            return
 
-        # ----------------------------------------------------
-        # Store the resolved position for the preview.
-        # ----------------------------------------------------
+        snap_result = self._resolve_position(
+            position
+        )
 
-        self.current_pos = snap_result.position
+        if snap_result is None:
+            return
 
-        # ----------------------------------------------------
-        # Draw temporary preview.
-        #
-        # IMPORTANT:
-        #
-        # This is NOT a permanent model Line.
-        #
-        # PreviewLayer owns the temporary visual representation.
-        # ----------------------------------------------------
+        self.current_pos = snap_result
 
-        self.im.preview.show_line(
+        self._show_preview(
             QPointF(
                 self.start_bus.x,
                 self.start_bus.y,
@@ -591,16 +325,11 @@ class LineTool:
         """
         Handle mouse release.
 
-        LineTool intentionally does not create lines on release.
-
-        Line creation occurs on the second mouse press because
-        the tool follows a two-click interaction model:
-
-            Click → Start Bus
-            Click → Destination Bus
+        Line creation intentionally occurs on the second mouse
+        press, not on release.
         """
 
-        pass
+        return
 
     # ========================================================
     # KEY PRESS
@@ -613,22 +342,184 @@ class LineTool:
         """
         Handle optional keyboard interaction.
 
-        ESC cancellation is normally handled centrally by
-        InteractionManager → ToolManager.
-
-        Therefore LineTool does not need to implement ESC here.
-
-        Returns
-        -------
-        bool
-            False because this tool does not consume any
-            additional keyboard commands at present.
+        Escape cancels the unfinished line.
         """
+
+        if self._is_escape_key(
+            event.key()
+        ):
+            self.reset()
+            return True
 
         return False
 
     # ========================================================
-    # TOPOLOGY HELPERS
+    # BUS RESOLUTION
+    # ========================================================
+
+    def _resolve_bus(
+        self,
+        position: QPointF,
+    ) -> Optional[Any]:
+        """
+        Resolve a Bus using the centralized SnapSystem.
+        """
+
+        resolve_bus = getattr(
+            self.snap_system,
+            "resolve_bus",
+            None,
+        )
+
+        if not callable(resolve_bus):
+            raise AttributeError(
+                "SnapSystem must provide "
+                "resolve_bus(position)."
+            )
+
+        return resolve_bus(
+            position
+        )
+
+    # ========================================================
+    # POSITION RESOLUTION
+    # ========================================================
+
+    def _resolve_position(
+        self,
+        position: QPointF,
+    ) -> Optional[QPointF]:
+        """
+        Resolve a cursor position through SnapSystem.
+        """
+
+        resolve = getattr(
+            self.snap_system,
+            "resolve",
+            None,
+        )
+
+        if not callable(resolve):
+            return QPointF(
+                position.x(),
+                position.y(),
+            )
+
+        result = resolve(
+            position
+        )
+
+        resolved_position = getattr(
+            result,
+            "position",
+            None,
+        )
+
+        if resolved_position is None:
+            return None
+
+        return resolved_position
+
+    # ========================================================
+    # PREVIEW
+    # ========================================================
+
+    def _show_preview(
+        self,
+        start: QPointF,
+        end: QPointF,
+    ) -> None:
+        """
+        Request a temporary line preview.
+
+        PreviewLayer remains owned by InteractionManager.
+        """
+
+        preview = getattr(
+            self.im,
+            "preview",
+            None,
+        )
+
+        if preview is None:
+            return
+
+        show_line = getattr(
+            preview,
+            "show_line",
+            None,
+        )
+
+        if callable(show_line):
+            show_line(
+                start,
+                end,
+            )
+
+    # --------------------------------------------------------
+
+    def _clear_preview(
+        self,
+    ) -> None:
+        """
+        Clear any temporary line preview.
+        """
+
+        preview = getattr(
+            self.im,
+            "preview",
+            None,
+        )
+
+        if preview is None:
+            return
+
+        clear = getattr(
+            preview,
+            "clear",
+            None,
+        )
+
+        if callable(clear):
+            clear()
+
+    # ========================================================
+    # MODEL MUTATION
+    # ========================================================
+
+    def _create_line(
+        self,
+        start_bus: Any,
+        end_bus: Any,
+    ) -> Any:
+        """
+        Request persistent line creation through Controller.
+
+        The tool deliberately does not call graph.add_line()
+        directly.
+
+        Controller owns the application mutation boundary.
+        """
+
+        create_line = getattr(
+            self.controller,
+            "create_line",
+            None,
+        )
+
+        if not callable(create_line):
+            raise AttributeError(
+                "Controller must provide "
+                "create_line()."
+            )
+
+        return create_line(
+            start_bus.id,
+            end_bus.id,
+        )
+
+    # ========================================================
+    # TOPOLOGY VALIDATION
     # ========================================================
 
     def _line_exists(
@@ -637,100 +528,204 @@ class LineTool:
         bus_b_id: str,
     ) -> bool:
         """
-        Determine whether a line already exists between two buses.
+        Determine whether a connection already exists.
 
-        Parameters
-        ----------
-        bus_a_id:
-            ID of the first bus.
-
-        bus_b_id:
-            ID of the second bus.
-
-        Returns
-        -------
-        bool
-            True if a connection already exists.
-
-        Notes
-        -----
-        Direction is deliberately ignored.
-
-        Therefore both:
-
-            A → B
-
-        and:
-
-            B → A
-
-        are considered the same physical connection for
-        duplicate detection.
+        Direction is ignored because the physical connection
+        between two buses is treated as identical in either
+        direction.
         """
 
-        graph = self.controller.model.graph
+        model = getattr(
+            self.controller,
+            "model",
+            None,
+        )
 
-        # ----------------------------------------------------
-        # Search existing graph lines.
-        # ----------------------------------------------------
+        if model is None:
+            raise AttributeError(
+                "Controller must provide model."
+            )
 
-        for line in graph.all_lines():
+        graph = getattr(
+            model,
+            "graph",
+            None,
+        )
 
-            # ------------------------------------------------
-            # Normal direction:
-            #
-            #     A → B
-            # ------------------------------------------------
+        if graph is None:
+            raise AttributeError(
+                "Controller model must provide graph."
+            )
+
+        all_lines = getattr(
+            graph,
+            "all_lines",
+            None,
+        )
+
+        if not callable(all_lines):
+            raise AttributeError(
+                "Graph must provide all_lines()."
+            )
+
+        for line in all_lines():
+
+            from_bus = getattr(
+                line,
+                "from_bus",
+                None,
+            )
+
+            to_bus = getattr(
+                line,
+                "to_bus",
+                None,
+            )
 
             if (
-                line.from_bus == bus_a_id
-                and line.to_bus == bus_b_id
+                from_bus == bus_a_id
+                and to_bus == bus_b_id
             ):
                 return True
 
-            # ------------------------------------------------
-            # Reverse direction:
-            #
-            #     B → A
-            # ------------------------------------------------
-
             if (
-                line.from_bus == bus_b_id
-                and line.to_bus == bus_a_id
+                from_bus == bus_b_id
+                and to_bus == bus_a_id
             ):
                 return True
 
         return False
 
-    # ========================================================
-    # DEBUG / INTROSPECTION
-    # ========================================================
+    # --------------------------------------------------------
 
-    def get_state(self) -> dict:
+    @staticmethod
+    def _same_bus(
+        bus_a: Any,
+        bus_b: Any,
+    ) -> bool:
         """
-        Return diagnostic state for debugging.
+        Determine whether two resolved buses represent the same
+        model object.
+        """
 
-        This method is intentionally read-only.
+        if bus_a is bus_b:
+            return True
 
-        Returns
-        -------
-        dict
-            Current line-tool interaction state.
+        bus_a_id = getattr(
+            bus_a,
+            "id",
+            None,
+        )
+
+        bus_b_id = getattr(
+            bus_b,
+            "id",
+            None,
+        )
+
+        return (
+            bus_a_id is not None
+            and bus_a_id == bus_b_id
+        )
+
+    # ========================================================
+    # HOVER
+    # ========================================================
+
+    def get_hover_bus(self) -> Optional[Any]:
+        """
+        Return the currently resolved hover Bus.
+
+        Returns None when the cursor is not over a valid bus.
+        """
+
+        position = self._get_scene_position()
+
+        if position is None:
+            return None
+
+        return self._resolve_bus(
+            position
+        )
+
+    # --------------------------------------------------------
+
+    def _get_scene_position(
+        self,
+    ) -> Optional[QPointF]:
+        """
+        Obtain the current scene position from
+        InteractionManager.
+        """
+
+        getter = getattr(
+            self.im,
+            "get_scene_position",
+            None,
+        )
+
+        if not callable(getter):
+            return None
+
+        return getter()
+
+    # ========================================================
+    # KEY HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _is_escape_key(
+        key: Any,
+    ) -> bool:
+        """
+        Detect the Qt Escape key without a direct Qt binding
+        import.
+        """
+
+        key_type = type(
+            key
+        )
+
+        escape = getattr(
+            key_type,
+            "Key_Escape",
+            None,
+        )
+
+        if escape is None:
+            return False
+
+        return key == escape
+
+    # ========================================================
+    # STATE / DIAGNOSTICS
+    # ========================================================
+
+    def get_state(
+        self,
+    ) -> dict[str, Any]:
+        """
+        Return read-only diagnostic state.
         """
 
         return {
+            "tool_id": self.tool_id,
             "start_bus": (
                 self.start_bus.id
                 if self.start_bus is not None
                 else None
             ),
             "current_pos": self.current_pos,
-            "drawing": self.start_bus is not None,
+            "drawing": (
+                self.start_bus is not None
+            ),
         }
 
     # --------------------------------------------------------
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
         Return a concise diagnostic representation.
         """
@@ -756,4 +751,4 @@ class LineTool:
 __all__ = [
     "LineTool",
 ]
-
+```
