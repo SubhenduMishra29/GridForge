@@ -1,32 +1,56 @@
+# ============================================================
+# File: ui/tools/__init__.py
+# GridForge V2 — Tools Package
+# ============================================================
 """
-Tools package
+GridForge UI interaction tools.
 
-Purpose:
---------
-Contains all interaction tools used by the editor.
+This package contains concrete canvas interaction tools.
 
-Examples:
----------
-- SelectTool
-- BusTool
-- LineTool
+Built-in tools
+--------------
+    SelectTool
+        Selection and movement interaction.
 
-Important:
-----------
-Tools are auto-registered via decorators:
-    @register_tool("tool_id")
+    BusTool
+        Bus-placement interaction.
 
-Registration is triggered from:
-    ui/core/__init__.py
+    LineTool
+        Electrical line-creation interaction.
 
-So we DO NOT import tools here to avoid:
-- circular dependencies
-- duplicate side effects
+Registration
+------------
+Concrete tools register themselves with the centralized
+ToolRegistry through their module-level registration decorators.
+
+Importing this package therefore ensures that the built-in
+tools are loaded and registered.
+
+This package does NOT:
+
+    - create tool instances;
+    - manage the active tool;
+    - route Qt events;
+    - own ToolManager;
+    - implement tool selection;
+    - contain business logic.
+
+ToolManager owns tool lifecycle and active-tool state.
+
+Qt Architecture
+---------------
+No direct Qt imports are required here.
 """
 
-# Optional: explicit exports (not required)
+from __future__ import annotations
+
+from ui.tools.select_tool import SelectTool
+from ui.tools.bus_tool import BusTool
+from ui.tools.line_tool import LineTool
+
+
 __all__ = [
-    "select_tool",
-    "bus_tool",
-    "line_tool",
+    "SelectTool",
+    "BusTool",
+    "LineTool",
 ]
