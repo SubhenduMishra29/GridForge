@@ -37,7 +37,7 @@ from __future__ import annotations
 # BUILT-IN UI PLUGINS
 # ============================================================
 
-from ui.plugins import toolbar_plugin
+from ui.plugins import main_toolbar_plugin
 from ui.plugins import properties_plugin
 from ui.plugins import layers_plugin
 from ui.plugins import status_plugin
