@@ -99,20 +99,19 @@ class PreviewLayer:
     """
     Manager for transient canvas preview graphics.
 
-    The class contains no domain-model state and no interaction
-    policy.
+    PreviewLayer contains no domain-model state and no
+    interaction policy.
 
-    It only manages temporary graphics attached to the canvas
-    scene.
+    It manages only temporary graphics attached to the
+    canvas scene.
     """
 
     # ========================================================
     # VISUAL CONSTANTS
     # ========================================================
 
-    # Preview graphics must remain visually above normal
-    # permanent model graphics without becoming interaction
-    # targets.
+    # Preview graphics remain visually above normal
+    # authoritative graphics.
     PREVIEW_Z_VALUE = 1000.0
 
     PREVIEW_PEN_WIDTH = 2.0
@@ -126,7 +125,7 @@ class PreviewLayer:
         scene: Any,
     ) -> None:
         """
-        Initialize the preview layer.
+        Initialize the PreviewLayer.
 
         Parameters
         ----------
@@ -208,11 +207,11 @@ class PreviewLayer:
 
         Notes
         -----
-        The supplied points are already expected to be in
-        scene coordinates.
+        The supplied points must already be in scene
+        coordinates.
 
-        Coordinate conversion and snapping belong to their
-        respective systems and are not performed here.
+        Coordinate conversion and snapping are deliberately
+        outside PreviewLayer.
         """
 
         self._validate_point(
@@ -234,13 +233,7 @@ class PreviewLayer:
             item = QGraphicsLineItem()
 
             # ------------------------------------------------
-            # Preview graphics are strictly presentation-only.
-            #
-            # They must never:
-            #
-            #     - receive mouse interaction;
-            #     - become selected;
-            #     - interfere with tools.
+            # Preview graphics are never interaction targets.
             # ------------------------------------------------
 
             item.setAcceptedMouseButtons(
@@ -249,6 +242,11 @@ class PreviewLayer:
 
             item.setFlag(
                 QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable,
+                False,
+            )
+
+            item.setFlag(
+                QGraphicsLineItem.GraphicsItemFlag.ItemIsFocusable,
                 False,
             )
 
@@ -287,7 +285,7 @@ class PreviewLayer:
         self,
     ) -> bool:
         """
-        Return whether a line preview currently exists.
+        Return whether an active line preview exists.
         """
 
         return self._line_item is not None
@@ -298,7 +296,7 @@ class PreviewLayer:
         self,
     ) -> Optional[QGraphicsLineItem]:
         """
-        Return the active line preview item, if any.
+        Return the active line preview item, if present.
         """
 
         return self._line_item
@@ -316,11 +314,13 @@ class PreviewLayer:
         The operation is idempotent.
         """
 
-        if self._line_item is None:
+        item = self._line_item
+
+        if item is None:
             return
 
         self.scene.removeItem(
-            self._line_item
+            item
         )
 
         self._line_item = None
@@ -334,6 +334,9 @@ class PreviewLayer:
     ) -> None:
         """
         Reset all transient preview state.
+
+        Resetting the PreviewLayer is equivalent to clearing
+        all active transient graphics.
         """
 
         self.clear()
@@ -360,6 +363,7 @@ class PreviewLayer:
         self._pen = pen
 
         if self._line_item is not None:
+
             self._line_item.setPen(
                 self._pen
             )
@@ -439,11 +443,13 @@ class PreviewLayer:
     ) -> dict[str, Any]:
         """
         Return diagnostic preview state.
+
+        The diagnostic state deliberately does not expose
+        QGraphicsItem instances.
         """
 
         return {
             "has_line": self.has_line(),
-            "line_item": self._line_item,
         }
 
     # ========================================================
