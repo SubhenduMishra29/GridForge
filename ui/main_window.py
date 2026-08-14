@@ -1,130 +1,141 @@
+```python
+# ============================================================
+# File: ui/main_window.py
+# GridForge V2 — Main Application Window
+# ============================================================
 """
 GridForge V2 — Main Application Window
 ======================================
 
-File:
-    ui/main_window.py
-
-Purpose
--------
 Root Qt window for the GridForge application.
 
-Architectural Role
-------------------
-MainWindow is the root UI container.
+Responsibilities
+----------------
+MainWindow is the top-level UI container.
 
-It owns:
+It is responsible for:
 
-    - the Qt top-level window;
-    - the UI Controller reference;
-    - references to UI components assembled by the
-      plugin-driven UI registry.
+    - owning the top-level Qt window;
+    - retaining the UI Controller reference;
+    - configuring minimal window properties;
+    - delegating UI composition to ui_registry;
+    - retaining references to constructed UI components.
 
-It does NOT own:
+MainWindow does NOT:
 
-    - domain state;
-    - application/business logic;
-    - electrical calculations;
-    - tool instances;
-    - tool lifecycle;
-    - canvas interaction;
-    - rendering logic;
-    - individual UI component construction.
+    - own Core/domain state;
+    - perform business logic;
+    - perform electrical calculations;
+    - create tools;
+    - manage tool lifecycle;
+    - perform canvas interaction;
+    - perform rendering;
+    - construct individual panels;
+    - construct toolbars;
+    - construct the status bar;
+    - perform filesystem operations;
+    - create Commands;
+    - directly mutate the Core model.
 
-UI Construction
+UI Composition
+--------------
+UI construction is delegated to:
+
+    ui.ui_registry.build_ui()
+
+The registry obtains registered UI plugins and asks them to
+construct their components.
+
+The resulting component instances are stored in:
+
+    self.components
+
+Controller Boundary
+-------------------
+The Controller is injected into MainWindow.
+
+MainWindow retains the reference but does not become the owner
+of application/domain state.
+
+Qt Architecture
 ---------------
-All UI assembly is delegated to the central UI registry.
+All Qt imports pass through:
 
+    ui.core.qt
+
+No direct PySide6/PyQt imports are permitted in this module.
+
+Dependency Direction
+--------------------
+
+    Application
+        |
+        v
+    Controller
+        |
+        v
     MainWindow
         |
         v
-    build_ui()
+    UI Registry
         |
         v
-    registered UI plugins
+    UI Plugins
         |
-        v
-    UI components
-
-Plugin Architecture
---------------------
-UI features are added through plugins rather than by modifying
-this class.
-
-Adding a new UI feature should therefore follow:
-
-    1. Create the UI component/plugin.
-    2. Register the plugin.
-    3. Allow the UI registry to discover it.
-
-MainWindow itself should remain stable.
-
-Controller Boundary
---------------------
-The supplied Controller is the UI coordination controller.
-
-It may provide:
-
-    - requested tool identifier;
-    - logical selection state;
-    - UI coordination notifications;
-    - reference to the authoritative application/domain context.
-
-MainWindow does not perform domain mutations through the
-Controller.
-
-Qt Rule
--------
-This module is a Qt UI boundary and may use Qt through the
-established GridForge Qt abstraction policy.
-
-The window remains a presentation/container layer.
+        +---- Panels
+        +---- Toolbars
+        +---- Status
+        +---- Canvas
+        +---- Other UI components
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from PySide6.QtWidgets import QMainWindow
+from ui.core.qt import (
+    QMainWindow,
+)
 
 from ui.ui_registry import build_ui
 
 
 class MainWindow(QMainWindow):
     """
-    Root application window.
+    Root application window for GridForge.
 
-    MainWindow is intentionally thin and stable.
+    MainWindow deliberately contains no feature-specific UI
+    construction logic.
 
-    Its primary responsibilities are:
+    Its stable responsibilities are:
 
         1. Own the top-level Qt window.
-        2. Retain the UI Controller reference.
-        3. Configure minimal window properties.
-        4. Delegate UI construction to the plugin registry.
-        5. Retain references to constructed UI components.
+        2. Retain the Controller reference.
+        3. Configure basic window properties.
+        4. Delegate UI composition to the UI Registry.
+        5. Retain constructed component references.
     """
 
-    # ============================================================
+    # ========================================================
     # INITIALIZATION
-    # ============================================================
+    # ========================================================
 
     def __init__(
         self,
         controller: Any,
     ) -> None:
         """
-        Initialize the GridForge root window.
+        Initialize the GridForge main window.
 
         Parameters
         ----------
         controller:
-            GridForge UI Controller.
+            Existing GridForge UI/application controller.
 
-            The Controller provides UI coordination state and
-            access to the application-facing model context.
-
-            MainWindow does not become the owner of that state.
+        Raises
+        ------
+        ValueError
+            If controller is None.
         """
 
         if controller is None:
@@ -134,39 +145,41 @@ class MainWindow(QMainWindow):
 
         super().__init__()
 
-        # --------------------------------------------------------
-        # UI coordination controller
-        # --------------------------------------------------------
+        # ----------------------------------------------------
+        # Controller reference
+        # ----------------------------------------------------
+        #
+        # MainWindow does not own controller state.
+        # It merely retains the injected reference.
+        # ----------------------------------------------------
 
         self.controller = controller
 
-        # --------------------------------------------------------
-        # Plugin-created UI components
-        # --------------------------------------------------------
+        # ----------------------------------------------------
+        # Constructed UI components
+        # ----------------------------------------------------
         #
-        # The registry is responsible for constructing the
-        # registered UI components.
-        #
-        # MainWindow only retains the resulting references.
-        # --------------------------------------------------------
+        # The UI Registry owns composition.
+        # MainWindow owns only these references for access.
+        # ----------------------------------------------------
 
         self.components: dict[str, Any] = {}
 
-        # --------------------------------------------------------
-        # Base window configuration
-        # --------------------------------------------------------
+        # ----------------------------------------------------
+        # Basic window configuration
+        # ----------------------------------------------------
 
         self._setup_window()
 
-        # --------------------------------------------------------
+        # ----------------------------------------------------
         # Plugin-driven UI construction
-        # --------------------------------------------------------
+        # ----------------------------------------------------
 
         self._build_ui()
 
-    # ============================================================
+    # ========================================================
     # WINDOW SETUP
-    # ============================================================
+    # ========================================================
 
     def _setup_window(
         self,
@@ -174,8 +187,7 @@ class MainWindow(QMainWindow):
         """
         Configure minimal root-window properties.
 
-        This method must remain free of feature-specific UI
-        construction.
+        Feature-specific widgets must not be created here.
         """
 
         self.setWindowTitle(
@@ -187,38 +199,30 @@ class MainWindow(QMainWindow):
             800,
         )
 
-    # ============================================================
-    # UI CONSTRUCTION
-    # ============================================================
+    # ========================================================
+    # UI COMPOSITION
+    # ========================================================
 
     def _build_ui(
         self,
     ) -> None:
         """
-        Assemble the UI through the central plugin registry.
+        Build the UI through the central UI Registry.
 
-        MainWindow deliberately contains no component-specific
-        construction logic.
+        The registry is responsible for:
 
-        The UI registry is responsible for:
-
-            - discovering registered UI plugins;
+            - obtaining registered UI plugins;
+            - ordering plugins;
             - constructing their components;
-            - attaching components to this window;
             - returning component references.
 
-        The resulting references are retained in
-        ``self.components``.
+        MainWindow only stores the resulting mapping.
         """
 
         components = build_ui(
             self,
             self.controller,
         )
-
-        if components is None:
-            self.components = {}
-            return
 
         if not isinstance(
             components,
@@ -231,27 +235,26 @@ class MainWindow(QMainWindow):
 
         self.components = components
 
-    # ============================================================
+    # ========================================================
     # COMPONENT ACCESS
-    # ============================================================
+    # ========================================================
 
     def get_component(
         self,
         name: str,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """
-        Return a UI component registered under ``name``.
+        Return a registered UI component.
 
         Parameters
         ----------
         name:
-            Registry component identifier.
+            Component identifier assigned by the UI plugin.
 
         Returns
         -------
         object | None
-            Registered component, or None when no component with
-            that identifier exists.
+            The registered component, or None when absent.
         """
 
         if not isinstance(
@@ -273,25 +276,79 @@ class MainWindow(QMainWindow):
             name
         )
 
-    # ============================================================
-    # DIAGNOSTICS
-    # ============================================================
+    # ========================================================
+    # COMPONENT SNAPSHOT
+    # ========================================================
 
     def get_components(
         self,
     ) -> dict[str, Any]:
         """
-        Return a detached mapping of registered UI components.
+        Return a detached mapping of UI components.
 
-        The mapping itself is copied so callers cannot directly
-        modify ``self.components``.
+        The returned dictionary can be modified by the caller
+        without modifying MainWindow's component registry.
         """
 
-        return self.components.copy()
+        return dict(
+            self.components
+        )
 
-    # ============================================================
+    # ========================================================
+    # COMPONENT PRESENCE
+    # ========================================================
+
+    def has_component(
+        self,
+        name: str,
+    ) -> bool:
+        """
+        Return whether a component is registered.
+        """
+
+        if not isinstance(
+            name,
+            str,
+        ):
+            raise TypeError(
+                "component name must be a string."
+            )
+
+        name = name.strip()
+
+        if not name:
+            raise ValueError(
+                "component name must not be empty."
+            )
+
+        return name in self.components
+
+    # ========================================================
+    # DIAGNOSTICS
+    # ========================================================
+
+    def get_state(
+        self,
+    ) -> dict[str, Any]:
+        """
+        Return diagnostic state for the main window.
+
+        This method does not expose or mutate domain state.
+        """
+
+        return {
+            "window_title": self.windowTitle(),
+            "component_count": len(
+                self.components
+            ),
+            "component_names": list(
+                self.components.keys()
+            ),
+        }
+
+    # ========================================================
     # REPRESENTATION
-    # ============================================================
+    # ========================================================
 
     def __repr__(
         self,
@@ -307,10 +364,11 @@ class MainWindow(QMainWindow):
         )
 
 
-# ================================================================
+# ============================================================
 # PUBLIC API
-# ================================================================
+# ============================================================
 
 __all__ = [
     "MainWindow",
 ]
+```
