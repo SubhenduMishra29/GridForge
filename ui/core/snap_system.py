@@ -28,7 +28,7 @@ SnapSystem:
 
     - owns snapping policy;
     - determines snap priority;
-    - determines snap radius;
+    - determines model-object snap radius;
     - queries authoritative model topology for bus targets;
     - delegates grid-coordinate calculation to GridSystem;
     - returns an immutable SnapResult;
@@ -42,7 +42,8 @@ SnapSystem does NOT:
     - create graphics items;
     - render previews;
     - implement individual tool behavior;
-    - perform electrical calculations.
+    - perform electrical calculations;
+    - perform coordinate conversion.
 
 Tools must not implement their own snapping algorithms.
 
@@ -52,18 +53,21 @@ Instead of:
 
 tools should use:
 
-    result = interaction_manager.snap_system.resolve(position)
+    result = interaction_manager.get_snap_system().resolve(
+        position
+    )
 
 Qt rule
 -------
 All Qt dependencies are imported through ui.core.qt.
+
 No direct PySide6/PyQt imports are permitted.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot
+from math import hypot, isfinite
 from typing import Any, Optional
 
 from ui.core.qt import QPointF
@@ -88,7 +92,9 @@ class SnapResult:
         Authoritative model object selected by the snap
         operation.
 
-        Currently this is normally a Bus for ``snap_type="bus"``.
+        Currently this is normally a Bus for
+        ``snap_type="bus"``.
+
         It is None for grid and unsnapped positions.
 
     snap_type:
@@ -212,6 +218,8 @@ class SnapSystem:
     ) -> None:
         """
         Set the maximum model-object snapping radius.
+
+        The radius must be finite and greater than zero.
         """
 
         self._validate_radius(radius)
@@ -220,16 +228,22 @@ class SnapSystem:
 
     # --------------------------------------------------------
 
-    def enable_grid(self) -> None:
+    def enable_grid(
+        self,
+    ) -> None:
         """
         Enable grid snapping.
+
+        Grid geometry remains owned by GridSystem.
         """
 
         self.grid_enabled = True
 
     # --------------------------------------------------------
 
-    def disable_grid(self) -> None:
+    def disable_grid(
+        self,
+    ) -> None:
         """
         Disable grid snapping.
         """
@@ -238,7 +252,9 @@ class SnapSystem:
 
     # --------------------------------------------------------
 
-    def toggle_grid(self) -> bool:
+    def toggle_grid(
+        self,
+    ) -> bool:
         """
         Toggle grid snapping.
 
@@ -261,15 +277,17 @@ class SnapSystem:
         """
         Attach or replace the GridSystem.
 
-        Passing None disables grid snapping capability while
-        preserving the current grid-enabled preference.
+        Passing None removes the grid geometry service while
+        preserving the grid-enabled preference.
         """
 
         self.grid_system = grid_system
 
     # --------------------------------------------------------
 
-    def get_grid_system(self) -> Optional[Any]:
+    def get_grid_system(
+        self,
+    ) -> Optional[Any]:
         """
         Return the currently attached GridSystem.
         """
@@ -285,10 +303,10 @@ class SnapSystem:
         pos: QPointF,
     ) -> SnapResult:
         """
-        Resolve the cursor against the nearest Bus.
+        Resolve the cursor against the nearest authoritative Bus.
 
-        A bus is selected only when its scene-space position lies
-        within ``self.radius``.
+        A bus is selected only when its authoritative scene-space
+        position lies within ``self.radius``.
 
         Boundary behavior
         -----------------
@@ -297,14 +315,12 @@ class SnapSystem:
         Tie behavior
         ------------
         When two buses have exactly equal distance, the first bus
-        returned by the authoritative graph iteration is retained.
-        This makes the result deterministic without introducing a
-        UI-specific ordering policy.
+        returned by authoritative graph iteration is retained.
 
         Returns
         -------
         SnapResult
-            ``snap_type="bus"`` when a bus is found.
+            ``snap_type="bus"`` when a Bus is found.
 
             Otherwise ``snap_type="none"``.
         """
@@ -343,7 +359,9 @@ class SnapSystem:
 
         for bus in all_buses():
 
-            bx, by = self._bus_position(bus)
+            bx, by = self._bus_position(
+                bus
+            )
 
             dx = bx - px
             dy = by - py
@@ -353,14 +371,18 @@ class SnapSystem:
                 + dy * dy
             )
 
-            # Strictly smaller wins.
+            # ------------------------------------------------
+            # Boundary is inclusive.
             #
-            # This intentionally preserves the first bus in an
-            # exact-distance tie and therefore provides stable
-            # deterministic behavior.
+            # Strictly smaller distance wins so an exact
+            # distance tie preserves authoritative iteration
+            # order.
+            # ------------------------------------------------
+
             if (
                 distance_squared <= radius_squared
-                and distance_squared < nearest_distance_squared
+                and distance_squared
+                < nearest_distance_squared
             ):
                 nearest_bus = bus
                 nearest_distance_squared = (
@@ -402,8 +424,8 @@ class SnapSystem:
 
         GridSystem owns the actual grid-coordinate calculation.
 
-        If no GridSystem is attached, no grid snap is possible and
-        an unsnapped result is returned.
+        If no GridSystem is attached, no grid snap is possible
+        and an unsnapped result is returned.
         """
 
         self._validate_point(
@@ -425,22 +447,38 @@ class SnapSystem:
                 "grid_system must provide snap_point()."
             )
 
-        snapped = snap_point(pos)
+        snapped = snap_point(
+            pos
+        )
 
         self._validate_point(
             snapped,
             "grid_system.snap_point() result",
         )
 
-        distance = hypot(
-            snapped.x() - pos.x(),
-            snapped.y() - pos.y(),
+        snapped_x = float(
+            snapped.x()
         )
+
+        snapped_y = float(
+            snapped.y()
+        )
+
+        distance = hypot(
+            snapped_x - float(pos.x()),
+            snapped_y - float(pos.y()),
+        )
+
+        if not isfinite(distance):
+            raise ValueError(
+                "grid_system.snap_point() returned "
+                "non-finite coordinates."
+            )
 
         return SnapResult(
             position=QPointF(
-                snapped.x(),
-                snapped.y(),
+                snapped_x,
+                snapped_y,
             ),
             target=None,
             snap_type="grid",
@@ -473,7 +511,7 @@ class SnapSystem:
         )
 
         # ----------------------------------------------------
-        # 1. Model-object snapping.
+        # 1. Authoritative model-object snapping.
         # ----------------------------------------------------
 
         bus_result = self.snap_to_bus(
@@ -488,6 +526,7 @@ class SnapSystem:
         # ----------------------------------------------------
 
         if self.grid_enabled:
+
             grid_result = self.snap_to_grid(
                 pos
             )
@@ -499,7 +538,9 @@ class SnapSystem:
         # 3. Original cursor position.
         # ----------------------------------------------------
 
-        return self._none_result(pos)
+        return self._none_result(
+            pos
+        )
 
     # ========================================================
     # BUS-ONLY RESOLUTION
@@ -541,14 +582,16 @@ class SnapSystem:
     # MODEL ACCESS
     # ========================================================
 
-    def _get_graph(self) -> Any:
+    def _get_graph(
+        self,
+    ) -> Any:
         """
         Return the authoritative Core graph.
 
         The SnapSystem does not own or cache the graph.
 
-        This is important because the Core model may be replaced
-        during project loading/reset operations.
+        The Core model may be replaced during project loading
+        or reset operations, so the graph is resolved dynamically.
         """
 
         model = getattr(
@@ -582,7 +625,7 @@ class SnapSystem:
             bus.x
             bus.y
 
-        The SnapSystem does not maintain a second spatial
+        SnapSystem does not maintain a second spatial
         representation.
         """
 
@@ -592,17 +635,29 @@ class SnapSystem:
             )
 
         try:
-            x = float(bus.x)
-            y = float(bus.y)
+            x = float(
+                bus.x
+            )
+            y = float(
+                bus.y
+            )
+
         except (
             AttributeError,
             TypeError,
             ValueError,
         ) as exc:
+
             raise TypeError(
                 "Bus snap targets must provide numeric "
                 "x and y attributes."
             ) from exc
+
+        if not isfinite(x) or not isfinite(y):
+            raise ValueError(
+                "Bus snap targets must provide finite "
+                "x and y coordinates."
+            )
 
         return x, y
 
@@ -623,8 +678,8 @@ class SnapSystem:
 
         return SnapResult(
             position=QPointF(
-                pos.x(),
-                pos.y(),
+                float(pos.x()),
+                float(pos.y()),
             ),
             target=None,
             snap_type="none",
@@ -642,6 +697,9 @@ class SnapSystem:
     ) -> None:
         """
         Validate a QPointF-compatible object.
+
+        The point must expose callable x()/y() methods and
+        contain finite numeric coordinates.
         """
 
         if point is None:
@@ -649,18 +707,49 @@ class SnapSystem:
                 f"{name} must not be None."
             )
 
-        if not callable(
-            getattr(point, "x", None)
-        ):
+        x_method = getattr(
+            point,
+            "x",
+            None,
+        )
+
+        if not callable(x_method):
             raise TypeError(
                 f"{name} must provide x()."
             )
 
-        if not callable(
-            getattr(point, "y", None)
-        ):
+        y_method = getattr(
+            point,
+            "y",
+            None,
+        )
+
+        if not callable(y_method):
             raise TypeError(
                 f"{name} must provide y()."
+            )
+
+        try:
+            x = float(
+                x_method()
+            )
+            y = float(
+                y_method()
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+
+            raise TypeError(
+                f"{name} must provide numeric x/y "
+                "coordinates."
+            ) from exc
+
+        if not isfinite(x) or not isfinite(y):
+            raise ValueError(
+                f"{name} must provide finite coordinates."
             )
 
     # --------------------------------------------------------
@@ -671,6 +760,8 @@ class SnapSystem:
     ) -> None:
         """
         Validate a snap radius.
+
+        Radius must be a finite numeric value greater than zero.
         """
 
         if isinstance(
@@ -678,18 +769,29 @@ class SnapSystem:
             bool,
         ):
             raise TypeError(
-                "radius must be a positive number."
+                "radius must be a positive finite number."
             )
 
         try:
-            numeric_radius = float(radius)
+            numeric_radius = float(
+                radius
+            )
+
         except (
             TypeError,
             ValueError,
         ) as exc:
+
             raise TypeError(
-                "radius must be a positive number."
+                "radius must be a positive finite number."
             ) from exc
+
+        if not isfinite(
+            numeric_radius
+        ):
+            raise ValueError(
+                "Snap radius must be finite."
+            )
 
         if numeric_radius <= 0:
             raise ValueError(
