@@ -1,28 +1,27 @@
 """
-Renderers package
+GridForge V2 — Renderers Package
+================================
 
-Purpose:
+Purpose
+-------
+Contains renderer implementations responsible for translating
+authoritative Core/domain objects into UI representations.
+
+Examples
 --------
-Contains renderer classes that convert model objects into QGraphicsItems.
-
-Examples:
----------
 - BusRenderer
 - LineRenderer
 
-Important:
-----------
-Renderers are auto-registered via:
-    @register_renderer("type")
+Architecture
+------------
+Renderer implementations are registered with the renderer registry
+through the renderer loading mechanism.
 
-Registration is triggered from:
-    ui/core/__init__.py
+This package initializer intentionally performs no renderer imports
+and no registration side effects.
 
-So we DO NOT import renderers here.
+Renderer discovery/loading is owned by the renderer registry/loader,
+not by this package initializer.
 """
 
-# Optional: explicit exports
-__all__ = [
-    "bus_renderer",
-    "line_renderer",
-]
+__all__: list[str] = []
