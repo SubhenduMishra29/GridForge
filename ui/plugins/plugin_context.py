@@ -42,11 +42,12 @@ Architectural rules
 - PluginContext carries references; it does not own application state.
 - PluginContext is immutable after construction.
 - Derived contexts are created explicitly through derive().
-- Plugins must not use this context to bypass established controllers
-  or service boundaries.
+- Plugins must not use this context to bypass established
+  controllers or service boundaries.
 - Core/domain objects remain authoritative outside the UI.
 - PluginContext contains no Qt construction logic.
 - MainWindow and plugin composition remain separate concerns.
+- Plugin lifecycle infrastructure is NOT exposed as plugin dependencies.
 - All Qt access goes through ui.core.qt.
 - PySide6 is the sole Qt backend and is hidden behind ui.core.qt.
 """
@@ -80,10 +81,12 @@ class PluginContext:
     PluginContext is a lightweight dependency carrier.
 
     It contains references to already-created objects but does not
-    create or own those objects.
+    create, resolve, or own those objects.
 
-    Plugins may derive narrower contexts when stronger dependency
-    isolation is required.
+    Plugin lifecycle infrastructure is deliberately excluded.
+    Plugins receive dependencies required to perform their UI role;
+    they do not receive PluginLoader, PluginRegistry, or
+    PluginManager references.
 
     The context itself must not become a replacement for established
     application/controller/service boundaries.
@@ -106,8 +109,6 @@ class PluginContext:
     project: Any = None
 
     project_controller: Any = None
-
-    controller: Any = None
 
     command_manager: Any = None
 
@@ -138,16 +139,6 @@ class PluginContext:
     grid_system: Any = None
 
     # --------------------------------------------------------
-    # Plugin infrastructure
-    # --------------------------------------------------------
-
-    plugin_manager: Any = None
-
-    plugin_registry: Any = None
-
-    plugin_loader: Any = None
-
-    # --------------------------------------------------------
     # Optional application services
     # --------------------------------------------------------
 
@@ -173,12 +164,22 @@ class PluginContext:
 
     def __post_init__(self) -> None:
         """
-        Normalize mapping fields into immutable mapping views.
+        Freeze the context's mapping containers.
 
-        The objects referenced by the context remain owned by their
-        respective subsystems. Only the context's mapping containers
-        are protected from mutation.
+        The referenced dependency objects remain owned by their
+        respective subsystems. PluginContext owns neither the objects
+        nor their lifecycle.
         """
+
+        if self.services is None:
+            raise TypeError(
+                "services must be a mapping."
+            )
+
+        if self.metadata is None:
+            raise TypeError(
+                "metadata must be a mapping."
+            )
 
         object.__setattr__(
             self,
@@ -206,13 +207,11 @@ class PluginContext:
         default: Any = None,
     ) -> Any:
         """
-        Return an optional service.
+        Return an optional generic service.
 
-        The generic services mapping is intentionally reserved for
-        genuinely optional services.
-
-        Explicitly declared PluginContext fields should be preferred
-        for architectural dependencies.
+        Explicitly declared PluginContext fields remain preferred for
+        architectural dependencies. The generic mapping is reserved
+        for genuinely optional services.
         """
 
         self._validate_name(
@@ -230,15 +229,15 @@ class PluginContext:
         name: str,
     ) -> Any:
         """
-        Return a required optional service.
+        Return a required generic service.
 
         Raises
         ------
         KeyError
-            If the service is not present.
+            If the service is absent.
 
         RuntimeError
-            If the service is explicitly present but has value None.
+            If the service exists but is None.
         """
 
         self._validate_name(
@@ -271,7 +270,7 @@ class PluginContext:
         self,
         name: str,
     ) -> bool:
-        """Return whether a non-None optional service exists."""
+        """Return whether a non-None generic service exists."""
 
         self._validate_name(
             name,
@@ -292,18 +291,16 @@ class PluginContext:
         **overrides: Any,
     ) -> PluginContext:
         """
-        Create a derived context.
+        Create an independent derived context.
 
-        The current context remains unchanged.
+        The current context is never modified.
 
-        Only actual PluginContext dataclass fields may be overridden.
+        Only actual PluginContext fields may be overridden.
         """
 
         field_names = {
             item.name
-            for item in fields(
-                self
-            )
+            for item in fields(self)
         }
 
         unknown = set(
@@ -348,23 +345,14 @@ class PluginContext:
         required: tuple[str, ...] = (),
     ) -> None:
         """
-        Validate required context dependencies.
+        Validate required explicitly declared dependencies.
 
-        Validation only checks availability.
-
-        It never:
-
-            - creates dependencies;
-            - resolves dependencies;
-            - substitutes dependencies;
-            - modifies the context.
+        Validation performs no dependency resolution or substitution.
         """
 
         valid_fields = {
             item.name
-            for item in fields(
-                self
-            )
+            for item in fields(self)
         }
 
         for field_name in required:
@@ -398,44 +386,59 @@ class PluginContext:
     # ========================================================
 
     def has_core_controller(self) -> bool:
-        """
-        Return whether a usable core/application controller reference
-        exists.
-        """
+        """Return whether the authoritative project controller exists."""
 
-        return (
-            self.project_controller is not None
-            or self.controller is not None
-        )
+        return self.project_controller is not None
 
     def has_tool_system(self) -> bool:
-        """Return whether a UI tool-system dependency exists."""
+        """
+        Return whether the complete tool interaction boundary is
+        available.
+
+        A usable tool system requires all three layers:
+
+            tool_manager
+            tool_registry
+            tool_dispatcher
+        """
 
         return (
             self.tool_manager is not None
-            or self.tool_registry is not None
-            or self.tool_dispatcher is not None
+            and self.tool_registry is not None
+            and self.tool_dispatcher is not None
         )
 
     def has_renderer_system(self) -> bool:
-        """Return whether a renderer-system dependency exists."""
+        """
+        Return whether the renderer boundary is available.
+
+        The renderer registry and render system form the renderer
+        composition boundary and must both be present.
+        """
 
         return (
             self.renderer_registry is not None
-            or self.render_system is not None
+            and self.render_system is not None
         )
 
     def has_canvas_system(self) -> bool:
         """
-        Return whether the minimum canvas interaction dependencies
+        Return whether the minimum canvas composition dependencies
         are available.
+
+        A canvas requires:
+
+            interaction
+            navigation
+            coordinate system
+            rendering
         """
 
         return (
             self.interaction_manager is not None
-            or self.navigation_controller is not None
-            or self.coordinate_system is not None
-            or self.render_system is not None
+            and self.navigation_controller is not None
+            and self.coordinate_system is not None
+            and self.render_system is not None
         )
 
     # ========================================================
@@ -478,8 +481,7 @@ class PluginContext:
         service: Any,
     ) -> PluginContext:
         """
-        Return a derived context with one optional service added or
-        replaced.
+        Return a derived context with one generic optional service.
         """
 
         self._validate_name(
@@ -569,12 +571,10 @@ def create_plugin_context(
     **kwargs: Any,
 ) -> PluginContext:
     """
-    Create a PluginContext.
+    Create a PluginContext through explicit dependency injection.
 
-    This is dependency injection only.
-
-    No service, controller, widget, or Core object is created,
-    discovered, or resolved here.
+    No service, controller, widget, plugin, or Core object is
+    created, discovered, or resolved here.
     """
 
     return PluginContext(
