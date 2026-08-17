@@ -26,9 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QLabel, QStatusBar, QWidget
-
-from ui.core.qt import QtWidgets
+from PySide6.QtWidgets import QLabel, QMainWindow, QStatusBar, QWidget
 
 
 # ============================================================
@@ -40,6 +38,9 @@ from ui.core.qt import QtWidgets
 class StatusSpec:
     """
     Declarative description of one status field.
+
+    StatusSpec contains presentation metadata only. It does not own
+    application state.
     """
 
     status_id: str
@@ -59,20 +60,22 @@ class StatusSpec:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            self.status_id,
-            str,
-        ) or not self.status_id.strip():
+        if (
+            not isinstance(self.status_id, str)
+            or not self.status_id.strip()
+        ):
             raise ValueError(
                 "status_id must be a non-empty string."
             )
 
-        if not isinstance(
-            self.text,
-            str,
-        ):
+        if not isinstance(self.text, str):
             raise TypeError(
                 "text must be a string."
+            )
+
+        if not isinstance(self.stretch, int):
+            raise TypeError(
+                "stretch must be an integer."
             )
 
         if self.stretch < 0:
@@ -90,11 +93,14 @@ class StatusSpec:
 class StatusPluginContext:
     """
     Runtime dependencies supplied to StatusPlugin.
+
+    The context contains references to existing application/UI
+    services. StatusPlugin does not construct domain services.
     """
 
     parent: Optional[QWidget] = None
 
-    main_window: Optional[QWidget] = None
+    main_window: Optional[QMainWindow] = None
 
     status_manager: Any = None
 
@@ -116,8 +122,9 @@ class StatusPlugin(QObject):
     """
     Composition plugin for the GridForge status bar.
 
-    The plugin presents state supplied by application services but does
-    not become the source of that state.
+    The plugin owns only presentation widgets and signal wiring.
+    Application services remain authoritative for the state exposed
+    through those widgets.
     """
 
     plugin_id = "status"
@@ -128,37 +135,30 @@ class StatusPlugin(QObject):
 
     def __init__(
         self,
-        context: Optional[
-            StatusPluginContext
-        ] = None,
+        context: Optional[StatusPluginContext] = None,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
 
         self._context = (
             context
-            or StatusPluginContext()
+            if context is not None
+            else StatusPluginContext()
         )
 
-        self._status_bar: Optional[
-            QStatusBar
-        ] = None
+        self._status_bar: Optional[QStatusBar] = None
 
-        self._labels: dict[
-            str,
-            QLabel,
-        ] = {}
+        self._labels: dict[str, QLabel] = {}
 
-        self._specs: dict[
-            str,
-            StatusSpec,
-        ] = {}
+        self._specs: dict[str, StatusSpec] = {}
 
         self._initialized = False
 
         self._connections: list[
             tuple[Any, Any]
         ] = []
+
+        self._connected_services: set[int] = set()
 
     # ========================================================
     # PROPERTIES
@@ -171,17 +171,13 @@ class StatusPlugin(QObject):
         return self._context
 
     @property
-    def status_bar(
-        self,
-    ) -> Optional[QStatusBar]:
+    def status_bar(self) -> Optional[QStatusBar]:
         """Return the status bar."""
 
         return self._status_bar
 
     @property
-    def widget(
-        self,
-    ) -> Optional[QStatusBar]:
+    def widget(self) -> Optional[QStatusBar]:
         """Return the status bar as the plugin widget."""
 
         return self._status_bar
@@ -193,14 +189,10 @@ class StatusPlugin(QObject):
         return self._initialized
 
     @property
-    def status_ids(
-        self,
-    ) -> tuple[str, ...]:
+    def status_ids(self) -> tuple[str, ...]:
         """Return registered status identifiers."""
 
-        return tuple(
-            self._labels.keys()
-        )
+        return tuple(self._labels.keys())
 
     # ========================================================
     # LIFECYCLE
@@ -208,9 +200,7 @@ class StatusPlugin(QObject):
 
     def initialize(
         self,
-        context: Optional[
-            StatusPluginContext
-        ] = None,
+        context: Optional[StatusPluginContext] = None,
     ) -> QStatusBar:
         """
         Initialize the status plugin.
@@ -239,15 +229,18 @@ class StatusPlugin(QObject):
 
     def shutdown(self) -> None:
         """
-        Disconnect external signals and release plugin bookkeeping.
+        Shut down the plugin.
 
-        The Qt parent hierarchy owns the status bar widget.
+        External services are disconnected, while the status bar and
+        labels remain owned by Qt's parent hierarchy.
         """
+
+        if not self._initialized:
+            return
 
         self._disconnect_services()
 
-        self._labels.clear()
-        self._specs.clear()
+        self._remove_plugin_statuses()
 
         self._status_bar = None
 
@@ -258,33 +251,20 @@ class StatusPlugin(QObject):
     # ========================================================
 
     def _create_status_bar(self) -> None:
-        """Create or obtain the application's QStatusBar."""
+        """
+        Create or obtain the application's QStatusBar.
+
+        When a QMainWindow is supplied, its existing status bar is
+        reused. Otherwise a standalone QStatusBar is created.
+        """
 
         main_window = self._context.main_window
 
-        if (
-            main_window is not None
-            and hasattr(
-                main_window,
-                "statusBar",
-            )
-        ):
+        if isinstance(main_window, QMainWindow):
             status_bar = main_window.statusBar()
 
-            if status_bar is None:
-                status_bar = QStatusBar(
-                    main_window
-                )
-
-                if hasattr(
-                    main_window,
-                    "setStatusBar",
-                ):
-                    main_window.setStatusBar(
-                        status_bar
-                    )
-
             self._status_bar = status_bar
+
             return
 
         self._status_bar = QStatusBar(
@@ -299,9 +279,7 @@ class StatusPlugin(QObject):
         """Register status fields supplied by the context."""
 
         for spec in self._context.statuses:
-            self.add_status(
-                spec
-            )
+            self.add_status(spec)
 
     def add_status(
         self,
@@ -313,10 +291,7 @@ class StatusPlugin(QObject):
         Status identifiers must be unique.
         """
 
-        if not isinstance(
-            spec,
-            StatusSpec,
-        ):
+        if not isinstance(spec, StatusSpec):
             raise TypeError(
                 "spec must be StatusSpec."
             )
@@ -343,14 +318,10 @@ class StatusPlugin(QObject):
             f"status_{spec.status_id}"
         )
 
-        if spec.tooltip:
-            label.setToolTip(
-                spec.tooltip
-            )
+        if spec.tooltip is not None:
+            label.setToolTip(spec.tooltip)
 
-        label.setVisible(
-            spec.visible
-        )
+        label.setVisible(spec.visible)
 
         if spec.permanent:
             self._status_bar.addPermanentWidget(
@@ -363,13 +334,9 @@ class StatusPlugin(QObject):
                 spec.stretch,
             )
 
-        self._labels[
-            spec.status_id
-        ] = label
+        self._labels[spec.status_id] = label
 
-        self._specs[
-            spec.status_id
-        ] = spec
+        self._specs[spec.status_id] = spec
 
         return label
 
@@ -377,7 +344,16 @@ class StatusPlugin(QObject):
         self,
         status_id: str,
     ) -> Optional[QLabel]:
-        """Remove a registered status field."""
+        """
+        Remove a registered status field.
+
+        The plugin removes and releases its presentation widget.
+        """
+
+        if not isinstance(status_id, str):
+            raise TypeError(
+                "status_id must be a string."
+            )
 
         label = self._labels.pop(
             status_id,
@@ -393,13 +369,17 @@ class StatusPlugin(QObject):
             return None
 
         if self._status_bar is not None:
-            self._status_bar.removeWidget(
-                label
-            )
+            self._status_bar.removeWidget(label)
 
         label.deleteLater()
 
         return label
+
+    def _remove_plugin_statuses(self) -> None:
+        """Remove all plugin-owned status fields."""
+
+        for status_id in tuple(self._labels.keys()):
+            self.remove_status(status_id)
 
     # ========================================================
     # STATUS ACCESS
@@ -411,9 +391,7 @@ class StatusPlugin(QObject):
     ) -> Optional[QLabel]:
         """Return a status label."""
 
-        return self._labels.get(
-            status_id
-        )
+        return self._labels.get(status_id)
 
     def has_status(
         self,
@@ -431,21 +409,16 @@ class StatusPlugin(QObject):
         """
         Update a status field.
 
-        This changes presentation only. It does not modify the source
-        application state.
+        This changes presentation only. It does not modify application
+        or Core state.
         """
 
-        if not isinstance(
-            text,
-            str,
-        ):
+        if not isinstance(text, str):
             raise TypeError(
                 "text must be a string."
             )
 
-        label = self._labels.get(
-            status_id
-        )
+        label = self._labels.get(status_id)
 
         if label is None:
             raise KeyError(
@@ -455,9 +428,7 @@ class StatusPlugin(QObject):
         if label.text() == text:
             return
 
-        label.setText(
-            text
-        )
+        label.setText(text)
 
         self.status_changed.emit(
             status_id,
@@ -469,28 +440,21 @@ class StatusPlugin(QObject):
         status_id: str,
         visible: bool,
     ) -> None:
-        """Change status field visibility."""
+        """Change status-field visibility."""
 
-        if not isinstance(
-            visible,
-            bool,
-        ):
+        if not isinstance(visible, bool):
             raise TypeError(
                 "visible must be bool."
             )
 
-        label = self._labels.get(
-            status_id
-        )
+        label = self._labels.get(status_id)
 
         if label is None:
             raise KeyError(
                 f"Unknown status: {status_id!r}"
             )
 
-        label.setVisible(
-            visible
-        )
+        label.setVisible(visible)
 
     # ========================================================
     # CONVENIENCE STATUS
@@ -502,12 +466,15 @@ class StatusPlugin(QObject):
     ) -> None:
         """Set the transient status-bar message."""
 
+        if not isinstance(text, str):
+            raise TypeError(
+                "text must be a string."
+            )
+
         if self._status_bar is None:
             return
 
-        self._status_bar.showMessage(
-            text
-        )
+        self._status_bar.showMessage(text)
 
     def clear_message(self) -> None:
         """Clear the transient status-bar message."""
@@ -523,7 +490,7 @@ class StatusPlugin(QObject):
 
     def _wire_services(self) -> None:
         """
-        Connect compatible application services.
+        Attach compatible application services.
 
         Services remain authoritative for the state they expose.
         """
@@ -560,23 +527,24 @@ class StatusPlugin(QObject):
             self._status_bar,
         )
 
-        self._connect_service(
-            manager
-        )
+        self._connect_service(manager)
 
     def _connect_service(
         self,
         service: Any,
     ) -> None:
         """
-        Connect common status-producing signals where available.
+        Connect supported service signals.
 
-        The plugin deliberately supports only established, conventional
-        signal names and does not require every service to implement
-        them.
+        Each service is connected at most once.
         """
 
         if service is None:
+            return
+
+        service_key = id(service)
+
+        if service_key in self._connected_services:
             return
 
         candidates = (
@@ -602,12 +570,17 @@ class StatusPlugin(QObject):
             ),
         )
 
+        connected = False
+
         for signal_name, callback in candidates:
             signal = getattr(
                 service,
                 signal_name,
                 None,
             )
+
+            if signal is None:
+                continue
 
             connect = getattr(
                 signal,
@@ -618,12 +591,7 @@ class StatusPlugin(QObject):
             if not callable(connect):
                 continue
 
-            try:
-                connect(
-                    callback
-                )
-            except (TypeError, RuntimeError):
-                continue
+            connect(callback)
 
             self._connections.append(
                 (
@@ -632,8 +600,13 @@ class StatusPlugin(QObject):
                 )
             )
 
+            connected = True
+
+        if connected:
+            self._connected_services.add(service_key)
+
     def _disconnect_services(self) -> None:
-        """Disconnect signals previously connected by the plugin."""
+        """Disconnect all signals previously connected by the plugin."""
 
         for signal, callback in tuple(
             self._connections
@@ -644,19 +617,17 @@ class StatusPlugin(QObject):
                 None,
             )
 
-            if not callable(
-                disconnect
-            ):
+            if not callable(disconnect):
                 continue
 
             try:
-                disconnect(
-                    callback
-                )
+                disconnect(callback)
             except (TypeError, RuntimeError):
+                # The Qt object may already have been destroyed.
                 pass
 
         self._connections.clear()
+        self._connected_services.clear()
 
         manager = self._context.status_manager
 
@@ -681,9 +652,7 @@ class StatusPlugin(QObject):
     ) -> None:
         """Reflect an externally supplied status update."""
 
-        status_id = str(
-            status_id
-        )
+        status_id = str(status_id)
 
         if status_id not in self._labels:
             return
@@ -698,7 +667,7 @@ class StatusPlugin(QObject):
         selection: Any = None,
         *args: Any,
     ) -> None:
-        """Reflect selection state when a suitable status exists."""
+        """Reflect selection state when a selection status exists."""
 
         if "selection" not in self._labels:
             return
@@ -711,9 +680,7 @@ class StatusPlugin(QObject):
             except TypeError:
                 count = 1
 
-            text = (
-                f"Selection: {count}"
-            )
+            text = f"Selection: {count}"
 
         self.set_status(
             "selection",
@@ -725,7 +692,7 @@ class StatusPlugin(QObject):
         tool_id: Any = None,
         *args: Any,
     ) -> None:
-        """Reflect active-tool state when a suitable status exists."""
+        """Reflect active-tool state when a tool status exists."""
 
         if "tool" not in self._labels:
             return
@@ -751,9 +718,7 @@ class StatusPlugin(QObject):
     def status_count(self) -> int:
         """Return the number of registered status fields."""
 
-        return len(
-            self._labels
-        )
+        return len(self._labels)
 
     # ========================================================
     # INTERNAL HELPER
@@ -766,10 +731,10 @@ class StatusPlugin(QObject):
         *args: Any,
     ) -> bool:
         """
-        Invoke the first compatible service method.
+        Invoke the first supported service method.
 
-        Exceptions raised by an existing method are intentionally not
-        swallowed because they represent genuine integration errors.
+        If a method exists and raises, the exception is intentionally
+        propagated because it represents a genuine integration defect.
         """
 
         for method_name in method_names:
@@ -798,8 +763,8 @@ def default_statuses() -> tuple[
     """
     Return the canonical baseline status fields.
 
-    These are presentation fields only; their values are supplied by
-    the corresponding application services.
+    These are presentation fields only. Their values are supplied by
+    application/UI services.
     """
 
     return (
@@ -837,9 +802,7 @@ def default_statuses() -> tuple[
 
 
 def create_status_plugin(
-    context: Optional[
-        StatusPluginContext
-    ] = None,
+    context: Optional[StatusPluginContext] = None,
     parent: Optional[QObject] = None,
 ) -> StatusPlugin:
     """Create an uninitialized StatusPlugin."""
