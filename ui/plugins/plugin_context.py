@@ -7,20 +7,22 @@ File:
 
 Purpose
 -------
-Defines the shared application/UI context supplied to GridForge
-composition plugins.
+Defines the dependency context supplied to GridForge UI composition
+plugins.
 
 Architectural role
 ------------------
-PluginContext is a dependency-carrier object used by composition
-plugins.
+PluginContext is a dependency-carrier object.
 
-It:
+It carries references to already-created application and UI services.
+It does not create, resolve, own, or mutate those services.
 
-    - carries references to already-created application/UI services;
-    - provides controlled context derivation;
-    - provides dependency validation;
-    - provides access to genuinely optional services.
+It provides:
+
+    - explicit dependency references;
+    - controlled derived contexts;
+    - required-dependency validation;
+    - access to genuinely optional services.
 
 It does NOT:
 
@@ -31,15 +33,19 @@ It does NOT:
     - perform electrical calculations;
     - mutate Core;
     - construct controllers;
-    - contain UI composition logic.
+    - perform UI composition;
+    - discover plugins;
+    - manage plugin lifecycle.
 
 Architectural rules
 -------------------
 - PluginContext carries references; it does not own application state.
+- PluginContext is immutable after construction.
+- Derived contexts are created explicitly through derive().
 - Plugins must not use this context to bypass established controllers
   or service boundaries.
 - Core/domain objects remain authoritative outside the UI.
-- PluginContext contains no Qt widget construction logic.
+- PluginContext contains no Qt construction logic.
 - MainWindow and plugin composition remain separate concerns.
 - All Qt access goes through ui.core.qt.
 - PySide6 is the sole Qt backend and is hidden behind ui.core.qt.
@@ -47,8 +53,16 @@ Architectural rules
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional
+from dataclasses import (
+    dataclass,
+    field,
+    fields,
+)
+from types import MappingProxyType
+from typing import (
+    Any,
+    Mapping,
+)
 
 from ui.core.qt import QWidget
 
@@ -58,34 +72,30 @@ from ui.core.qt import QWidget
 # ============================================================
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class PluginContext:
     """
-    Shared dependency context for GridForge UI plugins.
+    Immutable dependency context for GridForge UI plugins.
 
-    PluginContext is intentionally a lightweight dependency carrier.
+    PluginContext is a lightweight dependency carrier.
 
-    It does not create or own:
+    It contains references to already-created objects but does not
+    create or own those objects.
 
-        - application services
-        - controllers
-        - widgets
-        - tools
-        - renderers
-        - domain objects
-        - Core state
+    Plugins may derive narrower contexts when stronger dependency
+    isolation is required.
 
-    Plugins may receive narrower, plugin-specific context objects
-    when stronger dependency isolation is required.
+    The context itself must not become a replacement for established
+    application/controller/service boundaries.
     """
 
     # --------------------------------------------------------
     # Application / Window
     # --------------------------------------------------------
 
-    main_window: Optional[QWidget] = None
+    main_window: QWidget | None = None
 
-    parent: Optional[QWidget] = None
+    parent: QWidget | None = None
 
     application: Any = None
 
@@ -158,6 +168,35 @@ class PluginContext:
     )
 
     # ========================================================
+    # POST INITIALIZATION
+    # ========================================================
+
+    def __post_init__(self) -> None:
+        """
+        Normalize mapping fields into immutable mapping views.
+
+        The objects referenced by the context remain owned by their
+        respective subsystems. Only the context's mapping containers
+        are protected from mutation.
+        """
+
+        object.__setattr__(
+            self,
+            "services",
+            MappingProxyType(
+                dict(self.services)
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(
+                dict(self.metadata)
+            ),
+        )
+
+    # ========================================================
     # SERVICE ACCESS
     # ========================================================
 
@@ -167,11 +206,13 @@ class PluginContext:
         default: Any = None,
     ) -> Any:
         """
-        Return a named optional service.
+        Return an optional service.
 
-        Explicit context fields should be preferred for architectural
-        dependencies. The generic services mapping is reserved for
-        genuinely optional application services.
+        The generic services mapping is intentionally reserved for
+        genuinely optional services.
+
+        Explicitly declared PluginContext fields should be preferred
+        for architectural dependencies.
         """
 
         self._validate_name(
@@ -189,12 +230,15 @@ class PluginContext:
         name: str,
     ) -> Any:
         """
-        Return a named service.
+        Return a required optional service.
 
         Raises
         ------
         KeyError
-            If the requested service is unavailable.
+            If the service is not present.
+
+        RuntimeError
+            If the service is explicitly present but has value None.
         """
 
         self._validate_name(
@@ -202,11 +246,7 @@ class PluginContext:
             "name",
         )
 
-        value = self.services.get(
-            name
-        )
-
-        if value is None:
+        if name not in self.services:
             raise KeyError(
                 (
                     f"Required service "
@@ -214,7 +254,34 @@ class PluginContext:
                 )
             )
 
+        value = self.services[name]
+
+        if value is None:
+            raise RuntimeError(
+                (
+                    f"Required service "
+                    f"{name!r} is available but "
+                    "has value None."
+                )
+            )
+
         return value
+
+    def has_service(
+        self,
+        name: str,
+    ) -> bool:
+        """Return whether a non-None optional service exists."""
+
+        self._validate_name(
+            name,
+            "name",
+        )
+
+        return (
+            name in self.services
+            and self.services[name] is not None
+        )
 
     # ========================================================
     # CONTEXT DERIVATION
@@ -225,55 +292,24 @@ class PluginContext:
         **overrides: Any,
     ) -> PluginContext:
         """
-        Create a derived context with selected values overridden.
+        Create a derived context.
 
-        The original context is not modified.
+        The current context remains unchanged.
 
-        Only declared PluginContext fields may be overridden.
+        Only actual PluginContext dataclass fields may be overridden.
         """
 
-        field_names = (
-            "main_window",
-            "parent",
-            "application",
-            "project",
-            "project_controller",
-            "controller",
-            "command_manager",
-            "event_bus",
-            "tool_manager",
-            "tool_registry",
-            "tool_dispatcher",
-            "interaction_manager",
-            "renderer_registry",
-            "render_system",
-            "snap_system",
-            "navigation_controller",
-            "coordinate_system",
-            "grid_system",
-            "plugin_manager",
-            "plugin_registry",
-            "plugin_loader",
-            "selection_controller",
-            "action_manager",
-            "status_manager",
-            "settings",
-            "services",
-            "metadata",
-        )
-
-        values = {
-            name: getattr(
-                self,
-                name,
+        field_names = {
+            item.name
+            for item in fields(
+                self
             )
-            for name in field_names
         }
 
         unknown = set(
             overrides
         ).difference(
-            values
+            field_names
         )
 
         if unknown:
@@ -286,11 +322,19 @@ class PluginContext:
                 )
             )
 
+        values = {
+            name: getattr(
+                self,
+                name,
+            )
+            for name in field_names
+        }
+
         values.update(
             overrides
         )
 
-        return PluginContext(
+        return type(self)(
             **values
         )
 
@@ -306,27 +350,30 @@ class PluginContext:
         """
         Validate required context dependencies.
 
-        Validation only checks dependency availability.
+        Validation only checks availability.
 
-        It never creates, resolves, or substitutes missing services.
+        It never:
+
+            - creates dependencies;
+            - resolves dependencies;
+            - substitutes dependencies;
+            - modifies the context.
         """
 
-        for field_name in required:
-            if not isinstance(
-                field_name,
-                str,
-            ) or not field_name.strip():
-                raise ValueError(
-                    (
-                        "required dependency names "
-                        "must be non-empty strings."
-                    )
-                )
+        valid_fields = {
+            item.name
+            for item in fields(
+                self
+            )
+        }
 
-            if not hasattr(
-                self,
+        for field_name in required:
+            self._validate_name(
                 field_name,
-            ):
+                "required dependency name",
+            )
+
+            if field_name not in valid_fields:
                 raise KeyError(
                     (
                         f"Unknown PluginContext "
@@ -334,12 +381,10 @@ class PluginContext:
                     )
                 )
 
-            value = getattr(
+            if getattr(
                 self,
                 field_name,
-            )
-
-            if value is None:
+            ) is None:
                 raise RuntimeError(
                     (
                         f"Required plugin context "
@@ -352,25 +397,11 @@ class PluginContext:
     # CAPABILITIES
     # ========================================================
 
-    def has_service(
-        self,
-        name: str,
-    ) -> bool:
-        """Return whether a named optional service exists."""
-
-        self._validate_name(
-            name,
-            "name",
-        )
-
-        return (
-            self.services.get(
-                name
-            ) is not None
-        )
-
     def has_core_controller(self) -> bool:
-        """Return whether an application/core controller is available."""
+        """
+        Return whether a usable core/application controller reference
+        exists.
+        """
 
         return (
             self.project_controller is not None
@@ -378,15 +409,16 @@ class PluginContext:
         )
 
     def has_tool_system(self) -> bool:
-        """Return whether the UI tool system is available."""
+        """Return whether a UI tool-system dependency exists."""
 
         return (
             self.tool_manager is not None
             or self.tool_registry is not None
+            or self.tool_dispatcher is not None
         )
 
     def has_renderer_system(self) -> bool:
-        """Return whether the renderer system is available."""
+        """Return whether a renderer-system dependency exists."""
 
         return (
             self.renderer_registry is not None
@@ -394,12 +426,16 @@ class PluginContext:
         )
 
     def has_canvas_system(self) -> bool:
-        """Return whether primary canvas dependencies exist."""
+        """
+        Return whether the minimum canvas interaction dependencies
+        are available.
+        """
 
         return (
             self.interaction_manager is not None
             or self.navigation_controller is not None
             or self.coordinate_system is not None
+            or self.render_system is not None
         )
 
     # ========================================================
@@ -412,13 +448,10 @@ class PluginContext:
     ) -> PluginContext:
         """Return a derived context with a different main window."""
 
-        if not isinstance(
+        self._validate_qwidget(
             main_window,
-            QWidget,
-        ):
-            raise TypeError(
-                "main_window must be a QWidget."
-            )
+            "main_window",
+        )
 
         return self.derive(
             main_window=main_window
@@ -430,13 +463,10 @@ class PluginContext:
     ) -> PluginContext:
         """Return a derived context with a different Qt parent."""
 
-        if not isinstance(
+        self._validate_qwidget(
             parent,
-            QWidget,
-        ):
-            raise TypeError(
-                "parent must be a QWidget."
-            )
+            "parent",
+        )
 
         return self.derive(
             parent=parent
@@ -461,9 +491,7 @@ class PluginContext:
             self.services
         )
 
-        services[
-            name
-        ] = service
+        services[name] = service
 
         return self.derive(
             services=services
@@ -485,9 +513,7 @@ class PluginContext:
             self.metadata
         )
 
-        metadata[
-            key
-        ] = value
+        metadata[key] = value
 
         return self.derive(
             metadata=metadata
@@ -518,6 +544,21 @@ class PluginContext:
                 )
             )
 
+    @staticmethod
+    def _validate_qwidget(
+        value: Any,
+        parameter_name: str,
+    ) -> None:
+        """Validate a Qt widget reference."""
+
+        if not isinstance(
+            value,
+            QWidget,
+        ):
+            raise TypeError(
+                f"{parameter_name} must be a QWidget."
+            )
+
 
 # ============================================================
 # FACTORY
@@ -530,15 +571,20 @@ def create_plugin_context(
     """
     Create a PluginContext.
 
-    Construction is dependency injection only.
+    This is dependency injection only.
 
-    No missing services are created or resolved.
+    No service, controller, widget, or Core object is created,
+    discovered, or resolved here.
     """
 
     return PluginContext(
         **kwargs
     )
 
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 __all__ = [
     "PluginContext",
