@@ -11,13 +11,16 @@ Defines lifecycle events emitted by the GridForge UI plugin layer.
 
 Architectural rules
 -------------------
-- Events describe plugin lifecycle changes; they do not perform them.
+- Events describe lifecycle activity; they do not perform it.
 - No concrete plugin imports are performed here.
 - Events are UI/application-infrastructure events, not domain events.
-- Plugin state remains separate from plugin event transport.
-- The event bus/dispatcher is responsible for delivery.
-- Plugins must not use these events as a replacement for Core domain
-  events.
+- PluginStateStore remains the runtime-state authority.
+- PluginManager remains the lifecycle-orchestration authority.
+- PluginRegistry remains the plugin-instance/lifecycle authority.
+- Events must not become a second plugin state machine.
+- Events must not become a second dependency-resolution system.
+- The event dispatcher is responsible only for event delivery.
+- Plugin events must never replace Core domain events.
 """
 
 from __future__ import annotations
@@ -36,7 +39,10 @@ from uuid import uuid4
 
 class PluginEventType(str, Enum):
     """
-    Canonical lifecycle event types for UI plugins.
+    Canonical plugin lifecycle event types.
+
+    The event type describes observable lifecycle activity.
+    It does not perform or authorize the corresponding operation.
     """
 
     DEFINED = "defined"
@@ -70,17 +76,16 @@ class PluginEventType(str, Enum):
 
 class PluginEventSource(str, Enum):
     """
-    Identifies the subsystem that emitted a plugin event.
+    Identifies the subsystem responsible for emitting an event.
+
+    The source identifies the emitter of the observation. It does
+    not transfer lifecycle ownership to the event subsystem.
     """
 
     LOADER = "loader"
-
     REGISTRY = "registry"
-
     MANAGER = "manager"
-
     PLUGIN = "plugin"
-
     SYSTEM = "system"
 
 
@@ -92,10 +97,26 @@ class PluginEventSource(str, Enum):
 @dataclass(frozen=True, slots=True)
 class PluginEvent:
     """
-    Base immutable plugin lifecycle event.
+    Immutable plugin lifecycle event.
 
-    Events are data only. They do not contain callbacks or executable
-    lifecycle operations.
+    PluginEvent is a transport record only.
+
+    It contains:
+        - event identity;
+        - event type;
+        - plugin identity;
+        - event source;
+        - timing information;
+        - optional ordering information;
+        - diagnostic metadata.
+
+    It does not contain:
+        - callbacks;
+        - plugin instances;
+        - lifecycle commands;
+        - PluginStateStore state;
+        - dependency-resolution state;
+        - Qt objects.
     """
 
     event_type: PluginEventType
@@ -122,46 +143,100 @@ class PluginEvent:
     )
 
     def __post_init__(self) -> None:
+        # ----------------------------------------------------
+        # Type validation
+        # ----------------------------------------------------
+
+        if not isinstance(
+            self.event_type,
+            PluginEventType,
+        ):
+            raise TypeError(
+                "event_type must be a PluginEventType."
+            )
+
         if not isinstance(
             self.plugin_id,
             str,
-        ) or not self.plugin_id.strip():
+        ):
+            raise TypeError(
+                "plugin_id must be a string."
+            )
+
+        if not self.plugin_id.strip():
             raise ValueError(
                 "plugin_id must be a non-empty string."
             )
 
         if not isinstance(
+            self.source,
+            PluginEventSource,
+        ):
+            raise TypeError(
+                "source must be a PluginEventSource."
+            )
+
+        if not isinstance(
             self.event_id,
             str,
-        ) or not self.event_id.strip():
+        ):
+            raise TypeError(
+                "event_id must be a string."
+            )
+
+        if not self.event_id.strip():
             raise ValueError(
                 "event_id must be a non-empty string."
             )
 
-        if self.sequence is not None and self.sequence < 0:
-            raise ValueError(
-                "sequence cannot be negative."
+        if not isinstance(
+            self.timestamp,
+            (int, float),
+        ) or isinstance(
+            self.timestamp,
+            bool,
+        ):
+            raise TypeError(
+                "timestamp must be a numeric value."
             )
 
+        if self.sequence is not None:
+            if (
+                not isinstance(
+                    self.sequence,
+                    int,
+                )
+                or isinstance(
+                    self.sequence,
+                    bool,
+                )
+            ):
+                raise TypeError(
+                    "sequence must be an integer or None."
+                )
 
-# ============================================================
-# STATE EVENT
-# ============================================================
+            if self.sequence < 0:
+                raise ValueError(
+                    "sequence cannot be negative."
+                )
 
+        if not isinstance(
+            self.metadata,
+            Mapping,
+        ):
+            raise TypeError(
+                "metadata must be a Mapping."
+            )
 
-@dataclass(frozen=True, slots=True)
-class PluginStateEvent(
-    PluginEvent
-):
-    """
-    Event representing a plugin lifecycle state transition.
-    """
+        # ----------------------------------------------------
+        # Immutable event snapshot
+        # ----------------------------------------------------
 
-    previous_state: Optional[str] = None
-
-    current_state: Optional[str] = None
-
-    error: Optional[str] = None
+        object.__setattr__(
+            self,
+            "metadata",
+            dict(self.metadata),
+        )
 
 
 # ============================================================
@@ -174,7 +249,12 @@ class PluginErrorEvent(
     PluginEvent
 ):
     """
-    Event representing a plugin lifecycle failure.
+    Immutable plugin lifecycle failure event.
+
+    Failure information is observational. It does not determine
+    whether the plugin is disabled, reset, unloaded, or otherwise
+    recovered. Lifecycle response remains owned by PluginManager /
+    PluginRegistry.
     """
 
     error_type: str = ""
@@ -198,6 +278,11 @@ class PluginErrorEvent(
                 "error_type must be a string."
             )
 
+        if not self.error_type.strip():
+            raise ValueError(
+                "error_type must be a non-empty string."
+            )
+
         if not isinstance(
             self.error_message,
             str,
@@ -206,36 +291,91 @@ class PluginErrorEvent(
                 "error_message must be a string."
             )
 
-
-# ============================================================
-# DEPENDENCY EVENT
-# ============================================================
-
-
-@dataclass(frozen=True, slots=True)
-class PluginDependencyEvent(
-    PluginEvent
-):
-    """
-    Event describing dependency-related plugin activity.
-    """
-
-    dependency_id: str = ""
-
-    dependency_state: Optional[str] = None
-
-    satisfied: bool = False
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
+        if not self.error_message.strip():
+            raise ValueError(
+                "error_message must be a non-empty string."
+            )
 
         if not isinstance(
-            self.dependency_id,
-            str,
-        ) or not self.dependency_id.strip():
-            raise ValueError(
-                "dependency_id must be a non-empty string."
+            self.recoverable,
+            bool,
+        ):
+            raise TypeError(
+                "recoverable must be bool."
             )
+
+        if (
+            self.operation is not None
+            and not isinstance(
+                self.operation,
+                str,
+            )
+        ):
+            raise TypeError(
+                "operation must be a string or None."
+            )
+
+        if (
+            self.traceback is not None
+            and not isinstance(
+                self.traceback,
+                str,
+            )
+        ):
+            raise TypeError(
+                "traceback must be a string or None."
+            )
+
+
+# ============================================================
+# EVENT FACTORY HELPER
+# ============================================================
+
+
+def _metadata(
+    metadata: Optional[
+        Mapping[str, Any]
+    ],
+) -> dict[str, Any]:
+    """
+    Create an independent metadata snapshot.
+    """
+
+    if metadata is None:
+        return {}
+
+    if not isinstance(
+        metadata,
+        Mapping,
+    ):
+        raise TypeError(
+            "metadata must be a Mapping or None."
+        )
+
+    return dict(metadata)
+
+
+def _event(
+    event_type: PluginEventType,
+    plugin_id: str,
+    *,
+    source: PluginEventSource,
+    metadata: Optional[
+        Mapping[str, Any]
+    ],
+) -> PluginEvent:
+    """
+    Create a standard lifecycle event.
+    """
+
+    return PluginEvent(
+        event_type=event_type,
+        plugin_id=plugin_id,
+        source=source,
+        metadata=_metadata(
+            metadata
+        ),
+    )
 
 
 # ============================================================
@@ -253,13 +393,11 @@ def plugin_defined(
 ) -> PluginEvent:
     """Create a plugin-defined event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.DEFINED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.DEFINED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -273,13 +411,11 @@ def plugin_load_requested(
 ) -> PluginEvent:
     """Create a plugin-load-requested event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.LOAD_REQUESTED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.LOAD_REQUESTED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -293,13 +429,11 @@ def plugin_loaded(
 ) -> PluginEvent:
     """Create a plugin-loaded event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.LOADED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.LOADED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -313,13 +447,11 @@ def plugin_initialize_requested(
 ) -> PluginEvent:
     """Create an initialization-requested event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.INITIALIZE_REQUESTED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.INITIALIZE_REQUESTED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -333,33 +465,29 @@ def plugin_initializing(
 ) -> PluginEvent:
     """Create an initializing event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.INITIALIZING,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.INITIALIZING,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
 def plugin_initialized(
     plugin_id: str,
     *,
-    source: PluginEventSource = PluginEventSource.PLUGIN,
+    source: PluginEventSource = PluginEventSource.MANAGER,
     metadata: Optional[
         Mapping[str, Any]
     ] = None,
 ) -> PluginEvent:
     """Create a plugin-initialized event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.INITIALIZED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.INITIALIZED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -373,13 +501,11 @@ def plugin_enabled(
 ) -> PluginEvent:
     """Create a plugin-enabled event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.ENABLED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.ENABLED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -393,13 +519,11 @@ def plugin_disabled(
 ) -> PluginEvent:
     """Create a plugin-disabled event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.DISABLED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.DISABLED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -413,13 +537,11 @@ def plugin_shutdown_requested(
 ) -> PluginEvent:
     """Create a shutdown-requested event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.SHUTDOWN_REQUESTED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.SHUTDOWN_REQUESTED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -433,33 +555,29 @@ def plugin_shutting_down(
 ) -> PluginEvent:
     """Create a shutting-down event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.SHUTTING_DOWN,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.SHUTTING_DOWN,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
 def plugin_shutdown(
     plugin_id: str,
     *,
-    source: PluginEventSource = PluginEventSource.PLUGIN,
+    source: PluginEventSource = PluginEventSource.MANAGER,
     metadata: Optional[
         Mapping[str, Any]
     ] = None,
 ) -> PluginEvent:
     """Create a plugin-shutdown event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.SHUTDOWN,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.SHUTDOWN,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -473,33 +591,29 @@ def plugin_unload_requested(
 ) -> PluginEvent:
     """Create an unload-requested event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.UNLOAD_REQUESTED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.UNLOAD_REQUESTED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
 def plugin_unloaded(
     plugin_id: str,
     *,
-    source: PluginEventSource = PluginEventSource.REGISTRY,
+    source: PluginEventSource = PluginEventSource.MANAGER,
     metadata: Optional[
         Mapping[str, Any]
     ] = None,
 ) -> PluginEvent:
     """Create a plugin-unloaded event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.UNLOADED,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.UNLOADED,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -543,8 +657,8 @@ def plugin_failed(
         recoverable=recoverable,
         operation=operation,
         traceback=traceback,
-        metadata=dict(
-            metadata or {}
+        metadata=_metadata(
+            metadata
         ),
     )
 
@@ -559,13 +673,11 @@ def plugin_reset(
 ) -> PluginEvent:
     """Create a plugin-reset event."""
 
-    return PluginEvent(
-        event_type=PluginEventType.RESET,
-        plugin_id=plugin_id,
+    return _event(
+        PluginEventType.RESET,
+        plugin_id,
         source=source,
-        metadata=dict(
-            metadata or {}
-        ),
+        metadata=metadata,
     )
 
 
@@ -578,18 +690,32 @@ def is_lifecycle_event(
     event: PluginEvent,
 ) -> bool:
     """
-    Return whether an event represents normal plugin lifecycle flow.
+    Return whether an event belongs to the plugin lifecycle stream.
     """
 
-    return event.event_type not in {
-        PluginEventType.FAILED,
-    }
+    if not isinstance(
+        event,
+        PluginEvent,
+    ):
+        raise TypeError(
+            "event must be a PluginEvent."
+        )
+
+    return True
 
 
 def is_failure_event(
     event: PluginEvent,
 ) -> bool:
     """Return whether an event represents plugin failure."""
+
+    if not isinstance(
+        event,
+        PluginEvent,
+    ):
+        raise TypeError(
+            "event must be a PluginEvent."
+        )
 
     return event.event_type == PluginEventType.FAILED
 
@@ -599,7 +725,18 @@ def is_terminal_event(
 ) -> bool:
     """
     Return whether an event represents a completed terminal action.
+
+    FAILED is terminal for the particular lifecycle attempt, but it
+    does not imply that the plugin has been unloaded or destroyed.
     """
+
+    if not isinstance(
+        event,
+        PluginEvent,
+    ):
+        raise TypeError(
+            "event must be a PluginEvent."
+        )
 
     return event.event_type in {
         PluginEventType.SHUTDOWN,
@@ -617,11 +754,19 @@ def event_to_dict(
     event: PluginEvent,
 ) -> dict[str, Any]:
     """
-    Convert a plugin event into a serializable dictionary.
+    Convert a plugin event to a diagnostic dictionary.
 
-    This is intended for diagnostics/logging, not persistence of
-    authoritative application state.
+    The result is intended for logging and diagnostics only. It is not
+    an authoritative representation of plugin runtime state.
     """
+
+    if not isinstance(
+        event,
+        PluginEvent,
+    ):
+        raise TypeError(
+            "event must be a PluginEvent."
+        )
 
     data: dict[str, Any] = {
         "event_id": event.event_id,
@@ -637,18 +782,6 @@ def event_to_dict(
 
     if isinstance(
         event,
-        PluginStateEvent,
-    ):
-        data.update(
-            {
-                "previous_state": event.previous_state,
-                "current_state": event.current_state,
-                "error": event.error,
-            }
-        )
-
-    if isinstance(
-        event,
         PluginErrorEvent,
     ):
         data.update(
@@ -661,28 +794,19 @@ def event_to_dict(
             }
         )
 
-    if isinstance(
-        event,
-        PluginDependencyEvent,
-    ):
-        data.update(
-            {
-                "dependency_id": event.dependency_id,
-                "dependency_state": event.dependency_state,
-                "satisfied": event.satisfied,
-            }
-        )
-
     return data
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 
 __all__ = [
     "PluginEventType",
     "PluginEventSource",
     "PluginEvent",
-    "PluginStateEvent",
     "PluginErrorEvent",
-    "PluginDependencyEvent",
     "plugin_defined",
     "plugin_load_requested",
     "plugin_loaded",
