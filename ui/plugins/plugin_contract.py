@@ -12,14 +12,37 @@ plugins.
 
 Architectural rules
 -------------------
-- The contract is UI/framework-facing only.
+- This module defines the plugin contract only.
 - It does not import concrete plugins.
 - It does not contain application/domain logic.
-- It does not create widgets or services.
-- PluginLoader performs concrete implementation resolution.
-- PluginRegistry stores plugin instances.
-- PluginManager coordinates lifecycle.
+- It does not create application services.
+- Qt imports are obtained exclusively through ui.core.qt.
+- PluginLoader resolves concrete implementations.
+- PluginRegistry stores plugin instances and lifecycle state.
+- PluginManager coordinates dependency ordering and lifecycle.
 - MainWindow remains thin and plugin-driven.
+
+Lifecycle
+---------
+Plugin construction and plugin initialization are deliberately
+separate operations.
+
+    PluginLoader
+        |
+        | create()
+        v
+    Plugin instance
+        |
+        | initialize(context)
+        v
+    Initialized plugin
+        |
+        | shutdown()
+        v
+    Uninitialized plugin
+
+The PluginContext is an initialization dependency, not a constructor
+dependency.
 """
 
 from __future__ import annotations
@@ -28,8 +51,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Protocol, runtime_checkable
 
-from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QWidget
+from ui.core.qt import QObject, QWidget
 
 
 # ============================================================
@@ -40,9 +62,12 @@ from PySide6.QtWidgets import QWidget
 @dataclass(frozen=True, slots=True)
 class PluginMetadata:
     """
-    Descriptive metadata for a UI plugin.
+    Declarative metadata describing a UI composition plugin.
 
-    Metadata is declarative and does not represent runtime state.
+    Runtime dependency ordering is owned by PluginManager through
+    PluginDefinition. The dependencies field here is descriptive
+    metadata and must not be treated as an alternative dependency
+    graph.
     """
 
     plugin_id: str
@@ -115,7 +140,8 @@ class PluginMetadata:
 @runtime_checkable
 class PluginContextProtocol(Protocol):
     """
-    Structural protocol for plugin dependency contexts.
+    Structural protocol for the dependency context supplied to
+    plugins during initialization.
 
     The concrete implementation is provided by plugin_context.py.
     """
@@ -140,11 +166,10 @@ class PluginContextProtocol(Protocol):
 @runtime_checkable
 class PluginProtocol(Protocol):
     """
-    Structural runtime contract for GridForge UI plugins.
+    Mandatory structural runtime contract for GridForge UI plugins.
 
-    Plugins do not need to inherit from a common base class to satisfy
-    this protocol. This permits composition with existing concrete
-    implementations while keeping the registry generic.
+    Plugins do not need to inherit from BasePlugin. Structural
+    conformance is sufficient.
     """
 
     plugin_id: str
@@ -158,7 +183,10 @@ class PluginProtocol(Protocol):
         context: Any = None,
     ) -> Any:
         """
-        Initialize the plugin and compose its UI contribution.
+        Initialize the plugin using the supplied application/UI
+        context.
+
+        Initialization may create the plugin's UI contribution.
         """
         ...
 
@@ -177,7 +205,9 @@ class PluginProtocol(Protocol):
 @runtime_checkable
 class PluginWidgetProvider(Protocol):
     """
-    Optional protocol for plugins that expose a primary widget.
+    Optional protocol for plugins exposing a primary QWidget.
+
+    Composition plugins are not required to expose a single widget.
     """
 
     @property
@@ -193,10 +223,10 @@ class PluginWidgetProvider(Protocol):
 @runtime_checkable
 class PluginLifecycleProtocol(Protocol):
     """
-    Optional extended lifecycle contract.
+    Optional extended lifecycle hooks.
 
-    The basic PluginProtocol remains sufficient for plugins that do
-    not require explicit lifecycle phases.
+    These hooks are used only when a concrete plugin requires them.
+    They are not part of the mandatory plugin contract.
     """
 
     def before_initialize(
@@ -233,12 +263,25 @@ class BasePlugin(
     """
     Optional base implementation of the GridForge plugin contract.
 
-    Concrete plugins may inherit from this class, but the architecture
-    does not require inheritance because PluginProtocol is structural.
+    The constructor accepts only Qt ownership information.
+
+    Application/UI dependencies are supplied later through
+    initialize(context).
+
+    This separation is intentional:
+
+        construction
+            ->
+        initialization(context)
+
+    A plugin therefore never receives PluginContext as a QObject
+    parent by accident.
     """
 
     plugin_id: str = ""
+
     plugin_name: str = ""
+
     plugin_version: str = "1.0"
 
     def __init__(
@@ -250,6 +293,7 @@ class BasePlugin(
         )
 
         self._context: Any = None
+
         self._initialized = False
 
     # ========================================================
@@ -258,13 +302,13 @@ class BasePlugin(
 
     @property
     def context(self) -> Any:
-        """Return the current plugin context."""
+        """Return the current initialization context."""
 
         return self._context
 
     @property
     def initialized(self) -> bool:
-        """Return whether the plugin is initialized."""
+        """Return whether the plugin is currently initialized."""
 
         return self._initialized
 
@@ -287,9 +331,12 @@ class BasePlugin(
         context: Any = None,
     ) -> Any:
         """
-        Execute the standard initialization lifecycle.
+        Initialize the plugin.
 
         Initialization is idempotent.
+
+        The context is stored only for the lifetime of the initialized
+        plugin and is cleared during shutdown.
         """
 
         if self._initialized:
@@ -297,27 +344,33 @@ class BasePlugin(
 
         self._context = context
 
-        self.before_initialize(
-            context
-        )
+        try:
+            self.before_initialize(
+                context
+            )
 
-        result = self._initialize(
-            context
-        )
+            result = self._initialize(
+                context
+            )
 
-        self._initialized = True
+            self._initialized = True
 
-        self.after_initialize()
+            self.after_initialize()
 
-        return (
-            result
-            if result is not None
-            else self.widget
-        )
+            return (
+                result
+                if result is not None
+                else self.widget
+            )
+
+        except Exception:
+            self._context = None
+            self._initialized = False
+            raise
 
     def shutdown(self) -> None:
         """
-        Execute the standard shutdown lifecycle.
+        Shut down the plugin.
 
         Shutdown is idempotent.
         """
@@ -327,10 +380,11 @@ class BasePlugin(
 
         self.before_shutdown()
 
-        self._shutdown()
-
-        self._initialized = False
-        self._context = None
+        try:
+            self._shutdown()
+        finally:
+            self._initialized = False
+            self._context = None
 
         self.after_shutdown()
 
@@ -369,7 +423,9 @@ class BasePlugin(
         """
 
     @abstractmethod
-    def _shutdown(self) -> None:
+    def _shutdown(
+        self,
+    ) -> None:
         """
         Implement plugin-specific shutdown.
         """
@@ -380,9 +436,7 @@ class BasePlugin(
 # ============================================================
 
 
-class PluginContractError(
-    TypeError
-):
+class PluginContractError(TypeError):
     """Raised when an object does not satisfy the plugin contract."""
 
 
@@ -392,10 +446,15 @@ def validate_plugin(
     plugin_id: Optional[str] = None,
 ) -> None:
     """
-    Validate the minimum runtime plugin contract.
+    Validate the mandatory runtime plugin contract.
 
-    This function performs structural validation only. It does not
-    initialize the plugin.
+    This function performs structural validation only.
+
+    It does not:
+        - initialize the plugin;
+        - create widgets;
+        - access application services;
+        - modify plugin state.
     """
 
     if plugin is None:
@@ -403,33 +462,32 @@ def validate_plugin(
             "Plugin cannot be None."
         )
 
+    actual_plugin_id = getattr(
+        plugin,
+        "plugin_id",
+        None,
+    )
+
     if not isinstance(
-        getattr(
-            plugin,
-            "plugin_id",
-            None,
-        ),
+        actual_plugin_id,
         str,
     ):
         raise PluginContractError(
             "Plugin must expose a string plugin_id."
         )
 
-    if not getattr(
-        plugin,
-        "plugin_id",
-    ).strip():
+    if not actual_plugin_id.strip():
         raise PluginContractError(
             "Plugin plugin_id cannot be empty."
         )
 
     if plugin_id is not None:
-        if plugin.plugin_id != plugin_id:
+        if actual_plugin_id != plugin_id:
             raise PluginContractError(
                 (
                     f"Plugin ID mismatch: expected "
                     f"{plugin_id!r}, received "
-                    f"{plugin.plugin_id!r}."
+                    f"{actual_plugin_id!r}."
                 )
             )
 
@@ -492,7 +550,7 @@ def is_plugin(
     plugin: Any,
 ) -> bool:
     """
-    Return whether an object satisfies the runtime plugin contract.
+    Return whether an object satisfies the mandatory plugin contract.
     """
 
     try:
@@ -518,10 +576,7 @@ def plugin_metadata(
     plugin: Any,
 ) -> PluginMetadata:
     """
-    Extract PluginMetadata from a concrete plugin object.
-
-    Concrete plugins may optionally expose ``plugin_description``,
-    ``plugin_dependencies``, and ``plugin_optional`` attributes.
+    Extract descriptive metadata from a concrete plugin.
     """
 
     validate_plugin(
@@ -570,10 +625,12 @@ def plugin_widget(
     plugin: Any,
 ) -> Optional[QWidget]:
     """
-    Return the primary widget exposed by a plugin, if any.
+    Return the primary QWidget exposed by a plugin, if any.
 
-    A plugin may expose ``widget`` either as a property or as a
-    zero-argument method.
+    ``widget`` may be either:
+
+        - a QWidget-valued property;
+        - a zero-argument callable returning QWidget.
     """
 
     if plugin is None:
@@ -599,7 +656,8 @@ def plugin_widget(
     ):
         raise PluginContractError(
             (
-                f"Plugin {getattr(plugin, 'plugin_id', '<unknown>')!r} "
+                f"Plugin "
+                f"{getattr(plugin, 'plugin_id', '<unknown>')!r} "
                 "exposes a widget that is not a QWidget."
             )
         )
@@ -645,6 +703,11 @@ def plugin_dependencies(
     return tuple(
         dependencies
     )
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 
 __all__ = [
