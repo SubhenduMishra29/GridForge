@@ -187,6 +187,7 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
+    QMessageBox,
     QGraphicsView,
     QHBoxLayout,
     QLabel,
