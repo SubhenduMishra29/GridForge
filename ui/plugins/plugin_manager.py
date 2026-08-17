@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
 from .plugin_contract import (
-    PluginContractError,
     validate_plugin,
 )
 from .plugin_loader import (
@@ -262,7 +261,7 @@ class PluginManager:
     def definitions(
         self,
     ) -> tuple[PluginDefinition, ...]:
-        """Return definitions in declaration order."""
+        """Return plugin definitions in declaration order."""
 
         return tuple(
             self._definitions.values()
@@ -503,10 +502,7 @@ class PluginManager:
 
         This method does NOT initialize any plugin.
 
-        IMPORTANT
-        ---------
         PluginContext is never passed to PluginLoader.create().
-        Context belongs exclusively to the initialization phase.
         """
 
         self._require_definition(
@@ -525,41 +521,30 @@ class PluginManager:
         )
 
         for current_id in order:
-            existing_entry = (
-                self._registry.get_entry(
-                    current_id
-                )
-            )
-
-            if existing_entry is not None:
+            if self._registry.contains(
+                current_id
+            ):
                 continue
 
             definition = self._definitions[
                 current_id
             ]
 
-            # Concrete import is exclusively owned by PluginLoader.
+            # Explicit concrete import.
             self._loader.load(
                 current_id
             )
 
-            # Construction is deliberately context-free.
+            # Construction is context-free.
             plugin = self._loader.create(
                 current_id
             )
 
             # Validate before registration.
-            try:
-                validate_plugin(
-                    plugin,
-                    plugin_id=current_id,
-                )
-            except (
-                PluginContractError,
-                TypeError,
-                ValueError,
-            ):
-                raise
+            validate_plugin(
+                plugin,
+                plugin_id=current_id,
+            )
 
             self._registry.register(
                 current_id,
@@ -592,8 +577,6 @@ class PluginManager:
     ) -> tuple[PluginEntry, ...]:
         """
         Load plugins in deterministic dependency order.
-
-        Dependencies are loaded before dependants.
         """
 
         order = self.resolve_order(
@@ -633,9 +616,9 @@ class PluginManager:
         """
         Load and initialize one plugin and all dependencies.
 
-        Initialization occurs in topological dependency order.
+        Dependencies initialize before dependants.
 
-        A plugin cannot initialize when one of its dependencies is
+        A plugin cannot initialize while a required dependency is
         disabled.
         """
 
@@ -688,8 +671,8 @@ class PluginManager:
 
         Disabled plugins are skipped.
 
-        A dependent plugin is not initialized if one of its
-        dependencies is disabled.
+        A dependent plugin cannot initialize if a required dependency
+        is disabled.
         """
 
         order = self.resolve_order(
@@ -746,21 +729,34 @@ class PluginManager:
         plugin_id: str,
     ) -> None:
         """
-        Shut down a plugin and all initialized dependants.
+        Shut down one plugin and all initialized dependants.
 
-        Shutdown occurs in reverse dependency order.
+        Dependants are shut down before the requested plugin.
+
+        Only the dependent closure is affected. Unrelated plugins are
+        never shut down.
         """
 
         self._require_definition(
             plugin_id
         )
 
-        affected = self._dependent_closure(
-            plugin_id
+        affected = set(
+            self._dependent_closure(
+                plugin_id
+            )
         )
 
-        order = self.resolve_order(
-            affected
+        # Resolve the complete graph once, then restrict the result
+        # to the affected closure. This preserves global dependency
+        # ordering without accidentally traversing dependencies of
+        # unrelated dependants.
+        global_order = self.resolve_order()
+
+        order = tuple(
+            current_id
+            for current_id in global_order
+            if current_id in affected
         )
 
         for current_id in reversed(
@@ -814,7 +810,7 @@ class PluginManager:
         Shut down and unregister one plugin.
 
         A plugin cannot be unloaded while any registered dependant
-        remains, including transitive dependants.
+        remains.
         """
 
         self._require_definition(
@@ -828,9 +824,11 @@ class PluginManager:
         registered_dependants = tuple(
             current_id
             for current_id in dependants
-            if current_id != plugin_id
-            and self._registry.contains(
-                current_id
+            if (
+                current_id != plugin_id
+                and self._registry.contains(
+                    current_id
+                )
             )
         )
 
@@ -858,7 +856,8 @@ class PluginManager:
 
     def unload_all(self) -> None:
         """
-        Shut down and unregister all registered plugins.
+        Shut down and unregister all registered plugins in reverse
+        dependency order.
 
         Definitions remain available for another lifecycle cycle.
         """
@@ -1036,9 +1035,7 @@ class PluginManager:
         plugin_id: str,
     ) -> tuple[str, ...]:
         """
-        Return the plugin and all transitive dependants.
-
-        The result follows definition/dependency traversal order.
+        Return a plugin and all transitive dependants.
         """
 
         result: list[str] = []
@@ -1079,9 +1076,6 @@ class PluginManager:
     ) -> None:
         """
         Ensure all direct dependencies are enabled.
-
-        Initialization of a dependant is invalid when a required
-        dependency is disabled.
         """
 
         definition = self._require_definition(
@@ -1236,26 +1230,49 @@ class PluginManager:
         """
         Disable a plugin.
 
-        A registered plugin is shut down before being disabled.
+        Any initialized dependants are shut down first, ensuring that
+        an initialized plugin never remains dependent on a disabled
+        plugin.
 
-        Dependants are not automatically disabled; attempting to
-        initialize them while this dependency remains disabled will
-        fail explicitly.
+        Dependants are not automatically disabled. They remain
+        definition-enabled and may be initialized again once their
+        dependencies are re-enabled.
         """
 
         definition = self._require_definition(
             plugin_id
         )
 
-        if self._registry.contains(
-            plugin_id
-        ):
-            self._registry.disable(
-                plugin_id,
-                shutdown=True,
+        if definition.enabled:
+            affected = set(
+                self._dependent_closure(
+                    plugin_id
+                )
             )
 
-        if definition.enabled:
+            global_order = self.resolve_order()
+
+            shutdown_order = tuple(
+                current_id
+                for current_id in global_order
+                if current_id in affected
+            )
+
+            for current_id in reversed(
+                shutdown_order
+            ):
+                entry = self._registry.get_entry(
+                    current_id
+                )
+
+                if (
+                    entry is not None
+                    and entry.initialized
+                ):
+                    self._registry.shutdown(
+                        current_id
+                    )
+
             self._definitions[
                 plugin_id
             ] = PluginDefinition(
@@ -1267,32 +1284,19 @@ class PluginManager:
                 ),
             )
 
+        elif self._registry.contains(
+            plugin_id
+        ):
+            # Keep registry state synchronized even if the definition
+            # was already disabled.
+            self._registry.disable(
+                plugin_id,
+                shutdown=True,
+            )
+
     # ========================================================
     # INTERNAL VALIDATION
     # ========================================================
-
-    def _validate_dependencies(
-        self,
-        plugin_id: str,
-    ) -> None:
-        """
-        Validate that all direct dependencies are defined.
-        """
-
-        definition = self._require_definition(
-            plugin_id
-        )
-
-        for dependency in definition.dependencies:
-            if dependency not in self._definitions:
-                raise KeyError(
-                    (
-                        f"Plugin "
-                        f"{plugin_id!r} depends on "
-                        f"undefined plugin "
-                        f"{dependency!r}."
-                    )
-                )
 
     def _require_definition(
         self,
@@ -1317,6 +1321,10 @@ class PluginManager:
             )
 
         return definition
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
 
     @staticmethod
     def _validate_plugin_id(
