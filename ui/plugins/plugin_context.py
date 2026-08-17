@@ -22,7 +22,7 @@ It provides:
     - explicit dependency references;
     - controlled derived contexts;
     - required-dependency validation;
-    - access to genuinely optional services.
+    - access to genuinely optional extension services.
 
 It does NOT:
 
@@ -42,6 +42,9 @@ Architectural rules
 - PluginContext carries references; it does not own application state.
 - PluginContext is immutable after construction.
 - Derived contexts are created explicitly through derive().
+- Explicitly declared dependencies are preferred over generic services.
+- Generic services are an extension mechanism for genuinely optional
+  infrastructure and must not replace established service boundaries.
 - Plugins must not use this context to bypass established
   controllers or service boundaries.
 - Core/domain objects remain authoritative outside the UI.
@@ -84,12 +87,11 @@ class PluginContext:
     create, resolve, or own those objects.
 
     Plugin lifecycle infrastructure is deliberately excluded.
-    Plugins receive dependencies required to perform their UI role;
-    they do not receive PluginLoader, PluginRegistry, or
-    PluginManager references.
 
-    The context itself must not become a replacement for established
-    application/controller/service boundaries.
+    Explicitly declared fields are the canonical dependency boundary.
+    The generic ``services`` mapping is intentionally restricted to
+    genuinely optional extension services and must not become a
+    replacement for explicit application/controller dependencies.
     """
 
     # --------------------------------------------------------
@@ -150,6 +152,10 @@ class PluginContext:
 
     settings: Any = None
 
+    # --------------------------------------------------------
+    # Optional extension services
+    # --------------------------------------------------------
+
     services: Mapping[str, Any] = field(
         default_factory=dict
     )
@@ -164,19 +170,25 @@ class PluginContext:
 
     def __post_init__(self) -> None:
         """
-        Freeze the context's mapping containers.
+        Freeze mapping containers.
 
         The referenced dependency objects remain owned by their
         respective subsystems. PluginContext owns neither the objects
         nor their lifecycle.
         """
 
-        if self.services is None:
+        if not isinstance(
+            self.services,
+            Mapping,
+        ):
             raise TypeError(
                 "services must be a mapping."
             )
 
-        if self.metadata is None:
+        if not isinstance(
+            self.metadata,
+            Mapping,
+        ):
             raise TypeError(
                 "metadata must be a mapping."
             )
@@ -207,11 +219,14 @@ class PluginContext:
         default: Any = None,
     ) -> Any:
         """
-        Return an optional generic service.
+        Return an optional extension service.
 
-        Explicitly declared PluginContext fields remain preferred for
-        architectural dependencies. The generic mapping is reserved
-        for genuinely optional services.
+        Explicitly declared PluginContext fields are the canonical
+        dependency boundary. The generic mapping exists only for
+        genuinely optional extension infrastructure.
+
+        It must not be used to bypass an established controller,
+        manager, registry, or service boundary.
         """
 
         self._validate_name(
@@ -229,15 +244,10 @@ class PluginContext:
         name: str,
     ) -> Any:
         """
-        Return a required generic service.
+        Return a required optional-extension service.
 
-        Raises
-        ------
-        KeyError
-            If the service is absent.
-
-        RuntimeError
-            If the service exists but is None.
+        This method performs presence validation only. It does not
+        resolve, construct, substitute, or otherwise obtain a service.
         """
 
         self._validate_name(
@@ -248,7 +258,7 @@ class PluginContext:
         if name not in self.services:
             raise KeyError(
                 (
-                    f"Required service "
+                    f"Required extension service "
                     f"{name!r} is not available."
                 )
             )
@@ -258,7 +268,7 @@ class PluginContext:
         if value is None:
             raise RuntimeError(
                 (
-                    f"Required service "
+                    f"Required extension service "
                     f"{name!r} is available but "
                     "has value None."
                 )
@@ -270,7 +280,9 @@ class PluginContext:
         self,
         name: str,
     ) -> bool:
-        """Return whether a non-None generic service exists."""
+        """
+        Return whether a non-None extension service exists.
+        """
 
         self._validate_name(
             name,
@@ -298,10 +310,10 @@ class PluginContext:
         Only actual PluginContext fields may be overridden.
         """
 
-        field_names = {
+        field_names = tuple(
             item.name
             for item in fields(self)
-        }
+        )
 
         unknown = set(
             overrides
@@ -347,12 +359,28 @@ class PluginContext:
         """
         Validate required explicitly declared dependencies.
 
-        Validation performs no dependency resolution or substitution.
+        ``required`` refers only to named PluginContext fields.
+
+        Generic extension services are intentionally not considered
+        here because they must never silently substitute for an
+        explicitly declared architectural dependency.
         """
+
+        if not isinstance(
+            required,
+            tuple,
+        ):
+            raise TypeError(
+                "required must be a tuple."
+            )
 
         valid_fields = {
             item.name
             for item in fields(self)
+            if item.name not in {
+                "services",
+                "metadata",
+            }
         }
 
         for field_name in required:
@@ -365,7 +393,8 @@ class PluginContext:
                 raise KeyError(
                     (
                         f"Unknown PluginContext "
-                        f"field: {field_name!r}"
+                        f"dependency field: "
+                        f"{field_name!r}"
                     )
                 )
 
@@ -388,18 +417,13 @@ class PluginContext:
     def has_core_controller(self) -> bool:
         """Return whether the authoritative project controller exists."""
 
-        return self.project_controller is not None
+        return (
+            self.project_controller is not None
+        )
 
     def has_tool_system(self) -> bool:
         """
-        Return whether the complete tool interaction boundary is
-        available.
-
-        A usable tool system requires all three layers:
-
-            tool_manager
-            tool_registry
-            tool_dispatcher
+        Return whether the complete tool interaction boundary exists.
         """
 
         return (
@@ -410,10 +434,7 @@ class PluginContext:
 
     def has_renderer_system(self) -> bool:
         """
-        Return whether the renderer boundary is available.
-
-        The renderer registry and render system form the renderer
-        composition boundary and must both be present.
+        Return whether the renderer composition boundary exists.
         """
 
         return (
@@ -481,7 +502,10 @@ class PluginContext:
         service: Any,
     ) -> PluginContext:
         """
-        Return a derived context with one generic optional service.
+        Return a derived context with one optional extension service.
+
+        This method records a supplied reference only. It never creates
+        or resolves the service.
         """
 
         self._validate_name(
@@ -532,13 +556,15 @@ class PluginContext:
     ) -> None:
         """Validate a context/service identifier."""
 
-        if (
-            not isinstance(
-                value,
-                str,
-            )
-            or not value.strip()
+        if not isinstance(
+            value,
+            str,
         ):
+            raise TypeError(
+                f"{parameter_name} must be a string."
+            )
+
+        if not value.strip():
             raise ValueError(
                 (
                     f"{parameter_name} must be "
