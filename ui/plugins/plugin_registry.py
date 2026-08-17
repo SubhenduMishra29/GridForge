@@ -81,7 +81,7 @@ class PluginRegistry:
 
         descriptor = loader.load("canvas")
 
-        plugin = loader.create("canvas", context=context)
+        plugin = loader.create("canvas")
 
         registry.register(
             descriptor.plugin_id,
@@ -243,14 +243,16 @@ class PluginRegistry:
             plugin_id
         )
 
-        entry = self._entries.pop(
-            plugin_id,
-            None,
+        entry = self._entries.get(
+            plugin_id
         )
 
         if entry is None:
             return None
 
+        # Preserve registry state until shutdown succeeds. If plugin
+        # shutdown raises, the initialized entry remains registered and
+        # accurately reflects the live runtime object.
         if (
             shutdown
             and entry.initialized
@@ -258,6 +260,11 @@ class PluginRegistry:
             self._shutdown_entry(
                 entry
             )
+
+        self._entries.pop(
+            plugin_id,
+            None,
+        )
 
         return entry
 
@@ -709,6 +716,11 @@ class PluginRegistry:
             "widget",
             None,
         )
+
+        if callable(
+            widget
+        ):
+            widget = widget()
 
         return widget
 
