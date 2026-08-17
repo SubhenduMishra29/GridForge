@@ -18,7 +18,7 @@ It is responsible only for:
     1. Creating the Qt application.
     2. Creating the authoritative application/domain context.
     3. Creating the UI Controller.
-    4. Creating the MainWindow.
+    4. Creating and initializing the MainWindow.
     5. Showing the main window.
     6. Starting the Qt event loop.
 
@@ -48,6 +48,9 @@ Composition
          v
     Controller
     (UI coordination state)
+         |
+         v
+    create_main_window()
          |
          v
     MainWindow
@@ -88,7 +91,7 @@ from PySide6.QtWidgets import QApplication
 
 from core.model.grid import Grid
 from ui.core.controller import Controller
-from ui.main_window import MainWindow
+from ui.main_window import create_main_window
 
 
 def main() -> int:
@@ -133,7 +136,7 @@ def main() -> int:
     # ============================================================
 
     controller = Controller(
-       core=model
+        core=model
     )
 
     # ============================================================
@@ -147,10 +150,11 @@ def main() -> int:
     # ============================================================
 
     window = create_main_window(
-         controller=controller
+        controller=controller
     )
 
     window.show()
+
     # ============================================================
     # EVENT LOOP
     # ============================================================
