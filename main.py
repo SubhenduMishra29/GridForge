@@ -140,18 +140,17 @@ def main() -> int:
     # ROOT WINDOW
     # ============================================================
     #
-    # MainWindow is the root UI container.
+    # create_main_window() constructs the thin MainWindow shell
+    # and explicitly initializes the plugin composition.
     #
-    # UI construction remains delegated to the plugin-driven
-    # build_ui() mechanism inside MainWindow.
+    # MainWindow itself does not construct concrete UI components.
     # ============================================================
 
-    window = MainWindow(
-        controller=controller
+    window = create_main_window(
+         controller=controller
     )
 
     window.show()
-
     # ============================================================
     # EVENT LOOP
     # ============================================================
