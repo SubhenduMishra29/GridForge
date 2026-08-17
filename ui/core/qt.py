@@ -34,15 +34,6 @@ Architecture
         ▼
     PySide6
 
-The purpose of this boundary is to:
-
-    - centralize Qt dependencies;
-    - prevent Qt-framework imports from spreading through UI;
-    - provide a stable internal Qt API;
-    - make future Qt-version migration localized;
-    - keep application/UI architecture independent of direct
-      Qt import paths.
-
 Design principles
 -----------------
 1. PySide6 is the sole Qt backend.
@@ -58,8 +49,8 @@ Design principles
 
 6. It must not hide behavioral differences between UI modules.
 
-7. New Qt dependencies should be added here deliberately and
-   only when actually required by the UI architecture.
+7. New Qt dependencies should be added deliberately and only
+   when actually required by the UI architecture.
 
 8. Public names exported by this module form the internal
    GridForge Qt API.
@@ -69,31 +60,24 @@ Qt module grouping
 The exported API is organized into:
 
     Core
-        QObject, Signal, Slot, Property
+        QAbstractItemModel, QModelIndex, QObject,
+        QPoint, QPointF, QRectF, QSize, QSizeF,
+        QTimer, Qt, Signal, Slot, Property
 
-    Geometry
-        QPoint, QPointF, QRectF, QSize, QSizeF
-
-    GUI
-        QColor, QBrush, QFont, QIcon, QImage, QPainter,
-        QPainterPath, QPen, QPixmap, QTransform
+    GUI / Actions
+        QAction, QActionGroup,
+        QColor, QBrush, QFont, QIcon, QImage,
+        QPainter, QPainterPath, QPen, QPixmap, QTransform
 
     Widgets
-        QApplication, QGraphicsItem, QGraphicsObject,
+        QApplication, QDockWidget,
+        QGraphicsItem, QGraphicsObject,
         QGraphicsEllipseItem, QGraphicsLineItem,
         QGraphicsPathItem, QGraphicsRectItem,
-        QGraphicsScene, QGraphicsView, QWidget,
-        QMainWindow, QDockWidget, QToolBar, QLabel,
-        QPushButton, QStatusBar, QVBoxLayout, QHBoxLayout
-
-    Input / enums
-        Qt
-
-    Model/view support
-        QAbstractItemModel, QModelIndex
-
-    Utility
-        QTimer
+        QGraphicsScene, QGraphicsView,
+        QHBoxLayout, QLabel, QMainWindow,
+        QMessageBox, QPushButton, QStatusBar,
+        QToolBar, QVBoxLayout, QWidget
 
 This list is intentionally explicit.
 
@@ -105,8 +89,7 @@ or equivalent wildcard imports.
 
 Qt ownership
 ------------
-QObject ownership and parent-child lifetime remain governed by
-Qt.
+QObject ownership and parent-child lifetime remain governed by Qt.
 
 GridForge UI classes remain responsible for their own
 application-level ownership and lifecycle contracts.
@@ -160,6 +143,8 @@ from PySide6.QtCore import (
 # ============================================================
 
 from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
     QColor,
     QBrush,
     QFont,
@@ -187,11 +172,11 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
-    QMessageBox,
     QGraphicsView,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStatusBar,
     QToolBar,
@@ -231,8 +216,11 @@ __all__ = [
     "Property",
 
     # --------------------------------------------------------
-    # QtGui
+    # QtGui / Actions
     # --------------------------------------------------------
+
+    "QAction",
+    "QActionGroup",
 
     "QColor",
     "QBrush",
@@ -267,6 +255,8 @@ __all__ = [
     "QLabel",
 
     "QMainWindow",
+
+    "QMessageBox",
 
     "QPushButton",
 
