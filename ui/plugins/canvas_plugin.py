@@ -18,10 +18,10 @@ Architectural rules
 - The plugin must not own authoritative project/network state.
 - Canvas rendering remains delegated to the existing canvas/rendering
   subsystem.
-- Tool interaction remains delegated to the ToolManager/
+- Tool interaction remains delegated to the ToolManager /
   InteractionManager layer.
 - MainWindow remains thin and plugin-driven.
-- PySide6 is the only Qt binding used by GridForge.
+- ui.core.qt is the only Qt import boundary used here.
 """
 
 from __future__ import annotations
@@ -29,10 +29,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
+from ui.core.qt import (
+    QGraphicsScene,
+    QGraphicsView,
+    QObject,
+    QWidget,
+)
 
-from ui.core.qt import QtWidgets
 from ui.canvas.graphics_view import GridView
 
 
@@ -44,10 +47,15 @@ from ui.canvas.graphics_view import GridView
 @dataclass(slots=True)
 class CanvasPluginContext:
     """
-    Runtime dependencies supplied to CanvasPlugin.
+    Runtime dependencies required by CanvasPlugin.
 
-    The context contains references to already-created application
-    services. CanvasPlugin does not create Core/domain services.
+    These are references to already-created application/UI services.
+    CanvasPlugin does not create Core, domain, controller, tool, or
+    rendering services.
+
+    This context is intentionally narrower than the application-wide
+    PluginContext. PluginManager may pass the shared PluginContext,
+    which CanvasPlugin normalizes through ``_coerce_context()``.
     """
 
     parent: Optional[QWidget] = None
@@ -74,32 +82,54 @@ class CanvasPlugin(QObject):
     """
     Composition plugin for the GridForge canvas.
 
-    The plugin provides the canvas widget and wires existing canvas,
-    rendering, and interaction services into that widget.
+    Responsibilities
+    ----------------
+    - create the primary canvas scene/view;
+    - attach existing rendering services;
+    - attach existing interaction services;
+    - attach the existing tool system;
+    - expose the composed canvas widget.
 
-    It deliberately does not own:
-        - project state
-        - network topology
-        - electrical calculations
-        - commands
-        - undo/redo history
-        - simulation state
+    Non-responsibilities
+    --------------------
+    - project state;
+    - network topology;
+    - electrical calculations;
+    - commands;
+    - undo/redo;
+    - simulation state;
+    - tool registration;
+    - renderer registration.
     """
 
     plugin_id = "canvas"
     plugin_name = "Canvas"
     plugin_version = "1.0"
+    plugin_description = (
+        "Primary GridForge graphical canvas composition."
+    )
+
+    plugin_dependencies: tuple[str, ...] = ()
+    plugin_optional = False
 
     def __init__(
         self,
-        context: Optional[CanvasPluginContext] = None,
+        context: Any = None,
         parent: Optional[QObject] = None,
     ) -> None:
-        super().__init__(parent)
+        """
+        Construct the canvas plugin.
 
-        self._context = (
+        Construction does not create the canvas. Initialization remains
+        an explicit lifecycle operation.
+        """
+
+        super().__init__(
+            parent
+        )
+
+        self._context = self._coerce_context(
             context
-            or CanvasPluginContext()
         )
 
         self._scene: Optional[
@@ -122,7 +152,7 @@ class CanvasPlugin(QObject):
 
     @property
     def context(self) -> CanvasPluginContext:
-        """Return the plugin context."""
+        """Return the normalized canvas plugin context."""
 
         return self._context
 
@@ -146,39 +176,43 @@ class CanvasPlugin(QObject):
     def widget(
         self,
     ) -> Optional[QWidget]:
-        """Return the plugin's root widget."""
+        """Return the primary canvas widget."""
 
         return self._widget
 
     @property
     def initialized(self) -> bool:
-        """Return whether the plugin has been initialized."""
+        """Return whether the plugin is initialized."""
 
         return self._initialized
 
     # ========================================================
-    # PLUGIN LIFECYCLE
+    # LIFECYCLE
     # ========================================================
 
     def initialize(
         self,
-        context: Optional[
-            CanvasPluginContext
-        ] = None,
+        context: Any = None,
     ) -> QWidget:
         """
-        Initialize the canvas plugin.
+        Initialize the canvas composition.
 
-        Initialization is idempotent. If the plugin has already been
-        initialized, the existing root widget is returned.
+        Initialization is idempotent. A second initialization returns
+        the already-created canvas widget.
         """
 
         if self._initialized:
-            assert self._widget is not None
+            if self._widget is None:
+                raise RuntimeError(
+                    "CanvasPlugin is initialized without a widget."
+                )
+
             return self._widget
 
         if context is not None:
-            self._context = context
+            self._context = self._coerce_context(
+                context
+            )
 
         self._create_canvas()
 
@@ -186,17 +220,23 @@ class CanvasPlugin(QObject):
 
         self._initialized = True
 
-        assert self._widget is not None
+        if self._widget is None:
+            raise RuntimeError(
+                "CanvasPlugin initialization produced no widget."
+            )
 
         return self._widget
 
     def shutdown(self) -> None:
         """
-        Disconnect plugin-owned references.
+        Shut down the canvas composition.
 
-        The plugin does not delete application-owned services.
-        Qt parent ownership remains responsible for widget lifetime.
+        Application services and Core/domain objects are not destroyed.
+        Qt ownership remains responsible for Qt object lifetime.
         """
+
+        if not self._initialized:
+            return
 
         self._disconnect_canvas()
 
@@ -207,14 +247,78 @@ class CanvasPlugin(QObject):
         self._initialized = False
 
     # ========================================================
+    # CONTEXT
+    # ========================================================
+
+    @staticmethod
+    def _coerce_context(
+        context: Any,
+    ) -> CanvasPluginContext:
+        """
+        Convert the shared application PluginContext or a
+        CanvasPluginContext into the canvas-specific context.
+
+        This keeps PluginManager independent of concrete plugin types.
+        """
+
+        if context is None:
+            return CanvasPluginContext()
+
+        if isinstance(
+            context,
+            CanvasPluginContext,
+        ):
+            return context
+
+        return CanvasPluginContext(
+            parent=getattr(
+                context,
+                "parent",
+                None,
+            ),
+            scene=getattr(
+                context,
+                "scene",
+                None,
+            ),
+            view=getattr(
+                context,
+                "view",
+                None,
+            ),
+            canvas_controller=getattr(
+                context,
+                "canvas_controller",
+                None,
+            ),
+            render_system=getattr(
+                context,
+                "render_system",
+                None,
+            ),
+            interaction_manager=getattr(
+                context,
+                "interaction_manager",
+                None,
+            ),
+            tool_manager=getattr(
+                context,
+                "tool_manager",
+                None,
+            ),
+        )
+
+    # ========================================================
     # CANVAS CREATION
     # ========================================================
 
     def _create_canvas(self) -> None:
         """
-        Create the scene and GridView.
+        Create or adopt the canvas scene and view.
 
-        Existing injected objects are reused rather than replaced.
+        Injected objects are reused. Missing canvas objects are created
+        locally because they are composition-owned UI objects rather
+        than Core/application services.
         """
 
         scene = self._context.scene
@@ -240,35 +344,50 @@ class CanvasPlugin(QObject):
         self._view = view
         self._widget = view
 
+    @staticmethod
     def _create_grid_view(
-        self,
         scene: QGraphicsScene,
+        parent: Optional[QWidget] = None,
     ) -> QGraphicsView:
         """
         Create the GridForge-specific graphics view.
 
-        GridView is preferred over a generic QGraphicsView because the
-        GridForge canvas owns grid/coordinate interaction behavior.
+        GridView is preferred because it contains GridForge canvas
+        interaction/rendering behavior.
+
+        The small constructor compatibility sequence allows the plugin
+        to work with the established GridView constructor without
+        embedding constructor knowledge elsewhere in the composition
+        layer.
         """
 
         try:
             view = GridView(
                 scene=scene,
-                parent=self._context.parent,
+                parent=parent,
             )
         except TypeError:
             try:
                 view = GridView(
                     scene,
-                    self._context.parent,
+                    parent,
                 )
             except TypeError:
                 view = GridView(
-                    self._context.parent
+                    parent
                 )
+
                 view.setScene(
                     scene
                 )
+
+        if not isinstance(
+            view,
+            QGraphicsView,
+        ):
+            raise TypeError(
+                "GridView must inherit from QGraphicsView."
+            )
 
         return view
 
@@ -278,27 +397,21 @@ class CanvasPlugin(QObject):
 
     def _wire_canvas(self) -> None:
         """
-        Wire existing rendering and interaction services.
+        Attach existing canvas-related services.
 
-        Services are intentionally treated through small capability
-        checks so CanvasPlugin does not impose a concrete implementation
-        hierarchy on the rest of the UI.
+        The plugin performs composition only. Service implementations
+        remain responsible for their own behavior.
         """
 
         self._wire_render_system()
-
         self._wire_interaction_manager()
-
         self._wire_tool_manager()
-
         self._wire_canvas_controller()
 
     def _wire_render_system(self) -> None:
-        """Attach the render system to the canvas where supported."""
+        """Attach the rendering system to the canvas."""
 
-        render_system = (
-            self._context.render_system
-        )
+        render_system = self._context.render_system
 
         if render_system is None:
             return
@@ -354,11 +467,9 @@ class CanvasPlugin(QObject):
         )
 
     def _wire_tool_manager(self) -> None:
-        """Attach the tool manager to the canvas interaction layer."""
+        """Attach the existing tool manager to the canvas."""
 
-        tool_manager = (
-            self._context.tool_manager
-        )
+        tool_manager = self._context.tool_manager
 
         if tool_manager is None:
             return
@@ -419,9 +530,10 @@ class CanvasPlugin(QObject):
 
     def _disconnect_canvas(self) -> None:
         """
-        Disconnect plugin-owned service references.
+        Detach plugin-owned canvas connections.
 
-        Services are not destroyed by this method.
+        The underlying services remain alive and owned by their
+        respective application layers.
         """
 
         services = (
@@ -466,7 +578,7 @@ class CanvasPlugin(QObject):
         """
         Replace the canvas scene.
 
-        Scene ownership remains with the caller.
+        The caller remains responsible for scene ownership.
         """
 
         if not isinstance(
@@ -477,6 +589,11 @@ class CanvasPlugin(QObject):
                 "scene must be QGraphicsScene."
             )
 
+        if self._scene is scene:
+            return
+
+        self._disconnect_scene_connections()
+
         self._scene = scene
 
         if self._view is not None:
@@ -484,10 +601,8 @@ class CanvasPlugin(QObject):
                 scene
             )
 
-        self._wire_render_system()
-        self._wire_interaction_manager()
-        self._wire_tool_manager()
-        self._wire_canvas_controller()
+        if self._initialized:
+            self._wire_canvas()
 
     def set_view(
         self,
@@ -496,7 +611,8 @@ class CanvasPlugin(QObject):
         """
         Replace the canvas view.
 
-        View ownership remains with its Qt parent hierarchy.
+        The Qt parent hierarchy remains responsible for widget
+        ownership.
         """
 
         if not isinstance(
@@ -507,30 +623,30 @@ class CanvasPlugin(QObject):
                 "view must be QGraphicsView."
             )
 
+        if self._view is view:
+            return
+
+        self._disconnect_view_connections()
+
         self._view = view
+        self._widget = view
 
         if self._scene is not None:
-            self._view.setScene(
+            view.setScene(
                 self._scene
             )
 
-        self._widget = view
-
-        self._wire_render_system()
-        self._wire_interaction_manager()
-        self._wire_tool_manager()
-        self._wire_canvas_controller()
+        if self._initialized:
+            self._wire_canvas()
 
     def refresh(self) -> None:
         """
-        Request a visual refresh through the rendering layer.
+        Request a visual refresh.
 
-        No Core calculation is performed here.
+        No Core calculation or domain mutation occurs here.
         """
 
-        render_system = (
-            self._context.render_system
-        )
+        render_system = self._context.render_system
 
         if render_system is not None:
             self._invoke_optional(
@@ -556,9 +672,61 @@ class CanvasPlugin(QObject):
         return self._view is not None
 
     def scene_available(self) -> bool:
-        """Return whether a scene exists."""
+        """Return whether a canvas scene exists."""
 
         return self._scene is not None
+
+    # ========================================================
+    # DISCONNECT HELPERS
+    # ========================================================
+
+    def _disconnect_view_connections(self) -> None:
+        """Detach services from the current canvas view."""
+
+        services = (
+            self._context.render_system,
+            self._context.interaction_manager,
+            self._context.tool_manager,
+            self._context.canvas_controller,
+        )
+
+        for service in services:
+            if service is None:
+                continue
+
+            self._invoke_optional(
+                service,
+                (
+                    "detach_view",
+                    "remove_view",
+                    "clear_view",
+                ),
+                self._view,
+            )
+
+    def _disconnect_scene_connections(self) -> None:
+        """Detach services from the current canvas scene."""
+
+        services = (
+            self._context.render_system,
+            self._context.interaction_manager,
+            self._context.tool_manager,
+            self._context.canvas_controller,
+        )
+
+        for service in services:
+            if service is None:
+                continue
+
+            self._invoke_optional(
+                service,
+                (
+                    "detach_scene",
+                    "remove_scene",
+                    "clear_scene",
+                ),
+                self._scene,
+            )
 
     # ========================================================
     # INTERNAL HELPERS
@@ -571,13 +739,10 @@ class CanvasPlugin(QObject):
         *args: Any,
     ) -> bool:
         """
-        Invoke the first supported method.
+        Invoke the first supported capability method.
 
-        Returns True when a method was found and called.
-
-        The helper deliberately does not swallow exceptions raised by
-        an existing method implementation. Such exceptions indicate a
-        genuine integration problem and must remain visible.
+        Exceptions raised by an existing method are deliberately not
+        swallowed. They represent actual integration failures.
         """
 
         for method_name in method_names:
@@ -595,21 +760,18 @@ class CanvasPlugin(QObject):
 
 
 # ============================================================
-# PLUGIN FACTORY
+# FACTORY
 # ============================================================
 
 
 def create_canvas_plugin(
-    context: Optional[
-        CanvasPluginContext
-    ] = None,
+    context: Any = None,
     parent: Optional[QObject] = None,
 ) -> CanvasPlugin:
     """
-    Create a CanvasPlugin instance.
+    Create a CanvasPlugin.
 
-    Construction does not initialize the plugin. Plugin lifecycle
-    remains explicit.
+    Creation does not initialize the plugin.
     """
 
     return CanvasPlugin(
