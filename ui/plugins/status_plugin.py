@@ -15,22 +15,24 @@ Architectural role
 StatusPlugin is a UI composition plugin.
 
 It:
-    - creates the status-bar presentation
-    - registers presentation fields
-    - exposes the resulting QStatusBar
-    - delegates application/UI coordination through PluginContext
-      and its controller
+
+    - obtains the application's QStatusBar;
+    - composes presentation fields;
+    - owns only its presentation bookkeeping;
+    - exposes the resulting QStatusBar;
+    - provides presentation-only update operations.
 
 It does NOT:
-    - own application state
-    - own project state
-    - own network state
-    - access Core directly
-    - perform electrical calculations
-    - construct controllers or services
-    - maintain a second application-state model
-    - communicate directly with MainWindow beyond the injected
-      PluginContext boundary
+
+    - own application state;
+    - own project state;
+    - own network state;
+    - access Core directly;
+    - perform electrical calculations;
+    - construct controllers or services;
+    - maintain a second application-state model;
+    - expose controllers as a service locator;
+    - mutate application/domain state.
 
 Architecture
 ------------
@@ -45,7 +47,6 @@ PluginManager / UI Registry
     v
 PluginContext
     |
-    +--> controller
     +--> main_window
     |
     v
@@ -54,7 +55,14 @@ StatusPlugin
     v
 QStatusBar
 
-PySide6 is the only Qt binding used by GridForge.
+Qt boundary
+-----------
+All Qt imports are obtained from:
+
+    ui.core.qt
+
+PySide6 remains the sole Qt backend, but individual UI modules
+must not import PySide6 directly.
 """
 
 from __future__ import annotations
@@ -62,8 +70,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QLabel, QMainWindow, QStatusBar
+from ui.core.qt import (
+    QLabel,
+    QMainWindow,
+    QObject,
+    QStatusBar,
+    Signal,
+)
 
 from ui.plugins.plugin_context import PluginContext
 
@@ -76,12 +89,12 @@ from ui.plugins.plugin_context import PluginContext
 @dataclass(frozen=True, slots=True)
 class StatusSpec:
     """
-    Declarative description of one status-bar field.
+    Declarative description of one status-bar presentation field.
 
     StatusSpec contains presentation metadata only.
 
     It does not contain application state and does not reference
-    controllers or Core objects.
+    controllers, services, Core objects, or domain models.
     """
 
     status_id: str
@@ -114,14 +127,42 @@ class StatusSpec:
                 "text must be a string."
             )
 
+        if self.tooltip is not None and not isinstance(
+            self.tooltip,
+            str,
+        ):
+            raise TypeError(
+                "tooltip must be a string or None."
+            )
+
         if not isinstance(self.stretch, int):
             raise TypeError(
                 "stretch must be an integer."
             )
 
+        if isinstance(self.stretch, bool):
+            raise TypeError(
+                "stretch must be an integer, not bool."
+            )
+
         if self.stretch < 0:
             raise ValueError(
                 "stretch cannot be negative."
+            )
+
+        if not isinstance(self.permanent, bool):
+            raise TypeError(
+                "permanent must be bool."
+            )
+
+        if not isinstance(self.visible, bool):
+            raise TypeError(
+                "visible must be bool."
+            )
+
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError(
+                "metadata must be a mapping."
             )
 
 
@@ -136,26 +177,25 @@ class StatusPlugin(QObject):
 
     Ownership
     ---------
-    The plugin owns the composition and presentation bookkeeping of
-    the status bar.
+    The plugin owns:
 
-    Application state remains outside the plugin.
+        - status presentation composition;
+        - status specification bookkeeping;
+        - status QLabel instances created by the plugin.
+
+    The MainWindow owns the QStatusBar through Qt's parent-child
+    ownership model.
+
+    Application state remains outside this plugin.
 
     Dependency boundary
     -------------------
-    PluginContext is the only application dependency gateway.
+    PluginContext is the application's dependency boundary.
 
-    The plugin therefore does not receive independent references to:
-
-        - project controller
-        - selection controller
-        - tool manager
-        - status manager
-        - Core objects
-        - domain models
-
-    Such dependencies must be coordinated through the application's
-    controller exposed by PluginContext.
+    StatusPlugin does not expose the controller or any other
+    application service as a convenience accessor. Presentation
+    coordination belongs to the appropriate application/UI
+    coordination layer.
     """
 
     plugin_id = "status"
@@ -209,7 +249,7 @@ class StatusPlugin(QObject):
 
     @property
     def status_bar(self) -> Optional[QStatusBar]:
-        """Return the composed status bar."""
+        """Return the composed application status bar."""
 
         return self._status_bar
 
@@ -218,7 +258,7 @@ class StatusPlugin(QObject):
         """
         Return the plugin's composed UI component.
 
-        UI registry/plugin manager can use this as the component
+        Plugin infrastructure may use this as the component
         produced by the plugin.
         """
 
@@ -234,7 +274,9 @@ class StatusPlugin(QObject):
     def status_ids(self) -> tuple[str, ...]:
         """Return registered status identifiers."""
 
-        return tuple(self._labels.keys())
+        return tuple(
+            self._labels.keys()
+        )
 
     # ========================================================
     # LIFECYCLE
@@ -244,31 +286,44 @@ class StatusPlugin(QObject):
         """
         Initialize the status plugin.
 
-        PluginContext is supplied during construction and is not
-        replaced during initialization.
-
         Initialization is idempotent.
+
+        The MainWindow supplies the authoritative QStatusBar.
+        The plugin does not create or replace the MainWindow's
+        status-bar ownership.
+
+        Canonical presentation fields are composed during the
+        first initialization.
         """
 
         if self._initialized:
-            assert self._status_bar is not None
+            if self._status_bar is None:
+                raise RuntimeError(
+                    "StatusPlugin is initialized without a status bar."
+                )
+
             return self._status_bar
 
         self._create_status_bar()
 
+        self._register_default_statuses()
+
         self._initialized = True
 
-        assert self._status_bar is not None
+        if self._status_bar is None:
+            raise RuntimeError(
+                "Status bar creation failed."
+            )
 
         return self._status_bar
 
     def shutdown(self) -> None:
         """
-        Release plugin-owned presentation bookkeeping.
+        Release plugin-owned presentation objects.
 
-        The plugin does not destroy MainWindow or application services.
+        The MainWindow-owned QStatusBar is not destroyed.
 
-        The status bar itself remains under Qt/MainWindow ownership.
+        Application services and application state are not modified.
         """
 
         if not self._initialized:
@@ -277,7 +332,6 @@ class StatusPlugin(QObject):
         self._remove_plugin_statuses()
 
         self._status_bar = None
-
         self._initialized = False
 
     # ========================================================
@@ -286,10 +340,10 @@ class StatusPlugin(QObject):
 
     def _create_status_bar(self) -> None:
         """
-        Create or obtain the application's QStatusBar.
+        Obtain the application's QStatusBar.
 
-        MainWindow is supplied through PluginContext and remains the
-        owner of the application status bar.
+        The status bar belongs to the MainWindow. This plugin does
+        not construct an independent status bar.
         """
 
         main_window = self._context.main_window
@@ -304,6 +358,14 @@ class StatusPlugin(QObject):
 
         self._status_bar = main_window.statusBar()
 
+    def _register_default_statuses(self) -> None:
+        """Register the canonical GridForge status presentation."""
+
+        for spec in default_statuses():
+            self.add_status(
+                spec
+            )
+
     # ========================================================
     # STATUS REGISTRATION
     # ========================================================
@@ -313,10 +375,12 @@ class StatusPlugin(QObject):
         spec: StatusSpec,
     ) -> QLabel:
         """
-        Add a presentation field to the status bar.
+        Add one presentation field to the status bar.
 
-        The plugin owns the presentation widget but not the state
-        represented by that widget.
+        The plugin owns the created QLabel.
+
+        The value represented by the label remains presentation
+        state only; authoritative application state is external.
         """
 
         if not isinstance(
@@ -327,17 +391,17 @@ class StatusPlugin(QObject):
                 "spec must be StatusSpec."
             )
 
+        if self._status_bar is None:
+            raise RuntimeError(
+                "StatusPlugin has not been initialized."
+            )
+
         if spec.status_id in self._labels:
             raise ValueError(
                 (
                     f"Status {spec.status_id!r} "
                     "is already registered."
                 )
-            )
-
-        if self._status_bar is None:
-            raise RuntimeError(
-                "StatusPlugin has not been initialized."
             )
 
         label = QLabel(
@@ -384,18 +448,14 @@ class StatusPlugin(QObject):
         status_id: str,
     ) -> Optional[QLabel]:
         """
-        Remove a presentation status field.
+        Remove a plugin-owned presentation field.
 
-        No application state is modified.
+        No application or domain state is modified.
         """
 
-        if not isinstance(
-            status_id,
-            str,
-        ):
-            raise TypeError(
-                "status_id must be a string."
-            )
+        self._validate_status_id(
+            status_id
+        )
 
         label = self._labels.pop(
             status_id,
@@ -437,7 +497,11 @@ class StatusPlugin(QObject):
         self,
         status_id: str,
     ) -> Optional[QLabel]:
-        """Return a status presentation widget."""
+        """Return a registered status presentation widget."""
+
+        self._validate_status_id(
+            status_id
+        )
 
         return self._labels.get(
             status_id
@@ -449,7 +513,29 @@ class StatusPlugin(QObject):
     ) -> bool:
         """Return whether a status field is registered."""
 
+        self._validate_status_id(
+            status_id
+        )
+
         return status_id in self._labels
+
+    def status_spec(
+        self,
+        status_id: str,
+    ) -> Optional[StatusSpec]:
+        """Return the immutable specification for a status field."""
+
+        self._validate_status_id(
+            status_id
+        )
+
+        return self._specs.get(
+            status_id
+        )
+
+    # ========================================================
+    # STATUS PRESENTATION
+    # ========================================================
 
     def set_status(
         self,
@@ -459,8 +545,10 @@ class StatusPlugin(QObject):
         """
         Update status presentation.
 
-        This method changes only the UI representation. It does not
-        write state to Core or to the controller.
+        This changes only the QLabel representation.
+
+        It does not write state to Core, the project, or an
+        application controller.
         """
 
         if not isinstance(
@@ -470,6 +558,10 @@ class StatusPlugin(QObject):
             raise TypeError(
                 "text must be a string."
             )
+
+        self._validate_status_id(
+            status_id
+        )
 
         label = self._labels.get(
             status_id
@@ -507,6 +599,10 @@ class StatusPlugin(QObject):
                 "visible must be bool."
             )
 
+        self._validate_status_id(
+            status_id
+        )
+
         label = self._labels.get(
             status_id
         )
@@ -531,7 +627,8 @@ class StatusPlugin(QObject):
         """
         Display a transient status-bar message.
 
-        This is presentation only.
+        This is presentation only and does not represent persistent
+        application state.
         """
 
         if not isinstance(
@@ -543,7 +640,9 @@ class StatusPlugin(QObject):
             )
 
         if self._status_bar is None:
-            return
+            raise RuntimeError(
+                "StatusPlugin has not been initialized."
+            )
 
         self._status_bar.showMessage(
             text
@@ -553,25 +652,11 @@ class StatusPlugin(QObject):
         """Clear the transient status-bar message."""
 
         if self._status_bar is None:
-            return
+            raise RuntimeError(
+                "StatusPlugin has not been initialized."
+            )
 
         self._status_bar.clearMessage()
-
-    # ========================================================
-    # CONTROLLER BRIDGE
-    # ========================================================
-
-    def controller(self) -> Any:
-        """
-        Return the approved UI controller.
-
-        This method exists only as a narrow convenience accessor.
-
-        StatusPlugin must not use the controller as a replacement for
-        Core ownership or as a local application-state store.
-        """
-
-        return self._context.controller
 
     # ========================================================
     # CAPABILITIES
@@ -583,6 +668,24 @@ class StatusPlugin(QObject):
         return len(
             self._labels
         )
+
+    # ========================================================
+    # VALIDATION HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _validate_status_id(
+        status_id: str,
+    ) -> None:
+        """Validate a status identifier."""
+
+        if (
+            not isinstance(status_id, str)
+            or not status_id.strip()
+        ):
+            raise ValueError(
+                "status_id must be a non-empty string."
+            )
 
 
 # ============================================================
@@ -597,10 +700,10 @@ def default_statuses() -> tuple[
     """
     Return the canonical GridForge baseline status fields.
 
-    These definitions establish presentation only.
+    These definitions describe presentation defaults only.
 
-    Their runtime values must be supplied by the controller/UI
-    coordination layer rather than being calculated by this plugin.
+    Runtime values are supplied by the appropriate application/UI
+    coordination layer.
     """
 
     return (
@@ -608,13 +711,11 @@ def default_statuses() -> tuple[
             status_id="tool",
             text="Tool: Select",
             tooltip="Currently active tool.",
-            stretch=0,
         ),
         StatusSpec(
             status_id="selection",
             text="Selection: None",
             tooltip="Current canvas selection.",
-            stretch=0,
         ),
         StatusSpec(
             status_id="coordinates",
@@ -626,7 +727,6 @@ def default_statuses() -> tuple[
             status_id="project",
             text="Project: Ready",
             tooltip="Current project state.",
-            stretch=0,
             permanent=True,
         ),
     )
@@ -644,8 +744,9 @@ def create_status_plugin(
     """
     Create an uninitialized StatusPlugin.
 
-    Plugin construction does not perform UI composition.
-    Initialization remains explicit.
+    Construction performs dependency validation only.
+
+    UI composition remains explicit through initialize().
     """
 
     return StatusPlugin(
