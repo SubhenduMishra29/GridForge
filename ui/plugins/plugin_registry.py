@@ -13,17 +13,45 @@ Architectural rules
 -------------------
 - The registry does NOT import concrete plugin implementations.
 - Concrete plugin imports are handled explicitly by plugin_loader.py.
-- The registry stores plugin descriptors/instances only.
+- The registry owns registered plugin instances.
+- PluginStateStore owns observable runtime lifecycle state.
 - Registration does not initialize a plugin.
 - The registry does not perform plugin discovery.
-- The registry does not create Core/domain state.
+- The registry does not resolve dependencies.
+- The registry does not own application/domain state.
+- PluginManager owns lifecycle orchestration and dependency ordering.
 - MainWindow remains thin and plugin-driven.
+
+Lifecycle boundary
+------------------
+PluginRegistry is the low-level lifecycle execution boundary.
+
+It may execute:
+
+    initialize()
+    shutdown()
+
+when instructed by PluginManager or another composition owner.
+
+It does NOT decide:
+
+    dependency ordering
+    dependency satisfaction
+    global lifecycle policy
+    composition order
+
+PluginStateStore is updated only with lifecycle results. It is not a
+lifecycle manager.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from dataclasses import dataclass, field
+from typing import Any, Iterable, Mapping, Optional
+
+from .plugin_state import (
+    PluginStateStore,
+)
 
 
 # ============================================================
@@ -36,20 +64,28 @@ class PluginEntry:
     """
     Runtime registry entry for one UI plugin.
 
-    The registry is intentionally implementation-agnostic. A plugin
-    object is supplied by the explicit loader or application
-    composition layer.
+    PluginEntry owns the association between a plugin ID and its
+    concrete plugin instance.
+
+    Runtime lifecycle state is deliberately NOT stored here.
+
+    In particular, PluginEntry does not contain:
+
+        - enabled
+        - initialized
+        - generation
+        - last_error
+
+    Those facts belong to PluginStateStore.
     """
 
     plugin_id: str
 
     plugin: Any
 
-    enabled: bool = True
-
-    initialized: bool = False
-
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(
@@ -60,8 +96,14 @@ class PluginEntry:
                 "plugin_id must be a non-empty string."
             )
 
-        if self.metadata is None:
-            self.metadata = {}
+        if self.plugin is None:
+            raise ValueError(
+                "plugin cannot be None."
+            )
+
+        self.metadata = dict(
+            self.metadata
+        )
 
 
 # ============================================================
@@ -71,39 +113,71 @@ class PluginEntry:
 
 class PluginRegistry:
     """
-    Registry for UI composition plugins.
+    Registry for UI composition plugin instances.
 
-    PluginRegistry deliberately contains no concrete imports.
+    Ownership
+    ---------
+    PluginRegistry owns:
 
-    Typical flow::
+        - plugin instance registration;
+        - plugin instance lookup;
+        - registration metadata;
+        - low-level lifecycle execution.
 
-        loader = create_default_plugin_loader()
+    PluginRegistry does NOT own:
 
-        descriptor = loader.load("canvas")
+        - dependency resolution;
+        - lifecycle ordering;
+        - composition definitions;
+        - application/domain state;
+        - concrete plugin imports.
 
-        plugin = loader.create("canvas")
+    Runtime state
+    -------------
+    PluginStateStore is the canonical source for:
 
-        registry.register(
-            descriptor.plugin_id,
-            plugin,
-        )
+        - registered;
+        - enabled;
+        - initialized;
+        - generation;
+        - last_error.
 
-        registry.initialize("canvas")
-
-    The loader is responsible for resolving concrete implementations;
-    this registry is responsible only for lifecycle registration and
-    lookup.
+    Therefore this registry never maintains a second copy of those
+    runtime facts inside PluginEntry.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        state_store: Optional[
+            PluginStateStore
+        ] = None,
+    ) -> None:
         self._entries: dict[
             str,
             PluginEntry,
         ] = {}
 
+        self._state_store = (
+            state_store
+            if state_store is not None
+            else PluginStateStore()
+        )
+
     # ========================================================
     # PROPERTIES
     # ========================================================
+
+    @property
+    def state_store(self) -> PluginStateStore:
+        """
+        Return the canonical runtime-state store.
+
+        PluginManager and PluginRegistry should share the same store
+        when they participate in the same composition.
+        """
+
+        return self._state_store
 
     @property
     def plugin_ids(
@@ -147,14 +221,16 @@ class PluginRegistry:
         *,
         enabled: bool = True,
         metadata: Optional[
-            dict[str, Any]
+            Mapping[str, Any]
         ] = None,
     ) -> PluginEntry:
         """
         Register a plugin instance.
 
-        Duplicate IDs are rejected. Registration does not initialize
-        the plugin.
+        Registration does not initialize the plugin.
+
+        The resulting registration and enablement facts are recorded
+        in PluginStateStore.
         """
 
         self._validate_plugin_id(
@@ -185,8 +261,6 @@ class PluginRegistry:
         entry = PluginEntry(
             plugin_id=plugin_id,
             plugin=plugin,
-            enabled=enabled,
-            initialized=False,
             metadata=dict(
                 metadata or {}
             ),
@@ -195,6 +269,21 @@ class PluginRegistry:
         self._entries[
             plugin_id
         ] = entry
+
+        try:
+            self._state_store.define(
+                plugin_id,
+                enabled=enabled,
+                metadata=entry.metadata,
+            )
+        except Exception:
+            # Registration must remain atomic from the registry's
+            # perspective if state recording fails.
+            self._entries.pop(
+                plugin_id,
+                None,
+            )
+            raise
 
         return entry
 
@@ -208,6 +297,10 @@ class PluginRegistry:
         Register multiple plugin instances.
 
         Registration order is preserved.
+
+        If registration of a later plugin fails, previously registered
+        plugins remain registered. No implicit rollback policy is
+        introduced here.
         """
 
         registered: list[
@@ -236,7 +329,10 @@ class PluginRegistry:
         Remove a plugin from the registry.
 
         By default, an initialized plugin is shut down before removal.
-        The registry does not destroy arbitrary plugin objects.
+
+        The registry entry is removed only after successful shutdown.
+        Runtime state is removed only after the registry no longer owns
+        the plugin instance.
         """
 
         self._validate_plugin_id(
@@ -250,23 +346,40 @@ class PluginRegistry:
         if entry is None:
             return None
 
-        # Preserve registry state until shutdown succeeds. If plugin
-        # shutdown raises, the initialized entry remains registered and
-        # accurately reflects the live runtime object.
         if (
             shutdown
-            and entry.initialized
+            and self._state_store.is_initialized(
+                plugin_id
+            )
         ):
             self._shutdown_entry(
                 entry
             )
 
-        self._entries.pop(
-            plugin_id,
-            None,
+        elif (
+            not shutdown
+            and self._state_store.is_initialized(
+                plugin_id
+            )
+        ):
+            raise RuntimeError(
+                (
+                    f"Cannot unregister initialized "
+                    f"plugin {plugin_id!r} without shutdown."
+                )
+            )
+
+        removed = self._entries.pop(
+            plugin_id
         )
 
-        return entry
+        # The state record is removed only after the actual registry
+        # ownership has been removed successfully.
+        self._state_store.remove(
+            plugin_id
+        )
+
+        return removed
 
     def clear(
         self,
@@ -373,13 +486,20 @@ class PluginRegistry:
         self,
         plugin_id: str,
     ) -> None:
-        """Enable a registered plugin."""
+        """
+        Record the enabled result for a registered plugin.
 
-        entry = self._require_entry(
+        Enabling does not initialize the plugin.
+        """
+
+        self._require_entry(
             plugin_id
         )
 
-        entry.enabled = True
+        self._state_store.set_enabled(
+            plugin_id,
+            True,
+        )
 
     def disable(
         self,
@@ -390,29 +510,42 @@ class PluginRegistry:
         """
         Disable a registered plugin.
 
-        If the plugin is initialized, it is shut down by default.
+        If the plugin is initialized, it must be shut down first unless
+        the requested operation is rejected by the state store.
         """
 
         entry = self._require_entry(
             plugin_id
         )
 
-        if shutdown and entry.initialized:
+        if (
+            shutdown
+            and self._state_store.is_initialized(
+                plugin_id
+            )
+        ):
             self._shutdown_entry(
                 entry
             )
 
-        entry.enabled = False
+        self._state_store.set_enabled(
+            plugin_id,
+            False,
+        )
 
     def is_enabled(
         self,
         plugin_id: str,
     ) -> bool:
-        """Return whether a plugin is enabled."""
+        """Return canonical enablement state."""
 
-        return self._require_entry(
+        self._require_entry(
             plugin_id
-        ).enabled
+        )
+
+        return self._state_store.is_enabled(
+            plugin_id
+        )
 
     # ========================================================
     # LIFECYCLE
@@ -427,15 +560,21 @@ class PluginRegistry:
         """
         Initialize one registered plugin.
 
-        The registry supports the conventional ``initialize(context)``
-        contract but does not impose a concrete plugin base class.
+        This method performs low-level lifecycle execution.
+
+        Dependency ordering and lifecycle policy remain outside the
+        registry.
         """
 
         entry = self._require_entry(
             plugin_id
         )
 
-        if not entry.enabled:
+        state = self._state_store.require(
+            plugin_id
+        )
+
+        if not state.enabled:
             raise RuntimeError(
                 (
                     f"Plugin {plugin_id!r} "
@@ -443,7 +582,7 @@ class PluginRegistry:
                 )
             )
 
-        if entry.initialized:
+        if state.initialized:
             return self._plugin_widget(
                 entry.plugin
             )
@@ -457,21 +596,39 @@ class PluginRegistry:
         if not callable(
             initialize
         ):
-            raise TypeError(
+            error = TypeError(
                 (
                     f"Plugin {plugin_id!r} "
                     "does not provide initialize()."
                 )
             )
 
-        if context is None:
-            result = initialize()
-        else:
-            result = initialize(
-                context
+            self._state_store.record_error(
+                plugin_id,
+                error,
             )
 
-        entry.initialized = True
+            raise error
+
+        try:
+            if context is None:
+                result = initialize()
+            else:
+                result = initialize(
+                    context
+                )
+
+        except Exception as error:
+            self._state_store.record_error(
+                plugin_id,
+                error,
+            )
+            raise
+
+        self._state_store.set_initialized(
+            plugin_id,
+            True,
+        )
 
         return result
 
@@ -482,11 +639,13 @@ class PluginRegistry:
         ] = None,
         *,
         contexts: Optional[
-            dict[str, Any]
+            Mapping[str, Any]
         ] = None,
     ) -> tuple[Any, ...]:
         """
-        Initialize multiple registered plugins in explicit order.
+        Initialize multiple registered plugins in explicit caller order.
+
+        Dependency ordering is intentionally not performed here.
         """
 
         ids = (
@@ -519,13 +678,20 @@ class PluginRegistry:
         self,
         plugin_id: str,
     ) -> None:
-        """Shut down one registered plugin."""
+        """
+        Shut down one registered plugin.
+
+        Dependency ordering remains the responsibility of
+        PluginManager.
+        """
 
         entry = self._require_entry(
             plugin_id
         )
 
-        if not entry.initialized:
+        if not self._state_store.is_initialized(
+            plugin_id
+        ):
             return
 
         self._shutdown_entry(
@@ -539,10 +705,12 @@ class PluginRegistry:
         ] = None,
     ) -> None:
         """
-        Shut down registered plugins.
+        Shut down registered plugins in the caller-supplied order.
 
-        Shutdown occurs in reverse registration order to provide a
-        predictable composition teardown sequence.
+        When no order is supplied, reverse registration order is used.
+
+        Dependency-aware ordering remains the responsibility of
+        PluginManager.
         """
 
         ids = (
@@ -550,19 +718,23 @@ class PluginRegistry:
                 plugin_ids
             )
             if plugin_ids is not None
-            else self.plugin_ids
+            else tuple(
+                reversed(
+                    self.plugin_ids
+                )
+            )
         )
 
-        for plugin_id in reversed(
-            ids
-        ):
-            entry = self._require_entry(
+        for plugin_id in ids:
+            self._require_entry(
                 plugin_id
             )
 
-            if entry.initialized:
-                self._shutdown_entry(
-                    entry
+            if self._state_store.is_initialized(
+                plugin_id
+            ):
+                self.shutdown(
+                    plugin_id
                 )
 
     # ========================================================
@@ -573,32 +745,40 @@ class PluginRegistry:
         self,
         plugin_id: str,
     ) -> bool:
-        """Return whether a plugin has been initialized."""
+        """Return canonical initialization state."""
 
-        return self._require_entry(
+        self._require_entry(
             plugin_id
-        ).initialized
+        )
+
+        return self._state_store.is_initialized(
+            plugin_id
+        )
 
     def initialized_ids(
         self,
     ) -> tuple[str, ...]:
-        """Return initialized plugin IDs."""
+        """Return registered IDs whose canonical state is initialized."""
 
         return tuple(
-            entry.plugin_id
-            for entry in self._entries.values()
-            if entry.initialized
+            plugin_id
+            for plugin_id in self.plugin_ids
+            if self._state_store.is_initialized(
+                plugin_id
+            )
         )
 
     def enabled_ids(
         self,
     ) -> tuple[str, ...]:
-        """Return enabled plugin IDs."""
+        """Return registered IDs whose canonical state is enabled."""
 
         return tuple(
-            entry.plugin_id
-            for entry in self._entries.values()
-            if entry.enabled
+            plugin_id
+            for plugin_id in self.plugin_ids
+            if self._state_store.is_enabled(
+                plugin_id
+            )
         )
 
     # ========================================================
@@ -611,7 +791,7 @@ class PluginRegistry:
         key: str,
         value: Any,
     ) -> None:
-        """Set registry metadata for a plugin."""
+        """Set registry metadata and mirror it in canonical state."""
 
         if not isinstance(
             key,
@@ -625,11 +805,13 @@ class PluginRegistry:
             plugin_id
         )
 
-        assert entry.metadata is not None
+        entry.metadata[key] = value
 
-        entry.metadata[
-            key
-        ] = value
+        self._state_store.set_metadata(
+            plugin_id,
+            key,
+            value,
+        )
 
     def metadata(
         self,
@@ -642,7 +824,7 @@ class PluginRegistry:
         )
 
         return dict(
-            entry.metadata or {}
+            entry.metadata
         )
 
     # ========================================================
@@ -671,14 +853,31 @@ class PluginRegistry:
                 )
             )
 
+        # Registry and state store must remain synchronized at the
+        # registration boundary.
+        if not self._state_store.contains(
+            plugin_id
+        ):
+            raise RuntimeError(
+                (
+                    f"Plugin {plugin_id!r} is registered "
+                    "but has no corresponding runtime state."
+                )
+            )
+
         return entry
 
-    @staticmethod
     def _shutdown_entry(
+        self,
         entry: PluginEntry,
     ) -> None:
         """
-        Shut down a plugin through its explicit lifecycle contract.
+        Execute the plugin shutdown lifecycle operation.
+
+        State is changed only after successful shutdown.
+
+        On failure, the plugin remains initialized and the error is
+        recorded in PluginStateStore.
         """
 
         shutdown = getattr(
@@ -690,16 +889,34 @@ class PluginRegistry:
         if not callable(
             shutdown
         ):
-            raise TypeError(
+            error = TypeError(
                 (
                     f"Plugin {entry.plugin_id!r} "
                     "does not provide shutdown()."
                 )
             )
 
-        shutdown()
+            self._state_store.record_error(
+                entry.plugin_id,
+                error,
+            )
 
-        entry.initialized = False
+            raise error
+
+        try:
+            shutdown()
+
+        except Exception as error:
+            self._state_store.record_error(
+                entry.plugin_id,
+                error,
+            )
+            raise
+
+        self._state_store.set_initialized(
+            entry.plugin_id,
+            False,
+        )
 
     @staticmethod
     def _plugin_widget(
@@ -708,7 +925,7 @@ class PluginRegistry:
         """
         Return an optional plugin widget after initialization.
 
-        This helper avoids imposing a widget interface on every plugin.
+        This helper does not impose a widget interface on plugins.
         """
 
         widget = getattr(
@@ -749,14 +966,24 @@ class PluginRegistry:
 # ============================================================
 
 
-def create_plugin_registry() -> PluginRegistry:
+def create_plugin_registry(
+    *,
+    state_store: Optional[
+        PluginStateStore
+    ] = None,
+) -> PluginRegistry:
     """
     Create an empty plugin registry.
 
     Concrete plugin imports intentionally do not occur here.
+
+    A state store may be supplied so the registry participates in a
+    larger composition with a shared canonical runtime-state store.
     """
 
-    return PluginRegistry()
+    return PluginRegistry(
+        state_store=state_store,
+    )
 
 
 __all__ = [
