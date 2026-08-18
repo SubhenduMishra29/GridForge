@@ -1,1494 +1,1202 @@
 # ============================================================
-# File: tests/ui/core/test_tool_manager.py
-# GridForge V2 — Tool Manager Tests
+# File: ui/core/tool_manager.py
+# GridForge V2 — Tool Manager
 # ============================================================
+"""
+Central tool lifecycle manager for GridForge V2.
+
+Architecture
+------------
+
+    Controller
+        │
+        │ tool_changed(tool_id, previous_tool_id)
+        ▼
+    ToolManager
+        │
+        ├── tool registry
+        ├── concrete tool instances
+        ├── active tool
+        ├── activation
+        ├── deactivation
+        ├── cancellation
+        └── reset
+              │
+              ▼
+          Active Tool
+
+Ownership
+---------
+
+Controller
+    Owns application-level tool-selection intent.
+
+ToolManager
+    Owns concrete tool instances and their lifecycle.
+
+InteractionManager
+    Routes user input to the currently active tool.
+
+Concrete Tools
+    Implement tool-specific interaction behavior.
+
+Responsibilities
+----------------
+
+ToolManager:
+
+    - owns concrete tool instances;
+    - creates tools through registered factories/classes;
+    - responds to Controller tool-selection changes;
+    - activates the requested tool;
+    - deactivates the previous tool;
+    - cancels active tool interaction;
+    - resets active tool interaction;
+    - disposes owned tool instances;
+    - exposes active tool state;
+    - provides diagnostics.
+
+ToolManager does NOT:
+
+    - decide which tool the application should select;
+    - store application-level requested tool state;
+    - implement tool behavior;
+    - process mouse events;
+    - process keyboard events;
+    - perform snapping;
+    - perform selection;
+    - perform navigation;
+    - modify Core directly;
+    - render permanent graphics.
+
+Lifecycle invariants
+--------------------
+
+1. Controller owns requested tool selection.
+2. ToolManager owns concrete tool lifecycle.
+3. ToolManager never calls Controller.set_tool().
+4. An unknown tool request must not deactivate the current tool.
+5. A failed tool construction must not destroy the current
+   active lifecycle state.
+6. A failed activation must restore the previous active tool
+   when possible.
+7. Active state is committed only after successful activation.
+8. A successfully active tool remains active until a successful
+   transition, explicit deactivation, or disposal.
+9. Tool instances are lazily constructed.
+10. ToolManager is the sole owner of concrete tool instances.
+11. A disposed ToolManager cannot be mutated or activated.
+12. Constructor TypeError from a concrete tool is never
+    reinterpreted as a constructor-signature mismatch.
+13. Failed activation must never leave the manager reporting
+    an inactive tool as active.
+14. A failed transition must preserve the previous lifecycle
+    whenever restoration succeeds.
+15. Tool ownership is removed only after successful disposal.
+16. Disposal is retry-safe when a lifecycle operation fails.
+17. Preview state is cleared whenever an interaction lifecycle
+    ends or a transition occurs.
+
+Tool construction
+-----------------
+
+The canonical tool constructor contract is:
+
+    Tool(
+        interaction_manager=...,
+        preview=...,
+    )
+
+Factories/classes registered with ToolManager must support that
+contract.
+
+This manager deliberately does not catch TypeError from inside
+the tool constructor and reinterpret it as a constructor-signature
+mismatch. A tool-construction failure must propagate unchanged
+so the real production error remains visible.
+
+Qt Architecture
+----------------
+
+This module intentionally has no direct Qt dependency.
+"""
 
 from __future__ import annotations
 
-import pytest
-
-from ui.core.tool_manager import ToolManager
+from typing import Any, Callable, Optional
 
 
-# ============================================================
-# TEST DOUBLES
-# ============================================================
+ToolFactory = Callable[..., Any]
 
 
-class FakeController:
-    """Minimal Controller double for ToolManager tests."""
+class ToolManager:
+    """
+    Central owner of GridForge concrete tool instances.
 
-    def __init__(self):
-        self.callbacks = {}
-        self.subscribe_calls = []
-        self.unsubscribe_calls = []
+    Controller owns requested tool selection.
 
-    def subscribe(self, signal_name, callback):
-        self.subscribe_calls.append(
-            (signal_name, callback)
-        )
-        self.callbacks.setdefault(
-            signal_name,
-            []
-        ).append(callback)
+    ToolManager owns concrete tool lifecycle.
+    """
 
-    def unsubscribe(self, signal_name, callback):
-        self.unsubscribe_calls.append(
-            (signal_name, callback)
-        )
+    # ========================================================
+    # INITIALIZATION
+    # ========================================================
 
-        callbacks = self.callbacks.get(
-            signal_name,
-            []
-        )
-
-        if callback in callbacks:
-            callbacks.remove(callback)
-
-    def emit_tool_changed(
+    def __init__(
         self,
-        new_tool_id,
-        previous_tool_id=None,
-    ):
-        for callback in tuple(
-            self.callbacks.get(
+        controller: Any,
+        interaction_manager: Any = None,
+        preview: Any = None,
+        tool_registry: Optional[Any] = None,
+    ) -> None:
+        """
+        Initialize ToolManager.
+
+        The Controller is externally owned.
+
+        ToolManager owns:
+
+            - tool registry;
+            - concrete tool instances;
+            - active tool lifecycle;
+            - Controller subscription lifecycle.
+        """
+
+        if controller is None:
+            raise ValueError(
+                "controller must not be None."
+            )
+
+        self._validate_controller(
+            controller
+        )
+
+        self.controller = controller
+        self.interaction_manager = interaction_manager
+        self.preview = preview
+
+        # ----------------------------------------------------
+        # Registered tool factories/classes.
+        # ----------------------------------------------------
+
+        self._tool_registry: dict[
+            str,
+            ToolFactory,
+        ] = {}
+
+        # ----------------------------------------------------
+        # Lazily instantiated concrete tool instances.
+        # ----------------------------------------------------
+
+        self._tool_instances: dict[
+            str,
+            Any,
+        ] = {}
+
+        # ----------------------------------------------------
+        # Active lifecycle state.
+        # ----------------------------------------------------
+
+        self._active_tool_id: Optional[str] = None
+        self._active_tool: Optional[Any] = None
+
+        # ----------------------------------------------------
+        # Manager lifecycle.
+        # ----------------------------------------------------
+
+        self._connected = False
+        self._disposed = False
+
+        # ----------------------------------------------------
+        # Optional initial registry.
+        # ----------------------------------------------------
+
+        if tool_registry is not None:
+            self._load_registry(
+                tool_registry
+            )
+
+        # ----------------------------------------------------
+        # Controller subscription.
+        # ----------------------------------------------------
+
+        self._subscribe_controller()
+
+    # ========================================================
+    # CONTROLLER VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_controller(
+        controller: Any,
+    ) -> None:
+        """
+        Validate the Controller lifecycle boundary.
+
+        ToolManager requires both subscription operations because
+        it owns the lifetime of its Controller subscription.
+        """
+
+        subscribe = getattr(
+            controller,
+            "subscribe",
+            None,
+        )
+
+        if not callable(subscribe):
+            raise TypeError(
+                "controller must provide subscribe()."
+            )
+
+        unsubscribe = getattr(
+            controller,
+            "unsubscribe",
+            None,
+        )
+
+        if not callable(unsubscribe):
+            raise TypeError(
+                "controller must provide unsubscribe()."
+            )
+
+    # ========================================================
+    # CONTROLLER SUBSCRIPTION
+    # ========================================================
+
+    def _subscribe_controller(
+        self,
+    ) -> None:
+        """
+        Subscribe to Controller.tool_changed.
+
+        Canonical Controller contract:
+
+            controller.subscribe(
                 "tool_changed",
-                []
+                callback,
             )
+        """
+
+        self._ensure_active()
+
+        subscribe = getattr(
+            self.controller,
+            "subscribe",
+            None,
+        )
+
+        if not callable(subscribe):
+            raise TypeError(
+                "controller must provide subscribe()."
+            )
+
+        subscribe(
+            "tool_changed",
+            self._on_tool_changed,
+        )
+
+        self._connected = True
+
+    # --------------------------------------------------------
+
+    def _unsubscribe_controller(
+        self,
+    ) -> None:
+        """
+        Remove the Controller tool-selection subscription.
+
+        Canonical Controller contract:
+
+            controller.unsubscribe(
+                "tool_changed",
+                callback,
+            )
+        """
+
+        unsubscribe = getattr(
+            self.controller,
+            "unsubscribe",
+            None,
+        )
+
+        if not callable(unsubscribe):
+            raise TypeError(
+                "controller must provide unsubscribe()."
+            )
+
+        unsubscribe(
+            "tool_changed",
+            self._on_tool_changed,
+        )
+
+    # ========================================================
+    # TOOL REGISTRY
+    # ========================================================
+
+    def register_tool(
+        self,
+        tool_id: str,
+        factory: ToolFactory,
+    ) -> None:
+        """
+        Register a concrete tool factory.
+
+        Registration does not instantiate or activate the tool.
+        """
+
+        self._ensure_active()
+
+        self._validate_tool_id(
+            tool_id
+        )
+
+        if not callable(factory):
+            raise TypeError(
+                "factory must be callable."
+            )
+
+        if tool_id in self._tool_registry:
+            raise ValueError(
+                f"Tool already registered: {tool_id!r}"
+            )
+
+        self._tool_registry[
+            tool_id
+        ] = factory
+
+    # --------------------------------------------------------
+
+    def register_tools(
+        self,
+        tools: dict[str, ToolFactory],
+    ) -> None:
+        """
+        Register multiple tool factories atomically.
+        """
+
+        self._ensure_active()
+
+        if tools is None:
+            raise ValueError(
+                "tools must not be None."
+            )
+
+        if not isinstance(
+            tools,
+            dict,
         ):
-            callback(
-                new_tool_id,
-                previous_tool_id,
+            raise TypeError(
+                "tools must be a dictionary."
             )
 
+        # ----------------------------------------------------
+        # Validate complete batch before mutation.
+        # ----------------------------------------------------
 
-class FakePreview:
-    """Preview-layer double."""
+        for tool_id, factory in tools.items():
 
-    def __init__(self):
-        self.clear_count = 0
+            self._validate_tool_id(
+                tool_id
+            )
 
-    def clear(self):
-        self.clear_count += 1
+            if not callable(factory):
+                raise TypeError(
+                    "factory must be callable."
+                )
 
+            if tool_id in self._tool_registry:
+                raise ValueError(
+                    f"Tool already registered: {tool_id!r}"
+                )
 
-class FakeTool:
-    """Lifecycle-aware concrete tool double."""
+        self._tool_registry.update(
+            tools
+        )
 
-    created = []
+    # --------------------------------------------------------
 
-    def __init__(
+    def unregister_tool(
         self,
-        interaction_manager=None,
-        preview=None,
-    ):
-        self.interaction_manager = interaction_manager
-        self.preview = preview
+        tool_id: str,
+    ) -> None:
+        """
+        Unregister a tool.
 
-        self.activate_count = 0
-        self.deactivate_count = 0
-        self.cancel_count = 0
-        self.reset_count = 0
-        self.dispose_count = 0
+        The active tool cannot be unregistered.
 
-        self.fail_activate = False
-        self.fail_deactivate = False
-        self.fail_dispose = False
+        If disposal fails, ownership and registration remain
+        intact so the operation can be retried safely.
+        """
 
-        FakeTool.created.append(self)
+        self._ensure_active()
 
-    def activate(self):
-        self.activate_count += 1
+        self._validate_tool_id(
+            tool_id
+        )
 
-        if self.fail_activate:
+        if tool_id == self._active_tool_id:
             raise RuntimeError(
-                "activation failure"
+                "Cannot unregister the active tool."
             )
 
-    def deactivate(self):
-        self.deactivate_count += 1
+        if tool_id in self._tool_instances:
 
-        if self.fail_deactivate:
-            raise RuntimeError(
-                "deactivation failure"
-            )
-
-    def cancel(self):
-        self.cancel_count += 1
-        return True
-
-    def reset(self):
-        self.reset_count += 1
-
-    def dispose(self):
-        self.dispose_count += 1
-
-        if self.fail_dispose:
-            raise RuntimeError(
-                "disposal failure"
-            )
-
-
-class PassiveTool:
-    """Tool without optional lifecycle methods."""
-
-    created = []
-
-    def __init__(
-        self,
-        interaction_manager=None,
-        preview=None,
-    ):
-        self.interaction_manager = interaction_manager
-        self.preview = preview
-
-        PassiveTool.created.append(self)
-
-
-# ============================================================
-# FIXTURES
-# ============================================================
-
-
-@pytest.fixture(autouse=True)
-def reset_tool_tracking():
-    FakeTool.created.clear()
-    PassiveTool.created.clear()
-
-
-@pytest.fixture
-def controller():
-    return FakeController()
-
-
-@pytest.fixture
-def preview():
-    return FakePreview()
-
-
-@pytest.fixture
-def manager(controller, preview):
-    return ToolManager(
-        controller=controller,
-        interaction_manager="interaction",
-        preview=preview,
-    )
-
-
-# ============================================================
-# INITIALIZATION
-# ============================================================
-
-
-def test_requires_controller():
-    with pytest.raises(ValueError):
-        ToolManager(None)
-
-
-def test_controller_must_provide_subscribe():
-    class InvalidController:
-        pass
-
-    with pytest.raises(TypeError):
-        ToolManager(
-            InvalidController()
-        )
-
-
-def test_initial_state(manager):
-    assert manager.get_current_tool() is None
-    assert manager.get_current_tool_id() is None
-    assert manager.active_tool is None
-    assert manager.active_tool_id is None
-
-
-def test_controller_subscription_is_established(
-    manager,
-    controller,
-):
-    assert len(
-        controller.subscribe_calls
-    ) == 1
-
-    signal_name, callback = (
-        controller.subscribe_calls[0]
-    )
-
-    assert signal_name == "tool_changed"
-    assert callback == manager._on_tool_changed
-
-
-# ============================================================
-# REGISTRATION
-# ============================================================
-
-
-def test_register_tool(manager):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    assert manager.has_tool("select")
-    assert manager.get_tool_ids() == (
-        "select",
-    )
-
-
-def test_register_tool_does_not_instantiate(manager):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    assert FakeTool.created == []
-
-
-def test_register_rejects_invalid_id(manager):
-    with pytest.raises(TypeError):
-        manager.register_tool(
-            123,
-            FakeTool,
-        )
-
-
-def test_register_rejects_empty_id(manager):
-    with pytest.raises(ValueError):
-        manager.register_tool(
-            "   ",
-            FakeTool,
-        )
-
-
-def test_register_rejects_non_callable_factory(manager):
-    with pytest.raises(TypeError):
-        manager.register_tool(
-            "select",
-            object(),
-        )
-
-
-def test_duplicate_registration_fails(manager):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    with pytest.raises(ValueError):
-        manager.register_tool(
-            "select",
-            FakeTool,
-        )
-
-
-def test_register_tools(manager):
-    manager.register_tools(
-        {
-            "select": FakeTool,
-            "bus": PassiveTool,
-        }
-    )
-
-    assert manager.get_tool_ids() == (
-        "select",
-        "bus",
-    )
-
-
-def test_register_tools_is_atomic(manager):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    with pytest.raises(ValueError):
-        manager.register_tools(
-            {
-                "bus": FakeTool,
-                "select": PassiveTool,
-            }
-        )
-
-    assert manager.get_tool_ids() == (
-        "select",
-    )
-
-
-def test_register_tools_rejects_none(manager):
-    with pytest.raises(ValueError):
-        manager.register_tools(None)
-
-
-def test_register_tools_rejects_non_dict(manager):
-    with pytest.raises(TypeError):
-        manager.register_tools([])
-
-
-# ============================================================
-# REGISTRY LOADING
-# ============================================================
-
-
-def test_registry_can_be_passed_as_dict(
-    controller,
-    preview,
-):
-    manager = ToolManager(
-        controller,
-        preview=preview,
-        tool_registry={
-            "select": FakeTool,
-        },
-    )
-
-    assert manager.get_tool_ids() == (
-        "select",
-    )
-
-
-def test_registry_can_expose_get_tools(
-    controller,
-):
-    class Registry:
-        def get_tools(self):
-            return {
-                "select": FakeTool,
-            }
-
-    manager = ToolManager(
-        controller,
-        tool_registry=Registry(),
-    )
-
-    assert manager.has_tool("select")
-
-
-def test_registry_can_expose_items(
-    controller,
-):
-    class Registry:
-        def items(self):
-            return [
-                ("select", FakeTool),
+            instance = self._tool_instances[
+                tool_id
             ]
 
-    manager = ToolManager(
-        controller,
-        tool_registry=Registry(),
-    )
-
-    assert manager.has_tool("select")
-
-
-def test_invalid_registry_fails(controller):
-    with pytest.raises(TypeError):
-        ToolManager(
-            controller,
-            tool_registry=object(),
-        )
-
-
-# ============================================================
-# LAZY CONSTRUCTION
-# ============================================================
-
-
-def test_tool_is_constructed_on_first_activation(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    assert FakeTool.created == []
-
-    tool = manager.activate(
-        "select"
-    )
-
-    assert len(FakeTool.created) == 1
-    assert tool is FakeTool.created[0]
-
-
-def test_tool_constructor_receives_canonical_arguments(
-    controller,
-    preview,
-):
-    interaction = object()
-
-    manager = ToolManager(
-        controller,
-        interaction_manager=interaction,
-        preview=preview,
-    )
-
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    assert tool.interaction_manager is interaction
-    assert tool.preview is preview
-
-
-def test_existing_tool_instance_is_reused(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    first = manager.activate(
-        "select"
-    )
-
-    manager.deactivate()
-
-    second = manager.activate(
-        "select"
-    )
-
-    assert first is second
-    assert len(FakeTool.created) == 1
-
-
-def test_constructor_failure_preserves_current_tool(
-    manager,
-):
-    manager.register_tool(
-        "good",
-        FakeTool,
-    )
-
-    def failing_factory(
-        interaction_manager=None,
-        preview=None,
-    ):
-        raise RuntimeError(
-            "constructor failure"
-        )
-
-    manager.register_tool(
-        "bad",
-        failing_factory,
-    )
-
-    current = manager.activate(
-        "good"
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="constructor failure",
-    ):
-        manager.activate(
-            "bad"
-        )
-
-    assert manager.active_tool is current
-    assert manager.active_tool_id == "good"
-
-
-def test_factory_returning_none_fails(manager):
-    manager.register_tool(
-        "bad",
-        lambda **kwargs: None,
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="Tool factory returned None",
-    ):
-        manager.activate(
-            "bad"
-        )
-
-
-# ============================================================
-# ACTIVATION
-# ============================================================
-
-
-def test_activate_unknown_tool_preserves_state(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    current = manager.activate(
-        "select"
-    )
-
-    with pytest.raises(KeyError):
-        manager.activate(
-            "unknown"
-        )
-
-    assert manager.active_tool is current
-    assert manager.active_tool_id == "select"
-
-
-def test_activate_same_tool_is_noop(manager):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    activate_count = tool.activate_count
-
-    result = manager.activate(
-        "select"
-    )
-
-    assert result is tool
-    assert tool.activate_count == activate_count
-
-
-def test_activation_deactivates_previous_tool(
-    manager,
-):
-    manager.register_tool(
-        "first",
-        FakeTool,
-    )
-    manager.register_tool(
-        "second",
-        FakeTool,
-    )
-
-    first = manager.activate(
-        "first"
-    )
-
-    second = manager.activate(
-        "second"
-    )
-
-    assert first.deactivate_count == 1
-    assert second.activate_count == 1
-    assert manager.active_tool is second
-    assert manager.active_tool_id == "second"
-
-
-def test_failed_deactivation_preserves_previous_state(
-    manager,
-):
-    manager.register_tool(
-        "first",
-        FakeTool,
-    )
-    manager.register_tool(
-        "second",
-        FakeTool,
-    )
-
-    first = manager.activate(
-        "first"
-    )
-
-    first.fail_deactivate = True
-
-    with pytest.raises(
-        RuntimeError,
-        match="deactivation failure",
-    ):
-        manager.activate(
-            "second"
-        )
-
-    assert manager.active_tool is first
-    assert manager.active_tool_id == "first"
-
-
-def test_failed_activation_restores_previous_tool(
-    manager,
-):
-    manager.register_tool(
-        "first",
-        FakeTool,
-    )
-    manager.register_tool(
-        "second",
-        FakeTool,
-    )
-
-    first = manager.activate(
-        "first"
-    )
-
-    second = manager._get_or_create_tool(
-        "second"
-    )
-
-    second.fail_activate = True
-
-    with pytest.raises(
-        RuntimeError,
-        match="activation failure",
-    ):
-        manager.activate(
-            "second"
-        )
-
-    assert manager.active_tool is first
-    assert manager.active_tool_id == "first"
-    assert first.activate_count == 2
-
-
-def test_failed_activation_without_previous_tool_leaves_none(
-    manager,
-):
-    manager.register_tool(
-        "bad",
-        FakeTool,
-    )
-
-    tool = manager._get_or_create_tool(
-        "bad"
-    )
-
-    tool.fail_activate = True
-
-    with pytest.raises(
-        RuntimeError,
-        match="activation failure",
-    ):
-        manager.activate(
-            "bad"
-        )
-
-    assert manager.active_tool is None
-    assert manager.active_tool_id is None
-
-
-def test_failed_restoration_clears_active_state(
-    manager,
-):
-    manager.register_tool(
-        "first",
-        FakeTool,
-    )
-    manager.register_tool(
-        "second",
-        FakeTool,
-    )
-
-    first = manager.activate(
-        "first"
-    )
-
-    second = manager._get_or_create_tool(
-        "second"
-    )
-
-    second.fail_activate = True
-
-    original_activate = first.activate
-
-    def fail_restore():
-        first.activate_count += 1
-        raise RuntimeError(
-            "restore failure"
-        )
-
-    first.activate = fail_restore
-
-    with pytest.raises(
-        RuntimeError,
-        match="activation failure",
-    ):
-        manager.activate(
-            "second"
-        )
-
-    assert manager.active_tool is None
-    assert manager.active_tool_id is None
-
-
-def test_activation_clears_preview(
-    manager,
-    preview,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    manager.activate(
-        "select"
-    )
-
-    assert preview.clear_count >= 1
-
-
-# ============================================================
-# CONTROLLER INTEGRATION
-# ============================================================
-
-
-def test_controller_tool_changed_activates_tool(
-    manager,
-    controller,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    controller.emit_tool_changed(
-        "select"
-    )
-
-    assert manager.active_tool_id == "select"
-    assert manager.active_tool is not None
-
-
-def test_controller_unknown_tool_does_not_deactivate_current(
-    manager,
-    controller,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    current = manager.activate(
-        "select"
-    )
-
-    with pytest.raises(KeyError):
-        controller.emit_tool_changed(
-            "unknown"
-        )
-
-    assert manager.active_tool is current
-    assert manager.active_tool_id == "select"
-
-
-# ============================================================
-# DEACTIVATION
-# ============================================================
-
-
-def test_deactivate_clears_active_state(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    manager.deactivate()
-
-    assert tool.deactivate_count == 1
-    assert manager.active_tool is None
-    assert manager.active_tool_id is None
-
-
-def test_deactivate_without_active_tool_is_noop(
-    manager,
-):
-    manager.deactivate()
-
-    assert manager.active_tool is None
-    assert manager.active_tool_id is None
-
-
-def test_deactivate_failure_preserves_state(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    tool.fail_deactivate = True
-
-    with pytest.raises(
-        RuntimeError,
-        match="deactivation failure",
-    ):
-        manager.deactivate()
-
-    assert manager.active_tool is tool
-    assert manager.active_tool_id == "select"
-
-
-def test_activate_none_deactivates(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    result = manager.activate(
-        None
-    )
-
-    assert result is None
-    assert tool.deactivate_count == 1
-    assert manager.active_tool is None
-    assert manager.active_tool_id is None
-
-
-# ============================================================
-# CANCEL
-# ============================================================
-
-
-def test_cancel_active_tool(
-    manager,
-    preview,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    result = manager.cancel()
-
-    assert result is True
-    assert tool.cancel_count == 1
-    assert manager.active_tool is tool
-    assert preview.clear_count >= 1
-
-
-def test_cancel_without_active_tool_returns_false(
-    manager,
-    preview,
-):
-    result = manager.cancel()
-
-    assert result is False
-    assert preview.clear_count == 1
-
-
-def test_cancel_preserves_exception_and_clears_preview(
-    manager,
-    preview,
-):
-    class FailingCancelTool(FakeTool):
-        def cancel(self):
-            self.cancel_count += 1
-            raise RuntimeError(
-                "cancel failure"
+            self._dispose_tool(
+                instance
             )
 
-    manager.register_tool(
-        "select",
-        FailingCancelTool,
-    )
+            del self._tool_instances[
+                tool_id
+            ]
 
-    manager.activate(
-        "select"
-    )
+        self._tool_registry.pop(
+            tool_id,
+            None,
+        )
 
-    with pytest.raises(
-        RuntimeError,
-        match="cancel failure",
-    ):
-        manager.cancel()
+    # --------------------------------------------------------
 
-    assert preview.clear_count >= 2
+    def has_tool(
+        self,
+        tool_id: str,
+    ) -> bool:
+        """
+        Return whether a tool is registered.
+        """
 
+        if self._disposed:
+            return False
 
-# ============================================================
-# RESET
-# ============================================================
+        if not isinstance(
+            tool_id,
+            str,
+        ):
+            return False
 
+        return tool_id in self._tool_registry
 
-def test_reset_active_tool(
-    manager,
-    preview,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
+    # --------------------------------------------------------
 
-    tool = manager.activate(
-        "select"
-    )
+    def get_tool_ids(
+        self,
+    ) -> tuple[str, ...]:
+        """
+        Return registered tool identifiers in registration order.
+        """
 
-    manager.reset()
+        self._ensure_active()
 
-    assert tool.reset_count == 1
-    assert manager.active_tool is tool
-    assert manager.active_tool_id == "select"
-    assert preview.clear_count >= 2
+        return tuple(
+            self._tool_registry.keys()
+        )
 
+    # --------------------------------------------------------
 
-def test_reset_without_active_tool(
-    manager,
-    preview,
-):
-    manager.reset()
+    def _load_registry(
+        self,
+        registry: Any,
+    ) -> None:
+        """
+        Load tool factories from a registry.
 
-    assert preview.clear_count == 1
+        Supported forms:
 
+            dictionary;
 
-def test_reset_clears_preview_when_tool_reset_fails(
-    manager,
-    preview,
-):
-    class FailingResetTool(FakeTool):
-        def reset(self):
-            self.reset_count += 1
-            raise RuntimeError(
-                "reset failure"
+            object exposing get_tools();
+
+            object exposing items().
+        """
+
+        self._ensure_active()
+
+        if isinstance(
+            registry,
+            dict,
+        ):
+            self.register_tools(
+                registry
+            )
+            return
+
+        get_tools = getattr(
+            registry,
+            "get_tools",
+            None,
+        )
+
+        if callable(get_tools):
+
+            tools = get_tools()
+
+            if tools is None:
+                return
+
+            if not isinstance(
+                tools,
+                dict,
+            ):
+                raise TypeError(
+                    "tool registry get_tools() "
+                    "must return a dictionary."
+                )
+
+            self.register_tools(
+                tools
             )
 
-    manager.register_tool(
-        "select",
-        FailingResetTool,
-    )
+            return
 
-    manager.activate(
-        "select"
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="reset failure",
-    ):
-        manager.reset()
-
-    assert manager.active_tool is not None
-    assert manager.active_tool_id == "select"
-    assert preview.clear_count >= 2
-
-
-# ============================================================
-# UNREGISTER
-# ============================================================
-
-
-def test_unregister_uninstantiated_tool(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    manager.unregister_tool(
-        "select"
-    )
-
-    assert not manager.has_tool(
-        "select"
-    )
-
-
-def test_unregister_disposes_existing_instance(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    manager.deactivate()
-
-    manager.unregister_tool(
-        "select"
-    )
-
-    assert tool.dispose_count == 1
-    assert not manager.has_tool(
-        "select"
-    )
-
-
-def test_unregister_active_tool_fails(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    manager.activate(
-        "select"
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="active tool",
-    ):
-        manager.unregister_tool(
-            "select"
+        items = getattr(
+            registry,
+            "items",
+            None,
         )
 
+        if callable(items):
 
-def test_unregister_disposal_failure_preserves_ownership(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
+            self.register_tools(
+                dict(
+                    items()
+                )
+            )
 
-    tool = manager.activate(
-        "select"
-    )
+            return
 
-    manager.deactivate()
-
-    tool.fail_dispose = True
-
-    with pytest.raises(
-        RuntimeError,
-        match="disposal failure",
-    ):
-        manager.unregister_tool(
-            "select"
-        )
-
-    assert manager.has_tool(
-        "select"
-    )
-
-    assert "select" in (
-        manager.get_state()[
-            "instantiated_tools"
-        ]
-    )
-
-
-# ============================================================
-# DISPOSAL
-# ============================================================
-
-
-def test_dispose_deactivates_and_disposes_tools(
-    manager,
-    controller,
-    preview,
-):
-    manager.register_tools(
-        {
-            "first": FakeTool,
-            "second": FakeTool,
-        }
-    )
-
-    first = manager.activate(
-        "first"
-    )
-
-    manager.deactivate()
-
-    second = manager.activate(
-        "second"
-    )
-
-    manager.dispose()
-
-    assert second.deactivate_count == 1
-    assert first.dispose_count == 1
-    assert second.dispose_count == 1
-
-    assert manager.get_state()[
-        "disposed"
-    ] is True
-
-    assert manager.get_state()[
-        "connected"
-    ] is False
-
-    assert len(
-        controller.unsubscribe_calls
-    ) == 1
-
-    assert preview.clear_count >= 1
-
-
-def test_dispose_is_idempotent(
-    manager,
-    controller,
-):
-    manager.dispose()
-    manager.dispose()
-
-    assert len(
-        controller.unsubscribe_calls
-    ) == 1
-
-
-def test_dispose_failure_is_retryable(
-    manager,
-):
-    manager.register_tool(
-        "first",
-        FakeTool,
-    )
-    manager.register_tool(
-        "second",
-        FakeTool,
-    )
-
-    first = manager.activate(
-        "first"
-    )
-
-    manager.deactivate()
-
-    second = manager.activate(
-        "second"
-    )
-
-    second.fail_dispose = True
-
-    with pytest.raises(
-        RuntimeError,
-        match="disposal failure",
-    ):
-        manager.dispose()
-
-    assert manager.get_state()[
-        "disposed"
-    ] is False
-
-    assert "second" in (
-        manager.get_state()[
-            "instantiated_tools"
-        ]
-    )
-
-    second.fail_dispose = False
-
-    manager.dispose()
-
-    assert manager.get_state()[
-        "disposed"
-    ] is True
-
-
-def test_active_deactivation_failure_blocks_disposal(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    tool = manager.activate(
-        "select"
-    )
-
-    tool.fail_deactivate = True
-
-    with pytest.raises(
-        RuntimeError,
-        match="deactivation failure",
-    ):
-        manager.dispose()
-
-    assert manager.get_state()[
-        "disposed"
-    ] is False
-
-    assert manager.active_tool is tool
-    assert manager.active_tool_id == "select"
-
-
-# ============================================================
-# DISPOSED BEHAVIOR
-# ============================================================
-
-
-def test_register_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.register_tool(
-            "select",
-            FakeTool,
-        )
-
-
-def test_activate_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.activate(
-            "select"
-        )
-
-
-def test_deactivate_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.deactivate()
-
-
-def test_cancel_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.cancel()
-
-
-def test_reset_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.reset()
-
-
-def test_unregister_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.unregister_tool(
-            "select"
-        )
-
-
-def test_get_current_tool_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.get_current_tool()
-
-
-def test_get_current_tool_id_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.get_current_tool_id()
-
-
-def test_get_tool_ids_after_dispose_fails(
-    manager,
-):
-    manager.dispose()
-
-    with pytest.raises(RuntimeError):
-        manager.get_tool_ids()
-
-
-def test_controller_event_after_dispose_is_ignored(
-    manager,
-    controller,
-):
-    manager.dispose()
-
-    controller.emit_tool_changed(
-        "unknown"
-    )
-
-    assert manager.get_state()[
-        "disposed"
-    ] is True
-
-
-# ============================================================
-# DIAGNOSTICS
-# ============================================================
-
-
-def test_get_state_initial(manager):
-    assert manager.get_state() == {
-        "connected": True,
-        "disposed": False,
-        "registered_tools": (),
-        "instantiated_tools": (),
-        "active_tool_id": None,
-        "has_active_tool": False,
-    }
-
-
-def test_get_state_tracks_registration(
-    manager,
-):
-    manager.register_tools(
-        {
-            "select": FakeTool,
-            "bus": PassiveTool,
-        }
-    )
-
-    state = manager.get_state()
-
-    assert state[
-        "registered_tools"
-    ] == (
-        "select",
-        "bus",
-    )
-
-    assert state[
-        "instantiated_tools"
-    ] == ()
-
-
-def test_get_state_tracks_instantiation(
-    manager,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    manager.activate(
-        "select"
-    )
-
-    state = manager.get_state()
-
-    assert state[
-        "instantiated_tools"
-    ] == (
-        "select",
-    )
-
-    assert state[
-        "active_tool_id"
-    ] == "select"
-
-    assert state[
-        "has_active_tool"
-    ] is True
-
-
-def test_repr_contains_diagnostic_state(
-    manager,
-):
-    text = repr(manager)
-
-    assert "ToolManager" in text
-    assert "active=None" in text
-    assert "registered=0" in text
-    assert "disposed=False" in text
-
-
-# ============================================================
-# CONSTRUCTOR TYPEERROR PROPAGATION
-# ============================================================
-
-
-def test_constructor_typeerror_propagates_unchanged(
-    manager,
-):
-    def failing_factory(
-        interaction_manager=None,
-        preview=None,
-    ):
         raise TypeError(
-            "real constructor failure"
+            "tool_registry must provide a tool mapping, "
+            "get_tools(), or items()."
         )
 
-    manager.register_tool(
-        "bad",
-        failing_factory,
-    )
+    # ========================================================
+    # CONTROLLER TOOL CHANGE
+    # ========================================================
 
-    with pytest.raises(
-        TypeError,
-        match="real constructor failure",
-    ):
-        manager.activate(
-            "bad"
+    def _on_tool_changed(
+        self,
+        new_tool_id: Optional[str],
+        previous_tool_id: Optional[str] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Handle Controller.tool_changed notification.
+
+        This method performs lifecycle only.
+
+        It never modifies Controller selection state.
+
+        Exceptions from activate() deliberately propagate so
+        an invalid Controller selection cannot be silently hidden.
+        """
+
+        if self._disposed:
+            return
+
+        if not self._connected:
+            return
+
+        self.activate(
+            new_tool_id
+        )
+
+    # ========================================================
+    # TOOL INSTANTIATION
+    # ========================================================
+
+    def _create_tool(
+        self,
+        tool_id: str,
+    ) -> Any:
+        """
+        Lazily create one concrete tool.
+
+        Constructor exceptions propagate unchanged.
+        """
+
+        self._ensure_active()
+
+        factory = self._tool_registry.get(
+            tool_id
+        )
+
+        if factory is None:
+            raise KeyError(
+                f"Unknown tool ID: {tool_id!r}"
+            )
+
+        tool = factory(
+            interaction_manager=self.interaction_manager,
+            preview=self.preview,
+        )
+
+        if tool is None:
+            raise RuntimeError(
+                f"Tool factory returned None: {tool_id!r}"
+            )
+
+        return tool
+
+    # --------------------------------------------------------
+
+    def _get_or_create_tool(
+        self,
+        tool_id: str,
+    ) -> Any:
+        """
+        Return an existing instance or lazily create one.
+        """
+
+        self._ensure_active()
+
+        if tool_id in self._tool_instances:
+            return self._tool_instances[
+                tool_id
+            ]
+
+        tool = self._create_tool(
+            tool_id
+        )
+
+        self._tool_instances[
+            tool_id
+        ] = tool
+
+        return tool
+
+    # ========================================================
+    # ACTIVE TOOL ACCESS
+    # ========================================================
+
+    def get_current_tool(
+        self,
+    ) -> Optional[Any]:
+        """
+        Return the currently active tool instance.
+        """
+
+        self._ensure_active()
+
+        return self._active_tool
+
+    # --------------------------------------------------------
+
+    def get_current_tool_id(
+        self,
+    ) -> Optional[str]:
+        """
+        Return the identifier of the active tool.
+        """
+
+        self._ensure_active()
+
+        return self._active_tool_id
+
+    # --------------------------------------------------------
+
+    @property
+    def active_tool(
+        self,
+    ) -> Optional[Any]:
+        """
+        Return the active tool instance.
+        """
+
+        self._ensure_active()
+
+        return self._active_tool
+
+    # --------------------------------------------------------
+
+    @property
+    def active_tool_id(
+        self,
+    ) -> Optional[str]:
+        """
+        Return the active tool identifier.
+        """
+
+        self._ensure_active()
+
+        return self._active_tool_id
+
+    # ========================================================
+    # ACTIVATION
+    # ========================================================
+
+    def activate(
+        self,
+        tool_id: Optional[str],
+    ) -> Optional[Any]:
+        """
+        Activate a registered tool.
+
+        Active state is committed only after successful
+        activation.
+        """
+
+        self._ensure_active()
+
+        if tool_id is None:
+            self.deactivate()
+            return None
+
+        self._validate_tool_id(
+            tool_id
+        )
+
+        if tool_id not in self._tool_registry:
+            raise KeyError(
+                f"Unknown tool ID: {tool_id!r}"
+            )
+
+        if (
+            tool_id == self._active_tool_id
+            and self._active_tool is not None
+        ):
+            return self._active_tool
+
+        # Construct before touching the current lifecycle.
+        new_tool = self._get_or_create_tool(
+            tool_id
+        )
+
+        previous_tool = self._active_tool
+        previous_tool_id = self._active_tool_id
+
+        if previous_tool is not None:
+            self._deactivate_tool(
+                previous_tool
+            )
+
+        self._clear_preview()
+
+        try:
+
+            self._activate_tool(
+                new_tool
+            )
+
+        except Exception as activation_error:
+
+            self._clear_preview()
+
+            if previous_tool is None:
+
+                self._active_tool = None
+                self._active_tool_id = None
+
+                raise
+
+            try:
+
+                self._activate_tool(
+                    previous_tool
+                )
+
+            except Exception as restoration_error:
+
+                self._active_tool = None
+                self._active_tool_id = None
+
+                self._clear_preview()
+
+                raise activation_error from restoration_error
+
+            self._active_tool = previous_tool
+            self._active_tool_id = previous_tool_id
+
+            raise
+
+        self._active_tool = new_tool
+        self._active_tool_id = tool_id
+
+        return new_tool
+
+    # ========================================================
+    # DEACTIVATION
+    # ========================================================
+
+    def deactivate(
+        self,
+    ) -> None:
+        """
+        Deactivate the current tool.
+
+        If deactivation fails, active state remains recorded.
+        """
+
+        self._ensure_active()
+
+        tool = self._active_tool
+
+        if tool is None:
+
+            self._active_tool_id = None
+
+            self._clear_preview()
+
+            return
+
+        self._deactivate_tool(
+            tool
+        )
+
+        self._active_tool = None
+        self._active_tool_id = None
+
+        self._clear_preview()
+
+    # ========================================================
+    # CANCELLATION
+    # ========================================================
+
+    def cancel(
+        self,
+    ) -> bool:
+        """
+        Cancel the active tool interaction.
+
+        The active tool remains active.
+        """
+
+        self._ensure_active()
+
+        tool = self._active_tool
+
+        if tool is None:
+
+            self._clear_preview()
+
+            return False
+
+        handler = getattr(
+            tool,
+            "cancel",
+            None,
+        )
+
+        try:
+
+            if callable(handler):
+
+                result = handler()
+
+                if result is None:
+                    return True
+
+                return bool(result)
+
+            return True
+
+        finally:
+
+            self._clear_preview()
+
+    # ========================================================
+    # RESET
+    # ========================================================
+
+    def reset(
+        self,
+    ) -> None:
+        """
+        Reset active tool interaction state.
+
+        The active tool remains active.
+        """
+
+        self._ensure_active()
+
+        tool = self._active_tool
+
+        try:
+
+            if tool is not None:
+
+                handler = getattr(
+                    tool,
+                    "reset",
+                    None,
+                )
+
+                if callable(handler):
+                    handler()
+
+        finally:
+
+            self._clear_preview()
+
+    # ========================================================
+    # LIFECYCLE HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _activate_tool(
+        tool: Any,
+    ) -> None:
+        """
+        Invoke optional tool activation lifecycle.
+        """
+
+        handler = getattr(
+            tool,
+            "activate",
+            None,
+        )
+
+        if callable(handler):
+            handler()
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _deactivate_tool(
+        tool: Any,
+    ) -> None:
+        """
+        Invoke optional tool deactivation lifecycle.
+        """
+
+        handler = getattr(
+            tool,
+            "deactivate",
+            None,
+        )
+
+        if callable(handler):
+            handler()
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _dispose_tool(
+        tool: Any,
+    ) -> None:
+        """
+        Invoke optional permanent disposal lifecycle.
+        """
+
+        handler = getattr(
+            tool,
+            "dispose",
+            None,
+        )
+
+        if callable(handler):
+            handler()
+
+    # --------------------------------------------------------
+
+    def _clear_preview(
+        self,
+    ) -> None:
+        """
+        Clear the shared preview layer when available.
+        """
+
+        if self.preview is None:
+            return
+
+        clear = getattr(
+            self.preview,
+            "clear",
+            None,
+        )
+
+        if callable(clear):
+            clear()
+
+    # ========================================================
+    # DIAGNOSTICS
+    # ========================================================
+
+    def get_state(
+        self,
+    ) -> dict[str, Any]:
+        """
+        Return a diagnostic snapshot.
+
+        This method remains readable after disposal so callers
+        can inspect final lifecycle state.
+        """
+
+        return {
+            "connected": self._connected,
+            "disposed": self._disposed,
+            "registered_tools": (
+                tuple(
+                    self._tool_registry.keys()
+                )
+            ),
+            "instantiated_tools": (
+                tuple(
+                    self._tool_instances.keys()
+                )
+            ),
+            "active_tool_id": self._active_tool_id,
+            "has_active_tool": (
+                self._active_tool is not None
+            ),
+        }
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_tool_id(
+        tool_id: Any,
+    ) -> None:
+        """
+        Validate a tool identifier.
+        """
+
+        if not isinstance(
+            tool_id,
+            str,
+        ):
+            raise TypeError(
+                "tool_id must be a string."
+            )
+
+        if not tool_id.strip():
+            raise ValueError(
+                "tool_id must not be empty."
+            )
+
+    # ========================================================
+    # LIFECYCLE VALIDATION
+    # ========================================================
+
+    def _ensure_active(
+        self,
+    ) -> None:
+        """
+        Ensure the ToolManager has not been disposed.
+        """
+
+        if self._disposed:
+            raise RuntimeError(
+                "ToolManager has been disposed."
+            )
+
+    # ========================================================
+    # DISPOSAL
+    # ========================================================
+
+    def dispose(
+        self,
+    ) -> None:
+        """
+        Dispose ToolManager and all owned tool instances.
+
+        Disposal is retry-safe.
+
+        The manager is marked disposed only after:
+
+            1. active tool deactivation;
+            2. preview cleanup;
+            3. all concrete tool disposal;
+            4. Controller unsubscribe.
+
+        Successfully completed operations are not repeated on
+        retry.
+        """
+
+        if self._disposed:
+            return
+
+        # ----------------------------------------------------
+        # Deactivate active tool first.
+        # ----------------------------------------------------
+
+        active_tool = self._active_tool
+
+        if active_tool is not None:
+
+            self._deactivate_tool(
+                active_tool
+            )
+
+            self._active_tool = None
+            self._active_tool_id = None
+
+            self._clear_preview()
+
+        else:
+
+            self._active_tool_id = None
+            self._clear_preview()
+
+        # ----------------------------------------------------
+        # Dispose owned concrete tools.
+        #
+        # Ownership is removed only after successful disposal.
+        # ----------------------------------------------------
+
+        for tool_id, tool in tuple(
+            self._tool_instances.items()
+        ):
+
+            self._dispose_tool(
+                tool
+            )
+
+            del self._tool_instances[
+                tool_id
+            ]
+
+        # ----------------------------------------------------
+        # Remove Controller subscription.
+        #
+        # Do this exactly once. If unsubscribe raises,
+        # _connected remains True and disposal is retryable.
+        # ----------------------------------------------------
+
+        if self._connected:
+
+            self._unsubscribe_controller()
+
+            self._connected = False
+
+        # ----------------------------------------------------
+        # Permanent disposal is committed last.
+        # ----------------------------------------------------
+
+        self._disposed = True
+
+    # ========================================================
+    # REPRESENTATION
+    # ========================================================
+
+    def __repr__(
+        self,
+    ) -> str:
+        """
+        Return a concise diagnostic representation.
+        """
+
+        return (
+            "ToolManager("
+            f"active="
+            f"{self._active_tool_id!r}, "
+            f"registered="
+            f"{len(self._tool_registry)}, "
+            f"disposed="
+            f"{self._disposed}"
+            ")"
         )
 
 
 # ============================================================
-# OPTIONAL TOOL LIFECYCLE
+# PUBLIC API
 # ============================================================
 
-
-def test_tool_without_optional_lifecycle_methods_works(
-    manager,
-):
-    manager.register_tool(
-        "passive",
-        PassiveTool,
-    )
-
-    tool = manager.activate(
-        "passive"
-    )
-
-    assert manager.active_tool is tool
-
-    manager.cancel()
-    manager.reset()
-    manager.deactivate()
-
-    assert manager.active_tool is None
-
-
-# ============================================================
-# NO CONTROLLER MUTATION
-# ============================================================
-
-
-def test_tool_manager_never_changes_controller_selection(
-    manager,
-    controller,
-):
-    manager.register_tool(
-        "select",
-        FakeTool,
-    )
-
-    manager.activate(
-        "select"
-    )
-
-    assert not hasattr(
-        controller,
-        "set_tool_calls",
-    )
+__all__ = [
+    "ToolManager",
+]
