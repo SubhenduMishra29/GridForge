@@ -16,7 +16,7 @@ Architecture
     ┌────┼────────────┐
     ▼    ▼            ▼
    Bus  Line       Future Renderer
-Renderer Renderer
+ Renderer Renderer
 
 Purpose
 -------
@@ -24,15 +24,24 @@ RendererRegistry provides the stable lookup boundary between
 the canvas rendering system and concrete renderer
 implementations.
 
-The registry maps:
+The registry stores renderer implementations as classes/factories
+rather than scene-bound renderer instances.
 
-    renderer_id
-        ↓
-    renderer registration
-        ↓
-    renderer implementation
+This is important because renderers are Canvas/Scene specific:
 
-The registry does not perform rendering.
+    Renderer Class
+          │
+          ▼
+    RenderSystem / Canvas Context
+          │
+          ▼
+    Renderer Instance
+          │
+          ▼
+      Graphics Scene
+
+The registry therefore remains independent of any particular
+QGraphicsScene or Canvas instance.
 
 Responsibilities
 ----------------
@@ -49,6 +58,7 @@ RendererRegistry:
 
 RendererRegistry does NOT:
 
+    - instantiate renderers;
     - create graphics items;
     - create model objects;
     - render objects;
@@ -65,22 +75,34 @@ RendererRegistry does NOT:
 
 Renderer Ownership
 ------------------
-The registry does not create renderer instances.
+The registry stores renderer implementations only.
 
-The component registering a renderer is responsible for creating
-the renderer instance.
+It does not create or destroy renderer instances.
 
 Therefore:
 
-    registry.register(...)
-        ≠
-    registry creates renderer
+    registry.register(
+        "bus",
+        BusRenderer,
+        model_type=Bus,
+    )
 
-and:
+does NOT instantiate BusRenderer.
 
-    registry.unregister(...)
-        ≠
-    registry destroys renderer
+RenderSystem or the owning Canvas composition layer remains
+responsible for creating a renderer instance with the appropriate
+scene/context.
+
+Model Dependency
+----------------
+RendererRegistry may store a model type as metadata.
+
+It does not import Core model classes itself.
+
+The caller supplies model_type explicitly.
+
+This keeps the registry independent of the concrete Core model
+hierarchy and prevents dependency inversion problems.
 
 Renderer Resolution
 -------------------
@@ -90,32 +112,26 @@ A renderer can be registered with:
     renderer
     model_type
 
+where renderer is normally a renderer class or factory.
+
 The model_type association allows RenderSystem to resolve a
-renderer from an authoritative Core model object's type without
-hard-coding concrete renderer imports into RenderSystem.
+renderer implementation from an authoritative Core model
+object without hard-coding concrete renderer imports.
 
 Example:
 
     registry.register(
         "bus",
-        BusRenderer(...),
+        BusRenderer,
         model_type=Bus,
     )
 
-    renderer = registry.get_for_object(bus)
+    renderer_class = registry.get_for_object(bus)
 
 The registry performs only lookup.
 
-Rendering policy remains owned by RenderSystem.
-
-Model Dependency
-----------------
-RendererRegistry may store a model type as metadata.
-
-It does not import Core model classes itself.
-
-This keeps the registry independent of the concrete model
-hierarchy and prevents dependency inversion problems.
+Rendering policy and renderer instantiation remain outside the
+registry.
 
 Qt Architecture
 ---------------
@@ -123,14 +139,20 @@ This module intentionally does not import Qt.
 
 Concrete renderers may use ui.core.qt.
 
-No direct PySide6/PyQt imports are permitted anywhere in this
-module.
+No direct PySide6/PyQt imports are permitted in this module.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
+
+
+# ============================================================
+# RENDERER IMPLEMENTATION TYPE
+# ============================================================
+
+RendererImplementation = Any
 
 
 # ============================================================
@@ -149,7 +171,13 @@ class RendererRegistration:
         Stable renderer identifier.
 
     renderer:
-        Existing concrete renderer instance.
+        Renderer implementation.
+
+        Normally this is a renderer class. A callable factory
+        may also be supplied when explicitly required by the
+        rendering infrastructure.
+
+        The registry never invokes this implementation.
 
     model_type:
         Optional model class/type handled by this renderer.
@@ -157,7 +185,7 @@ class RendererRegistration:
         The registry treats this as an opaque lookup key.
 
     priority:
-        Optional resolution priority.
+        Resolution priority.
 
         Higher values are preferred when multiple registrations
         match the same model type.
@@ -167,12 +195,15 @@ class RendererRegistration:
 
     Notes
     -----
-    The registration stores an existing renderer instance.
-    It never creates or destroys that instance.
+    The registration stores an implementation, not a
+    scene-bound renderer instance.
+
+    This keeps the registry reusable across multiple Canvas
+    instances.
     """
 
     renderer_id: str
-    renderer: Any
+    renderer: RendererImplementation
 
     model_type: Optional[type] = None
 
@@ -248,12 +279,20 @@ class RendererRegistration:
 
 class RendererRegistry:
     """
-    Central registry for GridForge renderers.
+    Central registry for GridForge renderer implementations.
 
-    RendererRegistry is deliberately independent of Qt,
-    QGraphicsScene, RenderSystem, and concrete Core models.
+    RendererRegistry is deliberately independent of:
+
+        - Qt;
+        - QGraphicsScene;
+        - RenderSystem;
+        - concrete Core models;
+        - renderer instances.
 
     It is a registration and resolution service only.
+
+    The registry stores renderer implementations and never
+    creates scene-bound renderer instances.
     """
 
     # ========================================================
@@ -277,7 +316,7 @@ class RendererRegistry:
     def register(
         self,
         renderer_id: str,
-        renderer: Any,
+        renderer: RendererImplementation,
         *,
         model_type: Optional[type] = None,
         priority: int = 0,
@@ -287,7 +326,7 @@ class RendererRegistry:
         replace: bool = False,
     ) -> RendererRegistration:
         """
-        Register an existing renderer instance.
+        Register a renderer implementation.
 
         Parameters
         ----------
@@ -295,7 +334,13 @@ class RendererRegistry:
             Stable renderer identifier.
 
         renderer:
-            Concrete renderer instance.
+            Renderer implementation.
+
+            Normally a renderer class. A callable factory is
+            also accepted.
+
+            The registry stores this implementation and never
+            invokes it.
 
         model_type:
             Optional model type handled by the renderer.
@@ -317,7 +362,8 @@ class RendererRegistry:
         Raises
         ------
         ValueError
-            If renderer_id is already registered and replace=False.
+            If renderer_id is already registered and
+            replace=False.
         """
 
         normalized_id = self._normalize_id(
@@ -334,7 +380,7 @@ class RendererRegistry:
             and not replace
         ):
             raise ValueError(
-                f"Renderer already registered: "
+                "Renderer already registered: "
                 f"{normalized_id!r}"
             )
 
@@ -404,7 +450,7 @@ class RendererRegistry:
         """
         Remove a renderer registration.
 
-        The renderer instance itself is not destroyed.
+        No renderer instance is created or destroyed.
         """
 
         normalized_id = self._normalize_id(
@@ -457,9 +503,11 @@ class RendererRegistry:
     def get_renderer(
         self,
         renderer_id: str,
-    ) -> Optional[Any]:
+    ) -> Optional[RendererImplementation]:
         """
-        Return a renderer instance by ID.
+        Return a renderer implementation by ID.
+
+        No renderer instance is created.
         """
 
         registration = self.get(
@@ -492,7 +540,7 @@ class RendererRegistry:
 
         except KeyError as exc:
             raise KeyError(
-                f"Renderer is not registered: "
+                "Renderer is not registered: "
                 f"{normalized_id!r}"
             ) from exc
 
@@ -501,9 +549,11 @@ class RendererRegistry:
     def require_renderer(
         self,
         renderer_id: str,
-    ) -> Any:
+    ) -> RendererImplementation:
         """
-        Return a renderer or raise KeyError.
+        Return a renderer implementation or raise KeyError.
+
+        No renderer instance is created.
         """
 
         return self.require(
@@ -581,9 +631,10 @@ class RendererRegistry:
     def get_for_type(
         self,
         model_type: type,
-    ) -> Optional[Any]:
+    ) -> Optional[RendererImplementation]:
         """
-        Resolve the highest-priority renderer for model_type.
+        Resolve the highest-priority renderer implementation
+        for model_type.
 
         Exact type matches are preferred over base-class matches.
 
@@ -593,6 +644,11 @@ class RendererRegistry:
             2. compatible base-class match;
             3. highest priority;
             4. registration order as deterministic tie-breaker.
+
+        Returns
+        -------
+        object | None
+            Registered renderer implementation.
         """
 
         if not isinstance(
@@ -641,9 +697,10 @@ class RendererRegistry:
     def get_for_object(
         self,
         model_object: Any,
-    ) -> Optional[Any]:
+    ) -> Optional[RendererImplementation]:
         """
-        Resolve a renderer for a concrete model object.
+        Resolve a renderer implementation for a concrete
+        model object.
 
         The object's concrete Python type is used for lookup.
 
@@ -662,9 +719,10 @@ class RendererRegistry:
     def require_for_type(
         self,
         model_type: type,
-    ) -> Any:
+    ) -> RendererImplementation:
         """
-        Resolve a renderer for a model type or raise KeyError.
+        Resolve a renderer implementation for a model type or
+        raise KeyError.
         """
 
         renderer = self.get_for_type(
@@ -684,9 +742,10 @@ class RendererRegistry:
     def require_for_object(
         self,
         model_object: Any,
-    ) -> Any:
+    ) -> RendererImplementation:
         """
-        Resolve a renderer for a model object or raise KeyError.
+        Resolve a renderer implementation for a model object
+        or raise KeyError.
         """
 
         if model_object is None:
@@ -858,7 +917,7 @@ class RendererRegistry:
     def replace(
         self,
         renderer_id: str,
-        renderer: Any,
+        renderer: RendererImplementation,
         *,
         model_type: Optional[type] = None,
         priority: int = 0,
@@ -869,7 +928,7 @@ class RendererRegistry:
         """
         Replace an existing renderer registration.
 
-        The previous renderer instance is not destroyed.
+        No renderer instance is created or destroyed.
         """
 
         normalized_id = self._normalize_id(
@@ -878,7 +937,7 @@ class RendererRegistry:
 
         if normalized_id not in self._registrations:
             raise KeyError(
-                f"Renderer is not registered: "
+                "Renderer is not registered: "
                 f"{normalized_id!r}"
             )
 
@@ -904,7 +963,7 @@ class RendererRegistry:
         """
         Remove all renderer registrations.
 
-        Renderer instances are not destroyed.
+        No renderer instances are created or destroyed.
         """
 
         registrations = self.get_registrations()
@@ -925,6 +984,9 @@ class RendererRegistry:
     ]:
         """
         Return a shallow registry snapshot.
+
+        The returned dictionary does not permit mutation of the
+        registry itself.
         """
 
         return dict(
