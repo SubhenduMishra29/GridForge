@@ -88,7 +88,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
-from ui.core.tool_manager import ToolManager
+from ui.tools.tool_manager import ToolManager
 
 
 class ToolController:
