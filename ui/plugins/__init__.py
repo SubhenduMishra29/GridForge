@@ -7,29 +7,51 @@ Package:
 
 Purpose
 -------
-UI composition plugins and plugin infrastructure for the GridForge
-application.
+Public package interface for the GridForge V2 UI plugin infrastructure.
 
-Architectural rules
--------------------
-- Concrete plugins are imported explicitly.
-- Plugin discovery is never performed here.
-- PluginLoader owns concrete implementation loading/construction.
-- PluginRegistry owns plugin registration and low-level lifecycle.
-- PluginManager owns dependency resolution and lifecycle orchestration.
-- PluginContext is supplied during initialization, never construction.
-- PluginStateStore owns observable runtime lifecycle state.
-- MainWindow consumes plugin composition interfaces rather than
-  constructing application subsystems directly.
-- Plugins compose UI components; they do not own authoritative
-  Core/domain state.
+Architectural role
+------------------
+This package initializer exposes the finalized public plugin API.
+
+It does NOT:
+
+    - discover plugins;
+    - scan packages;
+    - import plugins for registration side effects;
+    - construct plugin instances;
+    - initialize or shut down plugins;
+    - create PluginContext;
+    - resolve dependencies;
+    - orchestrate lifecycle;
+    - own plugin runtime state.
+
+Runtime responsibilities remain separated:
+
+    PluginLoader
+        explicit concrete-plugin import and construction
+
+    PluginRegistry
+        plugin registration and instance ownership
+
+    PluginManager
+        dependency resolution and lifecycle orchestration
+
+    PluginContext
+        initialization dependency carrier
+
+    PluginStateStore
+        canonical observable plugin runtime state
+
+Concrete composition plugins are explicitly exposed through this
+package API. Importing ``ui.plugins`` does not perform registration
+or lifecycle operations.
 """
 
 from __future__ import annotations
 
 
 # ============================================================
-# PLUGIN CONTRACT
+# CONTRACT
 # ============================================================
 
 from .plugin_contract import (
@@ -50,7 +72,7 @@ from .plugin_contract import (
 
 
 # ============================================================
-# PLUGIN CONTEXT
+# CONTEXT
 # ============================================================
 
 from .plugin_context import (
@@ -59,7 +81,38 @@ from .plugin_context import (
 
 
 # ============================================================
-# PLUGIN LOADER
+# EVENTS
+# ============================================================
+
+from .plugin_events import (
+    PluginErrorEvent,
+    PluginEvent,
+    PluginEventSource,
+    PluginEventType,
+    event_to_dict,
+    is_failure_event,
+    is_lifecycle_event,
+    is_terminal_event,
+    plugin_defined,
+    plugin_disabled,
+    plugin_enabled,
+    plugin_failed,
+    plugin_initialize_requested,
+    plugin_initialized,
+    plugin_initializing,
+    plugin_load_requested,
+    plugin_loaded,
+    plugin_reset,
+    plugin_shutdown,
+    plugin_shutdown_requested,
+    plugin_shutting_down,
+    plugin_unload_requested,
+    plugin_unloaded,
+)
+
+
+# ============================================================
+# LOADER
 # ============================================================
 
 from .plugin_loader import (
@@ -76,29 +129,25 @@ from .plugin_loader import (
 
 
 # ============================================================
-# PLUGIN REGISTRY
+# REGISTRY
 # ============================================================
 
 from .plugin_registry import (
-    PluginEntry,
     PluginRegistry,
-    create_plugin_registry,
 )
 
 
 # ============================================================
-# PLUGIN MANAGER
+# MANAGER
 # ============================================================
 
 from .plugin_manager import (
-    PluginDefinition,
     PluginManager,
-    create_default_plugin_manager,
 )
 
 
 # ============================================================
-# PLUGIN STATE
+# STATE
 # ============================================================
 
 from .plugin_state import (
@@ -107,61 +156,29 @@ from .plugin_state import (
 
 
 # ============================================================
-# PLUGIN EVENTS
-# ============================================================
-
-from .plugin_events import (
-    # Export event symbols defined by plugin_events.py here
-    # when they form part of its public API.
-)
-
-
-# ============================================================
-# CANVAS PLUGIN
+# CONCRETE COMPOSITION PLUGINS
 # ============================================================
 
 from .canvas_plugin import (
     CanvasPlugin,
-    CanvasPluginContext,
     create_canvas_plugin,
 )
 
-
-# ============================================================
-# PANELS PLUGIN
-# ============================================================
-
 from .panels_plugin import (
-    PanelSpec,
     PanelsPlugin,
-    PanelsPluginContext,
     create_panels_plugin,
 )
-
-
-# ============================================================
-# TOOLBAR PLUGIN
-# ============================================================
 
 from .toolbar_plugin import (
     ToolbarActionSpec,
     ToolbarPlugin,
-    ToolbarPluginContext,
     create_toolbar_plugin,
     default_tool_actions,
 )
 
-
-# ============================================================
-# STATUS PLUGIN
-# ============================================================
-
 from .status_plugin import (
     StatusPlugin,
-    StatusPluginContext,
-    StatusSpec,
     create_status_plugin,
-    default_statuses,
 )
 
 
@@ -170,9 +187,7 @@ from .status_plugin import (
 # ============================================================
 
 __all__ = [
-    # --------------------------------------------------------
     # Contract
-    # --------------------------------------------------------
     "BasePlugin",
     "PluginContextProtocol",
     "PluginContractError",
@@ -187,73 +202,63 @@ __all__ = [
     "plugin_widget",
     "validate_plugin",
 
-    # --------------------------------------------------------
     # Context
-    # --------------------------------------------------------
     "PluginContext",
 
-    # --------------------------------------------------------
+    # Events
+    "PluginErrorEvent",
+    "PluginEvent",
+    "PluginEventSource",
+    "PluginEventType",
+    "event_to_dict",
+    "is_failure_event",
+    "is_lifecycle_event",
+    "is_terminal_event",
+    "plugin_defined",
+    "plugin_disabled",
+    "plugin_enabled",
+    "plugin_failed",
+    "plugin_initialize_requested",
+    "plugin_initialized",
+    "plugin_initializing",
+    "plugin_load_requested",
+    "plugin_loaded",
+    "plugin_reset",
+    "plugin_shutdown",
+    "plugin_shutdown_requested",
+    "plugin_shutting_down",
+    "plugin_unload_requested",
+    "plugin_unloaded",
+
     # Loader
-    # --------------------------------------------------------
-    "PluginImplementation",
-    "LoadedPlugin",
-    "PluginLoader",
-    "DEFAULT_PLUGIN_IMPLEMENTATIONS",
-    "DEFAULT_PLUGIN_MODULES",
     "DEFAULT_PLUGIN_CLASSES",
     "DEFAULT_PLUGIN_FACTORIES",
+    "DEFAULT_PLUGIN_IMPLEMENTATIONS",
+    "DEFAULT_PLUGIN_MODULES",
+    "LoadedPlugin",
+    "PluginImplementation",
+    "PluginLoader",
     "create_default_plugin_loader",
     "load_default_plugins",
 
-    # --------------------------------------------------------
     # Registry
-    # --------------------------------------------------------
-    "PluginEntry",
     "PluginRegistry",
-    "create_plugin_registry",
 
-    # --------------------------------------------------------
     # Manager
-    # --------------------------------------------------------
-    "PluginDefinition",
     "PluginManager",
-    "create_default_plugin_manager",
 
-    # --------------------------------------------------------
     # State
-    # --------------------------------------------------------
     "PluginStateStore",
 
-    # --------------------------------------------------------
-    # Canvas
-    # --------------------------------------------------------
+    # Concrete plugins
     "CanvasPlugin",
-    "CanvasPluginContext",
     "create_canvas_plugin",
-
-    # --------------------------------------------------------
-    # Panels
-    # --------------------------------------------------------
-    "PanelSpec",
     "PanelsPlugin",
-    "PanelsPluginContext",
     "create_panels_plugin",
-
-    # --------------------------------------------------------
-    # Toolbar
-    # --------------------------------------------------------
     "ToolbarActionSpec",
     "ToolbarPlugin",
-    "ToolbarPluginContext",
     "create_toolbar_plugin",
     "default_tool_actions",
-
-    # --------------------------------------------------------
-    # Status
-    # --------------------------------------------------------
     "StatusPlugin",
-    "StatusPluginContext",
-    "StatusSpec",
     "create_status_plugin",
-    "default_statuses",
 ]
