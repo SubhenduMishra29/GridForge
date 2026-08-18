@@ -31,13 +31,15 @@ Architecture
 
 Purpose
 -------
-CommandManager provides the UI-facing command boundary.
+CommandManager is the UI-facing command boundary.
 
-It delegates all authoritative command execution and command
-history operations to Controller, which delegates them to the
-authoritative Core.command_manager.
+It does NOT own command execution state or command history.
 
-This class therefore contains NO independent command history.
+All authoritative command execution and history operations are
+delegated to the Controller.
+
+The Controller remains the only UI/application boundary through
+which the UI command layer reaches Core.
 
 Authoritative ownership
 -----------------------
@@ -53,23 +55,26 @@ Controller owns:
 
     - command dispatch coordination;
     - access to Core;
-    - application/UI state.
+    - application/UI state;
+    - the public command-history boundary.
 
 UI CommandManager owns only:
 
-    - UI-facing command dispatch convenience;
-    - validation of the Controller boundary;
-    - command-manager diagnostics;
-    - delegation to Controller.
+    - UI-facing command dispatch;
+    - validation of the Controller command boundary;
+    - delegation;
+    - command diagnostics;
+    - convenience methods for UI consumers.
 
 The UI CommandManager does NOT:
 
     - own command history;
     - store Command objects;
     - execute Command objects directly;
-    - call Core directly;
+    - access Core directly;
+    - access Core.command_manager directly;
     - mutate Core state;
-    - implement individual commands;
+    - implement commands;
     - implement undo semantics;
     - implement redo semantics;
     - implement grouping/coalescing;
@@ -116,17 +121,42 @@ Canonical redo
                 ▼
     core.command_manager.redo()
 
+Canonical state queries
+-----------------------
+
+    command_manager.can_undo()
+                │
+                ▼
+    controller.can_undo()
+                │
+                ▼
+    core.command_manager.can_undo()
+
+The same pattern applies to:
+
+    - can_redo()
+    - undo_count()
+    - redo_count()
+    - get_undo_commands()
+    - get_redo_commands()
+    - get_undo_name()
+    - get_redo_name()
+    - clear_history()
+    - clear_redo()
+    - reset()
+    - get_command_state()
 
 Command contract
 ----------------
-Commands remain responsible for implementing:
+Commands implement:
 
     execute(controller)
     undo(controller)
 
 The UI CommandManager does not inspect command internals.
 
-Composite commands remain ordinary commands.
+Composite commands implement the same contract and are treated
+as ordinary commands.
 
 Grouping/coalescing remains the responsibility of the command
 layer.
@@ -145,10 +175,12 @@ class CommandManager:
     """
     UI-facing command dispatch facade.
 
-    The authoritative CommandManager remains owned by Core.
+    This object intentionally contains no independent command
+    history.
 
-    This class intentionally contains no command history of its
-    own and does not duplicate Core command state.
+    The authoritative command manager remains owned by Core and
+    is accessed exclusively through the public Controller
+    command boundary.
     """
 
     # ========================================================
@@ -167,11 +199,20 @@ class CommandManager:
         controller:
             Authoritative GridForge Controller.
 
+        Raises
+        ------
+        ValueError
+            If controller is None.
+
+        TypeError
+            If the Controller does not expose the required
+            command-boundary interface.
+
         Notes
         -----
         The Controller remains externally owned.
 
-        No command history is created here.
+        No command history or command state is created here.
         """
 
         if controller is None:
@@ -179,44 +220,108 @@ class CommandManager:
                 "controller must not be None."
             )
 
+        self._validate_controller(
+            controller
+        )
+
         self.controller = controller
 
     # ========================================================
-    # COMMAND MANAGER ACCESS
+    # CONTROLLER VALIDATION
     # ========================================================
 
-    def _get_core_command_manager(
+    @staticmethod
+    def _validate_controller(
+        controller: Any,
+    ) -> None:
+        """
+        Validate the required public Controller command API.
+
+        The UI CommandManager deliberately depends on the public
+        Controller boundary rather than inspecting Core.
+
+        Required Controller methods:
+
+            execute_command()
+            undo()
+            redo()
+            can_undo()
+            can_redo()
+            undo_count()
+            redo_count()
+            get_undo_commands()
+            get_redo_commands()
+            get_undo_name()
+            get_redo_name()
+            clear_history()
+            clear_redo()
+            reset_command_history()
+            get_command_state()
+        """
+
+        required_methods = (
+            "execute_command",
+            "undo",
+            "redo",
+            "can_undo",
+            "can_redo",
+            "undo_count",
+            "redo_count",
+            "get_undo_commands",
+            "get_redo_commands",
+            "get_undo_name",
+            "get_redo_name",
+            "clear_history",
+            "clear_redo",
+            "reset_command_history",
+            "get_command_state",
+        )
+
+        for method_name in required_methods:
+
+            method = getattr(
+                controller,
+                method_name,
+                None,
+            )
+
+            if not callable(method):
+                raise TypeError(
+                    "Controller must provide "
+                    f"public command-boundary method "
+                    f"{method_name}()."
+                )
+
+    # ========================================================
+    # CONTROLLER METHOD ACCESS
+    # ========================================================
+
+    def _get_controller_method(
         self,
+        method_name: str,
     ) -> Any:
         """
-        Return the authoritative Core command manager.
+        Return a validated public Controller method.
 
-        The UI CommandManager never stores or owns this object.
+        This helper centralizes boundary validation.
+
+        No private Controller members and no Core members are
+        accessed by the UI CommandManager.
         """
 
-        core = getattr(
+        method = getattr(
             self.controller,
-            "core",
+            method_name,
             None,
         )
 
-        if core is None:
-            raise RuntimeError(
-                "Cannot access command manager without a Core."
-            )
-
-        command_manager = getattr(
-            core,
-            "command_manager",
-            None,
-        )
-
-        if command_manager is None:
+        if not callable(method):
             raise TypeError(
-                "Core must provide command_manager."
+                "Controller must provide "
+                f"{method_name}()."
             )
 
-        return command_manager
+        return method
 
     # ========================================================
     # EXECUTION
@@ -229,7 +334,7 @@ class CommandManager:
         """
         Execute a command through the canonical Controller path.
 
-        Canonical flow:
+        Flow:
 
             UI CommandManager
                 ↓
@@ -237,8 +342,8 @@ class CommandManager:
                 ↓
             Core.command_manager.execute()
 
-        The authoritative Core command manager owns history
-        semantics.
+        The UI CommandManager performs no command execution
+        itself.
         """
 
         if command is None:
@@ -246,16 +351,9 @@ class CommandManager:
                 "command must not be None."
             )
 
-        execute = getattr(
-            self.controller,
-            "execute_command",
-            None,
+        execute = self._get_controller_method(
+            "execute_command"
         )
-
-        if not callable(execute):
-            raise TypeError(
-                "Controller must provide execute_command()."
-            )
 
         return execute(
             command
@@ -269,22 +367,20 @@ class CommandManager:
         self,
     ) -> Any:
         """
-        Undo through the canonical Controller/Core pathway.
+        Undo through the canonical Controller path.
 
-        History mutation is performed exclusively by
-        Core.command_manager.
+        Flow:
+
+            UI CommandManager
+                ↓
+            Controller.undo()
+                ↓
+            Core.command_manager.undo()
         """
 
-        undo = getattr(
-            self.controller,
-            "undo",
-            None,
+        undo = self._get_controller_method(
+            "undo"
         )
-
-        if not callable(undo):
-            raise TypeError(
-                "Controller must provide undo()."
-            )
 
         return undo()
 
@@ -296,22 +392,20 @@ class CommandManager:
         self,
     ) -> Any:
         """
-        Redo through the canonical Controller/Core pathway.
+        Redo through the canonical Controller path.
 
-        History mutation is performed exclusively by
-        Core.command_manager.
+        Flow:
+
+            UI CommandManager
+                ↓
+            Controller.redo()
+                ↓
+            Core.command_manager.redo()
         """
 
-        redo = getattr(
-            self.controller,
-            "redo",
-            None,
+        redo = self._get_controller_method(
+            "redo"
         )
-
-        if not callable(redo):
-            raise TypeError(
-                "Controller must provide redo()."
-            )
 
         return redo()
 
@@ -325,24 +419,13 @@ class CommandManager:
         """
         Return whether an undo operation is available.
 
-        The authoritative state comes from Core.command_manager.
+        The authoritative answer comes from Core through the
+        Controller command boundary.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "can_undo"
         )
-
-        method = getattr(
-            command_manager,
-            "can_undo",
-            None,
-        )
-
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                "can_undo()."
-            )
 
         return bool(
             method()
@@ -356,24 +439,13 @@ class CommandManager:
         """
         Return whether a redo operation is available.
 
-        The authoritative state comes from Core.command_manager.
+        The authoritative answer comes from Core through the
+        Controller command boundary.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "can_redo"
         )
-
-        method = getattr(
-            command_manager,
-            "can_redo",
-            None,
-        )
-
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                "can_redo()."
-            )
 
         return bool(
             method()
@@ -390,25 +462,25 @@ class CommandManager:
         Return the authoritative undo-history count.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "undo_count"
         )
 
-        method = getattr(
-            command_manager,
-            "undo_count",
-            None,
-        )
+        result = method()
 
-        if not callable(method):
+        if isinstance(result, bool):
             raise TypeError(
-                "Core.command_manager must provide "
-                "undo_count()."
+                "Controller.undo_count() must return "
+                "an integer."
             )
 
-        return int(
-            method()
-        )
+        if not isinstance(result, int):
+            raise TypeError(
+                "Controller.undo_count() must return "
+                "an integer."
+            )
+
+        return result
 
     # --------------------------------------------------------
 
@@ -419,25 +491,25 @@ class CommandManager:
         Return the authoritative redo-history count.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "redo_count"
         )
 
-        method = getattr(
-            command_manager,
-            "redo_count",
-            None,
-        )
+        result = method()
 
-        if not callable(method):
+        if isinstance(result, bool):
             raise TypeError(
-                "Core.command_manager must provide "
-                "redo_count()."
+                "Controller.redo_count() must return "
+                "an integer."
             )
 
-        return int(
-            method()
-        )
+        if not isinstance(result, int):
+            raise TypeError(
+                "Controller.redo_count() must return "
+                "an integer."
+            )
+
+        return result
 
     # ========================================================
     # HISTORY ACCESS
@@ -447,26 +519,16 @@ class CommandManager:
         self,
     ) -> tuple[Any, ...]:
         """
-        Return the authoritative undo-history snapshot.
+        Return an immutable snapshot of authoritative undo
+        history.
 
-        The UI facade does not maintain its own collection.
+        The UI CommandManager does not retain the returned
+        commands.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "get_undo_commands"
         )
-
-        method = getattr(
-            command_manager,
-            "get_undo_commands",
-            None,
-        )
-
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                "get_undo_commands()."
-            )
 
         result = method()
 
@@ -480,24 +542,16 @@ class CommandManager:
         self,
     ) -> tuple[Any, ...]:
         """
-        Return the authoritative redo-history snapshot.
+        Return an immutable snapshot of authoritative redo
+        history.
+
+        The UI CommandManager does not retain the returned
+        commands.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "get_redo_commands"
         )
-
-        method = getattr(
-            command_manager,
-            "get_redo_commands",
-            None,
-        )
-
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                "get_redo_commands()."
-            )
 
         result = method()
 
@@ -513,27 +567,25 @@ class CommandManager:
         self,
     ) -> Optional[str]:
         """
-        Return the authoritative display name of the next
-        undo operation.
+        Return the display name of the next undo operation.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "get_undo_name"
         )
 
-        method = getattr(
-            command_manager,
-            "get_undo_name",
-            None,
-        )
+        result = method()
 
-        if not callable(method):
+        if result is not None and not isinstance(
+            result,
+            str,
+        ):
             raise TypeError(
-                "Core.command_manager must provide "
-                "get_undo_name()."
+                "Controller.get_undo_name() must return "
+                "a string or None."
             )
 
-        return method()
+        return result
 
     # --------------------------------------------------------
 
@@ -541,27 +593,25 @@ class CommandManager:
         self,
     ) -> Optional[str]:
         """
-        Return the authoritative display name of the next
-        redo operation.
+        Return the display name of the next redo operation.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "get_redo_name"
         )
 
-        method = getattr(
-            command_manager,
-            "get_redo_name",
-            None,
-        )
+        result = method()
 
-        if not callable(method):
+        if result is not None and not isinstance(
+            result,
+            str,
+        ):
             raise TypeError(
-                "Core.command_manager must provide "
-                "get_redo_name()."
+                "Controller.get_redo_name() must return "
+                "a string or None."
             )
 
-        return method()
+        return result
 
     # ========================================================
     # HISTORY MANAGEMENT
@@ -573,26 +623,13 @@ class CommandManager:
         """
         Clear authoritative command history.
 
-        This delegates to Core.command_manager.
-
-        It does not modify application/domain state directly.
+        Controller/Core state is not directly modified by this
+        facade.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "clear_history"
         )
-
-        method = getattr(
-            command_manager,
-            "clear_history",
-            None,
-        )
-
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                "clear_history()."
-            )
 
         return method()
 
@@ -605,21 +642,9 @@ class CommandManager:
         Clear authoritative redo history.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "clear_redo"
         )
-
-        method = getattr(
-            command_manager,
-            "clear_redo",
-            None,
-        )
-
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                "clear_redo()."
-            )
 
         return method()
 
@@ -633,26 +658,14 @@ class CommandManager:
         """
         Reset authoritative command-history state.
 
-        Delegates to Core.command_manager.reset() when available.
+        This delegates to Controller.reset_command_history().
 
-        This method does not reset Controller state.
+        It does not reset Controller application state.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "reset_command_history"
         )
-
-        method = getattr(
-            command_manager,
-            "reset",
-            None,
-        )
-
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                "reset()."
-            )
 
         return method()
 
@@ -664,49 +677,34 @@ class CommandManager:
         self,
     ) -> dict[str, Any]:
         """
-        Return diagnostic command-manager state.
+        Return the authoritative command-manager diagnostic
+        state.
 
-        The returned state originates from the authoritative
-        Core command manager.
+        The state originates from Core.command_manager through
+        Controller.
 
-        A small fallback state is provided only when the Core
-        command manager does not expose get_state().
+        The returned dictionary is copied so callers cannot
+        mutate a dictionary owned by another layer.
         """
 
-        command_manager = (
-            self._get_core_command_manager()
+        method = self._get_controller_method(
+            "get_command_state"
         )
 
-        method = getattr(
-            command_manager,
-            "get_state",
-            None,
-        )
+        state = method()
 
-        if callable(method):
-            state = method()
-
-            if not isinstance(
-                state,
-                dict,
-            ):
-                raise TypeError(
-                    "Core.command_manager.get_state() "
-                    "must return a dictionary."
-                )
-
-            return dict(
-                state
+        if not isinstance(
+            state,
+            dict,
+        ):
+            raise TypeError(
+                "Controller.get_command_state() must "
+                "return a dictionary."
             )
 
-        return {
-            "undo_count": self.undo_count(),
-            "redo_count": self.redo_count(),
-            "can_undo": self.can_undo(),
-            "can_redo": self.can_redo(),
-            "undo_name": self.get_undo_name(),
-            "redo_name": self.get_redo_name(),
-        }
+        return dict(
+            state
+        )
 
     # ========================================================
     # CONTROLLER ACCESS
@@ -733,18 +731,26 @@ class CommandManager:
         """
         Return a concise diagnostic representation.
 
-        The representation queries authoritative Core history
-        state rather than maintaining local history.
+        Representation uses the public Controller command
+        boundary and does not inspect Core directly.
         """
 
         try:
             undo_count = self.undo_count()
-        except (RuntimeError, TypeError):
+
+        except (
+            RuntimeError,
+            TypeError,
+        ):
             undo_count = "?"
 
         try:
             redo_count = self.redo_count()
-        except (RuntimeError, TypeError):
+
+        except (
+            RuntimeError,
+            TypeError,
+        ):
             redo_count = "?"
 
         return (
