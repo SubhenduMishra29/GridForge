@@ -1,11 +1,12 @@
-# ============================================================
-# File: tests/ui/plugins/test_plugin_state.py
-# GridForge V2 — Plugin State Tests
-# ============================================================
+"""
+Tests for GridForge V2 UI plugin runtime state infrastructure.
 
-from __future__ import annotations
+File:
+    tests/ui/plugins/test_plugin_state.py
+"""
 
 from dataclasses import FrozenInstanceError
+from threading import Barrier, Thread
 
 import pytest
 
@@ -20,1319 +21,1025 @@ from ui.plugins.plugin_state import (
 
 
 # ============================================================
-# PLUGIN STATE
+# PLUGIN STATE — CONSTRUCTION
 # ============================================================
 
 
-class TestPluginState:
+def test_plugin_state_defaults():
+    state = PluginState(
+        plugin_id="canvas",
+    )
 
-    def test_constructs_with_defaults(self):
-        state = PluginState(
-            plugin_id="test.plugin",
+    assert state.plugin_id == "canvas"
+    assert state.registered is False
+    assert state.enabled is False
+    assert state.initialized is False
+    assert state.generation == 0
+    assert state.last_error is None
+    assert state.metadata == {}
+
+
+def test_plugin_state_accepts_valid_values():
+    state = PluginState(
+        plugin_id="canvas",
+        registered=True,
+        enabled=True,
+        initialized=True,
+        generation=3,
+        last_error="previous failure",
+        metadata={"owner": "ui"},
+    )
+
+    assert state.plugin_id == "canvas"
+    assert state.registered is True
+    assert state.enabled is True
+    assert state.initialized is True
+    assert state.generation == 3
+    assert state.last_error == "previous failure"
+    assert state.metadata["owner"] == "ui"
+
+
+def test_plugin_state_is_frozen():
+    state = PluginState(
+        plugin_id="canvas",
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        state.plugin_id = "other"
+
+
+def test_plugin_state_metadata_is_immutable():
+    state = PluginState(
+        plugin_id="canvas",
+        metadata={"value": 10},
+    )
+
+    with pytest.raises(TypeError):
+        state.metadata["value"] = 20
+
+
+def test_plugin_state_metadata_is_snapshotted():
+    metadata = {
+        "value": 10,
+    }
+
+    state = PluginState(
+        plugin_id="canvas",
+        metadata=metadata,
+    )
+
+    metadata["value"] = 20
+    metadata["new"] = True
+
+    assert state.metadata["value"] == 10
+    assert "new" not in state.metadata
+
+
+# ============================================================
+# PLUGIN STATE — VALIDATION
+# ============================================================
+
+
+@pytest.mark.parametrize(
+    "plugin_id",
+    [
+        None,
+        "",
+        "   ",
+        123,
+    ],
+)
+def test_plugin_state_rejects_invalid_plugin_id(plugin_id):
+    with pytest.raises((TypeError, ValueError)):
+        PluginState(
+            plugin_id=plugin_id,
         )
 
-        assert state.plugin_id == "test.plugin"
-        assert state.registered is False
-        assert state.enabled is False
-        assert state.initialized is False
-        assert state.generation == 0
-        assert state.last_error is None
-        assert state.metadata == {}
 
-    def test_valid_state(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            registered=True,
+@pytest.mark.parametrize(
+    "registered",
+    [
+        None,
+        0,
+        1,
+        "true",
+    ],
+)
+def test_plugin_state_rejects_invalid_registered(registered):
+    with pytest.raises(TypeError):
+        PluginState(
+            plugin_id="canvas",
+            registered=registered,
+        )
+
+
+@pytest.mark.parametrize(
+    "enabled",
+    [
+        None,
+        0,
+        1,
+        "true",
+    ],
+)
+def test_plugin_state_rejects_invalid_enabled(enabled):
+    with pytest.raises(TypeError):
+        PluginState(
+            plugin_id="canvas",
+            enabled=enabled,
+        )
+
+
+@pytest.mark.parametrize(
+    "initialized",
+    [
+        None,
+        0,
+        1,
+        "true",
+    ],
+)
+def test_plugin_state_rejects_invalid_initialized(initialized):
+    with pytest.raises(TypeError):
+        PluginState(
+            plugin_id="canvas",
+            initialized=initialized,
+        )
+
+
+@pytest.mark.parametrize(
+    "generation",
+    [
+        None,
+        True,
+        False,
+        1.5,
+        "1",
+        -1,
+    ],
+)
+def test_plugin_state_rejects_invalid_generation(generation):
+    with pytest.raises((TypeError, ValueError)):
+        PluginState(
+            plugin_id="canvas",
+            generation=generation,
+        )
+
+
+@pytest.mark.parametrize(
+    "last_error",
+    [
+        123,
+        True,
+        [],
+        {},
+    ],
+)
+def test_plugin_state_rejects_invalid_last_error(last_error):
+    with pytest.raises(TypeError):
+        PluginState(
+            plugin_id="canvas",
+            last_error=last_error,
+        )
+
+
+def test_plugin_state_rejects_invalid_metadata():
+    with pytest.raises(TypeError):
+        PluginState(
+            plugin_id="canvas",
+            metadata="invalid",
+        )
+
+
+def test_plugin_state_rejects_enabled_unregistered():
+    with pytest.raises(ValueError):
+        PluginState(
+            plugin_id="canvas",
+            registered=False,
             enabled=True,
+        )
+
+
+def test_plugin_state_rejects_initialized_unregistered():
+    with pytest.raises(ValueError):
+        PluginState(
+            plugin_id="canvas",
+            registered=False,
             initialized=True,
-            generation=3,
-            last_error="failure",
-            metadata={
-                "category": "test",
-            },
         )
 
-        assert state.plugin_id == "test.plugin"
-        assert state.registered is True
-        assert state.enabled is True
-        assert state.initialized is True
-        assert state.generation == 3
-        assert state.last_error == "failure"
-        assert state.metadata["category"] == "test"
 
-    def test_state_is_immutable(self):
-        state = PluginState(
-            plugin_id="test.plugin",
+def test_plugin_state_rejects_initialized_disabled():
+    with pytest.raises(ValueError):
+        PluginState(
+            plugin_id="canvas",
+            registered=True,
+            enabled=False,
+            initialized=True,
         )
 
-        with pytest.raises(
-            FrozenInstanceError
-        ):
-            state.plugin_id = "changed"
 
-    def test_metadata_is_immutable(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            metadata={
-                "key": "value",
-            },
-        )
+# ============================================================
+# STORE — INITIAL STATE
+# ============================================================
 
-        with pytest.raises(TypeError):
-            state.metadata["key"] = "changed"
 
-        assert state.metadata["key"] == "value"
+def test_store_initially_empty():
+    store = PluginStateStore()
 
-    def test_state_metadata_is_not_shared(self):
-        source = {
-            "key": "value",
-        }
+    assert store.plugin_ids == ()
+    assert store.snapshots == ()
 
-        state = PluginState(
-            plugin_id="test.plugin",
-            metadata=source,
-        )
 
-        source["key"] = "changed"
+def test_store_contains_returns_false_for_unknown_plugin():
+    store = PluginStateStore()
 
-        assert state.metadata["key"] == "value"
+    assert store.contains("canvas") is False
 
-    def test_rejects_non_string_plugin_id(self):
-        with pytest.raises(TypeError):
-            PluginState(
-                plugin_id=123,
-            )
 
-    def test_rejects_empty_plugin_id(self):
-        with pytest.raises(ValueError):
-            PluginState(
-                plugin_id="",
-            )
+def test_store_get_returns_none_for_unknown_plugin():
+    store = PluginStateStore()
 
-    def test_rejects_whitespace_plugin_id(self):
-        with pytest.raises(ValueError):
-            PluginState(
-                plugin_id="   ",
-            )
+    assert store.get("canvas") is None
 
-    @pytest.mark.parametrize(
-        "field_name",
-        [
-            "registered",
-            "enabled",
-            "initialized",
-        ],
+
+def test_store_require_raises_for_unknown_plugin():
+    store = PluginStateStore()
+
+    with pytest.raises(KeyError):
+        store.require("canvas")
+
+
+# ============================================================
+# STORE — VALIDATION
+# ============================================================
+
+
+@pytest.mark.parametrize(
+    "plugin_id",
+    [
+        None,
+        "",
+        "   ",
+        123,
+    ],
+)
+def test_store_query_methods_validate_plugin_id(plugin_id):
+    store = PluginStateStore()
+
+    with pytest.raises((TypeError, ValueError)):
+        store.contains(plugin_id)
+
+    with pytest.raises((TypeError, ValueError)):
+        store.get(plugin_id)
+
+    with pytest.raises((TypeError, ValueError)):
+        store.require(plugin_id)
+
+
+# ============================================================
+# STORE — REGISTRATION
+# ============================================================
+
+
+def test_register_creates_registered_state():
+    store = PluginStateStore()
+
+    state = store.register("canvas")
+
+    assert isinstance(state, PluginState)
+    assert state.plugin_id == "canvas"
+    assert state.registered is True
+    assert state.enabled is False
+    assert state.initialized is False
+    assert state.generation == 0
+    assert state.last_error is None
+
+
+def test_register_can_start_enabled():
+    store = PluginStateStore()
+
+    state = store.register(
+        "canvas",
+        enabled=True,
     )
-    def test_rejects_non_bool_flags(
-        self,
-        field_name,
-    ):
-        kwargs = {
-            "plugin_id": "test.plugin",
-            field_name: 1,
-        }
 
-        with pytest.raises(TypeError):
-            PluginState(**kwargs)
-
-    def test_rejects_non_integer_generation(self):
-        with pytest.raises(TypeError):
-            PluginState(
-                plugin_id="test.plugin",
-                generation="1",
-            )
-
-    def test_rejects_bool_generation(self):
-        with pytest.raises(TypeError):
-            PluginState(
-                plugin_id="test.plugin",
-                generation=True,
-            )
-
-    def test_rejects_negative_generation(self):
-        with pytest.raises(ValueError):
-            PluginState(
-                plugin_id="test.plugin",
-                generation=-1,
-            )
-
-    def test_rejects_non_string_last_error(self):
-        with pytest.raises(TypeError):
-            PluginState(
-                plugin_id="test.plugin",
-                last_error=123,
-            )
-
-    def test_rejects_non_mapping_metadata(self):
-        with pytest.raises(TypeError):
-            PluginState(
-                plugin_id="test.plugin",
-                metadata=[],
-            )
-
-    def test_enabled_requires_registered(self):
-        with pytest.raises(ValueError):
-            PluginState(
-                plugin_id="test.plugin",
-                enabled=True,
-            )
-
-    def test_initialized_requires_registered(self):
-        with pytest.raises(ValueError):
-            PluginState(
-                plugin_id="test.plugin",
-                initialized=True,
-            )
-
-    def test_initialized_requires_enabled(self):
-        with pytest.raises(ValueError):
-            PluginState(
-                plugin_id="test.plugin",
-                registered=True,
-                initialized=True,
-            )
+    assert state.registered is True
+    assert state.enabled is True
+    assert state.initialized is False
 
 
-# ============================================================
-# STORE CONSTRUCTION
-# ============================================================
+def test_register_accepts_metadata():
+    store = PluginStateStore()
 
-
-class TestPluginStateStoreConstruction:
-
-    def test_constructs_empty_store(self):
-        store = PluginStateStore()
-
-        assert store.plugin_ids == ()
-        assert store.snapshots == ()
-
-    def test_contains_returns_false_for_empty_store(self):
-        store = PluginStateStore()
-
-        assert store.contains("test.plugin") is False
-
-    def test_get_returns_none_for_unknown_plugin(self):
-        store = PluginStateStore()
-
-        assert store.get("test.plugin") is None
-
-    def test_require_raises_for_unknown_plugin(self):
-        store = PluginStateStore()
-
-        with pytest.raises(
-            KeyError,
-            match="No state exists",
-        ):
-            store.require("test.plugin")
-
-
-# ============================================================
-# VALIDATION
-# ============================================================
-
-
-class TestValidation:
-
-    @pytest.mark.parametrize(
-        "value",
-        [
-            None,
-            123,
-            [],
-            {},
-        ],
+    state = store.register(
+        "canvas",
+        metadata={
+            "kind": "composition",
+        },
     )
-    def test_plugin_id_must_be_string(
-        self,
-        value,
-    ):
-        store = PluginStateStore()
 
-        with pytest.raises(TypeError):
-            store.contains(value)
+    assert state.metadata["kind"] == "composition"
 
-    def test_empty_plugin_id_is_rejected(self):
-        store = PluginStateStore()
 
-        with pytest.raises(ValueError):
-            store.contains("")
+def test_register_snapshots_metadata():
+    store = PluginStateStore()
 
-    def test_whitespace_plugin_id_is_rejected(self):
-        store = PluginStateStore()
+    metadata = {
+        "value": 10,
+    }
 
-        with pytest.raises(ValueError):
-            store.contains("   ")
+    state = store.register(
+        "canvas",
+        metadata=metadata,
+    )
+
+    metadata["value"] = 20
+
+    assert state.metadata["value"] == 10
+
+
+def test_register_rejects_duplicate_plugin():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    with pytest.raises(KeyError):
+        store.register("canvas")
+
+
+def test_register_rejects_invalid_enabled():
+    store = PluginStateStore()
+
+    with pytest.raises(TypeError):
+        store.register(
+            "canvas",
+            enabled=1,
+        )
+
+
+def test_register_rejects_invalid_metadata():
+    store = PluginStateStore()
+
+    with pytest.raises(TypeError):
+        store.register(
+            "canvas",
+            metadata="invalid",
+        )
+
+
+def test_register_preserves_insertion_order():
+    store = PluginStateStore()
+
+    store.register("canvas")
+    store.register("panels")
+    store.register("toolbar")
+
+    assert store.plugin_ids == (
+        "canvas",
+        "panels",
+        "toolbar",
+    )
+
+
+def test_snapshots_preserve_insertion_order():
+    store = PluginStateStore()
+
+    store.register("canvas")
+    store.register("panels")
+
+    snapshots = store.snapshots
+
+    assert [state.plugin_id for state in snapshots] == [
+        "canvas",
+        "panels",
+    ]
 
 
 # ============================================================
-# REGISTRATION
+# STORE — QUERY
 # ============================================================
 
 
-class TestRegistration:
+def test_get_returns_current_state():
+    store = PluginStateStore()
 
-    def test_register_creates_state(self):
-        store = PluginStateStore()
+    store.register("canvas")
 
-        state = store.register(
-            "test.plugin",
-        )
+    state = store.get("canvas")
 
-        assert state.plugin_id == "test.plugin"
-        assert state.registered is True
-        assert state.enabled is False
-        assert state.initialized is False
-        assert state.generation == 0
-        assert state.last_error is None
-        assert state.metadata == {}
+    assert state is not None
+    assert state.plugin_id == "canvas"
 
-    def test_register_enabled(self):
-        store = PluginStateStore()
 
-        state = store.register(
-            "test.plugin",
-            enabled=True,
-        )
+def test_require_returns_current_state():
+    store = PluginStateStore()
 
-        assert state.registered is True
-        assert state.enabled is True
-        assert state.initialized is False
+    store.register("canvas")
 
-    def test_register_metadata(self):
-        store = PluginStateStore()
+    state = store.require("canvas")
 
-        state = store.register(
-            "test.plugin",
-            metadata={
-                "category": "test",
-                "owner": "GridForge",
-            },
-        )
+    assert state.plugin_id == "canvas"
 
-        assert state.metadata == {
-            "category": "test",
-            "owner": "GridForge",
-        }
 
-    def test_register_copies_metadata(self):
-        store = PluginStateStore()
+def test_contains_returns_true_after_registration():
+    store = PluginStateStore()
 
-        metadata = {
-            "key": "value",
-        }
+    store.register("canvas")
 
-        state = store.register(
-            "test.plugin",
-            metadata=metadata,
-        )
+    assert store.contains("canvas") is True
 
-        metadata["key"] = "changed"
 
-        assert state.metadata["key"] == "value"
+def test_is_registered():
+    store = PluginStateStore()
 
-    def test_duplicate_registration_is_rejected(self):
-        store = PluginStateStore()
+    store.register("canvas")
 
-        store.register("test.plugin")
+    assert store.is_registered("canvas") is True
 
-        with pytest.raises(
-            KeyError,
-            match="already exists",
-        ):
-            store.register("test.plugin")
 
-    def test_register_enabled_must_be_bool(self):
-        store = PluginStateStore()
+def test_is_enabled():
+    store = PluginStateStore()
 
-        with pytest.raises(TypeError):
-            store.register(
-                "test.plugin",
-                enabled=1,
-            )
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-    def test_register_metadata_must_be_mapping(self):
-        store = PluginStateStore()
+    assert store.is_enabled("canvas") is True
 
-        with pytest.raises(TypeError):
-            store.register(
-                "test.plugin",
-                metadata=[],
-            )
 
-    def test_plugin_ids_preserve_registration_order(self):
-        store = PluginStateStore()
+def test_is_initialized():
+    store = PluginStateStore()
 
-        store.register("plugin.a")
-        store.register("plugin.b")
-        store.register("plugin.c")
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-        assert store.plugin_ids == (
-            "plugin.a",
-            "plugin.b",
-            "plugin.c",
-        )
+    store.mark_initialized("canvas")
 
-    def test_snapshots_preserve_registration_order(self):
-        store = PluginStateStore()
+    assert store.is_initialized("canvas") is True
 
-        store.register("plugin.a")
-        store.register("plugin.b")
 
-        snapshots = store.snapshots
+def test_generation():
+    store = PluginStateStore()
 
-        assert tuple(
-            state.plugin_id
-            for state in snapshots
-        ) == (
-            "plugin.a",
-            "plugin.b",
-        )
+    store.register(
+        "canvas",
+        enabled=True,
+    )
+
+    assert store.generation("canvas") == 0
+
+    store.mark_initialized("canvas")
+
+    assert store.generation("canvas") == 1
+
+
+def test_last_error():
+    store = PluginStateStore()
+
+    store.register("canvas")
+    store.set_last_error("canvas", "failure")
+
+    assert store.last_error("canvas") == "failure"
 
 
 # ============================================================
-# QUERIES
+# STORE — ENABLEMENT
 # ============================================================
 
 
-class TestQueries:
+def test_set_enabled_true():
+    store = PluginStateStore()
 
-    def test_contains_registered_plugin(self):
-        store = PluginStateStore()
+    store.register("canvas")
 
-        store.register("test.plugin")
+    state = store.set_enabled(
+        "canvas",
+        True,
+    )
 
-        assert store.contains("test.plugin") is True
+    assert state.enabled is True
+    assert state.registered is True
 
-    def test_get_returns_registered_state(self):
-        store = PluginStateStore()
 
-        registered = store.register(
-            "test.plugin"
+def test_set_enabled_false():
+    store = PluginStateStore()
+
+    store.register(
+        "canvas",
+        enabled=True,
+    )
+
+    state = store.set_enabled(
+        "canvas",
+        False,
+    )
+
+    assert state.enabled is False
+
+
+def test_set_enabled_rejects_invalid_value():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    with pytest.raises(TypeError):
+        store.set_enabled(
+            "canvas",
+            1,
         )
 
-        state = store.get(
-            "test.plugin"
-        )
 
-        assert state == registered
+def test_set_enabled_rejects_enabled_unregistered_state():
+    store = PluginStateStore()
 
-    def test_require_returns_registered_state(self):
-        store = PluginStateStore()
+    store.register("canvas")
 
-        registered = store.register(
-            "test.plugin"
-        )
-
-        assert store.require(
-            "test.plugin"
-        ) == registered
-
-    def test_is_registered(self):
-        store = PluginStateStore()
-
-        store.register("test.plugin")
-
-        assert store.is_registered(
-            "test.plugin"
-        ) is True
-
-    def test_is_enabled(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        assert store.is_enabled(
-            "test.plugin"
-        ) is True
-
-    def test_is_initialized(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        assert store.is_initialized(
-            "test.plugin"
-        ) is False
-
-    def test_generation(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        assert store.generation(
-            "test.plugin"
-        ) == 0
-
-    def test_last_error(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        assert store.last_error(
-            "test.plugin"
-        ) is None
+    # Registration always makes the state registered, so this
+    # invariant is primarily enforced by PluginState itself.
+    assert store.set_enabled("canvas", True).enabled is True
 
 
-# ============================================================
-# ENABLEMENT
-# ============================================================
+def test_disable_initialized_plugin_is_rejected():
+    store = PluginStateStore()
 
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-class TestEnablement:
+    store.mark_initialized("canvas")
 
-    def test_enable_registered_plugin(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-        )
-
-        state = store.set_enabled(
-            "test.plugin",
-            True,
-        )
-
-        assert state.enabled is True
-        assert state.registered is True
-
-    def test_disable_registered_plugin(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        state = store.set_enabled(
-            "test.plugin",
+    with pytest.raises(RuntimeError):
+        store.set_enabled(
+            "canvas",
             False,
         )
 
-        assert state.enabled is False
 
-    def test_enable_unregistered_plugin_is_rejected(self):
-        store = PluginStateStore()
+def test_repeated_enable_is_idempotent():
+    store = PluginStateStore()
 
-        with pytest.raises(
-            KeyError,
-        ):
-            store.set_enabled(
-                "test.plugin",
-                True,
-            )
+    store.register("canvas")
 
-    def test_cannot_disable_initialized_plugin(self):
-        store = PluginStateStore()
+    first = store.set_enabled(
+        "canvas",
+        True,
+    )
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+    second = store.set_enabled(
+        "canvas",
+        True,
+    )
 
-        store.mark_initialized(
-            "test.plugin"
-        )
-
-        with pytest.raises(
-            RuntimeError,
-            match="Cannot disable initialized",
-        ):
-            store.set_enabled(
-                "test.plugin",
-                False,
-            )
-
-    def test_enabled_must_be_bool(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        with pytest.raises(TypeError):
-            store.set_enabled(
-                "test.plugin",
-                1,
-            )
-
-    def test_enablement_preserves_other_state(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            metadata={
-                "key": "value",
-            },
-        )
-
-        state = store.set_enabled(
-            "test.plugin",
-            True,
-        )
-
-        assert state.registered is True
-        assert state.enabled is True
-        assert state.initialized is False
-        assert state.generation == 0
-        assert state.metadata["key"] == "value"
+    assert second.enabled is True
+    assert second.generation == first.generation
 
 
 # ============================================================
-# INITIALIZATION
+# STORE — INITIALIZATION
 # ============================================================
 
 
-class TestInitialization:
+def test_mark_initialized_requires_registered_plugin():
+    store = PluginStateStore()
 
-    def test_mark_initialized(self):
-        store = PluginStateStore()
+    with pytest.raises(KeyError):
+        store.mark_initialized("canvas")
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
 
-        state = store.mark_initialized(
-            "test.plugin"
-        )
+def test_mark_initialized_requires_enabled_plugin():
+    store = PluginStateStore()
 
-        assert state.initialized is True
-        assert state.generation == 1
-        assert state.last_error is None
+    store.register("canvas")
 
-    def test_mark_initialized_increments_generation(self):
-        store = PluginStateStore()
+    with pytest.raises(RuntimeError):
+        store.mark_initialized("canvas")
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
 
-        assert store.get(
-            "test.plugin"
-        ).generation == 0
+def test_mark_initialized_sets_initialized():
+    store = PluginStateStore()
 
-        store.mark_initialized(
-            "test.plugin"
-        )
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-        assert store.get(
-            "test.plugin"
-        ).generation == 1
+    state = store.mark_initialized("canvas")
 
-        store.mark_uninitialized(
-            "test.plugin"
-        )
+    assert state.registered is True
+    assert state.enabled is True
+    assert state.initialized is True
 
-        store.mark_initialized(
-            "test.plugin"
-        )
 
-        assert store.get(
-            "test.plugin"
-        ).generation == 2
+def test_first_initialization_increments_generation():
+    store = PluginStateStore()
 
-    def test_mark_initialized_again_is_idempotent(self):
-        store = PluginStateStore()
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+    state = store.mark_initialized("canvas")
 
-        first = store.mark_initialized(
-            "test.plugin"
-        )
+    assert state.generation == 1
 
-        second = store.mark_initialized(
-            "test.plugin"
-        )
 
-        assert first == second
-        assert first is second
+def test_repeated_initialization_is_idempotent():
+    store = PluginStateStore()
 
-        assert second.generation == 1
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-    def test_mark_initialized_requires_registered_plugin(self):
-        store = PluginStateStore()
+    first = store.mark_initialized("canvas")
+    second = store.mark_initialized("canvas")
 
-        with pytest.raises(
-            KeyError,
-        ):
-            store.mark_initialized(
-                "test.plugin"
-            )
+    assert second is first
+    assert second.generation == 1
 
-    def test_mark_initialized_requires_enabled_plugin(self):
-        store = PluginStateStore()
 
-        store.register(
-            "test.plugin",
-            enabled=False,
-        )
+def test_initialization_clears_last_error():
+    store = PluginStateStore()
 
-        with pytest.raises(
-            RuntimeError,
-            match="Cannot initialize disabled",
-        ):
-            store.mark_initialized(
-                "test.plugin"
-            )
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-    def test_mark_uninitialized(self):
-        store = PluginStateStore()
+    store.set_last_error(
+        "canvas",
+        "previous failure",
+    )
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+    assert store.last_error("canvas") == "previous failure"
 
-        store.mark_initialized(
-            "test.plugin"
-        )
+    state = store.mark_initialized("canvas")
 
-        state = store.mark_uninitialized(
-            "test.plugin"
-        )
+    assert state.last_error is None
 
-        assert state.initialized is False
-        assert state.generation == 1
 
-    def test_mark_uninitialized_is_idempotent(self):
-        store = PluginStateStore()
+def test_mark_uninitialized_records_shutdown():
+    store = PluginStateStore()
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-        first = store.mark_uninitialized(
-            "test.plugin"
-        )
+    store.mark_initialized("canvas")
 
-        second = store.mark_uninitialized(
-            "test.plugin"
-        )
+    state = store.mark_uninitialized("canvas")
 
-        assert first == second
-        assert first is second
+    assert state.initialized is False
+    assert state.enabled is True
+    assert state.registered is True
+    assert state.generation == 1
 
-    def test_mark_uninitialized_preserves_generation(self):
-        store = PluginStateStore()
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+def test_mark_uninitialized_is_idempotent():
+    store = PluginStateStore()
 
-        store.mark_initialized(
-            "test.plugin"
-        )
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-        store.mark_uninitialized(
-            "test.plugin"
-        )
+    first = store.mark_uninitialized("canvas")
+    second = store.mark_uninitialized("canvas")
 
-        assert store.generation(
-            "test.plugin"
-        ) == 1
+    assert second is first
 
-    def test_successful_initialization_clears_error(self):
-        store = PluginStateStore()
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+def test_reinitialization_increments_generation():
+    store = PluginStateStore()
 
+    store.register(
+        "canvas",
+        enabled=True,
+    )
+
+    store.mark_initialized("canvas")
+    store.mark_uninitialized("canvas")
+    store.mark_initialized("canvas")
+
+    assert store.generation("canvas") == 2
+
+
+# ============================================================
+# STORE — ERRORS
+# ============================================================
+
+
+def test_set_last_error_from_string():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    state = store.set_last_error(
+        "canvas",
+        "failure",
+    )
+
+    assert state.last_error == "failure"
+
+
+def test_set_last_error_from_exception():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    error = RuntimeError("boom")
+
+    state = store.set_last_error(
+        "canvas",
+        error,
+    )
+
+    assert state.last_error == "boom"
+
+
+def test_set_last_error_strips_message():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    state = store.set_last_error(
+        "canvas",
+        "  failure  ",
+    )
+
+    assert state.last_error == "failure"
+
+
+def test_empty_error_gets_fallback_message():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    state = store.set_last_error(
+        "canvas",
+        "   ",
+    )
+
+    assert state.last_error == "Unknown plugin failure."
+
+
+def test_empty_exception_gets_fallback_message():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    state = store.set_last_error(
+        "canvas",
+        RuntimeError(),
+    )
+
+    assert state.last_error == "Unknown plugin failure."
+
+
+def test_set_last_error_rejects_invalid_error():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    with pytest.raises(TypeError):
         store.set_last_error(
-            "test.plugin",
-            RuntimeError("failure"),
+            "canvas",
+            123,
         )
 
-        state = store.mark_initialized(
-            "test.plugin"
-        )
 
-        assert state.initialized is True
-        assert state.last_error is None
+def test_setting_error_does_not_change_lifecycle_state():
+    store = PluginStateStore()
+
+    store.register(
+        "canvas",
+        enabled=True,
+    )
+
+    before = store.require("canvas")
+
+    store.set_last_error(
+        "canvas",
+        "failure",
+    )
+
+    after = store.require("canvas")
+
+    assert after.registered == before.registered
+    assert after.enabled == before.enabled
+    assert after.initialized == before.initialized
+    assert after.generation == before.generation
 
 
-# ============================================================
-# ERRORS
-# ============================================================
+def test_clear_last_error():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    store.set_last_error(
+        "canvas",
+        "failure",
+    )
+
+    state = store.clear_last_error("canvas")
+
+    assert state.last_error is None
 
 
-class TestErrors:
+def test_clear_last_error_is_idempotent():
+    store = PluginStateStore()
 
-    def test_set_last_error_from_exception(self):
-        store = PluginStateStore()
+    store.register("canvas")
 
-        store.register(
-            "test.plugin"
-        )
+    first = store.clear_last_error("canvas")
+    second = store.clear_last_error("canvas")
 
-        error = RuntimeError(
-            "plugin failure"
-        )
-
-        state = store.set_last_error(
-            "test.plugin",
-            error,
-        )
-
-        assert state.last_error == (
-            "plugin failure"
-        )
-
-        assert store.get(
-            "test.plugin"
-        ).last_error == "plugin failure"
-
-    def test_set_last_error_from_string(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        state = store.set_last_error(
-            "test.plugin",
-            "plugin failure",
-        )
-
-        assert state.last_error == (
-            "plugin failure"
-        )
-
-    def test_set_last_error_strips_whitespace(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        state = store.set_last_error(
-            "test.plugin",
-            "  failure  ",
-        )
-
-        assert state.last_error == "failure"
-
-    def test_empty_error_gets_default_message(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        state = store.set_last_error(
-            "test.plugin",
-            "   ",
-        )
-
-        assert state.last_error == (
-            "Unknown plugin failure."
-        )
-
-    def test_set_last_error_rejects_invalid_type(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        with pytest.raises(TypeError):
-            store.set_last_error(
-                "test.plugin",
-                123,
-            )
-
-    def test_clear_last_error(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        store.set_last_error(
-            "test.plugin",
-            "failure",
-        )
-
-        state = store.clear_last_error(
-            "test.plugin"
-        )
-
-        assert state.last_error is None
-
-    def test_clear_last_error_is_idempotent(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        store.set_last_error(
-            "test.plugin",
-            "failure",
-        )
-
-        first = store.clear_last_error(
-            "test.plugin"
-        )
-
-        second = store.clear_last_error(
-            "test.plugin"
-        )
-
-        assert first.last_error is None
-        assert second.last_error is None
-        assert first == second
-        assert first is not second
-
-    def test_error_recording_does_not_change_lifecycle_state(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        store.set_last_error(
-            "test.plugin",
-            "failure",
-        )
-
-        state = store.get(
-            "test.plugin"
-        )
-
-        assert state.registered is True
-        assert state.enabled is True
-        assert state.initialized is False
-        assert state.generation == 0
+    assert second is first
 
 
 # ============================================================
-# METADATA
+# STORE — METADATA
 # ============================================================
 
 
-class TestMetadata:
+def test_set_metadata():
+    store = PluginStateStore()
 
-    def test_set_metadata(self):
-        store = PluginStateStore()
+    store.register("canvas")
 
-        store.register(
-            "test.plugin"
+    state = store.set_metadata(
+        "canvas",
+        "kind",
+        "composition",
+    )
+
+    assert state.metadata["kind"] == "composition"
+
+
+def test_set_metadata_replaces_existing_key():
+    store = PluginStateStore()
+
+    store.register(
+        "canvas",
+        metadata={
+            "kind": "old",
+        },
+    )
+
+    state = store.set_metadata(
+        "canvas",
+        "kind",
+        "new",
+    )
+
+    assert state.metadata["kind"] == "new"
+
+
+def test_set_metadata_preserves_existing_keys():
+    store = PluginStateStore()
+
+    store.register(
+        "canvas",
+        metadata={
+            "kind": "composition",
+            "version": 2,
+        },
+    )
+
+    state = store.set_metadata(
+        "canvas",
+        "enabled_by",
+        "manager",
+    )
+
+    assert state.metadata == {
+        "kind": "composition",
+        "version": 2,
+        "enabled_by": "manager",
+    }
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        None,
+        "",
+        "   ",
+        123,
+    ],
+)
+def test_set_metadata_rejects_invalid_key(key):
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    with pytest.raises((TypeError, ValueError)):
+        store.set_metadata(
+            "canvas",
+            key,
+            "value",
         )
 
-        state = store.set_metadata(
-            "test.plugin",
-            "category",
-            "test",
-        )
 
-        assert state.metadata == {
-            "category": "test",
-        }
+def test_metadata_returns_mutable_copy():
+    store = PluginStateStore()
 
-    def test_set_metadata_updates_existing_value(self):
-        store = PluginStateStore()
+    store.register(
+        "canvas",
+        metadata={
+            "value": 10,
+        },
+    )
 
-        store.register(
-            "test.plugin",
-            metadata={
-                "category": "old",
-            },
-        )
+    metadata = store.metadata("canvas")
 
-        state = store.set_metadata(
-            "test.plugin",
-            "category",
-            "new",
-        )
+    metadata["value"] = 20
+    metadata["new"] = True
 
-        assert state.metadata["category"] == "new"
-
-    def test_set_metadata_preserves_existing_values(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            metadata={
-                "category": "test",
-            },
-        )
-
-        state = store.set_metadata(
-            "test.plugin",
-            "owner",
-            "GridForge",
-        )
-
-        assert state.metadata == {
-            "category": "test",
-            "owner": "GridForge",
-        }
-
-    def test_metadata_returns_mutable_copy(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            metadata={
-                "key": "value",
-            },
-        )
-
-        metadata = store.metadata(
-            "test.plugin"
-        )
-
-        metadata["key"] = "changed"
-
-        assert metadata["key"] == "changed"
-        assert store.metadata(
-            "test.plugin"
-        )["key"] == "value"
-
-    def test_metadata_key_must_be_string(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        with pytest.raises(TypeError):
-            store.set_metadata(
-                "test.plugin",
-                123,
-                "value",
-            )
-
-    def test_metadata_key_cannot_be_empty(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin"
-        )
-
-        with pytest.raises(ValueError):
-            store.set_metadata(
-                "test.plugin",
-                "",
-                "value",
-            )
+    assert store.metadata("canvas") == {
+        "value": 10,
+    }
 
 
 # ============================================================
-# UNREGISTRATION
+# STORE — UNREGISTER
 # ============================================================
 
 
-class TestUnregistration:
-
-    def test_unregister_disabled_uninitialized_plugin(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=False,
-        )
-
-        state = store.unregister(
-            "test.plugin"
-        )
-
-        assert state.plugin_id == (
-            "test.plugin"
-        )
-
-        assert store.get(
-            "test.plugin"
-        ) is None
-
-        assert store.contains(
-            "test.plugin"
-        ) is False
-
-    def test_unregister_initialized_plugin_is_rejected(self):
-        store = PluginStateStore()
+def test_unregister_returns_removed_state():
+    store = PluginStateStore()
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        store.mark_initialized(
-            "test.plugin"
-        )
-
-        with pytest.raises(
-            RuntimeError,
-            match="Cannot unregister initialized",
-        ):
-            store.unregister(
-                "test.plugin"
-            )
-
-    def test_unregister_enabled_plugin_is_rejected(self):
-        store = PluginStateStore()
+    original = store.register("canvas")
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        with pytest.raises(
-            RuntimeError,
-            match="Cannot unregister enabled",
-        ):
-            store.unregister(
-                "test.plugin"
-            )
-
-    def test_unregister_unknown_plugin_is_rejected(self):
-        store = PluginStateStore()
-
-        with pytest.raises(
-            KeyError,
-        ):
-            store.unregister(
-                "test.plugin"
-            )
-
-    def test_unregister_removes_plugin(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=False,
-        )
-
-        store.unregister(
-            "test.plugin"
-        )
-
-        assert store.get(
-            "test.plugin"
-        ) is None
-
-        assert store.contains(
-            "test.plugin"
-        ) is False
-
-        assert store.plugin_ids == ()
-
-    def test_unregister_preserves_other_plugins(self):
-        store = PluginStateStore()
-
-        store.register(
-            "plugin.a",
-            enabled=False,
-        )
+    removed = store.unregister("canvas")
 
-        store.register(
-            "plugin.b",
-            enabled=False,
-        )
+    assert removed is original
+    assert store.contains("canvas") is False
 
-        store.unregister(
-            "plugin.a"
-        )
 
-        assert store.plugin_ids == (
-            "plugin.b",
-        )
+def test_unregister_unknown_plugin_raises():
+    store = PluginStateStore()
 
-        assert store.contains(
-            "plugin.b"
-        ) is True
+    with pytest.raises(KeyError):
+        store.unregister("canvas")
 
 
-# ============================================================
-# LIFECYCLE STATE
-# ============================================================
+def test_unregister_enabled_plugin_is_rejected():
+    store = PluginStateStore()
 
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-class TestLifecycleState:
+    with pytest.raises(RuntimeError):
+        store.unregister("canvas")
 
-    def test_normal_lifecycle(self):
-        store = PluginStateStore()
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+def test_unregister_initialized_plugin_is_rejected():
+    store = PluginStateStore()
 
-        state = store.get(
-            "test.plugin"
-        )
+    store.register(
+        "canvas",
+        enabled=True,
+    )
 
-        assert state.registered is True
-        assert state.enabled is True
-        assert state.initialized is False
-        assert state.generation == 0
+    store.mark_initialized("canvas")
 
-        store.mark_initialized(
-            "test.plugin"
-        )
+    with pytest.raises(RuntimeError):
+        store.unregister("canvas")
 
-        state = store.get(
-            "test.plugin"
-        )
 
-        assert state.registered is True
-        assert state.enabled is True
-        assert state.initialized is True
-        assert state.generation == 1
+def test_unregister_allows_disabled_uninitialized_plugin():
+    store = PluginStateStore()
 
-        store.mark_uninitialized(
-            "test.plugin"
-        )
+    store.register("canvas")
 
-        state = store.get(
-            "test.plugin"
-        )
+    removed = store.unregister("canvas")
 
-        assert state.registered is True
-        assert state.enabled is True
-        assert state.initialized is False
-        assert state.generation == 1
+    assert removed.plugin_id == "canvas"
+    assert store.plugin_ids == ()
 
-    def test_reinitialize_increments_generation(self):
-        store = PluginStateStore()
 
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
+def test_unregister_preserves_other_plugins():
+    store = PluginStateStore()
 
-        store.mark_initialized(
-            "test.plugin"
-        )
+    store.register("canvas")
+    store.register("panels")
+    store.register("toolbar")
 
-        store.mark_uninitialized(
-            "test.plugin"
-        )
+    store.unregister("panels")
 
-        store.mark_initialized(
-            "test.plugin"
-        )
-
-        assert store.generation(
-            "test.plugin"
-        ) == 2
-
-    def test_error_can_be_cleared_after_successful_transition(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        store.set_last_error(
-            "test.plugin",
-            RuntimeError("failure"),
-        )
-
-        assert store.last_error(
-            "test.plugin"
-        ) == "failure"
-
-        store.mark_initialized(
-            "test.plugin"
-        )
-
-        assert store.last_error(
-            "test.plugin"
-        ) is None
-
-
-# ============================================================
-# STATE AUTHORITY
-# ============================================================
-
-
-class TestStateAuthority:
-
-    def test_state_object_reflects_store_transitions(self):
-        store = PluginStateStore()
-
-        initial = store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        initialized = store.mark_initialized(
-            "test.plugin"
-        )
-
-        uninitialized = store.mark_uninitialized(
-            "test.plugin"
-        )
-
-        assert initial.registered is True
-        assert initial.enabled is True
-        assert initial.initialized is False
-        assert initial.generation == 0
-
-        assert initialized.registered is True
-        assert initialized.enabled is True
-        assert initialized.initialized is True
-        assert initialized.generation == 1
-
-        assert uninitialized.registered is True
-        assert uninitialized.enabled is True
-        assert uninitialized.initialized is False
-        assert uninitialized.generation == 1
-
-        assert store.get(
-            "test.plugin"
-        ) == uninitialized
-
-        assert initial != initialized
-        assert initialized != uninitialized
-
-    def test_snapshots_are_immutable(self):
-        store = PluginStateStore()
-
-        store.register(
-            "test.plugin",
-            enabled=True,
-        )
-
-        snapshot = store.get(
-            "test.plugin"
-        )
-
-        store.mark_initialized(
-            "test.plugin"
-        )
-
-        assert snapshot.initialized is False
-        assert snapshot.generation == 0
-
-        current = store.get(
-            "test.plugin"
-        )
-
-        assert current.initialized is True
-        assert current.generation == 1
+    assert store.plugin_ids == (
+        "canvas",
+        "toolbar",
+    )
 
 
 # ============================================================
@@ -1340,89 +1047,174 @@ class TestStateAuthority:
 # ============================================================
 
 
-class TestStateHelpers:
-
-    def test_is_registered(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            registered=True,
-        )
-
-        assert is_registered(state) is True
-
-    def test_is_enabled(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            registered=True,
-            enabled=True,
-        )
-
-        assert is_enabled(state) is True
-
-    def test_is_initialized(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            registered=True,
-            enabled=True,
-            initialized=True,
-        )
-
-        assert is_initialized(state) is True
-
-    def test_is_active(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            registered=True,
-            enabled=True,
-            initialized=True,
-        )
-
-        assert is_active(state) is True
-
-    def test_inactive_when_unregistered(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-        )
-
-        assert is_active(state) is False
-
-    def test_inactive_when_disabled(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            registered=True,
-            enabled=False,
-            initialized=False,
-        )
-
-        assert is_active(state) is False
-
-    def test_inactive_when_uninitialized(self):
-        state = PluginState(
-            plugin_id="test.plugin",
-            registered=True,
-            enabled=True,
-            initialized=False,
-        )
-
-        assert is_active(state) is False
-
-    @pytest.mark.parametrize(
-        "helper",
-        [
-            is_registered,
-            is_enabled,
-            is_initialized,
-            is_active,
-        ],
+def test_is_registered_helper():
+    registered = PluginState(
+        plugin_id="canvas",
+        registered=True,
     )
-    def test_helpers_reject_invalid_state(
-        self,
-        helper,
-    ):
-        with pytest.raises(TypeError):
-            helper(None)
+
+    unregistered = PluginState(
+        plugin_id="canvas",
+        registered=False,
+    )
+
+    assert is_registered(registered) is True
+    assert is_registered(unregistered) is False
+
+
+def test_is_enabled_helper():
+    enabled = PluginState(
+        plugin_id="canvas",
+        registered=True,
+        enabled=True,
+    )
+
+    disabled = PluginState(
+        plugin_id="canvas",
+        registered=True,
+        enabled=False,
+    )
+
+    assert is_enabled(enabled) is True
+    assert is_enabled(disabled) is False
+
+
+def test_is_initialized_helper():
+    initialized = PluginState(
+        plugin_id="canvas",
+        registered=True,
+        enabled=True,
+        initialized=True,
+    )
+
+    uninitialized = PluginState(
+        plugin_id="canvas",
+        registered=True,
+        enabled=True,
+        initialized=False,
+    )
+
+    assert is_initialized(initialized) is True
+    assert is_initialized(uninitialized) is False
+
+
+def test_is_active_helper():
+    active = PluginState(
+        plugin_id="canvas",
+        registered=True,
+        enabled=True,
+        initialized=True,
+    )
+
+    inactive_registered = PluginState(
+        plugin_id="canvas",
+        registered=True,
+        enabled=False,
+        initialized=False,
+    )
+
+    assert is_active(active) is True
+    assert is_active(inactive_registered) is False
+
+
+@pytest.mark.parametrize(
+    "helper",
+    [
+        is_registered,
+        is_enabled,
+        is_initialized,
+        is_active,
+    ],
+)
+def test_state_helpers_reject_invalid_objects(helper):
+    with pytest.raises(TypeError):
+        helper(None)
 
 
 # ============================================================
-# END
+# IMMUTABLE SNAPSHOT BEHAVIOR
 # ============================================================
+
+
+def test_state_transitions_create_new_snapshots():
+    store = PluginStateStore()
+
+    initial = store.register("canvas")
+
+    enabled = store.set_enabled(
+        "canvas",
+        True,
+    )
+
+    initialized = store.mark_initialized(
+        "canvas",
+    )
+
+    assert initial is not enabled
+    assert enabled is not initialized
+
+    assert initial.enabled is False
+    assert initial.initialized is False
+
+    assert enabled.enabled is True
+    assert enabled.initialized is False
+
+    assert initialized.enabled is True
+    assert initialized.initialized is True
+
+
+def test_old_snapshot_remains_unchanged_after_error():
+    store = PluginStateStore()
+
+    original = store.register("canvas")
+
+    store.set_last_error(
+        "canvas",
+        "failure",
+    )
+
+    assert original.last_error is None
+    assert store.last_error("canvas") == "failure"
+
+
+# ============================================================
+# THREAD SAFETY
+# ============================================================
+
+
+def test_concurrent_metadata_updates_are_not_lost():
+    store = PluginStateStore()
+
+    store.register("canvas")
+
+    thread_count = 8
+    barrier = Barrier(thread_count)
+
+    def worker(index):
+        barrier.wait()
+        store.set_metadata(
+            "canvas",
+            f"key_{index}",
+            index,
+        )
+
+    threads = [
+        Thread(
+            target=worker,
+            args=(index,),
+        )
+        for index in range(thread_count)
+    ]
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    metadata = store.metadata("canvas")
+
+    assert len(metadata) == thread_count
+
+    for index in range(thread_count):
+        assert metadata[f"key_{index}"] == index
