@@ -148,18 +148,17 @@ The same pattern applies to:
 
 Command contract
 ----------------
-Commands implement:
+Commands are opaque to the UI CommandManager.
 
-    execute(controller)
-    undo(controller)
+The UI CommandManager does not inspect or invoke command
+internals. Commands are forwarded unchanged to the Controller,
+which delegates authoritative execution to Core.command_manager.
 
-The UI CommandManager does not inspect command internals.
+Composite commands are treated identically to ordinary commands.
 
-Composite commands implement the same contract and are treated
-as ordinary commands.
-
-Grouping/coalescing remains the responsibility of the command
-layer.
+Command execution, undo semantics, redo semantics, grouping,
+coalescing, and history ownership remain responsibilities of
+the authoritative Core command layer.
 
 Qt
 --
@@ -421,15 +420,23 @@ class CommandManager:
 
         The authoritative answer comes from Core through the
         Controller command boundary.
+
+        The Controller contract requires an actual bool result.
         """
 
         method = self._get_controller_method(
             "can_undo"
         )
 
-        return bool(
-            method()
-        )
+        result = method()
+
+        if not isinstance(result, bool):
+            raise TypeError(
+                "Controller.can_undo() must return "
+                "a boolean."
+            )
+
+        return result
 
     # --------------------------------------------------------
 
@@ -441,15 +448,23 @@ class CommandManager:
 
         The authoritative answer comes from Core through the
         Controller command boundary.
+
+        The Controller contract requires an actual bool result.
         """
 
         method = self._get_controller_method(
             "can_redo"
         )
 
-        return bool(
-            method()
-        )
+        result = method()
+
+        if not isinstance(result, bool):
+            raise TypeError(
+                "Controller.can_redo() must return "
+                "a boolean."
+            )
+
+        return result
 
     # ========================================================
     # HISTORY COUNTS
