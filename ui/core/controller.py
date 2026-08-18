@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # File: ui/core/controller.py
 # GridForge V2 — UI Controller
@@ -30,7 +29,8 @@ Controller does NOT:
     - perform navigation;
     - perform coordinate conversion;
     - perform electrical calculations;
-    - duplicate Core domain state.
+    - duplicate Core domain state;
+    - own command history.
 
 Tool selection
 --------------
@@ -64,8 +64,24 @@ Core
 
 Core remains authoritative for domain/model state.
 
-Controller provides access to Core and coordinates UI-side
-operations through the Core command boundary.
+Controller provides access to Core and coordinates
+command operations through Core.command_manager.
+
+Canonical command flow:
+
+    Controller.execute_command(command)
+            |
+            v
+    Core.command_manager.execute(command)
+            |
+            v
+        command.execute()
+            |
+            v
+        Core model
+
+Undo/redo are likewise delegated exclusively to
+Core.command_manager.
 
 Qt
 --
@@ -88,6 +104,8 @@ class Controller(QObject):
     and GraphicsItems.
 
     Concrete tool lifecycle belongs to ToolManager.
+
+    Command history belongs to Core.command_manager.
     """
 
     # ========================================================
@@ -141,13 +159,10 @@ class Controller(QObject):
         # Controller lifecycle.
         self._disposed = False
 
-        # ----------------------------------------------------
         # Track subscriptions explicitly.
         #
         # This gives Controller deterministic cleanup and
         # prevents duplicate registrations.
-        # ----------------------------------------------------
-
         self._subscriptions: dict[
             str,
             list[Any],
@@ -537,12 +552,45 @@ class Controller(QObject):
     # COMMAND DISPATCH
     # ========================================================
 
+    def _get_command_manager(self) -> Any:
+        """
+        Return Core's canonical command manager.
+
+        Core.command_manager is the sole command-history and
+        command-execution boundary exposed to Controller.
+        """
+
+        core = self._core
+
+        if core is None:
+            raise RuntimeError(
+                "Cannot access command manager without a Core."
+            )
+
+        command_manager = getattr(
+            core,
+            "command_manager",
+            None,
+        )
+
+        if command_manager is None:
+            raise TypeError(
+                "Core must provide command_manager."
+            )
+
+        return command_manager
+
+    # --------------------------------------------------------
+
     def execute_command(
         self,
         command: Any,
     ) -> Any:
         """
-        Execute a command through the Core command boundary.
+        Execute a command through Core.command_manager.
+
+        Controller does not execute command objects itself and
+        does not own command history.
         """
 
         self._ensure_active()
@@ -552,32 +600,7 @@ class Controller(QObject):
                 "command must not be None."
             )
 
-        core = self._core
-
-        if core is None:
-            raise RuntimeError(
-                "Cannot execute command without a Core."
-            )
-
-        execute = getattr(
-            core,
-            "execute_command",
-            None,
-        )
-
-        if callable(execute):
-
-            result = execute(command)
-
-            self.state_changed.emit()
-
-            return result
-
-        command_manager = getattr(
-            core,
-            "command_manager",
-            None,
-        )
+        command_manager = self._get_command_manager()
 
         execute = getattr(
             command_manager,
@@ -585,54 +608,30 @@ class Controller(QObject):
             None,
         )
 
-        if callable(execute):
+        if not callable(execute):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "execute()."
+            )
 
-            result = execute(command)
+        result = execute(command)
 
-            self.state_changed.emit()
+        self.state_changed.emit()
 
-            return result
-
-        raise TypeError(
-            "Core must provide execute_command() "
-            "or command_manager.execute()."
-        )
+        return result
 
     # ========================================================
     # UNDO / REDO
     # ========================================================
 
     def undo(self) -> Any:
-        """Request an undo operation through Core."""
+        """
+        Request undo through Core.command_manager.
+        """
 
         self._ensure_active()
 
-        core = self._core
-
-        if core is None:
-            raise RuntimeError(
-                "Cannot undo without a Core."
-            )
-
-        undo = getattr(
-            core,
-            "undo",
-            None,
-        )
-
-        if callable(undo):
-
-            result = undo()
-
-            self.state_changed.emit()
-
-            return result
-
-        command_manager = getattr(
-            core,
-            "command_manager",
-            None,
-        )
+        command_manager = self._get_command_manager()
 
         undo = getattr(
             command_manager,
@@ -640,52 +639,28 @@ class Controller(QObject):
             None,
         )
 
-        if callable(undo):
+        if not callable(undo):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "undo()."
+            )
 
-            result = undo()
+        result = undo()
 
-            self.state_changed.emit()
+        self.state_changed.emit()
 
-            return result
-
-        raise TypeError(
-            "Core must provide undo() "
-            "or command_manager.undo()."
-        )
+        return result
 
     # --------------------------------------------------------
 
     def redo(self) -> Any:
-        """Request a redo operation through Core."""
+        """
+        Request redo through Core.command_manager.
+        """
 
         self._ensure_active()
 
-        core = self._core
-
-        if core is None:
-            raise RuntimeError(
-                "Cannot redo without a Core."
-            )
-
-        redo = getattr(
-            core,
-            "redo",
-            None,
-        )
-
-        if callable(redo):
-
-            result = redo()
-
-            self.state_changed.emit()
-
-            return result
-
-        command_manager = getattr(
-            core,
-            "command_manager",
-            None,
-        )
+        command_manager = self._get_command_manager()
 
         redo = getattr(
             command_manager,
@@ -693,18 +668,17 @@ class Controller(QObject):
             None,
         )
 
-        if callable(redo):
+        if not callable(redo):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "redo()."
+            )
 
-            result = redo()
+        result = redo()
 
-            self.state_changed.emit()
+        self.state_changed.emit()
 
-            return result
-
-        raise TypeError(
-            "Core must provide redo() "
-            "or command_manager.redo()."
-        )
+        return result
 
     # ========================================================
     # RESET
@@ -730,8 +704,6 @@ class Controller(QObject):
         self._selected_ids.clear()
         self._project = None
 
-        changed = False
-
         if previous_tool_id is not None:
 
             self.tool_changed.emit(
@@ -739,22 +711,17 @@ class Controller(QObject):
                 previous_tool_id,
             )
 
-            changed = True
-
         if had_selection:
 
             self.selection_changed.emit(
                 self.selected_ids
             )
 
-            changed = True
-
         if had_project:
+
             self.project_changed.emit(
                 None
             )
-
-            changed = True
 
         self.reset_requested.emit()
 
@@ -984,4 +951,3 @@ class Controller(QObject):
 __all__ = [
     "Controller",
 ]
-```
