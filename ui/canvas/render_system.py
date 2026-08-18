@@ -11,62 +11,102 @@ RenderSystem is the canvas-side rendering coordinator.
 
 It is responsible for:
 
-    - coordinating permanent model graphics;
-    - coordinating grid rendering;
+    - projecting authoritative model elements into the scene;
     - resolving renderers through RendererRegistry;
-    - maintaining the graphics projection of application state;
-    - refreshing the canvas when the authoritative state changes;
-    - removing stale graphics;
-    - providing render diagnostics.
+    - creating graphics items through the canonical renderer
+      contract;
+    - coordinating grid rendering;
+    - removing stale graphical projections;
+    - synchronizing graphical selection;
+    - providing rendering diagnostics.
 
 Architecture
 ------------
 
-    Controller / Core state
-             │
-             ▼
-       RenderSystem
-             │
-       ┌─────┴─────┐
-       ▼           ▼
- GridSystem   RendererRegistry
-                   │
-          ┌────────┼────────┐
-          ▼        ▼        ▼
-      BusRenderer LineRenderer ...
-          │        │
-          ▼        ▼
-      QGraphicsItems
+    Controller
+        │
+        ▼
+      Model
+        │
+        ▼
+      Graph
+        │
+        ├───────────────┐
+        ▼               ▼
+      Bus              Line
+        │               │
+        └───────┬───────┘
+                ▼
+          RenderSystem
+                │
+                ▼
+        RendererRegistry
+                │
+        ┌───────┴────────┐
+        ▼                ▼
+    BusRenderer      LineRenderer
+        │                │
+        ▼                ▼
+      BusItem         LineItem
+        │                │
+        └───────┬────────┘
+                ▼
+          QGraphicsScene
 
+
+Renderer contract
+-----------------
+RendererRegistry is authoritative for renderer resolution.
+
+The canonical contract is:
+
+    renderer = registry.get_renderer(type(element))
+
+The canonical renderer interface is:
+
+    item = renderer.create_item(
+        element,
+        controller,
+    )
+
+RenderSystem does not probe alternative registry APIs and does
+not invoke arbitrary callable renderers.
+
+Responsibilities explicitly excluded
+-------------------------------------
 RenderSystem does NOT:
 
     - modify Core model state;
-    - implement electrical calculations;
+    - perform electrical calculations;
     - implement tool behavior;
     - perform snapping;
-    - own persistent selection;
     - own navigation;
     - create concrete tools;
-    - decide application-level tool selection.
+    - decide application-level tool selection;
+    - derive authoritative application selection from
+      QGraphicsScene.selectedItems();
+    - replace RendererRegistry;
+    - contain renderer-specific drawing logic.
 
 Selection
 ---------
-Controller.selected_ids remains authoritative.
+Controller/application selection remains authoritative.
 
-RenderSystem may synchronize the graphical selection
-projection through SelectionManager, but it must never derive
-application selection from QGraphicsScene.selectedItems().
+RenderSystem may ask SelectionManager to synchronize the
+graphical projection of that authoritative selection.
 
-Renderer ownership
-------------------
-RendererRegistry owns renderer registration and resolution.
+Grid
+----
+GridSystem owns grid geometry and configuration.
 
-RenderSystem coordinates renderers but does not replace the
-registry.
+RenderSystem owns the transient graphical projection of that
+geometry.
 
-Qt Architecture
+GridSystem does not create QGraphicsItems.
+
+Qt architecture
 ---------------
-All Qt dependencies must be imported through:
+All Qt dependencies pass through:
 
     ui.core.qt
 
@@ -77,15 +117,25 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
-from ui.core.qt import QGraphicsScene
+from ui.core.qt import (
+    QGraphicsLineItem,
+    QGraphicsScene,
+    QPen,
+)
+
+from ui.canvas.grid_system import GridSystem
 
 
 class RenderSystem:
     """
     Central canvas rendering coordinator.
 
-    The implementation deliberately keeps rendering policy
-    separate from individual renderers and from the Core model.
+    RenderSystem is deliberately thin.
+
+    The authoritative model remains outside the canvas.
+    RendererRegistry remains responsible for renderer lookup.
+    Concrete renderers remain responsible for constructing
+    concrete graphics items.
     """
 
     # ========================================================
@@ -97,7 +147,7 @@ class RenderSystem:
         scene: QGraphicsScene,
         controller: Any = None,
         renderer_registry: Any = None,
-        grid_system: Any = None,
+        grid_system: Optional[GridSystem] = None,
         selection_manager: Any = None,
     ) -> None:
         """
@@ -109,7 +159,7 @@ class RenderSystem:
             QGraphicsScene used by the canvas.
 
         controller:
-            Optional application controller.
+            Application Controller.
 
         renderer_registry:
             RendererRegistry responsible for renderer lookup.
@@ -118,13 +168,18 @@ class RenderSystem:
             GridSystem providing grid geometry/configuration.
 
         selection_manager:
-            Optional SelectionManager used to reconcile graphical
-            selection with authoritative application selection.
+            Optional SelectionManager responsible for graphical
+            selection synchronization.
         """
 
         if scene is None:
             raise ValueError(
                 "scene must not be None."
+            )
+
+        if renderer_registry is None:
+            raise ValueError(
+                "renderer_registry must not be None."
             )
 
         self.scene = scene
@@ -133,10 +188,28 @@ class RenderSystem:
         self.grid_system = grid_system
         self.selection_manager = selection_manager
 
-        self._rendered_ids: set[Any] = set()
-        self._renderer_items: dict[Any, tuple[Any, ...]] = {}
+        # ----------------------------------------------------
+        # Permanent model projection.
+        #
+        # Key = original model element identity.
+        # ----------------------------------------------------
+
+        self._rendered_elements: dict[int, Any] = {}
+
+        self._renderer_items: dict[
+            int,
+            tuple[Any, ...],
+        ] = {}
+
+        # ----------------------------------------------------
+        # Transient grid projection.
+        # ----------------------------------------------------
 
         self._grid_items: list[Any] = []
+
+        # ----------------------------------------------------
+        # Diagnostics.
+        # ----------------------------------------------------
 
         self._render_count = 0
         self._last_rendered_count = 0
@@ -163,8 +236,15 @@ class RenderSystem:
         renderer_registry: Any,
     ) -> None:
         """
-        Attach or replace the RendererRegistry.
+        Replace the active RendererRegistry.
+
+        RendererRegistry is required for model rendering.
         """
+
+        if renderer_registry is None:
+            raise ValueError(
+                "renderer_registry must not be None."
+            )
 
         self.renderer_registry = renderer_registry
 
@@ -183,7 +263,7 @@ class RenderSystem:
 
     def set_grid_system(
         self,
-        grid_system: Any,
+        grid_system: Optional[GridSystem],
     ) -> None:
         """
         Attach or replace the GridSystem.
@@ -195,7 +275,7 @@ class RenderSystem:
 
     def get_grid_system(
         self,
-    ) -> Any:
+    ) -> Optional[GridSystem]:
         """
         Return the active GridSystem.
         """
@@ -209,7 +289,7 @@ class RenderSystem:
         selection_manager: Any,
     ) -> None:
         """
-        Attach or replace SelectionManager.
+        Attach or replace the SelectionManager.
         """
 
         self.selection_manager = selection_manager
@@ -234,15 +314,15 @@ class RenderSystem:
         objects: Optional[Iterable[Any]] = None,
     ) -> None:
         """
-        Render the supplied application objects.
+        Rebuild the complete graphical projection.
 
-        If objects is omitted, RenderSystem attempts to obtain
-        renderable objects from the Controller.
+        When ``objects`` is omitted, authoritative renderable
+        elements are obtained from Controller.model.graph.
 
-        Existing permanent graphics are removed before the new
-        projection is created.
+        Existing graphical projections are removed before the
+        new projection is created.
 
-        Grid rendering is refreshed independently.
+        The Core model is never modified.
         """
 
         self.clear()
@@ -254,17 +334,20 @@ class RenderSystem:
             objects
         )
 
-        for obj in object_list:
-            self.render_object(
-                obj
+        rendered_count = 0
+
+        for element in object_list:
+            items = self.render_object(
+                element
             )
+
+            if items:
+                rendered_count += 1
 
         self.render_grid()
 
         self._render_count += 1
-        self._last_rendered_count = len(
-            object_list
-        )
+        self._last_rendered_count = rendered_count
 
         self.sync_selection()
 
@@ -274,38 +357,76 @@ class RenderSystem:
 
     def render_object(
         self,
-        obj: Any,
+        element: Any,
     ) -> tuple[Any, ...]:
         """
-        Render one application object through RendererRegistry.
+        Render one authoritative model element.
 
-        Returns the graphics items produced by the renderer.
+        Renderer resolution follows the canonical contract:
 
-        Renderers may return:
+            registry.get_renderer(type(element))
 
-            - one QGraphicsItem;
-            - an iterable of QGraphicsItems;
-            - None.
+        Renderer creation follows the canonical contract:
 
-        RenderSystem does not construct concrete graphics items
-        itself.
-        """
-
-        if obj is None:
-            raise ValueError(
-                "obj must not be None."
+            renderer.create_item(
+                element,
+                controller,
             )
 
-        renderer = self._resolve_renderer(
-            obj
+        The original Core element is passed to the renderer.
+
+        Returns
+        -------
+        tuple
+            Graphics items created by the renderer.
+
+        Raises
+        ------
+        ValueError
+            If element is None.
+
+        LookupError
+            If no renderer is registered for the element type.
+
+        TypeError
+            If the resolved renderer violates the renderer
+            contract.
+        """
+
+        if element is None:
+            raise ValueError(
+                "element must not be None."
+            )
+
+        renderer = (
+            self.renderer_registry.get_renderer(
+                type(element)
+            )
         )
 
         if renderer is None:
-            return ()
+            raise LookupError(
+                "No renderer registered for model type "
+                f"{type(element).__name__}."
+            )
 
-        rendered = self._invoke_renderer(
+        create_item = getattr(
             renderer,
-            obj,
+            "create_item",
+            None,
+        )
+
+        if not callable(
+            create_item
+        ):
+            raise TypeError(
+                "Resolved renderer must provide "
+                "create_item(element, controller)."
+            )
+
+        rendered = create_item(
+            element,
+            self.controller,
         )
 
         items = self._normalize_items(
@@ -320,19 +441,21 @@ class RenderSystem:
                 self.scene.addItem(
                     item
                 )
+            elif item.scene() is not self.scene:
+                raise RuntimeError(
+                    "Renderer returned a graphics item "
+                    "already attached to a different scene."
+                )
 
-        object_id = self._get_object_id(
-            obj
-        )
+        key = id(element)
 
-        if object_id is not None:
-            self._rendered_ids.add(
-                object_id
-            )
+        self._rendered_elements[
+            key
+        ] = element
 
-            self._renderer_items[
-                object_id
-            ] = items
+        self._renderer_items[
+            key
+        ] = items
 
         return items
 
@@ -340,99 +463,25 @@ class RenderSystem:
     # RENDERER RESOLUTION
     # ========================================================
 
-    def _resolve_renderer(
+    def resolve_renderer(
         self,
-        obj: Any,
+        element: Any,
     ) -> Any:
         """
-        Resolve a renderer for an application object.
+        Resolve the renderer for an authoritative model element.
 
-        RendererRegistry remains responsible for renderer
-        registration and lookup.
+        RendererRegistry owns all renderer resolution policy.
         """
 
-        registry = self.renderer_registry
-
-        if registry is None:
-            return None
-
-        object_type = type(
-            obj
-        )
-
-        # Preferred registry contract.
-        for method_name in (
-            "get_renderer_for",
-            "get_renderer",
-            "resolve",
-        ):
-            method = getattr(
-                registry,
-                method_name,
-                None,
+        if element is None:
+            raise ValueError(
+                "element must not be None."
             )
 
-            if not callable(
-                method
-            ):
-                continue
-
-            for argument in (
-                obj,
-                object_type,
-            ):
-                try:
-                    renderer = method(
-                        argument
-                    )
-                except (KeyError, LookupError):
-                    continue
-
-                if renderer is not None:
-                    return renderer
-
-        return None
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _invoke_renderer(
-        renderer: Any,
-        obj: Any,
-    ) -> Any:
-        """
-        Invoke a renderer using the supported renderer contract.
-
-        The preferred contract is:
-
-            renderer.render(obj)
-
-        A callable renderer is also accepted.
-        """
-
-        render_method = getattr(
-            renderer,
-            "render",
-            None,
-        )
-
-        if callable(
-            render_method
-        ):
-            return render_method(
-                obj
+        return (
+            self.renderer_registry.get_renderer(
+                type(element)
             )
-
-        if callable(
-            renderer
-        ):
-            return renderer(
-                obj
-            )
-
-        raise TypeError(
-            "Resolved renderer must provide render() "
-            "or be callable."
         )
 
     # ========================================================
@@ -444,13 +493,15 @@ class RenderSystem:
         rect: Any = None,
     ) -> None:
         """
-        Refresh grid graphics.
+        Render the current grid geometry.
 
-        GridSystem provides geometry/configuration.
-        RenderSystem owns the transient grid projection.
+        GridSystem provides geometry.
 
-        If the configured GridSystem does not provide a
-        render-geometry API, grid rendering is skipped.
+        RenderSystem owns the transient graphical projection.
+
+        The grid is rendered as ordinary QGraphicsLineItems;
+        GridSystem itself remains completely independent of Qt
+        rendering.
         """
 
         self.clear_grid()
@@ -460,127 +511,97 @@ class RenderSystem:
         if grid is None:
             return
 
-        is_visible = getattr(
-            grid,
-            "is_visible",
-            None,
-        )
-
-        if callable(
-            is_visible
-        ) and not is_visible():
+        if not grid.is_visible():
             return
 
         target_rect = (
+            self.scene.sceneRect()
+            if rect is None
+            else rect
+        )
+
+        minor_lines = ()
+
+        if grid.is_minor_visible():
+            minor_lines = (
+                grid.get_minor_lines(
+                    target_rect
+                )
+            )
+
+        major_lines = ()
+
+        if grid.is_major_visible():
+            major_lines = (
+                grid.get_major_lines(
+                    target_rect
+                )
+            )
+
+        # ----------------------------------------------------
+        # Minor grid.
+        # ----------------------------------------------------
+
+        minor_pen = QPen()
+
+        for x1, y1, x2, y2 in minor_lines:
+            item = QGraphicsLineItem(
+                x1,
+                y1,
+                x2,
+                y2,
+            )
+
+            item.setPen(
+                minor_pen
+            )
+
+            self.scene.addItem(
+                item
+            )
+
+            self._grid_items.append(
+                item
+            )
+
+        # ----------------------------------------------------
+        # Major grid.
+        # ----------------------------------------------------
+
+        major_pen = QPen()
+
+        for x1, y1, x2, y2 in major_lines:
+            item = QGraphicsLineItem(
+                x1,
+                y1,
+                x2,
+                y2,
+            )
+
+            item.setPen(
+                major_pen
+            )
+
+            self.scene.addItem(
+                item
+            )
+
+            self._grid_items.append(
+                item
+            )
+
+    # ========================================================
+
+    def refresh_grid(
+        self,
+        rect: Any = None,
+    ) -> None:
+        """
+        Refresh only the grid projection.
+        """
+
+        self.render_grid(
             rect
-            if rect is not None
-            else self.scene.sceneRect()
-        )
-
-        # Prefer a dedicated grid renderer if one is registered.
-        registry = self.renderer_registry
-
-        grid_renderer = None
-
-        if registry is not None:
-            for method_name in (
-                "get_grid_renderer",
-                "resolve_grid_renderer",
-            ):
-                method = getattr(
-                    registry,
-                    method_name,
-                    None,
-                )
-
-                if callable(
-                    method
-                ):
-                    grid_renderer = method()
-                    if grid_renderer is not None:
-                        break
-
-        if grid_renderer is not None:
-            rendered = self._invoke_grid_renderer(
-                grid_renderer,
-                grid,
-                target_rect,
-            )
-
-            self._grid_items.extend(
-                self._normalize_items(
-                    rendered
-                )
-            )
-
-            for item in self._grid_items:
-                if item.scene() is None:
-                    self.scene.addItem(
-                        item
-                    )
-
-            return
-
-        # ----------------------------------------------------
-        # No dedicated renderer:
-        #
-        # RenderSystem intentionally does not manufacture
-        # permanent grid graphics. Grid rendering belongs to the
-        # rendering layer and may be implemented by a registered
-        # grid renderer later.
-        # ----------------------------------------------------
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _invoke_grid_renderer(
-        renderer: Any,
-        grid: Any,
-        rect: Any,
-    ) -> Any:
-        """
-        Invoke a registered grid renderer.
-        """
-
-        render_grid = getattr(
-            renderer,
-            "render_grid",
-            None,
-        )
-
-        if callable(
-            render_grid
-        ):
-            return render_grid(
-                grid,
-                rect,
-            )
-
-        render = getattr(
-            renderer,
-            "render",
-            None,
-        )
-
-        if callable(
-            render
-        ):
-            return render(
-                grid,
-                rect,
-            )
-
-        if callable(
-            renderer
-        ):
-            return renderer(
-                grid,
-                rect,
-            )
-
-        raise TypeError(
-            "Grid renderer must provide render_grid(), "
-            "render(), or be callable."
         )
 
     # ========================================================
@@ -593,8 +614,6 @@ class RenderSystem:
     ) -> None:
         """
         Refresh the complete canvas projection.
-
-        This is the public semantic alias for render().
         """
 
         self.render(
@@ -607,20 +626,39 @@ class RenderSystem:
 
     def remove_object(
         self,
-        object_id: Any,
+        element: Any,
     ) -> bool:
         """
-        Remove the graphical projection for one object ID.
+        Remove the graphical projection of one model element.
 
-        The application/Core object itself is never modified.
+        The model element itself is never modified.
+
+        Parameters
+        ----------
+        element:
+            The original authoritative model element.
+
+        Returns
+        -------
+        bool
+            True when one or more graphics items were removed.
         """
 
-        if object_id is None:
+        if element is None:
             return False
 
+        key = id(
+            element
+        )
+
         items = self._renderer_items.pop(
-            object_id,
+            key,
             (),
+        )
+
+        self._rendered_elements.pop(
+            key,
+            None,
         )
 
         removed = False
@@ -635,10 +673,6 @@ class RenderSystem:
                 )
                 removed = True
 
-        self._rendered_ids.discard(
-            object_id
-        )
-
         return removed
 
     # ========================================================
@@ -649,10 +683,9 @@ class RenderSystem:
         self,
     ) -> None:
         """
-        Clear all permanent graphical projections managed by
-        RenderSystem.
+        Clear all canvas projections managed by RenderSystem.
 
-        The Core/application state is untouched.
+        Core/application state remains untouched.
         """
 
         for items in tuple(
@@ -668,7 +701,7 @@ class RenderSystem:
                     )
 
         self._renderer_items.clear()
-        self._rendered_ids.clear()
+        self._rendered_elements.clear()
 
         self.clear_grid()
 
@@ -678,7 +711,7 @@ class RenderSystem:
         self,
     ) -> None:
         """
-        Clear grid graphics owned by RenderSystem.
+        Remove all transient grid graphics.
         """
 
         for item in tuple(
@@ -703,7 +736,10 @@ class RenderSystem:
     ) -> None:
         """
         Synchronize graphical selection from the authoritative
-        Controller state through SelectionManager.
+        application selection.
+
+        RenderSystem never derives application selection from
+        QGraphicsScene.selectedItems().
         """
 
         manager = self.selection_manager
@@ -742,15 +778,50 @@ class RenderSystem:
     # RENDERED OBJECT ACCESS
     # ========================================================
 
-    def get_rendered_ids(
+    def get_rendered_elements(
         self,
     ) -> tuple[Any, ...]:
         """
-        Return IDs currently projected into the scene.
+        Return the model elements currently projected.
         """
 
         return tuple(
-            self._rendered_ids
+            self._rendered_elements.values()
+        )
+
+    # --------------------------------------------------------
+
+    def get_rendered_ids(
+        self,
+    ) -> tuple[int, ...]:
+        """
+        Return internal projection keys.
+
+        These are Python object identities used only for
+        RenderSystem bookkeeping. They are not application or
+        Core object IDs.
+        """
+
+        return tuple(
+            self._rendered_elements.keys()
+        )
+
+    # --------------------------------------------------------
+
+    def get_items_for_element(
+        self,
+        element: Any,
+    ) -> tuple[Any, ...]:
+        """
+        Return graphics items associated with a model element.
+        """
+
+        if element is None:
+            return ()
+
+        return self._renderer_items.get(
+            id(element),
+            (),
         )
 
     # --------------------------------------------------------
@@ -760,7 +831,13 @@ class RenderSystem:
         object_id: Any,
     ) -> tuple[Any, ...]:
         """
-        Return graphics items rendered for an object ID.
+        Compatibility-free projection accessor.
+
+        RenderSystem no longer interprets application IDs.
+
+        This method is retained only as a diagnostic alias for
+        callers that already use the projection key returned by
+        get_rendered_ids().
         """
 
         return self._renderer_items.get(
@@ -772,100 +849,125 @@ class RenderSystem:
 
     def is_rendered(
         self,
-        object_id: Any,
+        element: Any,
     ) -> bool:
         """
-        Return True when an object ID has a graphical
-        projection.
+        Return True when the supplied model element is currently
+        projected.
         """
 
-        return object_id in self._rendered_ids
+        if element is None:
+            return False
+
+        return id(
+            element
+        ) in self._rendered_elements
 
     # ========================================================
-    # CONTROLLER OBJECT ACCESS
+    # CONTROLLER / MODEL ACCESS
     # ========================================================
 
     def _get_controller_objects(
         self,
     ) -> tuple[Any, ...]:
         """
-        Obtain renderable application objects from Controller.
+        Obtain authoritative renderable elements from Controller.
 
-        RenderSystem intentionally accepts several controller
-        read contracts so the canvas remains decoupled from a
-        specific model-container implementation.
+        The finalized GridForge model boundary is:
+
+            controller.model
+                ↓
+            model.graph
+                ↓
+            graph.buses
+            graph.lines
+
+        RenderSystem does not search arbitrary Controller
+        attributes or invent alternate model-access contracts.
         """
 
         if self.controller is None:
             return ()
 
-        for method_name in (
-            "get_renderable_objects",
-            "get_objects",
-            "get_model_objects",
-        ):
-            method = getattr(
-                self.controller,
-                method_name,
-                None,
+        model = getattr(
+            self.controller,
+            "model",
+            None,
+        )
+
+        if model is None:
+            return ()
+
+        graph = getattr(
+            model,
+            "graph",
+            None,
+        )
+
+        if graph is None:
+            return ()
+
+        objects: list[Any] = []
+
+        buses = getattr(
+            graph,
+            "buses",
+            None,
+        )
+
+        if buses is not None:
+            objects.extend(
+                self._collection_values(
+                    buses
+                )
             )
 
-            if callable(
-                method
-            ):
-                result = method()
+        lines = getattr(
+            graph,
+            "lines",
+            None,
+        )
 
-                if result is None:
-                    return ()
-
-                return tuple(
-                    result
+        if lines is not None:
+            objects.extend(
+                self._collection_values(
+                    lines
                 )
-
-        for attribute_name in (
-            "objects",
-            "model_objects",
-        ):
-            value = getattr(
-                self.controller,
-                attribute_name,
-                None,
             )
 
-            if value is not None:
-                return tuple(
-                    value
-                )
+        return tuple(
+            objects
+        )
 
-        return ()
-
-    # ========================================================
-    # OBJECT ID
-    # ========================================================
+    # --------------------------------------------------------
 
     @staticmethod
-    def _get_object_id(
-        obj: Any,
-    ) -> Any:
+    def _collection_values(
+        collection: Any,
+    ) -> tuple[Any, ...]:
         """
-        Obtain an authoritative object ID from a model object.
+        Normalize a model collection to its element values.
+
+        Graph collections are normally dictionaries or
+        dictionary-like containers.
         """
 
-        for attribute_name in (
-            "object_id",
-            "id",
-            "uuid",
+        values = getattr(
+            collection,
+            "values",
+            None,
+        )
+
+        if callable(
+            values
         ):
-            value = getattr(
-                obj,
-                attribute_name,
-                None,
+            return tuple(
+                values()
             )
 
-            if value is not None:
-                return value
-
-        return None
+        return tuple(
+            collection
+        )
 
     # ========================================================
     # ITEM NORMALIZATION
@@ -876,33 +978,84 @@ class RenderSystem:
         rendered: Any,
     ) -> tuple[Any, ...]:
         """
-        Normalize renderer output to a tuple of graphics items.
+        Normalize canonical renderer output.
+
+        Renderer contract permits either:
+
+            QGraphicsItem
+            iterable of QGraphicsItems
+            None
+
+        No arbitrary callable or duck-typed renderer contract is
+        accepted here.
         """
 
         if rendered is None:
             return ()
 
-        # QGraphicsItem-like single object.
-        if hasattr(
-            rendered,
-            "setSelected",
-        ) or hasattr(
-            rendered,
-            "scene",
+        # ----------------------------------------------------
+        # Single QGraphicsItem.
+        #
+        # QGraphicsItem provides scene() and setSelected().
+        # ----------------------------------------------------
+
+        if (
+            callable(
+                getattr(
+                    rendered,
+                    "scene",
+                    None,
+                )
+            )
+            and callable(
+                getattr(
+                    rendered,
+                    "setSelected",
+                    None,
+                )
+            )
         ):
             return (
                 rendered,
             )
 
         try:
-            return tuple(
+            items = tuple(
                 rendered
             )
         except TypeError as exc:
             raise TypeError(
-                "Renderer output must be a graphics item "
-                "or an iterable of graphics items."
+                "Renderer.create_item() must return "
+                "a graphics item, an iterable of graphics "
+                "items, or None."
             ) from exc
+
+        for item in items:
+            if item is None:
+                continue
+
+            if not (
+                callable(
+                    getattr(
+                        item,
+                        "scene",
+                        None,
+                    )
+                )
+                and callable(
+                    getattr(
+                        item,
+                        "setSelected",
+                        None,
+                    )
+                )
+            ):
+                raise TypeError(
+                    "Renderer.create_item() returned an "
+                    "invalid graphics item."
+                )
+
+        return items
 
     # ========================================================
     # DEBUG STATE
@@ -918,10 +1071,10 @@ class RenderSystem:
         return {
             "scene": self.scene is not None,
             "rendered_count": len(
-                self._rendered_ids
+                self._rendered_elements
             ),
             "rendered_ids": tuple(
-                self._rendered_ids
+                self._rendered_elements.keys()
             ),
             "renderer_count": len(
                 self._renderer_items
@@ -954,7 +1107,7 @@ class RenderSystem:
         """
         Release the current graphical projection.
 
-        Core/application state remains untouched.
+        Controller and Core state remain untouched.
         """
 
         self.clear()
@@ -973,9 +1126,11 @@ class RenderSystem:
         return (
             "RenderSystem("
             f"rendered="
-            f"{len(self._rendered_ids)}, "
+            f"{len(self._rendered_elements)}, "
             f"grid_items="
-            f"{len(self._grid_items)}"
+            f"{len(self._grid_items)}, "
+            f"renders="
+            f"{self._render_count}"
             ")"
         )
 
