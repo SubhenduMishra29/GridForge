@@ -1,3 +1,4 @@
+```python
 """
 GridForge V2
 ============
@@ -98,8 +99,8 @@ class MainWindow(QMainWindow):
         plugin_manager:
             Optional externally supplied PluginManager.
 
-            This is primarily useful for testing or controlled
-            composition.
+            Primarily useful for testing or controlled
+            application composition.
 
         plugin_context:
             Optional externally supplied PluginContext.
@@ -112,7 +113,7 @@ class MainWindow(QMainWindow):
 
         Notes
         -----
-        Plugin loading and initialization are intentionally NOT
+        Plugin loading and initialization are intentionally not
         performed inside the constructor.
 
         Use initialize_plugins() or create_main_window().
@@ -130,6 +131,12 @@ class MainWindow(QMainWindow):
         # ----------------------------------------------------
         # AUTHORITATIVE APPLICATION CONTROLLER
         # ----------------------------------------------------
+        #
+        # MainWindow retains the Controller reference.
+        #
+        # It does not duplicate Controller state and does not
+        # become the application's domain-state authority.
+        # ----------------------------------------------------
 
         self.controller = controller
 
@@ -138,7 +145,6 @@ class MainWindow(QMainWindow):
         # ----------------------------------------------------
 
         self._closing = False
-
         self._plugins_initialized = False
 
         # ----------------------------------------------------
@@ -166,6 +172,12 @@ class MainWindow(QMainWindow):
         # ----------------------------------------------------
         # ROOT WIDGET
         # ----------------------------------------------------
+        #
+        # MainWindow owns only the neutral root container.
+        #
+        # Concrete UI composition remains the responsibility of
+        # the plugin system.
+        # ----------------------------------------------------
 
         self._root_widget = QWidget(
             self
@@ -183,17 +195,24 @@ class MainWindow(QMainWindow):
         # PLUGIN CONTEXT
         # ----------------------------------------------------
         #
-        # The initial context contains only dependencies that
-        # already exist at this point.
+        # PluginContext is the dependency boundary supplied to
+        # plugins.
+        #
+        # No plugin is constructed here.
         # ----------------------------------------------------
 
         if plugin_context is None:
-
             self.plugin_context = (
                 self._create_plugin_context()
             )
-
         else:
+            if not isinstance(
+                plugin_context,
+                PluginContext,
+            ):
+                raise TypeError(
+                    "plugin_context must be PluginContext."
+                )
 
             self.plugin_context = (
                 plugin_context
@@ -203,18 +222,24 @@ class MainWindow(QMainWindow):
         # PLUGIN MANAGER
         # ----------------------------------------------------
         #
-        # MainWindow does not construct concrete plugins.
-        # PluginManager owns plugin loading, registration,
-        # dependency resolution, and lifecycle.
+        # MainWindow creates only the manager infrastructure.
+        #
+        # Concrete plugins are loaded and constructed by
+        # PluginManager / PluginLoader.
         # ----------------------------------------------------
 
         if plugin_manager is None:
-
             self.plugin_manager = (
                 create_default_plugin_manager()
             )
-
         else:
+            if not isinstance(
+                plugin_manager,
+                PluginManager,
+            ):
+                raise TypeError(
+                    "plugin_manager must be PluginManager."
+                )
 
             self.plugin_manager = (
                 plugin_manager
@@ -224,14 +249,11 @@ class MainWindow(QMainWindow):
         # COMPLETE APPLICATION CONTEXT
         # ----------------------------------------------------
         #
-        # PluginContext contains application/UI dependencies.
+        # The supplied context is extended with the references
+        # that belong to this MainWindow composition boundary.
         #
-        # PluginManager, PluginRegistry, and PluginLoader are
-        # lifecycle infrastructure and remain owned by the
-        # composition layer. They are deliberately NOT added
-        # to PluginContext.
-        #
-        # derive() does not modify the original context.
+        # Plugin infrastructure itself is deliberately not
+        # inserted into PluginContext.
         # ----------------------------------------------------
 
         self.plugin_context = (
@@ -247,10 +269,10 @@ class MainWindow(QMainWindow):
         # CONFIGURE PLUGIN CONTEXTS
         # ----------------------------------------------------
         #
-        # PluginManager owns lifecycle.
+        # PluginManager owns plugin lifecycle and ordering.
         #
-        # MainWindow merely supplies the common application
-        # context to plugins known by the manager.
+        # MainWindow only assigns the common application
+        # context to explicitly defined plugin IDs.
         # ----------------------------------------------------
 
         self._configure_plugin_contexts()
@@ -263,12 +285,12 @@ class MainWindow(QMainWindow):
         self,
     ) -> PluginContext:
         """
-        Create the initial application plugin context.
+        Create the initial application PluginContext.
 
         No services or domain objects are constructed here.
 
-        The Controller is the application's UI coordination
-        boundary and is supplied as a reference.
+        The Controller is supplied as the application's UI
+        coordination boundary.
         """
 
         return PluginContext(
@@ -284,11 +306,15 @@ class MainWindow(QMainWindow):
         self,
     ) -> None:
         """
-        Supply the common PluginContext to every currently
-        registered plugin.
+        Supply a derived PluginContext to every defined plugin.
 
-        PluginManager remains responsible for determining
-        lifecycle order.
+        PluginManager remains responsible for:
+
+            - loading;
+            - dependency resolution;
+            - initialization ordering;
+            - shutdown ordering;
+            - lifecycle state.
 
         MainWindow does not instantiate plugins.
         """
@@ -315,27 +341,22 @@ class MainWindow(QMainWindow):
         """
         Load and initialize the complete UI plugin composition.
 
-        Lifecycle ordering is delegated to PluginManager.
+        Lifecycle ordering is delegated entirely to PluginManager.
 
-        Expected order for the canonical GridForge composition:
-
-            canvas
-                ↓
-            panels / toolbar
-                ↓
-            status
-
-        The actual ordering is determined by the plugin dependency
-        graph and not hard-coded here.
+        The canonical dependency graph is defined by the manager,
+        not by MainWindow.
         """
 
         if self._plugins_initialized:
             return
 
         try:
-
             # ------------------------------------------------
             # LOAD
+            # ------------------------------------------------
+            #
+            # PluginManager resolves dependencies and delegates
+            # concrete plugin construction to PluginLoader.
             # ------------------------------------------------
 
             self.plugin_manager.load_all()
@@ -343,10 +364,26 @@ class MainWindow(QMainWindow):
             # ------------------------------------------------
             # INITIALIZE
             # ------------------------------------------------
+            #
+            # PluginManager initializes plugins in dependency
+            # order.
+            # ------------------------------------------------
 
             self.plugin_manager.initialize_all()
 
         except Exception:
+            # ------------------------------------------------
+            # Transactional startup boundary
+            # ------------------------------------------------
+            #
+            # Some plugins may already have initialized before
+            # a later plugin fails.
+            #
+            # PluginManager owns the reverse-order shutdown.
+            #
+            # Shutdown failure must not hide the original
+            # initialization exception.
+            # ------------------------------------------------
 
             try:
                 self.plugin_manager.shutdown_all()
@@ -388,11 +425,11 @@ class MainWindow(QMainWindow):
         event: Any,
     ) -> None:
         """
-        Shut down the plugin composition before closing the window.
+        Shut down the plugin composition before closing.
 
-        Shutdown exceptions are allowed to propagate rather than
-        being silently swallowed. The application bootstrap can
-        therefore detect lifecycle failures during testing.
+        Shutdown failures are intentionally allowed to propagate
+        after the close event has been ignored so the caller or
+        test harness can detect lifecycle failure.
         """
 
         if self._closing:
@@ -402,11 +439,9 @@ class MainWindow(QMainWindow):
         self._closing = True
 
         try:
-
             self.shutdown_plugins()
 
         except Exception:
-
             self._closing = False
 
             event.ignore()
@@ -455,7 +490,7 @@ class MainWindow(QMainWindow):
         """
         Return the neutral root widget.
 
-        Plugins may use this as the initial UI composition
+        Plugins may use this as an initial UI composition
         container where appropriate.
         """
 
@@ -470,7 +505,8 @@ class MainWindow(QMainWindow):
         self,
     ) -> bool:
         """
-        Return whether the UI plugin composition is initialized.
+        Return whether the complete UI plugin composition
+        has successfully initialized.
         """
 
         return self._plugins_initialized
@@ -496,13 +532,8 @@ def create_main_window(
 
     This is the normal application composition entry point.
 
-    The function deliberately separates:
-
-        construction
-            from
-        plugin initialization
-
-    so MainWindow remains straightforward to unit-test.
+    Construction and plugin initialization remain separate so
+    MainWindow can be constructed independently in tests.
     """
 
     window = MainWindow(
@@ -524,3 +555,4 @@ __all__ = [
     "MainWindow",
     "create_main_window",
 ]
+```
