@@ -76,7 +76,7 @@ No direct PySide6/PyQt imports are permitted.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable
 
 from ui.core.qt import (
     QGraphicsItem,
@@ -144,13 +144,31 @@ class PreviewLayer:
         """
         Add one transient graphics item to the preview layer.
 
-        The item is added to the scene if it is not already
-        associated with a scene.
+        The item must either:
+
+            - not currently belong to a scene; or
+            - already belong to this preview layer's scene.
+
+        An item belonging to another scene is rejected because a
+        QGraphicsItem cannot be owned by two scenes.
+
+        Duplicate ownership by this PreviewLayer is ignored.
 
         Returns
         -------
         QGraphicsItem
             The supplied item.
+
+        Raises
+        ------
+        ValueError
+            If item is None.
+
+        TypeError
+            If item is not a QGraphicsItem.
+
+        RuntimeError
+            If item already belongs to another scene.
         """
 
         if item is None:
@@ -166,13 +184,38 @@ class PreviewLayer:
                 "item must be a QGraphicsItem."
             )
 
+        # ----------------------------------------------------
+        # Scene ownership invariant.
+        #
+        # A graphics item may be adopted when unattached or
+        # when it already belongs to this exact scene.
+        # ----------------------------------------------------
+
+        item_scene = item.scene()
+
+        if (
+            item_scene is not None
+            and item_scene is not self.scene
+        ):
+            raise RuntimeError(
+                "Preview item is already attached "
+                "to a different scene."
+            )
+
+        # ----------------------------------------------------
         # Prevent accidental duplicate ownership.
+        # ----------------------------------------------------
+
         if item not in self._items:
             self._items.append(
                 item
             )
 
-        if item.scene() is None:
+        # ----------------------------------------------------
+        # Attach unattached item to the managed scene.
+        # ----------------------------------------------------
+
+        if item_scene is None:
             self.scene.addItem(
                 item
             )
@@ -187,6 +230,9 @@ class PreviewLayer:
     ) -> tuple[QGraphicsItem, ...]:
         """
         Add multiple transient graphics items.
+
+        If an item violates the scene-ownership invariant,
+        ``add()`` raises and the operation stops at that item.
         """
 
         if items is None:
@@ -250,7 +296,10 @@ class PreviewLayer:
         """
         Remove multiple preview items.
 
-        Returns the number of removed items.
+        Returns
+        -------
+        int
+            Number of items removed from this preview layer.
         """
 
         if items is None:
@@ -279,6 +328,9 @@ class PreviewLayer:
     ) -> None:
         """
         Remove every transient preview item.
+
+        Only graphics owned by this PreviewLayer are affected.
+        The scene itself is never destroyed.
         """
 
         for item in tuple(
@@ -357,6 +409,11 @@ class PreviewLayer:
         items are added.
         """
 
+        if items is None:
+            raise ValueError(
+                "items must not be None."
+            )
+
         self.clear()
 
         return self.add_items(
@@ -396,7 +453,7 @@ class PreviewLayer:
         self,
     ) -> bool:
         """
-        Return True when the preview layer is visible.
+        Return True when at least one preview item is visible.
 
         If the layer contains no items, this returns False.
         """
