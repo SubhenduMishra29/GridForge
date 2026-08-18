@@ -1,3 +1,4 @@
+```python
 # ============================================================
 # File: ui/core/tool_manager.py
 # GridForge V2 — Tool Manager
@@ -42,6 +43,7 @@ Concrete Tools
 
 Responsibilities
 ----------------
+
 ToolManager:
 
     - owns concrete tool instances;
@@ -91,6 +93,10 @@ Lifecycle invariants
     an inactive tool as active.
 14. A failed transition must preserve the previous lifecycle
     whenever restoration succeeds.
+15. Tool ownership is removed only after successful disposal.
+16. Disposal is retry-safe when a lifecycle operation fails.
+17. Preview state is cleared whenever an interaction lifecycle
+    ends or a transition occurs.
 
 Tool construction
 -----------------
@@ -111,7 +117,8 @@ mismatch. A tool-construction failure must propagate unchanged
 so the real production error remains visible.
 
 Qt Architecture
-----------------
+---------------
+
 This module intentionally has no direct Qt dependency.
 """
 
@@ -178,6 +185,9 @@ class ToolManager:
 
         # ----------------------------------------------------
         # Lazily instantiated concrete tool instances.
+        #
+        # This dictionary is the authoritative ownership
+        # container for concrete tool instances.
         # ----------------------------------------------------
 
         self._tool_instances: dict[
@@ -259,6 +269,13 @@ class ToolManager:
     ) -> None:
         """
         Remove the Controller tool-selection subscription.
+
+        Canonical Controller contract:
+
+            controller.unsubscribe(
+                "tool_changed",
+                callback,
+            )
         """
 
         unsubscribe = getattr(
@@ -376,7 +393,8 @@ class ToolManager:
 
         The active tool cannot be unregistered.
 
-        If disposal fails, ownership remains intact.
+        If disposal fails, ownership and registration remain
+        intact so the operation can be retried safely.
         """
 
         self._ensure_active()
@@ -390,22 +408,33 @@ class ToolManager:
                 "Cannot unregister the active tool."
             )
 
-        instance = self._tool_instances.get(
-            tool_id
-        )
-
         # ----------------------------------------------------
-        # Dispose before relinquishing ownership.
+        # If an instance exists, dispose it before removing
+        # ownership.
         # ----------------------------------------------------
 
-        if instance is not None:
+        if tool_id in self._tool_instances:
+
+            instance = self._tool_instances[
+                tool_id
+            ]
+
             self._dispose_tool(
                 instance
             )
 
-            self._tool_instances.pop(
+            # ------------------------------------------------
+            # Remove ownership only after successful disposal.
+            # ------------------------------------------------
+
+            del self._tool_instances[
                 tool_id
-            )
+            ]
+
+        # ----------------------------------------------------
+        # Registry removal occurs only after any owned instance
+        # has been successfully disposed.
+        # ----------------------------------------------------
 
         self._tool_registry.pop(
             tool_id,
@@ -583,8 +612,8 @@ class ToolManager:
         # ----------------------------------------------------
         # Deliberately do not catch TypeError.
         #
-        # A TypeError from inside the concrete constructor is
-        # a real production failure and must remain visible.
+        # A TypeError raised inside the concrete constructor
+        # is a real production failure and must remain visible.
         # ----------------------------------------------------
 
         tool = factory(
@@ -607,16 +636,17 @@ class ToolManager:
     ) -> Any:
         """
         Return an existing instance or lazily create one.
+
+        Ownership is determined by dictionary membership rather
+        than by the instance value.
         """
 
         self._ensure_active()
 
-        existing = self._tool_instances.get(
-            tool_id
-        )
-
-        if existing is not None:
-            return existing
+        if tool_id in self._tool_instances:
+            return self._tool_instances[
+                tool_id
+            ]
 
         tool = self._create_tool(
             tool_id
@@ -776,8 +806,8 @@ class ToolManager:
         # Deactivate previous tool.
         #
         # If this raises, active state is deliberately retained
-        # because the previous lifecycle has not completed its
-        # transition away.
+        # because the previous lifecycle did not successfully
+        # complete its deactivation.
         # ----------------------------------------------------
 
         if previous_tool is not None:
@@ -786,9 +816,9 @@ class ToolManager:
             )
 
         # ----------------------------------------------------
-        # The old tool is no longer the active interaction
-        # source. Remove its transient visual state before
-        # activating the new tool.
+        # The previous tool is no longer the active interaction
+        # source. Remove transient visual state before starting
+        # the new lifecycle.
         # ----------------------------------------------------
 
         self._clear_preview()
@@ -809,10 +839,8 @@ class ToolManager:
         except Exception as activation_error:
 
             # ------------------------------------------------
-            # The new lifecycle failed.
-            #
-            # Remove any transient state that the failed
-            # activation may have produced.
+            # Remove transient state produced by failed
+            # activation.
             # ------------------------------------------------
 
             self._clear_preview()
@@ -843,12 +871,11 @@ class ToolManager:
                 # --------------------------------------------
                 # Previous lifecycle could not be restored.
                 #
-                # The manager must not claim that the previous
-                # tool is active.
+                # Never claim that the previous tool remains
+                # active.
                 #
-                # Preserve the ORIGINAL activation failure as
-                # the primary exception and expose restoration
-                # failure through exception context.
+                # Preserve the original activation exception
+                # as the primary exception.
                 # --------------------------------------------
 
                 self._active_tool = None
@@ -888,9 +915,8 @@ class ToolManager:
 
         Controller selection is not modified.
 
-        If the tool's deactivate() raises, manager state is
-        intentionally preserved because deactivation did not
-        complete successfully.
+        If deactivate() raises, manager state remains
+        authoritative and the active tool remains recorded.
         """
 
         self._ensure_active()
@@ -906,7 +932,7 @@ class ToolManager:
             return
 
         # ----------------------------------------------------
-        # Do not clear manager state before lifecycle
+        # Do not clear manager state until lifecycle
         # deactivation succeeds.
         # ----------------------------------------------------
 
@@ -1160,6 +1186,8 @@ class ToolManager:
         """
         Dispose ToolManager and all owned tool instances.
 
+        Disposal is retry-safe.
+
         Disposal order:
 
             active tool deactivation
@@ -1172,8 +1200,22 @@ class ToolManager:
                     ↓
             manager marked disposed
 
-        If a lifecycle operation fails, disposal stops at the
-        failing operation and the manager remains non-disposed.
+        Failure semantics:
+
+            - If active deactivation fails, disposal stops and
+              manager remains non-disposed.
+
+            - If a concrete tool disposal fails, disposal stops
+              and remaining ownership is preserved.
+
+            - Successfully disposed instances are removed from
+              ownership.
+
+            - If Controller unsubscribe fails, manager remains
+              non-disposed so the operation can be retried.
+
+            - The manager is marked disposed only after every
+              lifecycle operation has completed successfully.
         """
 
         if self._disposed:
@@ -1182,8 +1224,8 @@ class ToolManager:
         # ----------------------------------------------------
         # Deactivate active tool first.
         #
-        # If deactivation fails, the manager must not pretend
-        # that disposal completed.
+        # If this fails, active state remains authoritative and
+        # no ownership is discarded.
         # ----------------------------------------------------
 
         active_tool = self._active_tool
@@ -1193,26 +1235,41 @@ class ToolManager:
                 active_tool
             )
 
-        self._active_tool = None
-        self._active_tool_id = None
+            self._active_tool = None
+            self._active_tool_id = None
 
-        self._clear_preview()
+            self._clear_preview()
+
+        else:
+            self._active_tool_id = None
+            self._clear_preview()
 
         # ----------------------------------------------------
-        # Dispose every instantiated tool.
+        # Dispose concrete tools one by one.
+        #
+        # Remove ownership only after each disposal succeeds.
+        #
+        # Therefore, if disposal fails midway, the remaining
+        # instances remain owned and can be retried.
         # ----------------------------------------------------
 
-        for tool in tuple(
-            self._tool_instances.values()
+        for tool_id, tool in tuple(
+            self._tool_instances.items()
         ):
+
             self._dispose_tool(
                 tool
             )
 
-        self._tool_instances.clear()
+            del self._tool_instances[
+                tool_id
+            ]
 
         # ----------------------------------------------------
         # Remove Controller subscription.
+        #
+        # If unsubscribe raises, the manager remains
+        # non-disposed and the operation may be retried.
         # ----------------------------------------------------
 
         if self._connected:
@@ -1222,7 +1279,8 @@ class ToolManager:
             self._connected = False
 
         # ----------------------------------------------------
-        # Manager is permanently disposed.
+        # Manager is permanently disposed only after the
+        # complete lifecycle has succeeded.
         # ----------------------------------------------------
 
         self._disposed = True
@@ -1257,3 +1315,4 @@ class ToolManager:
 __all__ = [
     "ToolManager",
 ]
+```
