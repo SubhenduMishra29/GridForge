@@ -1,3 +1,4 @@
+```python
 # ============================================================
 # File: ui/core/renderer_loader.py
 # GridForge V2 — Renderer Loader
@@ -24,94 +25,122 @@ Architecture
 
 Purpose
 -------
-RendererLoader provides the explicit registration boundary for
-concrete GridForge renderers.
+RendererLoader is the explicit composition boundary for the
+concrete GridForge canvas renderer set.
 
 It intentionally separates:
 
-    registry
-        stores renderer factories;
+    RendererLoader
+        explicit knowledge of concrete renderers and their
+        authoritative Core model types;
 
-    loader
-        explicitly imports and registers concrete renderers;
+    RendererRegistry
+        stores renderer registrations and resolves them;
 
     RenderSystem
-        owns renderer instances and rendering lifecycle.
+        consumes the registry and owns rendering coordination.
 
-This module prevents RendererRegistry from becoming an implicit
-plugin loader.
+The loader performs no rendering and never creates renderer
+instances.
 
-Concrete Renderers
-------------------
-The loader is the explicit composition point for the concrete
-renderer set.
-
-Current renderer set:
+Current Renderer Set
+--------------------
+GridForge V2 currently defines exactly:
 
     - BusRenderer
     - LineRenderer
 
-No renderer is discovered dynamically.
+Their authoritative model bindings are:
+
+    BusRenderer  -> core.model.bus.Bus
+    LineRenderer -> core.model.line.Line
+
+No renderer discovery is performed.
 
 No filesystem scanning is performed.
 
 No package introspection is performed.
 
-No automatic imports are performed.
+No decorator-based self-registration is performed.
+
+Registration Contract
+---------------------
+The loader explicitly performs:
+
+    registry.register(
+        "bus",
+        BusRenderer,
+        model_type=Bus,
+    )
+
+    registry.register(
+        "line",
+        LineRenderer,
+        model_type=Line,
+    )
+
+This allows RenderSystem to resolve renderers through the
+authoritative model type:
+
+    registry.get_for_type(type(element))
+
+or equivalently:
+
+    registry.get_for_object(element)
 
 Responsibilities
 ----------------
 RendererLoader:
 
-    - explicitly import concrete renderer classes;
-    - register them with RendererRegistry;
-    - validate the expected renderer set;
-    - provide one deterministic loading operation.
+    - explicitly imports concrete renderer classes;
+    - explicitly imports their authoritative Core model types;
+    - registers renderer implementations;
+    - binds renderers to Core model types;
+    - validates the canonical renderer set;
+    - provides deterministic loading.
 
 RendererLoader does NOT:
 
-    - own renderer instances;
+    - instantiate renderers;
+    - create QGraphicsItems;
     - render anything;
-    - create QGraphicsItems directly;
+    - own QGraphicsScene;
     - manage renderer lifecycle;
-    - select renderers dynamically;
+    - perform renderer selection;
     - subscribe to Controller events;
     - modify Core state;
     - perform electrical calculations;
     - perform selection;
-    - perform snapping.
+    - perform snapping;
+    - perform navigation.
 
 Registration Ownership
 ----------------------
-The explicit loader owns registration knowledge.
-
-RendererRegistry owns the resulting registrations.
-
-RenderSystem owns the resulting renderer instances.
-
-Therefore:
+The ownership chain is:
 
     RendererLoader
-        = explicit composition
+        = explicit composition knowledge
 
     RendererRegistry
-        = registration/factory lookup
+        = registration and renderer resolution
 
     RenderSystem
-        = renderer lifecycle + rendering
+        = rendering coordination and graphical projection
+
+The loader does not retain renderer instances.
 
 Qt Architecture
 ---------------
-Concrete renderer modules must obey the GridForge Qt rule:
+This module does not import Qt.
+
+Concrete renderers must obey the GridForge Qt rule:
 
     all Qt imports through ui.core.qt
-
-This loader itself does not import Qt.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from ui.core.renderer_registry import RendererRegistry
 
@@ -120,10 +149,11 @@ class RendererLoader:
     """
     Explicit loader for the GridForge V2 renderer set.
 
-    The loader does not retain renderer instances.
+    RendererLoader contains the application's concrete renderer
+    composition knowledge.
 
-    It only performs deterministic registration into the supplied
-    RendererRegistry.
+    It performs registration only. It never instantiates a
+    renderer and never creates graphics items.
     """
 
     # ========================================================
@@ -147,12 +177,12 @@ class RendererLoader:
         registry: RendererRegistry,
     ) -> None:
         """
-        Initialize the loader.
+        Initialize the renderer loader.
 
         Parameters
         ----------
         registry:
-            RendererRegistry receiving the explicit renderer
+            RendererRegistry receiving the explicit
             registrations.
         """
 
@@ -182,7 +212,7 @@ class RendererLoader:
         replace: bool = False,
     ) -> None:
         """
-        Explicitly import and register all concrete renderers.
+        Explicitly import and register all canonical renderers.
 
         Parameters
         ----------
@@ -191,30 +221,42 @@ class RendererLoader:
 
         Notes
         -----
-        Imports are intentionally local to this method.
+        Concrete renderer and model imports are intentionally
+        local to this composition operation.
 
-        This keeps the registry independent of concrete renderer
-        implementations and makes the composition boundary
-        explicit.
+        This prevents RendererRegistry from importing concrete
+        renderers and keeps renderer composition explicit.
         """
+
+        from core.model.bus import Bus
+        from core.model.line import Line
 
         from ui.renderers.bus_renderer import (
             BusRenderer,
         )
-
         from ui.renderers.line_renderer import (
             LineRenderer,
         )
 
+        # ----------------------------------------------------
+        # Bus renderer.
+        # ----------------------------------------------------
+
         self.registry.register(
             self.BUS_RENDERER_ID,
             BusRenderer,
+            model_type=Bus,
             replace=replace,
         )
+
+        # ----------------------------------------------------
+        # Line renderer.
+        # ----------------------------------------------------
 
         self.registry.register(
             self.LINE_RENDERER_ID,
             LineRenderer,
+            model_type=Line,
             replace=replace,
         )
 
@@ -228,17 +270,57 @@ class RendererLoader:
         self,
     ) -> None:
         """
-        Validate that all canonical renderer registrations exist.
+        Validate the canonical renderer registrations.
+
+        Validation checks:
+
+            - required renderer ID exists;
+            - renderer implementation is registered;
+            - renderer is bound to the correct Core model type.
 
         Raises
         ------
         KeyError
             If a required renderer is missing.
+
+        TypeError
+            If a renderer is bound to the wrong model type.
         """
 
-        self.registry.require_renderers(
-            self.REQUIRED_RENDERER_IDS
-        )
+        from core.model.bus import Bus
+        from core.model.line import Line
+
+        expected = {
+            self.BUS_RENDERER_ID: Bus,
+            self.LINE_RENDERER_ID: Line,
+        }
+
+        for (
+            renderer_id,
+            expected_model_type,
+        ) in expected.items():
+
+            registration = self.registry.get(
+                renderer_id
+            )
+
+            if registration is None:
+                raise KeyError(
+                    "Required renderer is not registered: "
+                    f"{renderer_id!r}"
+                )
+
+            if (
+                registration.model_type
+                is not expected_model_type
+            ):
+                raise TypeError(
+                    "Renderer "
+                    f"{renderer_id!r} is bound to "
+                    f"{registration.model_type!r}, "
+                    "expected "
+                    f"{expected_model_type!r}."
+                )
 
     # ========================================================
     # LOAD + VALIDATE
@@ -250,7 +332,7 @@ class RendererLoader:
         replace: bool = False,
     ) -> None:
         """
-        Load the concrete renderer set and validate it.
+        Load the canonical renderer set and validate it.
         """
 
         self.load(
@@ -264,16 +346,20 @@ class RendererLoader:
     # ========================================================
 
     @property
-    def loaded(self) -> bool:
+    def loaded(
+        self,
+    ) -> bool:
         """
-        Return True after load() has completed successfully.
+        Return True after a successful load operation.
         """
 
         return self._loaded
 
     # --------------------------------------------------------
 
-    def is_loaded(self) -> bool:
+    def is_loaded(
+        self,
+    ) -> bool:
         """
         Semantic alias for loaded.
         """
@@ -324,7 +410,7 @@ class RendererLoader:
                 self.REQUIRED_RENDERER_IDS
             ),
             "registered_renderer_ids": (
-                self.registry.renderer_ids()
+                self.registry.renderer_ids
             ),
         }
 
@@ -343,7 +429,7 @@ class RendererLoader:
             "RendererLoader("
             f"loaded={self._loaded}, "
             f"renderers="
-            f"{self.registry.renderer_ids()!r}"
+            f"{self.registry.renderer_ids!r}"
             ")"
         )
 
@@ -355,3 +441,4 @@ class RendererLoader:
 __all__ = [
     "RendererLoader",
 ]
+```
