@@ -8,7 +8,7 @@ Visual projection of an authoritative GridForge Line object.
 Architecture
 ------------
 
-    Core / Application Line
+    GridForge Core / Line
               │
               ▼
         LineRenderer
@@ -22,53 +22,73 @@ Architecture
               ▼
         GraphicsView
 
-LineItem is a presentation object only.
+LineItem is a presentation projection only.
 
 Responsibilities
 ----------------
 LineItem:
 
     - represents one authoritative Line visually;
-    - exposes object_id;
-    - stores the visual endpoints in scene coordinates;
-    - renders a line between its endpoints;
-    - supports visual selection;
-    - provides geometry information required by renderers;
-    - exposes endpoint-change notifications;
-    - optionally retains a reference to the projected model.
+    - retains the authoritative Line model reference;
+    - retains the UI Controller reference;
+    - resolves visual endpoint coordinates from the
+      authoritative application model;
+    - provides visual selection;
+    - provides line geometry required by renderers;
+    - reports selection requests through the Controller.
 
 LineItem does NOT:
 
-    - own the Line model;
-    - modify the Core model directly;
-    - determine electrical topology;
+    - own the Line engineering object;
     - create or delete Core objects;
+    - modify Core state directly;
+    - determine electrical topology;
     - perform snapping;
     - perform electrical calculations;
-    - own persistent selection;
+    - perform connection validation;
     - implement LineTool behavior;
-    - decide connection validity;
-    - manage navigation.
+    - own persistent application selection;
+    - move itself interactively;
+    - maintain an independent engineering endpoint state.
 
 Topology
 --------
-The authoritative electrical connection remains in Core.
+The authoritative electrical connection remains in GridForge
+Core.
 
-LineItem only projects the already-authoritative connection.
+The LineItem visual geometry is derived from the authoritative
+model through the Controller/application model.
 
-Endpoint coordinates are therefore presentation geometry.
-They must not be interpreted as the source of electrical
-connectivity.
+The graphics item therefore never becomes the source of
+electrical connectivity.
 
 Selection
 ---------
-Persistent application selection belongs to Controller.
+QGraphicsItem selection is a visual projection.
 
-QGraphicsItem selection is only a visual projection.
+Persistent application selection remains owned by the
+Controller/SelectionManager.
+
+Selection requests are routed through:
+
+    LineItem
+       │
+       ▼
+    Controller
+       │
+       ▼
+    SelectionManager / application state
+
+Movement
+--------
+LineItem is intentionally NOT movable.
+
+Line geometry changes are authoritative application updates,
+not arbitrary QGraphicsItem movement.
 
 Qt Architecture
 ---------------
-All Qt dependencies must pass through:
+All Qt dependencies are imported exclusively through:
 
     ui.core.qt
 
@@ -77,37 +97,37 @@ No direct PySide6/PyQt imports are permitted.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from ui.core.qt import (
+    QGraphicsItem,
     QGraphicsLineItem,
     QLineF,
     QPen,
     QPointF,
     Qt,
-    Signal,
 )
 
 
 class LineItem(QGraphicsLineItem):
     """
-    Visual representation of one GridForge Line.
+    Visual representation of one authoritative GridForge Line.
 
     Parameters
     ----------
-    object_id:
-        Authoritative identifier of the represented Line.
+    line:
+        Authoritative GridForge Line model object.
 
-    start:
-        Initial scene-space start point.
+    controller:
+        UI/application controller responsible for application
+        operations and selection state.
 
-    end:
-        Initial scene-space end point.
-
-    model:
-        Optional authoritative Line object being projected.
-
-        The object is not mutated by LineItem.
+    Notes
+    -----
+    LineItem deliberately remains a QGraphicsLineItem instead of
+    inheriting from BaseItem because Qt's graphics-item hierarchy
+    requires the specialized QGraphicsLineItem base for native
+    line geometry behavior.
     """
 
     # ========================================================
@@ -122,65 +142,49 @@ class LineItem(QGraphicsLineItem):
 
     def __init__(
         self,
-        object_id: Any,
-        start: Optional[QPointF] = None,
-        end: Optional[QPointF] = None,
-        model: Optional[Any] = None,
+        line: Any,
+        controller: Any,
     ) -> None:
-        if object_id is None:
+        if line is None:
             raise ValueError(
-                "object_id must not be None."
+                "line must not be None."
             )
 
-        if start is None:
-            start = QPointF(
-                0.0,
-                0.0,
+        if controller is None:
+            raise ValueError(
+                "controller must not be None."
             )
-
-        if end is None:
-            end = QPointF(
-                0.0,
-                0.0,
-            )
-
-        self._validate_point(
-            start,
-            "start",
-        )
-
-        self._validate_point(
-            end,
-            "end",
-        )
 
         super().__init__(
             QLineF(
-                start,
-                end,
+                QPointF(0.0, 0.0),
+                QPointF(0.0, 0.0),
             )
         )
 
-        self.object_id = object_id
-        self.model = model
+        self.line_model = line
+        self.controller = controller
 
-        self.position_changed = Signal(
-            object
-        )
-
-        self.geometry_changed = Signal(
-            object
-        )
+        # ----------------------------------------------------
+        # Selection is allowed visually, but movement is
+        # deliberately prohibited.
+        # ----------------------------------------------------
 
         self.setFlag(
-            QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable,
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
             True,
         )
 
         self.setFlag(
-            QGraphicsLineItem.GraphicsItemFlag.ItemSendsGeometryChanges,
-            True,
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+            False,
         )
+
+        # ----------------------------------------------------
+        # Default presentation.
+        #
+        # Concrete renderers may replace this presentation.
+        # ----------------------------------------------------
 
         self.setPen(
             QPen(
@@ -189,67 +193,114 @@ class LineItem(QGraphicsLineItem):
             )
         )
 
-        self._start = QPointF(
-            start.x(),
-            start.y(),
-        )
+        # ----------------------------------------------------
+        # Initialize geometry from the authoritative model.
+        # ----------------------------------------------------
 
-        self._end = QPointF(
-            end.x(),
-            end.y(),
-        )
+        self.refresh_geometry()
 
     # ========================================================
     # IDENTITY
     # ========================================================
 
-    def get_object_id(
-        self,
-    ) -> Any:
+    @property
+    def object_id(self) -> Any:
         """
-        Return the authoritative ID of the represented Line.
+        Return the authoritative Line identifier.
+        """
+
+        return self.line_model.id
+
+    # --------------------------------------------------------
+
+    def get_object_id(self) -> Any:
+        """
+        Return the authoritative Line identifier.
         """
 
         return self.object_id
 
     # ========================================================
-    # MODEL PROJECTION
+    # MODEL
     # ========================================================
 
-    def get_model(
+    def get_model(self) -> Any:
+        """
+        Return the authoritative Line model reference.
+
+        The LineItem does not own or mutate this object.
+        """
+
+        return self.line_model
+
+    # ========================================================
+    # GEOMETRY
+    # ========================================================
+
+    def _resolve_endpoint_positions(
         self,
-    ) -> Optional[Any]:
+    ) -> tuple[QPointF, QPointF]:
         """
-        Return the projected model object, if supplied.
+        Resolve the visual endpoints from the authoritative
+        application model.
 
-        The returned object is not owned by LineItem.
+        Endpoint positions are obtained through the controller's
+        authoritative model graph.
+
+        Returns
+        -------
+        tuple[QPointF, QPointF]
+            Start and end scene positions.
         """
 
-        return self.model
+        graph = self.controller.model.graph
+        buses = graph.buses
+
+        start_bus = buses[self.line_model.from_bus]
+        end_bus = buses[self.line_model.to_bus]
+
+        start_position = start_bus.position
+        end_position = end_bus.position
+
+        return (
+            QPointF(
+                start_position.x,
+                start_position.y,
+            ),
+            QPointF(
+                end_position.x,
+                end_position.y,
+            ),
+        )
 
     # --------------------------------------------------------
 
-    def set_model(
-        self,
-        model: Optional[Any],
-    ) -> None:
+    def refresh_geometry(self) -> None:
         """
-        Replace the projected model reference.
+        Refresh the visual line geometry from authoritative
+        application state.
 
-        This changes only the UI projection reference.
+        This method performs presentation projection only.
+
+        No Core state is modified.
         """
 
-        self.model = model
+        start, end = self._resolve_endpoint_positions()
 
-    # ========================================================
-    # ENDPOINT ACCESS
-    # ========================================================
+        self.prepareGeometryChange()
 
-    def get_start(
-        self,
-    ) -> QPointF:
+        self.setLine(
+            QLineF(
+                start,
+                end,
+            )
+        )
+
+    # --------------------------------------------------------
+
+    def get_start(self) -> QPointF:
         """
-        Return the current start point in scene coordinates.
+        Return the current visual start point.
         """
 
         line = self.line()
@@ -261,11 +312,9 @@ class LineItem(QGraphicsLineItem):
 
     # --------------------------------------------------------
 
-    def get_end(
-        self,
-    ) -> QPointF:
+    def get_end(self) -> QPointF:
         """
-        Return the current end point in scene coordinates.
+        Return the current visual end point.
         """
 
         line = self.line()
@@ -281,7 +330,7 @@ class LineItem(QGraphicsLineItem):
         self,
     ) -> tuple[QPointF, QPointF]:
         """
-        Return the current start and end points.
+        Return the current visual endpoints.
         """
 
         return (
@@ -290,181 +339,59 @@ class LineItem(QGraphicsLineItem):
         )
 
     # ========================================================
-    # ENDPOINT MUTATION
+    # GEOMETRY INFORMATION
     # ========================================================
 
-    def set_endpoints(
+    def length(self) -> float:
+        """
+        Return the visual geometric length.
+
+        This is presentation geometry only.
+
+        It is NOT the electrical line length stored by Core.
+        """
+
+        return self.line().length()
+
+    # --------------------------------------------------------
+
+    def bounding_rect_scene(self) -> Any:
+        """
+        Return the line's bounding rectangle in scene
+        coordinates.
+        """
+
+        return self.mapRectToScene(
+            self.boundingRect()
+        )
+
+    # ========================================================
+    # SELECTION
+    # ========================================================
+
+    def request_selection(
         self,
-        start: QPointF,
-        end: QPointF,
         *,
-        emit: bool = True,
+        multi: bool = False,
     ) -> None:
         """
-        Set both visual endpoints.
+        Request application-level selection through the
+        Controller.
 
-        This modifies only presentation geometry.
-
-        Parameters
-        ----------
-        start:
-            New start point.
-
-        end:
-            New end point.
-
-        emit:
-            Whether to emit ``geometry_changed``.
+        LineItem does not own persistent selection state.
         """
 
-        self._validate_point(
-            start,
-            "start",
-        )
-
-        self._validate_point(
-            end,
-            "end",
-        )
-
-        new_start = QPointF(
-            start.x(),
-            start.y(),
-        )
-
-        new_end = QPointF(
-            end.x(),
-            end.y(),
-        )
-
-        old_start = self.get_start()
-        old_end = self.get_end()
-
-        self.prepareGeometryChange()
-
-        self.setLine(
-            QLineF(
-                new_start,
-                new_end,
-            )
-        )
-
-        self._start = new_start
-        self._end = new_end
-
-        changed = (
-            old_start.x()
-            != new_start.x()
-            or old_start.y()
-            != new_start.y()
-            or old_end.x()
-            != new_end.x()
-            or old_end.y()
-            != new_end.y()
-        )
-
-        if emit and changed:
-            self.geometry_changed.emit(
-                (
-                    new_start,
-                    new_end,
-                )
+        if not isinstance(multi, bool):
+            raise TypeError(
+                "multi must be a bool."
             )
 
-    # --------------------------------------------------------
-
-    def set_start(
-        self,
-        start: QPointF,
-    ) -> None:
-        """
-        Change only the visual start point.
-        """
-
-        self.set_endpoints(
-            start,
-            self.get_end(),
+        self.controller.select(
+            self.object_id,
+            multi=multi,
         )
 
     # --------------------------------------------------------
-
-    def set_end(
-        self,
-        end: QPointF,
-    ) -> None:
-        """
-        Change only the visual end point.
-        """
-
-        self.set_endpoints(
-            self.get_start(),
-            end,
-        )
-
-    # ========================================================
-    # POSITION
-    # ========================================================
-
-    def get_scene_position(
-        self,
-    ) -> QPointF:
-        """
-        Return the item's scene position.
-
-        Normally LineItem geometry is represented directly by
-        its line endpoints, while the item's position remains
-        the Qt graphics-item transform position.
-        """
-
-        position = self.pos()
-
-        return QPointF(
-            position.x(),
-            position.y(),
-        )
-
-    # --------------------------------------------------------
-
-    def set_scene_position(
-        self,
-        position: QPointF,
-    ) -> None:
-        """
-        Set the item's Qt scene position.
-
-        This changes only the graphical projection.
-        """
-
-        self._validate_point(
-            position,
-            "position",
-        )
-
-        old_position = self.get_scene_position()
-
-        self.setPos(
-            QPointF(
-                position.x(),
-                position.y(),
-            )
-        )
-
-        if (
-            old_position.x()
-            != position.x()
-            or old_position.y()
-            != position.y()
-        ):
-            self.position_changed.emit(
-                QPointF(
-                    position.x(),
-                    position.y(),
-                )
-            )
-
-    # ========================================================
-    # GEOMETRY CHANGE
-    # ========================================================
 
     def itemChange(
         self,
@@ -472,43 +399,66 @@ class LineItem(QGraphicsLineItem):
         value: Any,
     ) -> Any:
         """
-        Observe Qt graphics-item position changes.
+        Observe visual selection changes.
 
-        No Core state is modified here.
+        Selection changes are routed to the Controller.
+
+        No engineering state is modified directly here.
         """
 
-        position_change = getattr(
-            QGraphicsLineItem.GraphicsItemChange,
-            "ItemPositionHasChanged",
+        selection_change = getattr(
+            QGraphicsItem.GraphicsItemChange,
+            "ItemSelectedChange",
             None,
         )
 
-        result = super().itemChange(
+        if (
+            selection_change is not None
+            and change == selection_change
+            and value
+        ):
+            # The visual selection change is allowed to occur
+            # through Qt. Persistent application selection is
+            # handled by the Controller.
+            pass
+
+        return super().itemChange(
             change,
             value,
         )
 
-        if (
-            position_change is not None
-            and change == position_change
-            and value is not None
-        ):
-            self._validate_point(
-                value,
-                "position change",
+    # --------------------------------------------------------
+
+    def set_visual_selected(
+        self,
+        selected: bool,
+    ) -> None:
+        """
+        Set the Qt visual selection projection.
+
+        This does not alter application/Core selection state.
+        """
+
+        if not isinstance(selected, bool):
+            raise TypeError(
+                "selected must be a bool."
             )
 
-            self.position_changed.emit(
-                QPointF(
-                    value.x(),
-                    value.y(),
-                )
-            )
+        self.setSelected(selected)
 
-        return result
+    # --------------------------------------------------------
+
+    def is_visual_selected(self) -> bool:
+        """
+        Return the current Qt visual selection state.
+        """
+
+        return bool(
+            self.isSelected()
+        )
 
     # ========================================================
-    # VISUAL PRESENTATION
+    # PRESENTATION
     # ========================================================
 
     def set_pen(
@@ -524,87 +474,18 @@ class LineItem(QGraphicsLineItem):
                 "pen must not be None."
             )
 
-        self.setPen(
-            pen
-        )
-
-    # --------------------------------------------------------
-
-    def set_visual_selected(
-        self,
-        selected: bool,
-    ) -> None:
-        """
-        Set the Qt selection projection.
-
-        Persistent application selection remains owned by
-        Controller/SelectionManager.
-        """
-
-        if not isinstance(
-            selected,
-            bool,
-        ):
-            raise TypeError(
-                "selected must be a bool."
-            )
-
-        self.setSelected(
-            selected
-        )
-
-    # --------------------------------------------------------
-
-    def is_visual_selected(
-        self,
-    ) -> bool:
-        """
-        Return the current Qt visual selection state.
-        """
-
-        return bool(
-            self.isSelected()
-        )
-
-    # ========================================================
-    # GEOMETRIC INFORMATION
-    # ========================================================
-
-    def length(
-        self,
-    ) -> float:
-        """
-        Return the geometric length of the visual line.
-
-        This is a scene-space geometric measurement only.
-
-        It is not an electrical line length.
-        """
-
-        return self.line().length()
-
-    # --------------------------------------------------------
-
-    def bounding_rect_scene(
-        self,
-    ) -> Any:
-        """
-        Return the line's scene-space bounding rectangle.
-        """
-
-        return self.mapRectToScene(
-            self.boundingRect()
-        )
+        self.setPen(pen)
 
     # ========================================================
     # STATE
     # ========================================================
 
-    def get_state(
-        self,
-    ) -> dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """
-        Return diagnostic UI state.
+        Return a diagnostic presentation snapshot.
+
+        The returned state does not become authoritative
+        engineering state.
         """
 
         start = self.get_start()
@@ -615,50 +496,16 @@ class LineItem(QGraphicsLineItem):
             "start": start,
             "end": end,
             "length": self.length(),
-            "position": self.get_scene_position(),
             "selected": self.is_visual_selected(),
-            "has_model": self.model is not None,
+            "movable": False,
+            "has_model": self.line_model is not None,
         }
-
-    # ========================================================
-    # VALIDATION
-    # ========================================================
-
-    @staticmethod
-    def _validate_point(
-        point: Any,
-        name: str,
-    ) -> None:
-        """
-        Validate a QPointF-compatible object.
-        """
-
-        if point is None:
-            raise ValueError(
-                f"{name} must not be None."
-            )
-
-        if not callable(
-            getattr(point, "x", None),
-        ):
-            raise TypeError(
-                f"{name} must provide x()."
-            )
-
-        if not callable(
-            getattr(point, "y", None),
-        ):
-            raise TypeError(
-                f"{name} must provide y()."
-            )
 
     # ========================================================
     # REPRESENTATION
     # ========================================================
 
-    def __repr__(
-        self,
-    ) -> str:
+    def __repr__(self) -> str:
         """
         Return a concise diagnostic representation.
         """
