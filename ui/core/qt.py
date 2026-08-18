@@ -2,6 +2,7 @@
 # File: ui/core/qt.py
 # GridForge V2 — Qt Compatibility / Abstraction Layer
 # ============================================================
+
 """
 Central Qt abstraction layer for GridForge V2.
 
@@ -81,6 +82,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -158,6 +160,8 @@ __all__ = [
     "QGraphicsView",
 
     "QHBoxLayout",
+
+    "QLayout",
 
     "QLabel",
 
