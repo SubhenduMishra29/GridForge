@@ -1,3 +1,4 @@
+```python
 """
 GridForge V2
 ============
@@ -19,7 +20,7 @@ It:
     - registers toolbar actions;
     - exposes the resulting QToolBar;
     - requests tool selection through the authoritative Controller;
-    - emits presentation-level action requests.
+    - reflects authoritative tool-selection state.
 
 It does NOT:
     - own application state;
@@ -34,7 +35,7 @@ It does NOT:
     - import Qt directly from PySide6.
 
 Tool selection
--------------
+--------------
 The authoritative tool-selection path is:
 
     ToolbarPlugin
@@ -48,13 +49,24 @@ The authoritative tool-selection path is:
         v
     authoritative application/tool state
 
-The toolbar only reflects the requested presentation state.
+The toolbar never treats its QAction state as authoritative.
+
+After requesting a tool change, the toolbar synchronizes its
+presentation from:
+
+    Controller.get_current_tool_id()
 
 Concrete tools are frozen at exactly:
 
     SelectTool
     BusTool
     LineTool
+
+Canonical identifiers:
+
+    select
+    bus
+    line
 
 Qt boundary
 -----------
@@ -124,10 +136,6 @@ class ToolbarActionSpec:
     )
 
     def __post_init__(self) -> None:
-        # ----------------------------------------------------
-        # action_id
-        # ----------------------------------------------------
-
         if (
             not isinstance(self.action_id, str)
             or not self.action_id.strip()
@@ -136,18 +144,10 @@ class ToolbarActionSpec:
                 "action_id must be a non-empty string."
             )
 
-        # ----------------------------------------------------
-        # text
-        # ----------------------------------------------------
-
         if not isinstance(self.text, str):
             raise TypeError(
                 "text must be a string."
             )
-
-        # ----------------------------------------------------
-        # tool_id
-        # ----------------------------------------------------
 
         if (
             self.tool_id is not None
@@ -160,10 +160,6 @@ class ToolbarActionSpec:
                 "tool_id must be a non-empty string or None."
             )
 
-        # ----------------------------------------------------
-        # Tool actions must be checkable.
-        # ----------------------------------------------------
-
         if (
             self.tool_id is not None
             and not self.checkable
@@ -175,16 +171,53 @@ class ToolbarActionSpec:
                 )
             )
 
-        # ----------------------------------------------------
-        # Non-checkable actions cannot start checked.
-        # ----------------------------------------------------
-
         if self.checked and not self.checkable:
             raise ValueError(
                 (
                     f"Toolbar action {self.action_id!r} "
                     "cannot be checked when checkable=False."
                 )
+            )
+
+        if not isinstance(self.enabled, bool):
+            raise TypeError(
+                "enabled must be bool."
+            )
+
+        if not isinstance(self.checkable, bool):
+            raise TypeError(
+                "checkable must be bool."
+            )
+
+        if not isinstance(self.checked, bool):
+            raise TypeError(
+                "checked must be bool."
+            )
+
+        if not isinstance(self.separator_before, bool):
+            raise TypeError(
+                "separator_before must be bool."
+            )
+
+        if (
+            self.tooltip is not None
+            and not isinstance(self.tooltip, str)
+        ):
+            raise TypeError(
+                "tooltip must be a string or None."
+            )
+
+        if (
+            self.shortcut is not None
+            and not isinstance(self.shortcut, str)
+        ):
+            raise TypeError(
+                "shortcut must be a string or None."
+            )
+
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError(
+                "metadata must be a Mapping."
             )
 
 
@@ -202,7 +235,7 @@ class ToolbarPlugin(QObject):
     The plugin is constructed without PluginContext.
 
     Application/UI dependencies are supplied exclusively through
-    initialize(context), matching the canonical plugin lifecycle.
+    initialize(context).
 
     Ownership
     ---------
@@ -214,17 +247,20 @@ class ToolbarPlugin(QObject):
     -------------------
     The plugin receives the shared PluginContext during initialization.
 
-    Tool selection is delegated to the authoritative Controller
-    through:
+    Tool selection is delegated through the authoritative Controller:
 
         context.controller.set_tool(tool_id)
+
+    The current tool is read through:
+
+        context.controller.get_current_tool_id()
 
     The plugin never manipulates ToolManager directly.
     """
 
     plugin_id = "toolbar"
     plugin_name = "Toolbar"
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     plugin_description = (
         "GridForge application toolbar composition."
     )
@@ -243,12 +279,9 @@ class ToolbarPlugin(QObject):
         Construct an uninitialized ToolbarPlugin.
 
         PluginContext is intentionally not a constructor dependency.
-        Application/UI dependencies are supplied during initialize().
         """
 
-        super().__init__(
-            parent
-        )
+        super().__init__(parent)
 
         self._context: Optional[
             PluginContext
@@ -311,17 +344,13 @@ class ToolbarPlugin(QObject):
     def action_ids(self) -> tuple[str, ...]:
         """Return registered toolbar action identifiers."""
 
-        return tuple(
-            self._actions.keys()
-        )
+        return tuple(self._actions.keys())
 
     @property
     def tool_ids(self) -> tuple[str, ...]:
         """Return registered toolbar tool identifiers."""
 
-        return tuple(
-            self._tool_action_ids.keys()
-        )
+        return tuple(self._tool_action_ids.keys())
 
     # ========================================================
     # LIFECYCLE
@@ -337,9 +366,6 @@ class ToolbarPlugin(QObject):
         PluginContext is the sole application dependency boundary.
 
         Initialization is idempotent for the same lifecycle.
-
-        If initialization fails, all partially created toolbar
-        presentation state is rolled back.
         """
 
         if not isinstance(
@@ -364,11 +390,11 @@ class ToolbarPlugin(QObject):
                     "ToolbarPlugin is initialized without a toolbar."
                 )
 
+            self._synchronize_tool_presentation()
+
             return self._toolbar
 
-        self._validate_context(
-            context
-        )
+        self._validate_context(context)
 
         self._context = context
 
@@ -383,6 +409,8 @@ class ToolbarPlugin(QObject):
                 raise RuntimeError(
                     "Toolbar creation produced no toolbar."
                 )
+
+            self._synchronize_tool_presentation()
 
             return self._toolbar
 
@@ -440,16 +468,15 @@ class ToolbarPlugin(QObject):
                 )
             )
 
-        if context.controller is None:
+        controller = context.controller
+
+        if controller is None:
             raise RuntimeError(
-                (
-                    "ToolbarPlugin requires "
-                    "PluginContext.controller."
-                )
+                "ToolbarPlugin requires PluginContext.controller."
             )
 
         set_tool = getattr(
-            context.controller,
+            controller,
             "set_tool",
             None,
         )
@@ -459,6 +486,20 @@ class ToolbarPlugin(QObject):
                 (
                     "PluginContext.controller must provide "
                     "set_tool(tool_id)."
+                )
+            )
+
+        get_current_tool_id = getattr(
+            controller,
+            "get_current_tool_id",
+            None,
+        )
+
+        if not callable(get_current_tool_id):
+            raise TypeError(
+                (
+                    "PluginContext.controller must provide "
+                    "get_current_tool_id()."
                 )
             )
 
@@ -507,13 +548,8 @@ class ToolbarPlugin(QObject):
             "gridforge_tool_bar"
         )
 
-        toolbar.setMovable(
-            False
-        )
-
-        toolbar.setFloatable(
-            False
-        )
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
 
         main_window.addToolBar(
             Qt.ToolBarArea.TopToolBarArea,
@@ -524,7 +560,8 @@ class ToolbarPlugin(QObject):
 
     def _create_tool_group(self) -> None:
         """
-        Create the exclusive QAction group used for tool presentation.
+        Create the exclusive QAction group used for tool
+        presentation.
 
         QActionGroup controls presentation exclusivity only.
 
@@ -540,9 +577,7 @@ class ToolbarPlugin(QObject):
             self
         )
 
-        self._tool_group.setExclusive(
-            True
-        )
+        self._tool_group.setExclusive(True)
 
     # ========================================================
     # ACTION REGISTRATION
@@ -552,9 +587,7 @@ class ToolbarPlugin(QObject):
         """Register the canonical GridForge toolbar actions."""
 
         for spec in default_tool_actions():
-            self.add_action(
-                spec
-            )
+            self.add_action(spec)
 
     def add_action(
         self,
@@ -592,16 +625,12 @@ class ToolbarPlugin(QObject):
             )
 
         if spec.tool_id is not None:
-            self._validate_tool_id(
-                spec.tool_id
-            )
+            self._validate_tool_id(spec.tool_id)
 
         if spec.separator_before:
             self._toolbar.addSeparator()
 
-        action = QAction(
-            self
-        )
+        action = QAction(self)
 
         action.setObjectName(
             spec.action_id
@@ -628,7 +657,6 @@ class ToolbarPlugin(QObject):
             action.setToolTip(
                 spec.tooltip
             )
-
             action.setStatusTip(
                 spec.tooltip
             )
@@ -646,9 +674,7 @@ class ToolbarPlugin(QObject):
         action.triggered.connect(
             lambda _checked=False,
             action_id=spec.action_id:
-                self._on_action_triggered(
-                    action_id
-                )
+                self._on_action_triggered(action_id)
         )
 
         self._actions[
@@ -659,9 +685,7 @@ class ToolbarPlugin(QObject):
             spec.action_id
         ] = spec
 
-        self._toolbar.addAction(
-            action
-        )
+        self._toolbar.addAction(action)
 
         try:
             if spec.tool_id is not None:
@@ -669,10 +693,9 @@ class ToolbarPlugin(QObject):
                     spec,
                     action,
                 )
+
         except Exception:
-            self._toolbar.removeAction(
-                action
-            )
+            self._toolbar.removeAction(action)
 
             self._actions.pop(
                 spec.action_id,
@@ -722,9 +745,7 @@ class ToolbarPlugin(QObject):
             and spec is not None
             and spec.tool_id is not None
         ):
-            self._tool_group.removeAction(
-                action
-            )
+            self._tool_group.removeAction(action)
 
             self._tool_action_ids.pop(
                 spec.tool_id,
@@ -732,9 +753,7 @@ class ToolbarPlugin(QObject):
             )
 
         if self._toolbar is not None:
-            self._toolbar.removeAction(
-                action
-            )
+            self._toolbar.removeAction(action)
 
         action.deleteLater()
 
@@ -749,9 +768,7 @@ class ToolbarPlugin(QObject):
         spec: ToolbarActionSpec,
         action: QAction,
     ) -> None:
-        """
-        Register one action as a mutually exclusive tool action.
-        """
+        """Register one action as a mutually exclusive tool action."""
 
         if spec.tool_id is None:
             raise ValueError(
@@ -775,9 +792,7 @@ class ToolbarPlugin(QObject):
             spec.tool_id
         ] = spec.action_id
 
-        self._tool_group.addAction(
-            action
-        )
+        self._tool_group.addAction(action)
 
     # ========================================================
     # TOOL SELECTION
@@ -790,17 +805,16 @@ class ToolbarPlugin(QObject):
         """
         Request selection of a tool through Controller.set_tool().
 
-        The Controller remains authoritative.
+        Controller remains authoritative.
 
-        The toolbar does not modify ToolManager or any other
-        application state directly.
+        The toolbar never assumes that the requested tool became
+        active. After the request, the authoritative current tool
+        is read from Controller.get_current_tool_id().
         """
 
         self._require_initialized()
 
-        self._validate_tool_id(
-            tool_id
-        )
+        self._validate_tool_id(tool_id)
 
         context = self._context
 
@@ -813,10 +827,7 @@ class ToolbarPlugin(QObject):
 
         if controller is None:
             raise RuntimeError(
-                (
-                    "PluginContext.controller is required "
-                    "for tool selection."
-                )
+                "PluginContext.controller is required for tool selection."
             )
 
         set_tool = getattr(
@@ -825,9 +836,7 @@ class ToolbarPlugin(QObject):
             None,
         )
 
-        if not callable(
-            set_tool
-        ):
+        if not callable(set_tool):
             raise TypeError(
                 (
                     "PluginContext.controller must provide "
@@ -835,20 +844,96 @@ class ToolbarPlugin(QObject):
                 )
             )
 
-        result = set_tool(
-            tool_id
+        get_current_tool_id = getattr(
+            controller,
+            "get_current_tool_id",
+            None,
         )
 
-        # Controller remains authoritative. A False result means
-        # that the requested tool selection was rejected.
-        if result is False:
+        if not callable(get_current_tool_id):
+            raise TypeError(
+                (
+                    "PluginContext.controller must provide "
+                    "get_current_tool_id()."
+                )
+            )
+
+        set_tool(tool_id)
+
+        authoritative_tool_id = get_current_tool_id()
+
+        if authoritative_tool_id is None:
+            self._clear_tool_presentation()
             return
 
-        self._set_active_tool_presentation(
-            tool_id
+        self._validate_tool_id(
+            authoritative_tool_id
         )
 
-        self.tool_selected.emit(
+        self._set_active_tool_presentation(
+            authoritative_tool_id
+        )
+
+        if authoritative_tool_id == tool_id:
+            self.tool_selected.emit(
+                authoritative_tool_id
+            )
+
+    def synchronize_tool(self) -> None:
+        """
+        Synchronize toolbar presentation from the authoritative
+        Controller tool state.
+
+        No application state is modified.
+        """
+
+        self._require_initialized()
+
+        self._synchronize_tool_presentation()
+
+    def _synchronize_tool_presentation(self) -> None:
+        """
+        Read the authoritative current tool from Controller and
+        synchronize QAction presentation.
+        """
+
+        context = self._context
+
+        if context is None:
+            raise RuntimeError(
+                "ToolbarPlugin has no PluginContext."
+            )
+
+        controller = context.controller
+
+        if controller is None:
+            raise RuntimeError(
+                "PluginContext.controller is required."
+            )
+
+        get_current_tool_id = getattr(
+            controller,
+            "get_current_tool_id",
+            None,
+        )
+
+        if not callable(get_current_tool_id):
+            raise TypeError(
+                (
+                    "PluginContext.controller must provide "
+                    "get_current_tool_id()."
+                )
+            )
+
+        tool_id = get_current_tool_id()
+
+        if tool_id is None:
+            self._clear_tool_presentation()
+            return
+
+        self._validate_tool_id(tool_id)
+
+        self._set_active_tool_presentation(
             tool_id
         )
 
@@ -862,9 +947,7 @@ class ToolbarPlugin(QObject):
     ) -> None:
         """Programmatically trigger a registered toolbar action."""
 
-        action = self._actions.get(
-            action_id
-        )
+        action = self._actions.get(action_id)
 
         if action is None:
             raise KeyError(
@@ -882,25 +965,19 @@ class ToolbarPlugin(QObject):
 
         Tool actions are routed through select_tool().
 
-        Non-tool actions are exposed through action_triggered rather
-        than being dispatched through an invented service API.
+        Non-tool actions are exposed through action_triggered
+        rather than being dispatched through an invented service API.
         """
 
-        spec = self._specs.get(
-            action_id
-        )
+        spec = self._specs.get(action_id)
 
         if spec is None:
             return
 
         if spec.tool_id is not None:
-            self.select_tool(
-                spec.tool_id
-            )
+            self.select_tool(spec.tool_id)
         else:
-            self.action_triggered.emit(
-                action_id
-            )
+            self.action_triggered.emit(action_id)
 
     # ========================================================
     # PRESENTATION SYNCHRONIZATION
@@ -916,23 +993,22 @@ class ToolbarPlugin(QObject):
         This method changes Qt presentation only.
         """
 
-        action_id = self._tool_action_ids.get(
-            tool_id
-        )
+        action_id = self._tool_action_ids.get(tool_id)
 
         if action_id is None:
+            self._clear_tool_presentation()
             return
 
-        action = self._actions.get(
-            action_id
-        )
+        action = self._actions.get(action_id)
 
         if action is None:
+            self._clear_tool_presentation()
             return
 
-        action.setChecked(
-            True
-        )
+        for candidate in self._tool_group.actions():
+            candidate.setChecked(
+                candidate is action
+            )
 
     def _clear_tool_presentation(self) -> None:
         """Clear all tool-selection presentation state."""
@@ -941,9 +1017,7 @@ class ToolbarPlugin(QObject):
             return
 
         for action in self._tool_group.actions():
-            action.setChecked(
-                False
-            )
+            action.setChecked(False)
 
     # ========================================================
     # ACTION PRESENTATION
@@ -955,9 +1029,7 @@ class ToolbarPlugin(QObject):
     ) -> Optional[QAction]:
         """Return a registered QAction."""
 
-        return self._actions.get(
-            action_id
-        )
+        return self._actions.get(action_id)
 
     def set_action_enabled(
         self,
@@ -966,26 +1038,19 @@ class ToolbarPlugin(QObject):
     ) -> None:
         """Change an action's presentation enabled state."""
 
-        if not isinstance(
-            enabled,
-            bool,
-        ):
+        if not isinstance(enabled, bool):
             raise TypeError(
                 "enabled must be bool."
             )
 
-        action = self._actions.get(
-            action_id
-        )
+        action = self._actions.get(action_id)
 
         if action is None:
             raise KeyError(
                 f"Unknown toolbar action: {action_id!r}"
             )
 
-        action.setEnabled(
-            enabled
-        )
+        action.setEnabled(enabled)
 
     def set_action_checked(
         self,
@@ -993,22 +1058,17 @@ class ToolbarPlugin(QObject):
         checked: bool,
     ) -> None:
         """
-        Change an action's presentation checked state.
+        Change a non-tool action's presentation checked state.
 
         Tool actions must use the dedicated tool-selection path.
         """
 
-        if not isinstance(
-            checked,
-            bool,
-        ):
+        if not isinstance(checked, bool):
             raise TypeError(
                 "checked must be bool."
             )
 
-        spec = self._specs.get(
-            action_id
-        )
+        spec = self._specs.get(action_id)
 
         if spec is None:
             raise KeyError(
@@ -1023,13 +1083,7 @@ class ToolbarPlugin(QObject):
                 )
             )
 
-        action = self._actions[
-            action_id
-        ]
-
-        action.setChecked(
-            checked
-        )
+        self._actions[action_id].setChecked(checked)
 
     # ========================================================
     # CAPABILITIES
@@ -1057,16 +1111,12 @@ class ToolbarPlugin(QObject):
     ) -> Optional[QAction]:
         """Return the QAction associated with a tool."""
 
-        action_id = self._tool_action_ids.get(
-            tool_id
-        )
+        action_id = self._tool_action_ids.get(tool_id)
 
         if action_id is None:
             return None
 
-        return self._actions.get(
-            action_id
-        )
+        return self._actions.get(action_id)
 
     # ========================================================
     # CLEANUP
@@ -1093,22 +1143,18 @@ class ToolbarPlugin(QObject):
                 main_window,
                 QMainWindow,
             ):
-                main_window.removeToolBar(
-                    toolbar
-                )
+                main_window.removeToolBar(toolbar)
 
-        for action in tuple(
-            self._actions.values()
-        ):
-            toolbar.removeAction(
-                action
-            )
+        for action in tuple(self._actions.values()):
+            toolbar.removeAction(action)
+
+        toolbar.deleteLater()
 
     def _rollback_initialization(self) -> None:
         """
         Roll back partially completed initialization.
 
-        This method only removes plugin-owned presentation state.
+        Only plugin-owned presentation state is removed.
         """
 
         self._remove_toolbar()
@@ -1256,3 +1302,4 @@ __all__ = [
     "default_tool_actions",
     "create_toolbar_plugin",
 ]
+```
