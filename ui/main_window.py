@@ -1,4 +1,3 @@
-```python
 """
 GridForge V2
 ============
@@ -555,4 +554,3 @@ __all__ = [
     "MainWindow",
     "create_main_window",
 ]
-```
