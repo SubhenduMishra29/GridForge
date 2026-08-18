@@ -48,6 +48,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import RLock
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
@@ -84,7 +85,14 @@ class PluginState:
     def __post_init__(self) -> None:
         """Validate and normalize the immutable state snapshot."""
 
-        if not isinstance(self.plugin_id, str):
+        # ----------------------------------------------------
+        # Identity
+        # ----------------------------------------------------
+
+        if not isinstance(
+            self.plugin_id,
+            str,
+        ):
             raise TypeError(
                 "plugin_id must be a string."
             )
@@ -94,24 +102,43 @@ class PluginState:
                 "plugin_id must be a non-empty string."
             )
 
-        if not isinstance(self.registered, bool):
+        # ----------------------------------------------------
+        # State types
+        # ----------------------------------------------------
+
+        if not isinstance(
+            self.registered,
+            bool,
+        ):
             raise TypeError(
                 "registered must be bool."
             )
 
-        if not isinstance(self.enabled, bool):
+        if not isinstance(
+            self.enabled,
+            bool,
+        ):
             raise TypeError(
                 "enabled must be bool."
             )
 
-        if not isinstance(self.initialized, bool):
+        if not isinstance(
+            self.initialized,
+            bool,
+        ):
             raise TypeError(
                 "initialized must be bool."
             )
 
         if (
-            not isinstance(self.generation, int)
-            or isinstance(self.generation, bool)
+            not isinstance(
+                self.generation,
+                int,
+            )
+            or isinstance(
+                self.generation,
+                bool,
+            )
         ):
             raise TypeError(
                 "generation must be an integer."
@@ -124,13 +151,19 @@ class PluginState:
 
         if (
             self.last_error is not None
-            and not isinstance(self.last_error, str)
+            and not isinstance(
+                self.last_error,
+                str,
+            )
         ):
             raise TypeError(
                 "last_error must be a string or None."
             )
 
-        if not isinstance(self.metadata, Mapping):
+        if not isinstance(
+            self.metadata,
+            Mapping,
+        ):
             raise TypeError(
                 "metadata must be a Mapping."
             )
@@ -138,6 +171,11 @@ class PluginState:
         # ----------------------------------------------------
         # Runtime invariants
         # ----------------------------------------------------
+
+        if self.enabled and not self.registered:
+            raise ValueError(
+                "A plugin cannot be enabled unless it is registered."
+            )
 
         if self.initialized and not self.registered:
             raise ValueError(
@@ -156,7 +194,9 @@ class PluginState:
         object.__setattr__(
             self,
             "metadata",
-            dict(self.metadata),
+            MappingProxyType(
+                dict(self.metadata)
+            ),
         )
 
 
@@ -203,9 +243,14 @@ class PluginStateStore:
         """Return immutable state snapshots in insertion order."""
 
         with self._lock:
-            return tuple(self._states.values())
+            return tuple(
+                self._states.values()
+            )
 
-    def contains(self, plugin_id: str) -> bool:
+    def contains(
+        self,
+        plugin_id: str,
+    ) -> bool:
         """Return whether runtime state exists for a plugin."""
 
         self._validate_plugin_id(plugin_id)
@@ -213,7 +258,10 @@ class PluginStateStore:
         with self._lock:
             return plugin_id in self._states
 
-    def get(self, plugin_id: str) -> PluginState | None:
+    def get(
+        self,
+        plugin_id: str,
+    ) -> PluginState | None:
         """Return runtime state if known."""
 
         self._validate_plugin_id(plugin_id)
@@ -221,7 +269,10 @@ class PluginStateStore:
         with self._lock:
             return self._states.get(plugin_id)
 
-    def require(self, plugin_id: str) -> PluginState:
+    def require(
+        self,
+        plugin_id: str,
+    ) -> PluginState:
         """Return runtime state or raise KeyError."""
 
         state = self.get(plugin_id)
@@ -233,27 +284,42 @@ class PluginStateStore:
 
         return state
 
-    def is_registered(self, plugin_id: str) -> bool:
+    def is_registered(
+        self,
+        plugin_id: str,
+    ) -> bool:
         """Return whether the plugin is registered."""
 
         return self.require(plugin_id).registered
 
-    def is_enabled(self, plugin_id: str) -> bool:
+    def is_enabled(
+        self,
+        plugin_id: str,
+    ) -> bool:
         """Return whether the plugin is enabled."""
 
         return self.require(plugin_id).enabled
 
-    def is_initialized(self, plugin_id: str) -> bool:
+    def is_initialized(
+        self,
+        plugin_id: str,
+    ) -> bool:
         """Return whether the plugin is initialized."""
 
         return self.require(plugin_id).initialized
 
-    def generation(self, plugin_id: str) -> int:
+    def generation(
+        self,
+        plugin_id: str,
+    ) -> int:
         """Return the successful initialization generation."""
 
         return self.require(plugin_id).generation
 
-    def last_error(self, plugin_id: str) -> str | None:
+    def last_error(
+        self,
+        plugin_id: str,
+    ) -> str | None:
         """Return the last recorded lifecycle error."""
 
         return self.require(plugin_id).last_error
@@ -280,9 +346,20 @@ class PluginStateStore:
 
         self._validate_plugin_id(plugin_id)
 
-        if not isinstance(enabled, bool):
+        if not isinstance(
+            enabled,
+            bool,
+        ):
             raise TypeError(
                 "enabled must be bool."
+            )
+
+        if metadata is not None and not isinstance(
+            metadata,
+            Mapping,
+        ):
+            raise TypeError(
+                "metadata must be a Mapping or None."
             )
 
         with self._lock:
@@ -298,7 +375,11 @@ class PluginStateStore:
                 initialized=False,
                 generation=0,
                 last_error=None,
-                metadata=dict(metadata or {}),
+                metadata=(
+                    {}
+                    if metadata is None
+                    else dict(metadata)
+                ),
             )
 
             self._states[plugin_id] = state
@@ -318,7 +399,10 @@ class PluginStateStore:
 
         self._validate_plugin_id(plugin_id)
 
-        if not isinstance(registered, bool):
+        if not isinstance(
+            registered,
+            bool,
+        ):
             raise TypeError(
                 "registered must be bool."
             )
@@ -326,11 +410,18 @@ class PluginStateStore:
         with self._lock:
             current = self.require(plugin_id)
 
-            if not registered and current.initialized:
-                raise RuntimeError(
-                    f"Cannot mark initialized plugin "
-                    f"{plugin_id!r} as unregistered."
-                )
+            if not registered:
+                if current.initialized:
+                    raise RuntimeError(
+                        f"Cannot mark initialized plugin "
+                        f"{plugin_id!r} as unregistered."
+                    )
+
+                if current.enabled:
+                    raise RuntimeError(
+                        f"Cannot mark enabled plugin "
+                        f"{plugin_id!r} as unregistered."
+                    )
 
             return self._replace(
                 current,
@@ -355,7 +446,10 @@ class PluginStateStore:
 
         self._validate_plugin_id(plugin_id)
 
-        if not isinstance(enabled, bool):
+        if not isinstance(
+            enabled,
+            bool,
+        ):
             raise TypeError(
                 "enabled must be bool."
             )
@@ -394,12 +488,15 @@ class PluginStateStore:
 
         A successful False -> True transition increments generation.
 
-        The store does not call the plugin lifecycle methods.
+        The store does not call plugin lifecycle methods.
         """
 
         self._validate_plugin_id(plugin_id)
 
-        if not isinstance(initialized, bool):
+        if not isinstance(
+            initialized,
+            bool,
+        ):
             raise TypeError(
                 "initialized must be bool."
             )
@@ -455,9 +552,15 @@ class PluginStateStore:
 
         self._validate_plugin_id(plugin_id)
 
-        if isinstance(error, BaseException):
+        if isinstance(
+            error,
+            BaseException,
+        ):
             message = str(error)
-        elif isinstance(error, str):
+        elif isinstance(
+            error,
+            str,
+        ):
             message = error
         else:
             raise TypeError(
@@ -506,12 +609,18 @@ class PluginStateStore:
         """Record one metadata value."""
 
         self._validate_plugin_id(plugin_id)
-        self._validate_name(key, "key")
+        self._validate_name(
+            key,
+            "key",
+        )
 
         with self._lock:
             current = self.require(plugin_id)
 
-            metadata = dict(current.metadata)
+            metadata = dict(
+                current.metadata
+            )
+
             metadata[key] = value
 
             return self._replace(
@@ -561,7 +670,15 @@ class PluginStateStore:
                     f"{plugin_id!r}."
                 )
 
-            return self._states.pop(plugin_id)
+            if current.enabled:
+                raise RuntimeError(
+                    f"Cannot remove state for enabled plugin "
+                    f"{plugin_id!r}."
+                )
+
+            return self._states.pop(
+                plugin_id
+            )
 
     # ========================================================
     # RESET
@@ -595,7 +712,10 @@ class PluginStateStore:
                 else enabled
             )
 
-            if not isinstance(next_enabled, bool):
+            if not isinstance(
+                next_enabled,
+                bool,
+            ):
                 raise TypeError(
                     "enabled must be bool."
                 )
@@ -652,7 +772,9 @@ class PluginStateStore:
             ),
         )
 
-        self._states[current.plugin_id] = updated
+        self._states[
+            current.plugin_id
+        ] = updated
 
         return updated
 
@@ -662,7 +784,10 @@ class PluginStateStore:
     ) -> None:
         """Validate a plugin identifier."""
 
-        if not isinstance(plugin_id, str):
+        if not isinstance(
+            plugin_id,
+            str,
+        ):
             raise TypeError(
                 "plugin_id must be a string."
             )
@@ -679,7 +804,10 @@ class PluginStateStore:
     ) -> None:
         """Validate a metadata key."""
 
-        if not isinstance(value, str):
+        if not isinstance(
+            value,
+            str,
+        ):
             raise TypeError(
                 f"{parameter_name} must be a string."
             )
@@ -700,7 +828,10 @@ def is_registered(
 ) -> bool:
     """Return whether the state represents a registered plugin."""
 
-    if not isinstance(state, PluginState):
+    if not isinstance(
+        state,
+        PluginState,
+    ):
         raise TypeError(
             "state must be a PluginState."
         )
@@ -713,7 +844,10 @@ def is_enabled(
 ) -> bool:
     """Return whether the plugin is enabled."""
 
-    if not isinstance(state, PluginState):
+    if not isinstance(
+        state,
+        PluginState,
+    ):
         raise TypeError(
             "state must be a PluginState."
         )
@@ -726,7 +860,10 @@ def is_initialized(
 ) -> bool:
     """Return whether the plugin is initialized."""
 
-    if not isinstance(state, PluginState):
+    if not isinstance(
+        state,
+        PluginState,
+    ):
         raise TypeError(
             "state must be a PluginState."
         )
@@ -739,9 +876,12 @@ def is_active(
 ) -> bool:
     """Return whether the plugin is currently active."""
 
-    if not isinstance(state, PluginState):
+    if not isinstance(
+        state,
+        PluginState,
+    ):
         raise TypeError(
-            "state must be a PluginState."
+        "state must be a PluginState."
         )
 
     return (
