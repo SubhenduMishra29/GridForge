@@ -642,6 +642,11 @@ class PluginStateStore:
                 plugin_id
             )
 
+            # Idempotent: no new immutable snapshot is created
+            # when the error is already clear.
+            if current.last_error is None:
+                return current
+
             return self._replace(
                 current,
                 last_error=None,
