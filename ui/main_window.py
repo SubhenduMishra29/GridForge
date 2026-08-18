@@ -130,11 +130,6 @@ class MainWindow(QMainWindow):
         # ----------------------------------------------------
         # AUTHORITATIVE APPLICATION CONTROLLER
         # ----------------------------------------------------
-        #
-        # MainWindow retains the Controller reference.
-        #
-        # MainWindow does not duplicate Controller state.
-        # ----------------------------------------------------
 
         self.controller = controller
 
@@ -171,12 +166,6 @@ class MainWindow(QMainWindow):
         # ----------------------------------------------------
         # ROOT WIDGET
         # ----------------------------------------------------
-        #
-        # A neutral root widget is created by MainWindow.
-        #
-        # Plugins are responsible for configuring the actual
-        # UI composition around this root.
-        # ----------------------------------------------------
 
         self._root_widget = QWidget(
             self
@@ -194,9 +183,8 @@ class MainWindow(QMainWindow):
         # PLUGIN CONTEXT
         # ----------------------------------------------------
         #
-        # The context carries references into the application
-        # composition without allowing plugins to depend on
-        # MainWindow internals.
+        # The initial context contains only dependencies that
+        # already exist at this point.
         # ----------------------------------------------------
 
         if plugin_context is None:
@@ -215,15 +203,9 @@ class MainWindow(QMainWindow):
         # PLUGIN MANAGER
         # ----------------------------------------------------
         #
-        # The canonical default factory defines:
-        #
-        #     canvas
-        #     panels
-        #     toolbar
-        #     status
-        #
-        # MainWindow does not import or instantiate any of
-        # those concrete plugins.
+        # MainWindow does not construct concrete plugins.
+        # PluginManager owns plugin loading, registration,
+        # dependency resolution, and lifecycle.
         # ----------------------------------------------------
 
         if plugin_manager is None:
@@ -239,12 +221,15 @@ class MainWindow(QMainWindow):
             )
 
         # ----------------------------------------------------
-        # COMPLETE PLUGIN CONTEXT
+        # COMPLETE APPLICATION CONTEXT
         # ----------------------------------------------------
         #
-        # PluginManager, Registry, and Loader are infrastructure
-        # dependencies. They are added to the context after the
-        # manager exists.
+        # PluginContext contains application/UI dependencies.
+        #
+        # PluginManager, PluginRegistry, and PluginLoader are
+        # lifecycle infrastructure and remain owned by the
+        # composition layer. They are deliberately NOT added
+        # to PluginContext.
         #
         # derive() does not modify the original context.
         # ----------------------------------------------------
@@ -255,13 +240,6 @@ class MainWindow(QMainWindow):
                 parent=self,
                 application=QApplication.instance(),
                 controller=self.controller,
-                plugin_manager=self.plugin_manager,
-                plugin_registry=(
-                    self.plugin_manager.registry
-                ),
-                plugin_loader=(
-                    self.plugin_manager.loader
-                ),
             )
         )
 
@@ -272,7 +250,7 @@ class MainWindow(QMainWindow):
         # PluginManager owns lifecycle.
         #
         # MainWindow merely supplies the common application
-        # context to each explicitly defined plugin.
+        # context to plugins known by the manager.
         # ----------------------------------------------------
 
         self._configure_plugin_contexts()
@@ -306,7 +284,8 @@ class MainWindow(QMainWindow):
         self,
     ) -> None:
         """
-        Supply the common PluginContext to every defined plugin.
+        Supply the common PluginContext to every currently
+        registered plugin.
 
         PluginManager remains responsible for determining
         lifecycle order.
@@ -358,35 +337,16 @@ class MainWindow(QMainWindow):
             # ------------------------------------------------
             # LOAD
             # ------------------------------------------------
-            #
-            # PluginManager:
-            #
-            #   - resolves dependencies;
-            #   - asks PluginLoader to import concrete plugins;
-            #   - constructs plugin instances;
-            #   - registers them in PluginRegistry.
-            # ------------------------------------------------
 
             self.plugin_manager.load_all()
 
             # ------------------------------------------------
             # INITIALIZE
             # ------------------------------------------------
-            #
-            # PluginManager initializes plugins in dependency
-            # order.
-            # ------------------------------------------------
 
             self.plugin_manager.initialize_all()
 
         except Exception:
-            # -----------------------------------------------
-            # Startup is transactional from the MainWindow
-            # perspective.
-            #
-            # If initialization fails, attempt to shut down
-            # anything that successfully initialized.
-            # -----------------------------------------------
 
             try:
                 self.plugin_manager.shutdown_all()
@@ -446,11 +406,6 @@ class MainWindow(QMainWindow):
             self.shutdown_plugins()
 
         except Exception:
-            # -----------------------------------------------
-            # Do not destroy the window when plugin shutdown
-            # fails. This gives the caller/application a chance
-            # to inspect the failure.
-            # -----------------------------------------------
 
             self._closing = False
 
