@@ -15,8 +15,8 @@ Architectural role
 CanvasPlugin is a UI composition plugin.
 
 It:
-    - creates the GridForge GridView;
-    - exposes the GridView and its scene;
+    - creates the GridForge GraphicsView;
+    - exposes the GraphicsView and its scene;
     - establishes the Qt parent/lifetime boundary;
     - provides the canvas component to the UI composition layer.
 
@@ -36,9 +36,9 @@ It does NOT:
 
 Canvas ownership
 ----------------
-GridView is the authoritative canvas viewport.
+GraphicsView is the authoritative canvas viewport.
 
-GridView owns:
+GraphicsView owns:
     - its QGraphicsScene;
     - its InteractionManager;
     - its NavigationController;
@@ -63,13 +63,12 @@ from typing import Any, Optional
 
 from ui.core.qt import (
     QGraphicsScene,
-    QGraphicsView,
     QObject,
     QWidget,
 )
 
-from ui.canvas.graphics_view import GridView
-from ui.plugins.plugin_context import PluginContext
+from ui.canvas.graphics_view import GraphicsView
+from ui.core.plugin_context import PluginContext
 
 
 # ============================================================
@@ -86,9 +85,9 @@ class CanvasPluginContext:
 
     CanvasPlugin does not construct application services.
 
-    ``controller`` is mandatory for actual GridView creation because
-    GridView requires the application/UI controller as its authoritative
-    coordination dependency.
+    ``controller`` is mandatory for actual GraphicsView creation
+    because GraphicsView requires the application/UI controller as
+    its authoritative coordination dependency.
     """
 
     parent: Optional[QWidget] = None
@@ -105,9 +104,9 @@ class CanvasPlugin(QObject):
     """
     Composition plugin for the primary GridForge canvas.
 
-    GridView is the actual canvas component.
+    GraphicsView is the actual canvas component.
 
-    The plugin does not duplicate state already owned by GridView,
+    The plugin does not duplicate state already owned by GraphicsView,
     InteractionManager, NavigationController, ToolManager, Controller,
     or Core.
     """
@@ -141,7 +140,7 @@ class CanvasPlugin(QObject):
         ] = None
 
         self._view: Optional[
-            GridView
+            GraphicsView
         ] = None
 
         self._initialized = False
@@ -157,7 +156,7 @@ class CanvasPlugin(QObject):
         return self._context
 
     @property
-    def view(self) -> Optional[GridView]:
+    def view(self) -> Optional[GraphicsView]:
         """Return the GridForge canvas view."""
 
         return self._view
@@ -171,7 +170,7 @@ class CanvasPlugin(QObject):
     @property
     def scene(self) -> Optional[QGraphicsScene]:
         """
-        Return the scene owned by GridView.
+        Return the scene owned by GraphicsView.
 
         CanvasPlugin does not own or replace this scene.
         """
@@ -184,9 +183,9 @@ class CanvasPlugin(QObject):
     @property
     def interaction_manager(self) -> Any:
         """
-        Return GridView's interaction manager.
+        Return GraphicsView's interaction manager.
 
-        The interaction manager is created and owned by GridView.
+        The interaction manager is created and owned by GraphicsView.
         """
 
         if self._view is None:
@@ -201,9 +200,9 @@ class CanvasPlugin(QObject):
     @property
     def navigation_controller(self) -> Any:
         """
-        Return GridView's navigation controller.
+        Return GraphicsView's navigation controller.
 
-        NavigationController is created and owned by GridView.
+        NavigationController is created and owned by GraphicsView.
         """
 
         if self._view is None:
@@ -241,7 +240,7 @@ class CanvasPlugin(QObject):
         if self._initialized:
             if self._view is None:
                 raise RuntimeError(
-                    "CanvasPlugin is initialized without a GridView."
+                    "CanvasPlugin is initialized without a GraphicsView."
                 )
 
             return self._view
@@ -258,7 +257,7 @@ class CanvasPlugin(QObject):
 
         if self._view is None:
             raise RuntimeError(
-                "CanvasPlugin initialization produced no GridView."
+                "CanvasPlugin initialization produced no GraphicsView."
             )
 
         return self._view
@@ -269,8 +268,8 @@ class CanvasPlugin(QObject):
 
         Application services are not destroyed.
 
-        GridView lifetime remains governed by Qt ownership. The plugin
-        releases its reference to the composed widget.
+        GraphicsView lifetime remains governed by Qt ownership. The
+        plugin releases its reference to the composed widget.
         """
 
         if not self._initialized:
@@ -321,7 +320,7 @@ class CanvasPlugin(QObject):
 
     def _validate_context(self) -> None:
         """
-        Validate the dependencies required to construct GridView.
+        Validate the dependencies required to construct GraphicsView.
         """
 
         if self._context is None:
@@ -333,7 +332,7 @@ class CanvasPlugin(QObject):
             raise RuntimeError(
                 (
                     "CanvasPlugin requires a controller. "
-                    "GridView cannot be created without one."
+                    "GraphicsView cannot be created without one."
                 )
             )
 
@@ -343,9 +342,9 @@ class CanvasPlugin(QObject):
 
     def _create_canvas(self) -> None:
         """
-        Create the authoritative GridForge GridView.
+        Create the authoritative GridForge GraphicsView.
 
-        GridView itself creates and owns:
+        GraphicsView itself creates and owns:
             - QGraphicsScene
             - InteractionManager
             - NavigationController
@@ -361,29 +360,29 @@ class CanvasPlugin(QObject):
 
         if self._view is not None:
             raise RuntimeError(
-                "CanvasPlugin already contains a GridView."
+                "CanvasPlugin already contains a GraphicsView."
             )
 
-        self._view = GridView(
+        self._view = GraphicsView(
             controller=self._context.controller,
             parent=self._context.parent,
         )
 
         if not isinstance(
             self._view,
-            GridView,
+            GraphicsView,
         ):
             raise TypeError(
-                "GridView construction returned an invalid object."
+                "GraphicsView construction returned an invalid object."
             )
 
     # ========================================================
     # CANVAS ACCESS
     # ========================================================
 
-    def require_view(self) -> GridView:
+    def require_view(self) -> GraphicsView:
         """
-        Return the initialized GridView.
+        Return the initialized GraphicsView.
 
         Raises
         ------
@@ -400,14 +399,14 @@ class CanvasPlugin(QObject):
 
     def require_scene(self) -> QGraphicsScene:
         """
-        Return the scene owned by GridView.
+        Return the scene owned by GraphicsView.
         """
 
         scene = self.require_view().scene()
 
         if scene is None:
             raise RuntimeError(
-                "GridView does not currently have a scene."
+                "GraphicsView does not currently have a scene."
             )
 
         return scene
@@ -444,12 +443,12 @@ class CanvasPlugin(QObject):
     # ========================================================
 
     def canvas_available(self) -> bool:
-        """Return whether the GridView exists."""
+        """Return whether the GraphicsView exists."""
 
         return self._view is not None
 
     def scene_available(self) -> bool:
-        """Return whether GridView has a scene."""
+        """Return whether GraphicsView has a scene."""
 
         return (
             self._view is not None
@@ -479,7 +478,6 @@ def create_canvas_plugin(
 # ============================================================
 # PUBLIC API
 # ============================================================
-
 
 __all__ = [
     "CanvasPluginContext",
