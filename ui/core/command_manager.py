@@ -3,127 +3,133 @@
 # GridForge V2 — UI Command Manager
 # ============================================================
 """
-Central UI command-routing and history boundary for GridForge V2.
+UI-facing command dispatch facade for GridForge V2.
 
 Architecture
 ------------
 
-    UI / Tool
-        │
-        ▼
-    CommandManager
-        │
-        ▼
-    Command
-        │
-        ▼
-    Controller
-        │
-        ▼
-      Core
-        │
-        ▼
-   Domain Events
+    UI / Tool / Panel / Toolbar
+                │
+                ▼
+       UI CommandManager
+                │
+                ▼
+           Controller
+                │
+                ▼
+      Core.command_manager
+                │
+                ▼
+             Command
+                │
+                ▼
+              Core
+                │
+                ▼
+         Domain Events
 
 
 Purpose
 -------
-CommandManager is the single UI-facing boundary for command
-execution and command history.
+CommandManager provides the UI-facing command boundary.
 
-Commands represent application/user intent.
+It delegates all authoritative command execution and command
+history operations to Controller, which delegates them to the
+authoritative Core.command_manager.
 
-The Controller and Core remain authoritative for application
-and domain state.
+This class therefore contains NO independent command history.
 
-CommandManager owns only:
+Authoritative ownership
+-----------------------
+Core.command_manager owns:
 
+    - command execution;
     - undo history;
     - redo history;
-    - command execution coordination;
-    - command-history diagnostics.
+    - undo/redo transitions;
+    - command-history semantics.
 
-CommandManager does NOT own:
+Controller owns:
 
-    - application state;
-    - Core state;
-    - project state;
-    - domain state;
-    - domain mutations;
-    - command implementation;
-    - tool lifecycle;
-    - canvas state;
-    - selection state;
-    - navigation;
-    - rendering;
-    - snapping;
-    - electrical calculations.
+    - command dispatch coordination;
+    - access to Core;
+    - application/UI state.
 
-Canonical Command Contract
---------------------------
-A command must provide:
+UI CommandManager owns only:
+
+    - UI-facing command dispatch convenience;
+    - validation of the Controller boundary;
+    - command-manager diagnostics;
+    - delegation to Controller.
+
+The UI CommandManager does NOT:
+
+    - own command history;
+    - store Command objects;
+    - execute Command objects directly;
+    - call Core directly;
+    - mutate Core state;
+    - implement individual commands;
+    - implement undo semantics;
+    - implement redo semantics;
+    - implement grouping/coalescing;
+    - maintain application state;
+    - maintain project state;
+    - manage tools;
+    - manage canvas state;
+    - perform rendering;
+    - perform selection;
+    - perform navigation;
+    - perform snapping;
+    - perform electrical calculations.
+
+Canonical execution
+-------------------
+
+    command_manager.execute(command)
+                │
+                ▼
+    controller.execute_command(command)
+                │
+                ▼
+    core.command_manager.execute(command)
+
+Canonical undo
+--------------
+
+    command_manager.undo()
+                │
+                ▼
+    controller.undo()
+                │
+                ▼
+    core.command_manager.undo()
+
+Canonical redo
+--------------
+
+    command_manager.redo()
+                │
+                ▼
+    controller.redo()
+                │
+                ▼
+    core.command_manager.redo()
+
+
+Command contract
+----------------
+Commands remain responsible for implementing:
 
     execute(controller)
     undo(controller)
 
-The CommandManager passes the authoritative Controller to the
-command.
+The UI CommandManager does not inspect command internals.
 
-CommandManager does not inspect command internals.
+Composite commands remain ordinary commands.
 
-History Semantics
------------------
-New command:
-
-    success
-        -> undo history
-        -> redo history cleared
-
-    failure
-        -> no history mutation
-        -> existing redo history preserved
-
-Undo:
-
-    success
-        -> command moves undo -> redo
-
-    failure
-        -> command remains in undo history
-        -> redo history unchanged
-
-Redo:
-
-    success
-        -> command moves redo -> undo
-
-    failure
-        -> command remains in redo history
-        -> undo history unchanged
-
-Undo/redo are executed through the normal command pathway:
-
-    command.undo(controller)
-    command.execute(controller)
-
-CommandManager does not reconstruct application state from
-history.
-
-CommandManager does not rewind project revision.
-
-Composite Commands
-------------------
-Composite commands implement the same Command interface and are
-treated as ordinary commands.
-
-CommandManager does not inspect or manage their internal
-structure.
-
-Grouping / Coalescing
----------------------
-Optional grouping or coalescing belongs to the command layer.
-
-CommandManager does not infer grouping semantics.
+Grouping/coalescing remains the responsibility of the command
+layer.
 
 Qt
 --
@@ -137,12 +143,12 @@ from typing import Any, Optional
 
 class CommandManager:
     """
-    Central UI/application command execution and history manager.
+    UI-facing command dispatch facade.
 
-    Controller owns application state.
+    The authoritative CommandManager remains owned by Core.
 
-    CommandManager owns only command history and command
-    execution coordination.
+    This class intentionally contains no command history of its
+    own and does not duplicate Core command state.
     """
 
     # ========================================================
@@ -152,31 +158,20 @@ class CommandManager:
     def __init__(
         self,
         controller: Any,
-        *,
-        max_history: Optional[int] = None,
     ) -> None:
         """
-        Initialize the CommandManager.
+        Initialize the UI command facade.
 
         Parameters
         ----------
         controller:
-            Authoritative GridForge Controller passed to every
-            command during execution and undo.
-
-        max_history:
-            Maximum number of commands retained in undo history.
-
-            None:
-                Unlimited history.
-
-            Positive integer:
-                Oldest undo entries are discarded when the
-                configured limit is exceeded.
+            Authoritative GridForge Controller.
 
         Notes
         -----
-        CommandManager does not take ownership of Controller.
+        The Controller remains externally owned.
+
+        No command history is created here.
         """
 
         if controller is None:
@@ -184,96 +179,44 @@ class CommandManager:
                 "controller must not be None."
             )
 
-        if (
-            max_history is not None
-            and (
-                isinstance(max_history, bool)
-                or not isinstance(max_history, int)
-            )
-        ):
-            raise TypeError(
-                "max_history must be an integer or None."
-            )
-
-        if (
-            max_history is not None
-            and max_history <= 0
-        ):
-            raise ValueError(
-                "max_history must be greater than zero."
-            )
-
         self.controller = controller
-        self.max_history = max_history
-
-        # ----------------------------------------------------
-        # Command history only.
-        #
-        # These collections contain Command objects.
-        #
-        # No application/domain state is duplicated here.
-        # ----------------------------------------------------
-
-        self._undo_stack: list[Any] = []
-        self._redo_stack: list[Any] = []
-
-        # ----------------------------------------------------
-        # Prevent recursive command execution.
-        #
-        # This protects the command state machine from a command
-        # attempting to execute/undo/redo another command
-        # through the same manager while one operation is active.
-        # ----------------------------------------------------
-
-        self._executing = False
 
     # ========================================================
-    # COMMAND VALIDATION
+    # COMMAND MANAGER ACCESS
     # ========================================================
 
-    @staticmethod
-    def _validate_command(
-        command: Any,
-    ) -> None:
+    def _get_core_command_manager(
+        self,
+    ) -> Any:
         """
-        Validate the canonical Command protocol.
+        Return the authoritative Core command manager.
 
-        Required interface:
-
-            execute(controller)
-            undo(controller)
-
-        The manager intentionally does not require a concrete
-        Command base class. Structural validation keeps the
-        command layer decoupled.
+        The UI CommandManager never stores or owns this object.
         """
 
-        if command is None:
-            raise ValueError(
-                "command must not be None."
-            )
-
-        execute = getattr(
-            command,
-            "execute",
+        core = getattr(
+            self.controller,
+            "core",
             None,
         )
 
-        if not callable(execute):
-            raise TypeError(
-                "command must provide execute(controller)."
+        if core is None:
+            raise RuntimeError(
+                "Cannot access command manager without a Core."
             )
 
-        undo = getattr(
-            command,
-            "undo",
+        command_manager = getattr(
+            core,
+            "command_manager",
             None,
         )
 
-        if not callable(undo):
+        if command_manager is None:
             raise TypeError(
-                "command must provide undo(controller)."
+                "Core must provide command_manager."
             )
+
+        return command_manager
 
     # ========================================================
     # EXECUTION
@@ -284,66 +227,39 @@ class CommandManager:
         command: Any,
     ) -> Any:
         """
-        Execute a new command.
+        Execute a command through the canonical Controller path.
 
         Canonical flow:
 
-            CommandManager
-                |
-                v
-            command.execute(controller)
+            UI CommandManager
+                ↓
+            Controller.execute_command()
+                ↓
+            Core.command_manager.execute()
 
-        A command enters undo history only after successful
-        completion.
-
-        Failed commands do not modify either history stack.
-
-        A successful new command invalidates redo history.
+        The authoritative Core command manager owns history
+        semantics.
         """
 
-        self._validate_command(
-            command
-        )
-
-        self._ensure_not_executing()
-
-        self._executing = True
-
-        try:
-            result = command.execute(
-                self.controller
+        if command is None:
+            raise ValueError(
+                "command must not be None."
             )
 
-        except Exception:
-            # ------------------------------------------------
-            # Failed command:
-            #
-            # - do not add to undo history;
-            # - preserve existing redo history.
-            # ------------------------------------------------
-            raise
-
-        finally:
-            self._executing = False
-
-        # ----------------------------------------------------
-        # Commit command to history only after successful
-        # execution.
-        # ----------------------------------------------------
-
-        self._undo_stack.append(
-            command
+        execute = getattr(
+            self.controller,
+            "execute_command",
+            None,
         )
 
-        # ----------------------------------------------------
-        # A successful new command invalidates redo history.
-        # ----------------------------------------------------
+        if not callable(execute):
+            raise TypeError(
+                "Controller must provide execute_command()."
+            )
 
-        self._redo_stack.clear()
-
-        self._enforce_history_limit()
-
-        return result
+        return execute(
+            command
+        )
 
     # ========================================================
     # UNDO
@@ -353,61 +269,24 @@ class CommandManager:
         self,
     ) -> Any:
         """
-        Undo the most recent successfully executed command.
+        Undo through the canonical Controller/Core pathway.
 
-        Canonical flow:
-
-            CommandManager
-                |
-                v
-            command.undo(controller)
-
-        History is modified only after successful undo.
-
-        Failed undo leaves the command in the undo stack.
+        History mutation is performed exclusively by
+        Core.command_manager.
         """
 
-        if not self._undo_stack:
-            raise RuntimeError(
-                "No command available for undo."
-            )
-
-        self._ensure_not_executing()
-
-        command = self._undo_stack[-1]
-
-        self._executing = True
-
-        try:
-            result = command.undo(
-                self.controller
-            )
-
-        except Exception:
-            # ------------------------------------------------
-            # Failed undo:
-            #
-            # Command remains available for another undo
-            # attempt. No history transition occurs.
-            # ------------------------------------------------
-            raise
-
-        finally:
-            self._executing = False
-
-        # ----------------------------------------------------
-        # Commit successful undo:
-        #
-        # undo -> redo
-        # ----------------------------------------------------
-
-        self._undo_stack.pop()
-
-        self._redo_stack.append(
-            command
+        undo = getattr(
+            self.controller,
+            "undo",
+            None,
         )
 
-        return result
+        if not callable(undo):
+            raise TypeError(
+                "Controller must provide undo()."
+            )
+
+        return undo()
 
     # ========================================================
     # REDO
@@ -417,89 +296,24 @@ class CommandManager:
         self,
     ) -> Any:
         """
-        Redo the most recently undone command.
+        Redo through the canonical Controller/Core pathway.
 
-        Redo uses the normal command execution pathway:
-
-            command.execute(controller)
-
-        History is modified only after successful execution.
-
-        Failed redo leaves the command in the redo stack.
+        History mutation is performed exclusively by
+        Core.command_manager.
         """
 
-        if not self._redo_stack:
-            raise RuntimeError(
-                "No command available for redo."
-            )
-
-        self._ensure_not_executing()
-
-        command = self._redo_stack[-1]
-
-        self._executing = True
-
-        try:
-            result = command.execute(
-                self.controller
-            )
-
-        except Exception:
-            # ------------------------------------------------
-            # Failed redo:
-            #
-            # Command remains in redo history.
-            # ------------------------------------------------
-            raise
-
-        finally:
-            self._executing = False
-
-        # ----------------------------------------------------
-        # Commit successful redo:
-        #
-        # redo -> undo
-        # ----------------------------------------------------
-
-        self._redo_stack.pop()
-
-        self._undo_stack.append(
-            command
+        redo = getattr(
+            self.controller,
+            "redo",
+            None,
         )
 
-        self._enforce_history_limit()
+        if not callable(redo):
+            raise TypeError(
+                "Controller must provide redo()."
+            )
 
-        return result
-
-    # ========================================================
-    # HISTORY LIMIT
-    # ========================================================
-
-    def _enforce_history_limit(
-        self,
-    ) -> None:
-        """
-        Enforce the configured undo-history limit.
-
-        Only the oldest undo entries are discarded.
-
-        Redo history is intentionally untouched.
-        """
-
-        if self.max_history is None:
-            return
-
-        overflow = (
-            len(self._undo_stack)
-            - self.max_history
-        )
-
-        if overflow <= 0:
-            return
-
-        del self._undo_stack[
-            :overflow
-        ]
+        return redo()
 
     # ========================================================
     # AVAILABILITY
@@ -509,11 +323,29 @@ class CommandManager:
         self,
     ) -> bool:
         """
-        Return True when an undo operation is available.
+        Return whether an undo operation is available.
+
+        The authoritative state comes from Core.command_manager.
         """
 
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "can_undo",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "can_undo()."
+            )
+
         return bool(
-            self._undo_stack
+            method()
         )
 
     # --------------------------------------------------------
@@ -522,11 +354,29 @@ class CommandManager:
         self,
     ) -> bool:
         """
-        Return True when a redo operation is available.
+        Return whether a redo operation is available.
+
+        The authoritative state comes from Core.command_manager.
         """
 
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "can_redo",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "can_redo()."
+            )
+
         return bool(
-            self._redo_stack
+            method()
         )
 
     # ========================================================
@@ -537,12 +387,27 @@ class CommandManager:
         self,
     ) -> int:
         """
-        Return the number of commands currently available
-        for undo.
+        Return the authoritative undo-history count.
         """
 
-        return len(
-            self._undo_stack
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "undo_count",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "undo_count()."
+            )
+
+        return int(
+            method()
         )
 
     # --------------------------------------------------------
@@ -551,12 +416,27 @@ class CommandManager:
         self,
     ) -> int:
         """
-        Return the number of commands currently available
-        for redo.
+        Return the authoritative redo-history count.
         """
 
-        return len(
-            self._redo_stack
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "redo_count",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "redo_count()."
+            )
+
+        return int(
+            method()
         )
 
     # ========================================================
@@ -567,13 +447,31 @@ class CommandManager:
         self,
     ) -> tuple[Any, ...]:
         """
-        Return an immutable snapshot of undo history.
+        Return the authoritative undo-history snapshot.
 
-        The manager's internal list remains private.
+        The UI facade does not maintain its own collection.
         """
 
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "get_undo_commands",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "get_undo_commands()."
+            )
+
+        result = method()
+
         return tuple(
-            self._undo_stack
+            result
         )
 
     # --------------------------------------------------------
@@ -582,76 +480,60 @@ class CommandManager:
         self,
     ) -> tuple[Any, ...]:
         """
-        Return an immutable snapshot of redo history.
+        Return the authoritative redo-history snapshot.
         """
 
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "get_redo_commands",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "get_redo_commands()."
+            )
+
+        result = method()
+
         return tuple(
-            self._redo_stack
+            result
         )
 
     # ========================================================
     # COMMAND LABELS
     # ========================================================
 
-    @staticmethod
-    def _command_name(
-        command: Any,
-    ) -> str:
-        """
-        Return a stable human-readable command name.
-
-        Resolution order:
-
-            1. command.name
-            2. command.description
-            3. command class name
-        """
-
-        name = getattr(
-            command,
-            "name",
-            None,
-        )
-
-        if (
-            isinstance(name, str)
-            and name.strip()
-        ):
-            return name.strip()
-
-        description = getattr(
-            command,
-            "description",
-            None,
-        )
-
-        if (
-            isinstance(description, str)
-            and description.strip()
-        ):
-            return description.strip()
-
-        return type(
-            command
-        ).__name__
-
-    # --------------------------------------------------------
-
     def get_undo_name(
         self,
     ) -> Optional[str]:
         """
-        Return the display name of the next undo operation.
-
-        Returns None when undo is unavailable.
+        Return the authoritative display name of the next
+        undo operation.
         """
 
-        if not self._undo_stack:
-            return None
-
-        return self._command_name(
-            self._undo_stack[-1]
+        command_manager = (
+            self._get_core_command_manager()
         )
+
+        method = getattr(
+            command_manager,
+            "get_undo_name",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "get_undo_name()."
+            )
+
+        return method()
 
     # --------------------------------------------------------
 
@@ -659,17 +541,27 @@ class CommandManager:
         self,
     ) -> Optional[str]:
         """
-        Return the display name of the next redo operation.
-
-        Returns None when redo is unavailable.
+        Return the authoritative display name of the next
+        redo operation.
         """
 
-        if not self._redo_stack:
-            return None
-
-        return self._command_name(
-            self._redo_stack[-1]
+        command_manager = (
+            self._get_core_command_manager()
         )
+
+        method = getattr(
+            command_manager,
+            "get_redo_name",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "get_redo_name()."
+            )
+
+        return method()
 
     # ========================================================
     # HISTORY MANAGEMENT
@@ -677,28 +569,59 @@ class CommandManager:
 
     def clear_history(
         self,
-    ) -> None:
+    ) -> Any:
         """
-        Clear both undo and redo histories.
+        Clear authoritative command history.
 
-        Controller/Core state is not modified.
+        This delegates to Core.command_manager.
+
+        It does not modify application/domain state directly.
         """
 
-        self._undo_stack.clear()
-        self._redo_stack.clear()
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "clear_history",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "clear_history()."
+            )
+
+        return method()
 
     # --------------------------------------------------------
 
     def clear_redo(
         self,
-    ) -> None:
+    ) -> Any:
         """
-        Clear redo history only.
-
-        Undo history is preserved.
+        Clear authoritative redo history.
         """
 
-        self._redo_stack.clear()
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "clear_redo",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "clear_redo()."
+            )
+
+        return method()
 
     # ========================================================
     # RESET
@@ -706,16 +629,32 @@ class CommandManager:
 
     def reset(
         self,
-    ) -> None:
+    ) -> Any:
         """
-        Reset command-history state.
+        Reset authoritative command-history state.
 
-        Equivalent to clear_history().
+        Delegates to Core.command_manager.reset() when available.
 
-        Controller/Core state is not modified.
+        This method does not reset Controller state.
         """
 
-        self.clear_history()
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "reset",
+            None,
+        )
+
+        if not callable(method):
+            raise TypeError(
+                "Core.command_manager must provide "
+                "reset()."
+            )
+
+        return method()
 
     # ========================================================
     # STATE
@@ -725,50 +664,64 @@ class CommandManager:
         self,
     ) -> dict[str, Any]:
         """
-        Return a diagnostic snapshot of command state.
+        Return diagnostic command-manager state.
 
-        Command objects themselves are represented only by
-        their display names.
+        The returned state originates from the authoritative
+        Core command manager.
+
+        A small fallback state is provided only when the Core
+        command manager does not expose get_state().
         """
 
+        command_manager = (
+            self._get_core_command_manager()
+        )
+
+        method = getattr(
+            command_manager,
+            "get_state",
+            None,
+        )
+
+        if callable(method):
+            state = method()
+
+            if not isinstance(
+                state,
+                dict,
+            ):
+                raise TypeError(
+                    "Core.command_manager.get_state() "
+                    "must return a dictionary."
+                )
+
+            return dict(
+                state
+            )
+
         return {
-            "undo_count": len(
-                self._undo_stack
-            ),
-            "redo_count": len(
-                self._redo_stack
-            ),
-            "can_undo": bool(
-                self._undo_stack
-            ),
-            "can_redo": bool(
-                self._redo_stack
-            ),
+            "undo_count": self.undo_count(),
+            "redo_count": self.redo_count(),
+            "can_undo": self.can_undo(),
+            "can_redo": self.can_redo(),
             "undo_name": self.get_undo_name(),
             "redo_name": self.get_redo_name(),
-            "max_history": self.max_history,
-            "executing": self._executing,
         }
 
     # ========================================================
-    # INTERNAL VALIDATION
+    # CONTROLLER ACCESS
     # ========================================================
 
-    def _ensure_not_executing(
+    def get_controller(
         self,
-    ) -> None:
+    ) -> Any:
         """
-        Reject recursive command operations.
+        Return the associated Controller.
 
-        A command must complete before another command-manager
-        operation can begin.
+        The Controller remains externally owned.
         """
 
-        if self._executing:
-            raise RuntimeError(
-                "CommandManager does not permit recursive "
-                "command execution."
-            )
+        return self.controller
 
     # ========================================================
     # REPRESENTATION
@@ -779,13 +732,25 @@ class CommandManager:
     ) -> str:
         """
         Return a concise diagnostic representation.
+
+        The representation queries authoritative Core history
+        state rather than maintaining local history.
         """
+
+        try:
+            undo_count = self.undo_count()
+        except (RuntimeError, TypeError):
+            undo_count = "?"
+
+        try:
+            redo_count = self.redo_count()
+        except (RuntimeError, TypeError):
+            redo_count = "?"
 
         return (
             "CommandManager("
-            f"undo={len(self._undo_stack)}, "
-            f"redo={len(self._redo_stack)}, "
-            f"max_history={self.max_history!r}"
+            f"undo={undo_count}, "
+            f"redo={redo_count}"
             ")"
         )
 
