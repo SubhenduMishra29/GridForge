@@ -335,7 +335,7 @@ class PluginErrorEvent(
     def __post_init__(self) -> None:
         """Validate the base event and failure-specific data."""
 
-        super().__post_init__()
+        PluginEvent.__post_init__(self)
 
         # ----------------------------------------------------
         # Error type
