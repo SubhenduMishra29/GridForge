@@ -56,6 +56,17 @@ PluginContext is therefore NEVER a constructor dependency.
 
 Concrete plugin resolution is explicit. No class-name or factory-name
 discovery by convention is performed.
+
+Canonical composition plugins
+------------------------------
+    canvas
+    panels
+    toolbar
+    status
+    shell
+
+ShellPlugin is the final UI composition/assembly boundary. It does not
+replace the responsibilities of the other composition plugins.
 """
 
 from __future__ import annotations
@@ -315,7 +326,7 @@ class LoadedPlugin:
                 (
                     f"Loaded plugin "
                     f"{self.plugin_id!r} cannot expose "
-                    "both a plugin class and factory."
+                    "both plugin class and factory."
                 )
             )
 
@@ -348,6 +359,11 @@ DEFAULT_PLUGIN_IMPLEMENTATIONS: Mapping[
         plugin_id="status",
         module_name="ui.plugins.status_plugin",
         class_name="StatusPlugin",
+    ),
+    "shell": PluginImplementation(
+        plugin_id="shell",
+        module_name="ui.plugins.shell_plugin",
+        class_name="ShellPlugin",
     ),
 }
 
@@ -1104,12 +1120,15 @@ def create_default_plugin_loader() -> PluginLoader:
     """
     Create the canonical GridForge V2 UI plugin loader.
 
-    Exactly four concrete composition plugins are explicitly defined:
+    Exactly five concrete composition plugins are explicitly defined:
 
         canvas
         panels
         toolbar
         status
+        shell
+
+    ShellPlugin is the final UI assembly boundary.
 
     No plugin is imported or constructed by this factory.
     """
