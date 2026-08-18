@@ -12,7 +12,7 @@ plugins.
 
 Architectural role
 ------------------
-PluginContext is a dependency-carrier object.
+PluginContext is an immutable dependency-carrier object.
 
 It carries references to already-created application and UI services.
 It does not create, resolve, own, or mutate those services.
@@ -42,17 +42,19 @@ Architectural rules
 - PluginContext carries references; it does not own application state.
 - PluginContext is immutable after construction.
 - Derived contexts are created explicitly through derive().
-- Explicitly declared dependencies are preferred over generic services.
+- Explicitly declared dependencies are the canonical dependency boundary.
 - Generic services are an extension mechanism for genuinely optional
-  infrastructure and must not replace established service boundaries.
-- Plugins must not use this context to bypass established
-  controllers or service boundaries.
+  infrastructure only.
+- Plugins must not use the generic service mapping to bypass an
+  established controller, manager, registry, or service boundary.
+- The authoritative application Controller is exposed explicitly as
+  ``controller``.
 - Core/domain objects remain authoritative outside the UI.
 - PluginContext contains no Qt construction logic.
 - MainWindow and plugin composition remain separate concerns.
-- Plugin lifecycle infrastructure is NOT exposed as plugin dependencies.
+- Plugin lifecycle infrastructure is not exposed through PluginContext.
 - All Qt access goes through ui.core.qt.
-- PySide6 is the sole Qt backend and is hidden behind ui.core.qt.
+- PySide6 is hidden behind ui.core.qt.
 """
 
 from __future__ import annotations
@@ -83,15 +85,24 @@ class PluginContext:
 
     PluginContext is a lightweight dependency carrier.
 
-    It contains references to already-created objects but does not
-    create, resolve, or own those objects.
+    It contains references to already-created application and UI
+    objects but does not create, resolve, discover, or own them.
 
-    Plugin lifecycle infrastructure is deliberately excluded.
+    The explicit fields define the canonical architectural dependency
+    boundary.
 
-    Explicitly declared fields are the canonical dependency boundary.
-    The generic ``services`` mapping is intentionally restricted to
-    genuinely optional extension services and must not become a
-    replacement for explicit application/controller dependencies.
+    The generic ``services`` mapping exists only for genuinely
+    optional extension infrastructure. It must not replace an
+    explicitly declared dependency.
+
+    Controller
+    ----------
+    ``controller`` is the authoritative application/UI coordination
+    controller used by composition plugins.
+
+    Plugins may request operations from the controller through this
+    explicit dependency, but the controller remains owned by the
+    application composition layer.
     """
 
     # --------------------------------------------------------
@@ -103,6 +114,12 @@ class PluginContext:
     parent: QWidget | None = None
 
     application: Any = None
+
+    # --------------------------------------------------------
+    # Authoritative application controller
+    # --------------------------------------------------------
+
+    controller: Any = None
 
     # --------------------------------------------------------
     # Core application services
@@ -173,8 +190,10 @@ class PluginContext:
         Freeze mapping containers.
 
         The referenced dependency objects remain owned by their
-        respective subsystems. PluginContext owns neither the objects
-        nor their lifecycle.
+        respective application subsystems.
+
+        PluginContext owns neither dependency objects nor their
+        lifecycles.
         """
 
         if not isinstance(
@@ -222,11 +241,10 @@ class PluginContext:
         Return an optional extension service.
 
         Explicitly declared PluginContext fields are the canonical
-        dependency boundary. The generic mapping exists only for
-        genuinely optional extension infrastructure.
+        dependency boundary.
 
-        It must not be used to bypass an established controller,
-        manager, registry, or service boundary.
+        This method accesses only the generic extension-service
+        mapping and never resolves or constructs a service.
         """
 
         self._validate_name(
@@ -244,10 +262,12 @@ class PluginContext:
         name: str,
     ) -> Any:
         """
-        Return a required optional-extension service.
+        Return a required extension service.
 
-        This method performs presence validation only. It does not
-        resolve, construct, substitute, or otherwise obtain a service.
+        Presence is validated only.
+
+        The method does not resolve, construct, substitute, or
+        discover a service.
         """
 
         self._validate_name(
@@ -361,9 +381,8 @@ class PluginContext:
 
         ``required`` refers only to named PluginContext fields.
 
-        Generic extension services are intentionally not considered
-        here because they must never silently substitute for an
-        explicitly declared architectural dependency.
+        Generic extension services are intentionally excluded from
+        this validation path.
         """
 
         if not isinstance(
@@ -414,12 +433,24 @@ class PluginContext:
     # CAPABILITIES
     # ========================================================
 
-    def has_core_controller(self) -> bool:
-        """Return whether the authoritative project controller exists."""
+    def has_controller(self) -> bool:
+        """
+        Return whether the authoritative application controller exists.
+        """
 
-        return (
-            self.project_controller is not None
-        )
+        return self.controller is not None
+
+    def has_core_controller(self) -> bool:
+        """
+        Return whether the project controller exists.
+
+        This is retained as a distinct capability because
+        ``project_controller`` and the application ``controller`` are
+        separate architectural references unless the composition root
+        explicitly supplies the same object to both.
+        """
+
+        return self.project_controller is not None
 
     def has_tool_system(self) -> bool:
         """
@@ -470,7 +501,9 @@ class PluginContext:
         self,
         main_window: QWidget,
     ) -> PluginContext:
-        """Return a derived context with a different main window."""
+        """
+        Return a derived context with a different main window.
+        """
 
         self._validate_qwidget(
             main_window,
@@ -485,7 +518,9 @@ class PluginContext:
         self,
         parent: QWidget,
     ) -> PluginContext:
-        """Return a derived context with a different Qt parent."""
+        """
+        Return a derived context with a different Qt parent.
+        """
 
         self._validate_qwidget(
             parent,
@@ -496,6 +531,26 @@ class PluginContext:
             parent=parent
         )
 
+    def with_controller(
+        self,
+        controller: Any,
+    ) -> PluginContext:
+        """
+        Return a derived context with an explicit controller.
+
+        The controller is supplied by the application composition
+        layer. This method does not create or resolve it.
+        """
+
+        if controller is None:
+            raise ValueError(
+                "controller cannot be None."
+            )
+
+        return self.derive(
+            controller=controller
+        )
+
     def with_service(
         self,
         name: str,
@@ -504,8 +559,8 @@ class PluginContext:
         """
         Return a derived context with one optional extension service.
 
-        This method records a supplied reference only. It never creates
-        or resolves the service.
+        The supplied reference is recorded only. No service is
+        created or resolved.
         """
 
         self._validate_name(
@@ -528,7 +583,9 @@ class PluginContext:
         key: str,
         value: Any,
     ) -> PluginContext:
-        """Return a derived context with one metadata value added."""
+        """
+        Return a derived context with one metadata value added.
+        """
 
         self._validate_name(
             key,
@@ -554,7 +611,9 @@ class PluginContext:
         value: Any,
         parameter_name: str,
     ) -> None:
-        """Validate a context/service identifier."""
+        """
+        Validate a context/service identifier.
+        """
 
         if not isinstance(
             value,
@@ -577,7 +636,9 @@ class PluginContext:
         value: Any,
         parameter_name: str,
     ) -> None:
-        """Validate a Qt widget reference."""
+        """
+        Validate a Qt widget reference.
+        """
 
         if not isinstance(
             value,
@@ -611,6 +672,7 @@ def create_plugin_context(
 # ============================================================
 # PUBLIC API
 # ============================================================
+
 
 __all__ = [
     "PluginContext",
