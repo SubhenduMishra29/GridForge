@@ -583,7 +583,11 @@ class TestBasePlugin:
         second = plugin.initialize(object())
 
         assert first == "initialize-result"
-        assert second == "initialize-result"
+
+        # BasePlugin returns self.widget when initialization is
+        # repeated. BaseTestPlugin uses the default widget property,
+        # which returns None.
+        assert second is None
 
         assert plugin.initialized is True
         assert plugin.context is context
