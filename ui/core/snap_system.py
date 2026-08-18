@@ -5,137 +5,102 @@
 """
 Centralized spatial snapping service for the GridForge UI.
 
-Architecture
-------------
+Coordinate contract
+-------------------
+SnapSystem operates exclusively in SCENE coordinates.
 
-    InteractionManager
-           │
-           ▼
-      SnapSystem
-       ┌───┴───────────────┐
-       ▼                   ▼
-    GridSystem        Spatial queries
-       │                   │
-       ▼                   ▼
-    Grid snap         Object snap
-           │
-           ▼
-      snapped point
-           │
-           ▼
-          Tool
-
-Purpose
--------
-SnapSystem is the single UI service responsible for resolving
-interaction positions against available snapping targets.
-
-GridForge uses two conceptually different operations:
-
-    1. Grid resolution
-       Resolve a point against GridSystem geometry.
-
-    2. Object snapping
-       Resolve a point against selectable/spatially relevant
-       graphical or canvas objects.
-
-CoordinateSystem provides coordinate conversion.
-
-SnapSystem owns snapping policy.
-
-Tools consume SnapSystem rather than implementing independent
-spatial-query logic.
+    VIEWPORT
+        │
+        ▼
+    CoordinateSystem
+        │
+        ▼
+      SCENE
+        │
+        ▼
+    SnapSystem
+        │
+        ├── GridSystem
+        │
+        └── scene snap candidates
+        │
+        ▼
+    SnapResult
+        │
+        ▼
+       Tool
 
 Responsibilities
 ----------------
 SnapSystem:
 
-    - resolve grid snapping;
-    - resolve object snapping;
-    - combine available snap candidates;
-    - apply snap priority;
-    - enforce snap tolerance;
-    - expose snap configuration;
-    - provide deterministic snap results;
-    - provide diagnostics.
+    - resolves grid snap candidates;
+    - resolves object snap candidates;
+    - applies snap tolerance;
+    - applies snap priority;
+    - selects a deterministic winning candidate;
+    - exposes snap configuration;
+    - provides diagnostic state.
 
 SnapSystem does NOT:
 
-    - modify Core model state;
-    - create model objects;
-    - create QGraphicsItems;
+    - convert viewport coordinates;
+    - own CoordinateSystem;
+    - own GridSystem;
+    - own QGraphicsScene;
+    - create graphics items;
     - own tools;
-    - manage tool lifecycle;
     - manage selection;
     - perform navigation;
-    - perform electrical calculations;
-    - perform coordinate conversion from viewport space;
-    - decide application-level tool selection.
+    - modify Core state;
+    - perform electrical calculations.
 
-Coordinate Ownership
---------------------
-CoordinateSystem owns:
+Ownership
+---------
+SnapSystem is a service owned by the UI composition layer.
 
-    viewport → scene
-    scene → viewport
-    scene → grid coordinate resolution
+The supplied GridSystem and scene are references only.
 
-SnapSystem operates on scene-space coordinates.
-
-Therefore tools should normally perform:
-
-    viewport event
-          ↓
-    InteractionManager
-          ↓
-    CoordinateSystem
-          ↓
-       scene point
-          ↓
-      SnapSystem
-          ↓
-      snap result
-
-Grid Ownership
---------------
-GridSystem owns grid geometry.
-
-SnapSystem decides whether and how grid snapping participates
-in the final snapping decision.
-
-SnapSystem does not duplicate grid geometry or spacing logic.
-
-Object Ownership
-----------------
-SnapSystem does not own graphical objects.
-
-The optional scene supplied to SnapSystem is a spatial query
-source only.
-
-QGraphicsItem state remains owned by the graphics layer.
-
-Qt Architecture
----------------
+Qt boundary
+-----------
 All Qt dependencies must be imported through:
 
     ui.core.qt
 
 No direct PySide6/PyQt imports are permitted.
 
-Design Note
------------
-The system intentionally returns a structured SnapResult rather
-than only a QPointF.
+Object snap contract
+--------------------
+A scene item may expose object snap points through either:
 
-This allows tools to distinguish:
+    snap_points()
+    get_snap_points()
 
-    - no snap;
-    - grid snap;
-    - object snap;
+Each returned candidate must be either:
 
-and gives future versions room for terminal, connection-point,
-bus, line, and other engineering snap targets without changing
-the tool-facing contract.
+    QPointF-compatible
+
+or:
+
+    {
+        "position": QPointF-compatible,
+        "object_id": optional identifier,
+    }
+
+The returned position is required to already be in SCENE
+coordinates.
+
+Snap priority
+-------------
+Higher priority wins.
+
+When priorities are equal:
+
+    1. smaller distance wins;
+    2. earlier candidate order wins.
+
+This makes resolution deterministic without imposing an
+ordering policy on graphical items.
 """
 
 from __future__ import annotations
@@ -173,27 +138,23 @@ class SnapResult:
     """
     Immutable result of a snapping operation.
 
-    Attributes
+    Parameters
     ----------
     position:
         Final scene-space position.
 
     snap_type:
-        Classification of the selected snap.
+        Type of snap selected.
 
     object_id:
-        Object identifier when an object snap was selected.
+        Identifier associated with an object snap, if available.
 
     source:
-        Optional spatial source object representing the snap
-        target.
+        Source object associated with an object snap, if available.
 
     distance:
-        Scene-space distance between the original position and
+        Scene-space distance between the requested position and
         the selected snap position.
-
-    snapped:
-        True when an actual snap target was selected.
     """
 
     position: QPointF
@@ -203,23 +164,20 @@ class SnapResult:
     distance: float = 0.0
 
     @property
+    def snapped(self) -> bool:
+        """
+        Return True when an actual snap target was selected.
+        """
+
+        return self.snap_type is not SnapType.NONE
+
+    @property
     def is_snapped(self) -> bool:
         """
-        Return True when a snap target was selected.
+        Compatibility alias for snapped.
         """
 
         return self.snapped
-
-    @property
-    def snapped(self) -> bool:
-        """
-        Return True when this result represents a snap.
-        """
-
-        return (
-            self.snap_type
-            is not SnapType.NONE
-        )
 
 
 # ============================================================
@@ -229,11 +187,10 @@ class SnapResult:
 
 class SnapSystem:
     """
-    Central spatial snapping service.
+    Central scene-space snapping service.
 
-    SnapSystem operates exclusively in scene coordinates.
-
-    It does not perform viewport-to-scene conversion.
+    SnapSystem has no dependency on application navigation,
+    interaction state, or Core-domain objects.
     """
 
     # ========================================================
@@ -245,7 +202,6 @@ class SnapSystem:
     DEFAULT_GRID_ENABLED = True
     DEFAULT_OBJECT_ENABLED = True
 
-    # Object snapping has higher priority than grid snapping.
     DEFAULT_OBJECT_PRIORITY = 100
     DEFAULT_GRID_PRIORITY = 50
 
@@ -264,30 +220,14 @@ class SnapSystem:
         """
         Initialize the SnapSystem.
 
-        Parameters
-        ----------
-        controller:
-            Optional Controller reference.
-
-            It is retained only as an application context
-            reference. SnapSystem does not mutate controller
-            state.
-
-        grid_system:
-            Optional GridSystem providing grid geometry.
-
-        scene:
-            Optional QGraphicsScene used for object snapping.
-
-        tolerance:
-            Maximum scene-space distance within which a candidate
-            may be selected.
+        ``controller`` is retained only for compatibility with
+        existing UI composition code. SnapSystem does not use it
+        for snapping decisions and never mutates it.
         """
 
-        if tolerance < 0:
-            raise ValueError(
-                "tolerance must not be negative."
-            )
+        self._validate_tolerance(
+            tolerance
+        )
 
         self.controller = controller
         self.grid_system = grid_system
@@ -313,6 +253,8 @@ class SnapSystem:
             self.DEFAULT_GRID_PRIORITY
         )
 
+        self._disposed = False
+
     # ========================================================
     # CONFIGURATION
     # ========================================================
@@ -322,24 +264,14 @@ class SnapSystem:
         tolerance: float,
     ) -> None:
         """
-        Set the maximum snap distance in scene coordinates.
+        Set the maximum scene-space snap distance.
         """
 
-        if isinstance(
-            tolerance,
-            bool,
-        ) or not isinstance(
-            tolerance,
-            (int, float),
-        ):
-            raise TypeError(
-                "tolerance must be numeric."
-            )
+        self._validate_tolerance(
+            tolerance
+        )
 
-        if tolerance < 0:
-            raise ValueError(
-                "tolerance must not be negative."
-            )
+        self._ensure_active()
 
         self.tolerance = float(
             tolerance
@@ -355,13 +287,12 @@ class SnapSystem:
         Enable or disable grid snapping.
         """
 
-        if not isinstance(
+        self._validate_bool(
             enabled,
-            bool,
-        ):
-            raise TypeError(
-                "enabled must be a bool."
-            )
+            "enabled",
+        )
+
+        self._ensure_active()
 
         self.grid_enabled = enabled
 
@@ -375,18 +306,51 @@ class SnapSystem:
         Enable or disable object snapping.
         """
 
-        if not isinstance(
+        self._validate_bool(
             enabled,
-            bool,
-        ):
-            raise TypeError(
-                "enabled must be a bool."
-            )
+            "enabled",
+        )
+
+        self._ensure_active()
 
         self.object_enabled = enabled
 
+    # --------------------------------------------------------
+
+    def set_priorities(
+        self,
+        *,
+        object_priority: int,
+        grid_priority: int,
+    ) -> None:
+        """
+        Configure relative snap priorities.
+
+        Higher values win.
+        """
+
+        self._validate_priority(
+            object_priority,
+            "object_priority",
+        )
+
+        self._validate_priority(
+            grid_priority,
+            "grid_priority",
+        )
+
+        self._ensure_active()
+
+        self.object_priority = (
+            object_priority
+        )
+
+        self.grid_priority = (
+            grid_priority
+        )
+
     # ========================================================
-    # SERVICES
+    # GRID / SCENE REFERENCES
     # ========================================================
 
     def set_grid_system(
@@ -394,10 +358,13 @@ class SnapSystem:
         grid_system: Any,
     ) -> None:
         """
-        Attach a GridSystem.
+        Attach or replace the GridSystem reference.
 
-        GridSystem remains the owner of grid geometry.
+        Passing None disables grid snapping unless another
+        grid source is subsequently attached.
         """
+
+        self._ensure_active()
 
         self.grid_system = grid_system
 
@@ -419,10 +386,12 @@ class SnapSystem:
         scene: Any,
     ) -> None:
         """
-        Attach the scene used for object spatial queries.
+        Attach or replace the scene used for object queries.
 
         SnapSystem does not take ownership of the scene.
         """
+
+        self._ensure_active()
 
         self.scene = scene
 
@@ -432,7 +401,7 @@ class SnapSystem:
         self,
     ) -> Any:
         """
-        Return the attached scene.
+        Return the configured scene.
         """
 
         return self.scene
@@ -443,7 +412,7 @@ class SnapSystem:
 
     def snap(
         self,
-        scene_pos: QPointF,
+        scene_pos: Any,
         *,
         allow_grid: Optional[bool] = None,
         allow_object: Optional[bool] = None,
@@ -451,115 +420,94 @@ class SnapSystem:
         """
         Resolve the best snap candidate for a scene position.
 
-        Candidate priority:
+        Resolution order is governed by priority rather than by
+        hard-coded candidate type ordering.
 
-            object snap
-                ↓
-            grid snap
-                ↓
-            original position
-
-        Priority is considered first, followed by distance.
-
-        Parameters
-        ----------
-        scene_pos:
-            Input scene-space position.
-
-        allow_grid:
-            Optional per-request grid override.
-
-        allow_object:
-            Optional per-request object-snap override.
+        Equal-priority candidates are resolved by distance and
+        then by discovery order.
         """
+
+        self._ensure_active()
 
         self._validate_point(
             scene_pos,
             "scene_pos",
         )
 
-        use_grid = (
-            self.grid_enabled
-            if allow_grid is None
-            else bool(allow_grid)
+        use_grid = self._resolve_bool_override(
+            allow_grid,
+            self.grid_enabled,
+            "allow_grid",
         )
 
-        use_object = (
-            self.object_enabled
-            if allow_object is None
-            else bool(allow_object)
+        use_object = self._resolve_bool_override(
+            allow_object,
+            self.object_enabled,
+            "allow_object",
         )
 
         candidates: list[
-            tuple[int, float, SnapResult]
+            tuple[int, float, int, SnapResult]
         ] = []
 
+        order = 0
+
         if use_object:
-            object_result = (
-                self._find_object_snap(
-                    scene_pos
-                )
+            result = self._find_object_snap(
+                scene_pos
             )
 
-            if object_result is not None:
+            if result is not None:
                 candidates.append(
                     (
                         self.object_priority,
-                        object_result.distance,
-                        object_result,
+                        result.distance,
+                        order,
+                        result,
                     )
                 )
 
+                order += 1
+
         if use_grid:
-            grid_result = (
-                self._find_grid_snap(
-                    scene_pos
-                )
+            result = self._find_grid_snap(
+                scene_pos
             )
 
-            if grid_result is not None:
+            if result is not None:
                 candidates.append(
                     (
                         self.grid_priority,
-                        grid_result.distance,
-                        grid_result,
+                        result.distance,
+                        order,
+                        result,
                     )
                 )
 
         if not candidates:
-            return SnapResult(
-                position=QPointF(
-                    scene_pos.x(),
-                    scene_pos.y(),
-                ),
-                snap_type=SnapType.NONE,
-                distance=0.0,
+            return self._none_result(
+                scene_pos
             )
 
-        # Higher priority wins.
-        #
-        # For equal priority, the closest candidate wins.
         candidates.sort(
             key=lambda candidate: (
                 -candidate[0],
                 candidate[1],
+                candidate[2],
             )
         )
 
-        return candidates[0][2]
+        return candidates[0][3]
 
     # --------------------------------------------------------
 
     def snap_point(
         self,
-        scene_pos: QPointF,
+        scene_pos: Any,
         **kwargs: Any,
     ) -> QPointF:
         """
-        Return only the final snapped scene position.
-
-        This convenience API is useful for tools that do not need
-        snap metadata.
+        Return only the resolved scene-space position.
         """
 
         return self.snap(
@@ -573,12 +521,10 @@ class SnapSystem:
 
     def _find_grid_snap(
         self,
-        scene_pos: QPointF,
+        scene_pos: Any,
     ) -> Optional[SnapResult]:
         """
-        Resolve a grid snap candidate.
-
-        GridSystem owns the actual grid geometry.
+        Resolve the GridSystem candidate.
         """
 
         if self.grid_system is None:
@@ -594,8 +540,7 @@ class SnapSystem:
             snap_point
         ):
             raise TypeError(
-                "grid_system must provide "
-                "snap_point()."
+                "grid_system must provide snap_point()."
             )
 
         result = snap_point(
@@ -633,35 +578,12 @@ class SnapSystem:
 
     def _find_object_snap(
         self,
-        scene_pos: QPointF,
+        scene_pos: Any,
     ) -> Optional[SnapResult]:
         """
-        Find the nearest supported object snap candidate.
+        Find the nearest valid object snap candidate.
 
-        This method intentionally uses an explicit item contract
-        rather than assuming a particular concrete graphics-item
-        hierarchy.
-
-        Supported candidate methods are checked in this order:
-
-            snap_points()
-            get_snap_points()
-
-        Each method may return QPointF-compatible positions or
-        candidate descriptors.
-
-        A candidate descriptor may be:
-
-            QPointF
-
-        or:
-
-            {
-                "position": QPointF,
-                "object_id": ...,
-            }
-
-        Items without a snap-point contract are ignored.
+        Items without the explicit snap-point contract are ignored.
         """
 
         if self.scene is None:
@@ -694,7 +616,6 @@ class SnapSystem:
             )
 
             for candidate in candidates:
-
                 position, object_id = (
                     self._normalize_candidate(
                         candidate,
@@ -739,7 +660,9 @@ class SnapSystem:
         item: Any,
     ) -> tuple[Any, ...]:
         """
-        Obtain snap candidates exposed by a graphics item.
+        Obtain snap candidates from one graphics item.
+
+        The first supported contract is authoritative.
         """
 
         for method_name in (
@@ -752,13 +675,22 @@ class SnapSystem:
                 None,
             )
 
-            if callable(method):
-                result = method()
+            if not callable(
+                method
+            ):
+                continue
 
-                if result is None:
-                    return ()
+            result = method()
 
+            if result is None:
+                return ()
+
+            try:
                 return tuple(result)
+            except TypeError as exc:
+                raise TypeError(
+                    f"{method_name}() must return an iterable."
+                ) from exc
 
         return ()
 
@@ -773,7 +705,10 @@ class SnapSystem:
         Any,
     ]:
         """
-        Normalize an object snap candidate.
+        Normalize one object snap candidate.
+
+        Candidate coordinates are assumed to already be in
+        scene coordinates.
         """
 
         object_id = getattr(
@@ -786,6 +721,12 @@ class SnapSystem:
             candidate,
             dict,
         ):
+            if "position" not in candidate:
+                return (
+                    None,
+                    object_id,
+                )
+
             position = candidate.get(
                 "position"
             )
@@ -795,23 +736,38 @@ class SnapSystem:
                 object_id,
             )
 
+        else:
+            position = candidate
+
+        if position is None:
             return (
-                position,
+                None,
                 object_id,
             )
 
-        if callable(
-            getattr(candidate, "x", None)
-        ) and callable(
-            getattr(candidate, "y", None)
+        if not (
+            callable(
+                getattr(
+                    position,
+                    "x",
+                    None,
+                )
+            )
+            and callable(
+                getattr(
+                    position,
+                    "y",
+                    None,
+                )
+            )
         ):
             return (
-                candidate,
+                None,
                 object_id,
             )
 
         return (
-            None,
+            position,
             object_id,
         )
 
@@ -821,19 +777,20 @@ class SnapSystem:
 
     def snap_to_point(
         self,
-        scene_pos: QPointF,
-        target: QPointF,
+        scene_pos: Any,
+        target: Any,
         *,
         object_id: Any = None,
         source: Any = None,
     ) -> Optional[SnapResult]:
         """
-        Evaluate a single explicit snap target.
+        Evaluate one explicit object snap target.
 
-        This is useful for tools or higher-level systems that
-        already know the relevant target and do not need a scene
-        search.
+        The operation is subject to the configured object-snap
+        enable flag and tolerance.
         """
+
+        self._ensure_active()
 
         self._validate_point(
             scene_pos,
@@ -844,6 +801,9 @@ class SnapSystem:
             target,
             "target",
         )
+
+        if not self.object_enabled:
+            return None
 
         distance = self._distance(
             scene_pos,
@@ -874,12 +834,33 @@ class SnapSystem:
         second: Any,
     ) -> float:
         """
-        Return Euclidean scene-space distance.
+        Return Euclidean distance in scene coordinates.
         """
 
         return hypot(
             second.x() - first.x(),
             second.y() - first.y(),
+        )
+
+    # ========================================================
+    # RESULT HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _none_result(
+        scene_pos: Any,
+    ) -> SnapResult:
+        """
+        Construct a non-snapped result.
+        """
+
+        return SnapResult(
+            position=QPointF(
+                scene_pos.x(),
+                scene_pos.y(),
+            ),
+            snap_type=SnapType.NONE,
+            distance=0.0,
         )
 
     # ========================================================
@@ -892,7 +873,7 @@ class SnapSystem:
         name: str,
     ) -> None:
         """
-        Validate a QPointF-compatible object.
+        Validate a QPoint/QPointF-compatible object.
         """
 
         if point is None:
@@ -901,17 +882,128 @@ class SnapSystem:
             )
 
         if not callable(
-            getattr(point, "x", None)
+            getattr(
+                point,
+                "x",
+                None,
+            )
         ):
             raise TypeError(
                 f"{name} must provide x()."
             )
 
         if not callable(
-            getattr(point, "y", None)
+            getattr(
+                point,
+                "y",
+                None,
+            )
         ):
             raise TypeError(
                 f"{name} must provide y()."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_tolerance(
+        tolerance: float,
+    ) -> None:
+        """
+        Validate snap tolerance.
+        """
+
+        if isinstance(
+            tolerance,
+            bool,
+        ) or not isinstance(
+            tolerance,
+            (int, float),
+        ):
+            raise TypeError(
+                "tolerance must be numeric."
+            )
+
+        if tolerance < 0.0:
+            raise ValueError(
+                "tolerance must not be negative."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_bool(
+        value: bool,
+        name: str,
+    ) -> None:
+        """
+        Validate a strict boolean.
+        """
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} must be a bool."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _resolve_bool_override(
+        override: Optional[bool],
+        default: bool,
+        name: str,
+    ) -> bool:
+        """
+        Resolve an optional strict boolean override.
+        """
+
+        if override is None:
+            return default
+
+        SnapSystem._validate_bool(
+            override,
+            name,
+        )
+
+        return override
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_priority(
+        value: int,
+        name: str,
+    ) -> None:
+        """
+        Validate a priority value.
+        """
+
+        if isinstance(
+            value,
+            bool,
+        ) or not isinstance(
+            value,
+            int,
+        ):
+            raise TypeError(
+                f"{name} must be an integer."
+            )
+
+    # --------------------------------------------------------
+
+    def _ensure_active(
+        self,
+    ) -> None:
+        """
+        Reject service operations after disposal.
+        """
+
+        if self._disposed:
+            raise RuntimeError(
+                "SnapSystem has been disposed."
             )
 
     # ========================================================
@@ -941,7 +1033,30 @@ class SnapSystem:
             "grid_priority": (
                 self.grid_priority
             ),
+            "disposed": self._disposed,
         }
+
+    # ========================================================
+    # CLEANUP
+    # ========================================================
+
+    def dispose(
+        self,
+    ) -> None:
+        """
+        Release transient service references.
+
+        The GridSystem and scene themselves are not owned and are
+        therefore not disposed.
+        """
+
+        if self._disposed:
+            return
+
+        self.grid_system = None
+        self.scene = None
+
+        self._disposed = True
 
     # ========================================================
     # REPRESENTATION
@@ -957,10 +1072,9 @@ class SnapSystem:
         return (
             "SnapSystem("
             f"tolerance={self.tolerance}, "
-            f"grid_enabled="
-            f"{self.grid_enabled}, "
-            f"object_enabled="
-            f"{self.object_enabled}"
+            f"grid_enabled={self.grid_enabled}, "
+            f"object_enabled={self.object_enabled}, "
+            f"disposed={self._disposed}"
             ")"
         )
 
