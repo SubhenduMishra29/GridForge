@@ -1,223 +1,244 @@
-# GridForge UI Core
+# GridForge V2 — UI Core
 
-## UI Infrastructure, Application Services, and Architectural Boundaries
+**Shared UI Infrastructure, Explicit Contracts, One Authoritative Engineering Core**
 
-The `ui/core/` package provides the foundational infrastructure and application-facing services used by the GridForge V2 graphical user interface.
+The `ui/core/` package is the foundational infrastructure layer of the GridForge V2 graphical application.
 
-It exists to establish **stable boundaries between UI components and the authoritative GridForge Core**.
+It provides the services, abstractions, registries, contracts, and coordination mechanisms required by the higher-level UI subsystems—Canvas, Tools, Panels, Plugins, Renderers, Views, and future workspaces—while deliberately remaining separate from the engineering domain.
 
 The central architectural principle is:
 
-> **`ui/core/` provides GUI infrastructure and application-facing services; it does not become a second engineering core.**
-
-Engineering truth remains owned by `core/`.
+> **`ui/core/` provides GUI infrastructure; `core/` owns engineering truth.**
 
 ---
 
-# 1. Purpose
+## 1. Overview
 
-The purpose of `ui/core/` is to provide common services required by higher-level UI components such as:
+GridForge is designed as a digital-twin and power-system engineering platform. Its graphical interface must therefore remain a projection and interaction layer over an authoritative engineering model.
 
-* Canvas
-* Tools
-* Panels
-* Plugins
-* Renderers
-* Views
-* UI actions
-* Future workspaces and application-level UI services
-
-The package provides infrastructure for:
-
-* Qt framework isolation
-* Application/UI controller access
-* Command execution
-* Undo/redo history
-* Selection management
-* Tool lifecycle management
-* UI-facing service coordination
-* Stable application-facing boundaries
-
-Conceptually:
+The UI architecture follows this direction:
 
 ```text
-                         GridForge UI
-                              │
-             ┌────────────────┼────────────────┐
-             │                │                │
-             ▼                ▼                ▼
-          Canvas            Tools            Panels
-             │                │                │
-             └────────────────┼────────────────┘
-                              │
-                              ▼
-                         ui/core/
-                              │
-          ┌───────────────────┼───────────────────┐
-          ▼                   ▼                   ▼
-       Qt Layer          UI Services        UI/Application
-                           │                  Contracts
-          │                │
-          └────────────────┼───────────────────┐
-                           ▼                   │
-                       Controller             │
-                           │                   │
-                           ▼                   │
-                     GridForge Core ◄─────────┘
+                         USER
+                           │
+                           ▼
+                    GridForge UI
+                           │
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+       Canvas            Tools            Panels
+          │                │                │
+          └────────────────┼────────────────┘
+                           ▼
+                       ui/core/
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+   Qt Abstraction      UI Services        Contracts
+        │                  │                  │
+        │        ┌─────────┼─────────┐        │
+        │        ▼         ▼         ▼        │
+        │     Commands  Selection  Registries │
+        │                                     │
+        └────────────────┬────────────────────┘
+                         ▼
+                   UI Controllers
+                         │
+                         ▼
+                  GridForge Core
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+        Model         Network        Analysis
+                                         │
+                                         ▼
+                                       Solver
 ```
 
-The dependency direction is intentional.
+`ui/core/` sits between concrete UI components and the application/controller layer.
+
+It is intentionally **not** an engineering subsystem.
 
 ---
 
-# 2. Architectural Position
+# 2. Architectural Mission
 
-`ui/core/` sits at the infrastructure boundary of the GUI subsystem.
+The mission of `ui/core/` is to establish a stable foundation on which the GridForge GUI can evolve without allowing GUI concerns to leak into the engineering core.
 
-It is neither:
+It provides:
 
-* an engineering domain layer,
-* a rendering layer,
-* a concrete tool implementation layer,
-* a plugin implementation layer,
-* nor a persistence layer.
+* centralized Qt access;
+* application-facing UI services;
+* command execution and history;
+* selection projection;
+* plugin infrastructure;
+* renderer infrastructure;
+* tool infrastructure;
+* snapping infrastructure;
+* UI state and event infrastructure;
+* controlled service access;
+* stable contracts between UI subsystems.
 
-Its role is to provide the services that allow those higher-level components to operate without creating competing application state.
+The package should remain:
 
-The broad architecture is:
+* lightweight;
+* deterministic;
+* testable;
+* modular;
+* explicitly owned;
+* Qt-controlled;
+* independent of engineering calculations.
+
+---
+
+# 3. Repository Position
+
+The intended repository relationship is:
 
 ```text
-┌────────────────────────────────────────────────────┐
-│                    GridForge UI                    │
-│                                                    │
-│ Canvas • Tools • Panels • Plugins • Renderers      │
-└─────────────────────────┬──────────────────────────┘
-                          │
-                          ▼
-┌────────────────────────────────────────────────────┐
-│                     ui/core/                       │
-│                                                    │
-│ Qt • Controller • Commands • Selection • Tools     │
-│ UI/Application Services and Boundaries             │
-└─────────────────────────┬──────────────────────────┘
-                          │
-                          ▼
-┌────────────────────────────────────────────────────┐
-│                  GridForge Core                    │
-│                                                    │
-│ Model • Network • Analysis • Protection • Solver  │
-└────────────────────────────────────────────────────┘
+GridForge/
+│
+├── core/
+│   ├── model/
+│   ├── network/
+│   ├── analysis/
+│   ├── solver/
+│   ├── protection/
+│   └── ...
+│
+├── ui/
+│   │
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── qt.py
+│   │   ├── command_manager.py
+│   │   ├── selection_manager.py
+│   │   ├── plugin_registry.py
+│   │   ├── plugin_loader.py
+│   │   ├── plugin_manager.py
+│   │   ├── plugin_context.py
+│   │   ├── plugin_contract.py
+│   │   ├── plugin_state.py
+│   │   ├── plugin_events.py
+│   │   ├── renderer_registry.py
+│   │   ├── renderer_loader.py
+│   │   ├── snap_system.py
+│   │   └── ...
+│   │
+│   ├── canvas/
+│   ├── controllers/
+│   ├── items/
+│   ├── panels/
+│   ├── plugins/
+│   ├── renderers/
+│   ├── tools/
+│   └── ...
+│
+└── main.py
 ```
 
-The Core remains headless and authoritative.
+The exact file set may evolve.
+
+The architectural role of `ui/core/` must remain stable even as additional services are introduced.
 
 ---
 
-# 3. Current Package Structure
+# 4. Current UI Core Responsibilities
 
-The current `ui/core/` package is intentionally small.
+The current architecture organizes UI infrastructure around several focused services.
 
-```text
-ui/
-└── core/
-    ├── __init__.py
-    ├── README.md
-    ├── qt.py
-    ├── controller.py
-    ├── command_manager.py
-    ├── selection_manager.py
-    └── tool_manager.py
-```
+| Service                 | Responsibility                             |
+| ----------------------- | ------------------------------------------ |
+| `qt.py`                 | Central PySide6 boundary                   |
+| Controller integration  | Application/UI workflow boundary           |
+| `command_manager.py`    | Command execution and undo/redo history    |
+| `selection_manager.py`  | Controller-owned selection projection      |
+| Plugin infrastructure   | Plugin registration, loading and lifecycle |
+| Renderer infrastructure | Renderer registration and discovery        |
+| Tool infrastructure     | Tool registration and coordination         |
+| Snap infrastructure     | Geometric UI snapping                      |
+| UI state infrastructure | Shared presentation state                  |
+| Event infrastructure    | UI/application event communication         |
 
-Each module has a deliberately focused responsibility.
+Each service has a deliberately narrow responsibility.
+
+The architecture avoids creating a single monolithic `UIManager`.
 
 ---
 
-# 4. Module Responsibilities
+# 5. Qt Abstraction
 
-## 4.1 `qt.py`
+## `qt.py`
 
-`qt.py` is the central Qt abstraction boundary.
+`ui/core/qt.py` is the controlled Qt boundary for the GridForge UI.
 
 GridForge V2 uses:
 
-```text
-PySide6
-```
+**PySide6**
 
-UI modules must not independently introduce alternative Qt frameworks.
-
-The approved dependency direction is:
+Concrete UI modules must not directly import:
 
 ```text
-GridForge UI
-     │
-     ▼
-ui.core.qt
-     │
-     ▼
 PySide6
+PyQt5
+PyQt6
+PySide2
 ```
 
-The purpose of this layer is not to hide Qt behavior.
+Instead:
 
-It provides a controlled internal import boundary so that GridForge UI code does not scatter framework imports throughout the architecture.
+```python
+from ui.core.qt import QGraphicsScene
+```
 
-### Current principles
+rather than:
 
-* PySide6 is the sole Qt implementation.
-* No PyQt5.
-* No PyQt6.
-* No PySide2.
-* No wildcard Qt imports.
-* Qt types are explicitly exported.
-* `qt.py` contains no GridForge application logic.
-* `qt.py` must not import Core, Controllers, Tools, Renderers, or Canvas modules.
+```python
+from PySide6.QtWidgets import QGraphicsScene
+```
 
-The Qt layer is therefore infrastructure only.
+The abstraction establishes one controlled framework boundary:
+
+```text
+PySide6
+   │
+   ▼
+ui/core/qt.py
+   │
+   ├── Canvas
+   ├── Tools
+   ├── Renderers
+   ├── Panels
+   └── Plugins
+```
+
+This prevents mixed Qt frameworks and keeps framework dependencies explicit.
+
+### Design rule
+
+`qt.py` contains Qt imports and compatibility infrastructure.
+
+It must not contain GridForge engineering logic.
+
+It must not import:
+
+* Core models;
+* Controllers;
+* Tools;
+* Renderers;
+* Canvas implementations;
+* Plugins;
+* Solvers.
 
 ---
 
-# 5. `controller.py`
+# 6. Command Infrastructure
 
-The Controller is the application-facing coordination boundary between the UI and GridForge Core.
+## `command_manager.py`
 
-Conceptually:
+`CommandManager` is the central UI-facing command execution boundary.
 
-```text
-UI
- │
- ▼
-Controller
- │
- ▼
-Core
-```
-
-The Controller is responsible for coordinating application operations without transferring engineering authority into the UI.
-
-The Controller may provide UI-facing access to operations such as:
-
-* object creation
-* object modification
-* object deletion
-* selection state
-* project/application state
-* Core operations
-* domain-event propagation
-* application-level workflows
-
-The exact engineering behavior remains implemented by the Core.
-
-The Controller must therefore not become a second model.
-
----
-
-# 6. `command_manager.py`
-
-`CommandManager` provides the central UI-facing command execution boundary.
-
-The command architecture is:
+The command flow is:
 
 ```text
 UI / Tool
@@ -240,89 +261,76 @@ Domain Events
 
 Commands represent **intent**.
 
-They do not become an alternative storage mechanism for engineering state.
+The Core and Controller remain authoritative for validation and mutation.
 
-## Responsibilities
-
-`CommandManager` owns:
-
-* command execution
-* undo history
-* redo history
-* command validation
-* command diagnostics
-* undo/redo availability
-* history limits
-* command labels
-
-It does not own:
-
-* Core state
-* engineering models
-* topology
-* solver state
-* domain events
-* electrical calculations
-
-## History model
-
-A successful command enters the undo history.
-
-A failed command does not.
-
-A successful new command invalidates redo history.
-
-Undo and redo operate through the normal command pathway.
+The `CommandManager` owns only command history:
 
 ```text
-execute
-   │
-   ▼
-Controller
-   │
-   ▼
-Core
-   │
-   ▼
-Domain Mutation
-   │
-   ▼
-Domain Event
+Undo History
+Redo History
 ```
 
-Undo:
+It does not maintain a second copy of application state.
+
+### Command contract
+
+A command provides:
+
+```python
+execute(controller)
+undo(controller)
+```
+
+### Execution semantics
+
+A successful command:
 
 ```text
-Command.undo(controller)
-        │
-        ▼
-    Controller
-        │
-        ▼
-       Core
+Command.execute()
+       │
+       ▼
+successful mutation
+       │
+       ▼
+undo history
+       │
+       ▼
+redo history cleared
 ```
 
-Redo:
+A failed command:
 
 ```text
-Command.execute(controller)
-        │
-        ▼
-    Controller
-        │
-        ▼
-       Core
+Command.execute()
+       │
+       ▼
+exception
+       │
+       ▼
+not added to history
 ```
 
-The CommandManager does not reconstruct application state from history.
+Undo and redo use the normal Controller/Core pathway.
+
+This preserves the fundamental rule:
+
+> **History records intent; it does not become an alternate application state store.**
+
+### History limits
+
+`CommandManager` optionally supports bounded undo history through `max_history`.
+
+The oldest entries are discarded when the configured limit is exceeded.
 
 ---
 
-# 7. `selection_manager.py`
+# 7. Selection Infrastructure
 
-`SelectionManager` is the UI selection adapter.
+## `selection_manager.py`
 
-Persistent application selection remains owned by the Controller.
+Selection is UI state.
+
+However, persistent application selection is owned by the Controller.
 
 The architecture is:
 
@@ -336,242 +344,170 @@ SelectionManager
 Graphics Selection
 ```
 
-The SelectionManager therefore does not maintain an independent authoritative selection collection.
+`SelectionManager` therefore acts as an adapter and projection service.
 
-## Responsibilities
+It does not maintain an authoritative duplicate selection collection.
+
+### Responsibilities
 
 It provides:
 
-* selection queries
-* single selection
-* additive selection
-* clearing selection
-* selection diagnostics
-* graphics selection synchronization
-* graphics-item lookup by `object_id`
+* selection queries;
+* single selection;
+* additive selection;
+* clearing selection;
+* graphics synchronization;
+* graphics item lookup;
+* selected-item lookup;
+* selection diagnostics.
 
-The graphics scene is only a projection.
+### Authority direction
 
 ```text
-Controller.selected_ids
-          │
-          ▼
+Controller
+    │
+    │ selected_ids
+    ▼
 SelectionManager
-          │
-          ▼
+    │
+    ▼
 QGraphicsItem.setSelected()
 ```
 
-The reverse direction is not authoritative.
+The reverse direction is deliberately not authoritative.
 
-A `QGraphicsItem` must never become the owner of application selection state.
+A `QGraphicsItem` being selected does not make that item the owner of application selection.
+
+### Selection identity
+
+Selection is based on stable engineering/application identifiers.
+
+It must not depend on:
+
+* `QGraphicsItem` memory identity;
+* scene position;
+* numerical network indices.
 
 ---
 
-# 8. `tool_manager.py`
+# 8. Plugin Infrastructure
 
-`ToolManager` provides application-level lifecycle management for UI tools.
-
-The current concrete GridForge V2 tool set is intentionally frozen to:
-
-```text
-SelectTool
-BusTool
-LineTool
-```
-
-The ToolManager is responsible for coordinating tool activation and lifecycle.
-
-It does not implement the internal behavior of those tools.
+The plugin system provides explicit composition infrastructure for the GridForge UI.
 
 The architecture is:
 
 ```text
-ToolManager
-     │
-     ├── SelectTool
-     ├── BusTool
-     └── LineTool
+Plugin Contract
+      │
+      ▼
+Plugin Registry
+      │
+      ▼
+Plugin Loader
+      │
+      ▼
+Plugin Manager
+      │
+      ▼
+UI Composition
 ```
 
-Concrete tool implementations remain in:
+Plugin infrastructure is deliberately split into separate responsibilities.
+
+Typical components include:
 
 ```text
-ui/tools/
+plugin_contract.py
+plugin_registry.py
+plugin_loader.py
+plugin_manager.py
+plugin_context.py
+plugin_state.py
+plugin_events.py
 ```
 
-This distinction is important.
+## Explicit loading
 
-`ui/core/tool_manager.py` manages tool lifecycle.
-
-`ui/tools/` contains concrete tool implementations and tool-specific infrastructure.
-
----
-
-# 9. Ownership Boundaries
-
-One of the most important responsibilities of `ui/core/` is preserving ownership boundaries.
-
-## Engineering truth
-
-Owned by:
-
-```text
-core/
-```
-
-Examples include:
-
-* buses
-* lines
-* transformers
-* generators
-* electrical topology
-* network state
-* Y-bus
-* power flow
-* short circuit
-* protection
-* relay coordination
-* simulation state
-* solver state
-
-## UI state
-
-Owned by the UI/application layer.
-
-Examples include:
-
-* active tool
-* selected objects
-* interaction state
-* canvas state
-* view state
-* UI preferences
-* navigation state
-
-The distinction is:
-
-```text
-Engineering State
-       │
-       ▼
-     Core
-
-UI State
-       │
-       ▼
-     UI
-```
-
-The two must not be conflated.
-
----
-
-# 10. UI/Core Boundary
-
-The preferred data flow is:
-
-```text
-                User
-                 │
-                 ▼
-              UI Tool
-                 │
-                 ▼
-          Command / Controller
-                 │
-                 ▼
-              Core API
-                 │
-                 ▼
-        Authoritative Mutation
-                 │
-                 ▼
-           Domain Events
-                 │
-                 ▼
-             UI Update
-```
-
-The UI may request an operation.
-
-The Core determines whether that operation is valid and what the resulting engineering state becomes.
-
-This prevents the UI from becoming a shadow engineering model.
-
----
-
-# 11. No Engineering Logic
-
-`ui/core/` must not contain engineering computation.
-
-The following do not belong here:
-
-* Newton-Raphson
-* Y-bus assembly
-* load-flow calculations
-* short-circuit calculations
-* protection calculations
-* relay coordination
-* transient simulation
-* EMT calculations
-* network topology algorithms
-* electrical constraint evaluation
-* engineering validation logic
+The registry must not silently import every concrete plugin.
 
 Instead:
 
 ```text
-ui/core
+Registry
    │
+   │ knows registrations/contracts
    ▼
-Controller
+Loader
    │
+   │ explicitly imports
    ▼
-GridForge Core
-   │
-   ├── Model
-   ├── Network
-   ├── Analysis
-   ├── Protection
-   └── Solver
+Concrete Plugins
 ```
 
-The UI infrastructure requests operations.
+This provides:
 
-The Core performs engineering work.
+* deterministic startup;
+* controlled imports;
+* reduced circular-import risk;
+* easier testing;
+* explicit composition.
+
+## Plugin Context
+
+Plugins receive controlled access to application services through `PluginContext`.
+
+Conceptually:
+
+```text
+Plugin
+  │
+  ▼
+PluginContext
+  ├── Controller
+  ├── UI Services
+  ├── Registries
+  ├── State
+  └── Events
+```
+
+Plugins should not bypass the established ownership model by reaching into arbitrary private objects.
 
 ---
 
-# 12. No Engineering State Duplication
+# 9. Renderer Infrastructure
 
-`ui/core/` must not create a competing representation of the electrical system.
-
-Incorrect:
+Renderer infrastructure separates renderer discovery from concrete rendering.
 
 ```text
-core/
-    authoritative buses
-
-ui/core/
-    another list of buses
+Renderer Contract
+       │
+       ▼
+Renderer Registry
+       │
+       ▼
+Renderer Loader
+       │
+       ▼
+Concrete Renderer
+       │
+       ├── BusRenderer
+       ├── LineRenderer
+       └── Future Equipment Renderers
 ```
 
-Correct:
+Concrete renderers live outside `ui/core/`, normally under:
 
 ```text
-core/
-    authoritative engineering objects
-
-ui/
-    object IDs
-    references
-    selection state
-    presentation state
+ui/renderers/
 ```
 
-A graphics object may represent a Core object, but it does not become the owner of that object.
+The registry and loader provide infrastructure.
+
+The renderer itself provides presentation logic.
+
+### Ownership rule
+
+A renderer visualizes an authoritative Core object.
 
 For example:
 
@@ -579,125 +515,64 @@ For example:
 core.model.Bus
       │
       ▼
-BusItem
-```
-
-`BusItem` represents the bus visually.
-
-It does not own the engineering bus.
-
----
-
-# 13. Qt Independence of the Command Layer
-
-Although `ui/core/` is a GUI package, not every service needs direct Qt access.
-
-In particular:
-
-```text
-command_manager.py
-```
-
-is intentionally Qt-independent.
-
-This allows commands to be used by:
-
-* Canvas tools
-* Panels
-* Toolbar actions
-* Menus
-* Keyboard shortcuts
-* Future automation
-* Future API interfaces
-* Headless application workflows
-
-The command architecture therefore remains reusable outside direct Qt event handling.
-
----
-
-# 14. Plugin and Renderer Ownership
-
-Plugin and renderer infrastructure are deliberately kept outside `ui/core/`.
-
-## Plugins
-
-Plugin infrastructure belongs to:
-
-```text
-ui/plugins/
-```
-
-including:
-
-* plugin contracts
-* plugin registry
-* plugin loader
-* plugin manager
-* plugin context
-* plugin state
-* plugin events
-
-Concrete plugins remain separate from the infrastructure.
-
-The architecture is:
-
-```text
-ui/core services
-       │
-       ▼
-ui/plugins infrastructure
-       │
-       ▼
-Concrete UI Plugins
-```
-
-The plugin registry must not silently import every concrete plugin.
-
-Explicit loading remains preferred.
-
----
-
-# 15. Renderer Ownership
-
-Renderer infrastructure and concrete rendering remain outside `ui/core/`.
-
-Conceptually:
-
-```text
-ui/renderers/
-    │
-    ├── Renderer Registry
-    ├── Renderer Loader
-    ├── BusRenderer
-    ├── LineRenderer
-    └── Future Renderers
-```
-
-A renderer consumes authoritative engineering objects and produces presentation.
-
-```text
-Core Object
-     │
-     ▼
-Renderer
-     │
-     ▼
+BusRenderer
+      │
+      ▼
 Graphics Representation
 ```
 
-The renderer does not own engineering state.
+The renderer must not become the owner of the Bus.
+
+Likewise, `LineRenderer` does not own electrical connectivity.
 
 ---
 
-# 16. Tool Ownership
+# 10. Snap Infrastructure
 
-Concrete tools belong under:
+The Snap System provides graphical interaction assistance.
+
+Typical responsibilities include:
+
+* grid snapping;
+* coordinate quantization;
+* point snapping;
+* terminal snapping;
+* alignment assistance;
+* snap candidate selection.
+
+The conceptual pipeline is:
 
 ```text
-ui/tools/
+Mouse Position
+      │
+      ▼
+Coordinate System
+      │
+      ▼
+Snap System
+      │
+      ▼
+Snapped UI Position
+      │
+      ▼
+Controller / Validation
 ```
 
-The current concrete tool set is:
+Snapping is **geometric**.
+
+It is not electrical topology.
+
+Therefore:
+
+> **Geometric proximity does not imply electrical connectivity.**
+
+A snapped line endpoint may still be rejected by the Controller/Core if the resulting electrical operation is invalid.
+
+---
+
+# 11. Tool Infrastructure
+
+GridForge V2 currently maintains a deliberately small concrete tool set:
 
 ```text
 SelectTool
@@ -705,202 +580,380 @@ BusTool
 LineTool
 ```
 
-`ToolManager` provides lifecycle coordination.
+The tool infrastructure provides shared services and contracts without embedding individual tool behavior into `ui/core/`.
 
-This separation allows future tool implementations to evolve without turning `ui/core/` into a repository for tool-specific behavior.
+The intended relationship is:
+
+```text
+Tool
+ │
+ ▼
+UI Controller
+ │
+ ▼
+Command / Application Operation
+ │
+ ▼
+GridForge Core
+```
+
+A tool performs user interaction.
+
+It does not become an engineering authority.
+
+For example, `BusTool` may request creation of a bus, but the authoritative Bus remains a Core model object.
 
 ---
 
-# 17. Dependency Direction
+# 12. UI State
 
-The dependency direction must remain acyclic.
+UI state belongs to the presentation layer.
 
-The intended conceptual direction is:
+Examples include:
 
-```text
-                 UI Components
-                      │
-          ┌───────────┼───────────┐
-          ▼           ▼           ▼
-       Canvas        Tools       Panels
-          │           │           │
-          └───────────┼───────────┘
-                      ▼
-                   ui/core
-                      │
-                      ▼
-                 Controller
-                      │
-                      ▼
-                GridForge Core
-```
+* active tool;
+* current interaction mode;
+* selected objects;
+* canvas zoom;
+* grid visibility;
+* navigation context;
+* rendering preferences;
+* plugin state;
+* workspace state.
 
-The Core must never depend on `ui.core`.
+This must remain separate from engineering state.
 
-Therefore:
+| State               | Owner   |
+| ------------------- | ------- |
+| Bus voltage         | `core/` |
+| Bus identity        | `core/` |
+| Line impedance      | `core/` |
+| Network topology    | `core/` |
+| Solver state        | `core/` |
+| Protection decision | `core/` |
+| Selected object     | UI      |
+| Active tool         | UI      |
+| Canvas zoom         | UI      |
+| Grid visibility     | UI      |
+| Interaction mode    | UI      |
+| Navigation state    | UI      |
 
-```text
-core
-  ✗──► ui.core
-```
-
-is prohibited.
-
-This preserves the headless nature of GridForge Core.
+The distinction is fundamental to the digital-twin architecture.
 
 ---
 
-# 18. Selection Architecture
+# 13. Event Infrastructure
 
-Selection is presentation/application state.
+UI events communicate presentation/application transitions.
 
-A selected engineering object is identified through a stable object identifier.
-
-For example:
+Examples include:
 
 ```text
-Selected ID
-    │
-    ▼
-Controller.selected_ids
-    │
-    ▼
-SelectionManager
-    │
-    ▼
-Graphics Item
+ToolChanged
+SelectionChanged
+CanvasChanged
+PluginLoaded
+RendererRegistered
+NavigationChanged
+UIStateChanged
 ```
 
-Selection identity must not depend on:
+Events should communicate state transitions rather than become an uncontrolled replacement for explicit application APIs.
 
-* `QGraphicsItem` memory identity
-* scene ordering
-* numerical network index
-* renderer instance identity
-
-This is essential for synchronization and future multi-view support.
-
----
-
-# 19. Command Architecture
-
-The command layer establishes an important separation:
+Preferred:
 
 ```text
-Intent
-  │
-  ▼
-Command
-  │
-  ▼
+UI Component
+     │
+     ▼
+UI Event
+     │
+     ▼
 Controller
-  │
-  ▼
-Core
-  │
-  ▼
-Authoritative Mutation
+     │
+     ▼
+Core Operation
 ```
 
-A command is not an engineering model.
+Avoid:
 
-A command is not a transaction database.
-
-A command is not a Core snapshot.
-
-This distinction permits undo/redo while maintaining a single authoritative engineering state.
+```text
+UI Event
+   │
+   └── directly mutates hidden Core state
+```
 
 ---
 
-# 20. Error Handling
+# 14. Dependency Direction
 
-UI infrastructure should preserve meaningful errors.
-
-Errors should remain distinguishable by architectural layer.
-
-Examples of UI/application errors:
+The intended dependency direction is:
 
 ```text
-InvalidCommand
-InvalidTool
-UIServiceError
+                High-Level UI
+                     │
+                     ▼
+                  ui/core
+                     │
+                     ▼
+                Controllers
+                     │
+                     ▼
+                  Core
+```
+
+The reverse dependency is prohibited.
+
+In particular:
+
+```text
+core/
+   ✗
+   │
+   └────► ui.core
+```
+
+The engineering Core remains headless.
+
+No Qt dependency should propagate into `core/`.
+
+---
+
+# 15. Engineering Ownership Boundary
+
+`ui/core/` must never become a second engineering core.
+
+The following do **not** belong in `ui/core/`:
+
+* Bus engineering state;
+* Line engineering state;
+* Transformer models;
+* Generator models;
+* electrical topology;
+* Y-bus;
+* power flow;
+* short-circuit calculations;
+* Newton-Raphson;
+* protection logic;
+* relay coordination;
+* transient simulation;
+* EMT calculations;
+* persistent engineering project state.
+
+The correct architecture is:
+
+```text
+UI
+ │
+ ▼
+ui/core
+ │
+ ▼
+Controller
+ │
+ ▼
+Core
+ │
+ ├── Model
+ ├── Network
+ ├── Analysis
+ ├── Solver
+ └── Protection
+```
+
+---
+
+# 16. Digital-Twin Principle
+
+GridForge's UI follows a digital-twin presentation model.
+
+The Core represents authoritative engineering reality.
+
+The UI represents a human-interaction projection of that reality.
+
+```text
+              AUTHORITATIVE ENGINEERING
+                         │
+                         ▼
+                      Core
+                         │
+                         ▼
+                    Controller
+                         │
+                         ▼
+                     ui/core
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+       Canvas          Panels         Plugins
+          │              │              │
+          └──────────────┼──────────────┘
+                         ▼
+                        User
+```
+
+The direction is intentional:
+
+> **Engineering truth flows outward toward visualization; visualization does not become engineering truth.**
+
+---
+
+# 17. Multi-Canvas Vision
+
+The UI Core is designed to support hierarchical and multi-canvas navigation.
+
+A future GridForge project may expose a hierarchy such as:
+
+```text
+Grid
+ │
+ ├── Plant
+ │    │
+ │    ├── Substation
+ │    │    ├── Bus
+ │    │    ├── Transformer
+ │    │    └── Feeder
+ │    │
+ │    └── Auxiliary Systems
+ │
+ └── External Network
+```
+
+The UI Core may provide:
+
+* navigation state;
+* canvas context;
+* workspace identity;
+* view history;
+* context switching;
+* multi-canvas coordination.
+
+However, the underlying engineering hierarchy remains owned by the Core model/network.
+
+---
+
+# 18. Registries
+
+GridForge deliberately uses focused registries rather than one universal object registry.
+
+Examples include:
+
+```text
+PluginRegistry
+RendererRegistry
+ToolRegistry
+PanelRegistry
+CommandRegistry
+```
+
+Each registry should have a clearly defined responsibility.
+
+A registry may provide:
+
+* registration;
+* lookup;
+* duplicate detection;
+* removal where appropriate;
+* deterministic ordering;
+* diagnostics.
+
+A registry should not become responsible for unrelated lifecycle management.
+
+Avoid:
+
+```text
+UniversalRegistry
+    ├── Plugins
+    ├── Renderers
+    ├── Tools
+    ├── Panels
+    ├── Controllers
+    ├── Models
+    └── Solvers
+```
+
+Focused infrastructure is easier to reason about, test, and evolve.
+
+---
+
+# 19. Error Handling
+
+UI Core infrastructure should preserve meaningful failure information.
+
+Examples include:
+
+```text
 PluginLoadError
 RendererLoadError
+InvalidPluginContract
+InvalidToolRegistration
 QtInfrastructureError
+UIServiceError
 ```
 
-Examples of engineering errors:
+Engineering failures should remain distinguishable from UI infrastructure failures.
+
+For example:
 
 ```text
 InvalidTopology
 SolverFailure
 ProtectionError
-InvalidNetworkOperation
 ```
 
-`ui/core/` should not indiscriminately convert every failure into a generic UI exception.
+must not be reduced to a generic:
 
-Meaningful errors are important for:
+```text
+UIError
+```
 
-* debugging
-* testing
-* diagnostics
-* logging
-* automation
-* future user-facing error handling
+without preserving the underlying cause.
 
 ---
 
-# 21. Determinism
+# 20. Determinism
 
-UI infrastructure should behave deterministically.
+UI Core infrastructure should behave deterministically.
 
-Given identical:
+Given the same:
 
-* configuration
-* plugin set
-* tool set
-* renderer set
-* application state
+```text
+Plugin Set
+Renderer Set
+Tool Set
+Application Configuration
+```
 
-the resulting infrastructure behavior should be reproducible.
+the resulting registration and loading order should be reproducible.
 
-Determinism is particularly important for:
+Determinism improves:
 
-* tests
-* startup
-* plugin lifecycle
-* debugging
-* regression analysis
-* automated UI workflows
+* testing;
+* debugging;
+* startup reproducibility;
+* plugin lifecycle management;
+* regression analysis;
+* application diagnostics.
 
 ---
 
-# 22. Performance Principles
+# 21. Performance Principles
 
 `ui/core/` must remain lightweight.
 
 It should avoid:
 
-* unnecessary object duplication
-* repeated discovery
-* hidden global state
-* expensive initialization
-* blocking GUI operations
-* engineering calculations
-* synchronous long-running computation
+* repeated expensive discovery;
+* unnecessary object duplication;
+* duplicated engineering state;
+* blocking operations on the Qt event loop;
+* engineering calculations;
+* heavyweight event handlers;
+* unnecessary registry rebuilding.
 
-The Qt event loop must remain responsive.
+Long-running engineering operations belong outside the GUI execution path.
 
-Long-running engineering operations belong outside the UI execution path and should be coordinated through appropriate controller/backend mechanisms.
-
----
-
-# 23. Threading Boundary
-
-The UI Core does not own numerical execution.
-
-A long-running operation should conceptually follow:
+Conceptually:
 
 ```text
 UI Thread
@@ -909,7 +962,7 @@ UI Thread
 Controller
     │
     ▼
-Core Operation
+Core Execution
     │
     ▼
 Worker / Backend
@@ -918,313 +971,558 @@ Worker / Backend
 Result
     │
     ▼
+UI Thread
+```
+
+---
+
+# 22. Testing Strategy
+
+The UI Core should be independently testable.
+
+## Qt Tests
+
+Verify:
+
+* PySide6 imports;
+* exported symbols;
+* absence of mixed Qt frameworks;
+* Qt abstraction behavior.
+
+## Command Tests
+
+Verify:
+
+* command validation;
+* successful execution;
+* failed execution;
+* undo;
+* redo;
+* redo invalidation;
+* failed undo preservation;
+* failed redo preservation;
+* history limits;
+* command diagnostics.
+
+## Selection Tests
+
+Verify:
+
+* Controller remains authoritative;
+* selection delegation;
+* selection queries;
+* graphics synchronization;
+* item lookup;
+* scene-independent operation;
+* graphics reset behavior.
+
+## Registry Tests
+
+Verify:
+
+* registration;
+* duplicate handling;
+* lookup;
+* removal;
+* deterministic ordering;
+* invalid registration handling.
+
+## Loader Tests
+
+Verify:
+
+* explicit loading;
+* loading failures;
+* dependency handling;
+* lifecycle behavior;
+* deterministic loading.
+
+## Contract Tests
+
+Verify:
+
+* required interfaces;
+* invalid implementations;
+* contract compatibility;
+* lifecycle requirements.
+
+## Integration Tests
+
+The complete plugin path should eventually be verified as:
+
+```text
+Plugin
+   ↓
+Registry
+   ↓
+Loader
+   ↓
+Manager
+   ↓
+Context
+   ↓
+UI Composition
+```
+
+---
+
+# 23. Architectural Anti-Patterns
+
+## 23.1 Mixed Qt frameworks
+
+Never allow:
+
+```text
+PySide6 + PyQt5
+```
+
+or other mixed Qt frameworks.
+
+---
+
+## 23.2 Engineering state inside UI Core
+
+Do not create:
+
+```text
+ui/core/
+    └── authoritative network
+```
+
+The authoritative network belongs to `core/network/`.
+
+---
+
+## 23.3 Hidden plugin imports
+
+Avoid:
+
+```text
+plugin_registry
+      │
+      └── imports every concrete plugin
+```
+
+Use explicit loading.
+
+---
+
+## 23.4 UI Core as a God Object
+
+Avoid turning `ui/core/` into something that:
+
+```text
+manages Canvas
+manages Tools
+manages Panels
+manages Plugins
+manages Solvers
+manages Network
+manages Projects
+```
+
+Infrastructure responsibilities must remain separated.
+
+---
+
+## 23.5 Universal registry
+
+Avoid one registry responsible for every UI object.
+
+---
+
+## 23.6 Graphics as authority
+
+Do not allow:
+
+```text
+QGraphicsItem
+     │
+     └── becomes engineering truth
+```
+
+Graphics objects are projections.
+
+---
+
+## 23.7 UI-side engineering calculations
+
+Do not perform:
+
+```text
+Power Flow
+Y-Bus
+Short Circuit
+Protection
+Solver
+```
+
+inside `ui/core/`.
+
+---
+
+# 24. Future Vision
+
+`ui/core/` is intentionally designed as a foundation rather than a finished endpoint.
+
+As GridForge evolves, the UI Core can become the infrastructure layer supporting a much larger engineering workspace without changing the fundamental ownership model.
+
+Future capabilities may include the following.
+
+## 24.1 Command and Workflow Infrastructure
+
+The command system can evolve toward:
+
+* composite commands;
+* transactional command execution;
+* command grouping;
+* command coalescing;
+* contextual command availability;
+* command metadata;
+* keyboard shortcut integration;
+* command palettes;
+* application automation.
+
+The important constraint remains:
+
+> Commands express intent; Core validates and mutates authoritative state.
+
+---
+
+## 24.2 Advanced Workspace Management
+
+Future workspace infrastructure may support:
+
+```text
+Project
+ │
+ ├── Grid Canvas
+ ├── Substation Canvas
+ ├── Analysis Workspace
+ ├── Protection Workspace
+ ├── Results Workspace
+ └── Custom User Workspace
+```
+
+Possible services include:
+
+* workspace registration;
+* workspace persistence;
+* layout management;
+* dock management;
+* workspace switching;
+* contextual toolbars;
+* workspace-specific commands.
+
+---
+
+## 24.3 Multi-Canvas Navigation
+
+Future UI infrastructure may provide:
+
+* hierarchical canvas navigation;
+* breadcrumb navigation;
+* canvas history;
+* cross-canvas selection;
+* synchronized views;
+* linked viewport navigation;
+* contextual navigation commands.
+
+The electrical hierarchy itself will continue to belong to the Core.
+
+---
+
+## 24.4 Rich Plugin Ecosystem
+
+The plugin architecture can eventually support:
+
+```text
+Core Plugins
+UI Plugins
+Analysis Plugins
+Visualization Plugins
+Import/Export Plugins
+Automation Plugins
+Workspace Plugins
+```
+
+The plugin system should evolve without allowing plugins to bypass Core ownership boundaries.
+
+A mature plugin may contribute:
+
+* panels;
+* tools;
+* renderers;
+* commands;
+* menus;
+* toolbar actions;
+* property editors;
+* analysis views;
+* result visualizations.
+
+---
+
+## 24.5 Renderer Evolution
+
+Renderer infrastructure can grow toward a comprehensive equipment visualization system:
+
+```text
+BusRenderer
+LineRenderer
+TransformerRenderer
+GeneratorRenderer
+MotorRenderer
+BreakerRenderer
+CTRenderer
+PTRenderer
+RelayRenderer
+CableRenderer
+SwitchRenderer
+```
+
+The renderer layer remains presentation-only.
+
+Engineering behavior stays in Core.
+
+---
+
+## 24.6 Context-Sensitive UI
+
+A future GridForge interface may dynamically adapt to:
+
+```text
+Current Canvas
+Current Selection
+Active Tool
+Object Type
+Application Mode
+Analysis State
+User Workspace
+```
+
+For example:
+
+```text
+Selected Transformer
+        │
+        ▼
+Context Services
+        │
+        ├── Transformer Properties
+        ├── Protection
+        ├── Ratings
+        ├── Analysis
+        └── Commands
+```
+
+This should be achieved through explicit service and command contracts rather than hidden cross-layer coupling.
+
+---
+
+## 24.7 Property and Inspector Infrastructure
+
+A future property system could expose Core model data to UI inspectors:
+
+```text
+Core Object
+     │
+     ▼
+Property Adapter
+     │
+     ▼
+Inspector Model
+     │
+     ▼
+Property Panel
+```
+
+The UI would present and edit authoritative data through controlled application APIs rather than directly modifying Core objects.
+
+---
+
+## 24.8 Analysis Result Presentation
+
+As GridForge's numerical capabilities expand, UI Core infrastructure can support result presentation for:
+
+* load flow;
+* contingency analysis;
+* short circuit;
+* protection;
+* relay coordination;
+* transient stability;
+* optimization;
+* scenario comparison.
+
+The architecture should remain:
+
+```text
+Core Analysis
+      │
+      ▼
+Authoritative Result
+      │
+      ▼
 Controller
-    │
-    ▼
-UI Update
+      │
+      ▼
+UI Result Adapter
+      │
+      ▼
+Visualization
 ```
 
-The exact execution mechanism may evolve.
-
-The architectural rule does not:
-
-> **Engineering computation must not block the GUI event loop.**
+The UI displays results; it does not become their owner.
 
 ---
 
-# 24. Multi-Canvas Vision
+## 24.9 Event and State Infrastructure
 
-GridForge is designed to support hierarchical multi-canvas workflows.
+Future UI state services may support:
 
-A future application may expose contexts such as:
+* application modes;
+* workspace modes;
+* navigation state;
+* analysis state;
+* selection contexts;
+* temporary interaction state;
+* synchronized views;
+* state persistence.
 
-```text
-Grid
- │
- ├── Plant
- │
- ├── Substation
- │     ├── Bus
- │     ├── Transformer
- │     └── Feeder
- │
- └── Distribution Area
-```
-
-`ui/core/` may eventually provide application-level infrastructure for:
-
-* canvas context identification
-* navigation state
-* active workspace state
-* view coordination
-* cross-canvas selection
-* context-aware commands
-
-However, the electrical hierarchy remains owned by Core.
-
-The UI may represent the hierarchy.
-
-It must not redefine it.
+The state model should remain explicit and inspectable.
 
 ---
 
-# 25. Future Vision
+## 24.10 Automation and API Integration
 
-The long-term goal of `ui/core/` is to become a **small, stable application infrastructure layer**, not a large collection of unrelated UI utilities.
-
-Potential future capabilities include:
-
-### Command Infrastructure
-
-* command grouping
-* command coalescing
-* transactional command sequences
-* command metadata
-* command auditing
-* command enablement
-* keyboard shortcut integration
-
-### Selection Infrastructure
-
-* cross-canvas selection
-* selection scopes
-* terminal selection
-* hierarchical selection
-* selection filters
-* selection synchronization across views
-
-### UI Services
-
-Potential future services may include:
-
-* workspace management
-* navigation services
-* notification services
-* action services
-* shortcut services
-* view coordination
-* application state services
-
-### Multi-Canvas Support
-
-Future infrastructure may support:
-
-```text
-Grid Canvas
-     │
-     ├── Substation Canvas
-     │       │
-     │       ├── Equipment
-     │       └── Feeders
-     │
-     └── Plant Canvas
-```
-
-The infrastructure should permit multiple views over the same authoritative Core state without duplicating engineering truth.
-
-### Automation
-
-The command architecture can eventually support non-GUI clients:
+A future automation layer could use the same command infrastructure as the GUI:
 
 ```text
 GUI
  │
- ├── Canvas
- ├── Toolbar
- └── Panel
-       │
-       ▼
- CommandManager
-       ▲
-       │
-Automation / API
+ ├──────────────┐
+ ▼              ▼
+User Input    Automation
+ │              │
+ └──────┬───────┘
+        ▼
+     Commands
+        │
+        ▼
+   Controller
+        │
+        ▼
+      Core
 ```
 
-This is one reason the command layer is intentionally independent of Qt.
+This would allow GUI actions and automation workflows to share the same authoritative application pathways.
 
 ---
 
-# 26. Future Architectural Guardrails
+# 25. Long-Term Architectural Vision
 
-Future expansion must not turn `ui/core/` into a God object.
+The long-term goal is not to make `ui/core/` larger.
 
-The following pattern is prohibited:
+The goal is to make it **more stable**.
 
-```text
-ui/core/
-    ├── Canvas Manager
-    ├── Tool Manager
-    ├── Panel Manager
-    ├── Plugin Manager
-    ├── Renderer Manager
-    ├── Solver Manager
-    ├── Network Manager
-    ├── Project Manager
-    └── Everything Manager
-```
-
-Instead, responsibilities should remain separated:
+A mature GridForge UI should be able to evolve from:
 
 ```text
-ui/core/
-    │
-    ├── Application-facing services
-    ├── Command infrastructure
-    ├── Selection infrastructure
-    ├── Tool lifecycle
-    └── Qt boundary
-
-ui/tools/
-    └── Concrete tools
-
-ui/renderers/
-    └── Rendering infrastructure and implementations
-
-ui/plugins/
-    └── Plugin infrastructure and implementations
-
-ui/canvas/
-    └── Canvas implementation
-
-core/
-    └── Engineering truth
+Simple Canvas
+     │
+     ▼
+Basic Tools
+     │
+     ▼
+Basic Panels
 ```
 
-A new responsibility should only be added to `ui/core/` when it is genuinely shared infrastructure.
+toward:
+
+```text
+                    GridForge Workspace
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+     Canvas             Panels            Analysis
+        │                  │                  │
+        └──────────────────┼──────────────────┘
+                           ▼
+                        ui/core
+                           │
+       ┌───────────────────┼───────────────────┐
+       ▼                   ▼                   ▼
+   Commands            Services            Contracts
+       │                   │                   │
+       ├── Plugins         ├── Selection       │
+       ├── Tools           ├── Navigation      │
+       ├── Renderers       ├── Workspace       │
+       └── Automation      └── UI State        │
+                           │
+                           ▼
+                      Controller
+                           │
+                           ▼
+                    GridForge Core
+```
+
+The infrastructure should become more capable while remaining architecturally thin.
 
 ---
 
-# 27. What Must Never Move Into `ui/core/`
+# 26. Stability Principles
 
-The following remain outside the package permanently:
+The following principles should remain stable even as the implementation evolves.
 
-```text
-Electrical Models
-Network Topology
-Y-Bus
-Power Flow
-Short Circuit
-Protection
-Relay Coordination
-Dynamic Simulation
-Solver Algorithms
-Project Engineering State
-Engineering Persistence
-```
+### Principle 1 — Core owns engineering truth
 
-Likewise, `ui/core/` should not become the home of:
+No UI component becomes an alternative engineering authority.
 
-```text
-Concrete Renderers
-Concrete Tools
-Concrete Plugins
-Canvas Rendering
-Equipment Graphics
-Engineering Algorithms
-```
+### Principle 2 — Controller is the application boundary
 
-The package is intentionally limited.
+UI services request operations through established application pathways.
 
----
+### Principle 3 — Qt has one boundary
 
-# 28. Testing Strategy
+PySide6 access is centralized through `ui.core.qt`.
 
-`ui/core/` should be testable independently from the full GUI where practical.
+### Principle 4 — UI state is not engineering state
 
-## Qt Boundary Tests
+Selection, tools, navigation, zoom, and interaction state remain separate from engineering truth.
 
-Verify:
+### Principle 5 — Graphics are projections
 
-* PySide6 imports
-* exported symbols
-* absence of alternative Qt frameworks
-* stable internal API
+`QGraphicsItem` objects visualize state; they do not own it.
 
-## Controller Tests
+### Principle 6 — Commands represent intent
 
-Verify:
+Commands do not bypass Core validation.
 
-* application-facing operations
-* Core delegation
-* selection ownership
-* event propagation
-* error preservation
+### Principle 7 — Registries remain focused
 
-## CommandManager Tests
+Infrastructure should remain modular rather than becoming a universal object manager.
 
-Verify:
+### Principle 8 — Plugin loading is explicit
 
-* command validation
-* successful execution
-* failed execution
-* undo
-* redo
-* failed undo
-* failed redo
-* redo invalidation
-* history limits
-* recursive execution protection
-* diagnostic state
+Concrete plugin imports and lifecycle remain controlled.
 
-## SelectionManager Tests
+### Principle 9 — Core remains headless
 
-Verify:
+No Qt dependency may leak into the engineering Core.
 
-* Controller selection remains authoritative
-* single selection
-* additive selection
-* clearing
-* graphics synchronization
-* item lookup
-* graphics reset
-* selection diagnostics
+### Principle 10 — Infrastructure should remain replaceable
 
-## ToolManager Tests
-
-Verify:
-
-* registration/use of approved tools
-* activation
-* deactivation
-* current-tool state
-* lifecycle behavior
-* invalid tool handling
-
-## Integration Tests
-
-The long-term integration path is:
-
-```text
-UI Component
-      │
-      ▼
-UI Service
-      │
-      ▼
-Controller
-      │
-      ▼
-Core
-      │
-      ▼
-Domain Event
-      │
-      ▼
-UI Projection
-```
-
-The tests should verify that this path preserves ownership boundaries.
+Concrete UI implementations may evolve without changing engineering architecture.
 
 ---
 
-# 29. Development and Freeze Process
+# 27. Development and Freeze Process
 
-Changes to `ui/core/` should follow the GridForge development methodology:
+UI Core development follows the GridForge subsystem methodology:
 
 ```text
 Architecture
      ↓
-Contract
+Contracts
      ↓
 Implementation
      ↓
@@ -1247,142 +1545,127 @@ Finalization
 Freeze
 ```
 
-A downstream workaround should not be used to hide an architectural defect.
+A defect should be corrected at the layer where the architectural responsibility belongs.
 
-Defects should be corrected at the layer where ownership is actually wrong.
-
----
-
-# 30. Architectural Rules
-
-| #  | Rule                         | Requirement                                                     |
-| -- | ---------------------------- | --------------------------------------------------------------- |
-| 1  | Infrastructure only          | `ui/core/` must not become an engineering subsystem             |
-| 2  | Core authority               | Engineering truth belongs to `core/`                            |
-| 3  | PySide6 only                 | No mixed Qt frameworks                                          |
-| 4  | Qt boundary                  | Common Qt imports pass through `ui.core.qt`                     |
-| 5  | No Core dependency on UI     | `core/` must remain headless                                    |
-| 6  | No state duplication         | UI must not duplicate engineering truth                         |
-| 7  | Controller boundary          | UI operations reach Core through defined application interfaces |
-| 8  | Commands represent intent    | Commands must not become state snapshots                        |
-| 9  | Selection is UI state        | Persistent engineering state remains in Core                    |
-| 10 | Focused services             | Each manager/service has a narrow responsibility                |
-| 11 | Concrete tools stay separate | Tool implementations remain in `ui/tools/`                      |
-| 12 | Renderers stay separate      | Rendering remains in `ui/renderers/`                            |
-| 13 | Plugins stay separate        | Plugin infrastructure remains in `ui/plugins/`                  |
-| 14 | Deterministic behavior       | Infrastructure behavior must be reproducible                    |
-| 15 | Responsive UI                | Long-running engineering work must not block Qt                 |
-| 16 | Explicit dependencies        | Avoid hidden global state and uncontrolled imports              |
-| 17 | Stable contracts             | Higher-level components depend on explicit interfaces           |
-| 18 | No God object                | `ui/core/` must remain focused                                  |
+Downstream workarounds should not be used to hide an upstream contract violation.
 
 ---
 
-# 31. Digital-Twin Principle
+# 28. Definition of Done for UI Core
 
-GridForge follows a digital-twin architecture in which engineering truth is authoritative and visualization is a projection.
+Before a UI Core component is considered stable, it should satisfy:
 
-The relationship is:
+* [ ] Clear ownership boundary
+* [ ] Explicit public contract
+* [ ] No engineering state duplication
+* [ ] No inappropriate Core dependencies
+* [ ] No direct Qt imports outside the Qt boundary
+* [ ] Deterministic behavior
+* [ ] Meaningful error handling
+* [ ] Unit-test coverage
+* [ ] Integration-test coverage where applicable
+* [ ] No unnecessary global state
+* [ ] No hidden lifecycle behavior
+* [ ] No circular dependency introduced
+* [ ] Documentation updated
+* [ ] Architectural audit completed
+* [ ] Regression tests passing
+
+---
+
+# 29. Package Philosophy
+
+The `ui/core/` package should remain intentionally boring.
+
+That is a feature.
+
+It should provide the infrastructure that makes the rest of the UI predictable:
 
 ```text
-                 AUTHORITATIVE ENGINEERING STATE
-                              │
-                              ▼
-                         GridForge Core
-                              │
-                              ▼
-                         Controller
-                              │
-                              ▼
-                           UI Core
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-            Canvas          Panels           Tools
-              │               │               │
-              └───────────────┼───────────────┘
-                              ▼
-                         User Interface
+Stable Contracts
+       +
+Focused Services
+       +
+Explicit Dependencies
+       +
+Controlled Qt Boundary
+       +
+Authoritative Controller/Core
+       =
+Predictable GridForge UI
 ```
 
-The direction is deliberate.
-
-Engineering state flows outward toward the UI.
-
-The UI does not become engineering truth.
+The package should not contain clever shortcuts that make individual features easier at the expense of architectural integrity.
 
 ---
 
-# 32. Current Status
+# 30. Final Architecture
 
-`ui/core/` is currently established as the foundational UI infrastructure layer containing:
+The final intended relationship is:
 
 ```text
-Qt Boundary
-    │
-    ├── qt.py
-    │
-Application Services
-    │
-    ├── controller.py
-    ├── command_manager.py
-    ├── selection_manager.py
-    └── tool_manager.py
+                         GRIDFORGE UI
+                              │
+             ┌────────────────┼────────────────┐
+             ▼                ▼                ▼
+          Canvas             Tools            Panels
+             │                │                │
+             └────────────────┼────────────────┘
+                              │
+                              ▼
+                         ui/core/
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+     Qt Abstraction       Registries          Contracts
+          │                   │                   │
+          │             ┌─────┼─────┐             │
+          │             ▼     ▼     ▼             │
+          │          Plugins Renderers Tools       │
+          │                                        │
+          └────────────────┬───────────────────────┘
+                           ▼
+                     UI Controllers
+                           │
+                           ▼
+                    GridForge Core
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+      Model             Network            Analysis
+                                               │
+                                               ▼
+                                             Solver
 ```
 
-The package is intentionally kept small and focused.
+The UI Core is therefore:
 
-The current architecture is suitable for the next integration phase involving:
-
-* MainWindow composition
-* plugin-driven UI construction
-* Canvas integration
-* tool integration
-* selection projection
-* command integration
-* panel integration
-* application-level event flow
-
-Future capabilities should be added only after their ownership and contracts have been established.
+* foundational, but not universal;
+* shared, but not state-owning;
+* powerful, but not authoritative;
+* extensible, but contract-driven;
+* Qt-aware, but isolated from the engineering Core.
 
 ---
 
-# 33. Final Architectural Principle
+# 31. Guiding Principle
 
-The defining rule of GridForge UI Core is:
+The GridForge V2 UI Core follows one central rule:
 
-> **Shared UI infrastructure belongs in `ui/core/`; engineering truth belongs in `core/`.**
+> **Provide shared GUI infrastructure without becoming a second engineering core.**
 
-The package exists to provide stable boundaries between:
+Engineering truth belongs to `core/`.
 
-```text
-User
-  │
-  ▼
-GridForge UI
-  │
-  ▼
-UI Services
-  │
-  ▼
-Controller
-  │
-  ▼
-GridForge Core
-  │
-  ├── Model
-  ├── Network
-  ├── Analysis
-  ├── Protection
-  └── Solver
-```
+Application workflow belongs to Controllers.
 
-A successful `ui/core/` architecture is therefore not one that contains everything the GUI needs.
+UI infrastructure belongs to `ui/core/`.
 
-It is one that **contains only the infrastructure that genuinely belongs at this boundary**, while keeping Canvas, Tools, Plugins, Renderers, and Engineering Core responsibilities in their appropriate layers.
+Visualization belongs to the UI presentation layers.
+
+This separation is what allows GridForge to evolve from an ETAP-like graphical interface into a broader engineering workspace without compromising the integrity of its digital-twin architecture.
 
 ---
 
-<p align="center">
-<em>GridForge UI Core — stable UI infrastructure, explicit application boundaries, and one authoritative engineering core.</em>
-</p>
+**GridForge V2 UI Core**
+
+*Shared infrastructure. Explicit contracts. Deterministic composition. One authoritative engineering core.*
