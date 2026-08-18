@@ -1,0 +1,1051 @@
+# ============================================================
+# File: ui/canvas/navigation_controller.py
+# GridForge V2 — Canvas Navigation Controller
+# ============================================================
+"""
+Canvas-level navigation controller for GridForge V2.
+
+NavigationController owns viewport navigation mechanics.
+
+Responsibilities
+----------------
+NavigationController is responsible for:
+
+    - canvas zoom;
+    - canvas panning;
+    - view transformation;
+    - wheel-based zoom;
+    - middle-mouse pan state;
+    - view reset;
+    - fitting scene content into the viewport;
+    - navigation diagnostics.
+
+Architecture
+------------
+
+    GraphicsView
+         │
+         ▼
+    NavigationController
+         │
+         ├── zoom
+         ├── pan
+         ├── reset
+         └── fit
+         │
+         ▼
+    QGraphicsView transform
+
+NavigationController does NOT:
+
+    - modify Core model state;
+    - access the electrical model;
+    - manage tools;
+    - manage selection;
+    - perform snapping;
+    - perform rendering;
+    - create graphics items;
+    - own the QGraphicsScene;
+    - decide application-level navigation policy;
+    - communicate directly with domain objects.
+
+Ownership
+---------
+GraphicsView owns the NavigationController instance.
+
+NavigationController does not own the GraphicsView.
+
+The supplied view is treated as the navigation target.
+
+Qt Architecture
+---------------
+All Qt dependencies must be imported through:
+
+    ui.core.qt
+
+No direct PySide6/PyQt imports are permitted.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+from ui.core.qt import (
+    QPainter,
+    QTransform,
+    Qt,
+)
+
+
+class NavigationController:
+    """
+    Canvas-level navigation mechanics.
+
+    The controller is deliberately independent of GridForge Core.
+    It operates only on the supplied GraphicsView and its scene
+    transform.
+    """
+
+    # ========================================================
+    # DEFAULT CONFIGURATION
+    # ========================================================
+
+    DEFAULT_ZOOM_FACTOR = 1.15
+
+    DEFAULT_MIN_ZOOM = 0.10
+    DEFAULT_MAX_ZOOM = 20.0
+
+    DEFAULT_PAN_BUTTON = Qt.MiddleButton
+
+    DEFAULT_FIT_MARGIN = 50.0
+
+    # ========================================================
+    # INITIALIZATION
+    # ========================================================
+
+    def __init__(
+        self,
+        view: Any,
+        *,
+        zoom_factor: float = DEFAULT_ZOOM_FACTOR,
+        min_zoom: float = DEFAULT_MIN_ZOOM,
+        max_zoom: float = DEFAULT_MAX_ZOOM,
+    ) -> None:
+        """
+        Initialize canvas navigation.
+
+        Parameters
+        ----------
+        view:
+            GraphicsView receiving the navigation operations.
+
+        zoom_factor:
+            Multiplicative zoom factor for one zoom step.
+
+        min_zoom:
+            Minimum allowed relative zoom.
+
+        max_zoom:
+            Maximum allowed relative zoom.
+        """
+
+        if view is None:
+            raise ValueError(
+                "view must not be None."
+            )
+
+        self.view = view
+
+        self.zoom_factor = self._validate_zoom_factor(
+            zoom_factor
+        )
+
+        self.min_zoom = self._validate_zoom_limit(
+            min_zoom,
+            "min_zoom",
+        )
+
+        self.max_zoom = self._validate_zoom_limit(
+            max_zoom,
+            "max_zoom",
+        )
+
+        if self.min_zoom > self.max_zoom:
+            raise ValueError(
+                "min_zoom must not be greater than max_zoom."
+            )
+
+        # ----------------------------------------------------
+        # Navigation state.
+        #
+        # This is relative to the transform established when
+        # the controller is initialized/reset.
+        # ----------------------------------------------------
+
+        self._zoom_level = 1.0
+
+        self._is_panning = False
+        self._pan_start = None
+
+        self._disposed = False
+
+    # ========================================================
+    # VIEW ACCESS
+    # ========================================================
+
+    def get_view(
+        self,
+    ) -> Any:
+        """
+        Return the GraphicsView controlled by this instance.
+        """
+
+        return self.view
+
+    # ========================================================
+    # PAN STATE
+    # ========================================================
+
+    @property
+    def is_panning(
+        self,
+    ) -> bool:
+        """
+        Return True while middle-button panning is active.
+        """
+
+        return self._is_panning
+
+    # --------------------------------------------------------
+
+    def start_pan(
+        self,
+        position: Any,
+    ) -> None:
+        """
+        Begin middle-button panning.
+
+        Parameters
+        ----------
+        position:
+            Viewport-space position providing x() and y().
+        """
+
+        self._validate_position(
+            position,
+            "position",
+        )
+
+        self._ensure_active()
+
+        self._is_panning = True
+        self._pan_start = position
+
+    # --------------------------------------------------------
+
+    def update_pan(
+        self,
+        position: Any,
+    ) -> None:
+        """
+        Update an active pan operation.
+
+        The operation is ignored when panning is not active.
+        """
+
+        self._validate_position(
+            position,
+            "position",
+        )
+
+        self._ensure_active()
+
+        if not self._is_panning:
+            return
+
+        if self._pan_start is None:
+            self._is_panning = False
+            return
+
+        dx = (
+            position.x()
+            - self._pan_start.x()
+        )
+
+        dy = (
+            position.y()
+            - self._pan_start.y()
+        )
+
+        horizontal = self.view.horizontalScrollBar()
+        vertical = self.view.verticalScrollBar()
+
+        horizontal.setValue(
+            horizontal.value() - int(dx)
+        )
+
+        vertical.setValue(
+            vertical.value() - int(dy)
+        )
+
+        self._pan_start = position
+
+    # --------------------------------------------------------
+
+    def end_pan(
+        self,
+    ) -> None:
+        """
+        End the current pan operation.
+        """
+
+        self._is_panning = False
+        self._pan_start = None
+
+    # ========================================================
+    # WHEEL
+    # ========================================================
+
+    def handle_wheel(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Handle a wheel event as canvas zoom.
+
+        Returns
+        -------
+        bool
+            True when the event was consumed.
+        """
+
+        if event is None:
+            return False
+
+        self._ensure_active()
+
+        angle_delta = getattr(
+            event,
+            "angleDelta",
+            None,
+        )
+
+        if not callable(
+            angle_delta
+        ):
+            return False
+
+        delta = angle_delta()
+
+        y_method = getattr(
+            delta,
+            "y",
+            None,
+        )
+
+        if not callable(
+            y_method
+        ):
+            return False
+
+        value = y_method()
+
+        if value == 0:
+            return False
+
+        steps = (
+            value / 120.0
+        )
+
+        position = None
+
+        position_method = getattr(
+            event,
+            "position",
+            None,
+        )
+
+        if callable(
+            position_method
+        ):
+            position = position_method()
+
+        if position is not None:
+            self._zoom_at(
+                steps,
+                position,
+            )
+        else:
+            self._zoom(
+                steps
+            )
+
+        event.accept()
+
+        return True
+
+    # ========================================================
+    # ZOOM
+    # ========================================================
+
+    def zoom_in(
+        self,
+        steps: int = 1,
+    ) -> None:
+        """
+        Zoom into the canvas.
+
+        Positive steps increase zoom.
+        """
+
+        steps = self._validate_steps(
+            steps
+        )
+
+        if steps == 0:
+            return
+
+        self._ensure_active()
+
+        self._zoom(
+            steps
+        )
+
+    # --------------------------------------------------------
+
+    def zoom_out(
+        self,
+        steps: int = 1,
+    ) -> None:
+        """
+        Zoom out of the canvas.
+
+        Positive steps decrease zoom.
+        """
+
+        steps = self._validate_steps(
+            steps
+        )
+
+        if steps == 0:
+            return
+
+        self._ensure_active()
+
+        self._zoom(
+            -steps
+        )
+
+    # --------------------------------------------------------
+
+    def _zoom(
+        self,
+        steps: float,
+    ) -> None:
+        """
+        Apply zoom steps around the viewport center.
+        """
+
+        if steps == 0:
+            return
+
+        target = (
+            self._zoom_level
+            * (
+                self.zoom_factor
+                ** steps
+            )
+        )
+
+        target = self._clamp_zoom(
+            target
+        )
+
+        factor = (
+            target
+            / self._zoom_level
+        )
+
+        if factor == 1.0:
+            return
+
+        self.view.scale(
+            factor,
+            factor,
+        )
+
+        self._zoom_level = target
+
+    # --------------------------------------------------------
+
+    def _zoom_at(
+        self,
+        steps: float,
+        position: Any,
+    ) -> None:
+        """
+        Apply zoom around a viewport position.
+
+        The cursor remains anchored to the same scene location.
+        """
+
+        self._validate_position(
+            position,
+            "position",
+        )
+
+        if steps == 0:
+            return
+
+        target = (
+            self._zoom_level
+            * (
+                self.zoom_factor
+                ** steps
+            )
+        )
+
+        target = self._clamp_zoom(
+            target
+        )
+
+        factor = (
+            target
+            / self._zoom_level
+        )
+
+        if factor == 1.0:
+            return
+
+        # ----------------------------------------------------
+        # Map the cursor into scene coordinates before scaling.
+        # ----------------------------------------------------
+
+        scene_position = self.view.mapToScene(
+            position.toPoint()
+            if hasattr(
+                position,
+                "toPoint",
+            )
+            else position
+        )
+
+        self.view.scale(
+            factor,
+            factor,
+        )
+
+        # ----------------------------------------------------
+        # Restore the cursor's scene position after scaling.
+        # ----------------------------------------------------
+
+        viewport_position = self.view.mapFromScene(
+            scene_position
+        )
+
+        current_x = position.x()
+        current_y = position.y()
+
+        delta_x = (
+            viewport_position.x()
+            - current_x
+        )
+
+        delta_y = (
+            viewport_position.y()
+            - current_y
+        )
+
+        horizontal = self.view.horizontalScrollBar()
+        vertical = self.view.verticalScrollBar()
+
+        horizontal.setValue(
+            horizontal.value()
+            + int(delta_x)
+        )
+
+        vertical.setValue(
+            vertical.value()
+            + int(delta_y)
+        )
+
+        self._zoom_level = target
+
+    # ========================================================
+    # ZOOM STATE
+    # ========================================================
+
+    def get_zoom_level(
+        self,
+    ) -> float:
+        """
+        Return the current relative zoom level.
+        """
+
+        return self._zoom_level
+
+    # --------------------------------------------------------
+
+    def set_zoom_level(
+        self,
+        level: float,
+    ) -> None:
+        """
+        Set the relative zoom level.
+
+        The requested level is clamped to the configured range.
+        """
+
+        if isinstance(
+            level,
+            bool,
+        ) or not isinstance(
+            level,
+            (int, float),
+        ):
+            raise TypeError(
+                "level must be numeric."
+            )
+
+        level = float(level)
+
+        if level <= 0.0:
+            raise ValueError(
+                "level must be greater than zero."
+            )
+
+        self._ensure_active()
+
+        target = self._clamp_zoom(
+            level
+        )
+
+        factor = (
+            target
+            / self._zoom_level
+        )
+
+        if factor != 1.0:
+            self.view.scale(
+                factor,
+                factor,
+            )
+
+        self._zoom_level = target
+
+    # ========================================================
+    # RESET
+    # ========================================================
+
+    def reset_view(
+        self,
+    ) -> None:
+        """
+        Reset the viewport transform and navigation state.
+        """
+
+        self._ensure_active()
+
+        self.end_pan()
+
+        self.view.resetTransform()
+
+        self._zoom_level = 1.0
+
+    # ========================================================
+    # FIT CONTENT
+    # ========================================================
+
+    def fit_content(
+        self,
+        margin: float = DEFAULT_FIT_MARGIN,
+    ) -> None:
+        """
+        Fit visible scene content into the viewport.
+
+        Parameters
+        ----------
+        margin:
+            Margin in viewport pixels.
+        """
+
+        if isinstance(
+            margin,
+            bool,
+        ) or not isinstance(
+            margin,
+            (int, float),
+        ):
+            raise TypeError(
+                "margin must be numeric."
+            )
+
+        margin = float(margin)
+
+        if margin < 0.0:
+            raise ValueError(
+                "margin must not be negative."
+            )
+
+        self._ensure_active()
+
+        scene = self.view.scene()
+
+        if scene is None:
+            return
+
+        items = scene.items()
+
+        if not items:
+            return
+
+        rect = scene.itemsBoundingRect()
+
+        if rect.isNull() or rect.isEmpty():
+            return
+
+        viewport = self.view.viewport()
+
+        width = float(
+            viewport.width()
+        ) - (
+            2.0 * margin
+        )
+
+        height = float(
+            viewport.height()
+        ) - (
+            2.0 * margin
+        )
+
+        if width <= 0.0 or height <= 0.0:
+            return
+
+        self.end_pan()
+
+        self.view.fitInView(
+            rect,
+            Qt.KeepAspectRatio,
+        )
+
+        self._zoom_level = self._estimate_zoom_level()
+
+        self._zoom_level = self._clamp_zoom(
+            self._zoom_level
+        )
+
+    # ========================================================
+    # VIEW TRANSFORM
+    # ========================================================
+
+    def get_transform(
+        self,
+    ) -> Any:
+        """
+        Return the current viewport transform.
+        """
+
+        return self.view.transform()
+
+    # --------------------------------------------------------
+
+    def set_transform(
+        self,
+        transform: Any,
+    ) -> None:
+        """
+        Replace the viewport transform.
+
+        This is a low-level navigation operation and does not
+        modify application state.
+        """
+
+        if transform is None:
+            raise ValueError(
+                "transform must not be None."
+            )
+
+        self._ensure_active()
+
+        self.view.setTransform(
+            transform
+        )
+
+        self._zoom_level = self._estimate_zoom_level()
+
+        self._zoom_level = self._clamp_zoom(
+            self._zoom_level
+        )
+
+    # ========================================================
+    # ZOOM LIMITS
+    # ========================================================
+
+    def set_zoom_limits(
+        self,
+        min_zoom: float,
+        max_zoom: float,
+    ) -> None:
+        """
+        Replace the allowed relative zoom range.
+        """
+
+        min_zoom = self._validate_zoom_limit(
+            min_zoom,
+            "min_zoom",
+        )
+
+        max_zoom = self._validate_zoom_limit(
+            max_zoom,
+            "max_zoom",
+        )
+
+        if min_zoom > max_zoom:
+            raise ValueError(
+                "min_zoom must not be greater than max_zoom."
+            )
+
+        self.min_zoom = min_zoom
+        self.max_zoom = max_zoom
+
+        self._zoom_level = self._clamp_zoom(
+            self._zoom_level
+        )
+
+    # --------------------------------------------------------
+
+    def _clamp_zoom(
+        self,
+        level: float,
+    ) -> float:
+        """
+        Clamp a zoom level to the configured range.
+        """
+
+        return max(
+            self.min_zoom,
+            min(
+                self.max_zoom,
+                float(level),
+            ),
+        )
+
+    # --------------------------------------------------------
+
+    def _estimate_zoom_level(
+        self,
+    ) -> float:
+        """
+        Estimate the current uniform scale from the view
+        transform.
+        """
+
+        transform = self.view.transform()
+
+        m11 = getattr(
+            transform,
+            "m11",
+            None,
+        )
+
+        if callable(
+            m11
+        ):
+            scale = float(
+                m11()
+            )
+
+            if scale > 0.0:
+                return scale
+
+        return 1.0
+
+    # ========================================================
+    # DEBUG STATE
+    # ========================================================
+
+    def get_state(
+        self,
+    ) -> dict[str, Any]:
+        """
+        Return diagnostic navigation state.
+        """
+
+        return {
+            "view": self.view is not None,
+            "zoom_level": self._zoom_level,
+            "zoom_factor": self.zoom_factor,
+            "min_zoom": self.min_zoom,
+            "max_zoom": self.max_zoom,
+            "is_panning": self._is_panning,
+            "has_pan_start": (
+                self._pan_start is not None
+            ),
+            "disposed": self._disposed,
+        }
+
+    # ========================================================
+    # CLEANUP
+    # ========================================================
+
+    def dispose(
+        self,
+    ) -> None:
+        """
+        Release transient navigation state.
+
+        The GraphicsView itself is not destroyed.
+        """
+
+        if self._disposed:
+            return
+
+        self.end_pan()
+
+        self._disposed = True
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_zoom_factor(
+        value: float,
+    ) -> float:
+        """
+        Validate a multiplicative zoom factor.
+        """
+
+        if isinstance(
+            value,
+            bool,
+        ) or not isinstance(
+            value,
+            (int, float),
+        ):
+            raise TypeError(
+                "zoom_factor must be numeric."
+            )
+
+        value = float(value)
+
+        if value <= 1.0:
+            raise ValueError(
+                "zoom_factor must be greater than 1.0."
+            )
+
+        return value
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_zoom_limit(
+        value: float,
+        name: str,
+    ) -> float:
+        """
+        Validate one zoom boundary.
+        """
+
+        if isinstance(
+            value,
+            bool,
+        ) or not isinstance(
+            value,
+            (int, float),
+        ):
+            raise TypeError(
+                f"{name} must be numeric."
+            )
+
+        value = float(value)
+
+        if value <= 0.0:
+            raise ValueError(
+                f"{name} must be greater than zero."
+            )
+
+        return value
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_steps(
+        steps: int,
+    ) -> int:
+        """
+        Validate an integer zoom-step count.
+        """
+
+        if isinstance(
+            steps,
+            bool,
+        ) or not isinstance(
+            steps,
+            int,
+        ):
+            raise TypeError(
+                "steps must be an integer."
+            )
+
+        return steps
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_position(
+        position: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a QPointF-compatible viewport position.
+        """
+
+        if position is None:
+            raise ValueError(
+                f"{name} must not be None."
+            )
+
+        if not callable(
+            getattr(
+                position,
+                "x",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide x()."
+            )
+
+        if not callable(
+            getattr(
+                position,
+                "y",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide y()."
+            )
+
+    # --------------------------------------------------------
+
+    def _ensure_active(
+        self,
+    ) -> None:
+        """
+        Reject operations after disposal.
+        """
+
+        if self._disposed:
+            raise RuntimeError(
+                "NavigationController has been disposed."
+            )
+
+    # ========================================================
+    # REPRESENTATION
+    # ========================================================
+
+    def __repr__(
+        self,
+    ) -> str:
+        """
+        Return a concise diagnostic representation.
+        """
+
+        return (
+            "NavigationController("
+            f"zoom={self._zoom_level}, "
+            f"panning={self._is_panning}"
+            ")"
+        )
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
+
+__all__ = [
+    "NavigationController",
+]
