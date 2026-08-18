@@ -3,86 +3,103 @@
 # GridForge V2 — Bus Renderer
 # ============================================================
 """
-Renderer for authoritative GridForge Bus objects.
+Concrete renderer for authoritative GridForge Bus objects.
 
 Architecture
 ------------
 
-    Core / Application Bus
-              │
-              ▼
-         BusRenderer
-              │
-              ▼
-           BusItem
-              │
-              ▼
-         GridScene
+    Authoritative Core/Application Bus
+                    │
+                    ▼
+              BusRenderer
+                    │
+                    ▼
+                 BusItem
+                    │
+                    ▼
+              QGraphicsScene
 
 Purpose
 -------
-BusRenderer is the presentation-layer adapter responsible for
-creating and updating the graphical projection of a Bus.
+BusRenderer converts authoritative Bus state into its graphical
+presentation.
 
-The Bus model remains authoritative.
+The Bus object remains the single source of engineering truth.
 
-BusRenderer does NOT:
+BusRenderer is a presentation-layer adapter only.
 
-    - modify the Core model;
-    - create electrical objects;
-    - determine topology;
+It does NOT:
+
+    - create or mutate Core engineering objects;
+    - determine electrical topology;
     - perform electrical calculations;
-    - own selection state;
-    - implement tools;
     - perform snapping;
+    - implement tools;
+    - own application selection state;
     - perform navigation;
+    - own the Canvas;
     - own the QGraphicsScene;
-    - manage application-level object lifetime.
+    - persist project state;
+    - maintain an independent engineering-state cache.
 
-Rendering ownership
+Rendering direction
 -------------------
-The renderer owns the visual representation it creates or
-updates, but does not own the underlying model object.
 
-The renderer operates on a supplied scene.
+    Core/Application State
+            ↓
+        BusRenderer
+            ↓
+          BusItem
+            ↓
+       Graphics Scene
 
-Identity
---------
-Every rendered BusItem exposes:
+The reverse direction is prohibited:
 
-    object_id
-
-The renderer uses that identifier to locate an existing
-projection before creating a new one.
+    BusItem
+       ↓
+    BusRenderer
+       ↓
+    Core engineering state
 
 Qt Architecture
----------------
-All Qt dependencies must pass through:
+----------------
+All Qt dependencies pass through:
 
     ui.core.qt
+
+No direct PySide6/PyQt imports are permitted.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QPointF, QGraphicsScene
+from ui.core.qt import (
+    QGraphicsScene,
+    QPointF,
+)
 
 from ui.items.bus_item import BusItem
+from ui.renderers.renderer_base import RendererBase
+from ui.renderers.renderer_utils import (
+    find_item_by_object_id,
+    get_object_id,
+    to_pointf,
+)
 
 
-class BusRenderer:
+class BusRenderer(RendererBase):
     """
-    Render and synchronize Bus objects as BusItem instances.
+    Render authoritative Bus objects as BusItem projections.
 
-    A BusRenderer is intentionally stateless with respect to the
-    application model. It does not maintain a persistent object
-    cache.
+    The renderer does not maintain a persistent application-model
+    cache. The graphics scene is the container for graphical
+    projections.
 
     Parameters
     ----------
     scene:
-        QGraphicsScene receiving the graphical projections.
+        Target QGraphicsScene-compatible object.
     """
 
     # ========================================================
@@ -92,71 +109,27 @@ class BusRenderer:
     DEFAULT_RADIUS = BusItem.DEFAULT_RADIUS
 
     # ========================================================
-    # INITIALIZATION
-    # ========================================================
-
-    def __init__(
-        self,
-        scene: QGraphicsScene,
-    ) -> None:
-        if scene is None:
-            raise ValueError(
-                "scene must not be None."
-            )
-
-        if not callable(
-            getattr(scene, "addItem", None)
-        ):
-            raise TypeError(
-                "scene must provide addItem()."
-            )
-
-        if not callable(
-            getattr(scene, "removeItem", None)
-        ):
-            raise TypeError(
-                "scene must provide removeItem()."
-            )
-
-        if not callable(
-            getattr(scene, "items", None)
-        ):
-            raise TypeError(
-                "scene must provide items()."
-            )
-
-        self.scene = scene
-
-    # ========================================================
     # RENDER
     # ========================================================
 
     def render(
         self,
-        bus: Any,
+        model: Any,
     ) -> BusItem:
         """
         Create or update the graphical projection of a Bus.
 
-        If a BusItem with the same object_id already exists,
-        that item is updated and returned.
+        If a BusItem representing the same authoritative
+        object_id already exists, that projection is updated.
 
-        Otherwise a new BusItem is created and added to the
-        renderer's scene.
+        Otherwise a new BusItem is created, attached to the
+        renderer scene, and returned.
 
-        Parameters
-        ----------
-        bus:
-            Authoritative Bus/application object.
-
-        Returns
-        -------
-        BusItem
-            The graphical projection representing the Bus.
+        The authoritative Bus is never modified.
         """
 
         object_id = self._get_object_id(
-            bus
+            model
         )
 
         existing = self.get_item(
@@ -164,21 +137,13 @@ class BusRenderer:
         )
 
         if existing is not None:
-            self.update(
+            return self.update(
                 existing,
-                bus,
+                model,
             )
-            return existing
 
-        position = self.get_model_position(
-            bus
-        )
-
-        item = BusItem(
-            object_id=object_id,
-            position=position,
-            radius=self.DEFAULT_RADIUS,
-            model=bus,
+        item = self.create_item(
+            model
         )
 
         self.scene.addItem(
@@ -193,24 +158,23 @@ class BusRenderer:
 
     def create_item(
         self,
-        bus: Any,
+        model: Any,
     ) -> BusItem:
         """
-        Create a new BusItem without automatically adding it to
-        the scene.
+        Create a BusItem projection without adding it to the
+        scene.
 
-        This method is useful for explicit scene lifecycle
-        management.
+        This method performs projection construction only.
 
         Raises
         ------
         ValueError
-            If a projection for the same object_id already
-            exists in the scene.
+            If a projection with the same object_id already
+            exists in the attached scene.
         """
 
         object_id = self._get_object_id(
-            bus
+            model
         )
 
         if self.get_item(
@@ -222,13 +186,15 @@ class BusRenderer:
                 "already exists."
             )
 
+        position = self.get_model_position(
+            model
+        )
+
         return BusItem(
             object_id=object_id,
-            position=self.get_model_position(
-                bus
-            ),
+            position=position,
             radius=self.DEFAULT_RADIUS,
-            model=bus,
+            model=model,
         )
 
     # ========================================================
@@ -238,26 +204,15 @@ class BusRenderer:
     def update(
         self,
         item: BusItem,
-        bus: Any,
+        model: Any,
     ) -> BusItem:
         """
-        Synchronize an existing BusItem from the authoritative
-        Bus object.
+        Synchronize an existing BusItem from authoritative Bus
+        state.
 
-        The model object is never modified.
+        Only the graphical projection is modified.
 
-        Parameters
-        ----------
-        item:
-            Existing graphical Bus projection.
-
-        bus:
-            Authoritative Bus/application object.
-
-        Returns
-        -------
-        BusItem
-            The updated graphical projection.
+        The supplied Core/application object is never mutated.
         """
 
         if item is None:
@@ -274,7 +229,7 @@ class BusRenderer:
             )
 
         object_id = self._get_object_id(
-            bus
+            model
         )
 
         if item.object_id != object_id:
@@ -284,11 +239,11 @@ class BusRenderer:
             )
 
         position = self.get_model_position(
-            bus
+            model
         )
 
         item.set_model(
-            bus
+            model
         )
 
         item.set_scene_position(
@@ -306,12 +261,18 @@ class BusRenderer:
         object_id: Any,
     ) -> bool:
         """
-        Remove the graphical Bus projection identified by
-        object_id.
+        Remove the graphical projection identified by object_id.
 
-        Returns True when an item was removed.
+        Only the BusItem is removed.
 
-        This does not delete the Core Bus.
+        The corresponding authoritative Core Bus is never
+        deleted or modified.
+
+        Returns
+        -------
+        bool
+            True when a graphical projection was removed,
+            otherwise False.
         """
 
         item = self.get_item(
@@ -336,24 +297,24 @@ class BusRenderer:
         object_id: Any,
     ) -> Optional[BusItem]:
         """
-        Return the BusItem representing object_id.
+        Return the BusItem projection for object_id.
 
-        Returns None when no projection exists.
+        Returns None when no matching projection exists.
         """
 
         if object_id is None:
             return None
 
-        for item in tuple(
-            self.scene.items()
-        ):
-            if (
-                isinstance(item, BusItem)
-                and item.object_id == object_id
-            ):
-                return item
+        item = find_item_by_object_id(
+            self.scene,
+            object_id,
+            BusItem,
+        )
 
-        return None
+        if item is None:
+            return None
+
+        return item
 
     # ========================================================
     # BULK SYNCHRONIZATION
@@ -361,32 +322,32 @@ class BusRenderer:
 
     def render_all(
         self,
-        buses: Any,
+        models: Any,
     ) -> tuple[BusItem, ...]:
         """
         Render a collection of authoritative Bus objects.
 
         Existing projections are updated.
 
-        New projections are created.
+        Missing projections are created.
 
-        Existing scene items not represented by the supplied
-        collection are not removed. Removal is deliberately
-        explicit so this method cannot accidentally delete
-        unrelated scene content.
+        Existing scene projections not represented by the supplied
+        collection are deliberately retained.
+
+        Removal is explicit through remove().
         """
 
-        if buses is None:
+        if models is None:
             raise ValueError(
-                "buses must not be None."
+                "models must not be None."
             )
 
-        result = []
+        result: list[BusItem] = []
 
-        for bus in buses:
+        for model in models:
             result.append(
                 self.render(
-                    bus
+                    model
                 )
             )
 
@@ -400,26 +361,32 @@ class BusRenderer:
 
     @staticmethod
     def get_model_position(
-        bus: Any,
+        model: Any,
     ) -> QPointF:
         """
-        Extract the presentation position from a Bus object.
+        Extract the authoritative presentation position from a
+        Bus model.
 
-        The renderer accepts common GridForge position
-        representations:
+        The supported public model representation is:
 
             bus.position
-            bus.pos
 
-        and QPointF-compatible values.
+        A callable position property is also supported.
 
-        No coordinate transformation is performed here.
+        No coordinate-system transformation is performed.
 
         Coordinate conversion belongs to CoordinateSystem.
+        Grid resolution/snapping belongs to the appropriate UI
+        coordinate/snap infrastructure.
         """
 
+        if model is None:
+            raise ValueError(
+                "model must not be None."
+            )
+
         position = getattr(
-            bus,
+            model,
             "position",
             None,
         )
@@ -428,38 +395,13 @@ class BusRenderer:
             position = position()
 
         if position is None:
-            position = getattr(
-                bus,
-                "pos",
-                None,
-            )
-
-            if callable(position):
-                position = position()
-
-        if position is None:
             raise AttributeError(
-                "Bus must provide a position "
-                "through position or pos."
+                "Bus must provide a position."
             )
 
-        if not callable(
-            getattr(position, "x", None)
-        ):
-            raise TypeError(
-                "Bus position must provide x()."
-            )
-
-        if not callable(
-            getattr(position, "y", None)
-        ):
-            raise TypeError(
-                "Bus position must provide y()."
-            )
-
-        return QPointF(
-            position.x(),
-            position.y(),
+        return to_pointf(
+            position,
+            name="bus.position",
         )
 
     # ========================================================
@@ -468,47 +410,18 @@ class BusRenderer:
 
     @staticmethod
     def _get_object_id(
-        bus: Any,
+        model: Any,
     ) -> Any:
         """
-        Extract the authoritative object ID from a Bus.
+        Extract the authoritative object identifier.
 
-        Supported forms:
-
-            bus.object_id
-            bus.id
+        The common renderer identity contract is centralized in
+        renderer_utils.get_object_id().
         """
 
-        if bus is None:
-            raise ValueError(
-                "bus must not be None."
-            )
-
-        object_id = getattr(
-            bus,
-            "object_id",
-            None,
+        return get_object_id(
+            model
         )
-
-        if callable(object_id):
-            object_id = object_id()
-
-        if object_id is None:
-            object_id = getattr(
-                bus,
-                "id",
-                None,
-            )
-
-            if callable(object_id):
-                object_id = object_id()
-
-        if object_id is None:
-            raise AttributeError(
-                "Bus must provide object_id or id."
-            )
-
-        return object_id
 
     # ========================================================
     # SCENE
@@ -519,39 +432,16 @@ class BusRenderer:
         scene: QGraphicsScene,
     ) -> None:
         """
-        Replace the target scene.
+        Replace the target graphics scene.
 
-        The renderer does not migrate existing items between
-        scenes automatically.
+        Existing graphical items are not migrated automatically.
+
+        RendererBase owns the scene-contract validation.
         """
 
-        if scene is None:
-            raise ValueError(
-                "scene must not be None."
-            )
-
-        if not callable(
-            getattr(scene, "addItem", None)
-        ):
-            raise TypeError(
-                "scene must provide addItem()."
-            )
-
-        if not callable(
-            getattr(scene, "removeItem", None)
-        ):
-            raise TypeError(
-                "scene must provide removeItem()."
-            )
-
-        if not callable(
-            getattr(scene, "items", None)
-        ):
-            raise TypeError(
-                "scene must provide items()."
-            )
-
-        self.scene = scene
+        super().set_scene(
+            scene
+        )
 
     # --------------------------------------------------------
 
@@ -559,13 +449,13 @@ class BusRenderer:
         self,
     ) -> QGraphicsScene:
         """
-        Return the target QGraphicsScene.
+        Return the currently attached graphics scene.
         """
 
-        return self.scene
+        return super().get_scene()
 
     # ========================================================
-    # DEBUG STATE
+    # DIAGNOSTICS
     # ========================================================
 
     def get_state(
@@ -575,7 +465,9 @@ class BusRenderer:
         Return diagnostic renderer state.
         """
 
-        item_count = sum(
+        state = super().get_state()
+
+        bus_item_count = sum(
             1
             for item in tuple(
                 self.scene.items()
@@ -586,11 +478,13 @@ class BusRenderer:
             )
         )
 
-        return {
-            "renderer": type(self).__name__,
-            "scene_attached": self.scene is not None,
-            "bus_item_count": item_count,
-        }
+        state.update(
+            {
+                "bus_item_count": bus_item_count,
+            }
+        )
+
+        return state
 
     # ========================================================
     # REPRESENTATION
