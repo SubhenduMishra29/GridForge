@@ -10,24 +10,87 @@ Purpose
 Application-level lifecycle manager for explicitly registered UI
 composition plugins.
 
+Architectural role
+------------------
+PluginManager is the orchestration layer for the UI composition plugin
+system.
+
+Responsibilities are deliberately separated:
+
+    PluginLoader
+        Explicit concrete-plugin imports and construction.
+
+    PluginRegistry
+        Registered plugin instances and low-level lifecycle execution.
+
+    PluginStateStore
+        Canonical observable runtime lifecycle state.
+
+    PluginManager
+        Composition definitions, dependency resolution, context
+        assignment, and lifecycle ordering.
+
+    PluginContext
+        Dependency carrier supplied during plugin initialization.
+
 Architectural rules
 -------------------
-- PluginLoader owns explicit concrete-plugin imports and construction.
-- PluginRegistry owns registered plugin instances and lifecycle state.
-- PluginManager owns composition definitions, dependency resolution,
-  context assignment, and lifecycle ordering.
 - PluginManager does not discover plugins dynamically.
 - PluginManager does not import concrete plugin implementations.
+- PluginManager does not construct Qt widgets.
 - PluginManager does not own Core/domain state.
-- PluginManager does not construct Qt widgets directly.
-- MainWindow remains thin and delegates UI composition to plugins.
+- PluginManager does not maintain duplicate runtime lifecycle state.
+- PluginManager does not perform plugin-specific UI work.
 - Plugin dependencies are explicit and deterministic.
+- Dependencies are initialized before dependants.
+- Dependants are shut down before dependencies.
+- Plugin construction is context-free.
+- PluginContext is supplied only during initialization.
+- MainWindow remains a thin composition boundary.
+
+Lifecycle ownership
+-------------------
+PluginManager decides:
+
+    WHAT should happen
+    WHEN it should happen
+    IN WHICH dependency order it should happen
+
+PluginRegistry performs:
+
+    register
+    initialize
+    shutdown
+    unregister
+    enable
+    disable
+
+PluginStateStore records:
+
+    registered
+    enabled
+    initialized
+    generation
+    last_error
+    metadata
+
+The Manager does not maintain a second copy of runtime lifecycle
+state.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Optional
+from dataclasses import (
+    dataclass,
+    field,
+)
+from types import MappingProxyType
+from typing import (
+    Any,
+    Iterable,
+    Mapping,
+    Optional,
+)
 
 from .plugin_contract import (
     validate_plugin,
@@ -41,6 +104,9 @@ from .plugin_registry import (
     PluginRegistry,
     create_plugin_registry,
 )
+from .plugin_state import (
+    PluginStateStore,
+)
 
 
 # ============================================================
@@ -53,13 +119,18 @@ class PluginDefinition:
     """
     Runtime composition definition for one UI plugin.
 
-    This is orchestration metadata only.
+    This object contains orchestration metadata only.
 
     It does not:
+
         - import the plugin;
         - instantiate the plugin;
         - initialize the plugin;
-        - own plugin state.
+        - shut down the plugin;
+        - own runtime lifecycle state.
+
+    Runtime dependency ordering is authoritative here rather than in
+    PluginMetadata from plugin_contract.py.
     """
 
     plugin_id: str
@@ -73,10 +144,13 @@ class PluginDefinition:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            self.plugin_id,
-            str,
-        ) or not self.plugin_id.strip():
+        if (
+            not isinstance(
+                self.plugin_id,
+                str,
+            )
+            or not self.plugin_id.strip()
+        ):
             raise ValueError(
                 "plugin_id must be a non-empty string."
             )
@@ -89,17 +163,20 @@ class PluginDefinition:
                 "dependencies must be a tuple."
             )
 
-        if any(
-            not isinstance(
-                dependency,
-                str,
-            )
-            or not dependency.strip()
-            for dependency in self.dependencies
-        ):
-            raise ValueError(
-                "dependencies must contain non-empty strings."
-            )
+        for dependency in self.dependencies:
+            if (
+                not isinstance(
+                    dependency,
+                    str,
+                )
+                or not dependency.strip()
+            ):
+                raise ValueError(
+                    (
+                        "dependencies must contain "
+                        "non-empty strings."
+                    )
+                )
 
         if len(
             set(self.dependencies)
@@ -126,6 +203,22 @@ class PluginDefinition:
                 "enabled must be bool."
             )
 
+        if not isinstance(
+            self.metadata,
+            Mapping,
+        ):
+            raise TypeError(
+                "metadata must be a Mapping."
+            )
+
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(
+                dict(self.metadata)
+            ),
+        )
+
 
 # ============================================================
 # PLUGIN MANAGER
@@ -134,31 +227,9 @@ class PluginDefinition:
 
 class PluginManager:
     """
-    Coordinates the lifecycle of explicitly defined UI plugins.
+    Coordinates explicitly defined GridForge UI composition plugins.
 
-    Responsibilities
-    ----------------
-    1. Maintain explicit plugin definitions.
-    2. Store plugin contexts.
-    3. Resolve dependency ordering.
-    4. Ask PluginLoader to load concrete implementations.
-    5. Ask PluginLoader to construct plugin instances.
-    6. Validate the plugin contract.
-    7. Register instances in PluginRegistry.
-    8. Initialize plugins in dependency order.
-    9. Shut down plugins in reverse dependency order.
-    10. Unregister plugins safely.
-
-    Non-responsibilities
-    --------------------
-    - Plugin discovery.
-    - Package scanning.
-    - Concrete plugin imports.
-    - Core/domain state.
-    - Tool registration.
-    - Renderer registration.
-    - MainWindow construction.
-    - Qt application ownership.
+    The manager owns orchestration, not runtime plugin state.
     """
 
     def __init__(
@@ -166,6 +237,7 @@ class PluginManager:
         *,
         loader: Optional[PluginLoader] = None,
         registry: Optional[PluginRegistry] = None,
+        state_store: Optional[PluginStateStore] = None,
         definitions: Optional[
             Iterable[PluginDefinition]
         ] = None,
@@ -176,11 +248,53 @@ class PluginManager:
             else create_default_plugin_loader()
         )
 
-        self._registry = (
-            registry
-            if registry is not None
-            else create_plugin_registry()
-        )
+        # ----------------------------------------------------
+        # Registry / state-store ownership
+        # ----------------------------------------------------
+        #
+        # PluginRegistry is the runtime lifecycle boundary.
+        # Its state store is canonical.
+        #
+        # If a registry is supplied, an independently supplied
+        # state store is valid only when it is the exact same
+        # object owned by that registry.
+        #
+
+        if registry is not None:
+            self._registry = registry
+
+            registry_state_store = (
+                registry.state_store
+            )
+
+            if (
+                state_store is not None
+                and state_store is not registry_state_store
+            ):
+                raise ValueError(
+                    (
+                        "state_store must be the same "
+                        "PluginStateStore instance owned by "
+                        "the supplied registry."
+                    )
+                )
+
+            self._state_store = (
+                registry_state_store
+            )
+
+        else:
+            self._state_store = (
+                state_store
+                if state_store is not None
+                else PluginStateStore()
+            )
+
+            self._registry = (
+                create_plugin_registry(
+                    state_store=self._state_store
+                )
+            )
 
         self._definitions: dict[
             str,
@@ -214,10 +328,21 @@ class PluginManager:
         return self._registry
 
     @property
+    def state_store(self) -> PluginStateStore:
+        """
+        Return the canonical runtime state store.
+
+        The manager exposes the store for observation. Runtime state
+        mutation remains owned by the Registry lifecycle operations.
+        """
+
+        return self._state_store
+
+    @property
     def definitions(
         self,
     ) -> tuple[PluginDefinition, ...]:
-        """Return definitions in registration order."""
+        """Return definitions in declaration order."""
 
         return tuple(
             self._definitions.values()
@@ -244,7 +369,10 @@ class PluginManager:
         """
         Add one explicit plugin definition.
 
-        Defining a plugin performs no loading or construction.
+        Definition is purely declarative.
+
+        No loading, construction, registration, or initialization
+        occurs.
         """
 
         if not isinstance(
@@ -287,12 +415,12 @@ class PluginManager:
         plugin_id: str,
     ) -> None:
         """
-        Remove a plugin definition.
+        Remove an unloaded plugin definition.
 
-        The plugin must not be registered.
+        A definition cannot be removed while:
 
-        Definitions with dependants cannot be removed because doing so
-        would leave an invalid composition graph.
+        - the plugin is registered; or
+        - another definition depends on it.
         """
 
         self._validate_plugin_id(
@@ -351,7 +479,8 @@ class PluginManager:
             panels ─────┐
             toolbar ────┼──> status
 
-        The concrete classes remain owned by PluginLoader.
+        Concrete plugin implementations remain owned by
+        PluginLoader.
         """
 
         defaults = (
@@ -377,7 +506,10 @@ class PluginManager:
         )
 
         for definition in defaults:
-            if definition.plugin_id not in self._definitions:
+            if (
+                definition.plugin_id
+                not in self._definitions
+            ):
                 self.define(
                     definition
                 )
@@ -392,10 +524,16 @@ class PluginManager:
         context: Any,
     ) -> None:
         """
-        Assign the composition context for one plugin.
+        Assign the initialization context for one plugin.
 
-        The manager stores the reference only. It does not create,
-        modify, or validate application services contained in it.
+        PluginManager stores the reference only.
+
+        It does not:
+
+        - construct the context;
+        - modify the context;
+        - inspect application services;
+        - execute plugin logic.
         """
 
         self._require_definition(
@@ -410,7 +548,15 @@ class PluginManager:
         self,
         contexts: Mapping[str, Any],
     ) -> None:
-        """Assign contexts to multiple explicitly defined plugins."""
+        """Assign initialization contexts to multiple plugins."""
+
+        if not isinstance(
+            contexts,
+            Mapping,
+        ):
+            raise TypeError(
+                "contexts must be a Mapping."
+            )
 
         for plugin_id, context in contexts.items():
             self.set_context(
@@ -422,7 +568,7 @@ class PluginManager:
         self,
         plugin_id: str,
     ) -> Any:
-        """Return the configured context for a plugin."""
+        """Return the configured initialization context."""
 
         self._require_definition(
             plugin_id
@@ -443,9 +589,15 @@ class PluginManager:
         """
         Load, construct, validate, and register one plugin.
 
-        Dependencies are loaded first. Loading never initializes a
-        plugin and never passes PluginContext to plugin construction.
+        Dependencies are loaded first.
+
+        Loading:
+
+        - never initializes;
+        - never supplies PluginContext;
+        - never performs plugin-specific work.
         """
+
         self._require_definition(
             plugin_id
         )
@@ -475,7 +627,6 @@ class PluginManager:
                 current_id
             )
 
-            # Construction is deliberately context-free.
             plugin = self._loader.create(
                 current_id
             )
@@ -514,9 +665,7 @@ class PluginManager:
             Iterable[str]
         ] = None,
     ) -> tuple[PluginEntry, ...]:
-        """
-        Load plugins in deterministic dependency order.
-        """
+        """Load plugins in deterministic dependency order."""
 
         order = self.resolve_order(
             plugin_ids
@@ -526,10 +675,10 @@ class PluginManager:
             PluginEntry
         ] = []
 
-        for plugin_id in order:
+        for current_id in order:
             entries.append(
                 self.load(
-                    plugin_id
+                    current_id
                 )
             )
 
@@ -558,6 +707,10 @@ class PluginManager:
         Dependencies are initialized before the requested plugin.
         """
 
+        self._require_definition(
+            plugin_id
+        )
+
         order = self.resolve_order(
             (plugin_id,)
         )
@@ -569,7 +722,7 @@ class PluginManager:
                 current_id
             ]
 
-            entry = self.load(
+            self.load(
                 current_id
             )
 
@@ -580,10 +733,14 @@ class PluginManager:
                 current_id
             )
 
-            if not entry.enabled:
+            if not self._registry.is_enabled(
+                current_id
+            ):
                 continue
 
-            if entry.initialized:
+            if self._registry.is_initialized(
+                current_id
+            ):
                 continue
 
             result = self._registry.initialize(
@@ -605,7 +762,7 @@ class PluginManager:
         Initialize plugins in dependency order.
 
         Already initialized plugins are skipped.
-        Disabled plugins are not initialized.
+        Disabled plugins are skipped.
         """
 
         order = self.resolve_order(
@@ -614,30 +771,37 @@ class PluginManager:
 
         results: list[Any] = []
 
-        for plugin_id in order:
+        for current_id in order:
             definition = self._definitions[
-                plugin_id
+                current_id
             ]
 
-            entry = self.load(
-                plugin_id
+            self.load(
+                current_id
             )
 
             if not definition.enabled:
                 continue
 
             self._require_enabled_dependencies(
-                plugin_id
+                current_id
             )
 
-            if entry.initialized:
+            if not self._registry.is_enabled(
+                current_id
+            ):
+                continue
+
+            if self._registry.is_initialized(
+                current_id
+            ):
                 continue
 
             results.append(
                 self._registry.initialize(
-                    plugin_id,
+                    current_id,
                     context=self._contexts.get(
-                        plugin_id
+                        current_id
                     ),
                 )
             )
@@ -662,9 +826,23 @@ class PluginManager:
         plugin_id: str,
     ) -> None:
         """
-        Shut down a plugin and all initialized dependants.
+        Shut down one plugin and all initialized dependants.
 
         Shutdown occurs in reverse dependency order.
+
+        Example:
+
+            canvas
+              |
+            toolbar
+              |
+            status
+
+        Shutting down canvas produces:
+
+            status
+            toolbar
+            canvas
         """
 
         self._require_definition(
@@ -677,9 +855,6 @@ class PluginManager:
             )
         )
 
-        # Resolve the complete graph once, then restrict it to the
-        # dependent closure. Resolving the closure itself could pull in
-        # unrelated dependencies of a dependant.
         global_order = self.resolve_order()
 
         order = tuple(
@@ -691,35 +866,33 @@ class PluginManager:
         for current_id in reversed(
             order
         ):
-            entry = self._registry.get_entry(
-                current_id
-            )
-
             if (
-                entry is not None
-                and entry.initialized
+                self._registry.contains(
+                    current_id
+                )
+                and self._registry.is_initialized(
+                    current_id
+                )
             ):
                 self._registry.shutdown(
                     current_id
                 )
 
     def shutdown_all(self) -> None:
-        """
-        Shut down all initialized plugins in reverse dependency order.
-        """
+        """Shut down all initialized plugins in reverse dependency order."""
 
         order = self.resolve_order()
 
         for plugin_id in reversed(
             order
         ):
-            entry = self._registry.get_entry(
-                plugin_id
-            )
-
             if (
-                entry is not None
-                and entry.initialized
+                self._registry.contains(
+                    plugin_id
+                )
+                and self._registry.is_initialized(
+                    plugin_id
+                )
             ):
                 self._registry.shutdown(
                     plugin_id
@@ -768,11 +941,9 @@ class PluginManager:
                 )
             )
 
-        entry = self._registry.get_entry(
+        if not self._registry.contains(
             plugin_id
-        )
-
-        if entry is None:
+        ):
             return None
 
         return self._registry.unregister(
@@ -782,9 +953,9 @@ class PluginManager:
 
     def unload_all(self) -> None:
         """
-        Shut down and unregister all plugins in reverse dependency order.
+        Shut down and unregister every registered plugin.
 
-        Definitions remain available for a later load cycle.
+        Definitions remain available for a future load cycle.
         """
 
         order = self.resolve_order()
@@ -813,15 +984,15 @@ class PluginManager:
         """
         Resolve deterministic topological dependency order.
 
-        Dependencies always precede dependants.
+        Dependencies always precede their dependants.
 
         Raises
         ------
         KeyError
-            If a requested plugin or dependency is undefined.
+            Requested plugin or dependency is undefined.
 
         RuntimeError
-            If a dependency cycle exists.
+            Dependency cycle detected.
         """
 
         requested = (
@@ -958,7 +1129,9 @@ class PluginManager:
         plugin_id: str,
     ) -> tuple[str, ...]:
         """
-        Return a plugin and all of its transitive dependants.
+        Return the plugin and all transitive dependants.
+
+        Order follows deterministic definition order.
         """
 
         result: list[str] = []
@@ -1011,11 +1184,18 @@ class PluginManager:
         self,
         plugin_id: str,
     ) -> bool:
-        """Return whether a plugin is initialized."""
+        """
+        Return canonical runtime initialization state.
+
+        The Registry is the runtime authority.
+        """
 
         if not self._registry.contains(
             plugin_id
         ):
+            self._require_definition(
+                plugin_id
+            )
             return False
 
         return self._registry.is_initialized(
@@ -1026,7 +1206,13 @@ class PluginManager:
         self,
         plugin_id: str,
     ) -> bool:
-        """Return whether a plugin is enabled."""
+        """
+        Return effective enablement state.
+
+        For an unloaded plugin, the definition is authoritative.
+
+        For a registered plugin, PluginRegistry is authoritative.
+        """
 
         if not self._registry.contains(
             plugin_id
@@ -1072,8 +1258,10 @@ class PluginManager:
         """
         Enable a plugin definition.
 
-        If the plugin is already registered, its registry state is
-        enabled as well.
+        If registered, runtime enablement is updated through the
+        registry.
+
+        Enabling does not initialize the plugin.
         """
 
         definition = self._require_definition(
@@ -1106,14 +1294,18 @@ class PluginManager:
         """
         Disable a plugin.
 
-        Initialized dependants are shut down before the requested
-        plugin. Dependants remain definition-enabled and can be
-        initialized again after the dependency is re-enabled.
+        Initialized dependants are shut down before the dependency.
+
+        Disabling a dependency does not implicitly alter the definition
+        enablement of its dependants.
         """
+
         definition = self._require_definition(
             plugin_id
         )
 
+        # Runtime dependency invariants require initialized dependants
+        # to be shut down before disabling their dependency.
         if definition.enabled:
             self.shutdown(
                 plugin_id
@@ -1130,15 +1322,7 @@ class PluginManager:
                 ),
             )
 
-            if self._registry.contains(
-                plugin_id
-            ):
-                self._registry.disable(
-                    plugin_id,
-                    shutdown=True,
-                )
-
-        elif self._registry.contains(
+        if self._registry.contains(
             plugin_id
         ):
             self._registry.disable(
@@ -1177,7 +1361,10 @@ class PluginManager:
         self,
         plugin_id: str,
     ) -> None:
-        """Ensure all direct dependencies are definition-enabled."""
+        """
+        Ensure all direct dependencies are definition-enabled.
+        """
+
         definition = self._require_definition(
             plugin_id
         )
@@ -1253,12 +1440,22 @@ def create_default_plugin_manager(
     *,
     loader: Optional[PluginLoader] = None,
     registry: Optional[PluginRegistry] = None,
+    state_store: Optional[PluginStateStore] = None,
 ) -> PluginManager:
     """
-    Create the canonical GridForge V2 plugin manager.
+    Create the canonical GridForge V2 PluginManager.
 
-    The four canonical composition plugins are explicitly defined,
-    but none is imported, constructed, or initialized here.
+    The canonical four composition plugins are explicitly defined:
+
+        canvas
+        panels
+        toolbar
+        status
+
+    No concrete plugin is imported, constructed, or initialized by
+    this factory.
+
+    State-store ownership remains canonical through PluginRegistry.
     """
 
     manager = PluginManager(
@@ -1267,16 +1464,18 @@ def create_default_plugin_manager(
             if loader is not None
             else create_default_plugin_loader()
         ),
-        registry=(
-            registry
-            if registry is not None
-            else create_plugin_registry()
-        ),
+        registry=registry,
+        state_store=state_store,
     )
 
     manager.define_defaults()
 
     return manager
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 
 __all__ = [
