@@ -765,4 +765,3 @@ class Cable(ElectricalObject):
             f"X1={self.x1_ohm:.6f} ohm, "
             f"in_service={self.in_service}>"
         )
-```

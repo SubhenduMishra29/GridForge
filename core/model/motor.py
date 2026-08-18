@@ -1,4 +1,3 @@
-```python
 """
 GridForge Motor Model
 =====================
@@ -809,4 +808,4 @@ class Motor(ElectricalObject, Injection):
             f"in_service={self.in_service}, "
             f"plugins={len(self._plugins)}>"
         )
-```
+

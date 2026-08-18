@@ -1,4 +1,3 @@
-```python
 # core/model/base.py
 
 """
@@ -248,4 +247,3 @@ class ElectricalObject:
             f"<{self.__class__.__name__} "
             f"id={self.id}>"
         )
-```

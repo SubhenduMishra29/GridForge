@@ -612,4 +612,3 @@ class Fuse(ElectricalObject):
             f"state={self.state.name}, "
             f"in_service={self.in_service}>"
         )
-```

@@ -941,4 +941,4 @@ class Generator(ElectricalObject, Injection):
             f"Qmax={self.q_max:.6f}, "
             f"plugins={len(self._plugins)}>"
         )
-```
+

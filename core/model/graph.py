@@ -1,4 +1,3 @@
-```python
 """
 GridForge Network Graph
 =======================
@@ -738,4 +737,4 @@ class Graph:
             f"buses={self.bus_count}, "
             f"lines={self.line_count}>"
         )
-```
+

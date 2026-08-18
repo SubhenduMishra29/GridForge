@@ -845,4 +845,3 @@ class Breaker(ElectricalObject):
 __all__ = [
     "Breaker",
 ]
-```

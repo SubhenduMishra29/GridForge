@@ -1,4 +1,3 @@
-```python
 """
 GridForge Grid Model
 ====================
@@ -813,4 +812,3 @@ class Grid:
             f"transformers={self.transformer_count}, "
             f"shunts={self.shunt_count}>"
         )
-```

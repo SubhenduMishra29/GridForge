@@ -1,4 +1,3 @@
-```python
 # core/model/injection.py
 
 """
@@ -191,4 +190,4 @@ class Injection(ABC):
         """
 
         raise NotImplementedError
-```
+

@@ -1,4 +1,3 @@
-```python
 # core/model/bus.py
 
 """
@@ -641,4 +640,3 @@ class Bus(ElectricalObject):
             f"theta={self.theta:.6f}, "
             f"Vset={self.V_setpoint:.6f}>"
         )
-```
