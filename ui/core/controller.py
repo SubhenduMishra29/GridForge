@@ -79,8 +79,8 @@ Core.command_manager owns:
 
 Controller does not duplicate any of those responsibilities.
 
-Controller only exposes the public application boundary required
-by the UI.
+Controller only exposes the public application boundary
+required by the UI.
 
 Command Architecture
 ---------------------
@@ -152,9 +152,7 @@ The same delegation model applies to:
     - reset_command_history()
     - get_command_state()
 
-Controller never accesses Core.command_manager from the UI
-facade directly. The UI CommandManager communicates only with
-the public Controller command boundary.
+The UI CommandManager never accesses Core directly.
 
 Tool Selection
 --------------
@@ -174,8 +172,8 @@ Controller stores the requested tool identifier.
 
 Controller never calls ToolManager directly.
 
-The stored tool ID represents requested application intent, not
-active tool lifecycle state.
+The stored tool ID represents requested application intent,
+not active tool lifecycle state.
 
 Selection
 ---------
@@ -194,6 +192,24 @@ Controller may retain an externally owned project/application
 context.
 
 Controller does not duplicate project/domain state.
+
+Lifecycle
+---------
+
+Controller does not own Core.
+
+Disposing Controller:
+
+    - disconnects Controller-owned subscriptions;
+    - clears Controller-owned transient state;
+    - marks the Controller disposed.
+
+Disposing Controller does NOT:
+
+    - dispose Core;
+    - reset Core;
+    - clear Core command history;
+    - mutate Core domain state.
 
 Qt
 --
@@ -253,6 +269,28 @@ class Controller(QObject):
     )
 
     # ========================================================
+    # COMMAND CONTRACT
+    # ========================================================
+
+    _COMMAND_MANAGER_METHODS = (
+        "execute",
+        "undo",
+        "redo",
+        "can_undo",
+        "can_redo",
+        "undo_count",
+        "redo_count",
+        "get_undo_commands",
+        "get_redo_commands",
+        "get_undo_name",
+        "get_redo_name",
+        "clear_history",
+        "clear_redo",
+        "reset",
+        "get_state",
+    )
+
+    # ========================================================
     # INITIALIZATION
     # ========================================================
 
@@ -276,8 +314,8 @@ class Controller(QObject):
         -----
         Controller does not take ownership of Core.
 
-        No ToolManager, CommandManager, Renderer, Canvas or
-        domain object is constructed here.
+        No ToolManager, CommandManager, Renderer, Canvas,
+        GraphicsItem, or domain object is constructed here.
         """
 
         super().__init__(parent)
@@ -293,7 +331,7 @@ class Controller(QObject):
         # ----------------------------------------------------
         # Requested application-level tool.
         #
-        # This is intent only.
+        # This represents application intent only.
         #
         # ToolManager owns actual tool lifecycle.
         # ----------------------------------------------------
@@ -303,8 +341,8 @@ class Controller(QObject):
         # ----------------------------------------------------
         # Persistent application selection.
         #
-        # Selection is application/UI state, not duplicated
-        # Core domain state.
+        # Selection is application/UI state and is not a
+        # duplicate of Core domain state.
         # ----------------------------------------------------
 
         self._selected_ids: list[Any] = []
@@ -318,7 +356,7 @@ class Controller(QObject):
         self._project: Optional[Any] = None
 
         # ----------------------------------------------------
-        # Lifecycle state.
+        # Controller lifecycle.
         # ----------------------------------------------------
 
         self._disposed = False
@@ -379,11 +417,14 @@ class Controller(QObject):
 
         Notes
         -----
-        Replacing Core does not alter Controller-owned
-        selection/tool/project state.
+        Replacing Core does not automatically modify:
 
-        Core command history remains owned by whichever Core
-        instance is currently attached.
+            - tool selection;
+            - application selection;
+            - project context.
+
+        Core command history remains owned by the currently
+        attached Core instance.
         """
 
         self._ensure_active()
@@ -434,7 +475,8 @@ class Controller(QObject):
 
         Notes
         -----
-        Controller does not construct or activate tools.
+        Controller does not construct, activate, deactivate,
+        or own tools.
 
         ToolManager observes tool_changed().
         """
@@ -550,11 +592,9 @@ class Controller(QObject):
             Stable application object identifier.
 
         multi:
-            False:
-                replace current selection.
+            False replaces the current selection.
 
-            True:
-                add to current selection.
+            True adds to the current selection.
         """
 
         self._ensure_active()
@@ -613,11 +653,9 @@ class Controller(QObject):
             Iterable of object identifiers.
 
         multi:
-            False:
-                replace current selection.
+            False replaces the current selection.
 
-            True:
-                add to current selection.
+            True adds to the current selection.
         """
 
         self._ensure_active()
@@ -791,7 +829,7 @@ class Controller(QObject):
         """
         Set the current project/application context.
 
-        Controller does not duplicate project domain state.
+        Controller does not duplicate project/domain state.
         """
 
         self._ensure_active()
@@ -808,17 +846,17 @@ class Controller(QObject):
         self.state_changed.emit()
 
     # ========================================================
-    # COMMAND MANAGER ACCESS
+    # CORE COMMAND BOUNDARY
     # ========================================================
 
     def _get_command_manager(self) -> Any:
         """
         Return Core's authoritative command manager.
 
-        This is the only internal route from Controller to the
+        This is the sole internal Controller route into the
         Core command manager.
 
-        Controller does not own the returned object.
+        The returned object remains owned by Core.
         """
 
         self._ensure_active()
@@ -850,11 +888,30 @@ class Controller(QObject):
         method_name: str,
     ) -> Any:
         """
-        Return a validated method from Core.command_manager.
+        Return a validated public method of Core.command_manager.
 
-        Controller centralizes the Core command-boundary lookup so
-        public methods remain thin delegation methods.
+        Parameters
+        ----------
+        method_name:
+            Public command-manager method name.
+
+        Returns
+        -------
+        Any
+            Callable command-manager method.
+
+        Raises
+        ------
+        TypeError
+            If the command manager does not provide the
+            requested callable method.
         """
+
+        if method_name not in self._COMMAND_MANAGER_METHODS:
+            raise ValueError(
+                "Unknown command-manager method: "
+                f"{method_name!r}"
+            )
 
         command_manager = (
             self._get_command_manager()
@@ -897,11 +954,14 @@ class Controller(QObject):
                     │
                     ▼
                    Core
+                    │
+                    ▼
+              Domain Events
 
-        Controller never calls command.execute() directly.
+        Controller never invokes command.execute() directly.
 
-        Command validation remains the responsibility of the
-        authoritative Core command manager.
+        Command validation and history semantics remain the
+        responsibility of Core.command_manager.
         """
 
         self._ensure_active()
@@ -933,7 +993,7 @@ class Controller(QObject):
         """
         Undo through Core.command_manager.
 
-        History transitions are owned exclusively by Core.
+        History transitions remain exclusively owned by Core.
         """
 
         self._ensure_active()
@@ -956,7 +1016,7 @@ class Controller(QObject):
         """
         Redo through Core.command_manager.
 
-        History transitions are owned exclusively by Core.
+        History transitions remain exclusively owned by Core.
         """
 
         self._ensure_active()
@@ -986,9 +1046,18 @@ class Controller(QObject):
             "can_undo"
         )
 
-        return bool(
-            method()
-        )
+        result = method()
+
+        if not isinstance(
+            result,
+            bool,
+        ):
+            raise TypeError(
+                "Core.command_manager.can_undo() "
+                "must return a bool."
+            )
+
+        return result
 
     # --------------------------------------------------------
 
@@ -1003,9 +1072,18 @@ class Controller(QObject):
             "can_redo"
         )
 
-        return bool(
-            method()
-        )
+        result = method()
+
+        if not isinstance(
+            result,
+            bool,
+        ):
+            raise TypeError(
+                "Core.command_manager.can_redo() "
+                "must return a bool."
+            )
+
+        return result
 
     # ========================================================
     # COMMAND HISTORY COUNTS
@@ -1024,12 +1102,9 @@ class Controller(QObject):
 
         result = method()
 
-        if isinstance(
-            result,
-            bool,
-        ) or not isinstance(
-            result,
-            int,
+        if (
+            isinstance(result, bool)
+            or not isinstance(result, int)
         ):
             raise TypeError(
                 "Core.command_manager.undo_count() "
@@ -1053,12 +1128,9 @@ class Controller(QObject):
 
         result = method()
 
-        if isinstance(
-            result,
-            bool,
-        ) or not isinstance(
-            result,
-            int,
+        if (
+            isinstance(result, bool)
+            or not isinstance(result, int)
         ):
             raise TypeError(
                 "Core.command_manager.redo_count() "
@@ -1087,9 +1159,8 @@ class Controller(QObject):
         result = method()
 
         try:
-            return tuple(
-                result
-            )
+            return tuple(result)
+
         except TypeError as exc:
             raise TypeError(
                 "Core.command_manager.get_undo_commands() "
@@ -1114,9 +1185,8 @@ class Controller(QObject):
         result = method()
 
         try:
-            return tuple(
-                result
-            )
+            return tuple(result)
+
         except TypeError as exc:
             raise TypeError(
                 "Core.command_manager.get_redo_commands() "
@@ -1236,17 +1306,17 @@ class Controller(QObject):
         """
         Reset Core command-history state.
 
-        This is intentionally distinct from reset_state().
+        This is deliberately distinct from reset_state().
 
         reset_command_history():
 
-            clears command history only.
+            resets Core command-history state only.
 
         reset_state():
 
             resets Controller-owned application state only.
 
-        Neither method implicitly resets the other layer.
+        Neither operation implicitly performs the other.
         """
 
         method = self._get_command_manager_method(
@@ -1271,8 +1341,8 @@ class Controller(QObject):
 
         Core.command_manager owns the state.
 
-        Controller returns a copied dictionary so the caller
-        cannot mutate a dictionary owned by Core.
+        Controller returns a shallow copy so the caller cannot
+        mutate the dictionary returned by Core.
         """
 
         method = self._get_command_manager_method(
@@ -1298,16 +1368,23 @@ class Controller(QObject):
     # CONTROLLER STATE RESET
     # ========================================================
 
-    def reset_state(self) -> None:
+    def reset_state(
+        self,
+    ) -> None:
         """
         Reset Controller-owned transient application state.
 
-        This method does NOT reset Core.
+        This method does NOT:
 
-        This method does NOT clear command history.
+            - reset Core;
+            - clear Core command history;
+            - undo commands;
+            - redo commands;
+            - dispose Core;
+            - manipulate ToolManager directly.
 
-        ToolManager observes the tool_changed() notification and
-        remains responsible for actual tool lifecycle.
+        ToolManager observes tool_changed(None, previous_tool)
+        and remains responsible for actual tool lifecycle.
         """
 
         self._ensure_active()
@@ -1459,7 +1536,6 @@ class Controller(QObject):
         finally:
 
             if callback in callbacks:
-
                 callbacks.remove(
                     callback
                 )
@@ -1505,9 +1581,12 @@ class Controller(QObject):
         """
         Return a diagnostic snapshot of Controller-owned state.
 
-        This method does not expose mutable internal collections.
+        The returned dictionary contains only Controller-owned
+        state.
 
-        Command-manager state is deliberately not duplicated here.
+        Mutable internal collections are never exposed.
+
+        Command-manager state is deliberately not duplicated.
 
         Use get_command_state() for command-history diagnostics.
         """
@@ -1559,6 +1638,8 @@ class Controller(QObject):
         Registered Controller subscriptions are disconnected.
 
         Core is not reset, disposed, or otherwise mutated.
+
+        Disposal is idempotent.
         """
 
         if self._disposed:
