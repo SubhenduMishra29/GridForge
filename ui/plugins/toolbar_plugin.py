@@ -76,7 +76,6 @@ from ui.core.qt import (
     QMainWindow,
     QObject,
     QToolBar,
-    QWidget,
     Qt,
     Signal,
 )
@@ -125,6 +124,10 @@ class ToolbarActionSpec:
     )
 
     def __post_init__(self) -> None:
+        # ----------------------------------------------------
+        # action_id
+        # ----------------------------------------------------
+
         if (
             not isinstance(self.action_id, str)
             or not self.action_id.strip()
@@ -133,10 +136,18 @@ class ToolbarActionSpec:
                 "action_id must be a non-empty string."
             )
 
+        # ----------------------------------------------------
+        # text
+        # ----------------------------------------------------
+
         if not isinstance(self.text, str):
             raise TypeError(
                 "text must be a string."
             )
+
+        # ----------------------------------------------------
+        # tool_id
+        # ----------------------------------------------------
 
         if (
             self.tool_id is not None
@@ -149,13 +160,24 @@ class ToolbarActionSpec:
                 "tool_id must be a non-empty string or None."
             )
 
-        if self.tool_id is not None and not self.checkable:
+        # ----------------------------------------------------
+        # Tool actions must be checkable.
+        # ----------------------------------------------------
+
+        if (
+            self.tool_id is not None
+            and not self.checkable
+        ):
             raise ValueError(
                 (
                     f"Toolbar action {self.action_id!r} "
                     "represents a tool and must be checkable."
                 )
             )
+
+        # ----------------------------------------------------
+        # Non-checkable actions cannot start checked.
+        # ----------------------------------------------------
 
         if self.checked and not self.checkable:
             raise ValueError(
@@ -175,6 +197,13 @@ class ToolbarPlugin(QObject):
     """
     GridForge toolbar composition plugin.
 
+    Construction
+    ------------
+    The plugin is constructed without PluginContext.
+
+    Application/UI dependencies are supplied exclusively through
+    initialize(context), matching the canonical plugin lifecycle.
+
     Ownership
     ---------
     The plugin owns toolbar composition and presentation bookkeeping.
@@ -183,7 +212,7 @@ class ToolbarPlugin(QObject):
 
     Dependency boundary
     -------------------
-    The plugin receives the shared PluginContext.
+    The plugin receives the shared PluginContext during initialization.
 
     Tool selection is delegated to the authoritative Controller
     through:
@@ -195,27 +224,35 @@ class ToolbarPlugin(QObject):
 
     plugin_id = "toolbar"
     plugin_name = "Toolbar"
-    plugin_version = "2.0"
+    plugin_version = "2.1"
+    plugin_description = (
+        "GridForge application toolbar composition."
+    )
+
+    plugin_dependencies: tuple[str, ...] = ()
+    plugin_optional = False
 
     tool_selected = Signal(str)
     action_triggered = Signal(str)
 
     def __init__(
         self,
-        context: PluginContext,
         parent: Optional[QObject] = None,
     ) -> None:
-        super().__init__(parent)
+        """
+        Construct an uninitialized ToolbarPlugin.
 
-        if not isinstance(
-            context,
-            PluginContext,
-        ):
-            raise TypeError(
-                "ToolbarPlugin requires PluginContext."
-            )
+        PluginContext is intentionally not a constructor dependency.
+        Application/UI dependencies are supplied during initialize().
+        """
 
-        self._context = context
+        super().__init__(
+            parent
+        )
+
+        self._context: Optional[
+            PluginContext
+        ] = None
 
         self._toolbar: Optional[
             QToolBar
@@ -247,8 +284,8 @@ class ToolbarPlugin(QObject):
     # ========================================================
 
     @property
-    def context(self) -> PluginContext:
-        """Return the shared plugin context."""
+    def context(self) -> Optional[PluginContext]:
+        """Return the active shared plugin context."""
 
         return self._context
 
@@ -290,65 +327,84 @@ class ToolbarPlugin(QObject):
     # LIFECYCLE
     # ========================================================
 
-    def initialize(self) -> QToolBar:
+    def initialize(
+        self,
+        context: PluginContext,
+    ) -> QToolBar:
         """
         Initialize and compose the toolbar.
 
-        Initialization is idempotent.
+        PluginContext is the sole application dependency boundary.
+
+        Initialization is idempotent for the same lifecycle.
+
+        If initialization fails, all partially created toolbar
+        presentation state is rolled back.
         """
 
+        if not isinstance(
+            context,
+            PluginContext,
+        ):
+            raise TypeError(
+                "ToolbarPlugin requires PluginContext."
+            )
+
         if self._initialized:
+            if self._context is not context:
+                raise RuntimeError(
+                    (
+                        "ToolbarPlugin is already initialized "
+                        "with a different PluginContext."
+                    )
+                )
+
             if self._toolbar is None:
                 raise RuntimeError(
-                    "Toolbar plugin is initialized without a toolbar."
+                    "ToolbarPlugin is initialized without a toolbar."
                 )
 
             return self._toolbar
 
-        self._create_toolbar()
+        self._validate_context(
+            context
+        )
 
-        self._create_tool_group()
+        self._context = context
 
-        self._register_default_actions()
+        try:
+            self._create_toolbar()
+            self._create_tool_group()
+            self._register_default_actions()
 
-        self._initialized = True
+            self._initialized = True
 
-        if self._toolbar is None:
-            raise RuntimeError(
-                "Toolbar creation failed."
-            )
+            if self._toolbar is None:
+                raise RuntimeError(
+                    "Toolbar creation produced no toolbar."
+                )
 
-        return self._toolbar
+            return self._toolbar
+
+        except Exception:
+            self._rollback_initialization()
+            raise
 
     def shutdown(self) -> None:
         """
-        Release plugin-owned presentation objects.
+        Shut down toolbar composition.
 
-        Application services and application state are not modified.
+        Application services, Controller, ToolManager, Core, and
+        application state are never modified.
+
+        Only plugin-owned presentation objects and references are
+        released.
         """
 
         if not self._initialized:
             return
 
-        toolbar = self._toolbar
-
-        if toolbar is not None:
-            main_window = self._context.main_window
-
-            if isinstance(
-                main_window,
-                QMainWindow,
-            ):
-                main_window.removeToolBar(
-                    toolbar
-                )
-
-            for action in tuple(
-                self._actions.values()
-            ):
-                toolbar.removeAction(
-                    action
-                )
+        self._remove_toolbar()
 
         self._actions.clear()
         self._specs.clear()
@@ -356,20 +412,22 @@ class ToolbarPlugin(QObject):
 
         self._tool_group = None
         self._toolbar = None
+        self._context = None
         self._initialized = False
 
     # ========================================================
-    # TOOLBAR CREATION
+    # CONTEXT VALIDATION
     # ========================================================
 
-    def _create_toolbar(self) -> None:
+    @staticmethod
+    def _validate_context(
+        context: PluginContext,
+    ) -> None:
         """
-        Create and attach the application toolbar.
-
-        MainWindow remains the application-level owner.
+        Validate dependencies required by toolbar composition.
         """
 
-        main_window = self._context.main_window
+        main_window = context.main_window
 
         if not isinstance(
             main_window,
@@ -380,6 +438,64 @@ class ToolbarPlugin(QObject):
                     "PluginContext.main_window must be "
                     "QMainWindow for ToolbarPlugin."
                 )
+            )
+
+        if context.controller is None:
+            raise RuntimeError(
+                (
+                    "ToolbarPlugin requires "
+                    "PluginContext.controller."
+                )
+            )
+
+        set_tool = getattr(
+            context.controller,
+            "set_tool",
+            None,
+        )
+
+        if not callable(set_tool):
+            raise TypeError(
+                (
+                    "PluginContext.controller must provide "
+                    "set_tool(tool_id)."
+                )
+            )
+
+    # ========================================================
+    # TOOLBAR CREATION
+    # ========================================================
+
+    def _create_toolbar(self) -> None:
+        """
+        Create and attach the application toolbar.
+
+        MainWindow remains the application-level host.
+        """
+
+        context = self._context
+
+        if context is None:
+            raise RuntimeError(
+                "ToolbarPlugin has no PluginContext."
+            )
+
+        main_window = context.main_window
+
+        if not isinstance(
+            main_window,
+            QMainWindow,
+        ):
+            raise TypeError(
+                (
+                    "PluginContext.main_window must be "
+                    "QMainWindow for ToolbarPlugin."
+                )
+            )
+
+        if self._toolbar is not None:
+            raise RuntimeError(
+                "ToolbarPlugin already contains a toolbar."
             )
 
         toolbar = QToolBar(
@@ -415,6 +531,11 @@ class ToolbarPlugin(QObject):
         It does not own or represent application tool state.
         """
 
+        if self._tool_group is not None:
+            raise RuntimeError(
+                "Toolbar tool action group already exists."
+            )
+
         self._tool_group = QActionGroup(
             self
         )
@@ -440,10 +561,12 @@ class ToolbarPlugin(QObject):
         spec: ToolbarActionSpec,
     ) -> QAction:
         """
-        Add a toolbar action.
+        Add one toolbar action.
 
-        The action is presentation-only. Application behavior is
-        delegated through the established controller boundary.
+        The action is presentation-only.
+
+        Tool behavior is delegated through the authoritative
+        Controller boundary.
         """
 
         if not isinstance(
@@ -540,11 +663,30 @@ class ToolbarPlugin(QObject):
             action
         )
 
-        if spec.tool_id is not None:
-            self._register_tool_action(
-                spec,
-                action,
+        try:
+            if spec.tool_id is not None:
+                self._register_tool_action(
+                    spec,
+                    action,
+                )
+        except Exception:
+            self._toolbar.removeAction(
+                action
             )
+
+            self._actions.pop(
+                spec.action_id,
+                None,
+            )
+
+            self._specs.pop(
+                spec.action_id,
+                None,
+            )
+
+            action.deleteLater()
+
+            raise
 
         return action
 
@@ -607,7 +749,9 @@ class ToolbarPlugin(QObject):
         spec: ToolbarActionSpec,
         action: QAction,
     ) -> None:
-        """Register one action as a mutually exclusive tool action."""
+        """
+        Register one action as a mutually exclusive tool action.
+        """
 
         if spec.tool_id is None:
             raise ValueError(
@@ -646,21 +790,33 @@ class ToolbarPlugin(QObject):
         """
         Request selection of a tool through Controller.set_tool().
 
-        The controller remains authoritative.
+        The Controller remains authoritative.
 
         The toolbar does not modify ToolManager or any other
         application state directly.
         """
 
+        self._require_initialized()
+
         self._validate_tool_id(
             tool_id
         )
 
-        controller = self._context.controller
+        context = self._context
+
+        if context is None:
+            raise RuntimeError(
+                "ToolbarPlugin has no PluginContext."
+            )
+
+        controller = context.controller
 
         if controller is None:
             raise RuntimeError(
-                "PluginContext.controller is required for tool selection."
+                (
+                    "PluginContext.controller is required "
+                    "for tool selection."
+                )
             )
 
         set_tool = getattr(
@@ -669,7 +825,9 @@ class ToolbarPlugin(QObject):
             None,
         )
 
-        if not callable(set_tool):
+        if not callable(
+            set_tool
+        ):
             raise TypeError(
                 (
                     "PluginContext.controller must provide "
@@ -681,6 +839,8 @@ class ToolbarPlugin(QObject):
             tool_id
         )
 
+        # Controller remains authoritative. A False result means
+        # that the requested tool selection was rejected.
         if result is False:
             return
 
@@ -909,14 +1069,94 @@ class ToolbarPlugin(QObject):
         )
 
     # ========================================================
+    # CLEANUP
+    # ========================================================
+
+    def _remove_toolbar(self) -> None:
+        """
+        Remove the plugin-owned toolbar from MainWindow.
+
+        MainWindow itself is never destroyed.
+        """
+
+        toolbar = self._toolbar
+
+        if toolbar is None:
+            return
+
+        context = self._context
+
+        if context is not None:
+            main_window = context.main_window
+
+            if isinstance(
+                main_window,
+                QMainWindow,
+            ):
+                main_window.removeToolBar(
+                    toolbar
+                )
+
+        for action in tuple(
+            self._actions.values()
+        ):
+            toolbar.removeAction(
+                action
+            )
+
+    def _rollback_initialization(self) -> None:
+        """
+        Roll back partially completed initialization.
+
+        This method only removes plugin-owned presentation state.
+        """
+
+        self._remove_toolbar()
+
+        self._actions.clear()
+        self._specs.clear()
+        self._tool_action_ids.clear()
+
+        self._tool_group = None
+        self._toolbar = None
+        self._context = None
+        self._initialized = False
+
+    # ========================================================
     # VALIDATION
     # ========================================================
+
+    def _require_initialized(self) -> None:
+        """Require an active plugin lifecycle."""
+
+        if not self._initialized:
+            raise RuntimeError(
+                "ToolbarPlugin has not been initialized."
+            )
+
+        if self._context is None:
+            raise RuntimeError(
+                "ToolbarPlugin is initialized without PluginContext."
+            )
+
+        if self._toolbar is None:
+            raise RuntimeError(
+                "ToolbarPlugin is initialized without a toolbar."
+            )
 
     @staticmethod
     def _validate_tool_id(
         tool_id: str,
     ) -> None:
-        """Validate a canonical GridForge toolbar tool identifier."""
+        """
+        Validate a canonical GridForge toolbar tool identifier.
+
+        The concrete tool set is intentionally frozen to exactly:
+
+            select
+            bus
+            line
+        """
 
         if (
             not isinstance(tool_id, str)
@@ -992,19 +1232,22 @@ def default_tool_actions() -> tuple[
 
 
 def create_toolbar_plugin(
-    context: PluginContext,
     parent: Optional[QObject] = None,
 ) -> ToolbarPlugin:
     """
     Create an uninitialized ToolbarPlugin.
 
-    Construction does not perform UI composition.
+    PluginContext is supplied during initialize().
     """
 
     return ToolbarPlugin(
-        context=context,
-        parent=parent,
+        parent=parent
     )
+
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 
 __all__ = [
