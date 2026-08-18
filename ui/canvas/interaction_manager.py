@@ -4,9 +4,6 @@
 # ============================================================
 
 """
-GridForge V2 Interaction Manager
-================================
-
 Canvas interaction coordinator for GridForge V2.
 
 Architecture
@@ -29,43 +26,41 @@ Architecture
          ▼
         Core
 
-Responsibilities
-----------------
+InteractionManager is the canvas interaction boundary.
 
-InteractionManager:
+It routes canvas input and exposes the interaction services
+required by tools.
 
-    - own the ToolManager used by the canvas;
-    - route raw canvas interaction events to ToolManager;
-    - expose the active tool;
-    - expose the active tool identifier;
-    - expose interaction state;
-    - coordinate reset/cancellation;
-    - provide deterministic diagnostics;
-    - manage its own lifecycle.
+ToolManager remains the sole authority for:
 
-InteractionManager does NOT:
+    - concrete tool ownership;
+    - tool creation;
+    - tool activation/deactivation;
+    - tool lifecycle;
+    - cancellation;
+    - reset;
+    - disposal.
 
-    - implement concrete tool behavior;
-    - construct individual tools directly;
-    - perform electrical calculations;
-    - modify Core objects directly;
-    - perform navigation;
-    - implement rendering;
-    - own persistent application selection;
-    - interpret Qt-specific event semantics beyond forwarding them.
-
-Tool ownership
---------------
-
-ToolManager remains the concrete tool authority.
-
-The frozen GridForge V2 tool set is:
+The frozen concrete tool set is:
 
     SelectTool
     BusTool
     LineTool
 
-Navigation ownership remains with NavigationController.
+Controller remains authoritative for application tool
+selection/request state.
+
+InteractionManager does NOT:
+
+    - create concrete tools;
+    - own concrete tool lifecycle;
+    - mutate Core directly;
+    - perform snapping;
+    - implement selection;
+    - perform rendering;
+    - perform navigation;
+    - subscribe to tool-change notifications;
+    - replace Controller as the requested-tool authority.
 
 GraphicsView remains the Qt event boundary.
 """
@@ -77,18 +72,12 @@ from typing import Any, Optional
 from ui.tools.tool_manager import ToolManager
 
 
-# ============================================================
-# INTERACTION MANAGER
-# ============================================================
-
-
 class InteractionManager:
     """
-    Coordinate canvas interaction through ToolManager.
+    Canvas interaction coordinator.
 
-    InteractionManager is the authoritative interaction-layer
-    owner for the canvas. Tool lifecycle and concrete tool ownership
-    remain delegated to ToolManager.
+    InteractionManager owns the interaction-layer references and
+    delegates concrete tool lifecycle to ToolManager.
     """
 
     # ========================================================
@@ -100,10 +89,12 @@ class InteractionManager:
         *,
         view: Any,
         controller: Any,
-        command_manager: Optional[Any] = None,
-        selection_manager: Optional[Any] = None,
-        snap_system: Optional[Any] = None,
-        renderer_registry: Optional[Any] = None,
+        coordinate_system: Any = None,
+        snap_system: Any = None,
+        preview_layer: Any = None,
+        selection_manager: Any = None,
+        command_manager: Any = None,
+        tool_registry: Any = None,
         activate_default: bool = True,
     ) -> None:
         """
@@ -115,23 +106,29 @@ class InteractionManager:
             GraphicsView owning this interaction manager.
 
         controller:
-            Authoritative application/UI controller.
+            Authoritative application Controller.
 
-        command_manager:
-            Optional CommandManager supplied to ToolManager.
-
-        selection_manager:
-            Optional SelectionManager supplied to ToolManager.
+        coordinate_system:
+            Canvas CoordinateSystem.
 
         snap_system:
-            Optional SnapSystem supplied to ToolManager.
+            Canvas SnapSystem.
 
-        renderer_registry:
-            Optional RendererRegistry supplied to ToolManager.
+        preview_layer:
+            Canvas PreviewLayer used for transient graphics.
+
+        selection_manager:
+            SelectionManager used by interaction services/tools.
+
+        command_manager:
+            Optional CommandManager available to the interaction
+            layer.
+
+        tool_registry:
+            Optional ToolRegistry supplied to ToolManager.
 
         activate_default:
-            When True, ToolManager activates SelectTool during
-            initialization.
+            When True, ToolManager activates its default tool.
         """
 
         if view is None:
@@ -147,21 +144,125 @@ class InteractionManager:
         self.view = view
         self.controller = controller
 
-        self.command_manager = command_manager
-        self.selection_manager = selection_manager
+        self.coordinate_system = coordinate_system
         self.snap_system = snap_system
-        self.renderer_registry = renderer_registry
+        self.preview_layer = preview_layer
+        self.selection_manager = selection_manager
+        self.command_manager = command_manager
+        self.tool_registry = tool_registry
 
         self._disposed = False
 
+        # ----------------------------------------------------
+        # ToolManager is the sole concrete-tool authority.
+        #
+        # The interaction manager itself is injected so tools
+        # can obtain the canvas interaction services without
+        # creating their own infrastructure.
+        # ----------------------------------------------------
+
         self.tool_manager = ToolManager(
             controller=controller,
-            command_manager=command_manager,
-            selection_manager=selection_manager,
-            snap_system=snap_system,
-            renderer_registry=renderer_registry,
-            activate_default=activate_default,
+            interaction_manager=self,
+            preview=preview_layer,
+            tool_registry=tool_registry,
         )
+
+        if activate_default:
+            self.tool_manager.activate_default()
+
+    # ========================================================
+    # SERVICE ACCESS
+    # ========================================================
+
+    def get_view(
+        self,
+    ) -> Any:
+        """
+        Return the owning GraphicsView.
+        """
+
+        self._ensure_active()
+
+        return self.view
+
+    # --------------------------------------------------------
+
+    def get_controller(
+        self,
+    ) -> Any:
+        """
+        Return the authoritative Controller.
+        """
+
+        self._ensure_active()
+
+        return self.controller
+
+    # --------------------------------------------------------
+
+    def get_coordinate_system(
+        self,
+    ) -> Any:
+        """
+        Return the canvas CoordinateSystem.
+        """
+
+        self._ensure_active()
+
+        return self.coordinate_system
+
+    # --------------------------------------------------------
+
+    def get_snap_system(
+        self,
+    ) -> Any:
+        """
+        Return the canvas SnapSystem.
+        """
+
+        self._ensure_active()
+
+        return self.snap_system
+
+    # --------------------------------------------------------
+
+    def get_preview_layer(
+        self,
+    ) -> Any:
+        """
+        Return the canvas PreviewLayer.
+        """
+
+        self._ensure_active()
+
+        return self.preview_layer
+
+    # --------------------------------------------------------
+
+    def get_selection_manager(
+        self,
+    ) -> Any:
+        """
+        Return the SelectionManager.
+        """
+
+        self._ensure_active()
+
+        return self.selection_manager
+
+    # --------------------------------------------------------
+
+    def get_command_manager(
+        self,
+    ) -> Any:
+        """
+        Return the CommandManager.
+        """
+
+        self._ensure_active()
+
+        return self.command_manager
 
     # ========================================================
     # TOOL MANAGER ACCESS
@@ -185,7 +286,7 @@ class InteractionManager:
     @property
     def active_tool(
         self,
-    ):
+    ) -> Any:
         """
         Return the currently active concrete tool.
         """
@@ -198,11 +299,9 @@ class InteractionManager:
 
     def get_active_tool(
         self,
-    ):
+    ) -> Any:
         """
         Return the currently active concrete tool.
-
-        Returns None when no tool is active.
         """
 
         self._ensure_active()
@@ -245,7 +344,7 @@ class InteractionManager:
         self,
     ) -> bool:
         """
-        Return True when an active tool is available.
+        Return True when an active tool exists.
         """
 
         if self._disposed:
@@ -261,13 +360,13 @@ class InteractionManager:
         self,
     ) -> bool:
         """
-        Return True when an active tool is available.
+        Return True when an active tool exists.
         """
 
         return self.active
 
     # ========================================================
-    # MOUSE PRESS
+    # EVENT ROUTING
     # ========================================================
 
     def mouse_press(
@@ -275,20 +374,12 @@ class InteractionManager:
         event: Any,
     ) -> bool:
         """
-        Route a mouse-press event to the active tool.
-
-        Returns
-        -------
-        bool
-            True when the active tool consumes the event.
+        Forward a mouse-press event to ToolManager.
         """
 
-        self._ensure_active()
-
-        if event is None:
-            raise ValueError(
-                "event must not be None."
-            )
+        self._validate_event(
+            event
+        )
 
         return bool(
             self.tool_manager.mouse_press(
@@ -296,29 +387,19 @@ class InteractionManager:
             )
         )
 
-    # ========================================================
-    # MOUSE MOVE
-    # ========================================================
+    # --------------------------------------------------------
 
     def mouse_move(
         self,
         event: Any,
     ) -> bool:
         """
-        Route a mouse-move event to the active tool.
-
-        Returns
-        -------
-        bool
-            True when the active tool consumes the event.
+        Forward a mouse-move event to ToolManager.
         """
 
-        self._ensure_active()
-
-        if event is None:
-            raise ValueError(
-                "event must not be None."
-            )
+        self._validate_event(
+            event
+        )
 
         return bool(
             self.tool_manager.mouse_move(
@@ -326,29 +407,19 @@ class InteractionManager:
             )
         )
 
-    # ========================================================
-    # MOUSE RELEASE
-    # ========================================================
+    # --------------------------------------------------------
 
     def mouse_release(
         self,
         event: Any,
     ) -> bool:
         """
-        Route a mouse-release event to the active tool.
-
-        Returns
-        -------
-        bool
-            True when the active tool consumes the event.
+        Forward a mouse-release event to ToolManager.
         """
 
-        self._ensure_active()
-
-        if event is None:
-            raise ValueError(
-                "event must not be None."
-            )
+        self._validate_event(
+            event
+        )
 
         return bool(
             self.tool_manager.mouse_release(
@@ -356,29 +427,19 @@ class InteractionManager:
             )
         )
 
-    # ========================================================
-    # MOUSE DOUBLE CLICK
-    # ========================================================
+    # --------------------------------------------------------
 
     def mouse_double_click(
         self,
         event: Any,
     ) -> bool:
         """
-        Route a mouse-double-click event to the active tool.
-
-        Returns
-        -------
-        bool
-            True when the active tool consumes the event.
+        Forward a mouse-double-click event to ToolManager.
         """
 
-        self._ensure_active()
-
-        if event is None:
-            raise ValueError(
-                "event must not be None."
-            )
+        self._validate_event(
+            event
+        )
 
         return bool(
             self.tool_manager.mouse_double_click(
@@ -386,29 +447,19 @@ class InteractionManager:
             )
         )
 
-    # ========================================================
-    # KEY PRESS
-    # ========================================================
+    # --------------------------------------------------------
 
     def key_press(
         self,
         event: Any,
     ) -> bool:
         """
-        Route a keyboard-press event to the active tool.
-
-        Returns
-        -------
-        bool
-            True when the active tool consumes the event.
+        Forward a key-press event to ToolManager.
         """
 
-        self._ensure_active()
-
-        if event is None:
-            raise ValueError(
-                "event must not be None."
-            )
+        self._validate_event(
+            event
+        )
 
         return bool(
             self.tool_manager.key_press(
@@ -416,92 +467,25 @@ class InteractionManager:
             )
         )
 
-    # ========================================================
-    # KEY RELEASE
-    # ========================================================
+    # --------------------------------------------------------
 
     def key_release(
         self,
         event: Any,
     ) -> bool:
         """
-        Route a keyboard-release event to the active tool.
-
-        Returns
-        -------
-        bool
-            True when the active tool consumes the event.
+        Forward a key-release event to ToolManager.
         """
 
-        self._ensure_active()
-
-        if event is None:
-            raise ValueError(
-                "event must not be None."
-            )
+        self._validate_event(
+            event
+        )
 
         return bool(
             self.tool_manager.key_release(
                 event
             )
         )
-
-    # ========================================================
-    # TOOL SWITCHING
-    # ========================================================
-
-    def activate_tool(
-        self,
-        tool_id: str,
-    ):
-        """
-        Activate a registered tool through ToolManager.
-        """
-
-        self._ensure_active()
-
-        return self.tool_manager.activate_tool(
-            tool_id
-        )
-
-    # --------------------------------------------------------
-
-    def select_tool(
-        self,
-    ):
-        """
-        Activate SelectTool.
-        """
-
-        self._ensure_active()
-
-        return self.tool_manager.select_tool()
-
-    # --------------------------------------------------------
-
-    def bus_tool(
-        self,
-    ):
-        """
-        Activate BusTool.
-        """
-
-        self._ensure_active()
-
-        return self.tool_manager.bus_tool()
-
-    # --------------------------------------------------------
-
-    def line_tool(
-        self,
-    ):
-        """
-        Activate LineTool.
-        """
-
-        self._ensure_active()
-
-        return self.tool_manager.line_tool()
 
     # ========================================================
     # CANCELLATION
@@ -511,18 +495,16 @@ class InteractionManager:
         self,
     ) -> bool:
         """
-        Cancel the active tool's transient interaction.
+        Cancel the active tool interaction.
 
-        Returns
-        -------
-        bool
-            True when an active tool handled cancellation.
+        ToolManager remains responsible for cancellation and
+        transient preview cleanup.
         """
 
         self._ensure_active()
 
         return bool(
-            self.tool_manager.cancel_active_tool()
+            self.tool_manager.cancel()
         )
 
     # --------------------------------------------------------
@@ -531,9 +513,7 @@ class InteractionManager:
         self,
     ) -> bool:
         """
-        Cancel the active tool.
-
-        This is an explicit alias for ``cancel()``.
+        Explicit cancellation alias.
         """
 
         return self.cancel()
@@ -548,13 +528,12 @@ class InteractionManager:
         """
         Reset transient interaction state.
 
-        Tool ownership and lifecycle remain delegated to
-        ToolManager.
+        The active tool remains active.
         """
 
         self._ensure_active()
 
-        self.tool_manager.reset_active_tool()
+        self.tool_manager.reset()
 
     # ========================================================
     # TOOL STATE
@@ -593,16 +572,35 @@ class InteractionManager:
                 "tool_manager": None,
             }
 
+        active_tool = (
+            self.tool_manager.active_tool
+        )
+
         return {
             "disposed": False,
-            "active": self.is_active(),
+            "active": active_tool is not None,
             "active_tool": (
-                type(self.active_tool).__name__
-                if self.active_tool is not None
+                type(active_tool).__name__
+                if active_tool is not None
                 else None
             ),
             "active_tool_id": (
-                self.active_tool_id
+                self.tool_manager.active_tool_id
+            ),
+            "has_coordinate_system": (
+                self.coordinate_system is not None
+            ),
+            "has_snap_system": (
+                self.snap_system is not None
+            ),
+            "has_preview_layer": (
+                self.preview_layer is not None
+            ),
+            "has_selection_manager": (
+                self.selection_manager is not None
+            ),
+            "has_command_manager": (
+                self.command_manager is not None
             ),
             "tool_manager": (
                 self.tool_manager.get_state()
@@ -617,10 +615,10 @@ class InteractionManager:
         self,
     ) -> None:
         """
-        Dispose the canvas-owned interaction manager.
+        Dispose the canvas interaction manager.
 
-        The application controller and Core are not owned here and
-        are therefore not disposed.
+        Controller and Core are not owned here and are never
+        disposed.
         """
 
         if self._disposed:
@@ -631,19 +629,36 @@ class InteractionManager:
         self._disposed = True
 
     # ========================================================
-    # INTERNAL VALIDATION
+    # VALIDATION
     # ========================================================
 
     def _ensure_active(
         self,
     ) -> None:
         """
-        Ensure the interaction manager has not been disposed.
+        Ensure this interaction manager is not disposed.
         """
 
         if self._disposed:
             raise RuntimeError(
                 "InteractionManager has been disposed."
+            )
+
+    # --------------------------------------------------------
+
+    def _validate_event(
+        self,
+        event: Any,
+    ) -> None:
+        """
+        Validate and prepare an incoming interaction event.
+        """
+
+        self._ensure_active()
+
+        if event is None:
+            raise ValueError(
+                "event must not be None."
             )
 
     # ========================================================
@@ -666,7 +681,7 @@ class InteractionManager:
 
         return (
             "InteractionManager("
-            f"active={self.is_active()}, "
+            f"active={self.active}, "
             f"tool={self.active_tool_id!r}"
             ")"
         )
