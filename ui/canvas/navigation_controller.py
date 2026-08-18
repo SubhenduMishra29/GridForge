@@ -72,8 +72,6 @@ from typing import Any
 
 
 from ui.core.qt import (
-    QPainter,
-    QTransform,
     Qt,
 )
 
@@ -159,11 +157,11 @@ class NavigationController:
         # ----------------------------------------------------
         # Navigation state.
         #
-        # This is relative to the transform established when
-        # the controller is initialized/reset.
+        # _zoom_level represents the current uniform scale
+        # relative to the identity transform.
         # ----------------------------------------------------
 
-        self._zoom_level = 1.0
+        self._zoom_level = self._estimate_zoom_level()
 
         self._is_panning = False
         self._pan_start = None
@@ -648,6 +646,16 @@ class NavigationController:
         ----------
         margin:
             Margin in viewport pixels.
+
+        Notes
+        -----
+        QGraphicsView.fitInView() fits to the complete viewport.
+        Therefore the requested viewport margin is implemented by
+        fitting first and then applying a uniform reduction equal
+        to the requested pixel margin.
+
+        The resulting transform is then measured again so that
+        _zoom_level remains consistent with the actual view.
         """
 
         if isinstance(
@@ -687,31 +695,101 @@ class NavigationController:
 
         viewport = self.view.viewport()
 
-        width = float(
+        viewport_width = float(
             viewport.width()
-        ) - (
-            2.0 * margin
         )
 
-        height = float(
+        viewport_height = float(
             viewport.height()
-        ) - (
-            2.0 * margin
         )
 
-        if width <= 0.0 or height <= 0.0:
+        if viewport_width <= 0.0:
+            return
+
+        if viewport_height <= 0.0:
+            return
+
+        available_width = (
+            viewport_width
+            - (
+                2.0
+                * margin
+            )
+        )
+
+        available_height = (
+            viewport_height
+            - (
+                2.0
+                * margin
+            )
+        )
+
+        if available_width <= 0.0:
+            return
+
+        if available_height <= 0.0:
             return
 
         self.end_pan()
+
+        # ----------------------------------------------------
+        # First fit the content to the complete viewport.
+        # ----------------------------------------------------
 
         self.view.fitInView(
             rect,
             Qt.KeepAspectRatio,
         )
 
+        # ----------------------------------------------------
+        # fitInView() has now established the required uniform
+        # scale for the content.
+        #
+        # Reduce that scale so that the content occupies only
+        # the viewport area remaining after the requested
+        # viewport-pixel margins.
+        # ----------------------------------------------------
+
+        width_factor = (
+            available_width
+            / viewport_width
+        )
+
+        height_factor = (
+            available_height
+            / viewport_height
+        )
+
+        margin_factor = min(
+            1.0,
+            width_factor,
+            height_factor,
+        )
+
+        if margin_factor < 1.0:
+            self.view.scale(
+                margin_factor,
+                margin_factor,
+            )
+
+        # ----------------------------------------------------
+        # Re-establish authoritative navigation state from the
+        # actual transform rather than assuming a scale.
+        # ----------------------------------------------------
+
         self._zoom_level = self._estimate_zoom_level()
 
         self._zoom_level = self._clamp_zoom(
+            self._zoom_level
+        )
+
+        # ----------------------------------------------------
+        # If the configured zoom limits required clamping,
+        # apply that clamp to the actual transform as well.
+        # ----------------------------------------------------
+
+        self._apply_zoom_level(
             self._zoom_level
         )
 
@@ -754,9 +832,14 @@ class NavigationController:
 
         self._zoom_level = self._estimate_zoom_level()
 
-        self._zoom_level = self._clamp_zoom(
+        target = self._clamp_zoom(
             self._zoom_level
         )
+
+        if target != self._zoom_level:
+            self._apply_zoom_level(
+                target
+            )
 
     # ========================================================
     # ZOOM LIMITS
@@ -769,6 +852,11 @@ class NavigationController:
     ) -> None:
         """
         Replace the allowed relative zoom range.
+
+        If the current zoom lies outside the new range, the
+        actual viewport transform is adjusted immediately so
+        that navigation state and the visible transform remain
+        consistent.
         """
 
         min_zoom = self._validate_zoom_limit(
@@ -786,12 +874,23 @@ class NavigationController:
                 "min_zoom must not be greater than max_zoom."
             )
 
+        self._ensure_active()
+
         self.min_zoom = min_zoom
         self.max_zoom = max_zoom
 
-        self._zoom_level = self._clamp_zoom(
-            self._zoom_level
+        current = self._estimate_zoom_level()
+
+        target = self._clamp_zoom(
+            current
         )
+
+        self._zoom_level = current
+
+        if target != current:
+            self._apply_zoom_level(
+                target
+            )
 
     # --------------------------------------------------------
 
@@ -813,12 +912,50 @@ class NavigationController:
 
     # --------------------------------------------------------
 
+    def _apply_zoom_level(
+        self,
+        target: float,
+    ) -> None:
+        """
+        Apply an absolute relative zoom level to the view.
+
+        The current transform is measured first so that the
+        requested target is applied relative to the actual
+        viewport scale.
+        """
+
+        target = self._clamp_zoom(
+            target
+        )
+
+        current = self._estimate_zoom_level()
+
+        if current <= 0.0:
+            current = 1.0
+
+        factor = (
+            target
+            / current
+        )
+
+        if factor != 1.0:
+            self.view.scale(
+                factor,
+                factor,
+            )
+
+        self._zoom_level = target
+
+    # --------------------------------------------------------
+
     def _estimate_zoom_level(
         self,
     ) -> float:
         """
         Estimate the current uniform scale from the view
         transform.
+
+        The GridForge navigation model uses uniform scaling.
         """
 
         transform = self.view.transform()
@@ -829,15 +966,43 @@ class NavigationController:
             None,
         )
 
+        m22 = getattr(
+            transform,
+            "m22",
+            None,
+        )
+
         if callable(
             m11
         ):
-            scale = float(
+            scale_x = float(
                 m11()
             )
 
-            if scale > 0.0:
-                return scale
+            if callable(
+                m22
+            ):
+                scale_y = float(
+                    m22()
+                )
+
+                # ------------------------------------------------
+                # Navigation should remain uniformly scaled.
+                # Use the geometric mean if tiny floating-point
+                # differences exist between the axes.
+                # ------------------------------------------------
+
+                if (
+                    scale_x > 0.0
+                    and scale_y > 0.0
+                ):
+                    return (
+                        scale_x
+                        * scale_y
+                    ) ** 0.5
+
+            if scale_x > 0.0:
+                return scale_x
 
         return 1.0
 
