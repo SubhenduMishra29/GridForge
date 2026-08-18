@@ -3,68 +3,83 @@
 # GridForge V2 — Line Renderer
 # ============================================================
 """
-Renderer for authoritative GridForge Line objects.
+Concrete renderer for authoritative GridForge Line objects.
 
 Architecture
 ------------
 
-    Core / Application Line
-              │
-              ▼
-         LineRenderer
-              │
-              ▼
-           LineItem
-              │
-              ▼
-         GridScene
-              │
-              ▼
-        GraphicsView
+    Authoritative Core/Application Line
+                    │
+                    ▼
+              LineRenderer
+                    │
+                    ▼
+                 LineItem
+                    │
+                    ▼
+              QGraphicsScene
 
 Purpose
 -------
-LineRenderer is the presentation-layer adapter responsible for
-creating and synchronizing the graphical projection of a Line.
+LineRenderer converts authoritative Line state into its
+graphical presentation.
 
-The authoritative Line remains in Core/Application state.
+The Line object remains the single source of engineering truth.
 
-LineRenderer does NOT:
+LineRenderer is a presentation-layer adapter only.
 
-    - modify the Core model;
-    - create or delete Core objects;
+It does NOT:
+
+    - create or mutate Core engineering objects;
     - determine electrical topology;
     - perform electrical calculations;
     - perform snapping;
-    - implement LineTool behavior;
-    - own selection state;
-    - own navigation;
-    - manage the scene lifecycle;
-    - decide connection validity.
+    - implement tools;
+    - own application selection state;
+    - perform navigation;
+    - own the Canvas;
+    - own the QGraphicsScene;
+    - persist project state;
+    - maintain an independent engineering-state cache.
+
+Rendering direction
+-------------------
+
+    Core/Application State
+            ↓
+        LineRenderer
+            ↓
+          LineItem
+            ↓
+       Graphics Scene
+
+The reverse direction is prohibited:
+
+    LineItem
+       ↓
+    LineRenderer
+       ↓
+    Core engineering state
 
 Geometry
 --------
-The renderer extracts presentation endpoints from the
-authoritative Line.
+The renderer reads presentation geometry from the authoritative
+Line model.
 
-The renderer does not perform viewport/scene coordinate
-conversion.
+No viewport/scene/grid transformation is performed here.
 
 Coordinate conversion belongs to CoordinateSystem.
 
 Topology
 --------
-The authoritative electrical connection remains in Core.
+The renderer does not determine electrical connectivity.
 
-LineItem is only a graphical projection of that connection.
-
-A LineItem endpoint may visually correspond to a Bus or other
-connection location, but LineRenderer does not establish or
-validate that relationship.
+Any relationship between a Line and its terminals remains
+authoritative in the Core/network layer.
 
 Qt Architecture
----------------
-All Qt dependencies must pass through:
+----------------
+All Qt dependencies pass through:
 
     ui.core.qt
 
@@ -76,45 +91,36 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional
 
 from ui.core.qt import (
-    QPointF,
     QGraphicsScene,
+    QPointF,
 )
 
 from ui.items.line_item import LineItem
+from ui.renderers.renderer_base import RendererBase
+from ui.renderers.renderer_utils import (
+    find_item_by_object_id,
+    get_object_id,
+    read_attribute,
+    to_pointf,
+    to_point_pair,
+)
 
 
-class LineRenderer:
+class LineRenderer(RendererBase):
     """
-    Render and synchronize Line objects as LineItem instances.
+    Render authoritative Line objects as LineItem projections.
 
-    The renderer does not maintain a persistent model cache.
+    The renderer does not maintain a persistent application-model
+    cache.
 
-    The scene is the container for graphical projections.
+    The graphics scene is the container for graphical
+    projections.
 
     Parameters
     ----------
     scene:
-        QGraphicsScene receiving LineItem projections.
+        Target QGraphicsScene-compatible object.
     """
-
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
-
-    def __init__(
-        self,
-        scene: QGraphicsScene,
-    ) -> None:
-        if scene is None:
-            raise ValueError(
-                "scene must not be None."
-            )
-
-        self._validate_scene(
-            scene
-        )
-
-        self.scene = scene
 
     # ========================================================
     # RENDER
@@ -122,20 +128,21 @@ class LineRenderer:
 
     def render(
         self,
-        line: Any,
+        model: Any,
     ) -> LineItem:
         """
         Create or update the graphical projection of a Line.
 
-        If a LineItem with the same object_id already exists,
-        the existing projection is synchronized and returned.
+        Existing projections are synchronized.
 
-        Otherwise a new LineItem is created and added to the
-        scene.
+        Missing projections are created and attached to the
+        renderer scene.
+
+        The authoritative Line is never modified.
         """
 
         object_id = self._get_object_id(
-            line
+            model
         )
 
         existing = self.get_item(
@@ -145,18 +152,11 @@ class LineRenderer:
         if existing is not None:
             return self.update(
                 existing,
-                line,
+                model,
             )
 
-        start, end = self.get_model_endpoints(
-            line
-        )
-
-        item = LineItem(
-            object_id=object_id,
-            start=start,
-            end=end,
-            model=line,
+        item = self.create_item(
+            model
         )
 
         self.scene.addItem(
@@ -171,23 +171,21 @@ class LineRenderer:
 
     def create_item(
         self,
-        line: Any,
+        model: Any,
     ) -> LineItem:
         """
-        Create a LineItem without adding it to the scene.
-
-        This method is intended for explicit scene lifecycle
-        management.
+        Create a LineItem projection without adding it to the
+        scene.
 
         Raises
         ------
         ValueError
-            If a projection for the same object ID already
-            exists in the scene.
+            If a projection for the same object_id already
+            exists.
         """
 
         object_id = self._get_object_id(
-            line
+            model
         )
 
         if self.get_item(
@@ -200,14 +198,14 @@ class LineRenderer:
             )
 
         start, end = self.get_model_endpoints(
-            line
+            model
         )
 
         return LineItem(
             object_id=object_id,
             start=start,
             end=end,
-            model=line,
+            model=model,
         )
 
     # ========================================================
@@ -217,13 +215,15 @@ class LineRenderer:
     def update(
         self,
         item: LineItem,
-        line: Any,
+        model: Any,
     ) -> LineItem:
         """
-        Synchronize an existing LineItem from the authoritative
-        Line object.
+        Synchronize an existing LineItem from authoritative
+        Line state.
 
         Only the graphical projection is modified.
+
+        The authoritative Line is never modified.
         """
 
         if item is None:
@@ -240,7 +240,7 @@ class LineRenderer:
             )
 
         object_id = self._get_object_id(
-            line
+            model
         )
 
         if item.object_id != object_id:
@@ -250,11 +250,11 @@ class LineRenderer:
             )
 
         start, end = self.get_model_endpoints(
-            line
+            model
         )
 
         item.set_model(
-            line
+            model
         )
 
         item.set_endpoints(
@@ -276,7 +276,9 @@ class LineRenderer:
         Remove the graphical Line projection identified by
         object_id.
 
-        This does not delete the authoritative Line.
+        This removes only the graphical representation.
+
+        The authoritative Core Line is never deleted or modified.
         """
 
         item = self.get_item(
@@ -301,7 +303,7 @@ class LineRenderer:
         object_id: Any,
     ) -> Optional[LineItem]:
         """
-        Return the LineItem representing object_id.
+        Return the LineItem projection for object_id.
 
         Returns None when no matching projection exists.
         """
@@ -309,52 +311,49 @@ class LineRenderer:
         if object_id is None:
             return None
 
-        for item in tuple(
-            self.scene.items()
-        ):
-            if (
-                isinstance(
-                    item,
-                    LineItem,
-                )
-                and item.object_id == object_id
-            ):
-                return item
+        item = find_item_by_object_id(
+            self.scene,
+            object_id,
+            LineItem,
+        )
 
-        return None
+        if item is None:
+            return None
+
+        return item
 
     # ========================================================
-    # BULK RENDERING
+    # BULK SYNCHRONIZATION
     # ========================================================
 
     def render_all(
         self,
-        lines: Iterable[Any],
+        models: Iterable[Any],
     ) -> tuple[LineItem, ...]:
         """
         Render a collection of authoritative Line objects.
 
         Existing projections are updated.
 
-        New projections are created.
+        Missing projections are created.
 
-        Existing scene items not represented by the supplied
-        collection are deliberately retained.
+        Existing scene projections not represented by the supplied
+        collection are retained.
 
-        Removal is explicit through remove().
+        Removal remains explicit through remove().
         """
 
-        if lines is None:
+        if models is None:
             raise ValueError(
-                "lines must not be None."
+                "models must not be None."
             )
 
         result: list[LineItem] = []
 
-        for line in lines:
+        for model in models:
             result.append(
                 self.render(
-                    line
+                    model
                 )
             )
 
@@ -369,40 +368,34 @@ class LineRenderer:
     @classmethod
     def get_model_endpoints(
         cls,
-        line: Any,
+        model: Any,
     ) -> tuple[QPointF, QPointF]:
         """
-        Extract presentation endpoints from an authoritative
-        Line object.
+        Extract presentation endpoints from the authoritative
+        Line model.
 
-        Supported endpoint representations are:
+        Supported public endpoint representations are:
 
-            line.start / line.end
+            start / end
 
-        or:
+            start_point / end_point
 
-            line.start_point / line.end_point
+            from_point / to_point
 
-        or:
+            p1 / p2
 
-            line.from_point / line.to_point
+        Callable attributes are supported.
 
-        or:
-
-            line.p1 / line.p2
-
-        Callable attributes are also supported.
-
-        No coordinate conversion is performed here.
+        No coordinate transformation or snapping is performed.
         """
 
-        if line is None:
+        if model is None:
             raise ValueError(
-                "line must not be None."
+                "model must not be None."
             )
 
-        start = cls._read_attribute(
-            line,
+        start = read_attribute(
+            model,
             (
                 "start",
                 "start_point",
@@ -411,8 +404,8 @@ class LineRenderer:
             ),
         )
 
-        end = cls._read_attribute(
-            line,
+        end = read_attribute(
+            model,
             (
                 "end",
                 "end_point",
@@ -423,27 +416,19 @@ class LineRenderer:
 
         if start is None:
             raise AttributeError(
-                "Line must provide a start endpoint "
-                "through start, start_point, "
-                "from_point, or p1."
+                "Line must provide a start endpoint through "
+                "start, start_point, from_point, or p1."
             )
 
         if end is None:
             raise AttributeError(
-                "Line must provide an end endpoint "
-                "through end, end_point, "
-                "to_point, or p2."
+                "Line must provide an end endpoint through "
+                "end, end_point, to_point, or p2."
             )
 
-        return (
-            cls._point_copy(
-                start,
-                "start",
-            ),
-            cls._point_copy(
-                end,
-                "end",
-            ),
+        return to_point_pair(
+            start,
+            end,
         )
 
     # ========================================================
@@ -452,119 +437,15 @@ class LineRenderer:
 
     @staticmethod
     def _get_object_id(
-        line: Any,
+        model: Any,
     ) -> Any:
         """
-        Extract the authoritative Line identifier.
-
-        Supported forms:
-
-            line.object_id
-            line.id
+        Extract the authoritative Line identifier using the
+        shared renderer identity contract.
         """
 
-        if line is None:
-            raise ValueError(
-                "line must not be None."
-            )
-
-        object_id = getattr(
-            line,
-            "object_id",
-            None,
-        )
-
-        if callable(object_id):
-            object_id = object_id()
-
-        if object_id is None:
-            object_id = getattr(
-                line,
-                "id",
-                None,
-            )
-
-            if callable(object_id):
-                object_id = object_id()
-
-        if object_id is None:
-            raise AttributeError(
-                "Line must provide object_id or id."
-            )
-
-        return object_id
-
-    # ========================================================
-    # ATTRIBUTE HELPERS
-    # ========================================================
-
-    @staticmethod
-    def _read_attribute(
-        obj: Any,
-        names: tuple[str, ...],
-    ) -> Any:
-        """
-        Return the first non-None attribute from names.
-
-        Callable attributes are evaluated.
-        """
-
-        for name in names:
-            value = getattr(
-                obj,
-                name,
-                None,
-            )
-
-            if callable(value):
-                value = value()
-
-            if value is not None:
-                return value
-
-        return None
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _point_copy(
-        point: Any,
-        name: str,
-    ) -> QPointF:
-        """
-        Validate and copy a QPointF-compatible point.
-        """
-
-        if point is None:
-            raise ValueError(
-                f"{name} must not be None."
-            )
-
-        x = getattr(
-            point,
-            "x",
-            None,
-        )
-
-        y = getattr(
-            point,
-            "y",
-            None,
-        )
-
-        if not callable(x):
-            raise TypeError(
-                f"{name} must provide x()."
-            )
-
-        if not callable(y):
-            raise TypeError(
-                f"{name} must provide y()."
-            )
-
-        return QPointF(
-            x(),
-            y(),
+        return get_object_id(
+            model
         )
 
     # ========================================================
@@ -576,21 +457,16 @@ class LineRenderer:
         scene: QGraphicsScene,
     ) -> None:
         """
-        Replace the target scene.
+        Replace the target graphics scene.
 
-        Existing items are not migrated automatically.
+        Existing graphical items are not migrated automatically.
+
+        RendererBase owns scene validation.
         """
 
-        if scene is None:
-            raise ValueError(
-                "scene must not be None."
-            )
-
-        self._validate_scene(
+        super().set_scene(
             scene
         )
-
-        self.scene = scene
 
     # --------------------------------------------------------
 
@@ -598,13 +474,13 @@ class LineRenderer:
         self,
     ) -> QGraphicsScene:
         """
-        Return the target scene.
+        Return the currently attached graphics scene.
         """
 
-        return self.scene
+        return super().get_scene()
 
     # ========================================================
-    # DEBUG STATE
+    # DIAGNOSTICS
     # ========================================================
 
     def get_state(
@@ -614,7 +490,9 @@ class LineRenderer:
         Return diagnostic renderer state.
         """
 
-        item_count = sum(
+        state = super().get_state()
+
+        line_item_count = sum(
             1
             for item in tuple(
                 self.scene.items()
@@ -625,45 +503,13 @@ class LineRenderer:
             )
         )
 
-        return {
-            "renderer": type(self).__name__,
-            "scene_attached": (
-                self.scene is not None
-            ),
-            "line_item_count": item_count,
-        }
-
-    # ========================================================
-    # VALIDATION
-    # ========================================================
-
-    @staticmethod
-    def _validate_scene(
-        scene: Any,
-    ) -> None:
-        """
-        Validate the minimum scene contract required by the
-        renderer.
-        """
-
-        required_methods = (
-            "addItem",
-            "removeItem",
-            "items",
+        state.update(
+            {
+                "line_item_count": line_item_count,
+            }
         )
 
-        for method_name in required_methods:
-            if not callable(
-                getattr(
-                    scene,
-                    method_name,
-                    None,
-                )
-            ):
-                raise TypeError(
-                    "scene must provide "
-                    f"{method_name}()."
-                )
+        return state
 
     # ========================================================
     # REPRESENTATION
