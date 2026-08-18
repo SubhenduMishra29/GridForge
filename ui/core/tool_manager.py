@@ -15,7 +15,8 @@ Architecture
     ToolManager
         │
         ├── tool registry
-        ├── active tool instance
+        ├── concrete tool instances
+        ├── active tool
         ├── activation
         ├── deactivation
         ├── cancellation
@@ -24,23 +25,35 @@ Architecture
               ▼
           Active Tool
 
-ToolManager is the sole owner of concrete tool instances and
-their lifecycle.
+Ownership
+---------
+
+Controller
+    Owns application-level tool-selection intent.
+
+ToolManager
+    Owns concrete tool instances and their lifecycle.
+
+InteractionManager
+    Routes user input to the currently active tool.
+
+Concrete Tools
+    Implement tool-specific interaction behavior.
 
 Responsibilities
 ----------------
 ToolManager:
 
-    - owns the active tool instance;
-    - creates tool instances through the registered tool
-      factories/classes;
+    - owns concrete tool instances;
+    - creates tools through registered factories/classes;
     - responds to Controller tool-selection changes;
     - activates the requested tool;
     - deactivates the previous tool;
     - cancels active tool interaction;
-    - resets tool state;
-    - exposes the active tool and ID;
-    - provides tool diagnostics.
+    - resets active tool interaction;
+    - disposes owned tool instances;
+    - exposes active tool state;
+    - provides diagnostics.
 
 ToolManager does NOT:
 
@@ -52,87 +65,45 @@ ToolManager does NOT:
     - perform snapping;
     - perform selection;
     - perform navigation;
-    - modify the Core model directly;
+    - modify Core directly;
     - render permanent graphics.
 
-Controller Ownership
+Lifecycle invariants
 --------------------
-Controller owns application-level tool selection.
 
-Controller stores the requested tool identifier and emits:
+1. Controller owns requested tool selection.
+2. ToolManager owns concrete tool lifecycle.
+3. ToolManager never calls Controller.set_tool().
+4. An unknown tool request must not deactivate the current tool.
+5. A failed tool construction must not destroy the current
+   active lifecycle state.
+6. A failed activation must restore the previous active tool.
+7. Active state is committed only after successful activation.
+8. A successfully active tool remains active until a successful
+   transition, explicit deactivation, or disposal.
+9. Tool instances are lazily constructed.
+10. ToolManager is the sole owner of concrete tool instances.
 
-    tool_changed(new_tool_id, previous_tool_id)
+Tool construction
+-----------------
 
-ToolManager subscribes to this signal/event and translates the
-requested identifier into the concrete tool lifecycle.
-
-Therefore:
-
-    Controller
-        = selection intent
-
-    ToolManager
-        = concrete tool lifecycle
-
-InteractionManager
-------------------
-InteractionManager does not subscribe to Controller's
-tool_changed event.
-
-InteractionManager only asks ToolManager for the active tool
-and routes input to it.
-
-Tool Ownership
---------------
-ToolManager is the single owner of concrete tool instances.
-
-A tool may be:
-
-    - registered by class/factory;
-    - lazily instantiated;
-    - activated;
-    - deactivated;
-    - cancelled;
-    - reset.
-
-Tools receive the shared interaction services required by the
-UI architecture.
-
-Expected optional tool constructor contract:
+The canonical tool constructor contract is:
 
     Tool(
         interaction_manager=...,
         preview=...,
     )
 
-Lifecycle contract
-------------------
-Tool implementations may provide:
+Factories/classes registered with ToolManager must support that
+contract.
 
-    activate()
-    deactivate()
-    cancel()
-    reset()
-    dispose()
-
-Lifecycle methods are optional at the protocol level.
-
-When absent, the corresponding lifecycle transition is treated
-as a no-op.
-
-Important
----------
-ToolManager must never invoke Controller.set_tool() while
-processing Controller.tool_changed.
-
-Doing so would create a feedback loop and duplicate ownership.
+This manager deliberately does not catch TypeError from inside
+the tool constructor and reinterpret it as a constructor-signature
+mismatch. A tool-construction failure must propagate unchanged so
+the real production error remains visible.
 
 Qt Architecture
 ---------------
-All Qt dependencies must pass through:
-
-    ui.core.qt
-
 This module intentionally has no direct Qt dependency.
 """
 
@@ -206,16 +177,20 @@ class ToolManager:
             )
 
         self.controller = controller
+
         self.interaction_manager = (
             interaction_manager
         )
+
         self.preview = preview
 
         # ----------------------------------------------------
         # Tool registry.
         #
-        # The registry contains tool factories/classes.
-        # ToolManager owns instantiated tools separately.
+        # Contains factories/classes.
+        #
+        # Instantiated tools are owned separately by
+        # _tool_instances.
         # ----------------------------------------------------
 
         self._tool_registry: dict[
@@ -248,9 +223,6 @@ class ToolManager:
 
         # ----------------------------------------------------
         # Controller subscription.
-        #
-        # This is the sole tool-selection subscription in the
-        # canvas interaction architecture.
         # ----------------------------------------------------
 
         self._subscribe_controller()
@@ -265,15 +237,12 @@ class ToolManager:
         """
         Subscribe to Controller.tool_changed.
 
-        Supported Controller subscription styles:
+        The canonical subscription contract is:
 
             controller.subscribe(
                 "tool_changed",
-                callback
+                callback,
             )
-
-        or a compatible subscribe implementation that accepts
-        the same arguments.
         """
 
         subscribe = getattr(
@@ -294,12 +263,10 @@ class ToolManager:
             )
         except TypeError:
             # ------------------------------------------------
-            # Some lightweight controller implementations may
-            # expose subscribe(callback, event_name).
-            #
-            # Do not silently assume that interface.
-            # Retry only for the known alternate ordering.
+            # Compatibility with alternate callback/event
+            # ordering used by lightweight controller adapters.
             # ------------------------------------------------
+
             try:
                 subscribe(
                     self._on_tool_changed,
@@ -320,10 +287,7 @@ class ToolManager:
     ) -> None:
         """
         Remove the Controller tool-selection subscription when
-        the Controller exposes an unsubscribe contract.
-
-        If unsubscribe is unavailable, lifecycle remains safe;
-        the manager simply marks itself disconnected.
+        supported.
         """
 
         unsubscribe = getattr(
@@ -347,11 +311,6 @@ class ToolManager:
                     "tool_changed",
                 )
             except TypeError:
-                # ------------------------------------------------
-                # Do not make disposal fail merely because a
-                # controller implementation does not expose the
-                # alternate unsubscribe signature.
-                # ------------------------------------------------
                 pass
 
     # ========================================================
@@ -366,16 +325,7 @@ class ToolManager:
         """
         Register a concrete tool factory.
 
-        Parameters
-        ----------
-        tool_id:
-            Stable application-level tool identifier.
-
-        factory:
-            Callable returning a tool instance.
-
-        Registration does not instantiate the tool and does not
-        activate it.
+        Registration does not instantiate or activate the tool.
         """
 
         self._validate_tool_id(
@@ -506,15 +456,11 @@ class ToolManager:
 
         Supported forms:
 
-            mapping-like object
+            dictionary;
 
-        or:
+            object exposing get_tools();
 
-            object exposing get_tools()
-
-        or:
-
-            object exposing items()
+            object exposing items().
         """
 
         if isinstance(
@@ -585,12 +531,8 @@ class ToolManager:
 
         This method performs lifecycle only.
 
-        It does NOT call Controller.set_tool().
+        It never modifies Controller selection state.
         """
-
-        # ----------------------------------------------------
-        # Ignore notifications after disposal.
-        # ----------------------------------------------------
 
         if not self._connected:
             return
@@ -608,9 +550,17 @@ class ToolManager:
         tool_id: str,
     ) -> Any:
         """
-        Lazily create a tool instance.
+        Lazily create one concrete tool.
 
-        ToolManager owns the resulting instance.
+        Canonical constructor contract:
+
+            factory(
+                interaction_manager=...,
+                preview=...,
+            )
+
+        Constructor exceptions are deliberately allowed to
+        propagate unchanged.
         """
 
         factory = self._tool_registry.get(
@@ -622,36 +572,19 @@ class ToolManager:
                 f"Unknown tool ID: {tool_id!r}"
             )
 
-        # ----------------------------------------------------
-        # Preferred constructor contract.
-        # ----------------------------------------------------
+        tool = factory(
+            interaction_manager=(
+                self.interaction_manager
+            ),
+            preview=self.preview,
+        )
 
-        try:
-            return factory(
-                interaction_manager=(
-                    self.interaction_manager
-                ),
-                preview=self.preview,
+        if tool is None:
+            raise RuntimeError(
+                f"Tool factory returned None: {tool_id!r}"
             )
-        except TypeError as first_error:
 
-            # ------------------------------------------------
-            # Fallback for factories that intentionally expose
-            # a simpler constructor.
-            #
-            # The fallback is deliberately limited to a
-            # zero-argument factory.
-            # ------------------------------------------------
-
-            try:
-                return factory()
-            except TypeError as second_error:
-                raise TypeError(
-                    f"Unable to instantiate tool "
-                    f"{tool_id!r}. Factory must support "
-                    "(interaction_manager=..., preview=...) "
-                    "or a zero-argument constructor."
-                ) from second_error
+        return tool
 
     # --------------------------------------------------------
 
@@ -671,11 +604,6 @@ class ToolManager:
         tool = self._create_tool(
             tool_id
         )
-
-        if tool is None:
-            raise RuntimeError(
-                f"Tool factory returned None: {tool_id!r}"
-            )
 
         self._tool_instances[
             tool_id
@@ -714,7 +642,7 @@ class ToolManager:
         self,
     ) -> Optional[Any]:
         """
-        Read-only active-tool property.
+        Return the active tool instance.
         """
 
         return self._active_tool
@@ -726,7 +654,7 @@ class ToolManager:
         self,
     ) -> Optional[str]:
         """
-        Read-only active-tool ID property.
+        Return the active tool identifier.
         """
 
         return self._active_tool_id
@@ -742,28 +670,34 @@ class ToolManager:
         """
         Activate a registered tool.
 
-        Lifecycle:
+        Transition contract:
 
-            current.deactivate()
-                ↓
-            new tool creation
-                ↓
-            new.activate()
-                ↓
-            active state updated
+            1. Validate requested tool.
+            2. Construct/retrieve requested tool.
+            3. Deactivate current tool.
+            4. Activate requested tool.
+            5. Commit requested tool as active.
 
-        Parameters
-        ----------
-        tool_id:
-            Requested application tool identifier.
+        Failure contract:
 
-            None deactivates the current tool.
+            - Unknown tool:
+                current tool remains untouched.
+
+            - Construction failure:
+                current tool remains untouched.
+
+            - Activation failure:
+                current tool is reactivated when possible.
 
         Returns
         -------
         object | None
             Newly active tool.
         """
+
+        # ----------------------------------------------------
+        # None means explicit deactivation.
+        # ----------------------------------------------------
 
         if tool_id is None:
             self.deactivate()
@@ -772,6 +706,16 @@ class ToolManager:
         self._validate_tool_id(
             tool_id
         )
+
+        # ----------------------------------------------------
+        # Validate registration BEFORE touching the current
+        # active tool.
+        # ----------------------------------------------------
+
+        if tool_id not in self._tool_registry:
+            raise KeyError(
+                f"Unknown tool ID: {tool_id!r}"
+            )
 
         # ----------------------------------------------------
         # No transition required.
@@ -785,23 +729,22 @@ class ToolManager:
             return self._active_tool
 
         # ----------------------------------------------------
-        # Validate before deactivating the current tool.
+        # Construct the requested tool BEFORE deactivating the
+        # current tool.
         #
-        # This prevents the active tool from being lost when
-        # Controller requests an unknown/unregistered tool.
+        # Therefore a construction failure cannot destroy a
+        # currently valid active lifecycle.
         # ----------------------------------------------------
 
-        if tool_id not in self._tool_registry:
-            raise KeyError(
-                f"Unknown tool ID: {tool_id!r}"
-            )
-
-        previous_tool = (
-            self._active_tool
+        new_tool = self._get_or_create_tool(
+            tool_id
         )
 
+        previous_tool = self._active_tool
+        previous_tool_id = self._active_tool_id
+
         # ----------------------------------------------------
-        # Deactivate previous tool.
+        # Deactivate current tool.
         # ----------------------------------------------------
 
         if previous_tool is not None:
@@ -810,35 +753,66 @@ class ToolManager:
             )
 
         # ----------------------------------------------------
-        # Create or reuse requested tool.
+        # Activate requested tool.
+        #
+        # Active state is not committed until activation
+        # succeeds.
         # ----------------------------------------------------
-
-        new_tool = self._get_or_create_tool(
-            tool_id
-        )
-
-        # ----------------------------------------------------
-        # Commit active state before activate() so the tool
-        # can query ToolManager indirectly through its shared
-        # InteractionManager without observing stale state.
-        # ----------------------------------------------------
-
-        self._active_tool_id = tool_id
-        self._active_tool = new_tool
 
         try:
             self._activate_tool(
                 new_tool
             )
+
         except Exception:
             # ----------------------------------------------
-            # Roll back active state if activation fails.
+            # New tool failed to activate.
+            #
+            # Restore the previous tool if one existed.
             # ----------------------------------------------
 
-            self._active_tool_id = None
-            self._active_tool = None
+            if previous_tool is not None:
+                try:
+                    self._activate_tool(
+                        previous_tool
+                    )
+                except Exception:
+                    # --------------------------------------
+                    # The original activation failure is the
+                    # primary failure. Do not hide it with a
+                    # restoration failure.
+                    #
+                    # Since the previous lifecycle could not
+                    # be restored, clear active state so the
+                    # manager does not claim a false active
+                    # lifecycle.
+                    # --------------------------------------
+
+                    self._active_tool = None
+                    self._active_tool_id = None
+
+                    raise
+
+            self._active_tool = (
+                previous_tool
+            )
+            self._active_tool_id = (
+                previous_tool_id
+            )
 
             raise
+
+        # ----------------------------------------------------
+        # Commit active state only after successful activation.
+        # ----------------------------------------------------
+
+        self._active_tool = new_tool
+        self._active_tool_id = tool_id
+
+        # ----------------------------------------------------
+        # Previous tool lifecycle is no longer active.
+        # Preview belongs to the newly active lifecycle.
+        # ----------------------------------------------------
 
         return new_tool
 
@@ -852,19 +826,14 @@ class ToolManager:
         """
         Deactivate the current tool.
 
-        No Controller tool-selection mutation is performed.
-
-        This is an important architectural boundary:
-
-            ToolManager.deactivate()
-                ≠
-            Controller.set_tool(None)
+        Controller selection is not modified.
         """
 
         tool = self._active_tool
 
         if tool is None:
             self._active_tool_id = None
+            self._clear_preview()
             return
 
         self._deactivate_tool(
@@ -886,17 +855,7 @@ class ToolManager:
         """
         Cancel the active tool interaction.
 
-        Cancellation is delegated to the active tool.
-
-        The tool itself remains active unless its cancel()
-        implementation or higher-level application logic changes
-        the active tool.
-
-        Returns
-        -------
-        bool
-            True when a cancellation target existed and the
-            cancellation lifecycle was invoked.
+        The active tool remains active.
         """
 
         tool = self._active_tool
@@ -911,24 +870,19 @@ class ToolManager:
             None,
         )
 
-        if callable(handler):
-            result = handler()
+        try:
+            if callable(handler):
+                result = handler()
 
+                if result is None:
+                    return True
+
+                return bool(result)
+
+            return True
+
+        finally:
             self._clear_preview()
-
-            if result is None:
-                return True
-
-            return bool(result)
-
-        # ----------------------------------------------------
-        # A tool without an explicit cancel contract still
-        # receives generic preview cleanup.
-        # ----------------------------------------------------
-
-        self._clear_preview()
-
-        return True
 
     # ========================================================
     # RESET
@@ -938,28 +892,26 @@ class ToolManager:
         self,
     ) -> None:
         """
-        Reset tool interaction state.
+        Reset active tool interaction state.
 
         The active tool remains active.
-
-        This is intended for canvas/model/workspace reset
-        operations where tool selection itself should remain
-        unchanged.
         """
 
         tool = self._active_tool
 
-        if tool is not None:
-            handler = getattr(
-                tool,
-                "reset",
-                None,
-            )
+        try:
+            if tool is not None:
+                handler = getattr(
+                    tool,
+                    "reset",
+                    None,
+                )
 
-            if callable(handler):
-                handler()
+                if callable(handler):
+                    handler()
 
-        self._clear_preview()
+        finally:
+            self._clear_preview()
 
     # ========================================================
     # LIFECYCLE HELPERS
@@ -970,7 +922,7 @@ class ToolManager:
         tool: Any,
     ) -> None:
         """
-        Invoke a tool's activation lifecycle callback.
+        Invoke optional tool activation lifecycle.
         """
 
         handler = getattr(
@@ -989,7 +941,7 @@ class ToolManager:
         tool: Any,
     ) -> None:
         """
-        Invoke a tool's deactivation lifecycle callback.
+        Invoke optional tool deactivation lifecycle.
         """
 
         handler = getattr(
@@ -1008,7 +960,7 @@ class ToolManager:
         tool: Any,
     ) -> None:
         """
-        Dispose a tool instance when it is permanently removed.
+        Invoke optional permanent disposal lifecycle.
         """
 
         handler = getattr(
@@ -1123,9 +1075,11 @@ class ToolManager:
         # Deactivate active tool first.
         # ----------------------------------------------------
 
-        if self._active_tool is not None:
+        active_tool = self._active_tool
+
+        if active_tool is not None:
             self._deactivate_tool(
-                self._active_tool
+                active_tool
             )
 
         self._active_tool = None
