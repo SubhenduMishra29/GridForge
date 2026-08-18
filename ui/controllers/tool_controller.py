@@ -16,25 +16,25 @@ Architecture
          ▼
      ToolManager
          │
-         ▼
-    InteractionManager
-         │
-         ▼
-    Active Tool
-         │
-         ▼
-      Controller
-         │
-         ▼
-        Core
+         ├── SelectTool
+         ├── BusTool
+         └── LineTool
+              │
+              ▼
+       InteractionManager
+              │
+              ▼
+          Controller
+              │
+              ▼
+             Core
 
 Purpose
 -------
 ToolController is the UI orchestration boundary for tool
 selection and tool lifecycle requests.
 
-The actual tool lifecycle remains owned by ToolManager and
-InteractionManager.
+The actual tool lifecycle remains owned by ToolManager.
 
 Current GridForge V2 concrete tools remain intentionally
 limited to:
@@ -56,6 +56,7 @@ ToolController:
     - expose the active tool;
     - expose available registered tools;
     - reset/cancel the active interaction;
+    - activate the configured default tool;
     - provide tool diagnostics.
 
 ToolController does NOT:
@@ -73,11 +74,18 @@ ToolController does NOT:
 
 Authority
 ---------
-ToolManager remains authoritative for tool registration and
-tool lifecycle.
+ToolManager remains authoritative for:
 
-InteractionManager remains authoritative for forwarding actual
-canvas interaction to the active tool.
+    - concrete tool construction;
+    - tool registration;
+    - active-tool state;
+    - tool activation/deactivation;
+    - event routing;
+    - cancellation;
+    - reset;
+    - tool lifecycle.
+
+ToolController is only an orchestration adapter.
 
 Qt Architecture
 ---------------
@@ -86,7 +94,7 @@ This module contains no direct Qt imports.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from ui.tools.tool_manager import ToolManager
 
@@ -95,7 +103,8 @@ class ToolController:
     """
     Thin UI orchestration adapter around ToolManager.
 
-    No tool state is duplicated here.
+    ToolController deliberately maintains no active-tool state.
+    ToolManager remains the sole authority for tool lifecycle.
     """
 
     # ========================================================
@@ -112,9 +121,9 @@ class ToolController:
         Parameters
         ----------
         tool_manager:
-            Existing GridForge ToolManager.
+            Existing GridForge ToolManager instance.
 
-        The ToolManager is not copied or replaced.
+        The ToolManager is neither copied nor replaced.
         """
 
         if tool_manager is None:
@@ -131,7 +140,6 @@ class ToolController:
             )
 
         self.tool_manager = tool_manager
-
         self._disposed = False
 
     # ========================================================
@@ -160,55 +168,14 @@ class ToolController:
         """
         Activate a registered tool.
 
-        Parameters
-        ----------
-        tool_id:
-            Stable ToolManager registration identifier.
-
-        Returns
-        -------
-        Any
-            Result returned by ToolManager.
-
-        Notes
-        -----
-        ToolController does not validate concrete tool names.
-        ToolManager owns the registration contract.
+        ToolManager owns the actual activation semantics.
         """
 
         self._ensure_active()
+        self._validate_tool_id(tool_id)
 
-        self._validate_tool_id(
+        return self.tool_manager.activate_tool(
             tool_id
-        )
-
-        manager = self.tool_manager
-
-        activate = getattr(
-            manager,
-            "activate",
-            None,
-        )
-
-        if callable(activate):
-            return activate(
-                tool_id
-            )
-
-        activate_tool = getattr(
-            manager,
-            "activate_tool",
-            None,
-        )
-
-        if callable(activate_tool):
-            return activate_tool(
-                tool_id
-            )
-
-        raise TypeError(
-            "ToolManager must provide activate() "
-            "or activate_tool()."
         )
 
     # --------------------------------------------------------
@@ -234,34 +201,13 @@ class ToolController:
     ) -> Any:
         """
         Deactivate the currently active tool.
+
+        After this operation ToolManager has no active tool.
         """
 
         self._ensure_active()
 
-        manager = self.tool_manager
-
-        deactivate = getattr(
-            manager,
-            "deactivate",
-            None,
-        )
-
-        if callable(deactivate):
-            return deactivate()
-
-        deactivate_tool = getattr(
-            manager,
-            "deactivate_tool",
-            None,
-        )
-
-        if callable(deactivate_tool):
-            return deactivate_tool()
-
-        raise TypeError(
-            "ToolManager must provide deactivate() "
-            "or deactivate_tool()."
-        )
+        return self.tool_manager.deactivate_active_tool()
 
     # --------------------------------------------------------
 
@@ -285,47 +231,15 @@ class ToolController:
         """
         Switch from the current tool to tool_id.
 
-        ToolManager owns the exact transition semantics.
+        ToolManager.activate_tool() already owns the complete
+        transition semantics, including deactivation of the
+        previous tool and rollback on activation failure.
         """
 
         self._ensure_active()
+        self._validate_tool_id(tool_id)
 
-        self._validate_tool_id(
-            tool_id
-        )
-
-        manager = self.tool_manager
-
-        switch = getattr(
-            manager,
-            "switch",
-            None,
-        )
-
-        if callable(switch):
-            return switch(
-                tool_id
-            )
-
-        switch_tool = getattr(
-            manager,
-            "switch_tool",
-            None,
-        )
-
-        if callable(switch_tool):
-            return switch_tool(
-                tool_id
-            )
-
-        # ----------------------------------------------------
-        # Do not maintain transition state here.
-        #
-        # If ToolManager exposes only activation, activation is
-        # the canonical operation.
-        # ----------------------------------------------------
-
-        return self.activate(
+        return self.tool_manager.activate_tool(
             tool_id
         )
 
@@ -352,28 +266,13 @@ class ToolController:
     ) -> Optional[Any]:
         """
         Return the currently active tool.
+
+        The value is obtained directly from ToolManager.
         """
 
         self._ensure_active()
 
-        manager = self.tool_manager
-
-        getter = getattr(
-            manager,
-            "get_active_tool",
-            None,
-        )
-
-        if callable(getter):
-            return getter()
-
-        value = getattr(
-            manager,
-            "active_tool",
-            None,
-        )
-
-        return value
+        return self.tool_manager.active_tool
 
     # --------------------------------------------------------
 
@@ -382,43 +281,11 @@ class ToolController:
     ) -> Optional[str]:
         """
         Return the stable identifier of the active tool.
-
-        The value is read from ToolManager rather than inferred
-        from the concrete tool class.
         """
 
         self._ensure_active()
 
-        manager = self.tool_manager
-
-        getter = getattr(
-            manager,
-            "get_active_tool_id",
-            None,
-        )
-
-        if callable(getter):
-            value = getter()
-
-            if value is None:
-                return None
-
-            return str(
-                value
-            )
-
-        value = getattr(
-            manager,
-            "active_tool_id",
-            None,
-        )
-
-        if value is None:
-            return None
-
-        return str(
-            value
-        )
+        return self.tool_manager.active_tool_id
 
     # ========================================================
     # AVAILABLE TOOLS
@@ -428,55 +295,14 @@ class ToolController:
         self,
     ) -> tuple[str, ...]:
         """
-        Return registered tool identifiers.
+        Return registered tool identifiers in deterministic order.
 
         Registration ownership remains with ToolManager.
         """
 
         self._ensure_active()
 
-        manager = self.tool_manager
-
-        getter = getattr(
-            manager,
-            "get_tool_ids",
-            None,
-        )
-
-        if callable(getter):
-            return tuple(
-                str(tool_id)
-                for tool_id in getter()
-            )
-
-        getter = getattr(
-            manager,
-            "list_tools",
-            None,
-        )
-
-        if callable(getter):
-            return tuple(
-                str(tool_id)
-                for tool_id in getter()
-            )
-
-        value = getattr(
-            manager,
-            "tools",
-            None,
-        )
-
-        if isinstance(
-            value,
-            dict,
-        ):
-            return tuple(
-                str(tool_id)
-                for tool_id in value.keys()
-            )
-
-        return ()
+        return self.tool_manager.tool_ids()
 
     # --------------------------------------------------------
 
@@ -489,27 +315,11 @@ class ToolController:
         """
 
         self._ensure_active()
+        self._validate_tool_id(tool_id)
 
-        self._validate_tool_id(
+        return self.tool_manager.has_tool(
             tool_id
         )
-
-        manager = self.tool_manager
-
-        method = getattr(
-            manager,
-            "has_tool",
-            None,
-        )
-
-        if callable(method):
-            return bool(
-                method(
-                    tool_id
-                )
-            )
-
-        return tool_id in self.get_tool_ids()
 
     # ========================================================
     # TOOL INSTANCE
@@ -520,57 +330,22 @@ class ToolController:
         tool_id: str,
     ) -> Optional[Any]:
         """
-        Return a registered tool when ToolManager exposes a
-        lookup operation.
+        Return a registered tool.
 
-        The controller does not instantiate missing tools.
+        ToolController does not instantiate tools.
         """
 
         self._ensure_active()
+        self._validate_tool_id(tool_id)
 
-        self._validate_tool_id(
+        if not self.tool_manager.has_tool(
+            tool_id
+        ):
+            return None
+
+        return self.tool_manager.get_tool(
             tool_id
         )
-
-        manager = self.tool_manager
-
-        getter = getattr(
-            manager,
-            "get_tool",
-            None,
-        )
-
-        if callable(getter):
-            return getter(
-                tool_id
-            )
-
-        getter = getattr(
-            manager,
-            "get",
-            None,
-        )
-
-        if callable(getter):
-            return getter(
-                tool_id
-            )
-
-        tools = getattr(
-            manager,
-            "tools",
-            None,
-        )
-
-        if isinstance(
-            tools,
-            dict,
-        ):
-            return tools.get(
-                tool_id
-            )
-
-        return None
 
     # ========================================================
     # RESET / CANCEL
@@ -578,41 +353,16 @@ class ToolController:
 
     def reset(
         self,
-    ) -> Any:
+    ) -> None:
         """
-        Reset transient state of the current tool.
+        Reset transient state of the active tool.
 
         ToolManager owns the operation.
         """
 
         self._ensure_active()
 
-        manager = self.tool_manager
-
-        reset = getattr(
-            manager,
-            "reset",
-            None,
-        )
-
-        if callable(reset):
-            return reset()
-
-        tool = self.get_active_tool()
-
-        if tool is None:
-            return None
-
-        reset_tool = getattr(
-            tool,
-            "reset",
-            None,
-        )
-
-        if callable(reset_tool):
-            return reset_tool()
-
-        return None
+        self.tool_manager.reset_active_tool()
 
     # --------------------------------------------------------
 
@@ -620,57 +370,18 @@ class ToolController:
         self,
     ) -> bool:
         """
-        Cancel the current tool interaction when supported.
+        Cancel the current tool interaction.
 
         Returns
         -------
         bool
-            True when cancellation was handled.
+            True when the active tool handled cancellation.
         """
 
         self._ensure_active()
 
-        manager = self.tool_manager
-
-        cancel = getattr(
-            manager,
-            "cancel",
-            None,
-        )
-
-        if callable(cancel):
-            result = cancel()
-
-            if result is None:
-                return True
-
-            return bool(
-                result
-            )
-
-        tool = self.get_active_tool()
-
-        if tool is None:
-            return False
-
-        cancel_tool = getattr(
-            tool,
-            "cancel",
-            None,
-        )
-
-        if not callable(
-            cancel_tool
-        ):
-            return False
-
-        result = cancel_tool()
-
-        if result is None:
-            return True
-
         return bool(
-            result
+            self.tool_manager.cancel_active_tool()
         )
 
     # ========================================================
@@ -681,52 +392,17 @@ class ToolController:
         self,
     ) -> Any:
         """
-        Activate ToolManager's configured default tool.
+        Activate the GridForge V2 default tool.
 
-        No tool identifier is guessed by this controller.
+        The frozen ToolManager defines SelectTool as the
+        default tool. The controller delegates to the
+        ToolManager's explicit SelectTool operation rather
+        than duplicating the tool identifier.
         """
 
         self._ensure_active()
 
-        manager = self.tool_manager
-
-        method = getattr(
-            manager,
-            "activate_default",
-            None,
-        )
-
-        if callable(method):
-            return method()
-
-        method = getattr(
-            manager,
-            "get_default_tool_id",
-            None,
-        )
-
-        if callable(method):
-            tool_id = method()
-
-            if tool_id is not None:
-                return self.activate(
-                    str(tool_id)
-                )
-
-        value = getattr(
-            manager,
-            "default_tool_id",
-            None,
-        )
-
-        if value is not None:
-            return self.activate(
-                str(value)
-            )
-
-        raise LookupError(
-            "ToolManager does not expose a default tool."
-        )
+        return self.tool_manager.select_tool()
 
     # ========================================================
     # TOOL COLLECTION
@@ -738,8 +414,11 @@ class ToolController:
         """
         Activate the first registered tool.
 
+        ToolManager defines deterministic registration order.
+
         This method is intended only for composition/bootstrap
-        code where ToolManager ordering is explicitly meaningful.
+        code where registration ordering is explicitly
+        meaningful.
 
         It does not define a preferred GridForge tool.
         """
@@ -765,26 +444,15 @@ class ToolController:
         self,
     ) -> dict[str, Any]:
         """
-        Return a diagnostic tool-controller snapshot.
+        Return a diagnostic ToolController snapshot.
 
-        ToolManager remains authoritative.
+        ToolManager remains authoritative for all tool state.
         """
 
         if self._disposed:
             return {
                 "disposed": True,
             }
-
-        manager_state: Any = None
-
-        getter = getattr(
-            self.tool_manager,
-            "get_state",
-            None,
-        )
-
-        if callable(getter):
-            manager_state = getter()
 
         return {
             "disposed": False,
@@ -794,7 +462,9 @@ class ToolController:
             "registered_tool_ids": (
                 self.get_tool_ids()
             ),
-            "manager_state": manager_state,
+            "manager_state": (
+                self.tool_manager.get_state()
+            ),
         }
 
     # ========================================================
@@ -807,8 +477,9 @@ class ToolController:
         """
         Dispose this UI adapter.
 
-        ToolManager is not disposed because it is owned by the
-        application/UI composition layer.
+        ToolManager is intentionally NOT disposed here because
+        ownership belongs to the application/UI composition
+        layer.
         """
 
         if self._disposed:
@@ -827,8 +498,8 @@ class ToolController:
         """
         Validate a tool identifier without checking registration.
 
-        Registration validation remains ToolManager's
-        responsibility.
+        Registration validation remains the responsibility of
+        ToolManager.
         """
 
         if not isinstance(
