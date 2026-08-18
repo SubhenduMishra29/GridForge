@@ -329,6 +329,24 @@ class PluginLifecycleProtocol(Protocol):
 
 
 # ============================================================
+# BASE PLUGIN METACLASS
+# ============================================================
+
+
+class _BasePluginMeta(
+    type(QObject),
+    type(ABC),
+):
+    """
+    Compatible metaclass for the QObject + ABC hierarchy.
+
+    PySide6 QObject uses a Qt/Shiboken metaclass, while ABC uses
+    ABCMeta. This combined metaclass makes the two inheritance
+    systems compatible without changing the plugin contract.
+    """
+
+
+# ============================================================
 # BASE PLUGIN
 # ============================================================
 
@@ -336,6 +354,7 @@ class PluginLifecycleProtocol(Protocol):
 class BasePlugin(
     QObject,
     ABC,
+    metaclass=_BasePluginMeta,
 ):
     """
     Optional abstract base implementation of PluginProtocol.
