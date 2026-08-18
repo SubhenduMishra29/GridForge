@@ -9,7 +9,7 @@ canvas.
 Responsibilities
 ----------------
 GridSystem owns only canvas-grid geometry and presentation
-state.
+configuration.
 
 It is responsible for:
 
@@ -36,7 +36,7 @@ GridSystem does NOT:
 
 Rendering
 ---------
-GridSystem provides geometry/configuration.
+GridSystem provides geometry and configuration.
 
 RenderSystem owns visual grid rendering.
 
@@ -80,11 +80,11 @@ Whereas:
 
 Qt Architecture
 ---------------
-GridSystem contains no direct Qt dependency.
+GridSystem does not import Qt at module level.
 
-Grid coordinates are represented using simple numeric
-coordinates where possible so the service remains independent
-of rendering and interaction infrastructure.
+The returned point is constructed through ui.core.qt so that
+Qt dependencies remain behind the GridForge Qt abstraction
+boundary.
 """
 
 from __future__ import annotations
@@ -115,6 +115,10 @@ class GridSystem:
     DEFAULT_MAJOR_VISIBLE = True
 
     MIN_SPACING = 1e-9
+
+    # Numerical tolerance used when validating spacing ratios and
+    # determining whether a coordinate lies on a major grid line.
+    NUMERICAL_TOLERANCE = 1e-9
 
     # ========================================================
     # INITIALIZATION
@@ -151,13 +155,23 @@ class GridSystem:
             Visibility of major grid geometry.
         """
 
-        self.set_minor_spacing(
-            minor_spacing
+        validated_minor = self._validate_spacing(
+            minor_spacing,
+            "minor_spacing",
         )
 
-        self.set_major_spacing(
-            major_spacing
+        validated_major = self._validate_spacing(
+            major_spacing,
+            "major_spacing",
         )
+
+        self._validate_spacing_values(
+            validated_minor,
+            validated_major,
+        )
+
+        self.minor_spacing = validated_minor
+        self.major_spacing = validated_major
 
         self.visible = self._validate_bool(
             visible,
@@ -174,8 +188,6 @@ class GridSystem:
             "major_visible",
         )
 
-        self._validate_spacing_relationship()
-
     # ========================================================
     # SPACING
     # ========================================================
@@ -186,20 +198,23 @@ class GridSystem:
     ) -> None:
         """
         Set minor grid spacing.
+
+        The existing major spacing must remain a valid integer
+        multiple of the new minor spacing.
         """
 
-        spacing = self._validate_spacing(
+        validated = self._validate_spacing(
             spacing,
             "minor_spacing",
         )
 
-        self.minor_spacing = spacing
+        if hasattr(self, "major_spacing"):
+            self._validate_spacing_values(
+                validated,
+                self.major_spacing,
+            )
 
-        if hasattr(
-            self,
-            "major_spacing",
-        ):
-            self._validate_spacing_relationship()
+        self.minor_spacing = validated
 
     # --------------------------------------------------------
 
@@ -220,20 +235,23 @@ class GridSystem:
     ) -> None:
         """
         Set major grid spacing.
+
+        Major spacing must be greater than or equal to minor
+        spacing and must be an integer multiple of it.
         """
 
-        spacing = self._validate_spacing(
+        validated = self._validate_spacing(
             spacing,
             "major_spacing",
         )
 
-        self.major_spacing = spacing
+        if hasattr(self, "minor_spacing"):
+            self._validate_spacing_values(
+                self.minor_spacing,
+                validated,
+            )
 
-        if hasattr(
-            self,
-            "minor_spacing",
-        ):
-            self._validate_spacing_relationship()
+        self.major_spacing = validated
 
     # --------------------------------------------------------
 
@@ -344,23 +362,10 @@ class GridSystem:
         Resolve a scene-space point to the nearest minor-grid
         coordinate.
 
-        Parameters
-        ----------
-        point:
-            QPointF-compatible object providing x() and y().
+        GridSystem performs only geometric grid resolution.
 
-        Returns
-        -------
-        QPointF-compatible object
-            The nearest grid coordinate.
-
-        Notes
-        -----
-        GridSystem performs no object snapping and no snapping
-        policy decision.
-
-        It simply resolves the supplied scene coordinate against
-        the configured grid.
+        It does not apply snap tolerance, object priority, or
+        object-snapping policy.
         """
 
         self._validate_point(
@@ -394,27 +399,27 @@ class GridSystem:
         Snap one numeric coordinate to the nearest grid
         coordinate.
 
-        Parameters
-        ----------
-        value:
-            Scene-space coordinate.
+        The rounding rule is deterministic and symmetric around
+        zero:
 
-        spacing:
-            Optional grid spacing.
+            +half-grid → upper grid coordinate
+            -half-grid → lower grid coordinate
 
-            If omitted, minor spacing is used.
+        Examples with spacing = 10:
+
+            4.9   → 0
+            5.0   → 10
+            5.1   → 10
+
+           -4.9   → 0
+           -5.0   → -10
+           -5.1   → -10
         """
 
-        if isinstance(
+        self._validate_numeric(
             value,
-            bool,
-        ) or not isinstance(
-            value,
-            (int, float),
-        ):
-            raise TypeError(
-                "value must be numeric."
-            )
+            "value",
+        )
 
         selected_spacing = (
             self.minor_spacing
@@ -425,12 +430,22 @@ class GridSystem:
             )
         )
 
-        return (
-            floor(
-                float(value)
-                / selected_spacing
-                + 0.5
+        quotient = (
+            float(value)
+            / selected_spacing
+        )
+
+        if quotient >= 0.0:
+            index = floor(
+                quotient + 0.5
             )
+        else:
+            index = -floor(
+                -quotient + 0.5
+            )
+
+        return (
+            index
             * selected_spacing
         )
 
@@ -443,8 +458,7 @@ class GridSystem:
         point: Any,
     ) -> tuple[int, int]:
         """
-        Return the integer minor-grid indices containing the
-        nearest grid point.
+        Return the integer minor-grid indices nearest to a point.
         """
 
         self._validate_point(
@@ -472,18 +486,14 @@ class GridSystem:
     ) -> int:
         """
         Convert a coordinate to its nearest grid index.
+
+        Uses the same deterministic rounding rule as snap_value().
         """
 
-        if isinstance(
+        self._validate_numeric(
             value,
-            bool,
-        ) or not isinstance(
-            value,
-            (int, float),
-        ):
-            raise TypeError(
-                "value must be numeric."
-            )
+            "value",
+        )
 
         selected_spacing = (
             self.minor_spacing
@@ -494,11 +504,21 @@ class GridSystem:
             )
         )
 
+        quotient = (
+            float(value)
+            / selected_spacing
+        )
+
+        if quotient >= 0.0:
+            return int(
+                floor(
+                    quotient + 0.5
+                )
+            )
+
         return int(
-            floor(
-                float(value)
-                / selected_spacing
-                + 0.5
+            -floor(
+                -quotient + 0.5
             )
         )
 
@@ -548,19 +568,13 @@ class GridSystem:
     ) -> bool:
         """
         Return True when a coordinate lies on a major-grid
-        boundary.
+        boundary within numerical tolerance.
         """
 
-        if isinstance(
+        self._validate_numeric(
             value,
-            bool,
-        ) or not isinstance(
-            value,
-            (int, float),
-        ):
-            raise TypeError(
-                "value must be numeric."
-            )
+            "value",
+        )
 
         index = self.value_to_index(
             float(value),
@@ -572,9 +586,10 @@ class GridSystem:
             self.major_spacing,
         )
 
-        tolerance = (
-            self.major_spacing
-            * 1e-9
+        tolerance = max(
+            self.NUMERICAL_TOLERANCE,
+            abs(self.major_spacing)
+            * self.NUMERICAL_TOLERANCE,
         )
 
         return (
@@ -620,7 +635,7 @@ class GridSystem:
         major: bool = False,
     ) -> tuple[tuple[float, float, float, float], ...]:
         """
-        Return grid-line geometry intersecting a scene rectangle.
+        Return grid-line geometry covering a scene rectangle.
 
         Parameters
         ----------
@@ -629,27 +644,34 @@ class GridSystem:
             top(), and bottom().
 
         major:
-            When True, generate major-grid lines.
-            Otherwise generate minor-grid lines.
+            True for major-grid lines, False for minor-grid lines.
 
         Returns
         -------
         tuple
-            Line tuples in the form:
+            Line tuples:
 
                 (x1, y1, x2, y2)
 
         Notes
         -----
-        This method provides geometry only.
-
-        RenderSystem remains responsible for drawing the lines.
+        Geometry is generated from integer grid indices rather than
+        repeated floating-point addition. This prevents cumulative
+        floating-point drift.
         """
 
         self._validate_rect(
             rect,
             "rect",
         )
+
+        if not isinstance(
+            major,
+            bool,
+        ):
+            raise TypeError(
+                "major must be a bool."
+            )
 
         spacing = (
             self.major_spacing
@@ -662,25 +684,41 @@ class GridSystem:
         top = float(rect.top())
         bottom = float(rect.bottom())
 
-        start_x = (
-            floor(
-                left / spacing
-            )
-            * spacing
+        if left > right:
+            left, right = right, left
+
+        if top > bottom:
+            top, bottom = bottom, top
+
+        start_x = floor(
+            left / spacing
         )
 
-        start_y = (
-            floor(
-                top / spacing
-            )
-            * spacing
+        end_x = floor(
+            right / spacing
         )
 
-        lines = []
+        start_y = floor(
+            top / spacing
+        )
 
-        x = start_x
+        end_y = floor(
+            bottom / spacing
+        )
 
-        while x <= right:
+        lines: list[
+            tuple[float, float, float, float]
+        ] = []
+
+        for index in range(
+            start_x,
+            end_x + 1,
+        ):
+            x = (
+                index
+                * spacing
+            )
+
             lines.append(
                 (
                     x,
@@ -689,11 +727,16 @@ class GridSystem:
                     bottom,
                 )
             )
-            x += spacing
 
-        y = start_y
+        for index in range(
+            start_y,
+            end_y + 1,
+        ):
+            y = (
+                index
+                * spacing
+            )
 
-        while y <= bottom:
             lines.append(
                 (
                     left,
@@ -702,7 +745,6 @@ class GridSystem:
                     y,
                 )
             )
-            y += spacing
 
         return tuple(
             lines
@@ -751,12 +793,22 @@ class GridSystem:
         Return the nearest minor-grid coordinate pair.
         """
 
+        self._validate_numeric(
+            x,
+            "x",
+        )
+
+        self._validate_numeric(
+            y,
+            "y",
+        )
+
         return (
             self.snap_value(
-                x
+                x,
             ),
             self.snap_value(
-                y
+                y,
             ),
         )
 
@@ -767,12 +819,14 @@ class GridSystem:
         rect: Any,
     ) -> tuple[float, float, float, float]:
         """
-        Return the grid-aligned bounds covering a scene
-        rectangle.
+        Return grid-aligned bounds covering a scene rectangle.
 
         Returns:
 
             left, top, right, bottom
+
+        The returned bounds always cover the complete input
+        rectangle.
         """
 
         self._validate_rect(
@@ -780,43 +834,62 @@ class GridSystem:
             "rect",
         )
 
-        left = (
-            floor(
-                float(rect.left())
-                / self.minor_spacing
+        left = float(rect.left())
+        right = float(rect.right())
+        top = float(rect.top())
+        bottom = float(rect.bottom())
+
+        if left > right:
+            left, right = right, left
+
+        if top > bottom:
+            top, bottom = bottom, top
+
+        left_index = floor(
+            left / self.minor_spacing
+        )
+
+        top_index = floor(
+            top / self.minor_spacing
+        )
+
+        right_index = floor(
+            right / self.minor_spacing
+        )
+
+        bottom_index = floor(
+            bottom / self.minor_spacing
+        )
+
+        aligned_left = (
+            left_index
+            * self.minor_spacing
+        )
+
+        aligned_top = (
+            top_index
+            * self.minor_spacing
+        )
+
+        aligned_right = (
+            (
+                right_index + 1
             )
             * self.minor_spacing
         )
 
-        top = (
-            floor(
-                float(rect.top())
-                / self.minor_spacing
+        aligned_bottom = (
+            (
+                bottom_index + 1
             )
             * self.minor_spacing
         )
-
-        right = (
-            floor(
-                float(rect.right())
-                / self.minor_spacing
-            )
-            + 1
-        ) * self.minor_spacing
-
-        bottom = (
-            floor(
-                float(rect.bottom())
-                / self.minor_spacing
-            )
-            + 1
-        ) * self.minor_spacing
 
         return (
-            left,
-            top,
-            right,
-            bottom,
+            aligned_left,
+            aligned_top,
+            aligned_right,
+            aligned_bottom,
         )
 
     # ========================================================
@@ -836,6 +909,8 @@ class GridSystem:
         Update grid configuration atomically.
 
         Omitted values remain unchanged.
+
+        Validation occurs completely before any state is changed.
         """
 
         new_minor = (
@@ -953,6 +1028,28 @@ class GridSystem:
     # --------------------------------------------------------
 
     @staticmethod
+    def _validate_numeric(
+        value: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a scalar numeric value.
+        """
+
+        if isinstance(
+            value,
+            bool,
+        ) or not isinstance(
+            value,
+            (int, float),
+        ):
+            raise TypeError(
+                f"{name} must be numeric."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
     def _validate_bool(
         value: bool,
         name: str,
@@ -973,38 +1070,37 @@ class GridSystem:
 
     # --------------------------------------------------------
 
-    def _validate_spacing_relationship(
-        self,
-    ) -> None:
-        """
-        Validate the major/minor spacing relationship.
-        """
-
-        self._validate_spacing_values(
-            self.minor_spacing,
-            self.major_spacing,
-        )
-
-    # --------------------------------------------------------
-
-    @staticmethod
+    @classmethod
     def _validate_spacing_values(
+        cls,
         minor_spacing: float,
         major_spacing: float,
     ) -> None:
         """
         Validate a major/minor spacing pair.
+
+        Major spacing must be greater than or equal to minor
+        spacing and must be an integer multiple of minor spacing.
         """
 
-        if major_spacing < minor_spacing:
+        minor = cls._validate_spacing(
+            minor_spacing,
+            "minor_spacing",
+        )
+
+        major = cls._validate_spacing(
+            major_spacing,
+            "major_spacing",
+        )
+
+        if major < minor:
             raise ValueError(
                 "major_spacing must be greater than "
                 "or equal to minor_spacing."
             )
 
         ratio = (
-            major_spacing
-            / minor_spacing
+            major / minor
         )
 
         nearest_integer = round(
@@ -1012,13 +1108,26 @@ class GridSystem:
         )
 
         if abs(
-            ratio
-            - nearest_integer
-        ) > 1e-9:
+            ratio - nearest_integer
+        ) > cls.NUMERICAL_TOLERANCE:
             raise ValueError(
                 "major_spacing must be an integer multiple "
                 "of minor_spacing."
             )
+
+    # --------------------------------------------------------
+
+    def _validate_spacing_relationship(
+        self,
+    ) -> None:
+        """
+        Validate the current major/minor spacing relationship.
+        """
+
+        self._validate_spacing_values(
+            self.minor_spacing,
+            self.major_spacing,
+        )
 
     # --------------------------------------------------------
 
@@ -1037,14 +1146,22 @@ class GridSystem:
             )
 
         if not callable(
-            getattr(point, "x", None)
+            getattr(
+                point,
+                "x",
+                None,
+            )
         ):
             raise TypeError(
                 f"{name} must provide x()."
             )
 
         if not callable(
-            getattr(point, "y", None)
+            getattr(
+                point,
+                "y",
+                None,
+            )
         ):
             raise TypeError(
                 f"{name} must provide y()."
@@ -1094,9 +1211,10 @@ class GridSystem:
         y: float,
     ) -> Any:
         """
-        Construct a QPointF lazily through the Qt abstraction.
+        Construct a QPointF through the GridForge Qt abstraction.
 
-        GridSystem itself does not import Qt at module level.
+        The import remains local so GridSystem does not establish a
+        module-level Qt dependency.
         """
 
         from ui.core.qt import QPointF
