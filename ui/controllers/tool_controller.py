@@ -16,25 +16,22 @@ Architecture
          ▼
      ToolManager
          │
-         ├── SelectTool
-         ├── BusTool
-         └── LineTool
-              │
-              ▼
-       InteractionManager
-              │
-              ▼
-          Controller
-              │
-              ▼
-             Core
+         ▼
+      Active Tool
+         │
+         ▼
+    Controller
+         │
+         ▼
+        Core
 
 Purpose
 -------
 ToolController is the UI orchestration boundary for tool
 selection and tool lifecycle requests.
 
-The actual tool lifecycle remains owned by ToolManager.
+The actual tool lifecycle remains exclusively owned by
+ToolManager.
 
 Current GridForge V2 concrete tools remain intentionally
 limited to:
@@ -43,7 +40,7 @@ limited to:
     BusTool
     LineTool
 
-This controller does not discover tools and does not create
+ToolController does not discover tools and does not create
 concrete tool implementations.
 
 Responsibilities
@@ -56,7 +53,6 @@ ToolController:
     - expose the active tool;
     - expose available registered tools;
     - reset/cancel the active interaction;
-    - activate the configured default tool;
     - provide tool diagnostics.
 
 ToolController does NOT:
@@ -78,14 +74,15 @@ ToolManager remains authoritative for:
 
     - concrete tool construction;
     - tool registration;
-    - active-tool state;
+    - active tool;
     - tool activation/deactivation;
-    - event routing;
+    - tool input routing;
     - cancellation;
     - reset;
     - tool lifecycle.
 
-ToolController is only an orchestration adapter.
+InteractionManager, where present, remains responsible for
+canvas interaction orchestration.
 
 Qt Architecture
 ---------------
@@ -103,8 +100,10 @@ class ToolController:
     """
     Thin UI orchestration adapter around ToolManager.
 
-    ToolController deliberately maintains no active-tool state.
-    ToolManager remains the sole authority for tool lifecycle.
+    No tool state is duplicated here.
+
+    ToolManager is the sole authority for concrete tool
+    lifecycle and active-tool state.
     """
 
     # ========================================================
@@ -121,9 +120,12 @@ class ToolController:
         Parameters
         ----------
         tool_manager:
-            Existing GridForge ToolManager instance.
+            Existing authoritative ToolManager.
 
-        The ToolManager is neither copied nor replaced.
+        Notes
+        -----
+        The ToolManager is externally owned and is not copied,
+        replaced, or disposed by this controller.
         """
 
         if tool_manager is None:
@@ -150,7 +152,7 @@ class ToolController:
         self,
     ) -> ToolManager:
         """
-        Return the underlying ToolManager.
+        Return the authoritative ToolManager.
         """
 
         self._ensure_active()
@@ -168,7 +170,7 @@ class ToolController:
         """
         Activate a registered tool.
 
-        ToolManager owns the actual activation semantics.
+        ToolManager owns validation and lifecycle semantics.
         """
 
         self._ensure_active()
@@ -198,27 +200,27 @@ class ToolController:
 
     def deactivate(
         self,
-    ) -> Any:
+    ) -> None:
         """
         Deactivate the currently active tool.
 
-        After this operation ToolManager has no active tool.
+        No active tool remains after this operation.
         """
 
         self._ensure_active()
 
-        return self.tool_manager.deactivate_active_tool()
+        self.tool_manager.deactivate_active_tool()
 
     # --------------------------------------------------------
 
     def deactivate_tool(
         self,
-    ) -> Any:
+    ) -> None:
         """
         Explicit alias for deactivate().
         """
 
-        return self.deactivate()
+        self.deactivate()
 
     # ========================================================
     # SWITCH
@@ -229,11 +231,9 @@ class ToolController:
         tool_id: str,
     ) -> Any:
         """
-        Switch from the current tool to tool_id.
+        Switch to the specified registered tool.
 
-        ToolManager.activate_tool() already owns the complete
-        transition semantics, including deactivation of the
-        previous tool and rollback on activation failure.
+        ToolManager owns the transition semantics.
         """
 
         self._ensure_active()
@@ -265,9 +265,9 @@ class ToolController:
         self,
     ) -> Optional[Any]:
         """
-        Return the currently active tool.
+        Return the currently active ToolManager tool.
 
-        The value is obtained directly from ToolManager.
+        No active-tool state is maintained by this controller.
         """
 
         self._ensure_active()
@@ -280,7 +280,7 @@ class ToolController:
         self,
     ) -> Optional[str]:
         """
-        Return the stable identifier of the active tool.
+        Return the authoritative active ToolManager tool ID.
         """
 
         self._ensure_active()
@@ -295,14 +295,16 @@ class ToolController:
         self,
     ) -> tuple[str, ...]:
         """
-        Return registered tool identifiers in deterministic order.
+        Return registered ToolManager tool identifiers.
 
-        Registration ownership remains with ToolManager.
+        ToolManager provides deterministic ordering.
         """
 
         self._ensure_active()
 
-        return self.tool_manager.tool_ids()
+        return tuple(
+            self.tool_manager.tool_ids()
+        )
 
     # --------------------------------------------------------
 
@@ -311,7 +313,7 @@ class ToolController:
         tool_id: str,
     ) -> bool:
         """
-        Return whether ToolManager knows tool_id.
+        Return whether ToolManager has the specified tool.
         """
 
         self._ensure_active()
@@ -332,7 +334,7 @@ class ToolController:
         """
         Return a registered tool.
 
-        ToolController does not instantiate tools.
+        ToolController never creates missing tools.
         """
 
         self._ensure_active()
@@ -370,7 +372,7 @@ class ToolController:
         self,
     ) -> bool:
         """
-        Cancel the current tool interaction.
+        Cancel the active tool interaction.
 
         Returns
         -------
@@ -385,19 +387,19 @@ class ToolController:
         )
 
     # ========================================================
-    # DEFAULT / SELECT TOOL
+    # DEFAULT TOOL
     # ========================================================
 
     def activate_default(
         self,
     ) -> Any:
         """
-        Activate the GridForge V2 default tool.
+        Activate the canonical GridForge default tool.
 
-        The frozen ToolManager defines SelectTool as the
-        default tool. The controller delegates to the
-        ToolManager's explicit SelectTool operation rather
-        than duplicating the tool identifier.
+        The default tool is defined by ToolManager.
+
+        GridForge V2 currently defines SelectTool as the
+        ToolManager default.
         """
 
         self._ensure_active()
@@ -414,13 +416,9 @@ class ToolController:
         """
         Activate the first registered tool.
 
-        ToolManager defines deterministic registration order.
+        Registration order is supplied by ToolManager.
 
-        This method is intended only for composition/bootstrap
-        code where registration ordering is explicitly
-        meaningful.
-
-        It does not define a preferred GridForge tool.
+        This method does not define a preferred GridForge tool.
         """
 
         self._ensure_active()
@@ -435,6 +433,119 @@ class ToolController:
         return self.activate(
             tool_ids[0]
         )
+
+    # ========================================================
+    # EVENT ROUTING
+    # ========================================================
+
+    def mouse_press(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route mouse press to the active tool.
+        """
+
+        self._ensure_active()
+
+        return self.tool_manager.mouse_press(
+            event
+        )
+
+    # --------------------------------------------------------
+
+    def mouse_move(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route mouse move to the active tool.
+        """
+
+        self._ensure_active()
+
+        return self.tool_manager.mouse_move(
+            event
+        )
+
+    # --------------------------------------------------------
+
+    def mouse_release(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route mouse release to the active tool.
+        """
+
+        self._ensure_active()
+
+        return self.tool_manager.mouse_release(
+            event
+        )
+
+    # --------------------------------------------------------
+
+    def mouse_double_click(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route mouse double-click to the active tool.
+        """
+
+        self._ensure_active()
+
+        return self.tool_manager.mouse_double_click(
+            event
+        )
+
+    # --------------------------------------------------------
+
+    def key_press(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route keyboard press to the active tool.
+        """
+
+        self._ensure_active()
+
+        return self.tool_manager.key_press(
+            event
+        )
+
+    # --------------------------------------------------------
+
+    def key_release(
+        self,
+        event: Any,
+    ) -> bool:
+        """
+        Route keyboard release to the active tool.
+        """
+
+        self._ensure_active()
+
+        return self.tool_manager.key_release(
+            event
+        )
+
+    # ========================================================
+    # ACTIVE TOOL STATE
+    # ========================================================
+
+    def get_active_tool_state(
+        self,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Return the diagnostic state of the active tool.
+        """
+
+        self._ensure_active()
+
+        return self.tool_manager.get_active_tool_state()
 
     # ========================================================
     # DIAGNOSTICS
@@ -456,15 +567,9 @@ class ToolController:
 
         return {
             "disposed": False,
-            "active_tool_id": (
-                self.get_active_tool_id()
-            ),
-            "registered_tool_ids": (
-                self.get_tool_ids()
-            ),
-            "manager_state": (
-                self.tool_manager.get_state()
-            ),
+            "active_tool_id": self.get_active_tool_id(),
+            "registered_tool_ids": self.get_tool_ids(),
+            "manager_state": self.tool_manager.get_state(),
         }
 
     # ========================================================
@@ -477,9 +582,8 @@ class ToolController:
         """
         Dispose this UI adapter.
 
-        ToolManager is intentionally NOT disposed here because
-        ownership belongs to the application/UI composition
-        layer.
+        ToolManager remains externally owned and is therefore
+        NOT disposed here.
         """
 
         if self._disposed:
@@ -496,10 +600,10 @@ class ToolController:
         tool_id: str,
     ) -> None:
         """
-        Validate a tool identifier without checking registration.
+        Validate tool ID type and basic syntax.
 
-        Registration validation remains the responsibility of
-        ToolManager.
+        Registration validation remains ToolManager's
+        responsibility.
         """
 
         if not isinstance(
