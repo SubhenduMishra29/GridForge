@@ -72,6 +72,7 @@ The canonical renderer interface is:
 RenderSystem does not probe alternative registry APIs and does
 not invoke arbitrary callable renderers.
 
+
 Responsibilities explicitly excluded
 -------------------------------------
 RenderSystem does NOT:
@@ -88,12 +89,14 @@ RenderSystem does NOT:
     - replace RendererRegistry;
     - contain renderer-specific drawing logic.
 
+
 Selection
 ---------
 Controller/application selection remains authoritative.
 
 RenderSystem may ask SelectionManager to synchronize the
 graphical projection of that authoritative selection.
+
 
 Grid
 ----
@@ -103,6 +106,7 @@ RenderSystem owns the transient graphical projection of that
 geometry.
 
 GridSystem does not create QGraphicsItems.
+
 
 Qt architecture
 ---------------
@@ -191,10 +195,14 @@ class RenderSystem:
         # ----------------------------------------------------
         # Permanent model projection.
         #
-        # Key = original model element identity.
+        # Python object identity is used only internally.
+        # It is NOT an application/Core object identifier.
         # ----------------------------------------------------
 
-        self._rendered_elements: dict[int, Any] = {}
+        self._rendered_elements: dict[
+            int,
+            Any,
+        ] = {}
 
         self._renderer_items: dict[
             int,
@@ -391,6 +399,10 @@ class RenderSystem:
         TypeError
             If the resolved renderer violates the renderer
             contract.
+
+        RuntimeError
+            If a returned graphics item already belongs to a
+            different scene.
         """
 
         if element is None:
@@ -398,10 +410,8 @@ class RenderSystem:
                 "element must not be None."
             )
 
-        renderer = (
-            self.renderer_registry.get_renderer(
-                type(element)
-            )
+        renderer = self.resolve_renderer(
+            element
         )
 
         if renderer is None:
@@ -437,17 +447,21 @@ class RenderSystem:
             if item is None:
                 continue
 
-            if item.scene() is None:
+            item_scene = item.scene()
+
+            if item_scene is None:
                 self.scene.addItem(
                     item
                 )
-            elif item.scene() is not self.scene:
+            elif item_scene is not self.scene:
                 raise RuntimeError(
                     "Renderer returned a graphics item "
                     "already attached to a different scene."
                 )
 
-        key = id(element)
+        key = id(
+            element
+        )
 
         self._rendered_elements[
             key
@@ -471,6 +485,10 @@ class RenderSystem:
         Resolve the renderer for an authoritative model element.
 
         RendererRegistry owns all renderer resolution policy.
+
+        Canonical contract:
+
+            registry.get_renderer(type(element))
         """
 
         if element is None:
@@ -478,11 +496,11 @@ class RenderSystem:
                 "element must not be None."
             )
 
-        return (
-            self.renderer_registry.get_renderer(
-                type(element)
-            )
+        renderer = self.renderer_registry.get_renderer(
+            type(element)
         )
+
+        return renderer
 
     # ========================================================
     # GRID
@@ -520,77 +538,81 @@ class RenderSystem:
             else rect
         )
 
-        minor_lines = ()
-
-        if grid.is_minor_visible():
-            minor_lines = (
-                grid.get_minor_lines(
-                    target_rect
-                )
-            )
-
-        major_lines = ()
-
-        if grid.is_major_visible():
-            major_lines = (
-                grid.get_major_lines(
-                    target_rect
-                )
-            )
-
         # ----------------------------------------------------
         # Minor grid.
         # ----------------------------------------------------
 
-        minor_pen = QPen()
+        if grid.is_minor_visible():
+            minor_lines = grid.get_minor_lines(
+                target_rect
+            )
 
-        for x1, y1, x2, y2 in minor_lines:
-            item = QGraphicsLineItem(
+            minor_pen = QPen()
+
+            for (
                 x1,
                 y1,
                 x2,
                 y2,
-            )
+            ) in minor_lines:
 
-            item.setPen(
-                minor_pen
-            )
+                item = QGraphicsLineItem(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                )
 
-            self.scene.addItem(
-                item
-            )
+                item.setPen(
+                    minor_pen
+                )
 
-            self._grid_items.append(
-                item
-            )
+                self.scene.addItem(
+                    item
+                )
+
+                self._grid_items.append(
+                    item
+                )
 
         # ----------------------------------------------------
         # Major grid.
         # ----------------------------------------------------
 
-        major_pen = QPen()
+        if grid.is_major_visible():
+            major_lines = grid.get_major_lines(
+                target_rect
+            )
 
-        for x1, y1, x2, y2 in major_lines:
-            item = QGraphicsLineItem(
+            major_pen = QPen()
+
+            for (
                 x1,
                 y1,
                 x2,
                 y2,
-            )
+            ) in major_lines:
 
-            item.setPen(
-                major_pen
-            )
+                item = QGraphicsLineItem(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                )
 
-            self.scene.addItem(
-                item
-            )
+                item.setPen(
+                    major_pen
+                )
 
-            self._grid_items.append(
-                item
-            )
+                self.scene.addItem(
+                    item
+                )
 
-    # ========================================================
+                self._grid_items.append(
+                    item
+                )
+
+    # --------------------------------------------------------
 
     def refresh_grid(
         self,
@@ -671,6 +693,7 @@ class RenderSystem:
                 self.scene.removeItem(
                     item
                 )
+
                 removed = True
 
         return removed
@@ -798,8 +821,9 @@ class RenderSystem:
         Return internal projection keys.
 
         These are Python object identities used only for
-        RenderSystem bookkeeping. They are not application or
-        Core object IDs.
+        RenderSystem bookkeeping.
+
+        They are not application or Core object IDs.
         """
 
         return tuple(
@@ -831,13 +855,10 @@ class RenderSystem:
         object_id: Any,
     ) -> tuple[Any, ...]:
         """
-        Compatibility-free projection accessor.
+        Return graphics items using the internal projection key.
 
-        RenderSystem no longer interprets application IDs.
-
-        This method is retained only as a diagnostic alias for
-        callers that already use the projection key returned by
-        get_rendered_ids().
+        RenderSystem does not interpret this value as an
+        application/Core object ID.
         """
 
         return self._renderer_items.get(
@@ -873,7 +894,7 @@ class RenderSystem:
         """
         Obtain authoritative renderable elements from Controller.
 
-        The finalized GridForge model boundary is:
+        Finalized GridForge model boundary:
 
             controller.model
                 ↓
@@ -980,7 +1001,7 @@ class RenderSystem:
         """
         Normalize canonical renderer output.
 
-        Renderer contract permits either:
+        Renderer contract permits:
 
             QGraphicsItem
             iterable of QGraphicsItems
