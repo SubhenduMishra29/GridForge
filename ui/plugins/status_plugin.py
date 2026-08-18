@@ -40,6 +40,7 @@ Lifecycle
         |
         +--> initialize(context)
         |       obtain QStatusBar
+        |       mark initialized
         |       compose status fields
         |
         +--> shutdown()
@@ -252,8 +253,11 @@ class StatusPlugin(QObject):
     """
 
     plugin_id = "status"
+
     plugin_name = "Status"
+
     plugin_version = "1.0"
+
     plugin_description = (
         "GridForge application status-bar composition."
     )
@@ -434,9 +438,18 @@ class StatusPlugin(QObject):
         try:
             self._create_status_bar()
 
-            self._register_default_statuses()
+            # ------------------------------------------------
+            # IMPORTANT LIFECYCLE ORDER
+            # ------------------------------------------------
+            #
+            # add_status() calls _require_initialized().
+            # Therefore the plugin must enter its initialized
+            # state before registering the default statuses.
+            # ------------------------------------------------
 
             self._initialized = True
+
+            self._register_default_statuses()
 
             if self._status_bar is None:
                 raise RuntimeError(
@@ -449,6 +462,10 @@ class StatusPlugin(QObject):
             return self._status_bar
 
         except Exception:
+            # ------------------------------------------------
+            # Transactional rollback
+            # ------------------------------------------------
+
             self._remove_plugin_statuses()
 
             self._status_bar = None
@@ -925,7 +942,7 @@ class StatusPlugin(QObject):
 
 def default_statuses() -> tuple[
     StatusSpec,
-    ...
+    ...,
 ]:
     """
     Return the canonical GridForge baseline status fields.
