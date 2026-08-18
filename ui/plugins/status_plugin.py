@@ -10,18 +10,86 @@ Purpose
 Composition plugin responsible for creating and managing the
 application status-bar presentation.
 
-Architectural rules
--------------------
-- The plugin owns status-bar presentation composition only.
-- The plugin does not own authoritative application state.
-- The plugin does not perform electrical calculations.
-- The plugin does not mutate Core directly.
-- The plugin does not construct application services/controllers.
-- PluginContext is an initialization dependency, not a constructor
-  dependency.
-- Construction and initialization are separate lifecycle phases.
-- Qt access occurs exclusively through ui.core.qt.
-- MainWindow remains thin and plugin-driven.
+Architectural role
+------------------
+StatusPlugin is a UI composition plugin.
+
+It:
+    - obtains the application's QStatusBar;
+    - creates and manages plugin-owned status fields;
+    - exposes status presentation components;
+    - provides transient status messages;
+    - owns only its presentation composition.
+
+It does NOT:
+    - own application state;
+    - own project/network state;
+    - perform electrical calculations;
+    - mutate Core directly;
+    - construct application services/controllers;
+    - access ToolManager directly;
+    - create tools;
+    - create another status-bar state model;
+    - own QMainWindow;
+    - own the application's QStatusBar lifetime;
+    - perform service discovery.
+
+Lifecycle
+--------
+    StatusPlugin()
+        |
+        +--> initialize(context)
+        |       obtain QStatusBar
+        |       compose status fields
+        |
+        +--> shutdown()
+                remove plugin-owned fields
+
+PluginContext
+-------------
+PluginContext is supplied exclusively through initialize().
+
+It is never a constructor dependency.
+
+Dependency graph
+----------------
+Status composition depends on the other primary UI composition
+plugins being available:
+
+    canvas
+      |
+      +--> panels
+      |
+      +--> toolbar
+      |
+      +--> status
+
+StatusPlugin does not directly manipulate those plugins. The
+dependencies are declared for PluginManager lifecycle ordering.
+
+Ownership
+---------
+StatusPlugin owns:
+    - StatusSpec definitions;
+    - plugin-created QLabel instances;
+    - status-field presentation;
+    - transient status messages;
+    - references to the application's QStatusBar.
+
+MainWindow owns:
+    - QMainWindow;
+    - QStatusBar lifetime;
+    - overall application composition.
+
+Core/domain layers remain authoritative for application state.
+
+Qt boundary
+-----------
+All Qt imports pass through:
+
+    ui.core.qt
+
+No direct PySide6/PyQt imports are permitted.
 """
 
 from __future__ import annotations
@@ -35,10 +103,9 @@ from ui.core.qt import (
     QObject,
     QStatusBar,
     Signal,
-    QWidget,
 )
 
-from .plugin_contract import PluginContextProtocol
+from .plugin_context import PluginContext
 
 
 # ============================================================
@@ -74,13 +141,24 @@ class StatusSpec:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(
-            self.status_id,
-            str,
-        ) or not self.status_id.strip():
+        # ----------------------------------------------------
+        # status_id
+        # ----------------------------------------------------
+
+        if (
+            not isinstance(
+                self.status_id,
+                str,
+            )
+            or not self.status_id.strip()
+        ):
             raise ValueError(
                 "status_id must be a non-empty string."
             )
+
+        # ----------------------------------------------------
+        # text
+        # ----------------------------------------------------
 
         if not isinstance(
             self.text,
@@ -89,6 +167,10 @@ class StatusSpec:
             raise TypeError(
                 "text must be a string."
             )
+
+        # ----------------------------------------------------
+        # stretch
+        # ----------------------------------------------------
 
         if not isinstance(
             self.stretch,
@@ -103,6 +185,37 @@ class StatusSpec:
                 "stretch cannot be negative."
             )
 
+        # ----------------------------------------------------
+        # tooltip
+        # ----------------------------------------------------
+
+        if (
+            self.tooltip is not None
+            and not isinstance(
+                self.tooltip,
+                str,
+            )
+        ):
+            raise TypeError(
+                "tooltip must be a string or None."
+            )
+
+        # ----------------------------------------------------
+        # permanent
+        # ----------------------------------------------------
+
+        if not isinstance(
+            self.permanent,
+            bool,
+        ):
+            raise TypeError(
+                "permanent must be bool."
+            )
+
+        # ----------------------------------------------------
+        # visible
+        # ----------------------------------------------------
+
         if not isinstance(
             self.visible,
             bool,
@@ -111,12 +224,16 @@ class StatusSpec:
                 "visible must be bool."
             )
 
+        # ----------------------------------------------------
+        # metadata
+        # ----------------------------------------------------
+
         if not isinstance(
-            self.permanent,
-            bool,
+            self.metadata,
+            Mapping,
         ):
             raise TypeError(
-                "permanent must be bool."
+                "metadata must be a Mapping."
             )
 
 
@@ -129,42 +246,25 @@ class StatusPlugin(QObject):
     """
     GridForge status-bar composition plugin.
 
-    Lifecycle
-    ---------
-    Construction:
-        Creates only plugin-owned bookkeeping.
+    The plugin owns status-field composition only.
 
-    initialize(context):
-        Receives the application/UI context and composes the
-        application's status-bar presentation.
-
-    shutdown():
-        Removes only presentation fields created by this plugin.
-
-    Ownership
-    ---------
-    The plugin owns:
-
-        - status-field specifications;
-        - status-field QLabel instances;
-        - presentation operations;
-        - the reference to the application's QStatusBar.
-
-    The plugin does NOT own:
-
-        - MainWindow;
-        - QStatusBar lifetime;
-        - project state;
-        - network state;
-        - Core state;
-        - controller state;
-        - command history;
-        - simulation state.
+    The application's QStatusBar remains owned by QMainWindow.
     """
 
     plugin_id = "status"
     plugin_name = "Status"
     plugin_version = "1.0"
+    plugin_description = (
+        "GridForge application status-bar composition."
+    )
+
+    plugin_dependencies: tuple[str, ...] = (
+        "canvas",
+        "panels",
+        "toolbar",
+    )
+
+    plugin_optional = False
 
     status_changed = Signal(
         str,
@@ -178,9 +278,9 @@ class StatusPlugin(QObject):
         """
         Construct an uninitialized StatusPlugin.
 
-        Application context is deliberately not accepted here.
+        No application context is accepted during construction.
 
-        PluginContext is supplied through initialize(context).
+        PluginContext is supplied exclusively through initialize().
         """
 
         super().__init__(
@@ -188,7 +288,7 @@ class StatusPlugin(QObject):
         )
 
         self._context: Optional[
-            PluginContextProtocol
+            PluginContext
         ] = None
 
         self._status_bar: Optional[
@@ -214,11 +314,11 @@ class StatusPlugin(QObject):
     @property
     def context(
         self,
-    ) -> Optional[PluginContextProtocol]:
+    ) -> Optional[PluginContext]:
         """
-        Return the current initialization context.
+        Return the active PluginContext.
 
-        Returns None before initialization.
+        Returns None before initialization or after shutdown.
         """
 
         return self._context
@@ -228,9 +328,9 @@ class StatusPlugin(QObject):
         self,
     ) -> Optional[QStatusBar]:
         """
-        Return the application's composed status bar.
+        Return the application's QStatusBar.
 
-        The QStatusBar itself remains owned by QMainWindow.
+        The status bar itself remains owned by QMainWindow.
         """
 
         return self._status_bar
@@ -240,7 +340,7 @@ class StatusPlugin(QObject):
         self,
     ) -> Optional[QStatusBar]:
         """
-        Return the plugin's composed UI component.
+        Return the composed status bar presentation component.
         """
 
         return self._status_bar
@@ -249,9 +349,7 @@ class StatusPlugin(QObject):
     def initialized(
         self,
     ) -> bool:
-        """
-        Return whether the plugin has been initialized.
-        """
+        """Return whether the plugin is initialized."""
 
         return self._initialized
 
@@ -267,41 +365,69 @@ class StatusPlugin(QObject):
             self._labels.keys()
         )
 
+    @property
+    def statuses(
+        self,
+    ) -> tuple[QLabel, ...]:
+        """
+        Return registered status widgets in registration order.
+        """
+
+        return tuple(
+            self._labels.values()
+        )
+
     # ========================================================
     # LIFECYCLE
     # ========================================================
 
     def initialize(
         self,
-        context: PluginContextProtocol,
+        context: PluginContext,
     ) -> QStatusBar:
         """
-        Initialize the status plugin with an application context.
+        Initialize status-bar composition.
 
-        Construction and initialization are deliberately separate.
+        PluginContext is the sole application dependency boundary.
 
-        Initialization is idempotent. Reinitialization with a
-        different context is rejected while the plugin is active.
+        Initialization is idempotent for the same context.
+        Reinitialization with a different context is rejected.
         """
 
         if not isinstance(
             context,
-            PluginContextProtocol,
+            PluginContext,
         ):
             raise TypeError(
-                "context must satisfy PluginContextProtocol."
+                "StatusPlugin requires PluginContext."
             )
 
+        # ----------------------------------------------------
+        # Existing lifecycle
+        # ----------------------------------------------------
+
         if self._initialized:
-            if context is not self._context:
+            if self._context is not context:
                 raise RuntimeError(
-                    "StatusPlugin is already initialized "
-                    "with a different context."
+                    (
+                        "StatusPlugin is already initialized "
+                        "with a different PluginContext."
+                    )
                 )
 
-            assert self._status_bar is not None
+            if self._status_bar is None:
+                raise RuntimeError(
+                    (
+                        "StatusPlugin is initialized without "
+                        "a QStatusBar."
+                    )
+                )
 
             return self._status_bar
+
+        # ----------------------------------------------------
+        # New lifecycle
+        # ----------------------------------------------------
 
         self._context = context
 
@@ -312,7 +438,13 @@ class StatusPlugin(QObject):
 
             self._initialized = True
 
-            assert self._status_bar is not None
+            if self._status_bar is None:
+                raise RuntimeError(
+                    (
+                        "StatusPlugin initialization produced "
+                        "no QStatusBar."
+                    )
+                )
 
             return self._status_bar
 
@@ -321,6 +453,7 @@ class StatusPlugin(QObject):
 
             self._status_bar = None
             self._context = None
+            self._initialized = False
 
             raise
 
@@ -328,12 +461,11 @@ class StatusPlugin(QObject):
         self,
     ) -> None:
         """
-        Shut down the plugin's presentation composition.
+        Shut down status-bar composition.
 
-        The application's QStatusBar is not destroyed because it is
-        owned by QMainWindow.
+        The application's QStatusBar is not destroyed.
 
-        Only fields created by this plugin are removed.
+        Only status fields created by this plugin are removed.
         """
 
         if not self._initialized:
@@ -355,14 +487,14 @@ class StatusPlugin(QObject):
         """
         Obtain the application's QStatusBar.
 
-        MainWindow remains the owner of the status bar.
+        QMainWindow remains responsible for its lifetime.
         """
 
         context = self._context
 
         if context is None:
             raise RuntimeError(
-                "StatusPlugin context is not initialized."
+                "StatusPlugin context is unavailable."
             )
 
         main_window = context.main_window
@@ -372,12 +504,26 @@ class StatusPlugin(QObject):
             QMainWindow,
         ):
             raise TypeError(
-                "PluginContext.main_window must be QMainWindow."
+                (
+                    "PluginContext.main_window must be "
+                    "QMainWindow."
+                )
             )
 
-        self._status_bar = (
-            main_window.statusBar()
-        )
+        status_bar = main_window.statusBar()
+
+        if not isinstance(
+            status_bar,
+            QStatusBar,
+        ):
+            raise TypeError(
+                (
+                    "QMainWindow.statusBar() did not return "
+                    "a QStatusBar."
+                )
+            )
+
+        self._status_bar = status_bar
 
     # ========================================================
     # STATUS REGISTRATION
@@ -387,10 +533,7 @@ class StatusPlugin(QObject):
         self,
     ) -> None:
         """
-        Register the canonical baseline status fields.
-
-        Status values are presentation defaults only. Runtime values
-        may subsequently be supplied by application/UI coordination.
+        Register the canonical GridForge baseline status fields.
         """
 
         for spec in default_statuses():
@@ -403,10 +546,12 @@ class StatusPlugin(QObject):
         spec: StatusSpec,
     ) -> QLabel:
         """
-        Add one presentation field to the status bar.
+        Add one plugin-owned presentation field.
 
-        The plugin owns the QLabel but not the state represented by it.
+        The plugin must already be initialized.
         """
+
+        self._require_initialized()
 
         if not isinstance(
             spec,
@@ -424,14 +569,16 @@ class StatusPlugin(QObject):
                 )
             )
 
-        if self._status_bar is None:
+        status_bar = self._status_bar
+
+        if status_bar is None:
             raise RuntimeError(
-                "StatusPlugin has not been initialized."
+                "StatusPlugin has no QStatusBar."
             )
 
         label = QLabel(
             spec.text,
-            self._status_bar,
+            status_bar,
         )
 
         label.setObjectName(
@@ -448,12 +595,12 @@ class StatusPlugin(QObject):
         )
 
         if spec.permanent:
-            self._status_bar.addPermanentWidget(
+            status_bar.addPermanentWidget(
                 label,
                 spec.stretch,
             )
         else:
-            self._status_bar.addWidget(
+            status_bar.addWidget(
                 label,
                 spec.stretch,
             )
@@ -493,8 +640,10 @@ class StatusPlugin(QObject):
         if label is None:
             return None
 
-        if self._status_bar is not None:
-            self._status_bar.removeWidget(
+        status_bar = self._status_bar
+
+        if status_bar is not None:
+            status_bar.removeWidget(
                 label
             )
 
@@ -516,6 +665,9 @@ class StatusPlugin(QObject):
                 status_id
             )
 
+        self._labels.clear()
+        self._specs.clear()
+
     # ========================================================
     # STATUS ACCESS
     # ========================================================
@@ -525,7 +677,7 @@ class StatusPlugin(QObject):
         status_id: str,
     ) -> Optional[QLabel]:
         """
-        Return a registered status widget.
+        Return a registered status widget, if present.
         """
 
         self._validate_status_id(
@@ -549,6 +701,19 @@ class StatusPlugin(QObject):
         )
 
         return status_id in self._labels
+
+    def status_count(
+        self,
+    ) -> int:
+        """Return the number of registered status fields."""
+
+        return len(
+            self._labels
+        )
+
+    # ========================================================
+    # STATUS PRESENTATION
+    # ========================================================
 
     def set_status(
         self,
@@ -626,6 +791,29 @@ class StatusPlugin(QObject):
             visible
         )
 
+    def is_status_visible(
+        self,
+        status_id: str,
+    ) -> bool:
+        """
+        Return the current presentation visibility of a status field.
+        """
+
+        self._validate_status_id(
+            status_id
+        )
+
+        label = self._labels.get(
+            status_id
+        )
+
+        if label is None:
+            raise KeyError(
+                f"Unknown status: {status_id!r}"
+            )
+
+        return label.isVisible()
+
     # ========================================================
     # TRANSIENT MESSAGE
     # ========================================================
@@ -637,7 +825,7 @@ class StatusPlugin(QObject):
         """
         Display a transient status-bar message.
 
-        This modifies presentation only.
+        This changes presentation only.
         """
 
         if not isinstance(
@@ -648,79 +836,73 @@ class StatusPlugin(QObject):
                 "text must be a string."
             )
 
-        if self._status_bar is None:
+        status_bar = self._status_bar
+
+        if status_bar is None:
             return
 
-        self._status_bar.showMessage(
+        status_bar.showMessage(
             text
         )
 
     def clear_message(
         self,
     ) -> None:
-        """
-        Clear the transient status-bar message.
-        """
+        """Clear the transient status-bar message."""
 
-        if self._status_bar is None:
+        status_bar = self._status_bar
+
+        if status_bar is None:
             return
 
-        self._status_bar.clearMessage()
-
-    # ========================================================
-    # CONTEXT ACCESS
-    # ========================================================
-
-    def controller(
-        self,
-    ) -> Any:
-        """
-        Return the application's controller from the context.
-
-        This is a narrow dependency accessor. It does not make the
-        controller plugin-owned state.
-        """
-
-        context = self._context
-
-        if context is None:
-            return None
-
-        return context.service(
-            "controller",
-            getattr(
-                context,
-                "controller",
-                None,
-            ),
-        )
+        status_bar.clearMessage()
 
     # ========================================================
     # CAPABILITIES
     # ========================================================
 
-    def status_count(
+    def status_available(
         self,
-    ) -> int:
-        """
-        Return the number of registered status fields.
-        """
+    ) -> bool:
+        """Return whether the application's status bar is available."""
 
-        return len(
-            self._labels
-        )
+        return self._status_bar is not None
 
     # ========================================================
     # VALIDATION
     # ========================================================
 
+    def _require_initialized(
+        self,
+    ) -> None:
+        """Require an active plugin lifecycle."""
+
+        if not self._initialized:
+            raise RuntimeError(
+                "StatusPlugin has not been initialized."
+            )
+
+        if self._context is None:
+            raise RuntimeError(
+                (
+                    "StatusPlugin is initialized without "
+                    "PluginContext."
+                )
+            )
+
+        if self._status_bar is None:
+            raise RuntimeError(
+                (
+                    "StatusPlugin is initialized without "
+                    "QStatusBar."
+                )
+            )
+
     @staticmethod
     def _validate_status_id(
         status_id: str,
     ) -> None:
-        """
-        Validate a status identifier.
-        """
+        """Validate a status identifier."""
 
         if not isinstance(
             status_id,
@@ -748,8 +930,10 @@ def default_statuses() -> tuple[
     """
     Return the canonical GridForge baseline status fields.
 
-    These values are presentation defaults only. Runtime state must
-    be supplied by the application/UI coordination layer.
+    These are presentation defaults only.
+
+    Runtime application state must be supplied by the appropriate
+    application/UI coordination layer.
     """
 
     return (
@@ -792,15 +976,11 @@ def create_status_plugin(
     """
     Create an uninitialized StatusPlugin.
 
-    No PluginContext is accepted here.
-
-    Context assignment occurs exclusively through:
-
-        plugin.initialize(context)
+    PluginContext is supplied exclusively during initialize().
     """
 
     return StatusPlugin(
-        parent=parent,
+        parent=parent
     )
 
 
