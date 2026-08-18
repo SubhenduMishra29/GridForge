@@ -31,9 +31,6 @@ Purpose
 -------
 Controller is the central UI/application coordination boundary.
 
-It bridges UI-facing application state and the authoritative
-GridForge Core.
-
 Controller owns:
 
     - application-level tool-selection intent;
@@ -363,9 +360,6 @@ class Controller(QObject):
 
         # ----------------------------------------------------
         # Controller-owned signal subscription registry.
-        #
-        # This tracks only callbacks registered through
-        # Controller.subscribe().
         # ----------------------------------------------------
 
         self._subscriptions: dict[
@@ -452,9 +446,34 @@ class Controller(QObject):
 
     # --------------------------------------------------------
 
-    def get_tool_id(self) -> Optional[str]:
+    def get_tool_id(
+        self,
+    ) -> Optional[str]:
         """
         Return the currently requested tool identifier.
+        """
+
+        return self._tool_id
+
+    # --------------------------------------------------------
+
+    def get_current_tool_id(
+        self,
+    ) -> Optional[str]:
+        """
+        Return the currently requested application-level tool ID.
+
+        This method is the canonical Controller API used by
+        toolbar/UI composition code.
+
+        Important
+        ---------
+        The returned value represents requested application
+        intent. It is NOT a second copy of ToolManager's active
+        tool state.
+
+        ToolManager remains authoritative for actual tool
+        lifecycle.
         """
 
         return self._tool_id
@@ -516,7 +535,9 @@ class Controller(QObject):
 
     # --------------------------------------------------------
 
-    def clear_tool(self) -> None:
+    def clear_tool(
+        self,
+    ) -> None:
         """
         Clear the current application-level tool request.
         """
@@ -528,7 +549,9 @@ class Controller(QObject):
     # ========================================================
 
     @property
-    def selected_ids(self) -> tuple[Any, ...]:
+    def selected_ids(
+        self,
+    ) -> tuple[Any, ...]:
         """
         Return an immutable snapshot of application selection.
         """
@@ -550,7 +573,9 @@ class Controller(QObject):
 
     # --------------------------------------------------------
 
-    def has_selection(self) -> bool:
+    def has_selection(
+        self,
+    ) -> bool:
         """
         Return True when at least one object is selected.
         """
@@ -772,7 +797,9 @@ class Controller(QObject):
 
     # --------------------------------------------------------
 
-    def clear_selection(self) -> None:
+    def clear_selection(
+        self,
+    ) -> None:
         """
         Clear application selection.
         """
@@ -788,7 +815,9 @@ class Controller(QObject):
 
     # --------------------------------------------------------
 
-    def _emit_selection_changed(self) -> None:
+    def _emit_selection_changed(
+        self,
+    ) -> None:
         """
         Emit canonical selection/state notifications.
         """
@@ -804,7 +833,9 @@ class Controller(QObject):
     # ========================================================
 
     @property
-    def project(self) -> Optional[Any]:
+    def project(
+        self,
+    ) -> Optional[Any]:
         """
         Return the current project/application context.
         """
@@ -813,7 +844,9 @@ class Controller(QObject):
 
     # --------------------------------------------------------
 
-    def get_project(self) -> Optional[Any]:
+    def get_project(
+        self,
+    ) -> Optional[Any]:
         """
         Return the current project/application context.
         """
@@ -849,7 +882,9 @@ class Controller(QObject):
     # CORE COMMAND BOUNDARY
     # ========================================================
 
-    def _get_command_manager(self) -> Any:
+    def _get_command_manager(
+        self,
+    ) -> Any:
         """
         Return Core's authoritative command manager.
 
@@ -889,22 +924,6 @@ class Controller(QObject):
     ) -> Any:
         """
         Return a validated public method of Core.command_manager.
-
-        Parameters
-        ----------
-        method_name:
-            Public command-manager method name.
-
-        Returns
-        -------
-        Any
-            Callable command-manager method.
-
-        Raises
-        ------
-        TypeError
-            If the command manager does not provide the
-            requested callable method.
         """
 
         if method_name not in self._COMMAND_MANAGER_METHODS:
@@ -942,26 +961,7 @@ class Controller(QObject):
         """
         Execute a command through Core.command_manager.
 
-        Canonical flow:
-
-            Controller.execute_command(command)
-                    │
-                    ▼
-            Core.command_manager.execute(command)
-                    │
-                    ▼
-                  Command
-                    │
-                    ▼
-                   Core
-                    │
-                    ▼
-              Domain Events
-
         Controller never invokes command.execute() directly.
-
-        Command validation and history semantics remain the
-        responsibility of Core.command_manager.
         """
 
         self._ensure_active()
@@ -992,8 +992,6 @@ class Controller(QObject):
     ) -> Any:
         """
         Undo through Core.command_manager.
-
-        History transitions remain exclusively owned by Core.
         """
 
         self._ensure_active()
@@ -1015,8 +1013,6 @@ class Controller(QObject):
     ) -> Any:
         """
         Redo through Core.command_manager.
-
-        History transitions remain exclusively owned by Core.
         """
 
         self._ensure_active()
@@ -1148,8 +1144,6 @@ class Controller(QObject):
     ) -> tuple[Any, ...]:
         """
         Return an immutable snapshot of Core undo history.
-
-        Controller does not retain the returned commands.
         """
 
         method = self._get_command_manager_method(
@@ -1174,8 +1168,6 @@ class Controller(QObject):
     ) -> tuple[Any, ...]:
         """
         Return an immutable snapshot of Core redo history.
-
-        Controller does not retain the returned commands.
         """
 
         method = self._get_command_manager_method(
@@ -1261,12 +1253,7 @@ class Controller(QObject):
         self,
     ) -> Any:
         """
-        Clear Core command history.
-
-        This affects command history only.
-
-        Controller application state and Core domain state are
-        not directly reset by this method.
+        Clear Core command history only.
         """
 
         method = self._get_command_manager_method(
@@ -1307,16 +1294,6 @@ class Controller(QObject):
         Reset Core command-history state.
 
         This is deliberately distinct from reset_state().
-
-        reset_command_history():
-
-            resets Core command-history state only.
-
-        reset_state():
-
-            resets Controller-owned application state only.
-
-        Neither operation implicitly performs the other.
         """
 
         method = self._get_command_manager_method(
@@ -1339,10 +1316,8 @@ class Controller(QObject):
         """
         Return the authoritative Core command-manager state.
 
-        Core.command_manager owns the state.
-
-        Controller returns a shallow copy so the caller cannot
-        mutate the dictionary returned by Core.
+        A shallow copy is returned so callers cannot mutate the
+        dictionary returned by Core.
         """
 
         method = self._get_command_manager_method(
@@ -1382,9 +1357,6 @@ class Controller(QObject):
             - redo commands;
             - dispose Core;
             - manipulate ToolManager directly.
-
-        ToolManager observes tool_changed(None, previous_tool)
-        and remains responsible for actual tool lifecycle.
         """
 
         self._ensure_active()
@@ -1529,8 +1501,6 @@ class Controller(QObject):
             RuntimeError,
             TypeError,
         ):
-            # Qt may report that the callback is already
-            # disconnected.
             pass
 
         finally:
@@ -1580,11 +1550,6 @@ class Controller(QObject):
     ) -> dict[str, Any]:
         """
         Return a diagnostic snapshot of Controller-owned state.
-
-        The returned dictionary contains only Controller-owned
-        state.
-
-        Mutable internal collections are never exposed.
 
         Command-manager state is deliberately not duplicated.
 
@@ -1686,8 +1651,6 @@ class Controller(QObject):
 
         # ----------------------------------------------------
         # Core remains externally owned.
-        #
-        # Do not dispose, reset, or mutate Core.
         # ----------------------------------------------------
 
         self._disposed = True
