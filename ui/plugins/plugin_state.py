@@ -85,10 +85,6 @@ class PluginState:
     def __post_init__(self) -> None:
         """Validate and normalize the immutable state snapshot."""
 
-        # ----------------------------------------------------
-        # Identity
-        # ----------------------------------------------------
-
         if not isinstance(
             self.plugin_id,
             str,
@@ -101,10 +97,6 @@ class PluginState:
             raise ValueError(
                 "plugin_id must be a non-empty string."
             )
-
-        # ----------------------------------------------------
-        # State types
-        # ----------------------------------------------------
 
         if not isinstance(
             self.registered,
@@ -187,10 +179,6 @@ class PluginState:
                 "A plugin cannot be initialized while disabled."
             )
 
-        # ----------------------------------------------------
-        # Immutable metadata snapshot
-        # ----------------------------------------------------
-
         object.__setattr__(
             self,
             "metadata",
@@ -224,7 +212,11 @@ class PluginStateStore:
     """
 
     def __init__(self) -> None:
-        self._states: dict[str, PluginState] = {}
+        self._states: dict[
+            str,
+            PluginState,
+        ] = {}
+
         self._lock = RLock()
 
     # ========================================================
@@ -236,7 +228,9 @@ class PluginStateStore:
         """Return known plugin IDs in insertion order."""
 
         with self._lock:
-            return tuple(self._states)
+            return tuple(
+                self._states.keys()
+            )
 
     @property
     def snapshots(self) -> tuple[PluginState, ...]:
@@ -251,9 +245,11 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> bool:
-        """Return whether runtime state exists for a plugin."""
+        """Return whether runtime state exists."""
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         with self._lock:
             return plugin_id in self._states
@@ -264,10 +260,14 @@ class PluginStateStore:
     ) -> PluginState | None:
         """Return runtime state if known."""
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         with self._lock:
-            return self._states.get(plugin_id)
+            return self._states.get(
+                plugin_id
+            )
 
     def require(
         self,
@@ -275,7 +275,9 @@ class PluginStateStore:
     ) -> PluginState:
         """Return runtime state or raise KeyError."""
 
-        state = self.get(plugin_id)
+        state = self.get(
+            plugin_id
+        )
 
         if state is None:
             raise KeyError(
@@ -290,7 +292,9 @@ class PluginStateStore:
     ) -> bool:
         """Return whether the plugin is registered."""
 
-        return self.require(plugin_id).registered
+        return self.require(
+            plugin_id
+        ).registered
 
     def is_enabled(
         self,
@@ -298,7 +302,9 @@ class PluginStateStore:
     ) -> bool:
         """Return whether the plugin is enabled."""
 
-        return self.require(plugin_id).enabled
+        return self.require(
+            plugin_id
+        ).enabled
 
     def is_initialized(
         self,
@@ -306,15 +312,19 @@ class PluginStateStore:
     ) -> bool:
         """Return whether the plugin is initialized."""
 
-        return self.require(plugin_id).initialized
+        return self.require(
+            plugin_id
+        ).initialized
 
     def generation(
         self,
         plugin_id: str,
     ) -> int:
-        """Return the successful initialization generation."""
+        """Return successful initialization generation."""
 
-        return self.require(plugin_id).generation
+        return self.require(
+            plugin_id
+        ).generation
 
     def last_error(
         self,
@@ -322,13 +332,15 @@ class PluginStateStore:
     ) -> str | None:
         """Return the last recorded lifecycle error."""
 
-        return self.require(plugin_id).last_error
+        return self.require(
+            plugin_id
+        ).last_error
 
     # ========================================================
     # REGISTRATION
     # ========================================================
 
-    def define(
+    def register(
         self,
         plugin_id: str,
         *,
@@ -336,15 +348,16 @@ class PluginStateStore:
         metadata: Mapping[str, Any] | None = None,
     ) -> PluginState:
         """
-        Record initial registration state.
+        Record successful registration.
 
-        Existing state is never overwritten.
+        Registration itself is performed by PluginRegistry.
 
-        This method records a registration result. It does not decide
-        whether the plugin should be registered.
+        Existing runtime state cannot be silently overwritten.
         """
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         if not isinstance(
             enabled,
@@ -354,19 +367,25 @@ class PluginStateStore:
                 "enabled must be bool."
             )
 
-        if metadata is not None and not isinstance(
-            metadata,
-            Mapping,
+        if (
+            metadata is not None
+            and not isinstance(
+                metadata,
+                Mapping,
+            )
         ):
             raise TypeError(
                 "metadata must be a Mapping or None."
             )
 
         with self._lock:
-            existing = self._states.get(plugin_id)
-
-            if existing is not None:
-                return existing
+            if plugin_id in self._states:
+                raise KeyError(
+                    (
+                        f"Runtime state for plugin "
+                        f"{plugin_id!r} already exists."
+                    )
+                )
 
             state = PluginState(
                 plugin_id=plugin_id,
@@ -382,50 +401,52 @@ class PluginStateStore:
                 ),
             )
 
-            self._states[plugin_id] = state
+            self._states[
+                plugin_id
+            ] = state
 
             return state
 
-    def set_registered(
+    def unregister(
         self,
         plugin_id: str,
-        registered: bool,
     ) -> PluginState:
         """
-        Record the registration result.
+        Record successful unregistration.
 
-        This method never performs registration or unregistration.
+        The caller must have already shut down the plugin and disabled
+        it where required.
+
+        The state store does not perform unregistration itself.
         """
 
-        self._validate_plugin_id(plugin_id)
-
-        if not isinstance(
-            registered,
-            bool,
-        ):
-            raise TypeError(
-                "registered must be bool."
-            )
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         with self._lock:
-            current = self.require(plugin_id)
+            current = self.require(
+                plugin_id
+            )
 
-            if not registered:
-                if current.initialized:
-                    raise RuntimeError(
-                        f"Cannot mark initialized plugin "
-                        f"{plugin_id!r} as unregistered."
+            if current.initialized:
+                raise RuntimeError(
+                    (
+                        f"Cannot unregister initialized "
+                        f"plugin {plugin_id!r}."
                     )
+                )
 
-                if current.enabled:
-                    raise RuntimeError(
-                        f"Cannot mark enabled plugin "
-                        f"{plugin_id!r} as unregistered."
+            if current.enabled:
+                raise RuntimeError(
+                    (
+                        f"Cannot unregister enabled "
+                        f"plugin {plugin_id!r}."
                     )
+                )
 
-            return self._replace(
-                current,
-                registered=registered,
+            return self._states.pop(
+                plugin_id
             )
 
     # ========================================================
@@ -438,13 +459,14 @@ class PluginStateStore:
         enabled: bool,
     ) -> PluginState:
         """
-        Record the resulting plugin enablement state.
+        Record resulting enablement state.
 
-        This method does not enable, disable, initialize, or shut down
-        a plugin.
+        This method does not perform enable/disable operations.
         """
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         if not isinstance(
             enabled,
@@ -455,18 +477,24 @@ class PluginStateStore:
             )
 
         with self._lock:
-            current = self.require(plugin_id)
+            current = self.require(
+                plugin_id
+            )
 
             if enabled and not current.registered:
                 raise RuntimeError(
-                    f"Cannot enable unregistered plugin "
-                    f"{plugin_id!r}."
+                    (
+                        f"Cannot enable unregistered "
+                        f"plugin {plugin_id!r}."
+                    )
                 )
 
             if not enabled and current.initialized:
                 raise RuntimeError(
-                    f"Cannot disable initialized plugin "
-                    f"{plugin_id!r}."
+                    (
+                        f"Cannot disable initialized "
+                        f"plugin {plugin_id!r}."
+                    )
                 )
 
             return self._replace(
@@ -478,54 +506,69 @@ class PluginStateStore:
     # INITIALIZATION
     # ========================================================
 
-    def set_initialized(
+    def mark_initialized(
         self,
         plugin_id: str,
-        initialized: bool,
     ) -> PluginState:
         """
-        Record the resulting initialization state.
+        Record a successful initialization.
 
-        A successful False -> True transition increments generation.
+        A False -> True transition increments generation.
 
-        The store does not call plugin lifecycle methods.
+        Generation therefore counts successful initialization cycles.
         """
 
-        self._validate_plugin_id(plugin_id)
-
-        if not isinstance(
-            initialized,
-            bool,
-        ):
-            raise TypeError(
-                "initialized must be bool."
-            )
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         with self._lock:
-            current = self.require(plugin_id)
+            current = self.require(
+                plugin_id
+            )
 
-            if initialized:
-                if not current.registered:
-                    raise RuntimeError(
-                        f"Cannot initialize unregistered plugin "
-                        f"{plugin_id!r}."
+            if not current.registered:
+                raise RuntimeError(
+                    (
+                        f"Cannot initialize unregistered "
+                        f"plugin {plugin_id!r}."
                     )
-
-                if not current.enabled:
-                    raise RuntimeError(
-                        f"Cannot initialize disabled plugin "
-                        f"{plugin_id!r}."
-                    )
-
-                if current.initialized:
-                    return current
-
-                return self._replace(
-                    current,
-                    initialized=True,
-                    generation=current.generation + 1,
-                    last_error=None,
                 )
+
+            if not current.enabled:
+                raise RuntimeError(
+                    (
+                        f"Cannot initialize disabled "
+                        f"plugin {plugin_id!r}."
+                    )
+                )
+
+            if current.initialized:
+                return current
+
+            return self._replace(
+                current,
+                initialized=True,
+                generation=(
+                    current.generation + 1
+                ),
+                last_error=None,
+            )
+
+    def mark_uninitialized(
+        self,
+        plugin_id: str,
+    ) -> PluginState:
+        """Record a successful shutdown."""
+
+        self._validate_plugin_id(
+            plugin_id
+        )
+
+        with self._lock:
+            current = self.require(
+                plugin_id
+            )
 
             if not current.initialized:
                 return current
@@ -539,18 +582,20 @@ class PluginStateStore:
     # ERROR
     # ========================================================
 
-    def record_error(
+    def set_last_error(
         self,
         plugin_id: str,
         error: BaseException | str,
     ) -> PluginState:
         """
-        Record a lifecycle error.
+        Record the latest lifecycle error.
 
         Recording an error does not alter lifecycle state.
         """
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         if isinstance(
             error,
@@ -573,23 +618,29 @@ class PluginStateStore:
             message = "Unknown plugin failure."
 
         with self._lock:
-            current = self.require(plugin_id)
+            current = self.require(
+                plugin_id
+            )
 
             return self._replace(
                 current,
                 last_error=message,
             )
 
-    def clear_error(
+    def clear_last_error(
         self,
         plugin_id: str,
     ) -> PluginState:
         """Clear the recorded lifecycle error."""
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         with self._lock:
-            current = self.require(plugin_id)
+            current = self.require(
+                plugin_id
+            )
 
             return self._replace(
                 current,
@@ -608,14 +659,19 @@ class PluginStateStore:
     ) -> PluginState:
         """Record one metadata value."""
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
+
         self._validate_name(
             key,
             "key",
         )
 
         with self._lock:
-            current = self.require(plugin_id)
+            current = self.require(
+                plugin_id
+            )
 
             metadata = dict(
                 current.metadata
@@ -634,103 +690,15 @@ class PluginStateStore:
     ) -> dict[str, Any]:
         """Return a mutable copy of plugin metadata."""
 
-        self._validate_plugin_id(plugin_id)
+        self._validate_plugin_id(
+            plugin_id
+        )
 
         with self._lock:
             return dict(
-                self.require(plugin_id).metadata
-            )
-
-    # ========================================================
-    # REMOVAL
-    # ========================================================
-
-    def remove(
-        self,
-        plugin_id: str,
-    ) -> PluginState | None:
-        """
-        Remove runtime state for an inactive plugin.
-
-        Actual plugin unregistration/destruction remains outside this
-        store.
-        """
-
-        self._validate_plugin_id(plugin_id)
-
-        with self._lock:
-            current = self._states.get(plugin_id)
-
-            if current is None:
-                return None
-
-            if current.initialized:
-                raise RuntimeError(
-                    f"Cannot remove state for initialized plugin "
-                    f"{plugin_id!r}."
-                )
-
-            if current.enabled:
-                raise RuntimeError(
-                    f"Cannot remove state for enabled plugin "
-                    f"{plugin_id!r}."
-                )
-
-            return self._states.pop(
-                plugin_id
-            )
-
-    # ========================================================
-    # RESET
-    # ========================================================
-
-    def reset(
-        self,
-        plugin_id: str,
-        *,
-        enabled: bool | None = None,
-    ) -> PluginState:
-        """
-        Reset transient runtime facts while preserving registration
-        and successful initialization generation.
-        """
-
-        self._validate_plugin_id(plugin_id)
-
-        with self._lock:
-            current = self.require(plugin_id)
-
-            if current.initialized:
-                raise RuntimeError(
-                    f"Cannot reset initialized plugin "
-                    f"{plugin_id!r}."
-                )
-
-            next_enabled = (
-                current.enabled
-                if enabled is None
-                else enabled
-            )
-
-            if not isinstance(
-                next_enabled,
-                bool,
-            ):
-                raise TypeError(
-                    "enabled must be bool."
-                )
-
-            if next_enabled and not current.registered:
-                raise RuntimeError(
-                    f"Cannot enable unregistered plugin "
-                    f"{plugin_id!r}."
-                )
-
-            return self._replace(
-                current,
-                enabled=next_enabled,
-                initialized=False,
-                last_error=None,
+                self.require(
+                    plugin_id
+                ).metadata
             )
 
     # ========================================================
@@ -881,7 +849,7 @@ def is_active(
         PluginState,
     ):
         raise TypeError(
-        "state must be a PluginState."
+            "state must be a PluginState."
         )
 
     return (
