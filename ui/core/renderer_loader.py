@@ -22,24 +22,19 @@ Architecture
               ▼
       Concrete Renderers
 
-
 Purpose
 -------
+
 RendererLoader is the explicit composition boundary for the
-concrete GridForge renderer set.
+canonical GridForge renderer set.
 
 Current renderer set:
 
     - BusRenderer
     - LineRenderer
 
-The loader explicitly imports:
-
-    - concrete renderer implementations;
-    - authoritative Core model types.
-
-It then registers the renderer implementation against its
-corresponding model type.
+The loader explicitly imports concrete renderer
+implementations and authoritative Core model types.
 
 No dynamic discovery is performed.
 
@@ -53,6 +48,7 @@ RendererLoader only performs deterministic registration.
 
 Responsibilities
 ----------------
+
 RendererLoader:
 
     - explicitly imports concrete renderers;
@@ -74,10 +70,11 @@ RendererLoader does NOT:
     - perform selection;
     - perform snapping;
     - perform navigation;
-    - discover plugins dynamically.
+    - discover renderers dynamically.
 
 Registration ownership
 ----------------------
+
 RendererLoader
     = explicit composition / registration
 
@@ -89,6 +86,7 @@ RenderSystem
 
 Qt architecture
 ---------------
+
 This module contains no Qt imports.
 """
 
@@ -101,7 +99,7 @@ from ui.core.renderer_registry import RendererRegistry
 
 class RendererLoader:
     """
-    Explicit loader for the GridForge V2 renderer set.
+    Explicit loader for the canonical GridForge V2 renderer set.
 
     RendererLoader owns knowledge of the concrete renderer set,
     but does not own renderer instances.
@@ -129,12 +127,6 @@ class RendererLoader:
     ) -> None:
         """
         Initialize the renderer loader.
-
-        Parameters
-        ----------
-        registry:
-            RendererRegistry receiving the explicit renderer
-            registrations.
         """
 
         if registry is None:
@@ -154,6 +146,59 @@ class RendererLoader:
         self._loaded = False
 
     # ========================================================
+    # EXPLICIT CANONICAL DEFINITION
+    # ========================================================
+
+    @staticmethod
+    def _load_canonical_definitions() -> tuple[
+        tuple[
+            str,
+            Any,
+            type,
+        ],
+        ...,
+    ]:
+        """
+        Import and return the canonical renderer definitions.
+
+        Each entry contains:
+
+            (renderer_id, renderer_implementation, model_type)
+
+        Imports are deliberately local so importing this loader
+        does not eagerly import concrete renderers.
+        """
+
+        from ui.renderers.bus_renderer import (
+            BusRenderer,
+        )
+
+        from ui.renderers.line_renderer import (
+            LineRenderer,
+        )
+
+        from core.model.bus import (
+            Bus,
+        )
+
+        from core.model.line import (
+            Line,
+        )
+
+        return (
+            (
+                RendererLoader.BUS_RENDERER_ID,
+                BusRenderer,
+                Bus,
+            ),
+            (
+                RendererLoader.LINE_RENDERER_ID,
+                LineRenderer,
+                Line,
+            ),
+        )
+
+    # ========================================================
     # EXPLICIT LOADING
     # ========================================================
 
@@ -165,79 +210,88 @@ class RendererLoader:
         """
         Explicitly import and register the canonical renderers.
 
-        Each renderer is registered against its authoritative
-        Core model type.
-
-        Registration therefore supports the canonical lookup:
-
-            registry.get_renderer(type(element))
-
-        Parameters
-        ----------
-        replace:
-            Replace existing registrations when True.
-
-        Raises
-        ------
-        ValueError
-            If a renderer is already registered and replace=False.
-
-        TypeError
-            If the supplied registry or registration contract
-            is invalid.
+        Registration is performed only after every canonical
+        renderer definition has been successfully imported.
         """
 
+        if not isinstance(
+            replace,
+            bool,
+        ):
+            raise TypeError(
+                "replace must be a bool."
+            )
+
+        definitions = (
+            self._load_canonical_definitions()
+        )
+
         # ----------------------------------------------------
-        # Concrete renderer imports.
+        # Preflight validation.
         #
-        # These imports are intentionally local. The registry
-        # remains independent of concrete renderer modules.
+        # All imports and canonical definitions must succeed
+        # before registry mutation begins.
         # ----------------------------------------------------
 
-        from ui.renderers.bus_renderer import (
-            BusRenderer,
-        )
+        for (
+            renderer_id,
+            renderer,
+            model_type,
+        ) in definitions:
 
-        from ui.renderers.line_renderer import (
-            LineRenderer,
-        )
+            if not isinstance(
+                renderer_id,
+                str,
+            ):
+                raise TypeError(
+                    "Canonical renderer ID must be a string."
+                )
+
+            if renderer is None:
+                raise ValueError(
+                    "Canonical renderer implementation "
+                    "must not be None."
+                )
+
+            if not isinstance(
+                model_type,
+                type,
+            ):
+                raise TypeError(
+                    "Canonical renderer model_type "
+                    "must be a type."
+                )
+
+            if (
+                not replace
+                and self.registry.contains(
+                    renderer_id
+                )
+            ):
+                raise ValueError(
+                    "Renderer already registered: "
+                    f"{renderer_id!r}"
+                )
 
         # ----------------------------------------------------
-        # Authoritative Core model imports.
+        # Registration.
         #
-        # These establish the renderer → model-type mapping
-        # required by RenderSystem.
+        # At this point all imports and canonical definitions
+        # have passed validation.
         # ----------------------------------------------------
 
-        from core.model.bus import (
-            Bus,
-        )
+        for (
+            renderer_id,
+            renderer,
+            model_type,
+        ) in definitions:
 
-        from core.model.line import (
-            Line,
-        )
-
-        # ----------------------------------------------------
-        # Explicit registration.
-        # ----------------------------------------------------
-
-        self.registry.register(
-            self.BUS_RENDERER_ID,
-            BusRenderer,
-            model_type=Bus,
-            replace=replace,
-        )
-
-        self.registry.register(
-            self.LINE_RENDERER_ID,
-            LineRenderer,
-            model_type=Line,
-            replace=replace,
-        )
-
-        # ----------------------------------------------------
-        # Mark loaded only after every registration succeeds.
-        # ----------------------------------------------------
+            self.registry.register(
+                renderer_id,
+                renderer,
+                model_type=model_type,
+                replace=replace,
+            )
 
         self._loaded = True
 
@@ -251,30 +305,53 @@ class RendererLoader:
         """
         Validate the complete canonical renderer set.
 
-        Validation checks both:
+        Validation checks:
 
             1. required renderer IDs exist;
-            2. every canonical renderer has a model type.
-
-        Raises
-        ------
-        KeyError
-            If a required renderer is missing.
-
-        TypeError
-            If a required renderer has no model type.
+            2. renderer implementation is canonical;
+            3. model type is canonical.
         """
+
+        definitions = (
+            self._load_canonical_definitions()
+        )
 
         registrations = self.registry.require_renderers(
             self.REQUIRED_RENDERER_IDS
         )
 
+        expected = {
+            renderer_id: (
+                renderer,
+                model_type,
+            )
+            for (
+                renderer_id,
+                renderer,
+                model_type,
+            ) in definitions
+        }
+
         for registration in registrations:
-            if registration.model_type is None:
+
+            expected_renderer, expected_model_type = (
+                expected[
+                    registration.renderer_id
+                ]
+            )
+
+            if registration.renderer is not expected_renderer:
                 raise TypeError(
                     "Renderer registration "
-                    f"{registration.renderer_id!r} must "
-                    "declare a model_type."
+                    f"{registration.renderer_id!r} does not "
+                    "match the canonical renderer."
+                )
+
+            if registration.model_type is not expected_model_type:
+                raise TypeError(
+                    "Renderer registration "
+                    f"{registration.renderer_id!r} has an "
+                    "incorrect model_type."
                 )
 
     # ========================================================
@@ -287,10 +364,7 @@ class RendererLoader:
         replace: bool = False,
     ) -> None:
         """
-        Load and validate the complete renderer set.
-
-        The loader is marked loaded by load() only after all
-        registrations have succeeded.
+        Load and validate the complete canonical renderer set.
         """
 
         self.load(
@@ -308,7 +382,7 @@ class RendererLoader:
         self,
     ) -> bool:
         """
-        Return True after successful loading.
+        Return True after successful registration.
         """
 
         return self._loaded
