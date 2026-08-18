@@ -1,0 +1,601 @@
+/* ============================================================
+   File: ui/styling/stylesheet.qss
+   GridForge V2 — Base UI Stylesheet
+   ============================================================
+
+   Scope
+   -----
+   Presentation only.
+
+   This stylesheet controls Qt widget appearance. It must not
+   encode application logic, engineering state, controller
+   behavior, tool behavior, selection ownership, or electrical
+   semantics.
+
+   Architecture
+   ------------
+       StyleManager
+            │
+            ▼
+       stylesheet.qss
+            │
+            ▼
+       QApplication / Widgets
+
+   The stylesheet is intentionally conservative. Component-
+   specific styling should be added only when the corresponding
+   UI component has been architecturally established.
+   ============================================================ */
+
+
+/* ============================================================
+   GLOBAL APPLICATION
+   ============================================================ */
+
+QWidget {
+    background-color: #202124;
+    color: #E8EAED;
+    font-family: "Segoe UI";
+    font-size: 10pt;
+}
+
+
+/* ============================================================
+   MAIN WINDOW
+   ============================================================ */
+
+QMainWindow {
+    background-color: #202124;
+    color: #E8EAED;
+}
+
+
+/* ============================================================
+   CENTRAL CANVAS / VIEW
+   ============================================================ */
+
+QGraphicsView {
+    background-color: #181A1D;
+    border: none;
+}
+
+
+/* ============================================================
+   DOCK WIDGETS
+   ============================================================ */
+
+QDockWidget {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: none;
+}
+
+QDockWidget::title {
+    background-color: #25272B;
+    color: #E8EAED;
+    padding: 6px 8px;
+    border-bottom: 1px solid #3A3D42;
+}
+
+
+/* ============================================================
+   TOOLBAR
+   ============================================================ */
+
+QToolBar {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: none;
+    spacing: 4px;
+    padding: 4px;
+}
+
+QToolBar::separator {
+    background-color: #3A3D42;
+    width: 1px;
+    margin: 4px 3px;
+}
+
+
+/* ============================================================
+   TOOL BUTTONS
+   ============================================================ */
+
+QToolButton {
+    background-color: transparent;
+    color: #E8EAED;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 5px;
+}
+
+QToolButton:hover {
+    background-color: #2D3035;
+    border: 1px solid #3A3D42;
+}
+
+QToolButton:pressed {
+    background-color: #315F8F;
+    border: 1px solid #4DA3FF;
+}
+
+QToolButton:checked {
+    background-color: #315F8F;
+    border: 1px solid #4DA3FF;
+}
+
+QToolButton:disabled {
+    color: #686D75;
+}
+
+
+/* ============================================================
+   PUSH BUTTONS
+   ============================================================ */
+
+QPushButton {
+    background-color: #2D3035;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    border-radius: 3px;
+    padding: 5px 10px;
+    min-height: 20px;
+}
+
+QPushButton:hover {
+    background-color: #353940;
+    border: 1px solid #4A4E55;
+}
+
+QPushButton:pressed {
+    background-color: #315F8F;
+    border: 1px solid #4DA3FF;
+}
+
+QPushButton:checked {
+    background-color: #315F8F;
+    border: 1px solid #4DA3FF;
+}
+
+QPushButton:disabled {
+    background-color: #25272B;
+    color: #686D75;
+    border: 1px solid #303238;
+}
+
+
+/* ============================================================
+   LABELS
+   ============================================================ */
+
+QLabel {
+    background-color: transparent;
+    color: #E8EAED;
+}
+
+QLabel:disabled {
+    color: #686D75;
+}
+
+
+/* ============================================================
+   LINE EDIT
+   ============================================================ */
+
+QLineEdit {
+    background-color: #181A1D;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    border-radius: 3px;
+    padding: 4px 6px;
+    selection-background-color: #315F8F;
+    selection-color: #E8EAED;
+}
+
+QLineEdit:focus {
+    border: 1px solid #4DA3FF;
+}
+
+QLineEdit:disabled {
+    background-color: #25272B;
+    color: #686D75;
+}
+
+
+/* ============================================================
+   TEXT EDIT
+   ============================================================ */
+
+QTextEdit,
+QPlainTextEdit {
+    background-color: #181A1D;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    border-radius: 3px;
+    selection-background-color: #315F8F;
+    selection-color: #E8EAED;
+}
+
+
+/* ============================================================
+   COMBO BOX
+   ============================================================ */
+
+QComboBox {
+    background-color: #2D3035;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    border-radius: 3px;
+    padding: 4px 8px;
+    min-height: 20px;
+}
+
+QComboBox:hover {
+    border: 1px solid #4A4E55;
+}
+
+QComboBox:focus {
+    border: 1px solid #4DA3FF;
+}
+
+QComboBox:disabled {
+    background-color: #25272B;
+    color: #686D75;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    selection-background-color: #315F8F;
+    selection-color: #E8EAED;
+}
+
+
+/* ============================================================
+   CHECK BOX
+   ============================================================ */
+
+QCheckBox {
+    background-color: transparent;
+    color: #E8EAED;
+    spacing: 6px;
+}
+
+QCheckBox:disabled {
+    color: #686D75;
+}
+
+
+/* ============================================================
+   RADIO BUTTON
+   ============================================================ */
+
+QRadioButton {
+    background-color: transparent;
+    color: #E8EAED;
+    spacing: 6px;
+}
+
+QRadioButton:disabled {
+    color: #686D75;
+}
+
+
+/* ============================================================
+   LIST / TREE / TABLE VIEWS
+   ============================================================ */
+
+QListView,
+QTreeView,
+QTableView {
+    background-color: #181A1D;
+    alternate-background-color: #202124;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    selection-background-color: #315F8F;
+    selection-color: #E8EAED;
+}
+
+QListView::item,
+QTreeView::item,
+QTableView::item {
+    padding: 3px;
+}
+
+QListView::item:hover,
+QTreeView::item:hover,
+QTableView::item:hover {
+    background-color: #2D3035;
+}
+
+
+/* ============================================================
+   HEADER VIEWS
+   ============================================================ */
+
+QHeaderView::section {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: none;
+    border-right: 1px solid #3A3D42;
+    border-bottom: 1px solid #3A3D42;
+    padding: 5px 6px;
+}
+
+
+/* ============================================================
+   GROUP BOX
+   ============================================================ */
+
+QGroupBox {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    border-radius: 3px;
+    margin-top: 10px;
+    padding: 8px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 8px;
+    padding: 0 4px;
+    color: #AEB4BD;
+    background-color: #25272B;
+}
+
+
+/* ============================================================
+   TAB WIDGET
+   ============================================================ */
+
+QTabWidget::pane {
+    background-color: #25272B;
+    border: 1px solid #3A3D42;
+}
+
+QTabBar::tab {
+    background-color: #202124;
+    color: #AEB4BD;
+    border: 1px solid #3A3D42;
+    padding: 6px 12px;
+    margin-right: 1px;
+}
+
+QTabBar::tab:hover {
+    background-color: #2D3035;
+    color: #E8EAED;
+}
+
+QTabBar::tab:selected {
+    background-color: #315F8F;
+    color: #E8EAED;
+    border-bottom: 1px solid #4DA3FF;
+}
+
+
+/* ============================================================
+   MENU
+   ============================================================ */
+
+QMenu {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    padding: 3px;
+}
+
+QMenu::item {
+    background-color: transparent;
+    padding: 5px 24px 5px 8px;
+}
+
+QMenu::item:selected {
+    background-color: #315F8F;
+    color: #E8EAED;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #3A3D42;
+    margin: 4px 6px;
+}
+
+
+/* ============================================================
+   MENU BAR
+   ============================================================ */
+
+QMenuBar {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: none;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 5px 8px;
+}
+
+QMenuBar::item:selected {
+    background-color: #2D3035;
+}
+
+QMenuBar::item:pressed {
+    background-color: #315F8F;
+}
+
+
+/* ============================================================
+   STATUS BAR
+   ============================================================ */
+
+QStatusBar {
+    background-color: #202124;
+    color: #AEB4BD;
+    border-top: 1px solid #3A3D42;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+
+/* ============================================================
+   PROGRESS BAR
+   ============================================================ */
+
+QProgressBar {
+    background-color: #181A1D;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    border-radius: 3px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: #4DA3FF;
+    border-radius: 2px;
+}
+
+
+/* ============================================================
+   SLIDER
+   ============================================================ */
+
+QSlider::groove:horizontal {
+    background-color: #3A3D42;
+    height: 4px;
+    border-radius: 2px;
+}
+
+QSlider::handle:horizontal {
+    background-color: #4DA3FF;
+    border: 1px solid #4DA3FF;
+    width: 12px;
+    height: 12px;
+    margin: -5px 0;
+    border-radius: 6px;
+}
+
+
+/* ============================================================
+   SCROLL BARS
+   ============================================================ */
+
+QScrollBar:vertical {
+    background-color: #202124;
+    width: 10px;
+    margin: 0;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #3A3D42;
+    min-height: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #4A4E55;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+    border: none;
+    background: none;
+}
+
+QScrollBar:horizontal {
+    background-color: #202124;
+    height: 10px;
+    margin: 0;
+    border: none;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #3A3D42;
+    min-width: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #4A4E55;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0;
+    border: none;
+    background: none;
+}
+
+
+/* ============================================================
+   TOOLTIP
+   ============================================================ */
+
+QToolTip {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+    padding: 4px;
+}
+
+
+/* ============================================================
+   MESSAGE BOX
+   ============================================================ */
+
+QMessageBox {
+    background-color: #25272B;
+    color: #E8EAED;
+}
+
+QMessageBox QLabel {
+    color: #E8EAED;
+}
+
+QMessageBox QPushButton {
+    min-width: 70px;
+}
+
+
+/* ============================================================
+   SPLITTER
+   ============================================================ */
+
+QSplitter::handle {
+    background-color: #3A3D42;
+}
+
+QSplitter::handle:hover {
+    background-color: #4DA3FF;
+}
+
+
+/* ============================================================
+   GENERIC FRAME
+   ============================================================ */
+
+QFrame {
+    background-color: transparent;
+}
+
+
+/* ============================================================
+   DISABLED STATE
+   ============================================================ */
+
+QWidget:disabled {
+    color: #686D75;
+}
+
+
+/* ============================================================
+   END OF GRIDFORGE BASE STYLESHEET
+   ============================================================ */
