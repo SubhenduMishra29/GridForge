@@ -907,9 +907,26 @@ class PluginManager:
         plugin_id: str,
     ) -> Optional[PluginEntry]:
         """
-        Shut down and unregister one plugin.
+        Shut down, disable, and unregister one plugin.
 
         Registered dependants must be removed first.
+
+        Important
+        ---------
+        Unloading does not modify the declarative PluginDefinition.
+
+        Therefore the lifecycle is:
+
+            initialized
+                ↓
+            shutdown
+                ↓
+            disabled
+                ↓
+            unregistered
+
+        The definition remains available so that a later load cycle
+        can recreate the plugin using its original configuration.
         """
 
         self._require_definition(
@@ -946,30 +963,91 @@ class PluginManager:
         ):
             return None
 
+        # ----------------------------------------------------
+        # Runtime lifecycle only.
+        #
+        # Do NOT call self.disable() here because that would
+        # mutate PluginDefinition.enabled.
+        # ----------------------------------------------------
+
+        if self._registry.is_initialized(
+            plugin_id
+        ):
+            self._registry.shutdown(
+                plugin_id
+            )
+
+        if self._registry.is_enabled(
+            plugin_id
+        ):
+            self._registry.disable(
+                plugin_id,
+                shutdown=False,
+            )
+
         return self._registry.unregister(
             plugin_id,
-            shutdown=True,
+            shutdown=False,
         )
 
     def unload_all(self) -> None:
         """
-        Shut down and unregister every registered plugin.
+        Shut down, disable, and unregister every registered plugin.
+
+        Operations occur in reverse dependency order.
 
         Definitions remain available for a future load cycle.
+
+        Runtime lifecycle:
+
+            initialized
+                ↓
+            shutdown
+                ↓
+            enabled
+                ↓
+            disable
+                ↓
+            unregister
         """
 
         order = self.resolve_order()
 
+        # ----------------------------------------------------
+        # Reverse dependency order is mandatory.
+        #
+        # Dependants must be shut down before dependencies,
+        # disabled before dependencies, and unregistered before
+        # dependencies.
+        # ----------------------------------------------------
+
         for plugin_id in reversed(
             order
         ):
-            if self._registry.contains(
+            if not self._registry.contains(
                 plugin_id
             ):
-                self._registry.unregister(
-                    plugin_id,
-                    shutdown=True,
+                continue
+
+            if self._registry.is_initialized(
+                plugin_id
+            ):
+                self._registry.shutdown(
+                    plugin_id
                 )
+
+            if self._registry.is_enabled(
+                plugin_id
+            ):
+                self._registry.disable(
+                    plugin_id,
+                    shutdown=False,
+                )
+
+            self._registry.unregister(
+                plugin_id,
+                shutdown=False,
+            )
 
     # ========================================================
     # DEPENDENCY RESOLUTION
