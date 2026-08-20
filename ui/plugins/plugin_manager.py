@@ -28,7 +28,7 @@ Responsibilities
 
     PluginManager
         Composition definitions, dependency resolution, context
-        assignment, and lifecycle ordering.
+        assignment, lifecycle ordering, and composition handoff.
 
     PluginContext
         Dependency carrier supplied during plugin initialization.
@@ -45,7 +45,9 @@ Architectural rules
 - dependants shut down before dependencies;
 - plugin construction is context-free;
 - PluginContext is supplied only during initialization;
-- MainWindow remains a thin composition boundary.
+- MainWindow remains a thin composition boundary;
+- ShellPlugin never resolves plugins through PluginManager;
+- composition outputs are handed to ShellPlugin by PluginManager.
 
 Canonical composition
 ---------------------
@@ -113,8 +115,6 @@ from .plugin_state import PluginStateStore
 class PluginDefinition:
     """
     Declarative composition definition for one UI plugin.
-
-    This object contains configuration only.
 
     Runtime lifecycle state belongs exclusively to PluginStateStore.
     """
@@ -333,9 +333,7 @@ class PluginManager:
 
     @property
     def state_store(self) -> PluginStateStore:
-        """
-        Return the canonical runtime state store.
-        """
+        """Return the canonical runtime state store."""
 
         return self._state_store
 
@@ -416,7 +414,6 @@ class PluginManager:
         Remove an unused plugin definition.
 
         A definition cannot be removed while:
-
         - the plugin is registered; or
         - another definition depends on it.
         """
@@ -682,12 +679,7 @@ class PluginManager:
 
         Dependencies initialize before dependants.
 
-        Initialization is transactional for this operation:
-
-        - already-initialized plugins are untouched;
-        - plugins initialized by this call are tracked;
-        - if a later initialization fails, those newly initialized
-          plugins are shut down in reverse order.
+        Initialization is transactional for this operation.
         """
 
         self._require_definition(
@@ -732,6 +724,17 @@ class PluginManager:
                     current_id
                 ):
                     continue
+
+                # ------------------------------------------------
+                # Shell composition handoff.
+                #
+                # Dependencies have already been initialized
+                # because resolve_order() guarantees that they
+                # precede the dependant.
+                # ------------------------------------------------
+
+                if current_id == "shell":
+                    self._prepare_shell_composition()
 
                 result = self._registry.initialize(
                     current_id,
@@ -804,6 +807,13 @@ class PluginManager:
                 ):
                     continue
 
+                # ------------------------------------------------
+                # Shell composition handoff.
+                # ------------------------------------------------
+
+                if current_id == "shell":
+                    self._prepare_shell_composition()
+
                 results.append(
                     self._registry.initialize(
                         current_id,
@@ -835,6 +845,169 @@ class PluginManager:
         return self.initialize_many()
 
     # ========================================================
+    # SHELL COMPOSITION HANDOFF
+    # ========================================================
+
+    def _prepare_shell_composition(
+        self,
+    ) -> None:
+        """
+        Supply already-initialized UI widgets to ShellPlugin.
+
+        This is deliberately handled by PluginManager because
+        dependency resolution and lifecycle ordering belong here.
+
+        ShellPlugin never accesses PluginManager.
+
+        Required composition outputs:
+
+            canvas.widget
+            toolbar.widget
+            status.widget
+        """
+
+        shell_entry = self._registry.get_entry(
+            "shell"
+        )
+
+        if shell_entry is None:
+            raise RuntimeError(
+                "Shell plugin is not registered."
+            )
+
+        shell_plugin = shell_entry.plugin
+
+        canvas_entry = self._registry.get_entry(
+            "canvas"
+        )
+
+        toolbar_entry = self._registry.get_entry(
+            "toolbar"
+        )
+
+        status_entry = self._registry.get_entry(
+            "status"
+        )
+
+        if canvas_entry is None:
+            raise RuntimeError(
+                (
+                    "Shell composition requires "
+                    "registered canvas plugin."
+                )
+            )
+
+        if toolbar_entry is None:
+            raise RuntimeError(
+                (
+                    "Shell composition requires "
+                    "registered toolbar plugin."
+                )
+            )
+
+        if status_entry is None:
+            raise RuntimeError(
+                (
+                    "Shell composition requires "
+                    "registered status plugin."
+                )
+            )
+
+        if not self._registry.is_initialized(
+            "canvas"
+        ):
+            raise RuntimeError(
+                (
+                    "Canvas plugin must be initialized "
+                    "before shell composition."
+                )
+            )
+
+        if not self._registry.is_initialized(
+            "toolbar"
+        ):
+            raise RuntimeError(
+                (
+                    "Toolbar plugin must be initialized "
+                    "before shell composition."
+                )
+            )
+
+        if not self._registry.is_initialized(
+            "status"
+        ):
+            raise RuntimeError(
+                (
+                    "Status plugin must be initialized "
+                    "before shell composition."
+                )
+            )
+
+        canvas_widget = getattr(
+            canvas_entry.plugin,
+            "widget",
+            None,
+        )
+
+        toolbar_widget = getattr(
+            toolbar_entry.plugin,
+            "widget",
+            None,
+        )
+
+        status_widget = getattr(
+            status_entry.plugin,
+            "widget",
+            None,
+        )
+
+        if canvas_widget is None:
+            raise RuntimeError(
+                (
+                    "CanvasPlugin did not expose "
+                    "an initialized widget."
+                )
+            )
+
+        if toolbar_widget is None:
+            raise RuntimeError(
+                (
+                    "ToolbarPlugin did not expose "
+                    "an initialized widget."
+                )
+            )
+
+        if status_widget is None:
+            raise RuntimeError(
+                (
+                    "StatusPlugin did not expose "
+                    "an initialized widget."
+                )
+            )
+
+        setter = getattr(
+            shell_plugin,
+            "set_composition",
+            None,
+        )
+
+        if not callable(
+            setter
+        ):
+            raise RuntimeError(
+                (
+                    "ShellPlugin does not implement "
+                    "the required set_composition() contract."
+                )
+            )
+
+        setter(
+            canvas_widget=canvas_widget,
+            toolbar_widget=toolbar_widget,
+            status_widget=status_widget,
+        )
+
+    # ========================================================
     # SHUTDOWN
     # ========================================================
 
@@ -846,9 +1019,6 @@ class PluginManager:
         Shut down one plugin and all initialized dependants.
 
         Dependants are shut down before dependencies.
-
-        A shutdown failure is propagated and remaining lifecycle state
-        is preserved in PluginStateStore.
         """
 
         self._require_definition(
@@ -882,7 +1052,9 @@ class PluginManager:
                     current_id
                 )
 
-    def shutdown_all(self) -> None:
+    def shutdown_all(
+        self,
+    ) -> None:
         """
         Shut down all initialized plugins in reverse dependency order.
         """
@@ -970,7 +1142,9 @@ class PluginManager:
             shutdown=False,
         )
 
-    def unload_all(self) -> None:
+    def unload_all(
+        self,
+    ) -> None:
         """
         Shut down, disable, and unregister all registered plugins.
 
@@ -1230,9 +1404,9 @@ class PluginManager:
         Return effective enablement.
 
         For an unloaded plugin, the declarative definition determines
-        the desired enablement.
+        desired enablement.
 
-        For a registered plugin, PluginStateStore determines the actual
+        For a registered plugin, PluginStateStore determines actual
         runtime enablement.
         """
 
@@ -1279,9 +1453,6 @@ class PluginManager:
         Enable a plugin.
 
         Enabling does not initialize it.
-
-        The declarative definition is updated so that a future load
-        cycle uses the same enablement policy.
         """
 
         definition = self._require_definition(
@@ -1315,9 +1486,6 @@ class PluginManager:
         Disable a plugin.
 
         Initialized registered dependants are shut down first.
-
-        The target plugin is then shut down, if necessary, and disabled
-        through the registry exactly once.
         """
 
         definition = self._require_definition(
@@ -1365,8 +1533,7 @@ class PluginManager:
         Shutdown occurs in reverse initialization order.
 
         If rollback itself fails, the original initialization exception
-        remains the exception propagated by the caller. PluginRegistry
-        records the rollback failure in canonical state.
+        remains the exception propagated by the caller.
         """
 
         for plugin_id in reversed(
@@ -1388,8 +1555,6 @@ class PluginManager:
                 )
             except Exception:
                 # Preserve the original initialization failure.
-                # PluginStateStore remains authoritative regarding the
-                # resulting runtime state.
                 continue
 
     # ========================================================
@@ -1559,3 +1724,4 @@ __all__ = [
     "PluginManager",
     "create_default_plugin_manager",
 ]
+
