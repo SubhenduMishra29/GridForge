@@ -5,12 +5,32 @@ GridForge V2
 File:
     ui/main_window.py
 
+Author:
+    Subhendu Mishra
+
 Purpose
 -------
 Thin Qt application shell for GridForge V2.
 
 MainWindow is the top-level UI composition boundary.
 
+Architectural rules
+-------------------
+- MainWindow is a composition root, not a domain controller.
+- Core remains authoritative for project/electrical state.
+- Controller remains the UI/application coordination boundary.
+- PluginContext is the dependency boundary supplied to plugins.
+- PluginManager owns plugin lifecycle and dependency ordering.
+- MainWindow does not construct concrete plugins directly.
+- MainWindow does not construct tools.
+- MainWindow does not construct renderers.
+- MainWindow does not implement canvas interaction.
+- MainWindow does not implement electrical logic.
+- MainWindow does not manipulate the Core model directly.
+- All Qt imports pass through ui.core.qt.
+"""
+
+from __future__ import annotations
 Architectural rules
 -------------------
 - MainWindow is a composition root, not a domain controller.
