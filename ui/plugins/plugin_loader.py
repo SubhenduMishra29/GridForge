@@ -19,7 +19,7 @@ Responsibilities
 - maintain explicit plugin implementation definitions;
 - validate implementation definitions;
 - import concrete plugin modules;
-- resolve the explicitly declared plugin class or factory;
+- resolve explicitly declared plugin classes or factories;
 - construct plugin instances;
 - validate constructed plugin instances.
 
@@ -32,7 +32,8 @@ Non-responsibilities
 - plugin lifecycle orchestration;
 - PluginContext creation;
 - Core/domain state;
-- application business logic.
+- application business logic;
+- UI composition.
 
 Lifecycle
 ---------
@@ -44,13 +45,15 @@ Lifecycle
         +--> create()
                 construct + contract validation
 
-    PluginRegistry / PluginManager
+    PluginManager
         |
-        +--> register()
+        +--> dependency ordering
         |
-        +--> initialize(context)
-        |
-        +--> shutdown()
+        +--> PluginRegistry
+                |
+                +--> register()
+                +--> initialize(context)
+                +--> shutdown()
 
 PluginContext is therefore NEVER a constructor dependency.
 
@@ -58,14 +61,19 @@ Concrete plugin resolution is explicit. No class-name or factory-name
 discovery by convention is performed.
 
 Canonical composition plugins
-------------------------------
+-----------------------------
     canvas
     panels
     toolbar
     status
+    shell
 
-Final application composition is owned by MainWindow.
-PluginLoader does not perform application-level UI composition.
+The shell is itself an explicit composition plugin. It is loaded and
+constructed by PluginLoader, ordered and initialized by PluginManager,
+and performs only final UI composition.
+
+Qt construction remains inside the concrete plugin implementations.
+PluginLoader does not create widgets directly.
 """
 
 from __future__ import annotations
@@ -73,7 +81,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any, Callable, Iterable, Mapping, Optional
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    Mapping,
+    Optional,
+)
 
 from .plugin_contract import validate_plugin
 
@@ -109,7 +123,10 @@ class PluginImplementation:
         # ----------------------------------------------------
 
         if (
-            not isinstance(self.plugin_id, str)
+            not isinstance(
+                self.plugin_id,
+                str,
+            )
             or not self.plugin_id.strip()
         ):
             raise ValueError(
@@ -130,7 +147,10 @@ class PluginImplementation:
 
         if (
             self.class_name is not None
-            and not isinstance(self.class_name, str)
+            and not isinstance(
+                self.class_name,
+                str,
+            )
         ):
             raise TypeError(
                 "class_name must be a string or None."
@@ -150,7 +170,10 @@ class PluginImplementation:
 
         if (
             self.factory_name is not None
-            and not isinstance(self.factory_name, str)
+            and not isinstance(
+                self.factory_name,
+                str,
+            )
         ):
             raise TypeError(
                 "factory_name must be a string or None."
@@ -222,10 +245,7 @@ class PluginImplementation:
             for part in parts
         ):
             raise ValueError(
-                (
-                    f"Invalid module name: "
-                    f"{module_name!r}."
-                )
+                f"Invalid module name: {module_name!r}."
             )
 
         if any(
@@ -233,10 +253,7 @@ class PluginImplementation:
             for part in parts
         ):
             raise ValueError(
-                (
-                    f"Invalid module name: "
-                    f"{module_name!r}."
-                )
+                f"Invalid module name: {module_name!r}."
             )
 
 
@@ -275,7 +292,10 @@ class LoadedPlugin:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.plugin_id, str)
+            not isinstance(
+                self.plugin_id,
+                str,
+            )
             or not self.plugin_id.strip()
         ):
             raise ValueError(
@@ -299,7 +319,9 @@ class LoadedPlugin:
 
         if (
             self.factory is not None
-            and not callable(self.factory)
+            and not callable(
+                self.factory
+            )
         ):
             raise TypeError(
                 "factory must be callable or None."
@@ -334,35 +356,65 @@ class LoadedPlugin:
 # EXPLICIT PLUGIN DEFINITIONS
 # ============================================================
 
-
 DEFAULT_PLUGIN_IMPLEMENTATIONS: Mapping[
     str,
     PluginImplementation,
 ] = {
+    # --------------------------------------------------------
+    # Central canvas
+    # --------------------------------------------------------
+
     "canvas": PluginImplementation(
         plugin_id="canvas",
         module_name="ui.plugins.canvas_plugin",
         class_name="CanvasPlugin",
     ),
+
+    # --------------------------------------------------------
+    # Dock / panel composition
+    # --------------------------------------------------------
+
     "panels": PluginImplementation(
         plugin_id="panels",
         module_name="ui.plugins.panels_plugin",
         class_name="PanelsPlugin",
     ),
+
+    # --------------------------------------------------------
+    # Toolbar composition
+    # --------------------------------------------------------
+
     "toolbar": PluginImplementation(
         plugin_id="toolbar",
         module_name="ui.plugins.toolbar_plugin",
         class_name="ToolbarPlugin",
     ),
+
+    # --------------------------------------------------------
+    # Status composition
+    # --------------------------------------------------------
+
     "status": PluginImplementation(
         plugin_id="status",
         module_name="ui.plugins.status_plugin",
         class_name="StatusPlugin",
     ),
+
+    # --------------------------------------------------------
+    # Final application shell
+    # --------------------------------------------------------
+
+    "shell": PluginImplementation(
+        plugin_id="shell",
+        module_name="ui.plugins.shell_plugin",
+        class_name="ShellPlugin",
+    ),
 }
 
 
-# Compatibility-facing explicit mappings.
+# ============================================================
+# COMPATIBILITY-FACING EXPLICIT MAPPINGS
+# ============================================================
 
 DEFAULT_PLUGIN_MODULES: Mapping[
     str,
@@ -411,7 +463,9 @@ class PluginLoader:
     PluginImplementation definition was supplied.
 
     Dependency ordering belongs to PluginManager.
+
     Registration belongs to PluginRegistry.
+
     Initialization and shutdown belong to PluginRegistry /
     PluginManager.
     """
@@ -491,8 +545,6 @@ class PluginLoader:
     ) -> Mapping[str, PluginImplementation]:
         """
         Return a snapshot of the explicit definitions.
-
-        The returned mapping cannot mutate loader state.
         """
 
         return dict(
@@ -531,8 +583,6 @@ class PluginLoader:
         Define one explicit plugin implementation.
 
         The module is not imported until load() is called.
-
-        Duplicate plugin IDs are rejected.
         """
 
         if not isinstance(
@@ -603,11 +653,11 @@ class PluginLoader:
         """
         Import and resolve one explicitly defined plugin.
 
-        This method performs only:
+        This performs only:
 
             1. explicit definition lookup;
             2. module import;
-            3. explicitly declared implementation resolution;
+            3. explicit implementation resolution;
             4. descriptor creation.
 
         It does NOT construct or initialize the plugin.
@@ -642,7 +692,9 @@ class PluginLoader:
             definition.module_name
         )
 
-        plugin_class: Optional[type[Any]] = None
+        plugin_class: Optional[
+            type[Any]
+        ] = None
 
         factory: Optional[
             Callable[..., Any]
@@ -711,8 +763,6 @@ class PluginLoader:
         Load every explicitly defined plugin.
 
         Definition insertion order is preserved.
-
-        No package scanning or dynamic discovery occurs.
         """
 
         return self.load_many(
@@ -732,11 +782,9 @@ class PluginLoader:
         """
         Construct one loaded plugin.
 
-        Construction and initialization are strictly separate.
+        Construction and initialization remain strictly separate.
 
-        PluginContext MUST NOT be supplied to this method.
-
-        The loader does not create or own PluginContext.
+        PluginContext MUST NOT be supplied here.
         """
 
         if "context" in kwargs:
@@ -757,11 +805,6 @@ class PluginLoader:
             args,
             kwargs,
         )
-
-        # ----------------------------------------------------
-        # Contract validation belongs here because this is the
-        # first point at which a concrete plugin object exists.
-        # ----------------------------------------------------
 
         validate_plugin(
             plugin,
@@ -786,20 +829,18 @@ class PluginLoader:
 
         Constructor arguments are explicitly separated from
         initialization context.
-
-        No PluginContext is created or supplied here.
         """
 
         positional = (
-            constructor_args
-            if constructor_args is not None
-            else {}
+            {}
+            if constructor_args is None
+            else constructor_args
         )
 
         keyword = (
-            constructor_kwargs
-            if constructor_kwargs is not None
-            else {}
+            {}
+            if constructor_kwargs is None
+            else constructor_kwargs
         )
 
         if not isinstance(
@@ -828,11 +869,24 @@ class PluginLoader:
                 )
             )
 
-            kwargs = dict(
-                keyword.get(
-                    plugin_id,
-                    {},
+            raw_kwargs = keyword.get(
+                plugin_id,
+                {},
+            )
+
+            if not isinstance(
+                raw_kwargs,
+                Mapping,
+            ):
+                raise TypeError(
+                    (
+                        f"constructor_kwargs[{plugin_id!r}] "
+                        "must be a Mapping."
+                    )
                 )
+
+            kwargs = dict(
+                raw_kwargs
             )
 
             instances.append(
@@ -861,7 +915,7 @@ class PluginLoader:
         Construct a plugin through its explicitly resolved
         construction mechanism.
 
-        This method performs no lifecycle operation.
+        No lifecycle operation is performed.
         """
 
         if descriptor.factory is not None:
@@ -1114,14 +1168,15 @@ def create_default_plugin_loader() -> PluginLoader:
     """
     Create the canonical GridForge V2 UI plugin loader.
 
-    Exactly four concrete composition plugins are explicitly defined:
+    Exactly five concrete composition plugins are explicitly defined:
 
         canvas
         panels
         toolbar
         status
+        shell
 
-    No application-level shell plugin exists.
+    The shell is the final UI composition boundary.
 
     No plugin is imported or constructed by this factory.
     """
@@ -1133,7 +1188,7 @@ def create_default_plugin_loader() -> PluginLoader:
 
 def load_default_plugins() -> tuple[
     LoadedPlugin,
-    ...
+    ...,
 ]:
     """
     Explicitly import all canonical UI composition plugins.
