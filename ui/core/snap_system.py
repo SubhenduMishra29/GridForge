@@ -87,8 +87,7 @@ or:
         "object_id": optional identifier,
     }
 
-The returned position is required to already be in SCENE
-coordinates.
+The returned position must already be in SCENE coordinates.
 
 Snap priority
 -------------
@@ -99,15 +98,21 @@ When priorities are equal:
     1. smaller distance wins;
     2. earlier candidate order wins.
 
-This makes resolution deterministic without imposing an
-ordering policy on graphical items.
+Candidate order is the deterministic discovery order supplied
+by the scene and by each item's snap-point iterable.
+
+Numerical policy
+----------------
+All snap coordinates and tolerance values must be finite.
+
+Snap tolerance is measured exclusively in SCENE coordinates.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from math import hypot
+from math import hypot, isfinite
 from typing import Any, Optional
 
 from ui.core.qt import QPointF
@@ -191,6 +196,10 @@ class SnapSystem:
 
     SnapSystem has no dependency on application navigation,
     interaction state, or Core-domain objects.
+
+    The optional controller reference is retained only for
+    compatibility with existing UI composition code. It is not
+    used for snapping decisions and is never mutated.
     """
 
     # ========================================================
@@ -229,7 +238,18 @@ class SnapSystem:
             tolerance
         )
 
+        if grid_system is not None:
+            self._validate_grid_system(
+                grid_system
+            )
+
+        if scene is not None:
+            self._validate_scene(
+                scene
+            )
+
         self.controller = controller
+
         self.grid_system = grid_system
         self.scene = scene
 
@@ -267,11 +287,11 @@ class SnapSystem:
         Set the maximum scene-space snap distance.
         """
 
+        self._ensure_active()
+
         self._validate_tolerance(
             tolerance
         )
-
-        self._ensure_active()
 
         self.tolerance = float(
             tolerance
@@ -287,12 +307,12 @@ class SnapSystem:
         Enable or disable grid snapping.
         """
 
+        self._ensure_active()
+
         self._validate_bool(
             enabled,
             "enabled",
         )
-
-        self._ensure_active()
 
         self.grid_enabled = enabled
 
@@ -306,12 +326,12 @@ class SnapSystem:
         Enable or disable object snapping.
         """
 
+        self._ensure_active()
+
         self._validate_bool(
             enabled,
             "enabled",
         )
-
-        self._ensure_active()
 
         self.object_enabled = enabled
 
@@ -329,6 +349,8 @@ class SnapSystem:
         Higher values win.
         """
 
+        self._ensure_active()
+
         self._validate_priority(
             object_priority,
             "object_priority",
@@ -338,8 +360,6 @@ class SnapSystem:
             grid_priority,
             "grid_priority",
         )
-
-        self._ensure_active()
 
         self.object_priority = (
             object_priority
@@ -365,6 +385,11 @@ class SnapSystem:
         """
 
         self._ensure_active()
+
+        if grid_system is not None:
+            self._validate_grid_system(
+                grid_system
+            )
 
         self.grid_system = grid_system
 
@@ -393,6 +418,11 @@ class SnapSystem:
 
         self._ensure_active()
 
+        if scene is not None:
+            self._validate_scene(
+                scene
+            )
+
         self.scene = scene
 
     # --------------------------------------------------------
@@ -420,11 +450,14 @@ class SnapSystem:
         """
         Resolve the best snap candidate for a scene position.
 
-        Resolution order is governed by priority rather than by
-        hard-coded candidate type ordering.
+        Resolution is governed by:
 
-        Equal-priority candidates are resolved by distance and
-        then by discovery order.
+            1. priority;
+            2. distance;
+            3. candidate discovery order.
+
+        No candidate is selected outside the configured
+        scene-space tolerance.
         """
 
         self._ensure_active()
@@ -453,34 +486,38 @@ class SnapSystem:
         order = 0
 
         if use_object:
-            result = self._find_object_snap(
-                scene_pos
+            object_result = (
+                self._find_object_snap(
+                    scene_pos
+                )
             )
 
-            if result is not None:
+            if object_result is not None:
                 candidates.append(
                     (
                         self.object_priority,
-                        result.distance,
+                        object_result.distance,
                         order,
-                        result,
+                        object_result,
                     )
                 )
 
                 order += 1
 
         if use_grid:
-            result = self._find_grid_snap(
-                scene_pos
+            grid_result = (
+                self._find_grid_snap(
+                    scene_pos
+                )
             )
 
-            if result is not None:
+            if grid_result is not None:
                 candidates.append(
                     (
                         self.grid_priority,
-                        result.distance,
+                        grid_result.distance,
                         order,
-                        result,
+                        grid_result,
                     )
                 )
 
@@ -565,8 +602,8 @@ class SnapSystem:
 
         return SnapResult(
             position=QPointF(
-                result.x(),
-                result.y(),
+                float(result.x()),
+                float(result.y()),
             ),
             snap_type=SnapType.GRID,
             distance=distance,
@@ -583,7 +620,8 @@ class SnapSystem:
         """
         Find the nearest valid object snap candidate.
 
-        Items without the explicit snap-point contract are ignored.
+        Candidate order is explicitly preserved so equal-distance
+        candidates resolve deterministically.
         """
 
         if self.scene is None:
@@ -603,8 +641,10 @@ class SnapSystem:
             )
 
         best: Optional[
-            SnapResult
+            tuple[float, int, SnapResult]
         ] = None
+
+        candidate_order = 0
 
         for item in tuple(
             items_method()
@@ -623,35 +663,48 @@ class SnapSystem:
                     )
                 )
 
-                if position is None:
-                    continue
-
                 distance = self._distance(
                     scene_pos,
                     position,
                 )
 
-                if distance > self.tolerance:
-                    continue
+                if distance <= self.tolerance:
+                    result = SnapResult(
+                        position=QPointF(
+                            float(position.x()),
+                            float(position.y()),
+                        ),
+                        snap_type=SnapType.OBJECT,
+                        object_id=object_id,
+                        source=item,
+                        distance=distance,
+                    )
 
-                result = SnapResult(
-                    position=QPointF(
-                        position.x(),
-                        position.y(),
-                    ),
-                    snap_type=SnapType.OBJECT,
-                    object_id=object_id,
-                    source=item,
-                    distance=distance,
-                )
+                    candidate_key = (
+                        distance,
+                        candidate_order,
+                    )
 
-                if (
-                    best is None
-                    or distance < best.distance
-                ):
-                    best = result
+                    if (
+                        best is None
+                        or candidate_key
+                        < (
+                            best[0],
+                            best[1],
+                        )
+                    ):
+                        best = (
+                            distance,
+                            candidate_order,
+                            result,
+                        )
 
-        return best
+                candidate_order += 1
+
+        if best is None:
+            return None
+
+        return best[2]
 
     # --------------------------------------------------------
 
@@ -700,15 +753,14 @@ class SnapSystem:
     def _normalize_candidate(
         candidate: Any,
         item: Any,
-    ) -> tuple[
-        Optional[Any],
-        Any,
-    ]:
+    ) -> tuple[Any, Any]:
         """
         Normalize one object snap candidate.
 
-        Candidate coordinates are assumed to already be in
-        scene coordinates.
+        A malformed candidate is rejected explicitly rather than
+        silently ignored.
+
+        Candidate coordinates must already be in SCENE space.
         """
 
         object_id = getattr(
@@ -722,14 +774,14 @@ class SnapSystem:
             dict,
         ):
             if "position" not in candidate:
-                return (
-                    None,
-                    object_id,
+                raise TypeError(
+                    "Object snap candidate dictionary "
+                    "must contain 'position'."
                 )
 
-            position = candidate.get(
+            position = candidate[
                 "position"
-            )
+            ]
 
             object_id = candidate.get(
                 "object_id",
@@ -739,32 +791,10 @@ class SnapSystem:
         else:
             position = candidate
 
-        if position is None:
-            return (
-                None,
-                object_id,
-            )
-
-        if not (
-            callable(
-                getattr(
-                    position,
-                    "x",
-                    None,
-                )
-            )
-            and callable(
-                getattr(
-                    position,
-                    "y",
-                    None,
-                )
-            )
-        ):
-            return (
-                None,
-                object_id,
-            )
+        SnapSystem._validate_point(
+            position,
+            "object snap candidate position",
+        )
 
         return (
             position,
@@ -815,8 +845,8 @@ class SnapSystem:
 
         return SnapResult(
             position=QPointF(
-                target.x(),
-                target.y(),
+                float(target.x()),
+                float(target.y()),
             ),
             snap_type=SnapType.OBJECT,
             object_id=object_id,
@@ -837,9 +867,21 @@ class SnapSystem:
         Return Euclidean distance in scene coordinates.
         """
 
+        SnapSystem._validate_point(
+            first,
+            "first",
+        )
+
+        SnapSystem._validate_point(
+            second,
+            "second",
+        )
+
         return hypot(
-            second.x() - first.x(),
-            second.y() - first.y(),
+            float(second.x())
+            - float(first.x()),
+            float(second.y())
+            - float(first.y()),
         )
 
     # ========================================================
@@ -856,8 +898,8 @@ class SnapSystem:
 
         return SnapResult(
             position=QPointF(
-                scene_pos.x(),
-                scene_pos.y(),
+                float(scene_pos.x()),
+                float(scene_pos.y()),
             ),
             snap_type=SnapType.NONE,
             distance=0.0,
@@ -873,7 +915,9 @@ class SnapSystem:
         name: str,
     ) -> None:
         """
-        Validate a QPoint/QPointF-compatible object.
+        Validate a QPoint/QPointF-compatible scene point.
+
+        Coordinates must be finite numeric values.
         """
 
         if point is None:
@@ -881,26 +925,55 @@ class SnapSystem:
                 f"{name} must not be None."
             )
 
+        x_method = getattr(
+            point,
+            "x",
+            None,
+        )
+
         if not callable(
-            getattr(
-                point,
-                "x",
-                None,
-            )
+            x_method
         ):
             raise TypeError(
                 f"{name} must provide x()."
             )
 
+        y_method = getattr(
+            point,
+            "y",
+            None,
+        )
+
         if not callable(
-            getattr(
-                point,
-                "y",
-                None,
-            )
+            y_method
         ):
             raise TypeError(
                 f"{name} must provide y()."
+            )
+
+        try:
+            x = float(
+                x_method()
+            )
+            y = float(
+                y_method()
+            )
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                f"{name} coordinates must be numeric."
+            ) from exc
+
+        if not isfinite(x):
+            raise ValueError(
+                f"{name}.x must be finite."
+            )
+
+        if not isfinite(y):
+            raise ValueError(
+                f"{name}.y must be finite."
             )
 
     # --------------------------------------------------------
@@ -911,6 +984,8 @@ class SnapSystem:
     ) -> None:
         """
         Validate snap tolerance.
+
+        Tolerance must be finite and non-negative.
         """
 
         if isinstance(
@@ -924,7 +999,16 @@ class SnapSystem:
                 "tolerance must be numeric."
             )
 
-        if tolerance < 0.0:
+        value = float(
+            tolerance
+        )
+
+        if not isfinite(value):
+            raise ValueError(
+                "tolerance must be finite."
+            )
+
+        if value < 0.0:
             raise ValueError(
                 "tolerance must not be negative."
             )
@@ -994,6 +1078,48 @@ class SnapSystem:
 
     # --------------------------------------------------------
 
+    @staticmethod
+    def _validate_grid_system(
+        grid_system: Any,
+    ) -> None:
+        """
+        Validate the minimum GridSystem contract.
+        """
+
+        if not callable(
+            getattr(
+                grid_system,
+                "snap_point",
+                None,
+            )
+        ):
+            raise TypeError(
+                "grid_system must provide snap_point()."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_scene(
+        scene: Any,
+    ) -> None:
+        """
+        Validate the minimum scene contract.
+        """
+
+        if not callable(
+            getattr(
+                scene,
+                "items",
+                None,
+            )
+        ):
+            raise TypeError(
+                "scene must provide items()."
+            )
+
+    # --------------------------------------------------------
+
     def _ensure_active(
         self,
     ) -> None:
@@ -1046,8 +1172,8 @@ class SnapSystem:
         """
         Release transient service references.
 
-        The GridSystem and scene themselves are not owned and are
-        therefore not disposed.
+        GridSystem and scene are not owned and are therefore
+        never disposed by SnapSystem.
         """
 
         if self._disposed:
