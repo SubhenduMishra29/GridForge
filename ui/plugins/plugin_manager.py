@@ -76,6 +76,39 @@ PluginStateStore records:
 
 The Manager does not maintain a second copy of runtime lifecycle
 state.
+
+Canonical composition
+---------------------
+The current GridForge V2 composition consists of five explicit
+composition plugins:
+
+    canvas
+    panels
+    toolbar
+    status
+    shell
+
+Dependency graph:
+
+    canvas
+      ├── panels
+      ├── toolbar
+      └── status
+            ↑
+            ├── canvas
+            ├── panels
+            └── toolbar
+
+    shell
+      ├── canvas
+      ├── panels
+      ├── toolbar
+      └── status
+
+The shell is the final UI composition boundary.
+
+The canvas remains the central visual capability and the SLD workflow
+remains a first-class current UI capability.
 """
 
 from __future__ import annotations
@@ -227,9 +260,19 @@ class PluginDefinition:
 
 class PluginManager:
     """
-    Coordinates explicitly defined GridForge UI composition plugins.
+    Coordinates explicitly defined GridForge V2 UI composition plugins.
 
     The manager owns orchestration, not runtime plugin state.
+
+    Canonical composition order is dependency-driven:
+
+        canvas
+        panels
+        toolbar
+        status
+        shell
+
+    where shell is the final composition boundary.
     """
 
     def __init__(
@@ -476,11 +519,21 @@ class PluginManager:
               ├── toolbar
               └── status
 
-            panels ─────┐
-            toolbar ────┼──> status
+            status
+              ├── canvas
+              ├── panels
+              └── toolbar
+
+            shell
+              ├── canvas
+              ├── panels
+              ├── toolbar
+              └── status
 
         Concrete plugin implementations remain owned by
         PluginLoader.
+
+        The shell is the final UI composition boundary.
         """
 
         defaults = (
@@ -501,6 +554,15 @@ class PluginManager:
                     "canvas",
                     "panels",
                     "toolbar",
+                ),
+            ),
+            PluginDefinition(
+                plugin_id="shell",
+                dependencies=(
+                    "canvas",
+                    "panels",
+                    "toolbar",
+                    "status",
                 ),
             ),
         )
@@ -829,20 +891,6 @@ class PluginManager:
         Shut down one plugin and all initialized dependants.
 
         Shutdown occurs in reverse dependency order.
-
-        Example:
-
-            canvas
-              |
-            toolbar
-              |
-            status
-
-        Shutting down canvas produces:
-
-            status
-            toolbar
-            canvas
         """
 
         self._require_definition(
@@ -963,13 +1011,6 @@ class PluginManager:
         ):
             return None
 
-        # ----------------------------------------------------
-        # Runtime lifecycle only.
-        #
-        # Do NOT call self.disable() here because that would
-        # mutate PluginDefinition.enabled.
-        # ----------------------------------------------------
-
         if self._registry.is_initialized(
             plugin_id
         ):
@@ -997,29 +1038,9 @@ class PluginManager:
         Operations occur in reverse dependency order.
 
         Definitions remain available for a future load cycle.
-
-        Runtime lifecycle:
-
-            initialized
-                ↓
-            shutdown
-                ↓
-            enabled
-                ↓
-            disable
-                ↓
-            unregister
         """
 
         order = self.resolve_order()
-
-        # ----------------------------------------------------
-        # Reverse dependency order is mandatory.
-        #
-        # Dependants must be shut down before dependencies,
-        # disabled before dependencies, and unregistered before
-        # dependencies.
-        # ----------------------------------------------------
 
         for plugin_id in reversed(
             order
@@ -1382,8 +1403,6 @@ class PluginManager:
             plugin_id
         )
 
-        # Runtime dependency invariants require initialized dependants
-        # to be shut down before disabling their dependency.
         if definition.enabled:
             self.shutdown(
                 plugin_id
@@ -1523,12 +1542,15 @@ def create_default_plugin_manager(
     """
     Create the canonical GridForge V2 PluginManager.
 
-    The canonical four composition plugins are explicitly defined:
+    The canonical five composition plugins are explicitly defined:
 
         canvas
         panels
         toolbar
         status
+        shell
+
+    The shell is the final UI composition boundary.
 
     No concrete plugin is imported, constructed, or initialized by
     this factory.
