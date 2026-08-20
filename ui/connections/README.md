@@ -1,11 +1,10 @@
-````markdown
 # GridForge V2 — Connection Subsystem
 
 ## File Location
 
-```text
+
 ui/connections/
-````
+
 
 ## Purpose
 
