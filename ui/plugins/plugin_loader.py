@@ -7,83 +7,49 @@ File:
 
 Purpose
 -------
-Explicit loader and constructor for GridForge UI composition plugins.
+Explicit concrete-plugin loading and construction boundary.
 
-Architectural role
-------------------
-PluginLoader is the concrete implementation boundary.
+Architectural ownership
+-----------------------
+PluginLoader
+    Explicit implementation definitions, imports, resolution,
+    construction, and contract validation.
 
-It is responsible only for:
+PluginManager
+    Plugin definitions, dependency resolution, ordering, context
+    assignment, lifecycle orchestration.
 
-    1. holding explicit plugin implementation definitions;
-    2. importing explicitly named plugin modules;
-    3. resolving explicitly named classes/factories;
-    4. constructing plugin instances;
-    5. validating constructed plugin instances.
+PluginRegistry
+    Runtime registration and lifecycle execution.
 
-It does NOT:
-
-    - discover plugins;
-    - scan packages;
-    - infer implementations;
-    - resolve dependencies;
-    - determine lifecycle ordering;
-    - register plugins;
-    - initialize plugins;
-    - shut down plugins;
-    - create PluginContext;
-    - own PluginStateStore;
-    - own PluginRegistry;
-    - compose the UI;
-    - create Qt application objects.
-
-Lifecycle boundary
-------------------
-
-    PluginLoader
-        │
-        ├── load()
-        │      import + resolve implementation
-        │
-        └── create()
-               construct + validate instance
-                         │
-                         ▼
-                  PluginRegistry
-                         │
-                         ├── register()
-                         ├── initialize(context)
-                         └── shutdown()
+PluginStateStore
+    Canonical runtime lifecycle state.
 
 PluginContext
--------------
-PluginContext is NEVER a constructor dependency.
+    Supplied only during plugin initialization.
 
-It is supplied by PluginManager through PluginRegistry during
-plugin initialization.
-
-Construction must therefore remain context-free.
-
-Canonical GridForge V2 composition plugins
-------------------------------------------
-    canvas
-    panels
-    toolbar
-    status
-    shell
-
-The shell is the final UI composition plugin.
-
-The SLD/canvas subsystem remains a first-class current capability.
-The loader does not special-case it; it explicitly loads the canvas
-composition plugin like every other composition plugin.
+Architectural rules
+-------------------
+- No plugin discovery.
+- No package scanning.
+- No dynamic class-name inference.
+- No dependency resolution.
+- No dependency ordering.
+- No registration.
+- No initialization.
+- No shutdown.
+- No PluginContext creation.
+- No PluginContext passed to constructors.
+- No Qt construction.
+- No Core/domain ownership.
+- Explicit deterministic implementation definitions.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module
-from types import ModuleType
+from types import MappingProxyType, ModuleType
 from typing import Any, Callable, Iterable, Mapping
 
 from .plugin_contract import validate_plugin
@@ -97,15 +63,13 @@ from .plugin_contract import validate_plugin
 @dataclass(frozen=True, slots=True)
 class PluginImplementation:
     """
-    Explicit definition of one concrete plugin implementation.
+    Explicit implementation definition for one plugin.
 
-    Exactly one construction mechanism must be specified:
+    Exactly one construction mechanism is permitted:
 
         class_name
             OR
         factory_name
-
-    No implementation name is inferred from plugin_id.
     """
 
     plugin_id: str
@@ -115,50 +79,25 @@ class PluginImplementation:
     factory_name: str | None = None
 
     def __post_init__(self) -> None:
-        self._validate_plugin_id(
-            self.plugin_id
+        self._validate_identifier(
+            self.plugin_id,
+            "plugin_id",
         )
 
         self._validate_module_name(
             self.module_name
         )
 
-        if (
-            self.class_name is not None
-            and not isinstance(
+        if self.class_name is not None:
+            self._validate_identifier(
                 self.class_name,
-                str,
-            )
-        ):
-            raise TypeError(
-                "class_name must be a string or None."
+                "class_name",
             )
 
-        if (
-            self.class_name is not None
-            and not self.class_name.strip()
-        ):
-            raise ValueError(
-                "class_name cannot be empty."
-            )
-
-        if (
-            self.factory_name is not None
-            and not isinstance(
+        if self.factory_name is not None:
+            self._validate_identifier(
                 self.factory_name,
-                str,
-            )
-        ):
-            raise TypeError(
-                "factory_name must be a string or None."
-            )
-
-        if (
-            self.factory_name is not None
-            and not self.factory_name.strip()
-        ):
-            raise ValueError(
-                "factory_name cannot be empty."
+                "factory_name",
             )
 
         if (
@@ -185,42 +124,33 @@ class PluginImplementation:
                 )
             )
 
-    # ========================================================
-    # VALIDATION
-    # ========================================================
-
     @staticmethod
-    def _validate_plugin_id(
-        plugin_id: str,
+    def _validate_identifier(
+        value: str,
+        name: str,
     ) -> None:
-        if not isinstance(
-            plugin_id,
-            str,
-        ):
+        if not isinstance(value, str):
             raise TypeError(
-                "plugin_id must be a string."
+                f"{name} must be a string."
             )
 
-        if not plugin_id.strip():
+        if not value.strip():
             raise ValueError(
-                "plugin_id must be a non-empty string."
+                f"{name} must be a non-empty string."
             )
 
     @staticmethod
     def _validate_module_name(
         module_name: str,
     ) -> None:
-        if not isinstance(
-            module_name,
-            str,
-        ):
+        if not isinstance(module_name, str):
             raise TypeError(
                 "module_name must be a string."
             )
 
         if not module_name.strip():
             raise ValueError(
-                "module_name cannot be empty."
+                "module_name must be a non-empty string."
             )
 
         parts = module_name.split(".")
@@ -242,16 +172,17 @@ class PluginImplementation:
 @dataclass(frozen=True, slots=True)
 class LoadedPlugin:
     """
-    Immutable descriptor for a resolved implementation.
+    Immutable descriptor for an explicitly resolved implementation.
 
-    This is implementation metadata only.
+    This descriptor represents implementation metadata only.
 
-    It does NOT contain:
+    It does not contain:
 
         - plugin instance;
         - lifecycle state;
+        - dependency state;
         - PluginContext;
-        - dependency state.
+        - registry state.
     """
 
     plugin_id: str
@@ -264,22 +195,36 @@ class LoadedPlugin:
     module: ModuleType | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        PluginImplementation._validate_identifier(
             self.plugin_id,
-            str,
-        ):
-            raise TypeError(
-                "plugin_id must be a string."
-            )
-
-        if not self.plugin_id.strip():
-            raise ValueError(
-                "plugin_id must be a non-empty string."
-            )
+            "plugin_id",
+        )
 
         PluginImplementation._validate_module_name(
             self.module_name
         )
+
+        if (
+            self.plugin_class is None
+            and self.factory is None
+        ):
+            raise ValueError(
+                (
+                    f"Loaded plugin {self.plugin_id!r} "
+                    "has no construction mechanism."
+                )
+            )
+
+        if (
+            self.plugin_class is not None
+            and self.factory is not None
+        ):
+            raise ValueError(
+                (
+                    f"Loaded plugin {self.plugin_id!r} "
+                    "cannot expose both a class and factory."
+                )
+            )
 
         if (
             self.plugin_class is not None
@@ -294,36 +239,10 @@ class LoadedPlugin:
 
         if (
             self.factory is not None
-            and not callable(
-                self.factory
-            )
+            and not callable(self.factory)
         ):
             raise TypeError(
                 "factory must be callable or None."
-            )
-
-        if (
-            self.plugin_class is None
-            and self.factory is None
-        ):
-            raise ValueError(
-                (
-                    f"Loaded plugin {self.plugin_id!r} "
-                    "must expose either a plugin class "
-                    "or factory."
-                )
-            )
-
-        if (
-            self.plugin_class is not None
-            and self.factory is not None
-        ):
-            raise ValueError(
-                (
-                    f"Loaded plugin {self.plugin_id!r} "
-                    "cannot expose both a plugin class "
-                    "and factory."
-                )
             )
 
 
@@ -335,74 +254,73 @@ class LoadedPlugin:
 DEFAULT_PLUGIN_IMPLEMENTATIONS: Mapping[
     str,
     PluginImplementation,
-] = {
-    "canvas": PluginImplementation(
-        plugin_id="canvas",
-        module_name="ui.plugins.canvas_plugin",
-        class_name="CanvasPlugin",
-    ),
+] = MappingProxyType(
+    {
+        "canvas": PluginImplementation(
+            plugin_id="canvas",
+            module_name="ui.plugins.canvas_plugin",
+            class_name="CanvasPlugin",
+        ),
 
-    "panels": PluginImplementation(
-        plugin_id="panels",
-        module_name="ui.plugins.panels_plugin",
-        class_name="PanelsPlugin",
-    ),
+        "panels": PluginImplementation(
+            plugin_id="panels",
+            module_name="ui.plugins.panels_plugin",
+            class_name="PanelsPlugin",
+        ),
 
-    "toolbar": PluginImplementation(
-        plugin_id="toolbar",
-        module_name="ui.plugins.toolbar_plugin",
-        class_name="ToolbarPlugin",
-    ),
+        "toolbar": PluginImplementation(
+            plugin_id="toolbar",
+            module_name="ui.plugins.toolbar_plugin",
+            class_name="ToolbarPlugin",
+        ),
 
-    "status": PluginImplementation(
-        plugin_id="status",
-        module_name="ui.plugins.status_plugin",
-        class_name="StatusPlugin",
-    ),
+        "status": PluginImplementation(
+            plugin_id="status",
+            module_name="ui.plugins.status_plugin",
+            class_name="StatusPlugin",
+        ),
 
-    "shell": PluginImplementation(
-        plugin_id="shell",
-        module_name="ui.plugins.shell_plugin",
-        class_name="ShellPlugin",
-    ),
-}
+        "shell": PluginImplementation(
+            plugin_id="shell",
+            module_name="ui.plugins.shell_plugin",
+            class_name="ShellPlugin",
+        ),
+    }
+)
 
 
 # ============================================================
-# EXPLICIT COMPATIBILITY MAPS
+# COMPATIBILITY MAPPINGS
 # ============================================================
 
 
-DEFAULT_PLUGIN_MODULES: Mapping[
-    str,
-    str,
-] = {
-    plugin_id: definition.module_name
-    for plugin_id, definition
-    in DEFAULT_PLUGIN_IMPLEMENTATIONS.items()
-}
+DEFAULT_PLUGIN_MODULES: Mapping[str, str] = MappingProxyType(
+    {
+        plugin_id: definition.module_name
+        for plugin_id, definition
+        in DEFAULT_PLUGIN_IMPLEMENTATIONS.items()
+    }
+)
 
 
-DEFAULT_PLUGIN_CLASSES: Mapping[
-    str,
-    str,
-] = {
-    plugin_id: definition.class_name
-    for plugin_id, definition
-    in DEFAULT_PLUGIN_IMPLEMENTATIONS.items()
-    if definition.class_name is not None
-}
+DEFAULT_PLUGIN_CLASSES: Mapping[str, str] = MappingProxyType(
+    {
+        plugin_id: definition.class_name
+        for plugin_id, definition
+        in DEFAULT_PLUGIN_IMPLEMENTATIONS.items()
+        if definition.class_name is not None
+    }
+)
 
 
-DEFAULT_PLUGIN_FACTORIES: Mapping[
-    str,
-    str,
-] = {
-    plugin_id: definition.factory_name
-    for plugin_id, definition
-    in DEFAULT_PLUGIN_IMPLEMENTATIONS.items()
-    if definition.factory_name is not None
-}
+DEFAULT_PLUGIN_FACTORIES: Mapping[str, str] = MappingProxyType(
+    {
+        plugin_id: definition.factory_name
+        for plugin_id, definition
+        in DEFAULT_PLUGIN_IMPLEMENTATIONS.items()
+        if definition.factory_name is not None
+    }
+)
 
 
 # ============================================================
@@ -412,12 +330,16 @@ DEFAULT_PLUGIN_FACTORIES: Mapping[
 
 class PluginLoader:
     """
-    Explicit GridForge V2 plugin implementation loader.
+    Explicit concrete-plugin loader.
 
-    The loader knows only about explicit definitions.
+    The loader performs exactly four operations:
 
-    It does not discover plugins and does not perform lifecycle
-    orchestration.
+        1. store explicit definitions;
+        2. import explicitly declared modules;
+        3. resolve explicitly declared classes/factories;
+        4. construct and validate plugin instances.
+
+    It performs no lifecycle orchestration.
     """
 
     def __init__(
@@ -427,17 +349,13 @@ class PluginLoader:
             PluginImplementation,
         ] | None = None,
     ) -> None:
-
         source = (
             DEFAULT_PLUGIN_IMPLEMENTATIONS
             if definitions is None
             else definitions
         )
 
-        if not isinstance(
-            source,
-            Mapping,
-        ):
+        if not isinstance(source, Mapping):
             raise TypeError(
                 "definitions must be a Mapping."
             )
@@ -453,11 +371,7 @@ class PluginLoader:
         ] = {}
 
         for plugin_id, definition in source.items():
-
-            if not isinstance(
-                plugin_id,
-                str,
-            ):
+            if not isinstance(plugin_id, str):
                 raise TypeError(
                     "Plugin definition keys must be strings."
                 )
@@ -468,25 +382,21 @@ class PluginLoader:
             ):
                 raise TypeError(
                     (
-                        f"Definition for plugin "
-                        f"{plugin_id!r} must be "
-                        "PluginImplementation."
+                        f"Definition for {plugin_id!r} "
+                        "must be PluginImplementation."
                     )
                 )
 
             if definition.plugin_id != plugin_id:
                 raise ValueError(
                     (
-                        f"Plugin definition key "
-                        f"{plugin_id!r} does not match "
-                        f"definition.plugin_id="
+                        f"Definition key {plugin_id!r} "
+                        "does not match definition.plugin_id "
                         f"{definition.plugin_id!r}."
                     )
                 )
 
-            self.define(
-                definition
-            )
+            self.define(definition)
 
     # ========================================================
     # PROPERTIES
@@ -495,20 +405,17 @@ class PluginLoader:
     @property
     def definitions(
         self,
-    ) -> Mapping[
-        str,
-        PluginImplementation,
-    ]:
-        """Return a defensive snapshot of definitions."""
+    ) -> Mapping[str, PluginImplementation]:
+        """
+        Return an immutable snapshot of definitions.
+        """
 
-        return dict(
-            self._definitions
+        return MappingProxyType(
+            dict(self._definitions)
         )
 
     @property
-    def loaded_ids(
-        self,
-    ) -> tuple[str, ...]:
+    def loaded_ids(self) -> tuple[str, ...]:
         """Return loaded plugin IDs in load order."""
 
         return tuple(
@@ -553,9 +460,7 @@ class PluginLoader:
                 )
             )
 
-        self._definitions[
-            plugin_id
-        ] = definition
+        self._definitions[plugin_id] = definition
 
     def remove_definition(
         self,
@@ -565,9 +470,7 @@ class PluginLoader:
         Remove an unloaded implementation definition.
         """
 
-        self._validate_plugin_id(
-            plugin_id
-        )
+        self._validate_plugin_id(plugin_id)
 
         if plugin_id in self._loaded:
             raise RuntimeError(
@@ -583,7 +486,7 @@ class PluginLoader:
         )
 
     # ========================================================
-    # LOAD
+    # LOAD / RESOLUTION
     # ========================================================
 
     def load(
@@ -591,18 +494,14 @@ class PluginLoader:
         plugin_id: str,
     ) -> LoadedPlugin:
         """
-        Import and resolve one explicitly defined plugin.
+        Import and resolve one explicit implementation.
 
-        No construction or lifecycle operation occurs here.
+        No construction or lifecycle execution occurs.
         """
 
-        self._validate_plugin_id(
-            plugin_id
-        )
+        self._validate_plugin_id(plugin_id)
 
-        existing = self._loaded.get(
-            plugin_id
-        )
+        existing = self._loaded.get(plugin_id)
 
         if existing is not None:
             return existing
@@ -619,43 +518,46 @@ class PluginLoader:
                 )
             )
 
-        module = import_module(
-            definition.module_name
-        )
+        try:
+            module = import_module(
+                definition.module_name
+            )
+        except Exception as exc:
+            raise ImportError(
+                (
+                    f"Failed to import plugin module "
+                    f"{definition.module_name!r} for "
+                    f"plugin {plugin_id!r}."
+                )
+            ) from exc
 
         if definition.class_name is not None:
-            plugin_class = (
-                self._resolve_plugin_class(
-                    definition,
-                    module,
-                )
+            plugin_class = self._resolve_plugin_class(
+                definition,
+                module,
             )
 
             descriptor = LoadedPlugin(
-                plugin_id=definition.plugin_id,
+                plugin_id=plugin_id,
                 module_name=definition.module_name,
                 plugin_class=plugin_class,
                 module=module,
             )
 
         else:
-            factory = (
-                self._resolve_factory(
-                    definition,
-                    module,
-                )
+            factory = self._resolve_factory(
+                definition,
+                module,
             )
 
             descriptor = LoadedPlugin(
-                plugin_id=definition.plugin_id,
+                plugin_id=plugin_id,
                 module_name=definition.module_name,
                 factory=factory,
                 module=module,
             )
 
-        self._loaded[
-            plugin_id
-        ] = descriptor
+        self._loaded[plugin_id] = descriptor
 
         return descriptor
 
@@ -663,17 +565,15 @@ class PluginLoader:
         self,
         plugin_ids: Iterable[str],
     ) -> tuple[LoadedPlugin, ...]:
-        """Load explicit plugins in caller-supplied order."""
+        """Load explicitly requested plugins in input order."""
 
         return tuple(
             self.load(plugin_id)
             for plugin_id in plugin_ids
         )
 
-    def load_all(
-        self,
-    ) -> tuple[LoadedPlugin, ...]:
-        """Load all explicitly defined plugins in definition order."""
+    def load_all(self) -> tuple[LoadedPlugin, ...]:
+        """Load all explicitly defined plugins."""
 
         return self.load_many(
             self._definitions.keys()
@@ -690,25 +590,21 @@ class PluginLoader:
         **kwargs: Any,
     ) -> Any:
         """
-        Construct and validate one plugin instance.
+        Construct and contract-validate one plugin.
 
-        PluginContext is forbidden at this boundary.
-
-        Initialization occurs later through PluginRegistry.
+        PluginContext is never accepted as a constructor dependency.
         """
 
         if "context" in kwargs:
             raise TypeError(
                 (
                     "PluginContext must not be supplied to "
-                    "PluginLoader.create(). "
-                    "Context belongs to initialize()."
+                    "PluginLoader.create(). Context is supplied "
+                    "only during plugin initialization."
                 )
             )
 
-        descriptor = self.load(
-            plugin_id
-        )
+        descriptor = self.load(plugin_id)
 
         plugin = self._construct(
             descriptor,
@@ -739,9 +635,8 @@ class PluginLoader:
         """
         Construct multiple plugins.
 
-        Constructor arguments are explicit.
-
-        PluginContext is never created or supplied.
+        Constructor configuration is explicit and independent from
+        initialization context.
         """
 
         positional = (
@@ -756,18 +651,12 @@ class PluginLoader:
             else constructor_kwargs
         )
 
-        if not isinstance(
-            positional,
-            Mapping,
-        ):
+        if not isinstance(positional, Mapping):
             raise TypeError(
                 "constructor_args must be a Mapping."
             )
 
-        if not isinstance(
-            keyword,
-            Mapping,
-        ):
+        if not isinstance(keyword, Mapping):
             raise TypeError(
                 "constructor_kwargs must be a Mapping."
             )
@@ -775,7 +664,6 @@ class PluginLoader:
         instances: list[Any] = []
 
         for plugin_id in plugin_ids:
-
             raw_args = positional.get(
                 plugin_id,
                 (),
@@ -788,15 +676,12 @@ class PluginLoader:
                 raise TypeError(
                     (
                         f"constructor_args[{plugin_id!r}] "
-                        "must be an iterable of positional "
-                        "arguments."
+                        "must be an iterable of arguments."
                     )
                 )
 
             try:
-                args = tuple(
-                    raw_args
-                )
+                args = tuple(raw_args)
             except TypeError as exc:
                 raise TypeError(
                     (
@@ -829,13 +714,7 @@ class PluginLoader:
                 )
             )
 
-        return tuple(
-            instances
-        )
-
-    # ========================================================
-    # INTERNAL CONSTRUCTION
-    # ========================================================
+        return tuple(instances)
 
     @staticmethod
     def _construct(
@@ -865,18 +744,16 @@ class PluginLoader:
         )
 
     # ========================================================
-    # QUERY
+    # QUERIES
     # ========================================================
 
     def is_loaded(
         self,
         plugin_id: str,
     ) -> bool:
-        """Return whether an implementation is loaded."""
+        """Return whether a plugin implementation is loaded."""
 
-        self._validate_plugin_id(
-            plugin_id
-        )
+        self._validate_plugin_id(plugin_id)
 
         return plugin_id in self._loaded
 
@@ -886,13 +763,9 @@ class PluginLoader:
     ) -> LoadedPlugin | None:
         """Return a loaded descriptor, if present."""
 
-        self._validate_plugin_id(
-            plugin_id
-        )
+        self._validate_plugin_id(plugin_id)
 
-        return self._loaded.get(
-            plugin_id
-        )
+        return self._loaded.get(plugin_id)
 
     def require(
         self,
@@ -900,13 +773,9 @@ class PluginLoader:
     ) -> LoadedPlugin:
         """Return a loaded descriptor or raise KeyError."""
 
-        self._validate_plugin_id(
-            plugin_id
-        )
+        self._validate_plugin_id(plugin_id)
 
-        descriptor = self._loaded.get(
-            plugin_id
-        )
+        descriptor = self._loaded.get(plugin_id)
 
         if descriptor is None:
             raise KeyError(
@@ -927,14 +796,12 @@ class PluginLoader:
         plugin_id: str,
     ) -> LoadedPlugin | None:
         """
-        Forget a loaded implementation descriptor.
+        Forget a descriptor.
 
-        This does not unload Python modules or affect instances.
+        Does not unload Python modules or affect instances.
         """
 
-        self._validate_plugin_id(
-            plugin_id
-        )
+        self._validate_plugin_id(plugin_id)
 
         return self._loaded.pop(
             plugin_id,
@@ -942,7 +809,7 @@ class PluginLoader:
         )
 
     def clear(self) -> None:
-        """Forget all loaded implementation descriptors."""
+        """Forget all loaded descriptors."""
 
         self._loaded.clear()
 
@@ -955,6 +822,7 @@ class PluginLoader:
         definition: PluginImplementation,
         module: ModuleType,
     ) -> type[Any]:
+        """Resolve the explicitly declared plugin class."""
 
         class_name = definition.class_name
 
@@ -998,6 +866,7 @@ class PluginLoader:
         definition: PluginImplementation,
         module: ModuleType,
     ) -> Callable[..., Any]:
+        """Resolve the explicitly declared factory."""
 
         factory_name = definition.factory_name
 
@@ -1023,9 +892,7 @@ class PluginLoader:
                 )
             )
 
-        if not callable(
-            factory
-        ):
+        if not callable(factory):
             raise TypeError(
                 (
                     f"{module.__name__!r}.{factory_name} "
@@ -1043,11 +910,7 @@ class PluginLoader:
     def _validate_plugin_id(
         plugin_id: str,
     ) -> None:
-
-        if not isinstance(
-            plugin_id,
-            str,
-        ):
+        if not isinstance(plugin_id, str):
             raise TypeError(
                 "plugin_id must be a string."
             )
@@ -1065,11 +928,15 @@ class PluginLoader:
 
 def create_default_plugin_loader() -> PluginLoader:
     """
-    Create the canonical GridForge V2 plugin loader.
+    Create the canonical GridForge V2 loader.
 
-    This creates definitions only.
+    Exactly five composition implementations are defined:
 
-    No plugin module is imported and no plugin is constructed.
+        canvas
+        panels
+        toolbar
+        status
+        shell
     """
 
     return PluginLoader(
@@ -1079,14 +946,12 @@ def create_default_plugin_loader() -> PluginLoader:
 
 def load_default_plugins() -> tuple[LoadedPlugin, ...]:
     """
-    Explicitly resolve all canonical plugin implementations.
+    Import and resolve all canonical plugin implementations.
 
-    This imports modules but does not construct or initialize them.
+    No instances are constructed.
     """
 
-    loader = create_default_plugin_loader()
-
-    return loader.load_all()
+    return create_default_plugin_loader().load_all()
 
 
 # ============================================================
