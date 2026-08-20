@@ -134,7 +134,7 @@ ui.core.qt
 No direct PySide6/PyQt imports are permitted.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
