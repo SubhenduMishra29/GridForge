@@ -7,24 +7,54 @@ File:
 
 Purpose
 -------
-Thin Qt application shell for GridForge V2.
+Main application window and UI composition root.
 
-MainWindow is the top-level UI composition boundary.
+Architectural role
+------------------
+MainWindow is responsible for assembling the UI subsystem.
 
-Architectural rules
--------------------
-- MainWindow is a composition root, not a domain controller.
-- Core remains authoritative for project/electrical state.
-- Controller remains the UI/application coordination boundary.
-- PluginContext is the dependency boundary supplied to plugins.
-- PluginManager owns plugin lifecycle and dependency ordering.
-- MainWindow does not construct concrete plugins directly.
-- MainWindow does not construct tools.
-- MainWindow does not construct renderers.
-- MainWindow does not implement canvas interaction.
-- MainWindow does not implement electrical logic.
-- MainWindow does not manipulate the Core model directly.
-- All Qt imports pass through ui.core.qt.
+It owns:
+
+    - the root Qt composition widget;
+    - the application controller reference;
+    - the canonical UI ToolManager;
+    - the PluginContext;
+    - the PluginManager.
+
+It does not own:
+
+    - electrical/network state;
+    - simulation state;
+    - plugin lifecycle implementation;
+    - concrete canvas interaction logic;
+    - individual tool implementations.
+
+Dependency direction
+--------------------
+MainWindow
+    |
+    +-- Controller
+    |
+    +-- ToolManager
+    |
+    +-- PluginContext
+    |
+    +-- PluginManager
+             |
+             +-- CanvasPlugin
+             |       |
+             |       +-- GraphicsView
+             |              |
+             |              +-- InteractionManager
+             |                     |
+             |                     +-- same ToolManager
+             |
+             +-- PanelsPlugin
+             +-- ToolbarPlugin
+             +-- StatusPlugin
+
+The ToolManager is created exactly once at the composition root
+and injected into PluginContext.
 """
 
 from __future__ import annotations
@@ -34,15 +64,14 @@ from typing import Any, Optional
 from ui.core.qt import (
     QApplication,
     QMainWindow,
-    Qt,
     QWidget,
 )
 
+from ui.core.controller import Controller
+from ui.core.tool_manager import ToolManager
+
 from ui.plugins.plugin_context import PluginContext
-from ui.plugins.plugin_manager import (
-    PluginManager,
-    create_default_plugin_manager,
-)
+from ui.plugins.plugin_manager import PluginManager
 
 
 # ============================================================
@@ -52,48 +81,30 @@ from ui.plugins.plugin_manager import (
 
 class MainWindow(QMainWindow):
     """
-    GridForge top-level application window.
+    GridForge V2 main application window.
 
-    MainWindow is intentionally thin.
+    MainWindow is the UI composition root.
 
-    Its responsibilities are limited to:
-        1. Establishing the Qt application shell.
-        2. Retaining the application Controller.
-        3. Creating the PluginContext.
-        4. Creating the PluginManager.
-        5. Supplying plugin contexts.
-        6. Starting plugin composition.
-        7. Shutting down plugin composition.
-
-    Concrete UI composition belongs to the plugin system.
+    It creates the canonical application-owned ToolManager and
+    injects it into PluginContext before plugin initialization.
     """
+
+    # ========================================================
+    # INITIALIZATION
+    # ========================================================
 
     def __init__(
         self,
-        controller: Any,
         *,
-        plugin_manager: Optional[PluginManager] = None,
-        plugin_context: Optional[PluginContext] = None,
+        controller: Optional[Controller] = None,
+        core: Any = None,
         parent: Optional[QWidget] = None,
     ) -> None:
-        """
-        Construct the GridForge main window.
-
-        Plugin loading and initialization are intentionally not
-        performed inside the constructor.
-        """
-
-        if controller is None:
-            raise ValueError(
-                "MainWindow requires a valid controller."
-            )
-
         super().__init__(parent)
 
-        self.controller = controller
-
-        self._closing = False
-        self._plugins_initialized = False
+        # ----------------------------------------------------
+        # Basic window configuration
+        # ----------------------------------------------------
 
         self.setObjectName(
             "GridForgeMainWindow"
@@ -103,21 +114,24 @@ class MainWindow(QMainWindow):
             "GridForge"
         )
 
-        self.setAttribute(
-            Qt.WA_DeleteOnClose,
-            True,
-        )
+        # ----------------------------------------------------
+        # Application controller
+        # ----------------------------------------------------
 
-        self.resize(
-            1400,
-            900,
-        )
+        if controller is None:
+            controller = Controller(
+                core=core
+            )
+
+        self.controller = controller
 
         # ----------------------------------------------------
         # Root composition widget
         # ----------------------------------------------------
 
-        self._root_widget = QWidget(self)
+        self._root_widget = QWidget(
+            self
+        )
 
         self._root_widget.setObjectName(
             "GridForgeRootWidget"
@@ -128,142 +142,65 @@ class MainWindow(QMainWindow):
         )
 
         # ----------------------------------------------------
-        # Plugin context
+        # Canonical ToolManager
+        #
+        # IMPORTANT:
+        # This is the ONE application-owned ToolManager.
+        #
+        # It is intentionally created before plugins are
+        # initialized.
+        #
+        # InteractionManager is optional during construction
+        # and is attached when GraphicsView is created.
         # ----------------------------------------------------
 
-        if plugin_context is None:
-            self.plugin_context = (
-                self._create_plugin_context()
-            )
-        else:
-            if not isinstance(
-                plugin_context,
-                PluginContext,
-            ):
-                raise TypeError(
-                    "plugin_context must be PluginContext."
-                )
+        self.tool_manager = ToolManager(
+            controller=self.controller
+        )
 
-            self.plugin_context = (
-                plugin_context
-            )
+        # ----------------------------------------------------
+        # Plugin context
+        #
+        # root_widget and tool_manager are explicit dependencies.
+        # ----------------------------------------------------
+
+        self.plugin_context = PluginContext(
+            main_window=self,
+            parent=self,
+            application=QApplication.instance(),
+            controller=self.controller,
+            root_widget=self._root_widget,
+            tool_manager=self.tool_manager,
+        )
 
         # ----------------------------------------------------
         # Plugin manager
         # ----------------------------------------------------
 
-        if plugin_manager is None:
-            self.plugin_manager = (
-                create_default_plugin_manager()
-            )
-        else:
-            if not isinstance(
-                plugin_manager,
-                PluginManager,
-            ):
-                raise TypeError(
-                    "plugin_manager must be PluginManager."
-                )
-
-            self.plugin_manager = (
-                plugin_manager
-            )
-
-        # ----------------------------------------------------
-        # Complete application context
-        #
-        # IMPORTANT:
-        # root_widget MUST be supplied here.
-        #
-        # ShellPlugin uses this widget as the composition
-        # container for CanvasPlugin, ToolbarPlugin, StatusPlugin,
-        # and other UI components.
-        # ----------------------------------------------------
-
-        self.plugin_context = (
-            self.plugin_context.derive(
-                main_window=self,
-                parent=self,
-                application=QApplication.instance(),
-                controller=self.controller,
-                root_widget=self._root_widget,
-            )
+        self.plugin_manager = PluginManager(
+            context=self.plugin_context
         )
 
-        self._configure_plugin_contexts()
+        self._plugins_initialized = False
 
     # ========================================================
-    # PLUGIN CONTEXT
-    # ========================================================
-
-    def _create_plugin_context(
-        self,
-    ) -> PluginContext:
-        """
-        Create the initial application PluginContext.
-        """
-
-        return PluginContext(
-            main_window=self,
-            parent=self,
-            application=QApplication.instance(),
-            controller=self.controller,
-        )
-
-    # --------------------------------------------------------
-
-    def _configure_plugin_contexts(
-        self,
-    ) -> None:
-        """
-        Supply a derived PluginContext to every plugin.
-
-        PluginManager remains responsible for:
-            - loading;
-            - dependency resolution;
-            - initialization ordering;
-            - shutdown ordering;
-            - lifecycle state.
-        """
-
-        for plugin_id in (
-            self.plugin_manager.plugin_ids
-        ):
-            context = (
-                self.plugin_context.derive()
-            )
-
-            self.plugin_manager.set_context(
-                plugin_id,
-                context,
-            )
-
-    # ========================================================
-    # PLUGIN STARTUP
+    # PLUGIN INITIALIZATION
     # ========================================================
 
     def initialize_plugins(
         self,
     ) -> None:
         """
-        Load and initialize the complete UI plugin composition.
+        Initialize all registered UI plugins.
+
+        Plugin initialization occurs only after the complete
+        composition context has been assembled.
         """
 
         if self._plugins_initialized:
             return
 
-        try:
-            self.plugin_manager.load_all()
-            self.plugin_manager.initialize_all()
-
-        except Exception:
-            try:
-                self.plugin_manager.shutdown_all()
-            except Exception:
-                pass
-
-            self._plugins_initialized = False
-            raise
+        self.plugin_manager.initialize_all()
 
         self._plugins_initialized = True
 
@@ -275,7 +212,9 @@ class MainWindow(QMainWindow):
         self,
     ) -> None:
         """
-        Shut down all initialized UI plugins.
+        Shut down all UI plugins.
+
+        Plugin lifecycle remains owned by PluginManager.
         """
 
         if not self._plugins_initialized:
@@ -286,55 +225,38 @@ class MainWindow(QMainWindow):
         self._plugins_initialized = False
 
     # ========================================================
-    # WINDOW LIFECYCLE
+    # CONTEXT ACCESS
     # ========================================================
 
-    def closeEvent(
+    @property
+    def context(
         self,
-        event: Any,
-    ) -> None:
+    ) -> PluginContext:
         """
-        Shut down the plugin composition before closing.
+        Return the immutable plugin dependency context.
         """
 
-        if self._closing:
-            event.accept()
-            return
-
-        self._closing = True
-
-        try:
-            self.shutdown_plugins()
-
-        except Exception:
-            self._closing = False
-            event.ignore()
-            raise
-
-        event.accept()
+        return self.plugin_context
 
     # ========================================================
-    # APPLICATION ACCESS
+    # TOOL MANAGER ACCESS
     # ========================================================
 
-    @staticmethod
-    def application() -> Optional[QApplication]:
+    @property
+    def tools(
+        self,
+    ) -> ToolManager:
         """
-        Return the current QApplication instance.
+        Return the canonical application ToolManager.
+
+        This is an alias for application-level code that needs
+        access to the UI tool system.
         """
 
-        instance = QApplication.instance()
-
-        if isinstance(
-            instance,
-            QApplication,
-        ):
-            return instance
-
-        return None
+        return self.tool_manager
 
     # ========================================================
-    # ROOT WIDGET ACCESS
+    # ROOT WIDGET
     # ========================================================
 
     @property
@@ -342,25 +264,26 @@ class MainWindow(QMainWindow):
         self,
     ) -> QWidget:
         """
-        Return the MainWindow root composition widget.
+        Return the canonical UI composition root.
         """
 
         return self._root_widget
 
     # ========================================================
-    # PUBLIC STATE
+    # CLOSE
     # ========================================================
 
-    @property
-    def plugins_initialized(
+    def closeEvent(
         self,
-    ) -> bool:
+        event: Any,
+    ) -> None:
         """
-        Return whether the complete UI plugin composition
-        has successfully initialized.
+        Shut down plugins before closing the window.
         """
 
-        return self._plugins_initialized
+        self.shutdown_plugins()
+
+        event.accept()
 
 
 # ============================================================
@@ -369,19 +292,31 @@ class MainWindow(QMainWindow):
 
 
 def create_main_window(
-    controller: Any,
     *,
-    plugin_manager: Optional[PluginManager] = None,
-    plugin_context: Optional[PluginContext] = None,
+    controller: Optional[Controller] = None,
+    core: Any = None,
+    parent: Optional[QWidget] = None,
 ) -> MainWindow:
     """
-    Construct and initialize the GridForge main window.
+    Create and initialize the GridForge MainWindow.
+
+    The composition sequence is:
+
+        1. MainWindow
+        2. Controller
+        3. root widget
+        4. ToolManager
+        5. PluginContext
+        6. PluginManager
+        7. plugin initialization
+
+    No duplicate ToolManager is created.
     """
 
     window = MainWindow(
         controller=controller,
-        plugin_manager=plugin_manager,
-        plugin_context=plugin_context,
+        core=core,
+        parent=parent,
     )
 
     window.initialize_plugins()
