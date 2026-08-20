@@ -68,7 +68,7 @@ from ui.core.qt import (
 )
 
 from ui.canvas.graphics_view import GraphicsView
-from ui.core.plugin_context import PluginContext
+from ui.plugins.plugin_context import PluginContext
 
 
 # ============================================================
