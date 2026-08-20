@@ -54,8 +54,8 @@ class TerminalResolverProtocol(Protocol):
     """
     Minimal resolver contract required by ConnectionValidator.
 
-    The validator intentionally depends on this protocol rather
-    than the concrete TerminalResolver implementation.
+    The validator depends only on the resolver API it actually
+    consumes and does not depend on the concrete resolver class.
     """
 
     def contains(
@@ -71,6 +71,14 @@ class TerminalResolverProtocol(Protocol):
         terminal_id: str,
     ) -> object:
         """Return a terminal or raise when it does not exist."""
+
+        ...
+
+    def require_equipment_id(
+        self,
+        terminal_id: str,
+    ) -> str:
+        """Return the owning equipment ID for a terminal."""
 
         ...
 
@@ -187,8 +195,8 @@ class ConnectionValidator:
         """
         Initialize the validator.
 
-        The dependency is structural: the resolver only needs
-        ``contains()`` and ``require()``.
+        The dependency is structural and requires the resolver
+        contract defined by TerminalResolverProtocol.
         """
 
         if terminal_resolver is None:
@@ -201,8 +209,8 @@ class ConnectionValidator:
             TerminalResolverProtocol,
         ):
             raise TypeError(
-                "terminal_resolver must provide contains() "
-                "and require()."
+                "terminal_resolver must provide contains(), "
+                "require(), and require_equipment_id()."
             )
 
         self._terminal_resolver = terminal_resolver
@@ -247,7 +255,7 @@ class ConnectionValidator:
         4. reject self-connection;
         5. verify source terminal;
         6. verify target terminal;
-        7. resolve terminals;
+        7. resolve equipment ownership;
         8. reject same-equipment connection;
         9. reject duplicate connection;
         10. return success.
@@ -311,53 +319,54 @@ class ConnectionValidator:
             )
 
         # ----------------------------------------------------
-        # Terminal resolution
+        # Equipment ownership
         # ----------------------------------------------------
 
         try:
-            source = self._terminal_resolver.require(
-                source_terminal_id
+            source_equipment_id = (
+                self._terminal_resolver.require_equipment_id(
+                    source_terminal_id
+                )
             )
         except (KeyError, LookupError):
             return ValidationResult.failure(
-                "Unable to resolve source terminal: "
-                f"{source_terminal_id}"
+                "Unable to resolve source equipment for "
+                f"terminal: {source_terminal_id}"
             )
 
         try:
-            target = self._terminal_resolver.require(
-                target_terminal_id
+            target_equipment_id = (
+                self._terminal_resolver.require_equipment_id(
+                    target_terminal_id
+                )
             )
         except (KeyError, LookupError):
             return ValidationResult.failure(
-                "Unable to resolve target terminal: "
-                f"{target_terminal_id}"
+                "Unable to resolve target equipment for "
+                f"terminal: {target_terminal_id}"
             )
 
-        # ----------------------------------------------------
-        # Equipment identity
-        # ----------------------------------------------------
-
-        source_equipment_id = getattr(
-            source,
-            "equipment_id",
-            None,
-        )
-
-        target_equipment_id = getattr(
-            target,
-            "equipment_id",
-            None,
-        )
-
-        if (
-            source_equipment_id is None
-            or target_equipment_id is None
-        ):
+        if not isinstance(
+            source_equipment_id,
+            str,
+        ) or not source_equipment_id.strip():
             return ValidationResult.failure(
-                "Resolved terminals must provide "
-                "equipment_id."
+                "Source terminal resolved to an invalid "
+                "equipment ID."
             )
+
+        if not isinstance(
+            target_equipment_id,
+            str,
+        ) or not target_equipment_id.strip():
+            return ValidationResult.failure(
+                "Target terminal resolved to an invalid "
+                "equipment ID."
+            )
+
+        # ----------------------------------------------------
+        # Same equipment
+        # ----------------------------------------------------
 
         if source_equipment_id == target_equipment_id:
             return ValidationResult.failure(
@@ -438,8 +447,8 @@ class ConnectionValidator:
         """
         Validate the minimum connection contract.
 
-        A connection must expose string source and target
-        terminal identifiers.
+        A connection must expose non-empty string source and
+        target terminal identifiers.
         """
 
         if connection is None:
