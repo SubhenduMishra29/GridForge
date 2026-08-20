@@ -7,8 +7,7 @@ File:
 
 Purpose
 -------
-Canonical runtime state subsystem for GridForge UI composition
-plugins.
+Canonical runtime state subsystem for GridForge UI composition plugins.
 
 Architectural role
 ------------------
@@ -212,10 +211,6 @@ class PluginState:
 
         # ----------------------------------------------------
         # Freeze metadata container.
-        #
-        # This freezes the mapping itself. Values are deliberately
-        # not deep-copied because PluginState is a state snapshot,
-        # not an object graph ownership boundary.
         # ----------------------------------------------------
 
         object.__setattr__(
@@ -276,9 +271,7 @@ class PluginStateStore:
 
     @property
     def plugin_ids(self) -> tuple[str, ...]:
-        """
-        Return known plugin IDs in insertion order.
-        """
+        """Return known plugin IDs in insertion order."""
 
         with self._lock:
             return tuple(
@@ -287,9 +280,7 @@ class PluginStateStore:
 
     @property
     def snapshots(self) -> tuple[PluginState, ...]:
-        """
-        Return immutable state snapshots in insertion order.
-        """
+        """Return immutable state snapshots in insertion order."""
 
         with self._lock:
             return tuple(
@@ -300,9 +291,7 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> bool:
-        """
-        Return whether runtime state exists for the plugin.
-        """
+        """Return whether runtime state exists for the plugin."""
 
         self._validate_plugin_id(
             plugin_id
@@ -315,9 +304,7 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> PluginState | None:
-        """
-        Return runtime state if known, otherwise None.
-        """
+        """Return runtime state if known, otherwise None."""
 
         self._validate_plugin_id(
             plugin_id
@@ -332,28 +319,16 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> PluginState:
-        """
-        Return runtime state or raise KeyError.
-        """
+        """Return runtime state or raise KeyError."""
 
         self._validate_plugin_id(
             plugin_id
         )
 
         with self._lock:
-            state = self._states.get(
+            return self._require_locked(
                 plugin_id
             )
-
-            if state is None:
-                raise KeyError(
-                    (
-                        f"No runtime state exists "
-                        f"for plugin {plugin_id!r}."
-                    )
-                )
-
-            return state
 
     def is_registered(
         self,
@@ -421,7 +396,7 @@ class PluginStateStore:
 
         The actual registration operation belongs to PluginRegistry.
 
-        Existing state cannot be silently overwritten.
+        Existing runtime state cannot be silently overwritten.
         """
 
         self._validate_plugin_id(
@@ -487,8 +462,6 @@ class PluginStateStore:
 
             1. shut down the plugin;
             2. disabled the plugin.
-
-        The store does not perform either operation.
         """
 
         self._validate_plugin_id(
@@ -741,8 +714,7 @@ class PluginStateStore:
         """
         Record one metadata value.
 
-        Metadata belongs to the runtime state snapshot and is replaced
-        immutably.
+        Metadata is replaced immutably.
         """
 
         self._validate_plugin_id(
@@ -777,8 +749,7 @@ class PluginStateStore:
         """
         Return a mutable copy of plugin metadata.
 
-        Mutating the returned dictionary does not modify the stored
-        state.
+        Mutating the returned dictionary cannot modify stored state.
         """
 
         self._validate_plugin_id(
@@ -847,9 +818,6 @@ class PluginStateStore:
     ) -> PluginState:
         """
         Return state while the caller already holds ``_lock``.
-
-        This avoids unnecessary nested public-query calls and makes
-        lock ownership explicit inside state transitions.
         """
 
         state = self._states.get(
