@@ -179,13 +179,18 @@ class SelectionManager:
     ) -> bool:
         """
         Return whether object_id is selected.
+
+        Equality comparison is used rather than constructing a
+        set so the adapter does not impose an additional
+        hashability requirement on application identifiers.
         """
 
         if object_id is None:
             return False
 
-        return object_id in set(
-            self.get_selected_ids()
+        return any(
+            selected_id == object_id
+            for selected_id in self.get_selected_ids()
         )
 
     # ========================================================
@@ -261,7 +266,9 @@ class SelectionManager:
     # CLEAR
     # ========================================================
 
-    def clear(self) -> None:
+    def clear(
+        self,
+    ) -> None:
         """
         Clear the authoritative application selection.
 
@@ -313,9 +320,7 @@ class SelectionManager:
         if target_scene is None:
             return
 
-        selected_ids = set(
-            self.get_selected_ids()
-        )
+        selected_ids = self.get_selected_ids()
 
         items_method = getattr(
             target_scene,
@@ -355,7 +360,10 @@ class SelectionManager:
                 continue
 
             set_selected(
-                object_id in selected_ids
+                any(
+                    selected_id == object_id
+                    for selected_id in selected_ids
+                )
             )
 
     # --------------------------------------------------------
@@ -431,6 +439,10 @@ class SelectionManager:
     ) -> tuple[Any, ...]:
         """
         Return graphics items representing supplied IDs.
+
+        Identifier equality is evaluated directly rather than
+        through a set, so the adapter does not impose a
+        hashability requirement on object IDs.
         """
 
         if object_ids is None:
@@ -438,7 +450,7 @@ class SelectionManager:
                 "object_ids must not be None."
             )
 
-        requested_ids = set(
+        requested_ids = tuple(
             object_ids
         )
 
@@ -478,7 +490,10 @@ class SelectionManager:
                 None,
             )
 
-            if object_id in requested_ids:
+            if any(
+                requested_id == object_id
+                for requested_id in requested_ids
+            ):
                 result.append(item)
 
         return tuple(
