@@ -63,10 +63,9 @@ Canonical composition plugins
     panels
     toolbar
     status
-    shell
 
-ShellPlugin is the final UI composition/assembly boundary. It does not
-replace the responsibilities of the other composition plugins.
+Final application composition is owned by MainWindow.
+PluginLoader does not perform application-level UI composition.
 """
 
 from __future__ import annotations
@@ -359,11 +358,6 @@ DEFAULT_PLUGIN_IMPLEMENTATIONS: Mapping[
         plugin_id="status",
         module_name="ui.plugins.status_plugin",
         class_name="StatusPlugin",
-    ),
-    "shell": PluginImplementation(
-        plugin_id="shell",
-        module_name="ui.plugins.shell_plugin",
-        class_name="ShellPlugin",
     ),
 }
 
@@ -1120,15 +1114,14 @@ def create_default_plugin_loader() -> PluginLoader:
     """
     Create the canonical GridForge V2 UI plugin loader.
 
-    Exactly five concrete composition plugins are explicitly defined:
+    Exactly four concrete composition plugins are explicitly defined:
 
         canvas
         panels
         toolbar
         status
-        shell
 
-    ShellPlugin is the final UI assembly boundary.
+    No application-level shell plugin exists.
 
     No plugin is imported or constructed by this factory.
     """
