@@ -45,7 +45,6 @@ from .topology_adapter import TopologyAdapter
 
 __all__ = [
     "Connection",
-    "ConnectionManager",
     "ConnectionPreview",
     "ConnectionRouter",
     "ConnectionValidator",
