@@ -1,4 +1,3 @@
-```python
 """
 GridForge V2
 ============
@@ -1302,4 +1301,3 @@ __all__ = [
     "default_tool_actions",
     "create_toolbar_plugin",
 ]
-```
