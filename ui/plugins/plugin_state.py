@@ -7,41 +7,45 @@ File:
 
 Purpose
 -------
-Defines the canonical runtime state representation for GridForge UI
-composition plugins.
+Canonical runtime state subsystem for GridForge UI composition
+plugins.
 
 Architectural role
 ------------------
-PluginStateStore is the canonical observable runtime-state subsystem.
+PluginStateStore is the single authoritative runtime-state store.
 
-It owns:
+It records:
+
     - registration state;
     - enablement state;
     - initialization state;
     - successful initialization generation;
-    - last recorded lifecycle error;
-    - state metadata.
+    - last lifecycle error;
+    - plugin metadata.
 
-It does NOT own:
-    - plugin instances;
-    - lifecycle execution;
-    - dependency resolution;
-    - lifecycle ordering;
-    - registration decisions;
-    - PluginContext;
-    - Qt objects;
-    - application/domain state.
+It does NOT:
+
+    - own plugin instances;
+    - execute plugin lifecycle methods;
+    - resolve dependencies;
+    - determine lifecycle ordering;
+    - create PluginContext objects;
+    - create Qt objects;
+    - own application/domain state;
+    - initiate lifecycle operations.
 
 Lifecycle ownership
 -------------------
-PluginManager owns lifecycle orchestration and dependency ordering.
+PluginManager
+    Determines WHAT happens and WHEN.
 
-PluginRegistry owns plugin instances and the low-level lifecycle
-execution boundary.
+PluginRegistry
+    Executes lifecycle operations against registered plugin instances.
 
-PluginStateStore records the resulting runtime facts.
+PluginStateStore
+    Records the resulting runtime facts.
 
-The store never initiates lifecycle operations.
+The state store therefore contains no orchestration logic.
 """
 
 from __future__ import annotations
@@ -60,10 +64,17 @@ from typing import Any, Mapping
 @dataclass(frozen=True, slots=True)
 class PluginState:
     """
-    Immutable runtime state snapshot for one plugin.
+    Immutable runtime-state snapshot for one plugin.
 
-    PluginState contains facts only. It contains no plugin instance,
-    lifecycle command, callback, or executable operation.
+    PluginState contains facts only.
+
+    It contains no:
+
+        - plugin instance;
+        - lifecycle operation;
+        - callback;
+        - dependency information;
+        - executable behavior.
     """
 
     plugin_id: str
@@ -83,7 +94,11 @@ class PluginState:
     )
 
     def __post_init__(self) -> None:
-        """Validate and normalize the immutable state snapshot."""
+        """Validate and freeze the state snapshot."""
+
+        # ----------------------------------------------------
+        # Identity
+        # ----------------------------------------------------
 
         if not isinstance(
             self.plugin_id,
@@ -97,6 +112,10 @@ class PluginState:
             raise ValueError(
                 "plugin_id must be a non-empty string."
             )
+
+        # ----------------------------------------------------
+        # Boolean state
+        # ----------------------------------------------------
 
         if not isinstance(
             self.registered,
@@ -122,6 +141,10 @@ class PluginState:
                 "initialized must be bool."
             )
 
+        # ----------------------------------------------------
+        # Generation
+        # ----------------------------------------------------
+
         if (
             not isinstance(
                 self.generation,
@@ -141,6 +164,10 @@ class PluginState:
                 "generation cannot be negative."
             )
 
+        # ----------------------------------------------------
+        # Error
+        # ----------------------------------------------------
+
         if (
             self.last_error is not None
             and not isinstance(
@@ -151,6 +178,10 @@ class PluginState:
             raise TypeError(
                 "last_error must be a string or None."
             )
+
+        # ----------------------------------------------------
+        # Metadata
+        # ----------------------------------------------------
 
         if not isinstance(
             self.metadata,
@@ -179,6 +210,14 @@ class PluginState:
                 "A plugin cannot be initialized while disabled."
             )
 
+        # ----------------------------------------------------
+        # Freeze metadata container.
+        #
+        # This freezes the mapping itself. Values are deliberately
+        # not deep-copied because PluginState is a state snapshot,
+        # not an object graph ownership boundary.
+        # ----------------------------------------------------
+
         object.__setattr__(
             self,
             "metadata",
@@ -189,7 +228,7 @@ class PluginState:
 
 
 # ============================================================
-# STATE STORE
+# PLUGIN STATE STORE
 # ============================================================
 
 
@@ -197,18 +236,30 @@ class PluginStateStore:
     """
     Thread-safe canonical runtime-state store.
 
-    This class records state supplied by the lifecycle owner.
+    The store records state transitions requested by the lifecycle
+    owner. It never initiates lifecycle operations.
 
-    It deliberately does not:
-        - construct plugins;
-        - initialize plugins;
-        - shut down plugins;
-        - resolve dependencies;
-        - order lifecycle operations;
-        - own plugin instances;
-        - create Qt objects;
-        - emit lifecycle operations;
-        - make lifecycle decisions.
+    Responsibilities
+    ----------------
+    - record registration;
+    - record enablement;
+    - record initialization;
+    - record shutdown;
+    - record lifecycle errors;
+    - record metadata;
+    - expose immutable snapshots.
+
+    Non-responsibilities
+    --------------------
+    - plugin construction;
+    - plugin destruction;
+    - plugin lifecycle execution;
+    - dependency resolution;
+    - lifecycle ordering;
+    - plugin discovery;
+    - PluginContext management;
+    - Qt management;
+    - Core/domain management.
     """
 
     def __init__(self) -> None:
@@ -225,7 +276,9 @@ class PluginStateStore:
 
     @property
     def plugin_ids(self) -> tuple[str, ...]:
-        """Return known plugin IDs in insertion order."""
+        """
+        Return known plugin IDs in insertion order.
+        """
 
         with self._lock:
             return tuple(
@@ -234,7 +287,9 @@ class PluginStateStore:
 
     @property
     def snapshots(self) -> tuple[PluginState, ...]:
-        """Return immutable state snapshots in insertion order."""
+        """
+        Return immutable state snapshots in insertion order.
+        """
 
         with self._lock:
             return tuple(
@@ -245,7 +300,9 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> bool:
-        """Return whether runtime state exists."""
+        """
+        Return whether runtime state exists for the plugin.
+        """
 
         self._validate_plugin_id(
             plugin_id
@@ -258,7 +315,9 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> PluginState | None:
-        """Return runtime state if known."""
+        """
+        Return runtime state if known, otherwise None.
+        """
 
         self._validate_plugin_id(
             plugin_id
@@ -273,18 +332,28 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> PluginState:
-        """Return runtime state or raise KeyError."""
+        """
+        Return runtime state or raise KeyError.
+        """
 
-        state = self.get(
+        self._validate_plugin_id(
             plugin_id
         )
 
-        if state is None:
-            raise KeyError(
-                f"No state exists for plugin {plugin_id!r}."
+        with self._lock:
+            state = self._states.get(
+                plugin_id
             )
 
-        return state
+            if state is None:
+                raise KeyError(
+                    (
+                        f"No runtime state exists "
+                        f"for plugin {plugin_id!r}."
+                    )
+                )
+
+            return state
 
     def is_registered(
         self,
@@ -330,7 +399,7 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> str | None:
-        """Return the last recorded lifecycle error."""
+        """Return the latest recorded lifecycle error."""
 
         return self.require(
             plugin_id
@@ -348,11 +417,11 @@ class PluginStateStore:
         metadata: Mapping[str, Any] | None = None,
     ) -> PluginState:
         """
-        Record successful registration.
+        Record successful plugin registration.
 
-        Registration itself is performed by PluginRegistry.
+        The actual registration operation belongs to PluginRegistry.
 
-        Existing runtime state cannot be silently overwritten.
+        Existing state cannot be silently overwritten.
         """
 
         self._validate_plugin_id(
@@ -412,12 +481,14 @@ class PluginStateStore:
         plugin_id: str,
     ) -> PluginState:
         """
-        Record successful unregistration.
+        Record successful plugin unregistration.
 
-        The caller must have already shut down the plugin and disabled
-        it where required.
+        The caller must already have:
 
-        The state store does not perform unregistration itself.
+            1. shut down the plugin;
+            2. disabled the plugin.
+
+        The store does not perform either operation.
         """
 
         self._validate_plugin_id(
@@ -425,7 +496,7 @@ class PluginStateStore:
         )
 
         with self._lock:
-            current = self.require(
+            current = self._require_locked(
                 plugin_id
             )
 
@@ -459,9 +530,10 @@ class PluginStateStore:
         enabled: bool,
     ) -> PluginState:
         """
-        Record resulting enablement state.
+        Record the resulting enablement state.
 
-        This method does not perform enable/disable operations.
+        This method records state only.
+        It performs no lifecycle operation.
         """
 
         self._validate_plugin_id(
@@ -477,7 +549,7 @@ class PluginStateStore:
             )
 
         with self._lock:
-            current = self.require(
+            current = self._require_locked(
                 plugin_id
             )
 
@@ -497,6 +569,9 @@ class PluginStateStore:
                     )
                 )
 
+            if current.enabled == enabled:
+                return current
+
             return self._replace(
                 current,
                 enabled=enabled,
@@ -513,9 +588,8 @@ class PluginStateStore:
         """
         Record a successful initialization.
 
-        A False -> True transition increments generation.
-
-        Generation therefore counts successful initialization cycles.
+        Generation increments exactly once for each successful
+        False -> True initialization transition.
         """
 
         self._validate_plugin_id(
@@ -523,7 +597,7 @@ class PluginStateStore:
         )
 
         with self._lock:
-            current = self.require(
+            current = self._require_locked(
                 plugin_id
             )
 
@@ -549,9 +623,7 @@ class PluginStateStore:
             return self._replace(
                 current,
                 initialized=True,
-                generation=(
-                    current.generation + 1
-                ),
+                generation=current.generation + 1,
                 last_error=None,
             )
 
@@ -559,14 +631,18 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> PluginState:
-        """Record a successful shutdown."""
+        """
+        Record a successful shutdown.
+
+        Generation is deliberately preserved.
+        """
 
         self._validate_plugin_id(
             plugin_id
         )
 
         with self._lock:
-            current = self.require(
+            current = self._require_locked(
                 plugin_id
             )
 
@@ -590,7 +666,7 @@ class PluginStateStore:
         """
         Record the latest lifecycle error.
 
-        Recording an error does not alter lifecycle state.
+        Error recording never changes lifecycle state.
         """
 
         self._validate_plugin_id(
@@ -602,11 +678,13 @@ class PluginStateStore:
             BaseException,
         ):
             message = str(error)
+
         elif isinstance(
             error,
             str,
         ):
             message = error
+
         else:
             raise TypeError(
                 "error must be an exception or string."
@@ -618,7 +696,7 @@ class PluginStateStore:
             message = "Unknown plugin failure."
 
         with self._lock:
-            current = self.require(
+            current = self._require_locked(
                 plugin_id
             )
 
@@ -631,19 +709,17 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> PluginState:
-        """Clear the recorded lifecycle error."""
+        """Clear the latest lifecycle error."""
 
         self._validate_plugin_id(
             plugin_id
         )
 
         with self._lock:
-            current = self.require(
+            current = self._require_locked(
                 plugin_id
             )
 
-            # Idempotent: no new immutable snapshot is created
-            # when the error is already clear.
             if current.last_error is None:
                 return current
 
@@ -662,7 +738,12 @@ class PluginStateStore:
         key: str,
         value: Any,
     ) -> PluginState:
-        """Record one metadata value."""
+        """
+        Record one metadata value.
+
+        Metadata belongs to the runtime state snapshot and is replaced
+        immutably.
+        """
 
         self._validate_plugin_id(
             plugin_id
@@ -674,7 +755,7 @@ class PluginStateStore:
         )
 
         with self._lock:
-            current = self.require(
+            current = self._require_locked(
                 plugin_id
             )
 
@@ -693,7 +774,12 @@ class PluginStateStore:
         self,
         plugin_id: str,
     ) -> dict[str, Any]:
-        """Return a mutable copy of plugin metadata."""
+        """
+        Return a mutable copy of plugin metadata.
+
+        Mutating the returned dictionary does not modify the stored
+        state.
+        """
 
         self._validate_plugin_id(
             plugin_id
@@ -701,13 +787,13 @@ class PluginStateStore:
 
         with self._lock:
             return dict(
-                self.require(
+                self._require_locked(
                     plugin_id
                 ).metadata
             )
 
     # ========================================================
-    # INTERNAL
+    # INTERNAL STATE OPERATIONS
     # ========================================================
 
     def _replace(
@@ -715,7 +801,11 @@ class PluginStateStore:
         current: PluginState,
         **changes: Any,
     ) -> PluginState:
-        """Create and store a new immutable state snapshot."""
+        """
+        Create and store a new immutable state snapshot.
+
+        Caller must hold ``_lock``.
+        """
 
         updated = PluginState(
             plugin_id=current.plugin_id,
@@ -750,6 +840,35 @@ class PluginStateStore:
         ] = updated
 
         return updated
+
+    def _require_locked(
+        self,
+        plugin_id: str,
+    ) -> PluginState:
+        """
+        Return state while the caller already holds ``_lock``.
+
+        This avoids unnecessary nested public-query calls and makes
+        lock ownership explicit inside state transitions.
+        """
+
+        state = self._states.get(
+            plugin_id
+        )
+
+        if state is None:
+            raise KeyError(
+                (
+                    f"No runtime state exists "
+                    f"for plugin {plugin_id!r}."
+                )
+            )
+
+        return state
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
 
     @staticmethod
     def _validate_plugin_id(
@@ -847,7 +966,15 @@ def is_initialized(
 def is_active(
     state: PluginState,
 ) -> bool:
-    """Return whether the plugin is currently active."""
+    """
+    Return whether the plugin is fully active.
+
+    Active means:
+
+        registered
+        AND enabled
+        AND initialized
+    """
 
     if not isinstance(
         state,
