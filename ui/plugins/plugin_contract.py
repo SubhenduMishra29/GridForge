@@ -1,79 +1,102 @@
+# ============================================================
+# GridForge V2
+# ============================================================
+# File:
+#     ui/plugins/plugin_contract.py
+#
+# Author:
+#     Subhendu Mishra
+#
+# Purpose
+# -------
+# Defines the structural contract shared by GridForge UI composition
+# plugins.
+#
+# Architectural role
+# ------------------
+# This module defines plugin contracts and contract-level validation.
+#
+# It does NOT:
+#
+#     - import concrete plugins;
+#     - discover plugins;
+#     - create application services;
+#     - perform application/domain logic;
+#     - manage plugin registration;
+#     - manage plugin dependency ordering;
+#     - own the runtime dependency graph.
+#
+# Runtime responsibilities are separated as follows:
+#
+#     PluginLoader
+#         concrete plugin import and construction
+#
+#     PluginRegistry
+#         plugin storage and registration
+#
+#     PluginManager
+#         dependency ordering and lifecycle orchestration
+#
+#     PluginContext
+#         dependency carrier supplied during initialization
+#
+#     PluginContract
+#         structural contracts and contract validation
+#
+# Lifecycle
+# ---------
+# Plugin construction and initialization are separate operations.
+#
+#     PluginLoader
+#         |
+#         v
+#     Plugin instance
+#         |
+#         | initialize(context)
+#         v
+#     Initialized plugin
+#         |
+#         | shutdown()
+#         v
+#     Uninitialized plugin
+#
+# PluginContext is an initialization dependency, not a constructor
+# dependency.
+#
+# Qt
+# --
+# All Qt access is obtained exclusively through ``ui.core.qt``.
+#
+# ============================================================
+
 """
-GridForge V2
-============
+GridForge V2 — Plugin Contracts.
 
-File:
-    ui/plugins/plugin_contract.py
-
-Purpose
--------
-Defines the structural contract shared by GridForge UI composition
-plugins.
-
-Architectural role
-------------------
-This module defines plugin contracts and contract-level validation.
-
-It does NOT:
-
-    - import concrete plugins;
-    - discover plugins;
-    - create application services;
-    - perform application/domain logic;
-    - manage plugin registration;
-    - manage plugin dependency ordering;
-    - own the runtime dependency graph.
-
-Runtime responsibilities are separated as follows:
-
-    PluginLoader
-        concrete plugin import and construction
-
-    PluginRegistry
-        plugin storage and registration
-
-    PluginManager
-        dependency ordering and lifecycle orchestration
-
-    PluginContext
-        dependency carrier supplied during initialization
-
-    PluginContract
-        structural contracts and contract validation
-
-Lifecycle
----------
-Plugin construction and initialization are separate operations.
-
-    PluginLoader
-        |
-        v
-    Plugin instance
-        |
-        | initialize(context)
-        v
-    Initialized plugin
-        |
-        | shutdown()
-        v
-    Uninitialized plugin
-
-PluginContext is an initialization dependency, not a constructor
-dependency.
-
-Qt
---
-All Qt access is obtained exclusively through ``ui.core.qt``.
+Defines the structural contracts, metadata model, lifecycle base
+implementation, and side-effect-free validation helpers used by
+the GridForge UI plugin subsystem.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    fields,
+)
 from types import MappingProxyType
-from typing import Any, Mapping, Optional, Protocol, runtime_checkable
+from typing import (
+    Any,
+    Mapping,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
 
-from ui.core.qt import QObject, QWidget
+from ui.core.qt import (
+    QObject,
+    QWidget,
+)
 
 
 # ============================================================
@@ -108,7 +131,10 @@ class PluginMetadata:
     def __post_init__(self) -> None:
         """Validate and freeze plugin metadata."""
 
-        if not isinstance(self.plugin_id, str):
+        if not isinstance(
+            self.plugin_id,
+            str,
+        ):
             raise TypeError(
                 "plugin_id must be a string."
             )
@@ -118,7 +144,10 @@ class PluginMetadata:
                 "plugin_id must be a non-empty string."
             )
 
-        if not isinstance(self.name, str):
+        if not isinstance(
+            self.name,
+            str,
+        ):
             raise TypeError(
                 "name must be a string."
             )
@@ -128,7 +157,10 @@ class PluginMetadata:
                 "name must be a non-empty string."
             )
 
-        if not isinstance(self.version, str):
+        if not isinstance(
+            self.version,
+            str,
+        ):
             raise TypeError(
                 "version must be a string."
             )
@@ -138,56 +170,83 @@ class PluginMetadata:
                 "version must be a non-empty string."
             )
 
-        if not isinstance(self.description, str):
+        if not isinstance(
+            self.description,
+            str,
+        ):
             raise TypeError(
                 "description must be a string."
             )
 
-        if not isinstance(self.dependencies, tuple):
+        if not isinstance(
+            self.dependencies,
+            tuple,
+        ):
             raise TypeError(
                 "dependencies must be a tuple."
             )
 
         for dependency in self.dependencies:
-            if not isinstance(dependency, str):
+            if not isinstance(
+                dependency,
+                str,
+            ):
                 raise TypeError(
                     "dependencies must contain strings."
                 )
 
             if not dependency.strip():
                 raise ValueError(
-                    "dependencies must contain non-empty strings."
+                    "dependencies must contain "
+                    "non-empty strings."
                 )
 
-        if len(self.dependencies) != len(set(self.dependencies)):
+        if len(
+            self.dependencies
+        ) != len(
+            set(self.dependencies)
+        ):
             raise ValueError(
                 "dependencies cannot contain duplicates."
             )
 
         if self.plugin_id in self.dependencies:
             raise ValueError(
-                f"Plugin {self.plugin_id!r} cannot depend on itself."
+                (
+                    f"Plugin {self.plugin_id!r} "
+                    "cannot depend on itself."
+                )
             )
 
-        if not isinstance(self.optional, bool):
+        if not isinstance(
+            self.optional,
+            bool,
+        ):
             raise TypeError(
                 "optional must be bool."
             )
 
-        if not isinstance(self.metadata, Mapping):
+        if not isinstance(
+            self.metadata,
+            Mapping,
+        ):
             raise TypeError(
                 "metadata must be a Mapping."
             )
 
         for key in self.metadata:
-            if not isinstance(key, str):
+            if not isinstance(
+                key,
+                str,
+            ):
                 raise TypeError(
                     "metadata keys must be strings."
                 )
 
             if not key.strip():
                 raise ValueError(
-                    "metadata keys must be non-empty strings."
+                    "metadata keys must be "
+                    "non-empty strings."
                 )
 
         object.__setattr__(
@@ -226,9 +285,7 @@ class PluginContextProtocol(Protocol):
         name: str,
         default: Any = None,
     ) -> Any:
-        """
-        Return an optional extension service.
-        """
+        """Return an optional extension service."""
         ...
 
 
@@ -268,15 +325,11 @@ class PluginProtocol(Protocol):
         self,
         context: Optional[PluginContextProtocol] = None,
     ) -> Any:
-        """
-        Initialize the plugin.
-        """
+        """Initialize the plugin."""
         ...
 
     def shutdown(self) -> None:
-        """
-        Release plugin-owned runtime resources.
-        """
+        """Release plugin-owned runtime resources."""
         ...
 
 
@@ -292,10 +345,10 @@ class PluginWidgetProvider(Protocol):
     """
 
     @property
-    def widget(self) -> Optional[QWidget]:
-        """
-        Return the primary plugin widget, if one exists.
-        """
+    def widget(
+        self,
+    ) -> Optional[QWidget]:
+        """Return the primary plugin widget, if one exists."""
         ...
 
 
@@ -318,13 +371,19 @@ class PluginLifecycleProtocol(Protocol):
     ) -> None:
         ...
 
-    def after_initialize(self) -> None:
+    def after_initialize(
+        self,
+    ) -> None:
         ...
 
-    def before_shutdown(self) -> None:
+    def before_shutdown(
+        self,
+    ) -> None:
         ...
 
-    def after_shutdown(self) -> None:
+    def after_shutdown(
+        self,
+    ) -> None:
         ...
 
 
@@ -341,8 +400,8 @@ class _BasePluginMeta(
     Compatible metaclass for the QObject + ABC hierarchy.
 
     PySide6 QObject uses a Qt/Shiboken metaclass, while ABC uses
-    ABCMeta. This combined metaclass makes the two inheritance
-    systems compatible without changing the plugin contract.
+    ABCMeta. This combined metaclass allows the two inheritance
+    systems to coexist without changing the plugin contract.
     """
 
 
@@ -389,7 +448,10 @@ class BasePlugin(
 
     plugin_optional: bool = False
 
-    plugin_metadata: Mapping[str, Any] = MappingProxyType({})
+    plugin_metadata: Mapping[
+        str,
+        Any,
+    ] = MappingProxyType({})
 
     def __init__(
         self,
@@ -398,10 +460,13 @@ class BasePlugin(
         """
         Construct an uninitialized plugin.
 
-        No application services or UI dependencies are resolved here.
+        No application services or UI dependencies are resolved
+        here.
         """
 
-        super().__init__(parent)
+        super().__init__(
+            parent
+        )
 
         self._context: Optional[
             PluginContextProtocol
@@ -470,9 +535,13 @@ class BasePlugin(
         self._context = context
 
         try:
-            self.before_initialize(context)
+            self.before_initialize(
+                context
+            )
 
-            result = self._initialize(context)
+            result = self._initialize(
+                context
+            )
 
             self.after_initialize()
 
@@ -488,14 +557,16 @@ class BasePlugin(
             self._context = None
             raise
 
-    def shutdown(self) -> None:
+    def shutdown(
+        self,
+    ) -> None:
         """
         Shut down the plugin.
 
         Shutdown is idempotent.
 
-        Runtime lifecycle state is cleared even when plugin-specific
-        shutdown logic raises.
+        Runtime lifecycle state is cleared even when
+        plugin-specific shutdown logic raises.
         """
 
         if not self._initialized:
@@ -521,8 +592,6 @@ class BasePlugin(
             if shutdown_error is None:
                 raise
 
-            # Preserve the primary shutdown failure while retaining
-            # the hook failure as its cause/context.
             shutdown_error.__context__ = exc
 
         if shutdown_error is not None:
@@ -536,24 +605,22 @@ class BasePlugin(
         self,
         context: Optional[PluginContextProtocol],
     ) -> None:
-        """
-        Hook executed before plugin-specific initialization.
-        """
+        """Hook executed before plugin-specific initialization."""
 
-    def after_initialize(self) -> None:
-        """
-        Hook executed after successful plugin-specific initialization.
-        """
+    def after_initialize(
+        self,
+    ) -> None:
+        """Hook executed after successful initialization."""
 
-    def before_shutdown(self) -> None:
-        """
-        Hook executed before plugin-specific shutdown.
-        """
+    def before_shutdown(
+        self,
+    ) -> None:
+        """Hook executed before plugin-specific shutdown."""
 
-    def after_shutdown(self) -> None:
-        """
-        Hook executed after plugin lifecycle state is cleared.
-        """
+    def after_shutdown(
+        self,
+    ) -> None:
+        """Hook executed after plugin lifecycle state is cleared."""
 
     # ========================================================
     # ABSTRACT IMPLEMENTATION
@@ -564,15 +631,13 @@ class BasePlugin(
         self,
         context: Optional[PluginContextProtocol],
     ) -> Any:
-        """
-        Implement plugin-specific initialization.
-        """
+        """Implement plugin-specific initialization."""
 
     @abstractmethod
-    def _shutdown(self) -> None:
-        """
-        Implement plugin-specific shutdown.
-        """
+    def _shutdown(
+        self,
+    ) -> None:
+        """Implement plugin-specific shutdown."""
 
 
 # ============================================================
@@ -622,7 +687,10 @@ def validate_plugin(
         None,
     )
 
-    if not isinstance(actual_plugin_id, str):
+    if not isinstance(
+        actual_plugin_id,
+        str,
+    ):
         raise PluginContractError(
             "Plugin must expose a string plugin_id."
         )
@@ -633,7 +701,10 @@ def validate_plugin(
         )
 
     if plugin_id is not None:
-        if not isinstance(plugin_id, str):
+        if not isinstance(
+            plugin_id,
+            str,
+        ):
             raise TypeError(
                 "plugin_id must be a string."
             )
@@ -658,7 +729,10 @@ def validate_plugin(
         None,
     )
 
-    if not isinstance(plugin_name, str):
+    if not isinstance(
+        plugin_name,
+        str,
+    ):
         raise PluginContractError(
             "Plugin must expose a string plugin_name."
         )
@@ -674,9 +748,12 @@ def validate_plugin(
         None,
     )
 
-    if not isinstance(plugin_version, str):
+    if not isinstance(
+        plugin_version,
+        str,
+    ):
         raise PluginContractError(
-            "Plugin must expose a string plugin_version."
+            "Plugin plugin_version must be a string."
         )
 
     if not plugin_version.strip():
@@ -715,7 +792,9 @@ def is_plugin(
     """
 
     try:
-        validate_plugin(plugin)
+        validate_plugin(
+            plugin
+        )
 
     except (
         PluginContractError,
@@ -747,26 +826,34 @@ def _validate_dependency_sequence(
     if dependencies is None:
         return ()
 
-    if not isinstance(dependencies, tuple):
+    if not isinstance(
+        dependencies,
+        tuple,
+    ):
         raise PluginContractError(
             "plugin_dependencies must be a tuple."
         )
 
     for dependency in dependencies:
-        if not isinstance(dependency, str):
+        if not isinstance(
+            dependency,
+            str,
+        ):
             raise PluginContractError(
                 "plugin_dependencies must contain strings."
             )
 
         if not dependency.strip():
             raise PluginContractError(
-                (
-                    "plugin_dependencies must contain "
-                    "non-empty strings."
-                )
+                "plugin_dependencies must contain "
+                "non-empty strings."
             )
 
-    if len(dependencies) != len(set(dependencies)):
+    if len(
+        dependencies
+    ) != len(
+        set(dependencies)
+    ):
         raise PluginContractError(
             "plugin_dependencies cannot contain duplicates."
         )
@@ -789,7 +876,9 @@ def plugin_metadata(
     Runtime dependency ordering belongs to PluginManager.
     """
 
-    validate_plugin(plugin)
+    validate_plugin(
+        plugin
+    )
 
     dependencies = _validate_dependency_sequence(
         getattr(
@@ -799,13 +888,24 @@ def plugin_metadata(
         )
     )
 
+    if plugin.plugin_id in dependencies:
+        raise PluginContractError(
+            (
+                f"Plugin {plugin.plugin_id!r} "
+                "cannot depend on itself."
+            )
+        )
+
     description = getattr(
         plugin,
         "plugin_description",
         "",
     )
 
-    if not isinstance(description, str):
+    if not isinstance(
+        description,
+        str,
+    ):
         raise PluginContractError(
             "plugin_description must be a string."
         )
@@ -816,7 +916,10 @@ def plugin_metadata(
         False,
     )
 
-    if not isinstance(optional, bool):
+    if not isinstance(
+        optional,
+        bool,
+    ):
         raise PluginContractError(
             "plugin_optional must be bool."
         )
@@ -827,7 +930,10 @@ def plugin_metadata(
         {},
     )
 
-    if not isinstance(metadata, Mapping):
+    if not isinstance(
+        metadata,
+        Mapping,
+    ):
         raise PluginContractError(
             "plugin_metadata must be a Mapping."
         )
@@ -893,6 +999,7 @@ def plugin_widget(
     if callable(widget):
         try:
             widget = widget()
+
         except Exception as exc:
             raise PluginContractError(
                 (
@@ -904,7 +1011,10 @@ def plugin_widget(
     if widget is None:
         return None
 
-    if not isinstance(widget, QWidget):
+    if not isinstance(
+        widget,
+        QWidget,
+    ):
         raise PluginContractError(
             (
                 f"Plugin {plugin_identifier!r} "
@@ -927,7 +1037,9 @@ def plugin_id(
     Return the validated plugin identifier.
     """
 
-    validate_plugin(plugin)
+    validate_plugin(
+        plugin
+    )
 
     return plugin.plugin_id
 
@@ -943,7 +1055,9 @@ def plugin_dependencies(
     PluginManager owns the authoritative runtime dependency graph.
     """
 
-    validate_plugin(plugin)
+    validate_plugin(
+        plugin
+    )
 
     dependencies = _validate_dependency_sequence(
         getattr(
@@ -955,7 +1069,10 @@ def plugin_dependencies(
 
     if plugin.plugin_id in dependencies:
         raise PluginContractError(
-            f"Plugin {plugin.plugin_id!r} cannot depend on itself."
+            (
+                f"Plugin {plugin.plugin_id!r} "
+                "cannot depend on itself."
+            )
         )
 
     return dependencies
