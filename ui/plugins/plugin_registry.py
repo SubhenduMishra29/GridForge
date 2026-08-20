@@ -5,6 +5,9 @@ GridForge V2
 File:
     ui/plugins/plugin_registry.py
 
+Author:
+    Subhendu Mishra
+
 Purpose
 -------
 Low-level runtime registry for explicitly constructed UI plugins.
@@ -66,6 +69,7 @@ PluginEntry is only a runtime handle to a registered plugin instance.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import RLock
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -184,6 +188,12 @@ class PluginRegistry:
     registry accordingly.
 
     PluginStateStore is the sole authority for runtime lifecycle state.
+
+    Threading
+    ---------
+    Registry membership and lifecycle transitions are serialized by an
+    RLock. The lock is re-entrant so lifecycle callbacks may safely
+    perform registry queries without deadlocking the registry.
     """
 
     def __init__(
@@ -191,6 +201,14 @@ class PluginRegistry:
         *,
         state_store: PluginStateStore | None = None,
     ) -> None:
+        if state_store is not None and not isinstance(
+            state_store,
+            PluginStateStore,
+        ):
+            raise TypeError(
+                "state_store must be a PluginStateStore or None."
+            )
+
         self._state_store = (
             state_store
             if state_store is not None
@@ -201,6 +219,8 @@ class PluginRegistry:
             str,
             PluginEntry,
         ] = {}
+
+        self._lock = RLock()
 
     # ========================================================
     # PROPERTIES
@@ -220,9 +240,10 @@ class PluginRegistry:
         Return registered plugin IDs in registration order.
         """
 
-        return tuple(
-            self._entries.keys()
-        )
+        with self._lock:
+            return tuple(
+                self._entries.keys()
+            )
 
     @property
     def entries(self) -> tuple[PluginEntry, ...]:
@@ -232,17 +253,19 @@ class PluginRegistry:
         Lifecycle state is intentionally absent from PluginEntry.
         """
 
-        return tuple(
-            self._entries.values()
-        )
+        with self._lock:
+            return tuple(
+                self._entries.values()
+            )
 
     @property
     def count(self) -> int:
         """Return the number of registered plugins."""
 
-        return len(
-            self._entries
-        )
+        with self._lock:
+            return len(
+                self._entries
+            )
 
     # ========================================================
     # REGISTRATION
@@ -263,30 +286,11 @@ class PluginRegistry:
 
         Dependency handling and lifecycle ordering are outside this
         class.
-
-        Raises
-        ------
-        KeyError
-            Plugin is already registered.
-
-        TypeError
-            Invalid plugin ID, enabled value, or metadata.
-
-        ValueError
-            Invalid plugin instance or plugin contract.
         """
 
         self._validate_plugin_id(
             plugin_id
         )
-
-        if plugin_id in self._entries:
-            raise KeyError(
-                (
-                    f"Plugin {plugin_id!r} "
-                    "is already registered."
-                )
-            )
 
         if not isinstance(
             enabled,
@@ -308,8 +312,7 @@ class PluginRegistry:
             )
 
         # ----------------------------------------------------
-        # Validate the concrete plugin before changing either
-        # registry or state-store state.
+        # Validate before changing runtime state.
         # ----------------------------------------------------
 
         validate_plugin(
@@ -327,36 +330,42 @@ class PluginRegistry:
             ),
         )
 
-        # ----------------------------------------------------
-        # Register canonical lifecycle state first.
-        #
-        # If this fails, no registry entry is exposed.
-        # ----------------------------------------------------
-
-        self._state_store.register(
-            plugin_id,
-            enabled=enabled,
-            metadata=dict(
-                entry.metadata
-            ),
-        )
-
-        try:
-            self._entries[
-                plugin_id
-            ] = entry
-        except Exception:
-            # Roll back the canonical state if the registry cannot
-            # expose the runtime entry.
-            try:
-                self._state_store.unregister(
-                    plugin_id
+        with self._lock:
+            if plugin_id in self._entries:
+                raise KeyError(
+                    (
+                        f"Plugin {plugin_id!r} "
+                        "is already registered."
+                    )
                 )
-            except Exception:
-                # Preserve the original registry failure.
-                pass
 
-            raise
+            # ------------------------------------------------
+            # Commit canonical state first.
+            # ------------------------------------------------
+
+            self._state_store.register(
+                plugin_id,
+                enabled=enabled,
+                metadata=dict(
+                    entry.metadata
+                ),
+            )
+
+            try:
+                self._entries[
+                    plugin_id
+                ] = entry
+            except Exception:
+                # Registry insertion failure must not leave a
+                # canonical state entry behind.
+                try:
+                    self._state_store.unregister(
+                        plugin_id
+                    )
+                except Exception:
+                    pass
+
+                raise
 
         return entry
 
@@ -382,50 +391,67 @@ class PluginRegistry:
         after the plugin's initialize() method succeeds.
         """
 
-        entry = self._require_entry(
-            plugin_id
-        )
+        with self._lock:
+            entry = self._require_entry(
+                plugin_id
+            )
 
-        if not self.is_enabled(
-            plugin_id
-        ):
-            raise RuntimeError(
-                (
-                    f"Plugin {plugin_id!r} "
-                    "is disabled."
+            if not self.is_enabled(
+                plugin_id
+            ):
+                raise RuntimeError(
+                    (
+                        f"Plugin {plugin_id!r} "
+                        "is disabled."
+                    )
                 )
-            )
 
-        if self.is_initialized(
-            plugin_id
-        ):
-            return None
+            if self.is_initialized(
+                plugin_id
+            ):
+                return None
 
-        try:
-            result = entry.plugin.initialize(
-                context
-            )
-        except Exception as exc:
-            self._record_error(
-                plugin_id,
-                exc,
-            )
-            raise
+            try:
+                result = entry.plugin.initialize(
+                    context
+                )
+            except Exception as exc:
+                self._record_error(
+                    plugin_id,
+                    exc,
+                )
+                raise
 
-        # ----------------------------------------------------
-        # The plugin has successfully initialized.
-        # Now commit the canonical lifecycle transition.
-        # ----------------------------------------------------
+            # ------------------------------------------------
+            # Commit lifecycle state only after successful
+            # plugin initialization.
+            # ------------------------------------------------
 
-        self._state_store.mark_initialized(
-            plugin_id
-        )
+            try:
+                self._state_store.mark_initialized(
+                    plugin_id
+                )
 
-        self._state_store.clear_last_error(
-            plugin_id
-        )
+                self._state_store.clear_last_error(
+                    plugin_id
+                )
 
-        return result
+            except Exception as exc:
+                # The plugin callback succeeded, but the canonical
+                # state transition failed. Record the failure if
+                # possible and propagate it rather than pretending
+                # initialization was fully committed.
+                try:
+                    self._record_error(
+                        plugin_id,
+                        exc,
+                    )
+                except Exception:
+                    pass
+
+                raise
+
+            return result
 
     # ========================================================
     # SHUTDOWN
@@ -443,31 +469,44 @@ class PluginRegistry:
         PluginManager is responsible for reverse dependency ordering.
         """
 
-        entry = self._require_entry(
-            plugin_id
-        )
-
-        if not self.is_initialized(
-            plugin_id
-        ):
-            return
-
-        try:
-            entry.plugin.shutdown()
-        except Exception as exc:
-            self._record_error(
-                plugin_id,
-                exc,
+        with self._lock:
+            entry = self._require_entry(
+                plugin_id
             )
-            raise
 
-        self._state_store.mark_uninitialized(
-            plugin_id
-        )
+            if not self.is_initialized(
+                plugin_id
+            ):
+                return
 
-        self._state_store.clear_last_error(
-            plugin_id
-        )
+            try:
+                entry.plugin.shutdown()
+            except Exception as exc:
+                self._record_error(
+                    plugin_id,
+                    exc,
+                )
+                raise
+
+            try:
+                self._state_store.mark_uninitialized(
+                    plugin_id
+                )
+
+                self._state_store.clear_last_error(
+                    plugin_id
+                )
+
+            except Exception as exc:
+                try:
+                    self._record_error(
+                        plugin_id,
+                        exc,
+                    )
+                except Exception:
+                    pass
+
+                raise
 
     # ========================================================
     # UNREGISTRATION
@@ -497,53 +536,64 @@ class PluginRegistry:
             plugin_id
         )
 
-        entry = self._entries.get(
-            plugin_id
-        )
-
-        if entry is None:
-            return None
-
-        if (
-            shutdown
-            and self.is_initialized(
-                plugin_id
-            )
+        if not isinstance(
+            shutdown,
+            bool,
         ):
-            self.shutdown(
+            raise TypeError(
+                "shutdown must be bool."
+            )
+
+        with self._lock:
+            entry = self._entries.get(
                 plugin_id
             )
 
-        # ----------------------------------------------------
-        # An enabled plugin cannot be unregistered.
-        # ----------------------------------------------------
+            if entry is None:
+                return None
 
-        if self.is_enabled(
-            plugin_id
-        ):
-            raise RuntimeError(
-                (
-                    f"Cannot unregister enabled plugin "
-                    f"{plugin_id!r}. Disable it first."
+            if (
+                shutdown
+                and self.is_initialized(
+                    plugin_id
                 )
+            ):
+                self.shutdown(
+                    plugin_id
+                )
+
+            if self.is_initialized(
+                plugin_id
+            ):
+                raise RuntimeError(
+                    (
+                        f"Cannot unregister initialized "
+                        f"plugin {plugin_id!r}."
+                    )
+                )
+
+            if self.is_enabled(
+                plugin_id
+            ):
+                raise RuntimeError(
+                    (
+                        f"Cannot unregister enabled plugin "
+                        f"{plugin_id!r}. Disable it first."
+                    )
+                )
+
+            # State is removed before registry membership.
+            # If state removal fails, registry membership remains.
+            self._state_store.unregister(
+                plugin_id
             )
 
-        # ----------------------------------------------------
-        # Remove canonical state first.
-        #
-        # If this fails, the registry entry remains intact.
-        # ----------------------------------------------------
+            self._entries.pop(
+                plugin_id,
+                None,
+            )
 
-        self._state_store.unregister(
-            plugin_id
-        )
-
-        self._entries.pop(
-            plugin_id,
-            None,
-        )
-
-        return entry
+            return entry
 
     # ========================================================
     # ENABLE
@@ -559,23 +609,24 @@ class PluginRegistry:
         Enabling does not initialize the plugin.
         """
 
-        self._require_entry(
-            plugin_id
-        )
+        with self._lock:
+            self._require_entry(
+                plugin_id
+            )
 
-        if self.is_enabled(
-            plugin_id
-        ):
-            return
+            if self.is_enabled(
+                plugin_id
+            ):
+                return
 
-        self._state_store.set_enabled(
-            plugin_id,
-            True,
-        )
+            self._state_store.set_enabled(
+                plugin_id,
+                True,
+            )
 
-        self._state_store.clear_last_error(
-            plugin_id
-        )
+            self._state_store.clear_last_error(
+                plugin_id
+            )
 
     # ========================================================
     # DISABLE
@@ -597,29 +648,38 @@ class PluginRegistry:
         PluginStateStore rejects the invalid transition.
         """
 
-        self._require_entry(
-            plugin_id
-        )
-
-        if (
-            shutdown
-            and self.is_initialized(
-                plugin_id
-            )
+        if not isinstance(
+            shutdown,
+            bool,
         ):
-            self.shutdown(
-                plugin_id
+            raise TypeError(
+                "shutdown must be bool."
             )
 
-        if not self.is_enabled(
-            plugin_id
-        ):
-            return
+        with self._lock:
+            self._require_entry(
+                plugin_id
+            )
 
-        self._state_store.set_enabled(
-            plugin_id,
-            False,
-        )
+            if (
+                shutdown
+                and self.is_initialized(
+                    plugin_id
+                )
+            ):
+                self.shutdown(
+                    plugin_id
+                )
+
+            if not self.is_enabled(
+                plugin_id
+            ):
+                return
+
+            self._state_store.set_enabled(
+                plugin_id,
+                False,
+            )
 
     # ========================================================
     # QUERIES
@@ -635,7 +695,8 @@ class PluginRegistry:
             plugin_id
         )
 
-        return plugin_id in self._entries
+        with self._lock:
+            return plugin_id in self._entries
 
     def get(
         self,
@@ -651,14 +712,15 @@ class PluginRegistry:
             plugin_id
         )
 
-        entry = self._entries.get(
-            plugin_id
-        )
+        with self._lock:
+            entry = self._entries.get(
+                plugin_id
+            )
 
-        if entry is None:
-            return None
+            if entry is None:
+                return None
 
-        return entry.plugin
+            return entry.plugin
 
     def get_entry(
         self,
@@ -674,9 +736,10 @@ class PluginRegistry:
             plugin_id
         )
 
-        return self._entries.get(
-            plugin_id
-        )
+        with self._lock:
+            return self._entries.get(
+                plugin_id
+            )
 
     def require(
         self,
@@ -730,12 +793,13 @@ class PluginRegistry:
             plugin_id
         )
 
-        if plugin_id not in self._entries:
-            return False
+        with self._lock:
+            if plugin_id not in self._entries:
+                return False
 
-        return self._state_store.is_initialized(
-            plugin_id
-        )
+            return self._state_store.is_initialized(
+                plugin_id
+            )
 
     def is_enabled(
         self,
@@ -751,12 +815,13 @@ class PluginRegistry:
             plugin_id
         )
 
-        if plugin_id not in self._entries:
-            return False
+        with self._lock:
+            if plugin_id not in self._entries:
+                return False
 
-        return self._state_store.is_enabled(
-            plugin_id
-        )
+            return self._state_store.is_enabled(
+                plugin_id
+            )
 
     # ========================================================
     # INTERNAL ERROR HANDLING
