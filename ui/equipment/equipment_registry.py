@@ -19,30 +19,19 @@
 #     - enumerate available equipment types.
 #
 # Does NOT:
+#     - create equipment instances;
 #     - create QGraphicsItems;
 #     - render symbols;
 #     - maintain document instances;
-#     - perform electrical calculations.
-#
-# Detailed Working:
-#
-#     EquipmentDefinition
-#             |
-#             v
-#     EquipmentRegistry
-#             |
-#       +-----+------+
-#       |            |
-#       v            v
-#    Factory      UI/tool menus
-#       |
-#       v
-#    EquipmentBase
+#     - perform electrical calculations;
+#     - validate electrical topology.
 #
 # ============================================================
 
 """
 GridForge V2 — Equipment Registry.
+
+Qt-independent registry of available SLD equipment definitions.
 """
 
 from __future__ import annotations
@@ -55,6 +44,11 @@ from .equipment_definition import EquipmentDefinition
 class EquipmentRegistry:
     """
     Registry containing available equipment type definitions.
+
+    EquipmentRegistry owns TYPE metadata only.
+
+    It does not own runtime equipment instances. Those belong to
+    EquipmentManager.
     """
 
     def __init__(self) -> None:
@@ -63,10 +57,34 @@ class EquipmentRegistry:
             EquipmentDefinition,
         ] = {}
 
+    # ========================================================
+    # REGISTRATION
+    # ========================================================
+
     def register(
         self,
         definition: EquipmentDefinition,
     ) -> None:
+        """
+        Register one equipment definition.
+
+        Duplicate equipment types are rejected.
+        """
+
+        if definition is None:
+            raise ValueError(
+                "definition must not be None"
+            )
+
+        if not isinstance(
+            definition,
+            EquipmentDefinition,
+        ):
+            raise TypeError(
+                "definition must be an "
+                "EquipmentDefinition instance"
+            )
+
         equipment_type = definition.equipment_type
 
         if equipment_type in self._definitions:
@@ -75,37 +93,74 @@ class EquipmentRegistry:
                 f"{equipment_type}"
             )
 
-        self._definitions[equipment_type] = definition
+        self._definitions[
+            equipment_type
+        ] = definition
+
+    # ========================================================
+    # REMOVAL
+    # ========================================================
 
     def unregister(
         self,
         equipment_type: str,
     ) -> EquipmentDefinition:
+        """
+        Remove and return an equipment definition.
+
+        Raises:
+            KeyError:
+                If the equipment type is not registered.
+        """
+
         definition = self._definitions.pop(
             equipment_type,
             None,
         )
 
         if definition is None:
-            raise KeyError(equipment_type)
+            raise KeyError(
+                equipment_type
+            )
 
         return definition
+
+    # ========================================================
+    # LOOKUP
+    # ========================================================
 
     def get(
         self,
         equipment_type: str,
     ) -> Optional[EquipmentDefinition]:
-        return self._definitions.get(equipment_type)
+        """
+        Return a definition or None when absent.
+        """
+
+        return self._definitions.get(
+            equipment_type
+        )
 
     def require(
         self,
         equipment_type: str,
     ) -> EquipmentDefinition:
-        definition = self.get(equipment_type)
+        """
+        Return a registered definition.
+
+        Raises:
+            KeyError:
+                If the equipment type is unknown.
+        """
+
+        definition = self.get(
+            equipment_type
+        )
 
         if definition is None:
             raise KeyError(
-                f"Unknown equipment type: {equipment_type}"
+                f"Unknown equipment type: "
+                f"{equipment_type}"
             )
 
         return definition
@@ -114,21 +169,66 @@ class EquipmentRegistry:
         self,
         equipment_type: str,
     ) -> bool:
+        """
+        Return whether an equipment type is registered.
+        """
+
         return equipment_type in self._definitions
+
+    # ========================================================
+    # ENUMERATION
+    # ========================================================
 
     def definitions(
         self,
     ) -> Iterable[EquipmentDefinition]:
-        return tuple(self._definitions.values())
+        """
+        Return a stable snapshot of all definitions.
+        """
 
-    def equipment_types(self) -> tuple[str, ...]:
-        return tuple(self._definitions.keys())
+        return tuple(
+            self._definitions.values()
+        )
 
-    def clear(self) -> None:
+    def equipment_types(
+        self,
+    ) -> tuple[str, ...]:
+        """
+        Return all registered equipment type identifiers.
+        """
+
+        return tuple(
+            self._definitions.keys()
+        )
+
+    # ========================================================
+    # COLLECTION MANAGEMENT
+    # ========================================================
+
+    def clear(
+        self,
+    ) -> None:
+        """
+        Remove all equipment type definitions.
+        """
+
         self._definitions.clear()
 
-    def __len__(self) -> int:
-        return len(self._definitions)
+    # ========================================================
+    # PROTOCOL HELPERS
+    # ========================================================
 
-    def __contains__(self, equipment_type: str) -> bool:
-        return self.contains(equipment_type)
+    def __len__(
+        self,
+    ) -> int:
+        return len(
+            self._definitions
+        )
+
+    def __contains__(
+        self,
+        equipment_type: str,
+    ) -> bool:
+        return self.contains(
+            equipment_type
+        )
