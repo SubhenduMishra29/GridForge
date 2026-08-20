@@ -83,7 +83,7 @@ class PluginEntry:
     """
     Immutable runtime handle for one registered plugin.
 
-    PluginEntry deliberately contains only:
+    PluginEntry contains only:
 
         plugin_id
         plugin instance
@@ -92,7 +92,7 @@ class PluginEntry:
     Runtime lifecycle state belongs exclusively to
     PluginStateStore.
 
-    PluginEntry does not contain:
+    PluginEntry deliberately does not contain:
 
         enabled
         initialized
@@ -111,7 +111,7 @@ class PluginEntry:
         """Validate and freeze the runtime entry."""
 
         # ----------------------------------------------------
-        # plugin_id
+        # Plugin ID
         # ----------------------------------------------------
 
         if not isinstance(
@@ -128,7 +128,7 @@ class PluginEntry:
             )
 
         # ----------------------------------------------------
-        # plugin
+        # Plugin instance
         # ----------------------------------------------------
 
         if self.plugin is None:
@@ -137,7 +137,7 @@ class PluginEntry:
             )
 
         # ----------------------------------------------------
-        # metadata
+        # Metadata
         # ----------------------------------------------------
 
         if not isinstance(
@@ -168,11 +168,22 @@ class PluginRegistry:
 
     PluginRegistry is intentionally dependency-blind.
 
-    It neither knows nor cares whether a plugin depends on another
-    plugin. Dependency ordering is established exclusively by
-    PluginManager before lifecycle methods are invoked.
+    It does not:
 
-    Runtime lifecycle state is authoritative in PluginStateStore.
+        - discover plugins;
+        - import concrete plugins;
+        - construct plugins;
+        - resolve dependencies;
+        - determine lifecycle ordering;
+        - own PluginContext;
+        - own Core/domain state;
+        - construct Qt objects;
+        - compose the UI.
+
+    PluginManager establishes dependency ordering and invokes this
+    registry accordingly.
+
+    PluginStateStore is the sole authority for runtime lifecycle state.
     """
 
     def __init__(
@@ -285,16 +296,19 @@ class PluginRegistry:
                 "enabled must be bool."
             )
 
-        if metadata is not None and not isinstance(
-            metadata,
-            Mapping,
+        if (
+            metadata is not None
+            and not isinstance(
+                metadata,
+                Mapping,
+            )
         ):
             raise TypeError(
                 "metadata must be a Mapping or None."
             )
 
         # ----------------------------------------------------
-        # Validate the concrete plugin before modifying either
+        # Validate the concrete plugin before changing either
         # registry or state-store state.
         # ----------------------------------------------------
 
@@ -314,10 +328,9 @@ class PluginRegistry:
         )
 
         # ----------------------------------------------------
-        # State registration happens before exposing the entry
-        # through the registry.
+        # Register canonical lifecycle state first.
         #
-        # If state registration fails, _entries remains unchanged.
+        # If this fails, no registry entry is exposed.
         # ----------------------------------------------------
 
         self._state_store.register(
@@ -333,14 +346,14 @@ class PluginRegistry:
                 plugin_id
             ] = entry
         except Exception:
-            # Roll back state-store registration if the local
-            # registry cannot expose the entry.
+            # Roll back the canonical state if the registry cannot
+            # expose the runtime entry.
             try:
                 self._state_store.unregister(
                     plugin_id
                 )
             except Exception:
-                # Preserve the original registration failure.
+                # Preserve the original registry failure.
                 pass
 
             raise
@@ -366,7 +379,7 @@ class PluginRegistry:
         this method.
 
         Successful initialization is recorded in PluginStateStore only
-        after the plugin's initialize() method completes successfully.
+        after the plugin's initialize() method succeeds.
         """
 
         entry = self._require_entry(
@@ -399,19 +412,18 @@ class PluginRegistry:
             )
             raise
 
-        try:
-            self._state_store.mark_initialized(
-                plugin_id
-            )
+        # ----------------------------------------------------
+        # The plugin has successfully initialized.
+        # Now commit the canonical lifecycle transition.
+        # ----------------------------------------------------
 
-            self._state_store.clear_last_error(
-                plugin_id
-            )
-        except Exception:
-            # The plugin is already initialized, but the canonical
-            # lifecycle state could not be synchronized. Propagate
-            # the state-store failure rather than hiding corruption.
-            raise
+        self._state_store.mark_initialized(
+            plugin_id
+        )
+
+        self._state_store.clear_last_error(
+            plugin_id
+        )
 
         return result
 
@@ -476,6 +488,9 @@ class PluginRegistry:
         unregistering it.
 
         Dependency safety is the responsibility of PluginManager.
+
+        If state removal fails, the runtime entry remains registered,
+        preventing registry/state divergence.
         """
 
         self._validate_plugin_id(
@@ -500,7 +515,7 @@ class PluginRegistry:
             )
 
         # ----------------------------------------------------
-        # A registered plugin cannot be removed while enabled.
+        # An enabled plugin cannot be unregistered.
         # ----------------------------------------------------
 
         if self.is_enabled(
@@ -516,8 +531,7 @@ class PluginRegistry:
         # ----------------------------------------------------
         # Remove canonical state first.
         #
-        # If state removal fails, the runtime entry remains intact,
-        # preventing registry/state divergence.
+        # If this fails, the registry entry remains intact.
         # ----------------------------------------------------
 
         self._state_store.unregister(
@@ -579,8 +593,8 @@ class PluginRegistry:
         If initialized and shutdown=True, the plugin is shut down
         before the disabled state is recorded.
 
-        With shutdown=False, an initialized plugin cannot be disabled.
-        PluginStateStore remains the final authority for that invariant.
+        If shutdown=False is supplied while the plugin is initialized,
+        PluginStateStore rejects the invalid transition.
         """
 
         self._require_entry(
@@ -630,7 +644,7 @@ class PluginRegistry:
         """
         Return a registered plugin instance.
 
-        Returns None when the plugin is not registered.
+        Returns None if the plugin is not registered.
         """
 
         self._validate_plugin_id(
@@ -653,7 +667,7 @@ class PluginRegistry:
         """
         Return a registered PluginEntry.
 
-        Returns None when the plugin is not registered.
+        Returns None if the plugin is not registered.
         """
 
         self._validate_plugin_id(
@@ -693,10 +707,9 @@ class PluginRegistry:
         plugin_id: str,
     ) -> bool:
         """
-        Return whether the plugin is registered.
+        Return whether the plugin is structurally registered.
 
-        Registry membership is authoritative for this structural
-        question.
+        Registry membership is authoritative for this question.
         """
 
         return self.contains(
@@ -746,13 +759,13 @@ class PluginRegistry:
         )
 
     # ========================================================
-    # INTERNAL STATE ERROR HANDLING
+    # INTERNAL ERROR HANDLING
     # ========================================================
 
     def _record_error(
         self,
         plugin_id: str,
-        error: Exception,
+        error: BaseException,
     ) -> None:
         """
         Record a plugin lifecycle failure.
