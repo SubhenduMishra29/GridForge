@@ -5,6 +5,9 @@ GridForge V2
 File:
     ui/plugins/plugin_context.py
 
+Author:
+    Subhendu Mishra
+
 Purpose
 -------
 Defines the dependency context supplied to GridForge UI composition
@@ -88,8 +91,8 @@ class PluginContext:
     It contains references to already-created application and UI
     objects but does not create, resolve, discover, or own them.
 
-    The explicit fields define the canonical architectural dependency
-    boundary.
+    The explicit fields define the canonical architectural
+    dependency boundary.
 
     The generic ``services`` mapping exists only for genuinely
     optional extension infrastructure. It must not replace an
@@ -239,12 +242,6 @@ class PluginContext:
     ) -> Any:
         """
         Return an optional extension service.
-
-        Explicitly declared PluginContext fields are the canonical
-        dependency boundary.
-
-        This method accesses only the generic extension-service
-        mapping and never resolves or constructs a service.
         """
 
         self._validate_name(
@@ -264,10 +261,12 @@ class PluginContext:
         """
         Return a required extension service.
 
-        Presence is validated only.
+        Raises:
+            KeyError:
+                If the service is unavailable.
 
-        The method does not resolve, construct, substitute, or
-        discover a service.
+            RuntimeError:
+                If the service exists but is None.
         """
 
         self._validate_name(
@@ -443,11 +442,6 @@ class PluginContext:
     def has_core_controller(self) -> bool:
         """
         Return whether the project controller exists.
-
-        This is retained as a distinct capability because
-        ``project_controller`` and the application ``controller`` are
-        separate architectural references unless the composition root
-        explicitly supplies the same object to both.
         """
 
         return self.project_controller is not None
@@ -558,9 +552,6 @@ class PluginContext:
     ) -> PluginContext:
         """
         Return a derived context with one optional extension service.
-
-        The supplied reference is recorded only. No service is
-        created or resolved.
         """
 
         self._validate_name(
@@ -672,7 +663,6 @@ def create_plugin_context(
 # ============================================================
 # PUBLIC API
 # ============================================================
-
 
 __all__ = [
     "PluginContext",
