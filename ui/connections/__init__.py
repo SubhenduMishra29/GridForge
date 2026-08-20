@@ -37,7 +37,6 @@ Core remains authoritative for electrical topology.
 """
 
 from .connection import Connection
-from .connection_manager import ConnectionManager
 from .connection_preview import ConnectionPreview
 from .connection_router import ConnectionRouter
 from .connection_validator import ConnectionValidator
