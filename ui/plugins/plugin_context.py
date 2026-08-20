@@ -5,27 +5,26 @@ GridForge V2
 File:
     ui/plugins/plugin_context.py
 
-Author:
-    Subhendu Mishra
-
 Purpose
 -------
-Defines the dependency context supplied to GridForge UI composition
-plugins.
+Defines the dependency context supplied to GridForge V2 UI
+composition plugins.
 
 Architectural role
 ------------------
 PluginContext is an immutable dependency-carrier object.
 
-It carries references to already-created application and UI services.
-It does not create, resolve, own, or mutate those services.
+It carries references to already-created application and UI
+services. It does not create, resolve, own, or mutate those
+services.
 
 It provides:
 
     - explicit dependency references;
     - controlled derived contexts;
     - required-dependency validation;
-    - access to genuinely optional extension services.
+    - access to genuinely optional extension services;
+    - the MainWindow root composition widget.
 
 It does NOT:
 
@@ -52,6 +51,8 @@ Architectural rules
   established controller, manager, registry, or service boundary.
 - The authoritative application Controller is exposed explicitly as
   ``controller``.
+- The MainWindow root composition widget is exposed explicitly as
+  ``root_widget``.
 - Core/domain objects remain authoritative outside the UI.
 - PluginContext contains no Qt construction logic.
 - MainWindow and plugin composition remain separate concerns.
@@ -103,9 +104,17 @@ class PluginContext:
     ``controller`` is the authoritative application/UI coordination
     controller used by composition plugins.
 
-    Plugins may request operations from the controller through this
-    explicit dependency, but the controller remains owned by the
-    application composition layer.
+    Root Widget
+    ----------
+    ``root_widget`` is the MainWindow-owned root composition widget.
+
+    ShellPlugin uses this widget as the canonical container for
+    composing the concrete UI widgets supplied by the other
+    plugins.
+
+    PluginContext does not create or own the root widget.
+    MainWindow owns it and supplies the reference through
+    dependency injection.
     """
 
     # --------------------------------------------------------
@@ -117,6 +126,12 @@ class PluginContext:
     parent: QWidget | None = None
 
     application: Any = None
+
+    # --------------------------------------------------------
+    # Root composition widget
+    # --------------------------------------------------------
+
+    root_widget: QWidget | None = None
 
     # --------------------------------------------------------
     # Authoritative application controller
@@ -254,6 +269,8 @@ class PluginContext:
             default,
         )
 
+    # --------------------------------------------------------
+
     def require_service(
         self,
         name: str,
@@ -261,12 +278,13 @@ class PluginContext:
         """
         Return a required extension service.
 
-        Raises:
-            KeyError:
-                If the service is unavailable.
+        Raises
+        ------
+        KeyError
+            If the service is unavailable.
 
-            RuntimeError:
-                If the service exists but is None.
+        RuntimeError
+            If the service exists but is None.
         """
 
         self._validate_name(
@@ -294,6 +312,8 @@ class PluginContext:
             )
 
         return value
+
+    # --------------------------------------------------------
 
     def has_service(
         self,
@@ -327,6 +347,10 @@ class PluginContext:
         The current context is never modified.
 
         Only actual PluginContext fields may be overridden.
+
+        Because ``root_widget`` is an explicit dataclass field,
+        MainWindow may safely inject it here and all derived
+        plugin contexts will retain it.
         """
 
         field_names = tuple(
@@ -439,12 +463,25 @@ class PluginContext:
 
         return self.controller is not None
 
+    # --------------------------------------------------------
+
+    def has_root_widget(self) -> bool:
+        """
+        Return whether the MainWindow root composition widget exists.
+        """
+
+        return self.root_widget is not None
+
+    # --------------------------------------------------------
+
     def has_core_controller(self) -> bool:
         """
         Return whether the project controller exists.
         """
 
         return self.project_controller is not None
+
+    # --------------------------------------------------------
 
     def has_tool_system(self) -> bool:
         """
@@ -457,6 +494,8 @@ class PluginContext:
             and self.tool_dispatcher is not None
         )
 
+    # --------------------------------------------------------
+
     def has_renderer_system(self) -> bool:
         """
         Return whether the renderer composition boundary exists.
@@ -466,6 +505,8 @@ class PluginContext:
             self.renderer_registry is not None
             and self.render_system is not None
         )
+
+    # --------------------------------------------------------
 
     def has_canvas_system(self) -> bool:
         """
@@ -508,6 +549,8 @@ class PluginContext:
             main_window=main_window
         )
 
+    # --------------------------------------------------------
+
     def with_parent(
         self,
         parent: QWidget,
@@ -524,6 +567,31 @@ class PluginContext:
         return self.derive(
             parent=parent
         )
+
+    # --------------------------------------------------------
+
+    def with_root_widget(
+        self,
+        root_widget: QWidget,
+    ) -> PluginContext:
+        """
+        Return a derived context with a different root composition
+        widget.
+
+        The widget is supplied by the application composition layer.
+        This method does not create or own the widget.
+        """
+
+        self._validate_qwidget(
+            root_widget,
+            "root_widget",
+        )
+
+        return self.derive(
+            root_widget=root_widget
+        )
+
+    # --------------------------------------------------------
 
     def with_controller(
         self,
@@ -544,6 +612,8 @@ class PluginContext:
         return self.derive(
             controller=controller
         )
+
+    # --------------------------------------------------------
 
     def with_service(
         self,
@@ -568,6 +638,8 @@ class PluginContext:
         return self.derive(
             services=services
         )
+
+    # --------------------------------------------------------
 
     def with_metadata(
         self,
@@ -621,6 +693,8 @@ class PluginContext:
                     "a non-empty string."
                 )
             )
+
+    # --------------------------------------------------------
 
     @staticmethod
     def _validate_qwidget(
