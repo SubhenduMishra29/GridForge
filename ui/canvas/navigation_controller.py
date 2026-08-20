@@ -5,12 +5,10 @@
 """
 Canvas-level navigation controller for GridForge V2.
 
-NavigationController owns viewport navigation mechanics.
+NavigationController owns viewport navigation mechanics only.
 
 Responsibilities
 ----------------
-NavigationController is responsible for:
-
     - canvas zoom;
     - canvas panning;
     - view transformation;
@@ -49,6 +47,19 @@ NavigationController does NOT:
     - decide application-level navigation policy;
     - communicate directly with domain objects.
 
+Navigation transform contract
+-----------------------------
+GridForge navigation uses:
+
+    - positive uniform scale;
+    - viewport translation;
+    - no rotation;
+    - no shear;
+    - no non-uniform scaling.
+
+This makes the scalar ``_zoom_level`` an authoritative representation
+of navigation scale.
+
 Ownership
 ---------
 GraphicsView owns the NavigationController instance.
@@ -68,12 +79,10 @@ No direct PySide6/PyQt imports are permitted.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
-
-from ui.core.qt import (
-    Qt,
-)
+from ui.core.qt import Qt
 
 
 class NavigationController:
@@ -81,8 +90,9 @@ class NavigationController:
     Canvas-level navigation mechanics.
 
     The controller is deliberately independent of GridForge Core.
-    It operates only on the supplied GraphicsView and its scene
-    transform.
+
+    It operates only on the supplied GraphicsView and its viewport
+    transform/scrollbars.
     """
 
     # ========================================================
@@ -97,6 +107,9 @@ class NavigationController:
     DEFAULT_PAN_BUTTON = Qt.MiddleButton
 
     DEFAULT_FIT_MARGIN = 50.0
+
+    # Numerical tolerance used when validating QTransform values.
+    TRANSFORM_TOLERANCE = 1.0e-9
 
     # ========================================================
     # INITIALIZATION
@@ -116,7 +129,7 @@ class NavigationController:
         Parameters
         ----------
         view:
-            GraphicsView receiving the navigation operations.
+            GraphicsView receiving navigation operations.
 
         zoom_factor:
             Multiplicative zoom factor for one zoom step.
@@ -157,7 +170,7 @@ class NavigationController:
         # ----------------------------------------------------
         # Navigation state.
         #
-        # _zoom_level represents the current uniform scale
+        # The zoom level represents positive uniform scale
         # relative to the identity transform.
         # ----------------------------------------------------
 
@@ -260,11 +273,13 @@ class NavigationController:
         vertical = self.view.verticalScrollBar()
 
         horizontal.setValue(
-            horizontal.value() - int(dx)
+            horizontal.value()
+            - int(dx)
         )
 
         vertical.setValue(
-            vertical.value() - int(dy)
+            vertical.value()
+            - int(dy)
         )
 
         self._pan_start = position
@@ -309,12 +324,13 @@ class NavigationController:
             None,
         )
 
-        if not callable(
-            angle_delta
-        ):
+        if not callable(angle_delta):
             return False
 
         delta = angle_delta()
+
+        if delta is None:
+            return False
 
         y_method = getattr(
             delta,
@@ -322,19 +338,24 @@ class NavigationController:
             None,
         )
 
-        if not callable(
-            y_method
-        ):
+        if not callable(y_method):
             return False
 
-        value = y_method()
+        try:
+            value = y_method()
+        except Exception:
+            return False
+
+        if isinstance(value, bool):
+            return False
+
+        if not isinstance(value, (int, float)):
+            return False
 
         if value == 0:
             return False
 
-        steps = (
-            value / 120.0
-        )
+        steps = value / 120.0
 
         position = None
 
@@ -344,10 +365,20 @@ class NavigationController:
             None,
         )
 
-        if callable(
-            position_method
-        ):
-            position = position_method()
+        if callable(position_method):
+            try:
+                position = position_method()
+            except Exception:
+                position = None
+
+        if position is not None:
+            try:
+                self._validate_position(
+                    position,
+                    "position",
+                )
+            except (TypeError, ValueError):
+                position = None
 
         if position is not None:
             self._zoom_at(
@@ -359,7 +390,14 @@ class NavigationController:
                 steps
             )
 
-        event.accept()
+        accept = getattr(
+            event,
+            "accept",
+            None,
+        )
+
+        if callable(accept):
+            accept()
 
         return True
 
@@ -387,7 +425,7 @@ class NavigationController:
         self._ensure_active()
 
         self._zoom(
-            steps
+            float(steps)
         )
 
     # --------------------------------------------------------
@@ -412,7 +450,7 @@ class NavigationController:
         self._ensure_active()
 
         self._zoom(
-            -steps
+            -float(steps)
         )
 
     # --------------------------------------------------------
@@ -445,15 +483,26 @@ class NavigationController:
             / self._zoom_level
         )
 
-        if factor == 1.0:
+        if math.isclose(
+            factor,
+            1.0,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
             return
 
-        self.view.scale(
+        center = self._viewport_center()
+
+        self._scale_at(
             factor,
-            factor,
+            center,
         )
 
-        self._zoom_level = target
+        self._zoom_level = self._estimate_zoom_level()
+
+        self._zoom_level = self._clamp_zoom(
+            self._zoom_level
+        )
 
     # --------------------------------------------------------
 
@@ -493,20 +542,57 @@ class NavigationController:
             / self._zoom_level
         )
 
-        if factor == 1.0:
+        if math.isclose(
+            factor,
+            1.0,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
             return
 
-        # ----------------------------------------------------
-        # Map the cursor into scene coordinates before scaling.
-        # ----------------------------------------------------
+        self._scale_at(
+            factor,
+            position,
+        )
+
+        self._zoom_level = self._estimate_zoom_level()
+
+        self._zoom_level = self._clamp_zoom(
+            self._zoom_level
+        )
+
+    # --------------------------------------------------------
+
+    def _scale_at(
+        self,
+        factor: float,
+        position: Any,
+    ) -> None:
+        """
+        Scale the view while preserving the scene point under
+        ``position``.
+
+        Parameters
+        ----------
+        factor:
+            Positive uniform scale multiplier.
+
+        position:
+            Viewport-space anchor position.
+        """
+
+        if factor <= 0.0:
+            raise ValueError(
+                "scale factor must be greater than zero."
+            )
+
+        self._validate_position(
+            position,
+            "position",
+        )
 
         scene_position = self.view.mapToScene(
-            position.toPoint()
-            if hasattr(
-                position,
-                "toPoint",
-            )
-            else position
+            self._to_point(position)
         )
 
         self.view.scale(
@@ -514,25 +600,18 @@ class NavigationController:
             factor,
         )
 
-        # ----------------------------------------------------
-        # Restore the cursor's scene position after scaling.
-        # ----------------------------------------------------
-
-        viewport_position = self.view.mapFromScene(
+        mapped_position = self.view.mapFromScene(
             scene_position
         )
 
-        current_x = position.x()
-        current_y = position.y()
-
         delta_x = (
-            viewport_position.x()
-            - current_x
+            mapped_position.x()
+            - position.x()
         )
 
         delta_y = (
-            viewport_position.y()
-            - current_y
+            mapped_position.y()
+            - position.y()
         )
 
         horizontal = self.view.horizontalScrollBar()
@@ -540,15 +619,13 @@ class NavigationController:
 
         horizontal.setValue(
             horizontal.value()
-            + int(delta_x)
+            + int(round(delta_x))
         )
 
         vertical.setValue(
             vertical.value()
-            + int(delta_y)
+            + int(round(delta_y))
         )
-
-        self._zoom_level = target
 
     # ========================================================
     # ZOOM STATE
@@ -573,6 +650,8 @@ class NavigationController:
         Set the relative zoom level.
 
         The requested level is clamped to the configured range.
+
+        Programmatic zoom is anchored at the viewport center.
         """
 
         if isinstance(
@@ -587,6 +666,11 @@ class NavigationController:
             )
 
         level = float(level)
+
+        if not math.isfinite(level):
+            raise ValueError(
+                "level must be finite."
+            )
 
         if level <= 0.0:
             raise ValueError(
@@ -604,13 +688,25 @@ class NavigationController:
             / self._zoom_level
         )
 
-        if factor != 1.0:
-            self.view.scale(
-                factor,
-                factor,
-            )
+        if math.isclose(
+            factor,
+            1.0,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
+            self._zoom_level = target
+            return
 
-        self._zoom_level = target
+        self._scale_at(
+            factor,
+            self._viewport_center(),
+        )
+
+        self._zoom_level = self._estimate_zoom_level()
+
+        self._zoom_level = self._clamp_zoom(
+            self._zoom_level
+        )
 
     # ========================================================
     # RESET
@@ -647,15 +743,12 @@ class NavigationController:
         margin:
             Margin in viewport pixels.
 
-        Notes
-        -----
-        QGraphicsView.fitInView() fits to the complete viewport.
-        Therefore the requested viewport margin is implemented by
-        fitting first and then applying a uniform reduction equal
-        to the requested pixel margin.
+        The content is fitted with preserved aspect ratio and
+        then reduced uniformly so that the requested viewport
+        margin remains available.
 
-        The resulting transform is then measured again so that
-        _zoom_level remains consistent with the actual view.
+        Navigation state is synchronized from the resulting
+        transform.
         """
 
         if isinstance(
@@ -670,6 +763,11 @@ class NavigationController:
             )
 
         margin = float(margin)
+
+        if not math.isfinite(margin):
+            raise ValueError(
+                "margin must be finite."
+            )
 
         if margin < 0.0:
             raise ValueError(
@@ -711,31 +809,28 @@ class NavigationController:
 
         available_width = (
             viewport_width
-            - (
-                2.0
-                * margin
-            )
+            - 2.0 * margin
         )
 
         available_height = (
             viewport_height
-            - (
-                2.0
-                * margin
-            )
+            - 2.0 * margin
         )
 
-        if available_width <= 0.0:
-            return
-
-        if available_height <= 0.0:
+        if (
+            available_width <= 0.0
+            or available_height <= 0.0
+        ):
             return
 
         self.end_pan()
 
         # ----------------------------------------------------
-        # First fit the content to the complete viewport.
+        # Reset first so fitInView calculates the fit from a
+        # deterministic transform.
         # ----------------------------------------------------
+
+        self.view.resetTransform()
 
         self.view.fitInView(
             rect,
@@ -743,12 +838,8 @@ class NavigationController:
         )
 
         # ----------------------------------------------------
-        # fitInView() has now established the required uniform
-        # scale for the content.
-        #
-        # Reduce that scale so that the content occupies only
-        # the viewport area remaining after the requested
-        # viewport-pixel margins.
+        # Reduce the fitted transform to accommodate the
+        # requested viewport-pixel margin.
         # ----------------------------------------------------
 
         width_factor = (
@@ -768,28 +859,35 @@ class NavigationController:
         )
 
         if margin_factor < 1.0:
-            self.view.scale(
+            self._scale_at(
                 margin_factor,
-                margin_factor,
+                self._viewport_center(),
             )
 
         # ----------------------------------------------------
-        # Re-establish authoritative navigation state from the
-        # actual transform rather than assuming a scale.
+        # Re-establish authoritative navigation state from
+        # the actual transform.
         # ----------------------------------------------------
+
+        actual_zoom = self._estimate_zoom_level()
+
+        target_zoom = self._clamp_zoom(
+            actual_zoom
+        )
+
+        if not math.isclose(
+            target_zoom,
+            actual_zoom,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
+            self._apply_zoom_level(
+                target_zoom
+            )
 
         self._zoom_level = self._estimate_zoom_level()
 
         self._zoom_level = self._clamp_zoom(
-            self._zoom_level
-        )
-
-        # ----------------------------------------------------
-        # If the configured zoom limits required clamping,
-        # apply that clamp to the actual transform as well.
-        # ----------------------------------------------------
-
-        self._apply_zoom_level(
             self._zoom_level
         )
 
@@ -815,8 +913,11 @@ class NavigationController:
         """
         Replace the viewport transform.
 
-        This is a low-level navigation operation and does not
-        modify application state.
+        Only positive uniform scaling with translation is
+        supported by the GridForge navigation contract.
+
+        Rotation, shear, reflection and non-uniform scaling are
+        rejected.
         """
 
         if transform is None:
@@ -826,20 +927,43 @@ class NavigationController:
 
         self._ensure_active()
 
+        scale = self._validate_navigation_transform(
+            transform
+        )
+
+        target = self._clamp_zoom(
+            scale
+        )
+
+        # ----------------------------------------------------
+        # If the supplied transform is outside the configured
+        # zoom limits, preserve its translation while adjusting
+        # only the uniform scale.
+        # ----------------------------------------------------
+
+        if not math.isclose(
+            target,
+            scale,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
+            self.view.setTransform(
+                transform
+            )
+
+            self._zoom_level = scale
+
+            self._apply_zoom_level(
+                target
+            )
+
+            return
+
         self.view.setTransform(
             transform
         )
 
-        self._zoom_level = self._estimate_zoom_level()
-
-        target = self._clamp_zoom(
-            self._zoom_level
-        )
-
-        if target != self._zoom_level:
-            self._apply_zoom_level(
-                target
-            )
+        self._zoom_level = scale
 
     # ========================================================
     # ZOOM LIMITS
@@ -854,9 +978,7 @@ class NavigationController:
         Replace the allowed relative zoom range.
 
         If the current zoom lies outside the new range, the
-        actual viewport transform is adjusted immediately so
-        that navigation state and the visible transform remain
-        consistent.
+        actual viewport transform is adjusted immediately.
         """
 
         min_zoom = self._validate_zoom_limit(
@@ -885,12 +1007,18 @@ class NavigationController:
             current
         )
 
-        self._zoom_level = current
+        if math.isclose(
+            target,
+            current,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
+            self._zoom_level = current
+            return
 
-        if target != current:
-            self._apply_zoom_level(
-                target
-            )
+        self._apply_zoom_level(
+            target
+        )
 
     # --------------------------------------------------------
 
@@ -919,9 +1047,7 @@ class NavigationController:
         """
         Apply an absolute relative zoom level to the view.
 
-        The current transform is measured first so that the
-        requested target is applied relative to the actual
-        viewport scale.
+        Scaling is anchored at the viewport center.
         """
 
         target = self._clamp_zoom(
@@ -938,15 +1064,25 @@ class NavigationController:
             / current
         )
 
-        if factor != 1.0:
-            self.view.scale(
-                factor,
-                factor,
-            )
+        if math.isclose(
+            factor,
+            1.0,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
+            self._zoom_level = target
+            return
 
-        self._zoom_level = target
+        self._scale_at(
+            factor,
+            self._viewport_center(),
+        )
 
-    # --------------------------------------------------------
+        self._zoom_level = self._estimate_zoom_level()
+
+    # ========================================================
+    # TRANSFORM INSPECTION
+    # ========================================================
 
     def _estimate_zoom_level(
         self,
@@ -955,7 +1091,11 @@ class NavigationController:
         Estimate the current uniform scale from the view
         transform.
 
-        The GridForge navigation model uses uniform scaling.
+        The GridForge navigation model requires positive
+        uniform scaling.
+
+        If transform access is unavailable, identity scale is
+        used as the safe fallback for lightweight test doubles.
         """
 
         transform = self.view.transform()
@@ -972,39 +1112,247 @@ class NavigationController:
             None,
         )
 
-        if callable(
-            m11
-        ):
+        if not callable(m11):
+            return 1.0
+
+        try:
             scale_x = float(
                 m11()
             )
+        except (TypeError, ValueError):
+            return 1.0
 
-            if callable(
-                m22
-            ):
-                scale_y = float(
-                    m22()
-                )
+        if not math.isfinite(scale_x):
+            return 1.0
 
-                # ------------------------------------------------
-                # Navigation should remain uniformly scaled.
-                # Use the geometric mean if tiny floating-point
-                # differences exist between the axes.
-                # ------------------------------------------------
+        if not callable(m22):
+            return (
+                scale_x
+                if scale_x > 0.0
+                else 1.0
+            )
 
-                if (
-                    scale_x > 0.0
-                    and scale_y > 0.0
-                ):
-                    return (
-                        scale_x
-                        * scale_y
-                    ) ** 0.5
+        try:
+            scale_y = float(
+                m22()
+            )
+        except (TypeError, ValueError):
+            return (
+                scale_x
+                if scale_x > 0.0
+                else 1.0
+            )
 
-            if scale_x > 0.0:
-                return scale_x
+        if (
+            scale_x > 0.0
+            and scale_y > 0.0
+        ):
+            return math.sqrt(
+                scale_x * scale_y
+            )
 
         return 1.0
+
+    # --------------------------------------------------------
+
+    @classmethod
+    def _validate_navigation_transform(
+        cls,
+        transform: Any,
+    ) -> float:
+        """
+        Validate and return the positive uniform scale of a
+        navigation transform.
+
+        Translation is permitted.
+
+        Rotation, shear, reflection and non-uniform scaling
+        are rejected.
+        """
+
+        def read_component(
+            name: str,
+        ) -> float:
+            method = getattr(
+                transform,
+                name,
+                None,
+            )
+
+            if not callable(method):
+                raise TypeError(
+                    "transform must provide "
+                    f"{name}()."
+                )
+
+            try:
+                value = float(
+                    method()
+                )
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"transform.{name}() must return a number."
+                ) from None
+
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"transform.{name}() must be finite."
+                )
+
+            return value
+
+        m11 = read_component("m11")
+        m12 = read_component("m12")
+        m21 = read_component("m21")
+        m22 = read_component("m22")
+
+        tolerance = cls.TRANSFORM_TOLERANCE
+
+        if m11 <= 0.0 or m22 <= 0.0:
+            raise ValueError(
+                "navigation transform must use positive scaling."
+            )
+
+        if not math.isclose(
+            m11,
+            m22,
+            rel_tol=tolerance,
+            abs_tol=tolerance,
+        ):
+            raise ValueError(
+                "navigation transform must use uniform scaling."
+            )
+
+        if not math.isclose(
+            m12,
+            0.0,
+            rel_tol=tolerance,
+            abs_tol=tolerance,
+        ) or not math.isclose(
+            m21,
+            0.0,
+            rel_tol=tolerance,
+            abs_tol=tolerance,
+        ):
+            raise ValueError(
+                "navigation transform must not contain "
+                "rotation or shear."
+            )
+
+        return m11
+
+    # ========================================================
+    # VIEWPORT HELPERS
+    # ========================================================
+
+    def _viewport_center(
+        self,
+    ) -> Any:
+        """
+        Return the center of the viewport in viewport
+        coordinates.
+
+        Uses the viewport's rect when available and falls back
+        to the view dimensions for lightweight test doubles.
+        """
+
+        viewport = self.view.viewport()
+
+        rect_method = getattr(
+            viewport,
+            "rect",
+            None,
+        )
+
+        if callable(rect_method):
+            rect = rect_method()
+
+            center_method = getattr(
+                rect,
+                "center",
+                None,
+            )
+
+            if callable(center_method):
+                return center_method()
+
+        width = float(
+            viewport.width()
+        )
+
+        height = float(
+            viewport.height()
+        )
+
+        return self._make_point(
+            width / 2.0,
+            height / 2.0,
+        )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _to_point(
+        position: Any,
+    ) -> Any:
+        """
+        Convert a QPointF-compatible object to a point accepted
+        by QGraphicsView mapping APIs.
+        """
+
+        to_point = getattr(
+            position,
+            "toPoint",
+            None,
+        )
+
+        if callable(to_point):
+            return to_point()
+
+        return position
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _make_point(
+        x: float,
+        y: float,
+    ) -> Any:
+        """
+        Create a QPointF-compatible point without importing Qt
+        classes directly.
+
+        This helper is intentionally limited to environments
+        where the viewport does not expose QRect.center().
+        """
+
+        try:
+            from ui.core.qt import QPointF
+        except ImportError:
+            class _Point:
+                def __init__(
+                    self,
+                    px: float,
+                    py: float,
+                ) -> None:
+                    self._x = px
+                    self._y = py
+
+                def x(self) -> float:
+                    return self._x
+
+                def y(self) -> float:
+                    return self._y
+
+            return _Point(
+                x,
+                y,
+            )
+
+        return QPointF(
+            x,
+            y,
+        )
 
     # ========================================================
     # DEBUG STATE
@@ -1075,6 +1423,11 @@ class NavigationController:
 
         value = float(value)
 
+        if not math.isfinite(value):
+            raise ValueError(
+                "zoom_factor must be finite."
+            )
+
         if value <= 1.0:
             raise ValueError(
                 "zoom_factor must be greater than 1.0."
@@ -1105,6 +1458,11 @@ class NavigationController:
             )
 
         value = float(value)
+
+        if not math.isfinite(value):
+            raise ValueError(
+                f"{name} must be finite."
+            )
 
         if value <= 0.0:
             raise ValueError(
