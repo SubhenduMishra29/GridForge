@@ -5,63 +5,65 @@
 """
 GridForge V2 canvas scene.
 
-QGraphicsScene is the scene boundary between the canvas viewport
-and the permanent graphical projection managed by RenderSystem.
+GridScene is the QGraphicsScene boundary of the SLD canvas.
+
+Architectural role
+------------------
+GridScene is a passive graphical scene container.
+
+The authoritative application/model state remains outside the
+scene. Graphical objects placed in the scene are projections of
+that state and are managed by the rendering layer.
 
 Responsibilities
 ----------------
-GridScene:
+GridScene owns only scene-level canvas concerns:
 
-    - owns the canvas scene rectangle;
-    - provides a stable QGraphicsScene boundary;
-    - maintains scene-level presentation configuration;
-    - provides controlled scene clearing/reset operations;
-    - exposes diagnostic scene state;
-    - provides a stable place for canvas-level scene metadata.
+    - canvas scene rectangle;
+    - scene-level presentation boundary;
+    - graphical item access;
+    - controlled graphical clearing/reset;
+    - projection-oriented object-ID lookup;
+    - graphical selection-state clearing;
+    - diagnostic scene state.
 
 GridScene does NOT:
 
-    - own the Core model;
+    - own Core state;
     - create electrical model objects;
-    - implement electrical topology;
-    - implement tool behavior;
-    - perform selection logic;
-    - perform snapping;
-    - perform navigation;
-    - calculate electrical quantities;
-    - own concrete renderers;
-    - decide what domain objects should be rendered.
+    - validate electrical topology;
+    - implement tools;
+    - implement snapping;
+    - implement navigation;
+    - own authoritative selection;
+    - perform electrical calculations;
+    - own renderers;
+    - decide which domain objects are rendered.
 
-Rendering
----------
+Rendering boundary
+------------------
+Permanent graphical projection is managed by RenderSystem and
+the renderer layer.
 
-Permanent graphical objects are created and managed by the
-RenderSystem and renderer layer.
+    Domain/Application State
+              |
+              v
+        RenderSystem
+              |
+              v
+          Renderer
+              |
+              v
+          GridScene
+              |
+              v
+       QGraphicsItem
 
-GridScene is therefore deliberately passive.
+GridScene therefore remains passive.
 
-Architecture
-------------
-
-                    GraphicsView
-                         │
-                         ▼
-                     GridScene
-                         │
-                ┌────────┴────────┐
-                ▼                 ▼
-          RenderSystem       UI services
-                │
-                ▼
-             Renderers
-                │
-                ▼
-        QGraphicsItems
-
-Qt Boundary
+Qt boundary
 -----------
-
-All Qt dependencies must pass through:
+All Qt dependencies pass through:
 
     ui.core.qt
 
@@ -80,12 +82,11 @@ from ui.core.qt import (
 
 class GridScene(QGraphicsScene):
     """
-    GridForge canvas scene.
+    Passive QGraphicsScene boundary for the GridForge canvas.
 
-    GridScene is intentionally a thin scene container.
-
-    Domain state remains outside the scene and graphical items
-    remain projections of authoritative application state.
+    GridScene contains graphical projection state only. It does
+    not become the owner of application or electrical-domain
+    state.
     """
 
     # ========================================================
@@ -108,12 +109,7 @@ class GridScene(QGraphicsScene):
         parent: Optional[Any] = None,
     ) -> None:
         """
-        Initialize the GridForge canvas scene.
-
-        Parameters
-        ----------
-        parent:
-            Optional Qt parent object.
+        Initialize the canvas scene.
         """
 
         super().__init__(parent)
@@ -137,45 +133,38 @@ class GridScene(QGraphicsScene):
         """
         Set the logical canvas scene rectangle.
 
-        This controls the available scene coordinate extent.
-
-        It does not move or modify graphical items.
+        This changes only the scene coordinate extent. Existing
+        graphical items are not modified or repositioned.
         """
 
-        if rect is None:
-            raise ValueError(
-                "rect must not be None."
-            )
-
-        if not isinstance(
+        self._validate_rect(
             rect,
-            QRectF,
-        ):
-            raise TypeError(
-                "rect must be a QRectF."
-            )
+            "rect",
+        )
 
         if rect.isNull():
             raise ValueError(
                 "rect must not be null."
             )
 
-        if rect.width() <= 0:
+        if rect.width() <= 0.0:
             raise ValueError(
                 "rect width must be greater than zero."
             )
 
-        if rect.height() <= 0:
+        if rect.height() <= 0.0:
             raise ValueError(
                 "rect height must be greater than zero."
             )
 
-        self._configured_scene_rect = QRectF(
+        configured = QRectF(
             rect
         )
 
+        self._configured_scene_rect = configured
+
         self.setSceneRect(
-            self._configured_scene_rect
+            configured
         )
 
     # --------------------------------------------------------
@@ -184,7 +173,7 @@ class GridScene(QGraphicsScene):
         self,
     ) -> QRectF:
         """
-        Return the configured logical canvas rectangle.
+        Return a copy of the configured canvas rectangle.
         """
 
         return QRectF(
@@ -199,12 +188,9 @@ class GridScene(QGraphicsScene):
         self,
     ) -> QRectF:
         """
-        Return the bounding rectangle of all scene content.
+        Return the bounding rectangle of graphical scene items.
 
-        This is a graphical projection query only.
-
-        It does not imply ownership of the objects represented
-        by the scene items.
+        This is a projection query only.
         """
 
         return QRectF(
@@ -232,11 +218,9 @@ class GridScene(QGraphicsScene):
         self,
     ) -> None:
         """
-        Remove all graphical items from the scene.
+        Remove all graphical items.
 
-        This operation affects only the UI projection.
-
-        It does not modify the Core model or application state.
+        Core/application state is not modified.
         """
 
         self.clear()
@@ -247,8 +231,8 @@ class GridScene(QGraphicsScene):
         self,
     ) -> None:
         """
-        Clear all graphical items and restore the default
-        logical canvas rectangle.
+        Clear graphical content and restore the default scene
+        rectangle.
         """
 
         self.clear()
@@ -269,10 +253,7 @@ class GridScene(QGraphicsScene):
         self,
     ) -> tuple[Any, ...]:
         """
-        Return a snapshot of all scene items.
-
-        The returned tuple does not expose mutable scene
-        ownership semantics.
+        Return a stable snapshot of scene items.
         """
 
         return tuple(
@@ -285,7 +266,7 @@ class GridScene(QGraphicsScene):
         self,
     ) -> int:
         """
-        Return the number of graphical items in the scene.
+        Return the number of graphical scene items.
         """
 
         return len(
@@ -301,14 +282,10 @@ class GridScene(QGraphicsScene):
         object_id: Any,
     ) -> Optional[Any]:
         """
-        Find the first graphical item exposing the requested
-        application object ID.
+        Return the first graphical item whose ``object_id``
+        matches the requested application object ID.
 
-        Graphics items may expose:
-
-            object_id
-
-        This is a projection lookup only.
+        This is projection lookup only.
         """
 
         if object_id is None:
@@ -317,13 +294,11 @@ class GridScene(QGraphicsScene):
         for item in tuple(
             self.items()
         ):
-            item_id = getattr(
+            if getattr(
                 item,
                 "object_id",
                 None,
-            )
-
-            if item_id == object_id:
+            ) == object_id:
                 return item
 
         return None
@@ -335,25 +310,22 @@ class GridScene(QGraphicsScene):
         object_id: Any,
     ) -> tuple[Any, ...]:
         """
-        Find all graphical items exposing the requested
-        application object ID.
+        Return all graphical items whose ``object_id`` matches.
         """
 
         if object_id is None:
             return ()
 
-        result = []
+        result: list[Any] = []
 
         for item in tuple(
             self.items()
         ):
-            item_id = getattr(
+            if getattr(
                 item,
                 "object_id",
                 None,
-            )
-
-            if item_id == object_id:
+            ) == object_id:
                 result.append(
                     item
                 )
@@ -363,17 +335,16 @@ class GridScene(QGraphicsScene):
         )
 
     # ========================================================
-    # SELECTION PROJECTION SUPPORT
+    # GRAPHICAL SELECTION PROJECTION
     # ========================================================
 
     def clear_graphical_selection(
         self,
     ) -> None:
         """
-        Clear QGraphicsItem selection state.
+        Clear the Qt graphical selection state of scene items.
 
-        This does NOT modify authoritative application
-        selection stored by Controller.
+        This does not modify authoritative application selection.
         """
 
         for item in tuple(
@@ -399,31 +370,14 @@ class GridScene(QGraphicsScene):
         point: Any,
     ) -> bool:
         """
-        Return whether a scene point lies inside the configured
-        canvas rectangle.
+        Return whether a point lies within the configured
+        scene rectangle.
         """
 
-        if point is None:
-            raise ValueError(
-                "point must not be None."
-            )
-
-        x = getattr(
+        self._validate_point(
             point,
-            "x",
-            None,
+            "point",
         )
-
-        y = getattr(
-            point,
-            "y",
-            None,
-        )
-
-        if not callable(x) or not callable(y):
-            raise TypeError(
-                "point must provide x() and y()."
-            )
 
         return self.sceneRect().contains(
             point
@@ -441,19 +395,82 @@ class GridScene(QGraphicsScene):
         """
 
         rect = self.sceneRect()
+        content = self.itemsBoundingRect()
+        items = self.items()
 
         return {
-            "item_count": len(
-                self.items()
-            ),
-            "scene_rect": rect,
-            "content_rect": (
-                self.itemsBoundingRect()
-            ),
-            "has_content": bool(
-                self.items()
-            ),
+            "item_count": len(items),
+            "scene_rect": QRectF(rect),
+            "content_rect": QRectF(content),
+            "has_content": bool(items),
         }
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_rect(
+        rect: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a QRectF-compatible canvas rectangle.
+
+        Public canvas configuration deliberately requires QRectF
+        so the Qt boundary remains explicit and deterministic.
+        """
+
+        if rect is None:
+            raise ValueError(
+                f"{name} must not be None."
+            )
+
+        if not isinstance(
+            rect,
+            QRectF,
+        ):
+            raise TypeError(
+                f"{name} must be a QRectF."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_point(
+        point: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a QPoint/QPointF-compatible point.
+        """
+
+        if point is None:
+            raise ValueError(
+                f"{name} must not be None."
+            )
+
+        if not callable(
+            getattr(
+                point,
+                "x",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide x()."
+            )
+
+        if not callable(
+            getattr(
+                point,
+                "y",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide y()."
+            )
 
     # ========================================================
     # REPRESENTATION
