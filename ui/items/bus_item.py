@@ -1,736 +1,621 @@
 # ============================================================
-
 # File: ui/items/bus_item.py
-
 # GridForge V2 — Bus Graphics Item
-
 # ============================================================
 
 """
-GridForge V2 Bus Graphics Item.
+GridForge V2 — Bus Graphics Item.
 
-BusItem is the presentation-layer graphics representation of an
-authoritative GridForge Bus.
+BusItem is a presentation-layer projection of one authoritative
+GridForge Bus object.
 
-## Architectural Role
+Architectural rules
+-------------------
 
-The authoritative Bus remains in GridForge Core.
-
-```
-Core Bus
-   │
-   ▼
-BusItem
-   │
-   ▼
-```
-
-QGraphicsScene
-│
-▼
-GraphicsView
-
-BusItem provides graphical representation and interaction
-metadata only.
-
-## Responsibilities
+    Core Bus
+       │
+       ▼
+    BusItem
+       │
+       ▼
+   QGraphicsScene
+       │
+       ▼
+   GraphicsView
 
 BusItem:
 
-```
-- represents one authoritative Bus visually;
-- exposes the stable object_id;
-- provides bus-specific graphical geometry;
-- supports graphical selection;
-- supports graphical movement;
-- reports graphical position changes;
-- provides presentation diagnostics;
-- optionally retains a non-owning reference to the projected
-  model object.
-```
+    - owns graphical state only;
+    - stores stable object identity;
+    - optionally stores a non-owning model reference;
+    - provides Bus-specific geometry;
+    - provides graphical selection;
+    - provides graphical movement;
+    - emits graphical position changes.
 
 BusItem does NOT:
 
-```
-- own the Bus model;
-- modify the Core model directly;
-- perform engineering calculations;
-- determine electrical topology;
-- perform snapping;
-- own application selection;
-- create Lines or other engineering objects;
-- implement tool behavior;
-- manage controllers;
-- manage plugins;
-- perform navigation;
-- become an engineering authority.
-```
+    - own engineering truth;
+    - modify Core directly;
+    - determine electrical topology;
+    - perform engineering calculations;
+    - perform snapping;
+    - perform connection validation;
+    - own application selection;
+    - create Lines;
+    - manage tools;
+    - manage controllers;
+    - perform navigation.
 
-## Identity
-
-object_id identifies the authoritative application/Core object.
-
-It is not:
-
-```
-- a QGraphicsItem memory identity;
-- a numerical network index;
-- an electrical topology index.
-```
-
-## Selection
-
-QGraphicsItem selection is presentation state only.
-
-Persistent application selection remains owned by Controller
-through SelectionManager.
-
-## Movement
-
-BusItem is movable at the graphics level so UI interaction can
-provide immediate visual feedback.
-
-Position changes are exposed through `position_changed`.
-
-Changing graphical position does not directly modify the Core.
-A controller/command workflow is responsible for committing any
-application-level position change.
-
-## Rendering
-
-BusItem provides only its own minimal graphics painting.
-
-Renderer infrastructure may configure its presentation through
-the item's Qt painting properties.
-
-No engineering semantics are encoded in the visual rendering.
-
-## Qt Boundary
-
-All Qt dependencies are imported through:
-
-```
-ui.core.qt
-```
-
-No direct PySide6 or PyQt imports are permitted.
+All Qt dependencies are imported through ui.core.qt.
 """
 
 from __future__ import annotations
+
 from typing import Any, Optional
 
 from ui.core.qt import (
-QBrush,
-QGraphicsItem,
-QPainter,
-QGraphicsObject,
-QPen,
-QPointF,
-Qt,
-Signal,
+    QBrush,
+    QGraphicsItem,
+    QGraphicsObject,
+    QPainter,
+    QPen,
+    QPointF,
+    QRectF,
+    Qt,
+    Signal,
 )
 
 from .base_item import BaseItem
 
-# ============================================================
 
+# ============================================================
 # BUS ITEM
-
 # ============================================================
+
 
 class BusItem(BaseItem):
-"""
-Graphical representation of one GridForge Bus.
-
-```
-BusItem inherits the common UI graphics contract from
-BaseItem and adds only Bus-specific presentation behavior.
-"""
-
-# ========================================================
-# VISUAL DEFAULTS
-# ========================================================
-
-DEFAULT_RADIUS = 8.0
-
-DEFAULT_LINE_WIDTH = 1.5
-
-# ========================================================
-# SIGNALS
-# ========================================================
-
-position_changed = Signal(object)
-
-# ========================================================
-# INITIALIZATION
-# ========================================================
-
-def __init__(
-    self,
-    object_id: Any,
-    position: Optional[QPointF] = None,
-    radius: float = DEFAULT_RADIUS,
-    model: Optional[Any] = None,
-    parent: Optional[QGraphicsObject] = None,
-) -> None:
     """
-    Initialize a BusItem.
-
-    Parameters
-    ----------
-    object_id:
-        Stable identifier of the represented Bus.
-
-    position:
-        Optional initial scene position.
-
-    radius:
-        Visual radius of the bus symbol.
-
-    model:
-        Optional non-owning reference to the projected
-        authoritative Bus object.
-
-    parent:
-        Optional Qt graphics parent.
+    Graphical representation of one authoritative GridForge Bus.
     """
 
-    super().__init__(
-        object_id=object_id,
-        parent=parent,
-    )
+    # ========================================================
+    # VISUAL DEFAULTS
+    # ========================================================
 
-    self._validate_radius(
-        radius
-    )
+    DEFAULT_RADIUS = 8.0
+    DEFAULT_LINE_WIDTH = 1.5
 
-    self.radius = float(
-        radius
-    )
+    # ========================================================
+    # SIGNALS
+    # ========================================================
 
-    # ----------------------------------------------------
-    # Projection reference.
-    #
-    # This is not owned by BusItem and is never mutated
-    # by BusItem.
-    # ----------------------------------------------------
+    position_changed = Signal(object)
 
-    self._model = model
+    # ========================================================
+    # INITIALIZATION
+    # ========================================================
 
-    # ----------------------------------------------------
-    # Graphics configuration.
-    # ----------------------------------------------------
+    def __init__(
+        self,
+        object_id: Any,
+        position: Optional[QPointF] = None,
+        radius: float = DEFAULT_RADIUS,
+        model: Optional[Any] = None,
+        parent: Optional[QGraphicsObject] = None,
+    ) -> None:
+        super().__init__(
+            object_id=object_id,
+            parent=parent,
+        )
 
-    self.setFlag(
-        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
-        True,
-    )
+        self._validate_radius(radius)
 
-    self.setFlag(
-        QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
-        True,
-    )
+        self._radius = float(radius)
+        self._model = model
 
-    self.setFlag(
-        QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges,
-        True,
-    )
+        # ----------------------------------------------------
+        # Qt interaction configuration
+        # ----------------------------------------------------
 
-    # ----------------------------------------------------
-    # Default presentation.
-    #
-    # Renderers may replace these properties.
-    # ----------------------------------------------------
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+            True,
+        )
 
-    self.setPen(
-        QPen(
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+            True,
+        )
+
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges,
+            True,
+        )
+
+        # ----------------------------------------------------
+        # Presentation state.
+        #
+        # QGraphicsObject does not provide pen/brush storage,
+        # therefore BusItem owns these visual properties itself.
+        # ----------------------------------------------------
+
+        self._pen = QPen(
             Qt.GlobalColor.black,
             self.DEFAULT_LINE_WIDTH,
         )
-    )
 
-    self.setBrush(
-        QBrush(
-            Qt.GlobalColor.white
-        )
-    )
-
-    if position is not None:
-        self.set_scene_position(
-            position,
-            emit=False,
+        self._brush = QBrush(
+            Qt.GlobalColor.white,
         )
 
-# ========================================================
-# MODEL PROJECTION
-# ========================================================
+        # Prevent duplicate position notifications when
+        # set_scene_position() calls setPos().
+        self._suppress_position_signal = False
 
-def get_model(
-    self,
-) -> Optional[Any]:
-    """
-    Return the optional projected model reference.
-
-    BusItem does not own or mutate the returned object.
-    """
-
-    return self._model
-
-# --------------------------------------------------------
-
-def set_model(
-    self,
-    model: Optional[Any],
-) -> None:
-    """
-    Replace the projected model reference.
-
-    This changes only the UI projection reference.
-    """
-
-    self._model = model
-
-# ========================================================
-# POSITION
-# ========================================================
-
-def get_scene_position(
-    self,
-) -> QPointF:
-    """
-    Return the current Qt scene position.
-
-    QGraphicsItem remains the sole owner of graphical
-    position state.
-    """
-
-    position = self.pos()
-
-    return QPointF(
-        position.x(),
-        position.y(),
-    )
-
-# --------------------------------------------------------
-
-def set_scene_position(
-    self,
-    position: QPointF,
-    *,
-    emit: bool = True,
-) -> None:
-    """
-    Set the graphical scene position.
-
-    Parameters
-    ----------
-    position:
-        Target scene position.
-
-    emit:
-        Whether a position_changed notification should be
-        emitted when the position actually changes.
-
-    The operation modifies graphical state only.
-    """
-
-    self._validate_point(
-        position,
-        "position",
-    )
-
-    old_position = self.get_scene_position()
-
-    new_position = QPointF(
-        position.x(),
-        position.y(),
-    )
-
-    self.setPos(
-        new_position
-    )
-
-    if (
-        emit
-        and self._positions_differ(
-            old_position,
-            new_position,
-        )
-    ):
-        self.position_changed.emit(
-            new_position
-        )
-
-# ========================================================
-# QT GEOMETRY CHANGE
-# ========================================================
-
-def itemChange(
-    self,
-    change: Any,
-    value: Any,
-) -> Any:
-    """
-    Observe Qt graphics-item position changes.
-
-    This method reports presentation changes only.
-
-    It never modifies the Core model.
-    """
-
-    result = super().itemChange(
-        change,
-        value,
-    )
-
-    position_change = (
-        QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
-    )
-
-    if change == position_change:
-        if value is not None:
+        if position is not None:
             self._validate_point(
-                value,
-                "position change",
+                position,
+                "position",
             )
 
-            self.position_changed.emit(
-                QPointF(
-                    value.x(),
-                    value.y(),
-                )
+            self.set_scene_position(
+                float(position.x()),
+                float(position.y()),
             )
 
-    return result
+    # ========================================================
+    # MODEL PROJECTION
+    # ========================================================
 
-# ========================================================
-# GEOMETRY
-# ========================================================
+    def get_model(self) -> Optional[Any]:
+        """
+        Return the optional projected model reference.
 
-def boundingRect(self) -> Any:
-    """
-    Return the local bounding rectangle of the Bus symbol.
-    """
+        BusItem never owns or mutates this object.
+        """
 
-    radius = self.radius
+        return self._model
 
-    return self._make_rect(
-        -radius,
-        -radius,
-        radius * 2.0,
-        radius * 2.0,
-    )
+    # --------------------------------------------------------
 
-# --------------------------------------------------------
+    def set_model(
+        self,
+        model: Optional[Any],
+    ) -> None:
+        """
+        Replace the projected model reference.
+        """
 
-def paint(
-    self,
-    painter: QPainter,
-    option: Any,
-    widget: Optional[Any] = None,
-) -> None:
-    """
-    Paint the graphical Bus representation.
+        self._model = model
 
-    No engineering calculations or domain decisions occur
-    here.
-    """
+    # ========================================================
+    # POSITION
+    # ========================================================
 
-    del option
-    del widget
+    def get_scene_position(self) -> tuple[float, float]:
+        """
+        Return graphical scene position.
 
-    if painter is None:
-        return
+        Maintains the BaseItem position contract.
+        """
 
-    painter.setPen(
-        self.pen()
-    )
+        position = self.scenePos()
 
-    painter.setBrush(
-        self.brush()
-    )
-
-    painter.drawEllipse(
-        self.boundingRect()
-    )
-
-# ========================================================
-# VISUAL CONFIGURATION
-# ========================================================
-
-def set_radius(
-    self,
-    radius: float,
-) -> None:
-    """
-    Change the visual Bus radius.
-
-    This modifies presentation geometry only.
-    """
-
-    self._validate_radius(
-        radius
-    )
-
-    radius = float(
-        radius
-    )
-
-    if radius == self.radius:
-        return
-
-    self.prepareGeometryChange()
-
-    self.radius = radius
-
-    self.update()
-
-# --------------------------------------------------------
-
-def get_radius(
-    self,
-) -> float:
-    """
-    Return the current visual radius.
-    """
-
-    return self.radius
-
-# --------------------------------------------------------
-
-def set_pen(
-    self,
-    pen: QPen,
-) -> None:
-    """
-    Set the Bus outline presentation.
-    """
-
-    if pen is None:
-        raise ValueError(
-            "pen must not be None."
+        return (
+            float(position.x()),
+            float(position.y()),
         )
 
-    super().setPen(
-        pen
-    )
+    # --------------------------------------------------------
 
-# --------------------------------------------------------
+    def set_scene_position(
+        self,
+        x: float,
+        y: float,
+    ) -> None:
+        """
+        Set graphical scene position.
 
-def set_brush(
-    self,
-    brush: QBrush,
-) -> None:
-    """
-    Set the Bus fill presentation.
-    """
+        This intentionally preserves BaseItem's public
+        set_scene_position(x, y) contract.
+        """
 
-    if brush is None:
-        raise ValueError(
-            "brush must not be None."
-        )
-
-    super().setBrush(
-        brush
-    )
-
-# ========================================================
-# SELECTION PRESENTATION
-# ========================================================
-
-def set_visual_selected(
-    self,
-    selected: bool,
-) -> None:
-    """
-    Set the graphical selection projection.
-
-    Persistent application selection remains owned by
-    Controller / SelectionManager.
-    """
-
-    self.set_graphical_selected(
-        selected
-    )
-
-# --------------------------------------------------------
-
-def is_visual_selected(
-    self,
-) -> bool:
-    """
-    Return the current graphical selection state.
-    """
-
-    return self.is_selected()
-
-# ========================================================
-# DIAGNOSTICS
-# ========================================================
-
-def get_state(
-    self,
-) -> dict[str, Any]:
-    """
-    Return diagnostic presentation state.
-    """
-
-    state = super().get_state()
-
-    state.update(
-        {
-            "radius": self.radius,
-            "movable": bool(
-                self.flags()
-                & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            ),
-            "selectable": bool(
-                self.flags()
-                & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-            ),
-            "has_model": self._model is not None,
-        }
-    )
-
-    return state
-
-# ========================================================
-# VALIDATION
-# ========================================================
-
-@staticmethod
-def _validate_radius(
-    radius: Any,
-) -> None:
-    """
-    Validate a visual radius.
-    """
-
-    if (
-        isinstance(radius, bool)
-        or not isinstance(
-            radius,
-            (int, float),
-        )
-    ):
-        raise TypeError(
-            "radius must be a numeric value."
-        )
-
-    if radius <= 0:
-        raise ValueError(
-            "radius must be greater than zero."
-        )
-
-# --------------------------------------------------------
-
-@staticmethod
-def _validate_point(
-    point: Any,
-    name: str,
-) -> None:
-    """
-    Validate a QPointF-compatible value.
-    """
-
-    if point is None:
-        raise ValueError(
-            f"{name} must not be None."
-        )
-
-    if not callable(
-        getattr(
-            point,
+        self._validate_coordinate(
+            x,
             "x",
-            None,
-        )
-    ):
-        raise TypeError(
-            f"{name} must provide x()."
         )
 
-    if not callable(
-        getattr(
-            point,
+        self._validate_coordinate(
+            y,
             "y",
-            None,
-        )
-    ):
-        raise TypeError(
-            f"{name} must provide y()."
         )
 
-# --------------------------------------------------------
+        old_x, old_y = self.get_scene_position()
 
-@staticmethod
-def _positions_differ(
-    first: QPointF,
-    second: QPointF,
-) -> bool:
-    """
-    Return whether two positions differ.
-    """
+        new_x = float(x)
+        new_y = float(y)
 
-    return (
-        first.x() != second.x()
-        or first.y() != second.y()
-    )
+        if old_x == new_x and old_y == new_y:
+            return
 
-# --------------------------------------------------------
+        self._suppress_position_signal = True
 
-@staticmethod
-def _make_rect(
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-) -> Any:
-    """
-    Create a QRectF without expanding the public Qt
-    abstraction beyond the current requirement.
-    """
+        try:
+            super().set_scene_position(
+                new_x,
+                new_y,
+            )
+        finally:
+            self._suppress_position_signal = False
 
-    from ui.core.qt import QRectF
+        self.position_changed.emit(
+            QPointF(
+                new_x,
+                new_y,
+            )
+        )
 
-    return QRectF(
-        x,
-        y,
-        width,
-        height,
-    )
+    # ========================================================
+    # QT POSITION CHANGE
+    # ========================================================
 
-# ========================================================
-# REPRESENTATION
-# ========================================================
+    def itemChange(
+        self,
+        change: Any,
+        value: Any,
+    ) -> Any:
+        """
+        Observe Qt-driven position changes.
 
-def __repr__(
-    self,
-) -> str:
-    """
-    Return a concise diagnostic representation.
-    """
+        Only presentation state is reported.
+        """
 
-    position = self.get_scene_position()
+        result = super().itemChange(
+            change,
+            value,
+        )
 
-    return (
-        "BusItem("
-        f"object_id={self.object_id!r}, "
-        f"position=("
-        f"{position.x():.2f}, "
-        f"{position.y():.2f}"
-        "), "
-        f"radius={self.radius:.2f}, "
-        f"selected={self.is_selected()}"
-        ")"
-    )
-```
+        if (
+            change
+            == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
+        ):
+            if (
+                value is not None
+                and not self._suppress_position_signal
+            ):
+                self._validate_point(
+                    value,
+                    "position",
+                )
+
+                self.position_changed.emit(
+                    QPointF(
+                        value.x(),
+                        value.y(),
+                    )
+                )
+
+        return result
+
+    # ========================================================
+    # GEOMETRY
+    # ========================================================
+
+    def boundingRect(self) -> QRectF:
+        """
+        Return the local bounding rectangle of the Bus symbol.
+        """
+
+        radius = self._radius
+
+        return QRectF(
+            -radius,
+            -radius,
+            radius * 2.0,
+            radius * 2.0,
+        )
+
+    # ========================================================
+    # PAINTING
+    # ========================================================
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: Any,
+        widget: Optional[Any] = None,
+    ) -> None:
+        """
+        Paint the Bus symbol.
+
+        No engineering semantics are evaluated here.
+        """
+
+        del option
+        del widget
+
+        if painter is None:
+            return
+
+        painter.setPen(
+            self._pen
+        )
+
+        painter.setBrush(
+            self._brush
+        )
+
+        painter.drawEllipse(
+            self.boundingRect()
+        )
+
+    # ========================================================
+    # RADIUS
+    # ========================================================
+
+    def set_radius(
+        self,
+        radius: float,
+    ) -> None:
+        """
+        Change the visual Bus radius.
+        """
+
+        self._validate_radius(radius)
+
+        radius = float(radius)
+
+        if radius == self._radius:
+            return
+
+        self.prepareGeometryChange()
+
+        self._radius = radius
+
+        self.update()
+
+    # --------------------------------------------------------
+
+    def get_radius(self) -> float:
+        """
+        Return the visual Bus radius.
+        """
+
+        return self._radius
+
+    # ========================================================
+    # PEN
+    # ========================================================
+
+    def set_pen(
+        self,
+        pen: QPen,
+    ) -> None:
+        """
+        Set the visual outline pen.
+        """
+
+        if not isinstance(
+            pen,
+            QPen,
+        ):
+            raise TypeError(
+                "pen must be a QPen."
+            )
+
+        self._pen = QPen(pen)
+
+        self.update()
+
+    # --------------------------------------------------------
+
+    def get_pen(self) -> QPen:
+        """
+        Return a copy of the current visual pen.
+        """
+
+        return QPen(self._pen)
+
+    # ========================================================
+    # BRUSH
+    # ========================================================
+
+    def set_brush(
+        self,
+        brush: QBrush,
+    ) -> None:
+        """
+        Set the visual fill brush.
+        """
+
+        if not isinstance(
+            brush,
+            QBrush,
+        ):
+            raise TypeError(
+                "brush must be a QBrush."
+            )
+
+        self._brush = QBrush(brush)
+
+        self.update()
+
+    # --------------------------------------------------------
+
+    def get_brush(self) -> QBrush:
+        """
+        Return a copy of the current visual brush.
+        """
+
+        return QBrush(self._brush)
+
+    # ========================================================
+    # SELECTION
+    # ========================================================
+
+    def set_visual_selected(
+        self,
+        selected: bool,
+    ) -> None:
+        """
+        Set graphical selection only.
+        """
+
+        self.set_graphical_selected(
+            selected
+        )
+
+    # --------------------------------------------------------
+
+    def is_visual_selected(self) -> bool:
+        """
+        Return graphical selection state.
+        """
+
+        return self.is_selected()
+
+    # ========================================================
+    # DIAGNOSTICS
+    # ========================================================
+
+    def get_state(self) -> dict[str, Any]:
+        """
+        Return presentation-layer diagnostic state.
+        """
+
+        state = super().get_state()
+
+        state.update(
+            {
+                "radius": self._radius,
+                "movable": bool(
+                    self.flags()
+                    & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+                ),
+                "selectable": bool(
+                    self.flags()
+                    & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+                ),
+                "has_model": self._model is not None,
+            }
+        )
+
+        return state
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_coordinate(
+        value: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a numeric coordinate.
+        """
+
+        if (
+            isinstance(value, bool)
+            or not isinstance(
+                value,
+                (int, float),
+            )
+        ):
+            raise TypeError(
+                f"{name} must be a numeric value."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_radius(
+        radius: Any,
+    ) -> None:
+        """
+        Validate the visual radius.
+        """
+
+        if (
+            isinstance(radius, bool)
+            or not isinstance(
+                radius,
+                (int, float),
+            )
+        ):
+            raise TypeError(
+                "radius must be a numeric value."
+            )
+
+        if radius <= 0:
+            raise ValueError(
+                "radius must be greater than zero."
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_point(
+        point: Any,
+        name: str,
+    ) -> None:
+        """
+        Validate a QPointF-compatible object.
+        """
+
+        if point is None:
+            raise ValueError(
+                f"{name} must not be None."
+            )
+
+        if not callable(
+            getattr(
+                point,
+                "x",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide x()."
+            )
+
+        if not callable(
+            getattr(
+                point,
+                "y",
+                None,
+            )
+        ):
+            raise TypeError(
+                f"{name} must provide y()."
+            )
+
+    # ========================================================
+    # REPRESENTATION
+    # ========================================================
+
+    def __repr__(self) -> str:
+        """
+        Return a concise diagnostic representation.
+        """
+
+        x, y = self.get_scene_position()
+
+        return (
+            "BusItem("
+            f"object_id={self.object_id!r}, "
+            f"position=({x:.2f}, {y:.2f}), "
+            f"radius={self._radius:.2f}, "
+            f"selected={self.is_selected()}"
+            ")"
+        )
+
 
 # ============================================================
-
 # PUBLIC API
-
 # ============================================================
 
 __all__ = [
-"BusItem",
+    "BusItem",
 ]
