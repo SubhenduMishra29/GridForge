@@ -55,18 +55,9 @@ from __future__ import annotations
 # ============================================================
 
 from .plugin_contract import (
-    BasePlugin,
-    PluginContextProtocol,
-    PluginContractError,
-    PluginLifecycleProtocol,
-    PluginMetadata,
-    PluginProtocol,
-    PluginWidgetProvider,
-    is_plugin,
-    plugin_dependencies,
-    plugin_id,
-    plugin_metadata,
-    plugin_widget,
+    Plugin,
+    plugin_id_of,
+    supports_plugin_contract,
     validate_plugin,
 )
 
@@ -188,18 +179,9 @@ from .status_plugin import (
 
 __all__ = [
     # Contract
-    "BasePlugin",
-    "PluginContextProtocol",
-    "PluginContractError",
-    "PluginLifecycleProtocol",
-    "PluginMetadata",
-    "PluginProtocol",
-    "PluginWidgetProvider",
-    "is_plugin",
-    "plugin_dependencies",
-    "plugin_id",
-    "plugin_metadata",
-    "plugin_widget",
+    "Plugin",
+    "plugin_id_of",
+    "supports_plugin_contract",
     "validate_plugin",
 
     # Context
@@ -250,7 +232,7 @@ __all__ = [
     # State
     "PluginStateStore",
 
-    # Concrete plugins
+    # Concrete composition plugins
     "CanvasPlugin",
     "create_canvas_plugin",
     "PanelsPlugin",
