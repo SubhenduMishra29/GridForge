@@ -7,63 +7,29 @@ File:
 
 Purpose
 -------
-Composition plugin responsible for creating and exposing the primary
-GridForge canvas.
+Canvas composition plugin for the GridForge SLD UI.
 
 Architectural role
 ------------------
-CanvasPlugin is a UI composition plugin.
+CanvasPlugin owns the lifecycle of the authoritative GraphicsView.
 
-It:
-    - creates the GridForge GraphicsView;
-    - exposes the GraphicsView and its scene;
-    - establishes the Qt parent/lifetime boundary;
-    - provides the canvas component to the UI composition layer.
+It does not create:
+    - ToolManager
+    - InteractionManager
+    - NavigationController
+    - Controller
+    - RenderSystem
 
-It does NOT:
-    - own project state;
-    - own network topology;
-    - modify Core directly;
-    - perform electrical calculations;
-    - implement tool behavior;
-    - own tool lifecycle;
-    - create ToolManager;
-    - create InteractionManager;
-    - create NavigationController;
-    - register tools;
-    - register renderers;
-    - maintain a second canvas state model.
-
-Canvas ownership
-----------------
-GraphicsView is the authoritative canvas viewport.
-
-GraphicsView owns:
-    - its QGraphicsScene;
-    - its InteractionManager;
-    - its NavigationController;
-    - Qt input routing.
-
-CanvasPlugin owns only the composition relationship and plugin
-lifecycle bookkeeping.
-
-Qt boundary
------------
-All Qt imports pass through:
-
-    ui.core.qt
-
-No direct PySide6/PyQt imports are permitted.
+Those are application-owned dependencies supplied through
+PluginContext.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Optional
 
 from ui.core.qt import (
     QGraphicsScene,
-    QObject,
     QWidget,
 )
 
@@ -71,183 +37,88 @@ from ui.canvas.graphics_view import GraphicsView
 from ui.plugins.plugin_context import PluginContext
 
 
-# ============================================================
-# CANVAS PLUGIN CONTEXT
-# ============================================================
-
-
-@dataclass(slots=True)
-class CanvasPluginContext:
+class CanvasPlugin:
     """
-    Narrow dependency context used by CanvasPlugin.
+    GridForge canvas composition plugin.
 
-    The context contains references only.
+    CanvasPlugin creates exactly one authoritative GraphicsView.
 
-    CanvasPlugin does not construct application services.
-
-    ``controller`` is mandatory for actual GraphicsView creation
-    because GraphicsView requires the application/UI controller as
-    its authoritative coordination dependency.
-    """
-
-    parent: Optional[QWidget] = None
-
-    controller: Any = None
-
-
-# ============================================================
-# CANVAS PLUGIN
-# ============================================================
-
-
-class CanvasPlugin(QObject):
-    """
-    Composition plugin for the primary GridForge canvas.
-
-    GraphicsView is the actual canvas component.
-
-    The plugin does not duplicate state already owned by GraphicsView,
-    InteractionManager, NavigationController, ToolManager, Controller,
-    or Core.
+    The GraphicsView receives its application-owned dependencies
+    through PluginContext.
     """
 
     plugin_id = "canvas"
-    plugin_name = "Canvas"
-    plugin_version = "1.0"
-    plugin_description = (
-        "Primary GridForge graphical canvas composition."
-    )
-
-    plugin_dependencies: tuple[str, ...] = ()
-    plugin_optional = False
 
     def __init__(
         self,
-        parent: Optional[QObject] = None,
+        context: Optional[PluginContext] = None,
     ) -> None:
-        """
-        Construct an uninitialized CanvasPlugin.
-
-        Application dependencies are supplied during initialize().
-        """
-
-        super().__init__(
-            parent
-        )
-
-        self._context: Optional[
-            CanvasPluginContext
-        ] = None
-
-        self._view: Optional[
-            GraphicsView
-        ] = None
-
+        self._context = context
+        self._view: Optional[GraphicsView] = None
         self._initialized = False
 
     # ========================================================
-    # PROPERTIES
+    # CONTEXT
     # ========================================================
 
     @property
-    def context(self) -> Optional[CanvasPluginContext]:
-        """Return the current canvas plugin context."""
+    def context(self) -> Optional[PluginContext]:
+        """
+        Return the current plugin context.
+        """
 
         return self._context
 
-    @property
-    def view(self) -> Optional[GraphicsView]:
-        """Return the GridForge canvas view."""
-
-        return self._view
-
-    @property
-    def widget(self) -> Optional[QWidget]:
-        """Return the canvas widget."""
-
-        return self._view
-
-    @property
-    def scene(self) -> Optional[QGraphicsScene]:
+    def set_context(
+        self,
+        context: PluginContext,
+    ) -> None:
         """
-        Return the scene owned by GraphicsView.
+        Supply the plugin dependency context.
 
-        CanvasPlugin does not own or replace this scene.
+        Context may only be replaced before initialization.
         """
 
-        if self._view is None:
-            return None
+        if not isinstance(
+            context,
+            PluginContext,
+        ):
+            raise TypeError(
+                "context must be PluginContext."
+            )
 
-        return self._view.scene()
+        if self._initialized:
+            raise RuntimeError(
+                "CanvasPlugin context cannot be changed "
+                "after initialization."
+            )
 
-    @property
-    def interaction_manager(self) -> Any:
-        """
-        Return GraphicsView's interaction manager.
-
-        The interaction manager is created and owned by GraphicsView.
-        """
-
-        if self._view is None:
-            return None
-
-        return getattr(
-            self._view,
-            "interaction_manager",
-            None,
-        )
-
-    @property
-    def navigation_controller(self) -> Any:
-        """
-        Return GraphicsView's navigation controller.
-
-        NavigationController is created and owned by GraphicsView.
-        """
-
-        if self._view is None:
-            return None
-
-        return getattr(
-            self._view,
-            "navigation_controller",
-            None,
-        )
-
-    @property
-    def initialized(self) -> bool:
-        """Return whether the plugin has been initialized."""
-
-        return self._initialized
+        self._context = context
 
     # ========================================================
-    # LIFECYCLE
+    # INITIALIZATION
     # ========================================================
 
     def initialize(
         self,
-        context: Any,
-    ) -> QWidget:
+        context: Optional[PluginContext] = None,
+    ) -> bool:
         """
-        Initialize the canvas composition.
-
-        The shared PluginContext is normalized into the narrower
-        CanvasPluginContext.
-
-        Initialization is idempotent.
+        Initialize the canvas plugin.
         """
 
         if self._initialized:
-            if self._view is None:
-                raise RuntimeError(
-                    "CanvasPlugin is initialized without a GraphicsView."
-                )
+            return True
 
-            return self._view
+        if context is not None:
+            self.set_context(
+                context
+            )
 
-        self._context = self._coerce_context(
-            context
-        )
+        if self._context is None:
+            raise RuntimeError(
+                "CanvasPlugin requires a PluginContext."
+            )
 
         self._validate_context()
 
@@ -255,77 +126,22 @@ class CanvasPlugin(QObject):
 
         self._initialized = True
 
-        if self._view is None:
-            raise RuntimeError(
-                "CanvasPlugin initialization produced no GraphicsView."
-            )
-
-        return self._view
-
-    def shutdown(self) -> None:
-        """
-        Shut down the plugin.
-
-        Application services are not destroyed.
-
-        GraphicsView lifetime remains governed by Qt ownership. The
-        plugin releases its reference to the composed widget.
-        """
-
-        if not self._initialized:
-            return
-
-        self._view = None
-        self._context = None
-        self._initialized = False
+        return True
 
     # ========================================================
-    # CONTEXT
+    # CONTEXT VALIDATION
     # ========================================================
 
-    @staticmethod
-    def _coerce_context(
-        context: Any,
-    ) -> CanvasPluginContext:
+    def _validate_context(
+        self,
+    ) -> None:
         """
-        Normalize the shared PluginContext into the canvas context.
-
-        A concrete CanvasPluginContext may also be supplied directly.
-        """
-
-        if isinstance(
-            context,
-            CanvasPluginContext,
-        ):
-            return context
-
-        if not isinstance(
-            context,
-            PluginContext,
-        ):
-            raise TypeError(
-                (
-                    "CanvasPlugin.initialize() requires "
-                    "PluginContext or CanvasPluginContext."
-                )
-            )
-
-        return CanvasPluginContext(
-            parent=(
-                context.parent
-                or context.main_window
-            ),
-            controller=context.controller,
-        )
-
-    def _validate_context(self) -> None:
-        """
-        Validate the dependencies required to construct GraphicsView.
+        Validate all dependencies required by the canvas.
         """
 
         if self._context is None:
             raise RuntimeError(
-                "CanvasPlugin context has not been initialized."
+                "CanvasPlugin context is unavailable."
             )
 
         if self._context.controller is None:
@@ -336,21 +152,33 @@ class CanvasPlugin(QObject):
                 )
             )
 
+        if self._context.tool_manager is None:
+            raise RuntimeError(
+                (
+                    "CanvasPlugin requires a ToolManager. "
+                    "GraphicsView cannot create InteractionManager "
+                    "without one."
+                )
+            )
+
     # ========================================================
     # CANVAS CREATION
     # ========================================================
 
-    def _create_canvas(self) -> None:
+    def _create_canvas(
+        self,
+    ) -> None:
         """
         Create the authoritative GridForge GraphicsView.
 
         GraphicsView itself creates and owns:
+
             - QGraphicsScene
             - InteractionManager
             - NavigationController
 
-        CanvasPlugin therefore does not construct or replace any of
-        those objects.
+        CanvasPlugin supplies the existing application-owned
+        dependencies.
         """
 
         if self._context is None:
@@ -363,8 +191,27 @@ class CanvasPlugin(QObject):
                 "CanvasPlugin already contains a GraphicsView."
             )
 
+        controller = (
+            self._context.controller
+        )
+
+        tool_manager = (
+            self._context.tool_manager
+        )
+
+        if controller is None:
+            raise RuntimeError(
+                "CanvasPlugin controller is unavailable."
+            )
+
+        if tool_manager is None:
+            raise RuntimeError(
+                "CanvasPlugin ToolManager is unavailable."
+            )
+
         self._view = GraphicsView(
-            controller=self._context.controller,
+            controller=controller,
+            tool_manager=tool_manager,
             parent=self._context.parent,
         )
 
@@ -373,21 +220,33 @@ class CanvasPlugin(QObject):
             GraphicsView,
         ):
             raise TypeError(
-                "GraphicsView construction returned an invalid object."
+                "GraphicsView construction returned "
+                "an invalid object."
             )
 
     # ========================================================
     # CANVAS ACCESS
     # ========================================================
 
-    def require_view(self) -> GraphicsView:
+    @property
+    def widget(
+        self,
+    ) -> Optional[QWidget]:
+        """
+        Return the canvas QWidget.
+
+        ShellPlugin consumes this property during composition.
+        """
+
+        return self._view
+
+    # --------------------------------------------------------
+
+    def require_view(
+        self,
+    ) -> GraphicsView:
         """
         Return the initialized GraphicsView.
-
-        Raises
-        ------
-        RuntimeError
-            If the plugin has not been initialized.
         """
 
         if self._view is None:
@@ -397,63 +256,61 @@ class CanvasPlugin(QObject):
 
         return self._view
 
-    def require_scene(self) -> QGraphicsScene:
+    # --------------------------------------------------------
+
+    def require_scene(
+        self,
+    ) -> QGraphicsScene:
         """
         Return the scene owned by GraphicsView.
         """
 
-        scene = self.require_view().scene()
+        scene = (
+            self.require_view().scene()
+        )
 
         if scene is None:
             raise RuntimeError(
-                "GraphicsView does not currently have a scene."
+                "GraphicsView does not currently "
+                "have a scene."
             )
 
         return scene
 
     # ========================================================
-    # CANVAS OPERATIONS
+    # STATE
     # ========================================================
 
-    def refresh(self) -> None:
+    @property
+    def initialized(
+        self,
+    ) -> bool:
         """
-        Request a visual refresh of the canvas.
-
-        This is a presentation operation only.
+        Return whether the canvas plugin is initialized.
         """
 
-        view = self._view
-
-        if view is None:
-            return
-
-        view.viewport().update()
-
-        update = getattr(
-            view,
-            "update",
-            None,
-        )
-
-        if callable(update):
-            update()
+        return self._initialized
 
     # ========================================================
-    # CAPABILITIES
+    # SHUTDOWN
     # ========================================================
 
-    def canvas_available(self) -> bool:
-        """Return whether the GraphicsView exists."""
+    def shutdown(
+        self,
+    ) -> None:
+        """
+        Shut down the canvas plugin.
 
-        return self._view is not None
+        GraphicsView is a Qt child of the supplied parent and is
+        therefore allowed to follow Qt ownership semantics.
+        """
 
-    def scene_available(self) -> bool:
-        """Return whether GraphicsView has a scene."""
+        if self._view is not None:
+            self._view.setParent(None)
+            self._view.deleteLater()
 
-        return (
-            self._view is not None
-            and self._view.scene() is not None
-        )
+        self._view = None
+        self._initialized = False
 
 
 # ============================================================
@@ -462,25 +319,21 @@ class CanvasPlugin(QObject):
 
 
 def create_canvas_plugin(
-    parent: Optional[QObject] = None,
+    context: Optional[PluginContext] = None,
 ) -> CanvasPlugin:
     """
-    Create an uninitialized CanvasPlugin.
+    Create a CanvasPlugin.
 
-    Application/UI context is supplied during initialize().
+    No Qt canvas is constructed until initialize() is called.
     """
 
     return CanvasPlugin(
-        parent=parent,
+        context=context
     )
 
 
-# ============================================================
-# PUBLIC API
-# ============================================================
-
 __all__ = [
-    "CanvasPluginContext",
     "CanvasPlugin",
     "create_canvas_plugin",
 ]
+
