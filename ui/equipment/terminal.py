@@ -8,12 +8,10 @@
 #     Defines the terminal abstraction used by SLD equipment.
 #
 # Architectural Role:
-#     A terminal is the explicit connection point through which
-#     electrical equipment participates in the SLD topology.
+#     A terminal is the explicit logical connection point through
+#     which electrical equipment participates in the SLD topology.
 #
-#     Terminals are intentionally separate from graphics items.
-#     A QGraphicsItem may visually display a terminal, but the
-#     terminal itself is a logical UI/domain object.
+#     Terminals are independent of Qt graphics objects.
 #
 # Responsibilities:
 #     - identify an equipment terminal;
@@ -24,30 +22,11 @@
 #     - provide serialization.
 #
 # Does NOT:
-#     - establish electrical network connections;
+#     - establish connections;
 #     - validate topology;
 #     - perform electrical calculations;
 #     - render itself;
 #     - create Qt objects.
-#
-# Relationship:
-#
-#     EquipmentBase
-#          |
-#          +---- Terminal
-#          |
-#          +---- Terminal
-#          |
-#          +---- Terminal
-#                |
-#                v
-#        Connection Subsystem
-#
-# Important Boundary:
-#     Terminal identity must remain stable independently of a
-#     QGraphicsItem. This allows selection, snapping, connection
-#     routing, serialization and Core synchronization to refer to
-#     stable logical identifiers.
 #
 # ============================================================
 
@@ -58,7 +37,7 @@ GridForge V2 — Equipment Terminal.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Mapping
 
 
 @dataclass
@@ -66,91 +45,214 @@ class EquipmentTerminal:
     """
     Logical connection point belonging to one equipment object.
 
-    ``local_position`` is expressed in the equipment's local
-    coordinate system, not the global canvas coordinate system.
+    ``local_position`` is expressed in the equipment-local
+    coordinate system rather than global canvas coordinates.
+
+    Terminal identity is stable and independent of any
+    QGraphicsItem.
     """
 
     terminal_id: str
     equipment_id: str
     terminal_name: str
+
     local_position: tuple[float, float] = (0.0, 0.0)
 
-    properties: Dict[str, Any] = field(
+    properties: dict[str, Any] = field(
         default_factory=dict
     )
 
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
     def __post_init__(self) -> None:
-        if not self.terminal_id:
-            raise ValueError(
-                "terminal_id must not be empty"
+        """
+        Validate and normalize terminal state.
+        """
+
+        self.terminal_id = self._validate_identifier(
+            self.terminal_id,
+            "terminal_id",
+        )
+
+        self.equipment_id = self._validate_identifier(
+            self.equipment_id,
+            "equipment_id",
+        )
+
+        self.terminal_name = self._validate_identifier(
+            self.terminal_name,
+            "terminal_name",
+        )
+
+        self.local_position = self._normalize_position(
+            self.local_position
+        )
+
+        if not isinstance(
+            self.properties,
+            dict,
+        ):
+            raise TypeError(
+                "properties must be a dictionary"
             )
 
-        if not self.equipment_id:
-            raise ValueError(
-                "equipment_id must not be empty"
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _validate_identifier(
+        value: str,
+        field_name: str,
+    ) -> str:
+        """
+        Validate a required logical identifier.
+        """
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            raise TypeError(
+                f"{field_name} must be a string"
             )
 
-        if not self.terminal_name:
+        value = value.strip()
+
+        if not value:
             raise ValueError(
-                "terminal_name must not be empty"
+                f"{field_name} must not be empty"
             )
 
-        if len(self.local_position) != 2:
+        return value
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _normalize_position(
+        position: Any,
+    ) -> tuple[float, float]:
+        """
+        Validate and normalize a two-dimensional position.
+        """
+
+        if isinstance(
+            position,
+            (str, bytes),
+        ):
+            raise TypeError(
+                "local_position must contain two numeric coordinates"
+            )
+
+        try:
+            values = tuple(position)
+        except TypeError as exc:
+            raise TypeError(
+                "local_position must contain two numeric coordinates"
+            ) from exc
+
+        if len(values) != 2:
             raise ValueError(
                 "local_position must contain exactly "
                 "two coordinates"
             )
 
-        self.local_position = (
-            float(self.local_position[0]),
-            float(self.local_position[1]),
-        )
+        try:
+            return (
+                float(values[0]),
+                float(values[1]),
+            )
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                "local_position coordinates must be numeric"
+            ) from exc
 
-    # --------------------------------------------------------
-    # Position
-    # --------------------------------------------------------
+    # ========================================================
+    # POSITION
+    # ========================================================
 
     @property
     def x(self) -> float:
+        """
+        Return the local X coordinate.
+        """
+
         return self.local_position[0]
+
+    # --------------------------------------------------------
 
     @property
     def y(self) -> float:
+        """
+        Return the local Y coordinate.
+        """
+
         return self.local_position[1]
+
+    # --------------------------------------------------------
 
     def set_position(
         self,
         position: tuple[float, float],
     ) -> None:
-        if len(position) != 2:
-            raise ValueError(
-                "position must contain exactly two coordinates"
-            )
+        """
+        Set the terminal's local position.
+        """
 
-        self.local_position = (
-            float(position[0]),
-            float(position[1]),
+        self.local_position = self._normalize_position(
+            position
         )
 
-    # --------------------------------------------------------
-    # Properties
-    # --------------------------------------------------------
+    # ========================================================
+    # METADATA
+    # ========================================================
 
     def get_property(
         self,
         key: str,
         default: Any = None,
     ) -> Any:
+        """
+        Return a terminal property.
+        """
+
+        if not isinstance(
+            key,
+            str,
+        ):
+            raise TypeError(
+                "property key must be a string"
+            )
+
         return self.properties.get(
             key,
             default,
         )
+
+    # --------------------------------------------------------
 
     def set_property(
         self,
         key: str,
         value: Any,
     ) -> None:
+        """
+        Set a terminal property.
+        """
+
+        if not isinstance(
+            key,
+            str,
+        ):
+            raise TypeError(
+                "property key must be a string"
+            )
+
+        key = key.strip()
+
         if not key:
             raise ValueError(
                 "property key must not be empty"
@@ -159,47 +261,111 @@ class EquipmentTerminal:
         self.properties[key] = value
 
     # --------------------------------------------------------
-    # Serialization
-    # --------------------------------------------------------
 
-    def to_dict(self) -> Dict[str, Any]:
+    def has_property(
+        self,
+        key: str,
+    ) -> bool:
+        """
+        Return whether the terminal contains a property.
+        """
+
+        if not isinstance(
+            key,
+            str,
+        ):
+            raise TypeError(
+                "property key must be a string"
+            )
+
+        return key in self.properties
+
+    # ========================================================
+    # SERIALIZATION
+    # ========================================================
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Serialize the terminal into a plain dictionary.
+        """
+
         return {
             "terminal_id": self.terminal_id,
             "equipment_id": self.equipment_id,
             "terminal_name": self.terminal_name,
-            "local_position": list(
-                self.local_position
-            ),
+            "local_position": [
+                self.local_position[0],
+                self.local_position[1],
+            ],
             "properties": dict(
                 self.properties
             ),
         }
 
+    # --------------------------------------------------------
+
     @classmethod
     def from_dict(
         cls,
-        data: Dict[str, Any],
+        data: Mapping[str, Any],
     ) -> "EquipmentTerminal":
-        return cls(
-            terminal_id=str(
-                data["terminal_id"]
-            ),
-            equipment_id=str(
-                data["equipment_id"]
-            ),
-            terminal_name=str(
-                data["terminal_name"]
-            ),
-            local_position=tuple(
-                data.get(
-                    "local_position",
-                    (0.0, 0.0),
+        """
+        Construct a terminal from serialized data.
+        """
+
+        if not isinstance(
+            data,
+            Mapping,
+        ):
+            raise TypeError(
+                "data must be a mapping"
+            )
+
+        required_fields = (
+            "terminal_id",
+            "equipment_id",
+            "terminal_name",
+        )
+
+        for field_name in required_fields:
+            if field_name not in data:
+                raise KeyError(
+                    field_name
                 )
+
+        properties = data.get(
+            "properties",
+            {},
+        )
+
+        if not isinstance(
+            properties,
+            Mapping,
+        ):
+            raise TypeError(
+                "properties must be a mapping"
+            )
+
+        return cls(
+            terminal_id=data[
+                "terminal_id"
+            ],
+            equipment_id=data[
+                "equipment_id"
+            ],
+            terminal_name=data[
+                "terminal_name"
+            ],
+            local_position=data.get(
+                "local_position",
+                (0.0, 0.0),
             ),
             properties=dict(
-                data.get(
-                    "properties",
-                    {},
-                )
+                properties
             ),
         )
+
+
+__all__ = [
+    "EquipmentTerminal",
+]
