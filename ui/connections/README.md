@@ -1,36 +1,38 @@
+````markdown
 # GridForge V2 — Connection Subsystem
-
 
 ## File Location
 
-
 ```text
 ui/connections/
-Purpose
+````
 
-The ui.connections subsystem owns the logical Single Line Diagram (SLD)
-connection workflow.
+## Purpose
 
-It establishes the UI boundary between:
+The `ui.connections` subsystem owns the logical Single Line Diagram (SLD)
+connection workflow at the UI boundary.
 
-equipment terminals;
-connection candidates;
-structural connection validation;
-logical connection state;
-connection routing;
-interactive connection preview;
-future synchronization with the authoritative GridForge Core topology.
+It provides the abstractions required for:
 
-The subsystem provides the connection abstraction required by the current
-SLD workflow without becoming a second electrical-network database.
+* logical connection state;
+* terminal resolution;
+* structural connection validation;
+* interactive connection preview;
+* renderer-neutral connection routing;
+* synchronization with the authoritative GridForge Core topology.
 
-Architectural Principle
+The subsystem must not become a second electrical-network database.
+
+---
+
+# Architectural Principle
 
 A line drawn on the canvas is not automatically a valid electrical
 connection.
 
-The connection workflow is:
+The intended workflow is:
 
+```text
 User Interaction
        │
        ▼
@@ -55,177 +57,232 @@ Topology Synchronization Boundary
        │
        ▼
 GridForge Core
+```
 
-The UI connection subsystem owns the interaction-level connection lifecycle.
+The UI connection subsystem owns the logical connection abstractions and
+interaction-level state.
 
-The Core remains authoritative for electrical-network topology and electrical
-validity.
+GridForge Core remains authoritative for electrical-network topology and
+electrical validity.
 
-Components
-connection.py
+---
 
-Defines the logical Connection object.
+# Components
 
-Responsibilities:
+## `connection.py`
 
-stable connection identity;
-source terminal identity;
-target terminal identity;
-connection type;
-connection properties;
-enabled state;
-serialization/deserialization;
-terminal relationship queries.
+Defines the logical `Connection` object.
 
-It does not:
+### Responsibilities
 
-draw graphics;
-create LineItem;
-calculate impedance;
-mutate Core;
-own Qt objects.
-connection_manager.py
+* stable connection identity;
+* source terminal identity;
+* target terminal identity;
+* connection type;
+* connection properties;
+* enabled state;
+* serialization/deserialization;
+* terminal relationship queries.
 
-Defines ConnectionManager.
+### Does not
 
-Responsibilities:
+* draw graphics;
+* create `LineItem`;
+* calculate impedance;
+* calculate admittance;
+* mutate Core;
+* own Qt objects.
 
-create logical connections;
-remove logical connections;
-retrieve connections;
-query connections;
-maintain the UI connection collection;
-coordinate structural validation;
-optionally synchronize committed changes through TopologyAdapter.
+---
 
-ConnectionManager is the lifecycle/orchestration boundary of the UI
-connection subsystem.
+## `terminal_resolver.py`
 
-It must not become a duplicate electrical-network database.
+Defines `TerminalResolver`.
 
-terminal_resolver.py
+### Responsibilities
 
-Defines TerminalResolver.
+* register logical terminals;
+* unregister terminals;
+* resolve terminal IDs;
+* require existing terminals;
+* determine whether a terminal exists;
+* enumerate terminals;
+* enumerate terminals belonging to equipment;
+* resolve the owning equipment ID of a terminal.
 
-Responsibilities:
+### Does not
 
-register logical terminals;
-unregister terminals;
-resolve terminal IDs;
-require existing terminals;
-determine whether a terminal exists;
-enumerate terminals;
-enumerate terminals belonging to equipment.
+* perform graphical hit testing;
+* create connections;
+* validate electrical topology;
+* create graphics items.
 
-It provides the bridge between spatial UI interaction and stable logical
-terminal identity.
+Terminal identity is maintained independently of graphics objects.
 
-It does not:
+---
 
-perform graphical hit testing;
-create connections;
-validate topology;
-create graphics items.
-connection_validator.py
+## `connection_validator.py`
 
-Defines ConnectionValidator.
+Defines:
 
-Responsibilities:
+```text
+ConnectionValidator
+ValidationResult
+TerminalResolverProtocol
+```
 
-validate source terminal existence;
-validate target terminal existence;
-reject self-connections;
-reject duplicate connections;
-validate basic UI-level terminal compatibility;
-return explicit ValidationResult objects.
+The validator performs UI-level structural validation.
 
-The validator is deliberately a structural UI validator.
+### Responsibilities
 
-It does not perform:
+* validate source terminal identifiers;
+* validate target terminal identifiers;
+* verify terminal existence;
+* reject self-connections;
+* reject same-equipment connections;
+* reject duplicate connections;
+* reject malformed existing connection entries;
+* return explicit immutable `ValidationResult` objects.
 
-load-flow analysis;
-short-circuit analysis;
-impedance calculations;
-protection analysis;
-electrical-network topology solving.
+### Does not
 
-Those responsibilities remain in Core.
+* perform load-flow analysis;
+* perform short-circuit analysis;
+* calculate impedance;
+* calculate admittance;
+* perform protection analysis;
+* solve electrical topology;
+* modify Core state.
 
-connection_preview.py
+Core remains authoritative for electrical validation.
 
-Defines ConnectionPreview.
+---
+
+## `connection_preview.py`
+
+Defines `ConnectionPreview`.
 
 It stores temporary state during interactive connection creation.
 
-Responsibilities:
+### Responsibilities
 
-source terminal;
-target terminal;
-cursor position;
-validation state;
-validation reason;
-active/inactive state;
-commit eligibility;
-reset/cancel lifecycle.
+* source terminal;
+* target terminal;
+* cursor position;
+* validation state;
+* validation reason;
+* active/inactive state;
+* commit eligibility;
+* reset/cancel lifecycle.
 
-It does not:
+### Does not
 
-create connections;
-mutate Core;
-render graphics;
-own a QGraphicsScene.
-connection_router.py
+* create persistent `Connection` objects;
+* mutate Core;
+* render graphics;
+* own a `QGraphicsScene`.
 
-Defines ConnectionRouter.
+Preview state is temporary and must not become persistent logical connection state.
 
-Responsibilities:
+---
 
-calculate renderer-neutral connection geometry;
-generate direct connection paths;
-provide routing points;
-provide an extension point for future routing algorithms.
+## `connection_router.py`
 
-The initial implementation supports direct two-point routing.
+Defines:
 
-Future implementations may support:
+```text
+ConnectionRouter
+ConnectionPath
+Point
+```
 
-orthogonal routing;
-grid-aware routing;
-obstacle-aware routing;
-terminal-direction routing;
-bus-aware routing.
+The router calculates renderer-neutral connection geometry.
 
-The router does not:
+### Responsibilities
 
-create QGraphicsPathItem;
-render connection graphics;
-validate electrical topology.
-topology_adapter.py
+* validate routing coordinates;
+* normalize coordinates;
+* calculate direct connection paths;
+* provide start/end points;
+* provide intermediate routing points;
+* provide an extension point for future routing algorithms.
 
-Defines the TopologyAdapter protocol.
+The current implementation provides direct two-point routing.
 
-It establishes the explicit synchronization boundary between the UI connection
-system and Core.
+Future routing strategies may include:
 
-The adapter defines operations such as:
+* orthogonal routing;
+* grid-aware routing;
+* obstacle-aware routing;
+* terminal-direction routing;
+* bus-aware routing.
 
+### Does not
+
+* create `QGraphicsPathItem`;
+* render graphics;
+* access `QGraphicsScene`;
+* validate electrical topology;
+* modify logical `Connection` state.
+
+---
+
+## `topology_adapter.py`
+
+Defines the `TopologyAdapter` protocol.
+
+This is the explicit synchronization boundary between the UI connection
+subsystem and GridForge Core.
+
+The protocol defines operations for:
+
+```text
 add_connection(connection)
 remove_connection(connection)
+```
 
-The protocol deliberately does not import or depend on the concrete Core
-implementation.
+The protocol deliberately does not import or depend on a concrete Core
+network implementation.
 
-This prevents the UI architecture from inventing a Core network API before
-the authoritative Core contract is selected.
+This prevents the UI layer from inventing or duplicating the Core topology
+API.
 
-Dependency Direction
+A concrete Core adapter may be introduced only after the authoritative Core
+contract is established.
+
+---
+
+## `__init__.py`
+
+Defines the public connection-layer API.
+
+The current public objects are:
+
+```python
+from ui.connections import (
+    Connection,
+    ConnectionPreview,
+    ConnectionRouter,
+    ConnectionValidator,
+    TerminalResolver,
+    TopologyAdapter,
+)
+```
+
+No `ConnectionManager` is currently exported because no production
+`connection_manager.py` implementation exists in this subsystem.
+
+---
+
+# Dependency Direction
 
 The intended dependency direction is:
 
+```text
                  SLD / Tool Interaction
                          │
                          ▼
-                ConnectionManager
+                Connection Workflow
                          │
           ┌──────────────┼──────────────┐
           ▼              ▼              ▼
@@ -238,14 +295,18 @@ The intended dependency direction is:
                                         │
                                         ▼
                                    GridForge Core
+```
 
 The connection subsystem must not introduce reverse dependencies from Core
 into UI connection objects.
 
-Rendering Boundary
+---
 
-Connection geometry and rendering are deliberately separated.
+# Rendering Boundary
 
+Connection geometry and rendering are separate responsibilities.
+
+```text
 Connection
      │
      ▼
@@ -259,23 +320,28 @@ LineRenderer
      │
      ▼
 Canvas
+```
 
 The connection subsystem therefore does not draw anything.
 
-In particular, connection classes must not:
+Connection classes must not:
 
-import QGraphicsScene;
-create QGraphicsItem;
-create QGraphicsPathItem;
-manipulate viewport transforms;
-perform painting;
-access renderer implementations.
-Core Boundary
+* import `QGraphicsScene`;
+* create `QGraphicsItem`;
+* create `QGraphicsPathItem`;
+* manipulate viewport transforms;
+* perform painting;
+* access renderer implementations.
 
-Core remains authoritative for electrical-network state.
+---
 
-The UI connection layer may maintain logical UI connection state such as:
+# Core Boundary
 
+GridForge Core remains authoritative for electrical-network state.
+
+The UI connection layer may maintain logical UI state such as:
+
+```text
 Connection
     ├── connection_id
     ├── source_terminal_id
@@ -283,62 +349,74 @@ Connection
     ├── connection_type
     ├── properties
     └── enabled
+```
 
-However, this must not become an independent electrical-network model.
+This state must not become an independent electrical-network model.
 
-The synchronization direction is:
+The intended synchronization direction is:
 
+```text
 UI Connection
       │
       ▼
 TopologyAdapter
       │
       ▼
-Core Network API
+GridForge Core
+```
 
-The connection subsystem must never:
+The UI connection layer must never:
 
-UI Connection
-      │
-      ├── calculate impedance
-      ├── calculate admittance
-      ├── solve topology
-      ├── calculate power flow
-      ├── calculate short circuit
-      └── modify Core objects directly
-Structural Validation
+* calculate impedance;
+* calculate admittance;
+* solve electrical topology;
+* perform power-flow calculations;
+* perform short-circuit calculations;
+* perform protection calculations;
+* directly mutate concrete Core network objects.
 
-The UI validator may enforce structural constraints including:
+---
 
-terminal existence;
-source/target identity;
-self-connection rejection;
-duplicate connection rejection;
-basic terminal compatibility;
-terminal role compatibility;
-connection multiplicity;
-required connection direction.
+# Structural Validation
 
-These checks are intended to provide immediate UI feedback.
+The UI validator may enforce immediate structural constraints including:
+
+* terminal existence;
+* source/target identity;
+* self-connection rejection;
+* same-equipment rejection;
+* duplicate connection rejection;
+* basic connection structure.
+
+These checks provide immediate UI feedback.
 
 They do not replace Core electrical validation.
 
 The authoritative sequence remains:
 
+```text
 UI Structural Validation
           │
           ▼
 Logical Connection
           │
           ▼
+TopologyAdapter
+          │
+          ▼
 Core Validation / Topology
           │
           ▼
 Electrical Analysis
-Connection Lifecycle
+```
 
-A normal connection lifecycle is:
+---
 
+# Connection Lifecycle
+
+The current connection abstractions support the following conceptual lifecycle:
+
+```text
 IDLE
  │
  │ user selects source terminal
@@ -356,7 +434,7 @@ PREVIEW
  ▼
 VALID CANDIDATE
  │
- │ commit
+ │ commit through the higher-level interaction workflow
  ▼
 CONNECTION CREATED
  │
@@ -365,93 +443,77 @@ CORE SYNCHRONIZATION
  │
  ▼
 CONNECTED
+```
 
-Cancellation follows:
+Cancellation:
 
+```text
 PREVIEW
     │
     │ cancel
     ▼
 IDLE
+```
 
-Invalid candidates do not create logical connections.
+Invalid candidates must not be committed as logical connections.
 
-PREVIEW
-    │
-    ▼
-INVALID
-    │
-    ├── feedback
-    │
-    └── no Connection created
-Connection Manager Boundary
+---
 
-ConnectionManager is responsible for logical connection lifecycle.
-
-It may:
-
-create
-remove
-query
-enumerate
-validate
-synchronize
-
-It must not:
-
-render
-route graphics
-perform electrical calculations
-own the canvas
-own the scene
-own LineItem
-own Core
-
-The manager owns only the UI-level logical connection collection.
-
-Terminal Identity
+# Terminal Identity
 
 Connections use stable logical terminal identifiers.
 
-They must not store:
+A `Connection` must not use graphical objects as logical identity.
 
+It must not store:
+
+```text
 QGraphicsItem
 QGraphicsObject
 QPointF
-GraphicsView
-GraphicsScene
+QGraphicsView
+QGraphicsScene
+```
 
-as their identity.
+as terminal identity.
 
 The logical relationship is:
 
+```text
 Connection
     │
     ├── source_terminal_id
-    │
     └── target_terminal_id
+```
 
-Terminal resolution is performed separately through TerminalResolver.
+Terminal resolution is performed separately through `TerminalResolver`.
 
 This allows graphics objects to be recreated without invalidating the logical
 connection model.
 
-Equipment Boundary
+---
+
+# Equipment Boundary
 
 Equipment owns its terminal definitions.
 
 Conceptually:
 
+```text
 Equipment
     │
     ├── Terminal A
     ├── Terminal B
     └── Terminal C
+```
 
-The connection subsystem references those terminals by stable identifiers.
+The connection subsystem references terminals through stable identifiers.
 
 It does not take ownership of equipment.
 
+The relationship is:
+
+```text
 Equipment
       │
       ▼
@@ -462,160 +524,241 @@ TerminalResolver
       │
       ▼
 Connection
-Qt Boundary
+```
 
-The connection subsystem is intentionally mostly Qt-independent.
+---
 
-Connection-domain objects should not directly depend on Qt unless a future
-specific requirement establishes a clear presentation boundary.
+# Qt Boundary
 
-In particular:
+The connection subsystem is intentionally Qt-independent.
 
-Connection must remain Qt-independent;
-ConnectionPreview must remain Qt-independent;
-ConnectionRouter must remain Qt-independent;
-ConnectionValidator must remain Qt-independent;
-TerminalResolver must remain Qt-independent;
-TopologyAdapter must remain Qt-independent.
+The following components must remain free of Qt dependencies:
 
-This keeps the logical connection layer testable without constructing a
-graphics scene.
+```text
+Connection
+ConnectionPreview
+ConnectionRouter
+ConnectionValidator
+TerminalResolver
+TopologyAdapter
+```
 
-Testing Strategy
+This keeps the logical connection layer independently testable without
+constructing a graphics scene.
 
-The subsystem should be tested independently from the Qt canvas.
+---
 
-Expected test structure:
+# Testing Strategy
 
+Production-code auditing is completed before test-code auditing.
+
+When the test suite is created or audited, it should correspond only to
+components that actually exist in the production package.
+
+Expected production-aligned test structure:
+
+```text
 tests/ui/connections/
 ├── test_connection.py
-├── test_connection_manager.py
 ├── test_connection_preview.py
 ├── test_connection_router.py
 ├── test_connection_validator.py
 ├── test_terminal_resolver.py
 └── test_topology_adapter.py
+```
+
+There is currently no `ConnectionManager` production component, therefore
+there must be no mandatory `test_connection_manager.py` until such a
+production component is intentionally introduced.
 
 Tests should verify:
 
-Connection
-valid construction;
-invalid identifiers;
-self-connection rejection;
-terminal relationship queries;
-serialization;
-deserialization.
-ConnectionManager
-creation;
-duplicate detection;
-removal;
-lookup;
-enumeration;
-terminal-based queries;
-validation delegation;
-topology-adapter synchronization.
-TerminalResolver
-registration;
-duplicate registration rejection;
-lookup;
-required lookup;
-unregister;
-equipment-terminal queries;
-clearing.
-ConnectionValidator
-missing source;
-missing target;
-self connection;
-unknown terminal;
-same-equipment connection;
-duplicate connection;
-valid connection.
-ConnectionPreview
-begin;
-target update;
-cursor update;
-validity;
-commit eligibility;
-cancel;
-reset.
-ConnectionRouter
-direct routing;
-coordinate conversion to floats;
-start/end points;
-renderer-neutral output.
-TopologyAdapter
-protocol conformance;
-add/remove synchronization through a fake adapter;
-no direct Core dependency.
-Architectural Invariants
+### `Connection`
+
+* valid construction;
+* invalid identifiers;
+* self-connection rejection;
+* terminal relationship queries;
+* serialization;
+* deserialization.
+
+### `TerminalResolver`
+
+* registration;
+* duplicate registration rejection;
+* lookup;
+* required lookup;
+* terminal existence;
+* equipment lookup;
+* equipment-terminal queries;
+* unregister;
+* clearing.
+
+### `ConnectionValidator`
+
+* invalid source;
+* invalid target;
+* missing source;
+* missing target;
+* self connection;
+* same-equipment connection;
+* duplicate connection;
+* malformed existing connection;
+* valid connection.
+
+### `ConnectionPreview`
+
+* begin;
+* target update;
+* cursor update;
+* validity;
+* commit eligibility;
+* cancel;
+* reset.
+
+### `ConnectionRouter`
+
+* direct routing;
+* coordinate validation;
+* coordinate normalization;
+* start/end points;
+* renderer-neutral output.
+
+### `TopologyAdapter`
+
+* protocol conformance;
+* add synchronization through a fake adapter;
+* remove synchronization through a fake adapter;
+* absence of direct concrete Core dependency.
+
+---
+
+# Architectural Invariants
 
 The following rules are mandatory for GridForge V2.
 
-1. Core Is Authoritative
+## 1. Core Is Authoritative
 
 The UI connection layer must never become the authoritative electrical network.
 
-2. Logical and Visual Connections Are Separate
+## 2. Logical and Visual Connections Are Separate
 
-A logical Connection is not a LineItem.
+A logical `Connection` is not a `LineItem`.
 
+```text
 Connection != LineItem
-3. Stable IDs Are Used
+```
+
+## 3. Stable IDs Are Used
 
 Connections reference terminals using stable logical identifiers.
 
-4. Rendering Is External
+## 4. Rendering Is External
 
 The connection subsystem does not paint or create graphics objects.
 
-5. Routing Is External to the Model
+## 5. Routing Is Separate From the Model
 
-ConnectionRouter calculates geometry without modifying the logical
+`ConnectionRouter` calculates geometry without modifying the logical
 connection.
 
-6. Preview Is Temporary
+## 6. Preview Is Temporary
 
-ConnectionPreview must never become persistent connection state.
+`ConnectionPreview` must never become persistent connection state.
 
-7. Validation Is Structural
+## 7. Validation Is Structural
 
 UI validation provides immediate structural feedback but does not replace
 Core electrical validation.
 
-8. Core Synchronization Is Explicit
+## 8. Core Synchronization Is Explicit
 
-Core synchronization occurs only through TopologyAdapter.
+Core synchronization occurs only through `TopologyAdapter`.
 
 The UI must not silently mutate Core objects.
 
-9. No Core Implementation Dependency
+## 9. No Concrete Core Dependency
 
 The connection subsystem must not import concrete Core network classes merely
 to make the UI compile.
 
-10. No Canvas Ownership
+## 10. No Canvas Ownership
 
 The connection subsystem does not own:
 
-QGraphicsScene;
-QGraphicsView;
-LineItem;
-renderers;
-viewport state.
-Public API
+```text
+QGraphicsScene
+QGraphicsView
+LineItem
+renderers
+viewport state
+```
 
-The package exposes the following public objects:
+## 11. No Speculative Components
 
+Documentation must describe implemented production components.
+
+Future components must not be presented as current public APIs.
+
+---
+
+# Current Production API
+
+The current connection-layer public API is:
+
+```python
 from ui.connections import (
     Connection,
-    ConnectionManager,
     ConnectionPreview,
     ConnectionRouter,
     ConnectionValidator,
     TerminalResolver,
     TopologyAdapter,
 )
+```
 
-These constitute the public connection-layer API.
+These objects constitute the currently implemented public connection-layer
+API.
 
-Internal implementation details should remain private.
+A connection manager/orchestration component may be introduced later if the
+application architecture requires one. Until then, lifecycle orchestration
+belongs to the existing higher-level interaction/controller workflow.
+
+---
+
+# Production Audit Status
+
+```text
+ui/connections/
+├── connection.py            PASS
+├── connection_preview.py    PASS
+├── connection_router.py     PASS
+├── connection_validator.py  PASS
+├── terminal_resolver.py     PASS
+├── topology_adapter.py      PASS
+├── __init__.py              PASS
+└── README.md                PASS
+```
+
+The connection subsystem is intentionally:
+
+```text
+Qt-independent
+Core-independent
+renderer-independent
+topology-authority-independent
+```
+
+while providing explicit boundaries for:
+
+```text
+terminal identity
+connection state
+structural validation
+preview state
+routing geometry
+Core synchronization
+```
+
+```
+```
