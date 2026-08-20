@@ -211,7 +211,7 @@ class PluginImplementation:
                 (
                     f"Plugin {self.plugin_id!r} "
                     "cannot declare both class_name "
-                    "and factory_name."
+                    "or factory_name."
                 )
             )
 
@@ -347,7 +347,7 @@ class LoadedPlugin:
                 (
                     f"Loaded plugin "
                     f"{self.plugin_id!r} cannot expose "
-                    "both plugin class and factory."
+                    "both a plugin class or factory."
                 )
             )
 
@@ -355,6 +355,7 @@ class LoadedPlugin:
 # ============================================================
 # EXPLICIT PLUGIN DEFINITIONS
 # ============================================================
+
 
 DEFAULT_PLUGIN_IMPLEMENTATIONS: Mapping[
     str,
@@ -415,6 +416,7 @@ DEFAULT_PLUGIN_IMPLEMENTATIONS: Mapping[
 # ============================================================
 # COMPATIBILITY-FACING EXPLICIT MAPPINGS
 # ============================================================
+
 
 DEFAULT_PLUGIN_MODULES: Mapping[
     str,
@@ -545,6 +547,8 @@ class PluginLoader:
     ) -> Mapping[str, PluginImplementation]:
         """
         Return a snapshot of the explicit definitions.
+
+        Mutating the returned dictionary cannot mutate loader state.
         """
 
         return dict(
@@ -600,14 +604,6 @@ class PluginLoader:
                 (
                     f"Plugin definition "
                     f"{plugin_id!r} already exists."
-                )
-            )
-
-        if plugin_id in self._loaded:
-            raise RuntimeError(
-                (
-                    f"Plugin {plugin_id!r} "
-                    "is already loaded."
                 )
             )
 
@@ -829,6 +825,8 @@ class PluginLoader:
 
         Constructor arguments are explicitly separated from
         initialization context.
+
+        No PluginContext is created or supplied here.
         """
 
         positional = (
@@ -862,12 +860,34 @@ class PluginLoader:
         instances: list[Any] = []
 
         for plugin_id in plugin_ids:
-            args = tuple(
-                positional.get(
-                    plugin_id,
-                    (),
-                )
+            raw_args = positional.get(
+                plugin_id,
+                (),
             )
+
+            if isinstance(
+                raw_args,
+                (str, bytes),
+            ):
+                raise TypeError(
+                    (
+                        f"constructor_args[{plugin_id!r}] "
+                        "must be an iterable of positional "
+                        "arguments, not a string."
+                    )
+                )
+
+            try:
+                args = tuple(
+                    raw_args
+                )
+            except TypeError as exc:
+                raise TypeError(
+                    (
+                        f"constructor_args[{plugin_id!r}] "
+                        "must be an iterable."
+                    )
+                ) from exc
 
             raw_kwargs = keyword.get(
                 plugin_id,
@@ -885,15 +905,11 @@ class PluginLoader:
                     )
                 )
 
-            kwargs = dict(
-                raw_kwargs
-            )
-
             instances.append(
                 self.create(
                     plugin_id,
                     *args,
-                    **kwargs,
+                    **dict(raw_kwargs),
                 )
             )
 
