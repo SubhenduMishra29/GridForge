@@ -12,39 +12,44 @@
 #     terminals.
 #
 # Responsibilities:
-#     - expose connection objects;
+#     - expose logical connections;
 #     - expose terminal resolution;
-#     - expose validation;
+#     - expose structural validation;
 #     - expose connection management;
 #     - expose routing and preview abstractions;
-#     - expose the future Core-topology synchronization boundary.
+#     - expose the Core-topology synchronization boundary.
 #
 # Does NOT:
 #     - render connection lines;
-#     - create QGraphicsLineItem objects;
-#     - perform power-system calculations;
+#     - create QGraphicsItems;
+#     - perform electrical calculations;
 #     - directly manipulate Qt scenes.
 #
 # ============================================================
 
 """
 GridForge V2 — SLD Connection subsystem.
+
+This package defines the UI-level logical connection boundary
+for the Single Line Diagram.
+
+Core remains authoritative for electrical topology.
 """
 
 from .connection import Connection
-from .terminal_resolver import TerminalResolver
-from .connection_validator import ConnectionValidator
 from .connection_manager import ConnectionManager
-from .connection_router import ConnectionRouter
 from .connection_preview import ConnectionPreview
+from .connection_router import ConnectionRouter
+from .connection_validator import ConnectionValidator
+from .terminal_resolver import TerminalResolver
 from .topology_adapter import TopologyAdapter
 
 __all__ = [
     "Connection",
-    "TerminalResolver",
-    "ConnectionValidator",
     "ConnectionManager",
-    "ConnectionRouter",
     "ConnectionPreview",
+    "ConnectionRouter",
+    "ConnectionValidator",
+    "TerminalResolver",
     "TopologyAdapter",
 ]
