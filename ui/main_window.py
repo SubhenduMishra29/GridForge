@@ -31,23 +31,6 @@ Architectural rules
 """
 
 from __future__ import annotations
-Architectural rules
--------------------
-- MainWindow is a composition root, not a domain controller.
-- Core remains authoritative for project/electrical state.
-- Controller remains the UI/application coordination boundary.
-- PluginContext is the dependency boundary supplied to plugins.
-- PluginManager owns plugin lifecycle and dependency ordering.
-- MainWindow does not construct concrete plugins directly.
-- MainWindow does not construct tools.
-- MainWindow does not construct renderers.
-- MainWindow does not implement canvas interaction.
-- MainWindow does not implement electrical logic.
-- MainWindow does not manipulate the Core model directly.
-- All Qt imports pass through ui.core.qt.
-"""
-
-from __future__ import annotations
 
 from typing import Any, Optional
 
@@ -77,7 +60,6 @@ class MainWindow(QMainWindow):
     MainWindow is intentionally thin.
 
     Its responsibilities are limited to:
-
         1. Establishing the Qt application shell.
         2. Retaining the application Controller.
         3. Creating the PluginContext.
@@ -150,12 +132,6 @@ class MainWindow(QMainWindow):
         # ----------------------------------------------------
         # AUTHORITATIVE APPLICATION CONTROLLER
         # ----------------------------------------------------
-        #
-        # MainWindow retains the Controller reference.
-        #
-        # It does not duplicate Controller state and does not
-        # become the application's domain-state authority.
-        # ----------------------------------------------------
 
         self.controller = controller
 
@@ -194,8 +170,8 @@ class MainWindow(QMainWindow):
         #
         # MainWindow owns only the neutral root container.
         #
-        # Concrete UI composition remains the responsibility of
-        # the plugin system.
+        # Concrete UI composition remains the responsibility
+        # of the plugin system.
         # ----------------------------------------------------
 
         self._root_widget = QWidget(
@@ -328,7 +304,6 @@ class MainWindow(QMainWindow):
         Supply a derived PluginContext to every defined plugin.
 
         PluginManager remains responsible for:
-
             - loading;
             - dependency resolution;
             - initialization ordering;
@@ -373,19 +348,11 @@ class MainWindow(QMainWindow):
             # ------------------------------------------------
             # LOAD
             # ------------------------------------------------
-            #
-            # PluginManager resolves dependencies and delegates
-            # concrete plugin construction to PluginLoader.
-            # ------------------------------------------------
 
             self.plugin_manager.load_all()
 
             # ------------------------------------------------
             # INITIALIZE
-            # ------------------------------------------------
-            #
-            # PluginManager initializes plugins in dependency
-            # order.
             # ------------------------------------------------
 
             self.plugin_manager.initialize_all()
@@ -569,6 +536,7 @@ def create_main_window(
 # ============================================================
 # PUBLIC API
 # ============================================================
+
 
 __all__ = [
     "MainWindow",
