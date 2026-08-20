@@ -10,39 +10,51 @@
 #     topology.
 #
 # Architectural Role:
-#     Prevents the UI connection manager from becoming a second
+#     Prevents the UI connection subsystem from becoming a second
 #     electrical-network database.
 #
 # Responsibilities:
-#     - define UI-to-Core connection hooks;
-#     - define UI-to-Core removal hooks;
-#     - provide a controlled synchronization boundary.
+#     - define the UI-to-Core connection creation boundary;
+#     - define the UI-to-Core connection removal boundary;
+#     - provide an explicit synchronization contract;
+#     - keep the UI independent from the concrete Core API.
 #
 # Does NOT:
+#     - own Core;
+#     - store electrical topology;
 #     - implement electrical calculations;
-#     - own the Core network;
-#     - silently mutate Core objects;
-#     - import the Core implementation.
+#     - validate electrical-network topology;
+#     - create UI connections;
+#     - create QGraphicsItems;
+#     - import Core implementation classes;
+#     - silently mutate Core objects.
 #
-# Detailed Working:
+# Architecture
+# ----------
 #
-#     UI:
-#         ConnectionManager
-#                |
-#                v
-#         TopologyAdapter
-#                |
-#                v
-#         Core Network API
+#     SLD / ConnectionManager
+#              │
+#              ▼
+#       TopologyAdapter
+#              │
+#              ▼
+#       Core Network API
 #
-# The adapter remains deliberately minimal until the actual Core
-# network API is selected. This avoids inventing a Core contract
-# merely to make the UI compile.
+# The adapter is intentionally a Protocol. The concrete Core
+# integration is supplied separately once the authoritative Core
+# network API is selected.
+#
+# This prevents the UI architecture from inventing or duplicating
+# a Core topology contract merely to make the UI compile.
 #
 # ============================================================
 
 """
 GridForge V2 — Topology Adapter.
+
+Defines the explicit synchronization contract between the
+UI-level SLD connection subsystem and the authoritative Core
+network layer.
 """
 
 from __future__ import annotations
@@ -54,10 +66,16 @@ from .connection import Connection
 
 class TopologyAdapter(Protocol):
     """
-    Protocol defining the future UI/Core topology boundary.
+    UI/Core topology synchronization contract.
 
-    A concrete implementation will be supplied when the SLD UI is
-    connected to the authoritative Core network API.
+    ``TopologyAdapter`` is intentionally a Protocol rather than a
+    concrete implementation.
+
+    The UI connection subsystem depends only on this boundary.
+    The concrete implementation is responsible for translating
+    UI ``Connection`` objects into the actual Core network API.
+
+    Core remains authoritative for electrical topology.
     """
 
     def add_connection(
@@ -66,6 +84,18 @@ class TopologyAdapter(Protocol):
     ) -> None:
         """
         Synchronize a committed UI connection into Core.
+
+        Parameters
+        ----------
+        connection:
+            Committed logical UI connection.
+
+        Notes
+        -----
+        The adapter implementation must translate this logical
+        connection into the authoritative Core topology API.
+
+        The UI layer must not directly mutate Core topology.
         """
         ...
 
@@ -74,6 +104,23 @@ class TopologyAdapter(Protocol):
         connection: Connection,
     ) -> None:
         """
-        Synchronize connection removal into Core.
+        Synchronize removal of a UI connection into Core.
+
+        Parameters
+        ----------
+        connection:
+            Logical connection being removed.
+
+        Notes
+        -----
+        The adapter implementation must perform the corresponding
+        Core topology operation through the official Core API.
+
+        The UI layer must not directly mutate Core topology.
         """
         ...
+
+
+__all__ = [
+    "TopologyAdapter",
+]
