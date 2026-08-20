@@ -7,8 +7,8 @@ File:
 
 Purpose
 -------
-Composition plugin responsible for assembling the already-created GridForge
-UI plugins into the application's root widget.
+Final UI composition plugin responsible for assembling the already-created
+GridForge composition plugins into the application's root widget.
 
 Architectural role
 ------------------
@@ -18,11 +18,15 @@ It:
     - receives the shared PluginContext;
     - obtains already-initialized composition plugins;
     - creates the root layout;
-    - attaches their existing widgets to that layout;
+    - attaches their existing widgets;
     - establishes the visible Qt widget hierarchy.
 
 It does NOT:
-    - construct concrete plugins;
+    - discover plugins;
+    - load plugins;
+    - construct plugins;
+    - initialize plugins;
+    - shut down plugins;
     - construct GraphicsView;
     - construct panels, toolbar, or status widgets;
     - own Core/domain state;
@@ -30,23 +34,49 @@ It does NOT:
     - implement canvas interaction;
     - create tools;
     - create renderers;
-    - own plugin lifecycle state;
+    - own PluginStateStore;
     - modify plugin lifecycle state;
-    - duplicate plugin state.
+    - resolve dependencies.
 
 Lifecycle ownership
 -------------------
 PluginManager decides:
+
     WHAT should happen
     WHEN it should happen
     IN WHICH dependency order it should happen
 
-ShellPlugin performs:
-    UI assembly only.
+PluginRegistry performs:
 
-The shell must initialize after the concrete composition plugins because
-their widgets must already exist before they can be inserted into the root
-layout.
+    register
+    initialize
+    shutdown
+    unregister
+    enable
+    disable
+
+PluginStateStore records:
+
+    registered
+    enabled
+    initialized
+    generation
+    last_error
+    metadata
+
+ShellPlugin performs only UI assembly.
+
+Dependency contract
+-------------------
+ShellPlugin depends on:
+
+    canvas
+    panels
+    toolbar
+    status
+
+Those plugins must already be loaded and initialized before ShellPlugin
+is initialized.
 
 Qt boundary
 -----------
@@ -77,22 +107,8 @@ class ShellPlugin:
     """
     Final UI composition plugin for the GridForge application shell.
 
-    ShellPlugin does not create concrete UI components. It only assembles
-    components produced by the other composition plugins.
-
-    Expected plugin context
-    -----------------------
-    The shared PluginContext must provide:
-
-        root_widget
-            The neutral QWidget owned by MainWindow.
-
-        plugin_manager
-            The PluginManager used to retrieve initialized composition
-            plugins.
-
-    The plugin manager is accessed only as composition infrastructure.
-    ShellPlugin does not perform lifecycle orchestration.
+    ShellPlugin assembles existing widgets. It does not construct or
+    initialize the plugins that own those widgets.
     """
 
     plugin_id = "shell"
@@ -115,7 +131,7 @@ class ShellPlugin:
         """
         Construct an uninitialized ShellPlugin.
 
-        No application services or widgets are constructed here.
+        No Qt widgets are created here.
         """
 
         self._context: Optional[PluginContext] = None
@@ -135,13 +151,13 @@ class ShellPlugin:
 
     @property
     def root_widget(self) -> Optional[QWidget]:
-        """Return the application root composition widget."""
+        """Return the root application composition widget."""
 
         return self._root_widget
 
     @property
     def layout(self) -> Optional[QLayout]:
-        """Return the layout created by ShellPlugin."""
+        """Return the shell layout."""
 
         return self._layout
 
@@ -160,12 +176,12 @@ class ShellPlugin:
         context: Any,
     ) -> QWidget:
         """
-        Assemble the existing UI plugin widgets.
+        Assemble the existing GridForge UI widgets.
 
         Initialization is idempotent.
 
-        The concrete plugins must already have been initialized by
-        PluginManager before ShellPlugin is initialized.
+        PluginManager is responsible for ensuring that all declared
+        dependencies have already been initialized.
         """
 
         if self._initialized:
@@ -184,21 +200,21 @@ class ShellPlugin:
         self._create_layout()
         self._compose_widgets()
 
-        self._initialized = True
-
         if self._root_widget is None:
             raise RuntimeError(
                 "ShellPlugin initialization produced no root widget."
             )
 
+        self._initialized = True
+
         return self._root_widget
 
     def shutdown(self) -> None:
         """
-        Release the shell's composition references.
+        Release shell-owned composition references.
 
-        ShellPlugin does not destroy the child widgets. Their lifetime
-        remains governed by Qt ownership and their respective plugins.
+        Child widgets are not explicitly destroyed. Qt ownership and the
+        respective plugin remain responsible for widget lifetime.
         """
 
         if not self._initialized:
@@ -217,7 +233,7 @@ class ShellPlugin:
     def _validate_context(
         context: Any,
     ) -> None:
-        """Validate the shared PluginContext."""
+        """Validate the supplied PluginContext."""
 
         if not isinstance(
             context,
@@ -241,7 +257,7 @@ class ShellPlugin:
             )
 
     def _resolve_root_widget(self) -> QWidget:
-        """Resolve the neutral root widget from PluginContext."""
+        """Resolve the root widget from PluginContext."""
 
         if self._context is None:
             raise RuntimeError(
@@ -266,10 +282,10 @@ class ShellPlugin:
 
     def _create_layout(self) -> None:
         """
-        Create the root application layout.
+        Create or reuse the root layout.
 
-        ShellPlugin owns this layout because it owns the composition
-        relationship between the root widget and plugin widgets.
+        ShellPlugin owns the composition relationship, but does not
+        replace an existing layout supplied by the application boundary.
         """
 
         if self._root_widget is None:
@@ -302,22 +318,78 @@ class ShellPlugin:
 
     def _compose_widgets(self) -> None:
         """
-        Attach existing plugin widgets to the root layout.
+        Assemble the already-created plugin widgets.
 
-        No concrete plugin is constructed here.
+        No plugin is constructed or initialized here.
 
-        The PluginManager has already loaded and initialized the
-        dependencies before ShellPlugin is reached.
+        The expected composition is:
+
+            toolbar
+            ─────────────────
+            canvas
+            ─────────────────
+            status
+
+        The PanelsPlugin remains responsible for its own panel/workspace
+        composition where applicable.
         """
+
+        manager = self._require_plugin_manager()
+
+        self._require_dependencies_initialized(
+            manager
+        )
+
+        toolbar_widget = self._resolve_required_widget(
+            manager,
+            "toolbar",
+        )
+
+        canvas_widget = self._resolve_required_widget(
+            manager,
+            "canvas",
+        )
+
+        status_widget = self._resolve_required_widget(
+            manager,
+            "status",
+        )
+
+        # Panels are mandatory as a lifecycle dependency, but their
+        # widget may be integrated into the canvas/workspace by the
+        # PanelsPlugin itself.
+        self._resolve_optional_widget(
+            manager,
+            "panels",
+        )
+
+        # ----------------------------------------------------
+        # Root composition
+        # ----------------------------------------------------
+
+        self._add_widget_once(
+            toolbar_widget
+        )
+
+        self._add_widget_once(
+            canvas_widget,
+            stretch=1,
+        )
+
+        self._add_widget_once(
+            status_widget
+        )
+
+    # ========================================================
+    # PLUGIN RESOLUTION
+    # ========================================================
+
+    def _require_plugin_manager(self) -> Any:
+        """Return the PluginManager supplied through the context."""
 
         if self._context is None:
             raise RuntimeError(
                 "ShellPlugin context is unavailable."
-            )
-
-        if self._layout is None:
-            raise RuntimeError(
-                "ShellPlugin layout has not been created."
             )
 
         manager = self._context.plugin_manager
@@ -327,131 +399,134 @@ class ShellPlugin:
                 "ShellPlugin requires a plugin_manager."
             )
 
-        # ----------------------------------------------------
-        # Canvas
-        # ----------------------------------------------------
+        return manager
 
-        canvas_plugin = manager.get(
-            "canvas"
+    def _require_dependencies_initialized(
+        self,
+        manager: Any,
+    ) -> None:
+        """
+        Verify that all declared shell dependencies are initialized.
+
+        ShellPlugin does not initialize missing dependencies itself.
+        """
+
+        for plugin_id in self.plugin_dependencies:
+            try:
+                registered = manager.is_registered(
+                    plugin_id
+                )
+            except AttributeError as exc:
+                raise TypeError(
+                    (
+                        "ShellPlugin requires a PluginManager "
+                        "with is_registered()."
+                    )
+                ) from exc
+
+            if not registered:
+                raise RuntimeError(
+                    (
+                        f"ShellPlugin dependency "
+                        f"{plugin_id!r} is not registered."
+                    )
+                )
+
+            if not manager.is_initialized(
+                plugin_id
+            ):
+                raise RuntimeError(
+                    (
+                        f"ShellPlugin dependency "
+                        f"{plugin_id!r} is not initialized."
+                    )
+                )
+
+    @staticmethod
+    def _resolve_required_widget(
+        manager: Any,
+        plugin_id: str,
+    ) -> QWidget:
+        """
+        Resolve a mandatory widget exposed by a composition plugin.
+        """
+
+        plugin = manager.get(
+            plugin_id
         )
 
-        if canvas_plugin is None:
+        if plugin is None:
             raise RuntimeError(
-                "Canvas plugin is unavailable."
+                (
+                    f"Required plugin "
+                    f"{plugin_id!r} is unavailable."
+                )
             )
 
-        canvas_widget = getattr(
-            canvas_plugin,
+        widget = getattr(
+            plugin,
             "widget",
             None,
         )
 
         if not isinstance(
-            canvas_widget,
+            widget,
             QWidget,
         ):
             raise RuntimeError(
-                "Canvas plugin does not expose a valid widget."
+                (
+                    f"Plugin {plugin_id!r} does not expose "
+                    "a valid QWidget."
+                )
             )
 
-        # ----------------------------------------------------
-        # Panels
-        # ----------------------------------------------------
+        return widget
 
-        panels_plugin = manager.get(
-            "panels"
+    @staticmethod
+    def _resolve_optional_widget(
+        manager: Any,
+        plugin_id: str,
+    ) -> QWidget | None:
+        """
+        Resolve an optional widget exposed by a mandatory plugin.
+
+        The plugin itself remains mandatory. Its widget is optional because
+        the plugin may compose its UI into another workspace boundary.
+        """
+
+        plugin = manager.get(
+            plugin_id
         )
 
-        if panels_plugin is None:
+        if plugin is None:
             raise RuntimeError(
-                "Panels plugin is unavailable."
+                (
+                    f"Required plugin "
+                    f"{plugin_id!r} is unavailable."
+                )
             )
 
-        panels_widget = getattr(
-            panels_plugin,
+        widget = getattr(
+            plugin,
             "widget",
             None,
         )
 
-        if panels_widget is not None and not isinstance(
-            panels_widget,
+        if widget is None:
+            return None
+
+        if not isinstance(
+            widget,
             QWidget,
         ):
             raise RuntimeError(
-                "Panels plugin exposes an invalid widget."
+                (
+                    f"Plugin {plugin_id!r} exposes "
+                    "an invalid widget."
+                )
             )
 
-        # ----------------------------------------------------
-        # Toolbar
-        # ----------------------------------------------------
-
-        toolbar_plugin = manager.get(
-            "toolbar"
-        )
-
-        if toolbar_plugin is None:
-            raise RuntimeError(
-                "Toolbar plugin is unavailable."
-            )
-
-        toolbar_widget = getattr(
-            toolbar_plugin,
-            "widget",
-            None,
-        )
-
-        if toolbar_widget is not None and not isinstance(
-            toolbar_widget,
-            QWidget,
-        ):
-            raise RuntimeError(
-                "Toolbar plugin exposes an invalid widget."
-            )
-
-        # ----------------------------------------------------
-        # Status
-        # ----------------------------------------------------
-
-        status_plugin = manager.get(
-            "status"
-        )
-
-        if status_plugin is None:
-            raise RuntimeError(
-                "Status plugin is unavailable."
-            )
-
-        status_widget = getattr(
-            status_plugin,
-            "widget",
-            None,
-        )
-
-        if status_widget is not None and not isinstance(
-            status_widget,
-            QWidget,
-        ):
-            raise RuntimeError(
-                "Status plugin exposes an invalid widget."
-            )
-
-        # ----------------------------------------------------
-        # Current composition contract
-        # ----------------------------------------------------
-        #
-        # The canvas is the central content widget.
-        #
-        # Panels / toolbar / status plugins may expose widgets
-        # that are composed by their own integration boundary.
-        #
-        # The immediate mandatory composition invariant is that
-        # the authoritative CanvasPlugin widget is inserted into
-        # the root layout.
-        # ----------------------------------------------------
-
-        self._add_widget_once(
-            canvas_widget
-        )
+        return widget
 
     # ========================================================
     # LAYOUT HELPERS
@@ -460,17 +535,24 @@ class ShellPlugin:
     def _add_widget_once(
         self,
         widget: QWidget,
+        *,
+        stretch: int = 0,
     ) -> None:
-        """Add a widget to the shell layout exactly once."""
+        """
+        Add an existing widget to the shell layout exactly once.
+        """
 
         if self._layout is None:
             raise RuntimeError(
                 "ShellPlugin layout is unavailable."
             )
 
-        if widget is None:
-            raise ValueError(
-                "Cannot add a None widget to the shell."
+        if not isinstance(
+            widget,
+            QWidget,
+        ):
+            raise TypeError(
+                "widget must be QWidget."
             )
 
         if self._layout.indexOf(
@@ -479,7 +561,8 @@ class ShellPlugin:
             return
 
         self._layout.addWidget(
-            widget
+            widget,
+            stretch,
         )
 
     # ========================================================
