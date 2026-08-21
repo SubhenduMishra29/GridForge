@@ -1,296 +1,13 @@
-GridForge V2 Audit & Modification Register
-
-GF-V2-ARCH-BASELINE
-──────────────────────────────────────────────
-
-1. Model-centric
-2. SLD-first
-3. Context-sensitive
-4. Blender-inspired interaction/workspace
-5. PySide6 implementation
-6. ETAP-style electrical semantics
-7. Core independent of UI/Blender
-8. Direct manipulation
-9. Electrical/topological validation
-10. Preview before commit where applicable
-11. Authoritative Core model
-12. Explicit application composition
-13. No canvas component silently creates application-owned services
-14. Flexible docked/floating/tabbed editors
-15. Seven-question UI design gate
-
-AUDIT REGISTER
-══════════════════════════════════════════════
-
-GF-AUD-001
-File: main.py
-Symbol: main()
-Layer: Application Bootstrap / Composition Root
-Severity: P2
-Status: 🔵 APPROVED WITH FOLLOW-UP
-
-Finding:
-main.py correctly performs the application bootstrap sequence:
-QApplication → Core Grid → UI Controller → MainWindow → Qt event loop.
-
-It does not directly construct the canvas, render system, renderer
-registry, tools, interaction system, workspace editors, or other
-presentation services.
-
-Architectural decision:
-Keep main.py as the executable application composition root.
-
-main.py should remain intentionally small and should delegate UI
-composition to MainWindow and its designated UI composition layer.
-
-Modification required:
-No immediate modification to main.py.
-
-During the MainWindow audit, verify that MainWindow acts only as the
-delegated UI composition boundary and does not become a competing
-application composition root.
-
-Related principles:
-#1 Model-centric
-#7 Core independent of UI/Blender
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
-
-Implementation order:
-No change required at this stage.
-Follow-up during MainWindow/workspace audit.
-
-Verification:
-Static dependency audit and application composition inspection.
-
-
-GF-AUD-002
-File: ui/main_window.py
-Symbol: MainWindow.__init__()
-Layer: UI Composition
-Severity: P1
-Status: 🟡 DECISION REQUIRED
-
-Finding:
-MainWindow currently performs substantial UI/plugin composition,
-including ToolManager creation, PluginContext creation, PluginManager
-creation, plugin registration, context assignment, and plugin
-initialization.
-
-This is acceptable as a delegated UI composition boundary only if it
-remains subordinate to the application composition root in main.py.
-
-Architectural concern:
-The future Blender-inspired workspace/editor architecture must not
-introduce a second independent composition mechanism alongside the
-existing plugin/panel composition system.
-
-Architectural decision required:
-Define the ownership boundary explicitly:
-
-main.py
-    = application composition root
-
-MainWindow
-    = delegated UI composition root
-
-Workspace/Editor system
-    = UI layout/editor composition layer
-
-Canvas/GraphicsView/GridScene
-    = presentation/interaction components
-
-No child UI component may independently create application-owned
-services.
-
-Modification required:
-Audit MainWindow and the Workspace/Editor/Docking architecture before
-making production changes.
-
-The final architecture must provide one coherent composition graph for
-workspace, editors, panels, tools, commands, canvas, interaction,
-navigation, rendering, and inspection.
-
-Related principles:
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-After main.py audit.
-Before workspace/editor implementation.
-Before further canvas composition changes.
-
-Verification:
-Constructor ownership audit.
-Dependency graph audit.
-Lifecycle audit.
-
-
-GF-AUD-003
-File: ui/main_window.py
-Symbol: MainWindow.__init__()
-Layer: UI Composition
-Severity: P1
-Status: 🟡 DECISION REQUIRED
-
-Finding:
-MainWindow supports controller=None and can construct a Controller
-internally.
-
-This creates a potential second application-owned Controller and
-weakens the explicit composition boundary established by main.py.
-
-Architectural concern:
-GridForge requires an authoritative Core model and explicit
-application-owned service composition.
-
-A lower-level UI object should not silently create an alternative
-application Controller when the application already supplies one.
-
-Modification required:
-Determine whether normal production construction should require an
-explicit Controller.
-
-If a fallback is retained for isolated/test construction, it must not
-interfere with the authoritative application composition path and
-should be explicitly documented as a non-production convenience.
-
-Preferred production architecture:
-
-main.py
-    ↓
-authoritative Controller
-    ↓
-MainWindow
-    ↓
-UI composition
-
-Related principles:
-#11 Authoritative Core model
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
-
-Implementation order:
-Resolve during MainWindow audit.
-
-Verification:
-Trace all Controller construction paths.
-Confirm there is only one authoritative Controller in normal
-application startup.
-
-
-GF-AUD-004
-File: ui/main_window.py
-Symbol: create_main_window()
-Layer: UI Lifecycle / Composition
-Severity: P2
-Status: 🔵 APPROVED WITH FOLLOW-UP
-
-Finding:
-create_main_window() constructs MainWindow and initializes the plugin
-composition before returning the window.
-
-Architectural observation:
-The function therefore acts as both a factory and a UI initialization
-boundary.
-
-Architectural decision:
-This may remain valid provided that initialization order is explicit
-and the future workspace/editor system participates in the same
-composition lifecycle.
-
-Modification required:
-No immediate modification.
-
-During the Workspace/Editor audit verify:
-
-1. Workspace creation occurs at the correct lifecycle stage.
-2. Editors are registered before they are requested by dependent
-   components.
-3. Canvas composition receives already-created application-owned
-   services.
-4. Renderer services are not silently created by canvas components.
-5. Docking/floating editors do not create duplicate services.
-6. Plugin initialization order remains deterministic.
-
-Related principles:
-#12 Explicit application composition
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-Workspace/Editor audit.
-
-Verification:
-Lifecycle sequence audit.
-
-
-GF-AUD-005
-File: Application UI composition
-Scope: MainWindow → Workspace → Editors → Canvas
-Layer: Composition / Dependency Architecture
-Severity: P0
-Status: 🔍 AUDITING
-
-Finding:
-The current architecture must be reconciled with the newly established
-GridForge V2 workspace model.
-
-GridForge V2 is no longer intended to be a fixed:
-
-LeftPanel → Canvas → RightPanel
-
-layout.
-
-The target model is a Blender-inspired flexible editor workspace with:
-
-- SLD Canvas as the primary editor
-- Tool Shelf
-- Project/Network Browser
-- Context-sensitive Inspector
-- Results/Diagnostics editors
-- Docked editors
-- Floating editors
-- Tabbed editors
-- Split editor areas
-- Workspace-specific layouts
-
-Architectural decision:
-The existing Panel system must be evaluated as the foundation for
-this editor/docking architecture.
-
-Do not create a parallel Workspace UI system that duplicates the
-existing PanelRegistry/PanelManager infrastructure.
-
-Modification required:
-Audit:
-
-ui/core/panel_registry.py
-ui/core/...
-panel/plugin infrastructure
-MainWindow
-PanelsPlugin
-ToolbarPlugin
-StatusPlugin
-ShellPlugin
-
-and determine the canonical Editor/Docking composition graph.
-
-Related principles:
-#3 Context-sensitive
-#4 Blender-inspired interaction/workspace
-#5 PySide6 implementation
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-Immediately after MainWindow audit.
-
-Verification:
-Complete dependency/composition graph.
-
-
-GF-AUDIT RULE
-══════════════════════════════════════════════
+======================================================================
+GridForge V2 — Modification Register
+======================================================================
+
+Purpose
+-------
+This register is the authoritative tracking document for the GridForge
+V2 architecture audit.
+
+The audit is being performed before production implementation changes.
 
 No production code is to be patched merely because an inconsistency
 is observed.
@@ -311,12 +28,84 @@ Implementation Order
     ↓
 Verification
 
-Only after the affected composition graph is understood should
-production code be modified.
+No tests are to be generated during this composition/dependency audit
+unless explicitly requested after the relevant production architecture
+has been locked.
 
-No tests are to be generated at this stage.
 
-Current audit sequence:
+======================================================================
+GRIDFORGE V2 ARCHITECTURAL PRINCIPLES
+======================================================================
+
+#1  Model-centric architecture.
+
+#2  SLD is a current mandatory first-class UI capability.
+
+#3  Context-sensitive engineering workspace.
+
+#4  Blender-inspired interaction/workspace model.
+
+#5  PySide6 implementation.
+
+#6  Electrical semantics remain GridForge-owned.
+
+#7  Core electrical model is completely independent of UI and Blender.
+
+#8  Direct manipulation should make engineering operations visually
+    obvious.
+
+#9  UI never performs authoritative electrical computation.
+
+#10 UI state must not replace authoritative Core state.
+
+#11 Core remains the authoritative electrical/model state.
+
+#12 Application-owned services are explicitly composed.
+
+#13 No canvas component may silently create an application-owned service.
+
+#14 Workspace must support flexible docked/floating/tabbed/split editors.
+
+#15 Blender is an interaction/workspace inspiration only; Blender's
+    electrical/model architecture is not imported into GridForge.
+
+#16 GridForge UI must combine:
+       Blender-style direct manipulation
+       +
+       ETAP-style electrical semantics.
+
+
+======================================================================
+CORE INTERACTION RULE
+======================================================================
+
+For every new UI feature, tool, command, or interaction:
+
+Intent
+    What is the engineer trying to accomplish?
+
+Semantics
+    What electrical/model operation does it represent?
+
+Interaction
+    What is the most direct way to perform it?
+
+Validation
+    What makes the operation valid/invalid?
+
+Preview
+    Can the consequence be shown before commit?
+
+Feedback
+    Is the result visually obvious?
+
+Model
+    Does the authoritative Core model change correctly?
+
+
+======================================================================
+AUDIT SEQUENCE
+======================================================================
 
 main.py
 → MainWindow
@@ -329,999 +118,1700 @@ main.py
 → GridScene / GraphicsView
 → Item / Renderer dependency chain
 
-GF-AUD-006
-File: ui/main_window.py
-Symbol: MainWindow
-Layer: UI Composition
-Severity: P1
-Status: 🟡 DECISION REQUIRED
+
+======================================================================
+GF-AUD-001
+======================================================================
+
+File:
+    main.py
+
+Layer:
+    Application Bootstrap / Composition Root
+
+Severity:
+    P2
+
+Status:
+    🔵 APPROVED WITH FOLLOW-UP
 
 Finding:
-MainWindow currently combines application-window ownership with UI
-plugin composition and lifecycle orchestration.
+    main.py performs the application bootstrap sequence:
 
-Architectural concern:
-The new Blender-inspired Workspace/Editor architecture must not create
-a second composition system parallel to PluginManager.
+        QApplication
+            ↓
+        Core Grid
+            ↓
+        UI Controller
+            ↓
+        MainWindow
+            ↓
+        Qt event loop
 
-Decision:
-Keep MainWindow as the delegated UI composition boundary for now.
-Do not introduce an independent workspace composition root.
-
-Required modification:
-Determine the canonical relationship between PluginManager,
-WorkspaceManager, EditorManager, and the existing panel infrastructure
-before modifying MainWindow.
-
-Related principles:
-#12 Explicit application composition
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-After Panel/Editor infrastructure audit.
-
-
-GF-AUD-007
-File: ui/main_window.py
-Symbol: tool_manager
-Layer: Tool / Interaction Composition
-Severity: P2
-Status: 🔵 ACCEPTED
-
-Finding:
-MainWindow explicitly creates the canonical ToolManager and supplies it
-through PluginContext.
-
-Decision:
-Retain this ownership model.
-
-ToolManager must remain application-owned and must not be created by
-CanvasPlugin, GraphicsView, GridScene, or any renderer.
-
-Required modification:
-None unless a later composition audit demonstrates a superior explicit
-application-level owner.
-
-Related principle:
-#13 No canvas component silently creates application-owned services.
-
-
-GF-AUD-008
-File: ui/plugins/panels_plugin.py
-Symbol: PanelsPlugin / PanelSpec
-Layer: Workspace / Docking Presentation
-Severity: P1
-Status: 🔍 AUDITING
-
-Finding:
-PanelsPlugin currently implements dock/panel composition directly using
-QDockWidget.
-
-This is compatible with the current UI but may be too narrow for the
-new Blender-inspired flexible Editor/Workspace architecture.
-
-Target architecture requires:
-- docked editors;
-- floating editors;
-- tabbed editors;
-- split editors;
-- collapsible editors;
-- context-sensitive editors.
-
-Decision:
-Do not replace PanelsPlugin yet.
-
-Audit PanelRegistry, PanelManager, PanelSpec, PanelsPlugin and related
-composition code to determine whether the existing panel architecture
-can serve as the docking/editor infrastructure.
-
-Required modification:
-To be determined after dependency audit.
-
-Related principles:
-#4 Blender-inspired interaction/workspace
-#14 Flexible docked/floating/tabbed editors.
-
-
-GF-AUD-009
-File: ui/plugins/plugin_manager.py
-Symbol: define_defaults()
-Layer: Plugin Composition
-Severity: P2
-Status: 🔍 AUDITING
-
-Finding:
-PluginManager currently defines a linear/high-level plugin composition
-around canvas, panels, toolbar, status, and shell.
-
-This composition is valid for plugin lifecycle ordering but must not be
-mistaken for the final Workspace/Editor composition graph.
-
-Decision:
-Keep plugin lifecycle dependency management separate from Workspace
-editor layout/composition.
-
-Required modification:
-Determine the boundary between PluginManager and the future
-Workspace/Editor manager.
-
-Related principles:
-#12 Explicit application composition
-#14 Flexible docked/floating/tabbed editors.
-GF-AUD-010
-File: ui/core/panel_registry.py
-Symbol: PanelRegistry / PanelRegistration
-Layer: UI Registry
-Severity: P3
-Status: 🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
-
-Finding:
-PanelRegistry is correctly separated from Qt, MainWindow, docking,
-plugin lifecycle, Core state, and concrete panel creation.
-
-It stores existing panel instances and presentation metadata only.
+    main.py does not directly construct the canvas, RenderSystem,
+    RendererRegistry, RendererLoader, tools, interaction system,
+    navigation system, or other presentation services.
 
 Architectural decision:
-Retain PanelRegistry as a logical registration/lookup layer.
+    Keep main.py as the executable application composition root.
 
-Do NOT make PanelRegistry responsible for Workspace management,
-QDockWidget creation, docking, layout, visibility mutation, or
-application service creation.
-
-The future Workspace/Editor architecture may consume this registry
-through an adapter or evolve its registration vocabulary, but the
-registry itself should remain infrastructure-level and lightweight.
+    main.py should remain intentionally small and delegate UI
+    composition to MainWindow and its designated UI composition layer.
 
 Modification required:
-None at present.
+    No immediate modification.
 
 Follow-up:
-Audit all consumers of PanelRegistry and determine whether the
-existing panel registration model can support the future generic
-Editor/Docking architecture without duplication.
+    During MainWindow/workspace audit verify that MainWindow acts only
+    as the delegated UI composition boundary.
 
 Related principles:
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
-#14 Flexible docked/floating/tabbed editors
+    #11 #12 #13
 
 Verification:
-Dependency/consumer audit before any rename or refactor.
-
-GF-AUD-011
-File: ui/plugins/panels_plugin.py
-Symbol: PanelsPlugin / PanelSpec
-Layer: UI Composition / Docking Presentation
-Severity: P1
-Status: 🟡 DECISION REQUIRED
-
-Finding:
-PanelsPlugin correctly confines itself to presentation/dock composition
-and receives application dependencies through PluginContext.
-
-However, it currently treats the panel/dock abstraction as the primary
-UI composition unit.
-
-GridForge V2 requires a broader Blender-inspired Workspace/Editor model
-supporting docked, floating, tabbed, split, and context-sensitive
-editors.
-
-Architectural decision:
-Do not make PanelsPlugin the WorkspaceManager.
-
-Retain PanelsPlugin as a Qt presentation/docking adapter unless the
-later workspace audit demonstrates that a different ownership model is
-required.
-
-The future Workspace/Editor layer must sit above the current panel/dock
-implementation rather than being embedded inside PanelsPlugin.
-
-Modification required:
-Audit the complete panel registration and MainWindow docking lifecycle
-before implementing WorkspaceManager or EditorManager.
-
-Related principles:
-#3 Context-sensitive
-#4 Blender-inspired interaction/workspace
-#5 PySide6 implementation
-#12 Explicit application composition
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-After complete panel infrastructure audit.
-
-Verification:
-Dependency graph and ownership analysis.
+    Static dependency audit and application composition inspection.
 
 
-GF-AUD-012
-File: ui/plugins/panels_plugin.py
-Symbol: _create_panel_dock()
-Layer: Docking / Layout Composition
-Severity: P1
-Status: 🟡 DECISION REQUIRED
+======================================================================
+GF-AUD-002
+======================================================================
+
+File:
+    ui/main_window.py
+
+Symbol:
+    MainWindow.__init__()
+
+Layer:
+    UI Composition
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
 
 Finding:
-PanelsPlugin directly invokes QMainWindow.addDockWidget() and
-QMainWindow.tabifyDockWidget().
-
-This creates a potential split in layout-policy ownership between
-MainWindow and PanelsPlugin.
+    MainWindow performs substantial UI/plugin composition including
+    ToolManager creation, PluginContext creation, PluginManager
+    creation, plugin registration and plugin initialization.
 
 Architectural concern:
-The future Workspace system requires centralized workspace/layout
-composition rather than unrelated plugins independently manipulating
-the window layout.
+    The future Workspace/Editor architecture must not introduce a
+    second independent composition system.
+
+Decision:
+    MainWindow may remain the delegated UI composition boundary, but
+    the relationship between PluginManager and Workspace/Editor
+    composition must be explicitly defined.
+
+Modification required:
+    Audit MainWindow, Workspace, Editor, Panel and plugin composition
+    before changing production code.
+
+Related principles:
+    #12 #14
+
+Verification:
+    Constructor ownership and dependency graph audit.
+
+
+======================================================================
+GF-AUD-003
+======================================================================
+
+File:
+    ui/main_window.py
+
+Symbol:
+    controller
+
+Layer:
+    Application/UI Composition
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    MainWindow supports a controller=None path that can construct a
+    Controller internally.
+
+Architectural concern:
+    Normal production startup must not accidentally create multiple
+    authoritative application Controllers.
+
+Preferred production architecture:
+
+    main.py
+        ↓
+    authoritative Controller
+        ↓
+    MainWindow
+        ↓
+    UI composition
+
+Decision:
+    Determine whether Controller creation inside MainWindow is retained
+    only as a non-production/testing convenience.
+
+Modification required:
+    Trace every Controller construction path.
+
+Verification:
+    Confirm exactly one authoritative Controller exists during normal
+    application startup.
+
+Related principles:
+    #11 #12 #13
+
+
+======================================================================
+GF-AUD-004
+======================================================================
+
+File:
+    ui/main_window.py
+
+Symbol:
+    create_main_window()
+
+Layer:
+    UI Lifecycle / Composition
+
+Severity:
+    P2
+
+Status:
+    🔵 APPROVED WITH FOLLOW-UP
+
+Finding:
+    create_main_window() constructs MainWindow and initializes plugin
+    composition before returning the window.
+
+Architectural observation:
+    The function acts as both a factory and UI initialization boundary.
+
+Decision:
+    This may remain valid provided initialization order is explicit and
+    the future workspace/editor system participates in the same
+    composition lifecycle.
+
+Modification required:
+    No immediate modification.
+
+Workspace audit must verify:
+
+    1. Workspace creation occurs at the correct lifecycle stage.
+    2. Editors are registered before dependent components request them.
+    3. Canvas receives already-created application services.
+    4. Renderer services are not silently created by canvas components.
+    5. Docking/floating editors do not create duplicate services.
+    6. Plugin initialization remains deterministic.
+
+Related principles:
+    #12 #14
+
+
+======================================================================
+GF-AUD-005
+======================================================================
+
+File:
+    Application UI composition
+
+Scope:
+    MainWindow → Workspace → Editors → Canvas
+
+Layer:
+    Composition / Dependency Architecture
+
+Severity:
+    P0
+
+Status:
+    🔍 AUDITING
+
+Finding:
+    The current architecture must be reconciled with the established
+    GridForge V2 workspace model.
+
+Target model:
+
+    Blender-inspired flexible editor workspace
+        +
+    ETAP-style electrical engineering semantics
+
+Required presentation capabilities:
+
+    - SLD Canvas as primary editor
+    - Tool Shelf
+    - Project/Network Browser
+    - Context-sensitive Inspector
+    - Results/Diagnostics editors
+    - Docked editors
+    - Floating editors
+    - Tabbed editors
+    - Split editor areas
+    - Workspace-specific layouts
 
 Architectural decision:
-MainWindow remains the owner of the actual QMainWindow lifetime.
-The ownership of docking/layout policy must be resolved by the upcoming
-Workspace/Editor audit.
+    Existing Panel infrastructure must be evaluated as the foundation
+    of the editor/docking architecture.
+
+    Do not create a parallel Workspace UI system that duplicates the
+    existing PanelRegistry/PanelManager infrastructure.
+
+Related principles:
+    #3 #4 #5 #14
+
+Implementation order:
+    MainWindow
+    → Panel/Editor infrastructure
+    → Workspace composition
+
+Verification:
+    Complete dependency/composition graph.
+
+
+======================================================================
+GF-AUD-006
+======================================================================
+
+File:
+    ui/main_window.py
+
+Symbol:
+    MainWindow
+
+Layer:
+    UI Composition
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    MainWindow combines application-window ownership with UI plugin
+    composition and lifecycle orchestration.
+
+Architectural concern:
+    The new Workspace/Editor architecture must not become a second
+    composition root parallel to PluginManager.
+
+Decision:
+    Keep MainWindow as the delegated UI composition boundary for now.
+
+Required modification:
+    Determine the canonical relationship between:
+
+        PluginManager
+        Workspace
+        Editor composition
+        Panel infrastructure
+
+    before modifying MainWindow.
+
+Related principles:
+    #12 #14
+
+
+======================================================================
+GF-AUD-007
+======================================================================
+
+File:
+    ui/main_window.py
+
+Symbol:
+    tool_manager
+
+Layer:
+    Tool / Interaction Composition
+
+Severity:
+    P2
+
+Status:
+    🔵 ACCEPTED
+
+Finding:
+    MainWindow explicitly creates the canonical ToolManager and supplies
+    it through PluginContext.
+
+Decision:
+    Retain this ownership model.
+
+    ToolManager must remain application-owned.
+
+    ToolManager must NOT be created by:
+        CanvasPlugin
+        GraphicsView
+        GridScene
+        Renderer
+        RendererRegistry
+        RendererLoader
+
+Modification required:
+    None at present.
+
+Related principle:
+    #13
+
+
+======================================================================
+GF-AUD-008
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Layer:
+    Plugin / Panel Composition
+
+Severity:
+    P1
+
+Status:
+    🔍 AUDITING
+
+Finding:
+    PanelsPlugin participates in plugin composition and creates/
+    manages panel presentation.
+
+Architectural concern:
+    It must remain subordinate to the application composition root and
+    must not become a competing WorkspaceManager.
+
+Decision:
+    Audit PanelsPlugin together with PanelRegistry, PanelManager,
+    PanelDescriptor and MainWindow.
+
+Related principles:
+    #12 #14
+
+
+======================================================================
+GF-AUD-009
+======================================================================
+
+File:
+    ui/plugins/plugin_manager.py
+
+Symbol:
+    define_defaults()
+
+Layer:
+    Plugin Composition
+
+Severity:
+    P2
+
+Status:
+    🔍 AUDITING
+
+Finding:
+    PluginManager defines the current plugin composition and dependency
+    ordering around canvas, panels, toolbar, status and shell.
+
+Decision:
+    Plugin lifecycle dependencies must remain distinct from future
+    Workspace/Editor layout composition.
+
+PluginManager must not become a substitute for WorkspaceManager.
+
+Related principles:
+    #12 #14
+
+
+======================================================================
+GF-AUD-010
+======================================================================
+
+File:
+    ui/core/panel_registry.py
+
+Symbol:
+    PanelRegistry / PanelRegistration
+
+Layer:
+    UI Registry
+
+Severity:
+    P3
+
+Status:
+    🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
+
+Finding:
+    PanelRegistry is separated from Qt, lifecycle management, MainWindow,
+    plugin lifecycle and Core state.
+
+It performs:
+
+    register
+    unregister
+    lookup
+    metadata
+    diagnostics
+
+It does not:
+
+    create widgets
+    manage docking
+    show/hide widgets
+    own MainWindow
+    manage plugins
+    modify Core
+
+Decision:
+    Retain PanelRegistry as a lightweight logical registry.
+
+Do not make it responsible for Workspace management or QDockWidget
+creation.
+
+Related principles:
+    #12 #13 #14
+
+
+======================================================================
+GF-AUD-011
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    PanelsPlugin / PanelSpec
+
+Layer:
+    UI Composition / Docking Presentation
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    PanelsPlugin currently treats panels/docks as its primary
+    presentation units.
+
+Target architecture requires a broader Workspace/Editor model.
+
+Decision:
+    Do not make PanelsPlugin the WorkspaceManager.
+
+Retain it as the Qt presentation/docking layer unless later audit
+demonstrates otherwise.
+
+Related principles:
+    #4 #5 #14
+
+
+======================================================================
+GF-AUD-012
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    _create_panel_dock()
+
+Layer:
+    Docking / Layout Composition
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    PanelsPlugin directly invokes QMainWindow.addDockWidget(),
+    tabifyDockWidget() and related docking operations.
+
+Architectural concern:
+    Layout policy could become scattered between MainWindow and
+    individual plugins.
+
+Decision:
+    MainWindow remains owner of the QMainWindow lifetime.
+
+    Exact ownership of docking/layout policy must be established by
+    the Workspace/Docking audit.
 
 Do not move these calls yet.
 
-Modification required:
-Determine whether a future Workspace/Docking adapter should own layout
-operations while PanelsPlugin remains responsible only for panel
-presentation registration.
-
 Related principles:
-#12 Explicit application composition
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-Workspace/Docking architecture audit.
-
-Verification:
-Trace every QMainWindow docking/layout operation in ui/.
+    #12 #14
 
 
+======================================================================
 GF-AUD-013
-File: ui/plugins/panels_plugin.py
-Symbol: PanelSpec
-Layer: UI Descriptor
-Severity: P2
-Status: 🔍 AUDITING
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    PanelSpec
+
+Layer:
+    UI Descriptor
+
+Severity:
+    P2
+
+Status:
+    🔍 AUDITING
 
 Finding:
-PanelSpec is a useful declarative descriptor, but its terminology is
-currently panel-specific.
+    PanelSpec is currently panel-specific.
 
-The future GridForge workspace model needs a generic concept capable of
-representing SLD editors, inspectors, project browsers, results,
-tool-shelves, and other editor surfaces.
+Architectural question:
+    Can PanelSpec remain a low-level presentation descriptor while a
+    higher-level EditorSpec/Workspace descriptor is introduced?
 
-Architectural decision:
-Do not rename PanelSpec yet.
+Decision:
+    Do not rename or replace PanelSpec yet.
 
-First determine whether PanelSpec can remain the low-level presentation
-descriptor while a higher-level Editor/Workspace descriptor is added.
+Audit all creation and consumption sites first.
 
-Modification required:
-Audit all PanelSpec creation and consumption sites before deciding
-whether to:
-1. retain PanelSpec unchanged;
-2. extend it;
-3. introduce EditorSpec above it;
-4. replace it with a generalized descriptor.
 
-Related principles:
-#4 Blender-inspired interaction/workspace
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-After consumer audit.
-
-Verification:
-Complete PanelSpec dependency graph.
-
+======================================================================
 GF-AUD-014
-File: ui/panels/panel_manager.py
-Symbol: PanelManager
-Layer: Panel Runtime Lifecycle
-Severity: P2
-Status: 🟢 ACCEPTED — ARCHITECTURALLY SOUND
+======================================================================
+
+File:
+    ui/panels/panel_manager.py
+
+Symbol:
+    PanelManager
+
+Layer:
+    Panel Runtime Lifecycle
+
+Severity:
+    P2
+
+Status:
+    🟢 ACCEPTED — ARCHITECTURALLY SOUND
 
 Finding:
-PanelManager provides a clean runtime lifecycle layer between
-PanelRegistry and the eventual Qt docking/presentation layer.
+    PanelManager provides runtime panel lifecycle management between
+    PanelRegistry and presentation.
 
-It owns panel instances and lifecycle state but does not create
-QDockWidget, manipulate MainWindow, render, or access Core.
+It:
 
-Architectural decision:
-Retain PanelManager as the low-level runtime lifecycle manager.
+    creates panel instances;
+    tracks runtime instances;
+    manages show/hide;
+    manages activation;
+    destroys instances;
+    tracks active panel.
 
-Do not duplicate its responsibilities in a new WorkspaceManager,
-EditorManager, or canvas component.
+It does not:
 
-Modification required:
-None at present.
+    create QDockWidget;
+    manipulate MainWindow;
+    render;
+    access Core.
+
+Decision:
+    Retain PanelManager as the low-level panel lifecycle manager.
+
+Do not duplicate its responsibilities in WorkspaceManager or
+EditorManager.
 
 Related principles:
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
-
-Verification:
-Dependency and ownership audit completed.
+    #12 #13
 
 
+======================================================================
 GF-AUD-015
-File: ui/panels/panel_manager.py
-Symbol: active_panel_id / activate()
-Layer: Panel Runtime State
-Severity: P1
-Status: 🟡 DECISION REQUIRED
+======================================================================
+
+File:
+    ui/panels/panel_manager.py
+
+Symbol:
+    active_panel_id / activate()
+
+Layer:
+    Panel Runtime State
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
 
 Finding:
-PanelManager maintains a single active_panel_id and deactivates the
-previous panel whenever another panel is activated.
+    PanelManager maintains a single active_panel_id.
 
 Architectural concern:
-The Blender-inspired GridForge workspace model requires multiple
-visible editors and potentially multiple editor areas. "Active panel"
-cannot automatically become the equivalent of "active editor" or
-"active workspace".
+    Blender-inspired workspace interaction requires multiple visible
+    editors and distinct concepts of:
 
-The future interaction system also requires separate concepts for:
-- focused editor;
-- active editor area;
-- selected object;
-- current context;
-- current workspace;
-- visible editors.
+        focused editor
+        active editor area
+        selected object
+        active tool
+        workspace context
+        visible editors
 
-Architectural decision:
-Retain active_panel semantics for the low-level panel lifecycle.
+Decision:
+    Retain active_panel_id as low-level panel lifecycle state.
 
-Do not promote active_panel_id into the global Workspace/Editor
-activation model.
-
-Modification required:
-Future Workspace/Editor architecture must define its own context and
-focus semantics above PanelManager.
+Do not promote it into the global Workspace/Editor context model.
 
 Related principles:
-#3 Context-sensitive
-#4 Blender-inspired interaction/workspace
-#8 Direct manipulation
-
-Implementation order:
-After PanelManager dependency audit and before Workspace implementation.
-
-Verification:
-Interaction/context graph review.
+    #3 #4 #8
 
 
+======================================================================
 GF-AUD-016
-File: ui/panels/panel_manager.py
-Symbol: create()
-Layer: Panel Lifecycle
-Severity: P2
-Status: 🔵 ACCEPTED
+======================================================================
+
+File:
+    ui/panels/panel_manager.py
+
+Symbol:
+    create()
+
+Layer:
+    Panel Lifecycle
+
+Severity:
+    P2
+
+Status:
+    🔵 ACCEPTED
 
 Finding:
-PanelManager creates runtime panels exclusively through descriptor.factory()
-obtained from PanelRegistry.
+    PanelManager creates runtime panels through registered descriptor
+    factories.
 
-Architectural decision:
-Retain factory-based creation.
+Decision:
+    Retain factory-based creation.
 
-Application-owned services must be injected into panel factories or
-panel construction context rather than created implicitly by individual
-panel implementations.
+Application-owned services must be injected through an explicit
+composition mechanism rather than created by panel implementations.
 
-Modification required:
-None currently.
+Related principles:
+    #12 #13
+
+
+======================================================================
+GF-AUD-017
+======================================================================
+
+File:
+    ui/panels/panel_manager.py
+
+Symbol:
+    clear() / destroy()
+
+Layer:
+    Runtime Lifecycle
+
+Severity:
+    P2
+
+Status:
+    🔵 ACCEPTED WITH FOLLOW-UP
+
+Finding:
+    PanelManager owns destruction and cleanup of PanelInstance objects.
+
+Decision:
+    Retain lifecycle ownership at PanelManager.
+
+Future workspace/docking code must not independently destroy the same
+logical panel instances.
 
 Follow-up:
-Audit PanelDescriptor and PanelInstance to verify factory dependency
-boundaries.
-
-Related principles:
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services.
+    Verify PanelInstance and PanelArea lifecycle boundaries.
 
 
-GF-AUD-017
-File: ui/panels/panel_manager.py
-Symbol: clear() / destroy()
-Layer: Runtime Lifecycle
-Severity: P2
-Status: 🔵 ACCEPTED WITH FOLLOW-UP
-
-Finding:
-PanelManager owns destruction of PanelInstance objects and clears its
-runtime state.
-
-Architectural decision:
-Retain lifecycle ownership at PanelManager.
-
-The future workspace/docking layer must not independently destroy the
-same logical panel instances.
-
-Modification required:
-Audit PanelInstance and PanelArea to establish the exact relationship
-between panel lifecycle and Qt widget/docking lifecycle.
-
-Verification:
-Lifecycle and ownership graph audit.
+======================================================================
 GF-AUD-018
-File: ui/panels/panel_descriptor.py
-Symbol: PanelDescriptor
-Layer: Panel Registration / Dependency Description
-Severity: P2
-Status: 🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
+======================================================================
+
+File:
+    ui/panels/panel_descriptor.py
+
+Symbol:
+    PanelDescriptor
+
+Layer:
+    Panel Registration / Dependency Description
+
+Severity:
+    P2
+
+Status:
+    🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
 
 Finding:
-PanelDescriptor is a clean immutable registration descriptor.
-It separates panel metadata from runtime panel instances and does not
-construct Qt widgets, own runtime state, or render content.
+    PanelDescriptor is a clean immutable/declarative registration
+    descriptor.
 
-Architectural decision:
-Retain PanelDescriptor as a declarative registration object.
+It separates metadata from runtime panel instances.
 
-Do not make PanelDescriptor responsible for:
-- widget construction;
-- docking;
-- workspace layout;
-- application service creation;
-- Core access;
-- rendering.
+Decision:
+    Retain PanelDescriptor as a declarative registration object.
 
-Modification required:
-None at present.
+Do not make it responsible for:
+
+    widget construction
+    docking
+    workspace layout
+    application service creation
+    Core access
+    rendering
 
 Related principles:
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
+    #12 #13
 
 
+======================================================================
 GF-AUD-019
-File: ui/panels/panel_descriptor.py
-Symbol: PanelFactory
-Layer: Dependency Injection
-Severity: P1
-Status: 🟡 DECISION REQUIRED
+======================================================================
+
+File:
+    ui/panels/panel_descriptor.py
+
+Symbol:
+    PanelFactory
+
+Layer:
+    Dependency Injection
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
 
 Finding:
-PanelFactory is currently defined as:
+    PanelFactory currently has the form:
 
-    Callable[[], PanelBase]
+        Callable[[], PanelBase]
 
-The factory therefore receives no explicit dependency/context object.
+Therefore factories receive no explicit dependency/context object.
 
 Architectural concern:
-The future GridForge V2 workspace may require panels/editors to consume
-application-owned services such as Controller, ToolManager,
-SelectionManager, CommandManager, RenderSystem, NavigationController,
-or other explicitly composed services.
+    Future panels/editors may require application-owned services such as:
 
-Those services must not be created silently by individual panels.
+        Controller
+        ToolManager
+        SelectionManager
+        CommandManager
+        RenderSystem
+        NavigationController
 
-Architectural decision:
-Do not change PanelFactory yet.
+These must not be silently created by panels.
 
-First audit:
-- PanelBase
-- PanelInstance
-- PanelManager
-- all PanelDescriptor factory registrations
-- plugin context
-- concrete panel implementations
+Decision:
+    Do not change PanelFactory yet.
 
-Then determine the canonical dependency-injection mechanism.
+Audit:
 
-Preferred target:
+    PanelBase
+    PanelInstance
+    PanelManager
+    concrete factory registrations
+    PluginContext
+    application composition
 
-Application composition
-    ↓
-Panel/Editor factory context
-    ↓
-Panel instance
+Preferred direction:
+
+    Application composition
+        ↓
+    Panel/Editor factory context
+        ↓
+    Panel instance
 
 rather than:
 
-Panel
-    ↓
-creates application service
-
-Modification required:
-Determine whether PanelFactory should receive an explicit
-PanelContext/EditorContext or whether dependencies should be supplied
-through another existing composition mechanism.
-
-Implementation order:
-After PanelBase → PanelInstance → concrete factory audit.
-
-Verification:
-Complete factory dependency graph.
+    Panel
+        ↓
+    creates application service
 
 
+======================================================================
 GF-AUD-020
-File: ui/panels/panel_descriptor.py
-Symbol: area
-Layer: Workspace / Docking Metadata
-Severity: P2
-Status: 🟡 DECISION REQUIRED
+======================================================================
+
+File:
+    ui/panels/panel_descriptor.py
+
+Symbol:
+    area
+
+Layer:
+    Workspace / Docking Metadata
+
+Severity:
+    P2
+
+Status:
+    🟡 DECISION REQUIRED
 
 Finding:
-PanelDescriptor contains a free-form string area with default value
-"right".
+    PanelDescriptor contains a string area with default "right".
 
-This is adequate for a fixed dock-oriented panel system but may be too
-restrictive for the future Blender-inspired workspace model.
+Architectural concern:
+    Future workspace supports:
 
-Target GridForge workspace requires:
-- docked areas;
-- floating editors;
-- tabbed editors;
-- split areas;
-- workspace-specific placement;
-- potentially context-sensitive placement.
+        docked
+        floating
+        tabbed
+        split
+        workspace-specific placement
 
-Architectural decision:
-Do not replace the area field yet.
+Decision:
+    Do not change the field yet.
 
-First determine whether "area" is:
-1. a low-level docking hint;
-2. a logical editor-area identifier;
-3. a workspace placement policy.
+Determine whether area represents:
 
-The final architecture should prevent panel descriptors from owning
-global workspace layout policy.
+    logical editor area
+    workspace placement
+    low-level dock hint
 
-Modification required:
-Audit PanelArea and PanelState next, then determine the proper
-relationship between panel metadata and workspace layout.
-
-Related principles:
-#4 Blender-inspired interaction/workspace
-#14 Flexible docked/floating/tabbed editors
-
-Implementation order:
-PanelBase → PanelInstance → PanelArea → PanelState.
+Panel descriptors must not own global workspace layout policy.
 
 
+======================================================================
 GF-AUD-021
-File: ui/panels/panel_descriptor.py
-Symbol: singleton
-Layer: Panel Lifecycle
-Severity: P2
-Status: 🔵 ACCEPTED WITH FOLLOW-UP
+======================================================================
+
+File:
+    ui/panels/panel_descriptor.py
+
+Symbol:
+    singleton
+
+Layer:
+    Panel Lifecycle
+
+Severity:
+    P2
+
+Status:
+    🔵 ACCEPTED WITH FOLLOW-UP
 
 Finding:
-PanelDescriptor explicitly supports singleton behavior.
+    PanelDescriptor supports singleton behavior.
 
-Architectural decision:
-Retain singleton as a panel lifecycle property.
+Decision:
+    Retain singleton as a low-level panel lifecycle property.
 
-However, singleton must not be confused with editor/workspace uniqueness.
+Do not confuse panel singleton semantics with workspace/editor
+uniqueness.
 
-For example, an SLD editor may be singleton within a workspace while
-other editor types may allow multiple instances.
+Future Editor instances may have different multiplicity rules.
 
-Modification required:
-No immediate change.
 
-Future Workspace/Editor architecture must define instance policy
-independently from the low-level panel lifecycle where necessary.
-
+======================================================================
 GF-AUD-022
-File: ui/panels/panel_base.py
-Symbol: PanelBase
-Layer: Logical Presentation Contract
-Severity: P3
-Status: 🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
+======================================================================
+
+File:
+    ui/panels/panel_base.py
+
+Symbol:
+    PanelBase
+
+Layer:
+    Logical Presentation Contract
+
+Severity:
+    P3
+
+Status:
+    🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
 
 Finding:
-PanelBase is correctly toolkit-independent and provides a minimal
-logical panel lifecycle contract.
+    PanelBase is toolkit-independent and provides a minimal logical
+    panel lifecycle contract.
 
-It does not create Qt widgets, manipulate MainWindow, access Core state,
-or create application-owned services.
+It does not:
 
-Architectural decision:
-Retain PanelBase as the low-level logical panel contract.
+    create Qt widgets
+    manipulate MainWindow
+    access Core state
+    create application-owned services
 
-Do not make PanelBase responsible for workspace layout, docking,
-rendering, application services, or electrical semantics.
+Decision:
+    Retain PanelBase as the low-level logical panel contract.
 
-Modification required:
-None at present.
-
-Related principles:
-#7 Core independent of UI/Blender
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
+Do not turn PanelBase into a workspace or editor abstraction.
 
 
+======================================================================
 GF-AUD-023
-File: ui/panels/panel_base.py
-Symbol: on_activate() / on_deactivate()
-Layer: Panel Lifecycle / Interaction Context
-Severity: P1
-Status: 🟡 DECISION REQUIRED
+======================================================================
+
+File:
+    ui/panels/panel_base.py
+
+Symbol:
+    on_activate() / on_deactivate()
+
+Layer:
+    Panel Lifecycle / Interaction Context
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
 
 Finding:
-PanelBase exposes activation lifecycle callbacks.
-
-PanelManager currently uses a single active_panel_id model.
+    PanelBase exposes activation lifecycle callbacks.
 
 Architectural concern:
-GridForge V2 requires Blender-inspired workspace interaction where
-multiple editors can remain visible and editor focus/context is distinct
-from global workspace state.
+    Panel activation cannot represent the complete Workspace/Editor
+    context model.
 
-Architectural decision:
-Retain panel activation callbacks for low-level panel lifecycle.
+Decision:
+    Retain activation callbacks for low-level panel lifecycle.
 
-Do not use PanelBase activation as the global Workspace/Editor context
-mechanism.
+Do not use them as the global editor focus/context mechanism.
 
-The future interaction layer must define separate concepts for:
-- workspace;
-- editor area;
-- focused editor;
-- selection context;
-- active tool;
-- visible editors.
+Future interaction layer must distinguish:
 
-Modification required:
-Determine the Workspace/Editor context model after auditing PanelInstance,
-PanelArea, PanelState, and the interaction system.
-
-Related principles:
-#3 Context-sensitive
-#4 Blender-inspired interaction/workspace
-#8 Direct manipulation
+    workspace
+    editor area
+    focused editor
+    selected object
+    active tool
+    context
 
 
+======================================================================
 GF-AUD-024
-File: ui/panels/panel_base.py
-Symbol: documentation / lifecycle contract
-Layer: Architecture Documentation
-Severity: P3
-Status: 🟡 FOLLOW-UP
+======================================================================
+
+File:
+    ui/panels/panel_base.py
+
+Symbol:
+    lifecycle documentation
+
+Layer:
+    Architecture Documentation
+
+Severity:
+    P3
+
+Status:
+    🟡 FOLLOW-UP
 
 Finding:
-PanelBase documentation states that "the workspace manages lifecycle and
-visibility", while the current concrete lifecycle manager is
-PanelManager.
+    Documentation references workspace-managed lifecycle while current
+    concrete lifecycle ownership resides in PanelManager.
 
-Architectural concern:
-Documentation should describe the actual architecture and should not
-prematurely establish WorkspaceManager as an owner before the composition
-decision is complete.
+Decision:
+    Update documentation only after Workspace/Editor ownership is
+    finalized.
 
-Modification required:
-After the Workspace/Editor composition is finalized, update the
-documentation to identify the precise lifecycle owner.
+Do not alter architecture merely to satisfy current documentation.
 
-Do not modify the architecture solely to satisfy the current wording.
 
-Verification:
-Documentation-to-implementation consistency audit.
-
+======================================================================
 GF-AUD-025
-File: ui/panels/panel_instance.py
-Symbol: PanelInstance
-Layer: Panel Runtime Lifecycle
-Severity: P2
-Status: 🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
+======================================================================
+
+File:
+    ui/panels/panel_instance.py
+
+Symbol:
+    PanelInstance
+
+Layer:
+    Panel Runtime Lifecycle
+
+Severity:
+    P2
+
+Status:
+    🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
 
 Finding:
-PanelInstance correctly separates runtime panel lifecycle from Qt
-docking and MainWindow ownership.
+    PanelInstance correctly separates runtime panel lifecycle from Qt
+    docking and MainWindow ownership.
 
-It owns PanelBase, PanelDescriptor, PanelState and lifecycle transitions.
+It owns:
 
-Architectural decision:
-Retain PanelInstance as the runtime lifecycle wrapper for a panel.
+    PanelBase
+    PanelDescriptor
+    PanelState
+    lifecycle transitions
 
-Do not make PanelInstance responsible for:
-- workspace layout;
-- docking;
-- editor-area management;
-- application service creation;
-- electrical semantics;
-- rendering.
+Decision:
+    Retain PanelInstance as the runtime lifecycle wrapper.
 
-Modification required:
-None at present.
-
-Related principles:
-#7 Core independent of UI/Blender
-#12 Explicit application composition
-#13 No canvas component silently creates application-owned services
+Do not make it responsible for workspace layout, docking, rendering,
+electrical semantics, or application service creation.
 
 
+======================================================================
 GF-AUD-026
-File: ui/panels/panel_instance.py
-Symbol: destroy() / create()
-Layer: Runtime Lifecycle
-Severity: P2
-Status: 🟡 DECISION REQUIRED
+======================================================================
+
+File:
+    ui/panels/panel_instance.py
+
+Symbol:
+    destroy() / create()
+
+Layer:
+    Runtime Lifecycle
+
+Severity:
+    P2
+
+Status:
+    🟡 DECISION REQUIRED
 
 Finding:
-destroy() permanently marks the PanelInstance as destroyed.
-create() subsequently rejects reuse.
+    destroy() permanently marks a PanelInstance as destroyed and create()
+    subsequently rejects reuse.
 
 Architectural concern:
-This is valid only if PanelManager guarantees that destroyed
-PanelInstances are removed and never reused.
+    This is valid only if PanelManager guarantees destroyed instances
+    are removed and never reused.
 
 Decision:
-Verify the PanelManager lifecycle contract before modifying
-PanelInstance.
-
-Modification required:
-Audit PanelManager.destroy(), clear(), and recreation behavior.
+    Verify PanelManager destruction and recreation behavior before
+    modifying PanelInstance.
 
 Verification:
-Trace create → destroy → recreate lifecycle.
+    Trace:
+
+        create
+        ↓
+        destroy
+        ↓
+        recreate
 
 
+======================================================================
 GF-AUD-027
-File: ui/panels/panel_instance.py
-Symbol: reset()
-Layer: Runtime Lifecycle / State
-Severity: P2
-Status: 🟡 DECISION REQUIRED
+======================================================================
+
+File:
+    ui/panels/panel_instance.py
+
+Symbol:
+    reset()
+
+Layer:
+    Runtime Lifecycle / State
+
+Severity:
+    P2
+
+Status:
+    🟡 DECISION REQUIRED
 
 Finding:
-reset() delegates directly to PanelBase.reset() regardless of whether
-the instance has been created or destroyed.
+    reset() delegates to PanelBase.reset() regardless of lifecycle state.
 
 Architectural concern:
-A destroyed runtime instance can currently receive reset().
+    A destroyed runtime instance can potentially receive reset().
 
 Decision:
-Define reset semantics before changing implementation.
+    Define reset semantics before changing implementation.
 
-Reset must be clearly classified as either:
-1. panel-content/UI reset;
-2. runtime-state reset;
-3. workspace-state reset.
+Possible classifications:
 
-Workspace state must not be placed into PanelInstance.
+    panel UI/content reset
+    runtime state reset
+    workspace state reset
 
-Modification required:
-Audit PanelState and all reset() consumers before deciding whether
-lifecycle guards are required.
-
-Verification:
-Reset lifecycle/state transition audit.
-
-
-GF-AUD-028
-File: ui/panels/panel_instance.py
-Symbol: PanelState ownership
-Layer: Panel Runtime State
-Severity: P1
-Status: 🔵 ACCEPTED
-
-Finding:
-PanelInstance owns the runtime PanelState while PanelBase remains a
-logical panel contract.
-
-Architectural decision:
-Preserve this separation.
-
-Do not extend PanelState/PanelInstance to become the global workspace
-state or editor-context state.
-
-Future hierarchy:
-
-Workspace
-    ↓
-Editor Area
-    ↓
-PanelInstance
-    ↓
-PanelBase
-
-Workspace focus, layout, selection context and editor-area state must
-remain above PanelInstance.
-
-Related principles:
-#3 Context-sensitive
-#4 Blender-inspired interaction/workspace
-#8 Direct manipulation
-
-GF-AUD-029
-File: ui/panels/panel_state.py
-Symbol: PanelState
-Layer: Logical Presentation State
-Severity: P2
-Status: 🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
-
-Finding:
-PanelState correctly stores logical panel presentation state separately
-from Qt widget/docking implementation.
-
-It contains visibility, activation, floating state, area, geometry
-metadata, and serialization.
-
-Architectural decision:
-Retain PanelState as a toolkit-independent logical state object.
-
-Do not introduce Qt widgets, QDockWidget objects, MainWindow references,
-or Qt-specific docking operations into PanelState.
-
-Modification required:
-None immediately.
-
-Related principles:
-#5 PySide6 implementation
-#7 Core independent of UI/Blender
-#12 Explicit application composition
-
-
-GF-AUD-030
-File: ui/panels/panel_state.py
-Symbol: active
-Layer: Panel Lifecycle / Context
-Severity: P1
-Status: 🟡 DECISION REQUIRED
-
-Finding:
-PanelState stores an active boolean and exposes activate()/deactivate().
-
-PanelManager also maintains active_panel_id.
-
-Architectural concern:
-GridForge V2 requires a richer workspace/editor context model where
-panel activation, editor focus, selected object, active tool, and
-workspace context are distinct concepts.
-
-Architectural decision:
-Retain active as low-level panel lifecycle state.
-
-Do not promote PanelState.active into the global workspace/editor
-focus model.
-
-Modification required:
-Define Workspace/Editor focus semantics above PanelState.
-
-Verification:
-Interaction/context dependency audit.
-
-
-GF-AUD-031
-File: ui/panels/panel_state.py
-Symbol: area
-Layer: Workspace / Docking State
-Severity: P1
-Status: 🟡 DECISION REQUIRED
-
-Finding:
-PanelState uses a string area with default value "right".
-
-This reflects the current dock-oriented presentation model.
-
-Architectural concern:
-GridForge V2 requires flexible workspace composition including
-docked, floating, tabbed and split editor areas.
-
-A fixed "right" default must not become a hard-coded global layout rule.
-
-Architectural decision:
-Treat PanelState.area as logical placement metadata for now.
-
-Do not convert it directly into Qt dock-area semantics.
-
-Audit PanelArea and workspace layout infrastructure before changing
-the field or its type.
-
-Modification required:
-Determine whether area should represent:
-1. logical editor area;
-2. workspace placement identifier;
-3. low-level dock hint.
-
-Preferred direction:
-PanelState should remain toolkit-independent and should not own global
-workspace layout policy.
-
-Related principles:
-#4 Blender-inspired interaction/workspace
-#14 Flexible docked/floating/tabbed editors.
-
-
-GF-AUD-032
-File: ui/panels/panel_state.py
-Symbol: geometry
-Layer: Persistent Presentation State
-Severity: P2
-Status: 🟡 DECISION REQUIRED
-
-Finding:
-geometry is represented as Dict[str, Any].
-
-This keeps the state toolkit-independent, which is desirable, but the
-semantic meaning of the geometry is not yet explicitly defined.
-
-Architectural decision:
-Geometry in PanelState must remain logical/persistent presentation
-metadata.
-
-Qt-specific geometry serialization must remain in the presentation/
-docking adapter.
-
-Modification required:
-Define the boundary between logical workspace geometry and Qt widget
-geometry during the Workspace/Docking audit.
-
-Verification:
-Serialization and docking dependency audit.
-
-
-GF-AUD-033
-File: ui/panels/panel_state.py
-Symbol: to_dict() / from_dict()
-Layer: Persistence
-Severity: P2
-Status: 🔵 ACCEPTED WITH FOLLOW-UP
-
-Finding:
-PanelState provides explicit serialization/deserialization without
-depending on Qt.
-
-Architectural decision:
-Retain this pattern.
-
-Future workspace persistence should compose panel state rather than
-embedding Qt widget objects into the persisted model.
-
-Modification required:
-None now.
+Workspace state must not be moved into PanelInstance.
 
 Follow-up:
-Determine whether WorkspaceState will compose PanelState objects and
-how editor/workspace layout state will be serialized.
+    Audit PanelState and reset() consumers.
 
-GF-AUD-034
-File: ui/panels/panel_area.py
-Symbol: PanelArea
-Layer: Logical Docking Semantics
-Severity: P3
-Status: 🟢 ACCEPTED — NO MODIFICATION
+
+======================================================================
+GF-AUD-028
+======================================================================
+
+File:
+    ui/panels/panel_instance.py
+
+Symbol:
+    PanelState ownership
+
+Layer:
+    Panel Runtime State
+
+Severity:
+    P1
+
+Status:
+    🔵 ACCEPTED
 
 Finding:
-PanelArea correctly defines canonical logical docking areas without
-depending on Qt docking constants or manipulating QMainWindow/
+    PanelInstance owns PanelState while PanelBase remains a logical
+    contract.
+
+Decision:
+    Preserve this separation.
+
+Do not extend PanelInstance/PanelState into global workspace state.
+
+Target hierarchy:
+
+    Workspace
+        ↓
+    Editor Area
+        ↓
+    PanelInstance
+        ↓
+    PanelBase
+
+
+======================================================================
+GF-AUD-029
+======================================================================
+
+File:
+    ui/panels/panel_state.py
+
+Symbol:
+    PanelState
+
+Layer:
+    Logical Presentation State
+
+Severity:
+    P2
+
+Status:
+    🟢 ACCEPTED — NO IMMEDIATE MODIFICATION
+
+Finding:
+    PanelState stores logical panel presentation state independently
+    from Qt.
+
+It contains:
+
+    visible
+    active
+    floating
+    area
+    geometry
+
+and supports serialization.
+
+Decision:
+    Retain PanelState as toolkit-independent logical presentation state.
+
+Do not introduce Qt widgets or docking operations into PanelState.
+
+
+======================================================================
+GF-AUD-030
+======================================================================
+
+File:
+    ui/panels/panel_state.py
+
+Symbol:
+    active
+
+Layer:
+    Panel Lifecycle / Context
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    PanelState contains an active boolean and activate/deactivate
+    operations.
+
+Architectural concern:
+    Global workspace focus/context requires richer semantics.
+
+Decision:
+    Retain active as low-level panel lifecycle state.
+
+Do not promote it into global Workspace/Editor focus state.
+
+
+======================================================================
+GF-AUD-031
+======================================================================
+
+File:
+    ui/panels/panel_state.py
+
+Symbol:
+    area
+
+Layer:
+    Workspace / Docking State
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    PanelState uses a string area with default "right".
+
+Initial concern:
+    This could have represented direct Qt docking semantics.
+
+Audit result:
+    PanelArea provides an independent logical vocabulary, so the area
+    field is not inherently tied to Qt.
+
+Decision:
+    Treat PanelState.area as logical placement metadata.
+
+Do not hard-code Qt docking constants into PanelState.
+
+Audit PanelArea and docking adapter before changing the field.
+
+
+======================================================================
+GF-AUD-032
+======================================================================
+
+File:
+    ui/panels/panel_state.py
+
+Symbol:
+    geometry
+
+Layer:
+    Persistent Presentation State
+
+Severity:
+    P2
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    geometry is represented as Dict[str, Any].
+
+Architectural concern:
+    The semantic distinction between logical workspace geometry and
+    Qt widget geometry must be explicit.
+
+Decision:
+    PanelState geometry remains logical/persistent presentation state.
+
+Qt-specific geometry serialization must remain in the presentation/
+docking layer.
+
+Do not leak Qt serialization into PanelState.
+
+
+======================================================================
+GF-AUD-033
+======================================================================
+
+File:
+    ui/panels/panel_state.py
+
+Symbol:
+    to_dict() / from_dict()
+
+Layer:
+    Persistence
+
+Severity:
+    P2
+
+Status:
+    🔵 ACCEPTED WITH FOLLOW-UP
+
+Finding:
+    PanelState provides explicit toolkit-independent serialization.
+
+Decision:
+    Retain this pattern.
+
+Future workspace persistence should compose logical state and should
+not persist Qt widget objects.
+
+Follow-up:
+    Determine how WorkspaceState composes panel/editor state.
+
+
+======================================================================
+GF-AUD-034
+======================================================================
+
+File:
+    ui/panels/panel_area.py
+
+Symbol:
+    PanelArea
+
+Layer:
+    Logical Docking Semantics
+
+Severity:
+    P3
+
+Status:
+    🟢 ACCEPTED — NO MODIFICATION
+
+Finding:
+    PanelArea defines canonical logical docking values:
+
+        LEFT
+        RIGHT
+        TOP
+        BOTTOM
+        CENTER
+
+It does not depend on Qt and does not manipulate QMainWindow or
 QDockWidget.
 
 Architectural decision:
-Retain PanelArea as the low-level logical docking-area vocabulary.
+    Retain PanelArea as the low-level logical docking-area vocabulary.
 
-LEFT, RIGHT, TOP, BOTTOM and CENTER remain valid logical area values.
+Do NOT add:
 
-Do not add workspace, editor, split, tab, or floating concepts to
-PanelArea. Those belong to the higher-level Workspace/Layout model.
+    SPLIT
+    TAB
+    FLOAT
+    WORKSPACE
+    EDITOR
 
-The intended dependency remains:
+to PanelArea.
 
-PanelState
-    ↓
-PanelArea
-    ↓
-logical docking semantics
-    ↓
-Qt docking adapter
-    ↓
-QDockWidget / QMainWindow
+Those are higher-level workspace/layout/container concepts.
+
+Canonical relationship:
+
+    PanelState
+        ↓
+    PanelArea
+        ↓
+    logical docking semantics
+        ↓
+    Qt docking adapter
+        ↓
+    QDockWidget / QMainWindow
 
 Modification required:
-None.
+    None.
 
 Related principles:
-#4 Blender-inspired interaction/workspace
-#5 PySide6 implementation
-#12 Explicit application composition
-#14 Flexible docked/floating/tabbed editors
+    #4 #5 #12 #14
 
 Follow-up:
-Audit the concrete Qt docking adapter and determine where the
-PanelArea → QDockWidget mapping occurs.
+    Audit the actual Qt-side consumer of PanelInstance/PanelState.
+
+
+======================================================================
+CURRENT ARCHITECTURAL CONCLUSION
+======================================================================
+
+The low-level panel architecture currently forms:
+
+    PanelRegistry
+          ↓
+    PanelDescriptor
+          ↓
+    PanelManager
+          ↓
+    PanelInstance
+          ├── PanelBase
+          └── PanelState
+                  ↓
+              PanelArea
+
+
+This chain is currently considered structurally sound.
+
+Do NOT create a duplicate:
+
+    WorkspacePanelRegistry
+    WorkspacePanelManager
+    CanvasPanelManager
+    EditorPanelManager
+
+merely to accommodate the new workspace concept.
+
+
+======================================================================
+TARGET HIGH-LEVEL ARCHITECTURE UNDER AUDIT
+======================================================================
+
+The target GridForge V2 composition is:
+
+    Application Composition Root
+              │
+              ▼
+          MainWindow
+              │
+              ▼
+          Workspace
+              │
+       ┌──────┼─────────┐
+       │      │         │
+       ▼      ▼         ▼
+    Editor  Editor    Editor
+     Area    Area      Area
+       │      │         │
+       ▼      ▼         ▼
+     SLD    Inspector  Results
+     Editor  /Props    Editor
+       │
+       ▼
+    Panel/Editor Runtime
+       │
+       ▼
+    Qt Presentation / Docking
+       │
+       ├── docked
+       ├── floating
+       ├── tabbed
+       └── split
+
+
+The Workspace/Editor layer must be higher than the existing low-level
+Panel lifecycle layer.
+
+The existing Panel infrastructure must not be duplicated.
+
+
+======================================================================
+CANVAS COMPOSITION RULE
+======================================================================
+
+No canvas component may silently create an application-owned service.
+
+In particular:
+
+    GridScene
+    GraphicsView
+    Canvas
+    CanvasPlugin
+    RenderSystem
+    Renderer
+    RendererRegistry
+    RendererLoader
+    Canvas interaction components
+
+must not silently create authoritative application services.
+
+Application-owned services must arrive through explicit composition.
+
+
+======================================================================
+RENDERING COMPOSITION RULE
+======================================================================
+
+The canvas rendering architecture must maintain a single coherent
+composition graph.
+
+Target dependency direction:
+
+    Application Composition
+            ↓
+    Render Services
+            ↓
+    RenderSystem
+            ↓
+    RendererRegistry
+            ↓
+    RendererLoader
+            ↓
+    concrete renderer
+            ↓
+    graphics/item presentation
+
+
+The exact ownership relationship is still under audit.
+
+No renderer or canvas object should silently construct another
+application-owned RenderSystem, RendererRegistry or RendererLoader.
+
+
+======================================================================
+BLENDER / ETAP ARCHITECTURAL RULE
+======================================================================
+
+GridForge V2 is NOT a Blender clone.
+
+GridForge uses:
+
+    Blender-inspired
+        interaction
+        direct manipulation
+        workspace organization
+        editor areas
+        flexible docking
+        contextual tools
+
+while retaining:
+
+    GridForge-owned
+        electrical model
+        topology
+        SLD semantics
+        equipment semantics
+        validation
+        analysis
+        simulation
+        protection
+        engineering commands
+
+
+Canonical statement:
+
+    GridForge V2 will implement a Blender-inspired
+    interaction/workspace layer in PySide6 while keeping the electrical
+    model, topology, analysis, simulation, and engineering semantics
+    completely independent of Blender.
+
+
+======================================================================
+ENGINEERING INTERACTION RULE
+======================================================================
+
+For every UI operation ask:
+
+    What does the engineer want to do?
+
+    What does that operation mean electrically?
+
+    How can we make the interaction direct and visually obvious?
+
+The UI should make complex electrical operations feel simple without
+making the underlying electrical model simplistic.
+
+
+======================================================================
+CURRENT AUDIT STATUS
+======================================================================
+
+Completed through:
+
+    GF-AUD-034
+
+Audited components:
+
+    main.py
+    ui/main_window.py
+    ui/plugins/panels_plugin.py
+    ui/plugins/plugin_manager.py
+    ui/core/panel_registry.py
+    ui/panels/panel_manager.py
+    ui/panels/panel_descriptor.py
+    ui/panels/panel_base.py
+    ui/panels/panel_instance.py
+    ui/panels/panel_state.py
+    ui/panels/panel_area.py
+
+
+Current status:
+
+    No production modifications authorized yet.
+
+    No tests authorized yet.
+
+    Composition/dependency audit continues.
+
+
+======================================================================
+NEXT AUDIT TARGET
+======================================================================
+
+Next:
+
+    Trace the Qt-side consumer of:
+
+        PanelInstance
+        PanelState
+        PanelArea
+
+Goal:
+
+    Establish exactly where:
+
+        logical Panel
+            ↓
+        runtime PanelInstance
+            ↓
+        Qt presentation
+            ↓
+        QDockWidget / floating window / tab / split
+            ↓
+        Workspace
+
+is composed.
+
+After that:
+
+    Workspace / Editor composition
+        ↓
+    Tool / Command / Interaction composition
+        ↓
+    SLD Canvas composition
+        ↓
+    RenderSystem
+        ↓
+    RendererRegistry ↔ RendererLoader
+        ↓
+    GridScene / GraphicsView
+        ↓
+    Item / Renderer dependency chain
+
+
+======================================================================
+AUDIT DISCIPLINE
+======================================================================
+
+Do not patch production code prematurely.
+
+Do not create tests merely to validate an architecture that has not
+yet been finalized.
+
+Do not rename existing abstractions until their consumers have been
+audited.
+
+Do not create duplicate managers or registries.
+
+Prefer composition over hidden construction.
+
+Prefer explicit dependency injection over service discovery from
+inside UI components.
+
+Keep Core authoritative.
+
+Keep electrical semantics independent of presentation.
+
+Keep Blender inspiration confined to interaction/workspace concepts.
+
+Keep ETAP semantics central to electrical engineering workflows.
+
+
+======================================================================
+END OF MODIFICATION REGISTER
+======================================================================
