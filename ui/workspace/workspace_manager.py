@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # File: ui/workspace/workspace_manager.py
 # GridForge V2 — Workspace Manager
@@ -426,4 +425,3 @@ class WorkspaceManager:
 __all__ = [
     "WorkspaceManager",
 ]
-```
