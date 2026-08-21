@@ -2734,7 +2734,24 @@ Required correction:
     become hidden.
 
     WorkspaceLayout and WorkspaceDefinition require no change.
+GF-AUD-065
+STATUS: 🟡 NEXT
 
+Scope:
+    Repository-wide Workspace integration references.
+
+Objective:
+    Identify every consumer of ui.workspace and verify that the
+    frozen Workspace architecture is respected.
+
+Rules:
+    - Do not modify production code before audit.
+    - Do not create tests yet.
+    - Workspace remains locked.
+    - MainWindow remains locked.
+    - WorkspaceRealizer remains locked.
+    - Workspace/Layout owns placement policy.
+    - PanelSpec.area is not canonical.
 ======================================================================
 ======================================================================
 ======================================================================
