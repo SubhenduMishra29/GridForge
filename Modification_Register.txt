@@ -2752,6 +2752,22 @@ Rules:
     - WorkspaceRealizer remains locked.
     - Workspace/Layout owns placement policy.
     - PanelSpec.area is not canonical.
+GF-AUD-065
+🟡 BLOCKED / INCONCLUSIVE
+
+Repository Workspace consumer search:
+    WorkspaceRealizer       → no indexed results
+    from ui.workspace       → no indexed results
+    PanelSpec area          → no indexed results
+
+Interpretation:
+    Search index did not expose consumers.
+    This is NOT proof that consumers do not exist.
+
+Decision:
+    Do not modify production code yet.
+    Do not remove any files.
+    Do not declare integration clean.
 ======================================================================
 ======================================================================
 ======================================================================
