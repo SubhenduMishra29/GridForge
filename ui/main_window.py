@@ -12,90 +12,42 @@ GridForge V2
 
 Main application window and Qt workspace host.
 
-## Architectural Role
-
 MainWindow is the top-level Qt host for the GridForge UI.
 
 It owns:
-
-```
-- the QApplication-facing main window;
-- the central editor/SLD host;
-- the Qt docking infrastructure;
-- the application controller;
-- the UI plugin composition boundary;
-- the mechanical Qt operations required by WorkspaceRealizer.
-```
+- the main Qt window;
+- the central SLD/editor host;
+- Qt docking infrastructure;
+- the explicitly supplied UI Controller;
+- the plugin-context attachment point;
+- mechanical Qt operations required by WorkspaceRealizer.
 
 It does NOT own:
-
-```
 - electrical/model state;
+- WorkspaceDefinition;
+- WorkspaceLayout;
+- WorkspaceState;
 - workspace policy;
 - panel placement policy;
 - panel registration;
-- workspace definitions;
-- workspace layout state;
-- engineering semantics.
-```
+- panel creation;
+- workspace activation;
+- WorkspaceRealizer orchestration.
 
-## Workspace ownership
+Workspace policy belongs to the Workspace subsystem.
 
-Workspace/Layout decides:
+WorkspaceRealizer translates logical WorkspaceLayout decisions
+into the host methods provided here.
 
-```
-WHAT is arranged
-WHERE it belongs
-WHETHER it is visible
-WHETHER it is floating
-WHICH panels are grouped
-```
-
-MainWindow realizes those decisions through Qt.
-
-## Dependency direction
-
-```
-WorkspaceManager
-      |
-      v
-WorkspaceLayout
-      |
-      v
-WorkspaceRealizer
-      |
-      v
-MainWindow
-      |
-      v
-     Qt
-```
-
-Panel composition remains separate:
-
-```
-PanelsPlugin
-      |
-      v
-Panel/Dock instances
-      |
-      v
-WorkspaceRealizer
-```
-
-## Important
-
-No canvas, panel, plugin, or workspace component may silently
-create an application-owned MainWindow or service.
-
-MainWindow receives its dependencies explicitly.
+PanelsPlugin remains responsible for panel composition and dock
+creation, not workspace arrangement.
 """
 
 from **future** import annotations
 
 from typing import Optional
 
-from ui.core.controller import UIController
+from ui.core.controller import Controller
 from ui.core.plugin_registry import PluginRegistry
 from ui.core.qt import (
 QDockWidget,
@@ -103,7 +55,6 @@ QMainWindow,
 Qt,
 QWidget,
 )
-
 from ui.plugins.plugin_context import PluginContext
 
 # ============================================================
@@ -117,38 +68,24 @@ class MainWindow(QMainWindow):
 Top-level GridForge Qt application window.
 
 ```
-MainWindow is the Qt realization host for the UI.
+MainWindow is a Qt realization host.
 
-It does not decide workspace policy. Workspace/Layout provides
-the decisions; MainWindow performs the corresponding Qt
-operations.
+It performs Qt operations requested by higher-level
+orchestration but does not own workspace policy.
 """
 
 def __init__(
     self,
     *,
-    controller: Optional[UIController] = None,
+    controller: Optional[Controller] = None,
     plugin_registry: Optional[PluginRegistry] = None,
     parent: Optional[QWidget] = None,
 ) -> None:
     """
     Construct the main application window.
 
-    Parameters
-    ----------
-    controller:
-        Existing UI controller.
-
-    plugin_registry:
-        Existing plugin registry.
-
-    parent:
-        Optional Qt parent.
-
-    Notes
-    -----
-    Dependencies are explicitly supplied. MainWindow does not
-    silently construct application-owned services.
+    Dependencies are explicitly supplied.
+    MainWindow does not construct application services.
     """
 
     super().__init__(parent)
@@ -169,9 +106,9 @@ def __init__(
 
 def _configure_window(self) -> None:
     """
-    Configure only intrinsic MainWindow properties.
+    Configure intrinsic MainWindow properties only.
 
-    Workspace arrangement is intentionally not configured here.
+    Workspace arrangement is intentionally absent.
     """
 
     self.setWindowTitle(
@@ -188,15 +125,15 @@ def _configure_window(self) -> None:
     )
 
 # ========================================================
-# Central Workspace Host
+# Central Workspace / SLD Host
 # ========================================================
 
 def _create_central_host(self) -> None:
     """
     Create the central editor/SLD host.
 
-    The central host is intentionally generic. SLD/editor
-    composition belongs to the workspace/editor subsystem.
+    The central widget is a host only. SLD/editor composition
+    belongs to the appropriate UI subsystem.
     """
 
     self._central_widget = QWidget(
@@ -218,8 +155,8 @@ def _create_central_host(self) -> None:
 @property
 def controller(
     self,
-) -> Optional[UIController]:
-    """Return the explicitly supplied UI controller."""
+) -> Optional[Controller]:
+    """Return the explicitly supplied UI Controller."""
 
     return self._controller
 
@@ -227,7 +164,7 @@ def controller(
 def plugin_registry(
     self,
 ) -> Optional[PluginRegistry]:
-    """Return the explicitly supplied plugin registry."""
+    """Return the explicitly supplied PluginRegistry."""
 
     return self._plugin_registry
 
@@ -235,7 +172,7 @@ def plugin_registry(
 def plugin_context(
     self,
 ) -> Optional[PluginContext]:
-    """Return the current plugin context."""
+    """Return the current PluginContext."""
 
     return self._plugin_context
 
@@ -243,7 +180,7 @@ def plugin_context(
 def central_workspace(
     self,
 ) -> Optional[QWidget]:
-    """Return the central editor/SLD host widget."""
+    """Return the central SLD/editor host widget."""
 
     return self._central_widget
 
@@ -277,7 +214,7 @@ def set_plugin_context(
     self._plugin_context = context
 
 # ========================================================
-# Qt Workspace / Docking Infrastructure
+# Qt Workspace / Dock Host API
 # ========================================================
 
 def add_dock_widget(
@@ -320,9 +257,9 @@ def remove_dock_widget(
     dock_widget: QDockWidget,
 ) -> None:
     """
-    Remove an existing dock widget from the MainWindow.
+    Remove an existing dock widget from MainWindow.
 
-    The dock widget itself is not destroyed here.
+    Removing a dock does not destroy the dock widget.
     """
 
     if not isinstance(
@@ -347,7 +284,7 @@ def tabify_dock_widgets(
     """
     Tabify two existing dock widgets.
 
-    Workspace/Layout decides the grouping.
+    Workspace/Layout decides grouping.
     MainWindow performs the Qt operation.
     """
 
@@ -385,10 +322,9 @@ def set_dock_visible(
     visible: bool,
 ) -> None:
     """
-    Set the visibility of an existing dock widget.
+    Set dock visibility.
 
-    Workspace/Layout owns the visibility decision.
-    MainWindow performs only the Qt operation.
+    Visibility policy belongs to WorkspaceLayout.
     """
 
     if not isinstance(
@@ -419,10 +355,9 @@ def set_dock_floating(
     floating: bool,
 ) -> None:
     """
-    Set the floating state of an existing dock widget.
+    Set dock floating state.
 
-    Workspace/Layout owns the floating decision.
-    MainWindow performs only the Qt operation.
+    Floating policy belongs to WorkspaceLayout.
     """
 
     if not isinstance(
@@ -454,14 +389,12 @@ def dispatch_command(
     command,
 ):
     """
-    Dispatch a UI command through the existing controller.
-
-    MainWindow does not execute application/model logic itself.
+    Dispatch a command through the existing Controller.
     """
 
     if self._controller is None:
         raise RuntimeError(
-            "No UIController is attached to MainWindow."
+            "No Controller is attached to MainWindow."
         )
 
     return self._controller.dispatch(
@@ -479,8 +412,7 @@ def closeEvent(
     """
     Handle MainWindow shutdown.
 
-    Application/service lifecycle remains outside this class
-    unless explicitly coordinated by the application layer.
+    Application/service lifecycle remains outside MainWindow.
     """
 
     event.accept()
