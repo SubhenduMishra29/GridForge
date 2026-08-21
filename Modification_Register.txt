@@ -328,3 +328,123 @@ main.py
 → RendererRegistry ↔ RendererLoader
 → GridScene / GraphicsView
 → Item / Renderer dependency chain
+
+GF-AUD-006
+File: ui/main_window.py
+Symbol: MainWindow
+Layer: UI Composition
+Severity: P1
+Status: 🟡 DECISION REQUIRED
+
+Finding:
+MainWindow currently combines application-window ownership with UI
+plugin composition and lifecycle orchestration.
+
+Architectural concern:
+The new Blender-inspired Workspace/Editor architecture must not create
+a second composition system parallel to PluginManager.
+
+Decision:
+Keep MainWindow as the delegated UI composition boundary for now.
+Do not introduce an independent workspace composition root.
+
+Required modification:
+Determine the canonical relationship between PluginManager,
+WorkspaceManager, EditorManager, and the existing panel infrastructure
+before modifying MainWindow.
+
+Related principles:
+#12 Explicit application composition
+#14 Flexible docked/floating/tabbed editors
+
+Implementation order:
+After Panel/Editor infrastructure audit.
+
+
+GF-AUD-007
+File: ui/main_window.py
+Symbol: tool_manager
+Layer: Tool / Interaction Composition
+Severity: P2
+Status: 🔵 ACCEPTED
+
+Finding:
+MainWindow explicitly creates the canonical ToolManager and supplies it
+through PluginContext.
+
+Decision:
+Retain this ownership model.
+
+ToolManager must remain application-owned and must not be created by
+CanvasPlugin, GraphicsView, GridScene, or any renderer.
+
+Required modification:
+None unless a later composition audit demonstrates a superior explicit
+application-level owner.
+
+Related principle:
+#13 No canvas component silently creates application-owned services.
+
+
+GF-AUD-008
+File: ui/plugins/panels_plugin.py
+Symbol: PanelsPlugin / PanelSpec
+Layer: Workspace / Docking Presentation
+Severity: P1
+Status: 🔍 AUDITING
+
+Finding:
+PanelsPlugin currently implements dock/panel composition directly using
+QDockWidget.
+
+This is compatible with the current UI but may be too narrow for the
+new Blender-inspired flexible Editor/Workspace architecture.
+
+Target architecture requires:
+- docked editors;
+- floating editors;
+- tabbed editors;
+- split editors;
+- collapsible editors;
+- context-sensitive editors.
+
+Decision:
+Do not replace PanelsPlugin yet.
+
+Audit PanelRegistry, PanelManager, PanelSpec, PanelsPlugin and related
+composition code to determine whether the existing panel architecture
+can serve as the docking/editor infrastructure.
+
+Required modification:
+To be determined after dependency audit.
+
+Related principles:
+#4 Blender-inspired interaction/workspace
+#14 Flexible docked/floating/tabbed editors.
+
+
+GF-AUD-009
+File: ui/plugins/plugin_manager.py
+Symbol: define_defaults()
+Layer: Plugin Composition
+Severity: P2
+Status: 🔍 AUDITING
+
+Finding:
+PluginManager currently defines a linear/high-level plugin composition
+around canvas, panels, toolbar, status, and shell.
+
+This composition is valid for plugin lifecycle ordering but must not be
+mistaken for the final Workspace/Editor composition graph.
+
+Decision:
+Keep plugin lifecycle dependency management separate from Workspace
+editor layout/composition.
+
+Required modification:
+Determine the boundary between PluginManager and the future
+Workspace/Editor manager.
+
+Related principles:
+#12 Explicit application composition
+#14 Flexible docked/floating/tabbed editors.
