@@ -21,6 +21,8 @@ The Workspace package owns:
     - workspace definitions;
     - workspace layouts;
     - workspace state;
+    - workspace management;
+    - workspace orchestration;
     - workspace realization.
 
 It does NOT own:
@@ -32,8 +34,11 @@ It does NOT own:
     - panel creation;
     - rendering.
 
-Workspace realization is performed through WorkspaceRealizer,
-which delegates actual Qt operations to MainWindow.
+WorkspaceController is the application-level orchestration
+boundary between WorkspaceManager and WorkspaceRealizer.
+
+WorkspaceRealizer delegates actual Qt host operations to
+MainWindow.
 """
 
 from .document import Document
@@ -59,13 +64,15 @@ from .workspace_layout import WorkspaceLayout
 
 from .workspace_manager import WorkspaceManager
 
+from .workspace_state import WorkspaceState
+
 from .workspace_realizer import (
     DockBinding,
     WorkspaceRealizationError,
     WorkspaceRealizer,
 )
 
-from .workspace_state import WorkspaceState
+from .workspace_controller import WorkspaceController
 
 
 # ============================================================
@@ -108,6 +115,11 @@ __all__ = [
     # --------------------------------------------------------
     "WorkspaceManager",
     "WorkspaceState",
+
+    # --------------------------------------------------------
+    # Workspace Orchestration
+    # --------------------------------------------------------
+    "WorkspaceController",
 
     # --------------------------------------------------------
     # Qt Realization Boundary
