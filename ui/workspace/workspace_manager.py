@@ -1,3 +1,4 @@
+```python
 # ============================================================
 # File: ui/workspace/workspace_manager.py
 # GridForge V2 — Workspace Manager
@@ -35,7 +36,7 @@ WorkspaceManager does NOT own:
 Transaction boundary
 --------------------
 
-WorkspaceManager uses a two-phase logical transition model:
+Logical transitions use a two-phase model:
 
     prepare_*()
         ↓
@@ -47,17 +48,7 @@ WorkspaceManager uses a two-phase logical transition model:
         ↓
     authoritative logical state
 
-The manager never performs realization itself.
-
-This allows WorkspaceController to coordinate:
-
-    WorkspaceManager
-        →
-    WorkspaceRealizer
-        →
-    WorkspaceManager.commit()
-
-If realization fails, commit() is not called and the
+If external realization fails, commit() is not called and the
 manager's authoritative logical state remains unchanged.
 """
 
@@ -70,62 +61,29 @@ from .workspace_layout import WorkspaceLayout
 from .workspace_state import WorkspaceState
 
 
-# ============================================================
-# Workspace Manager
-# ============================================================
-
-
 class WorkspaceManager:
     """
-    Coordinates named logical workspaces.
+    Manage named logical workspaces.
 
-    The manager is deliberately toolkit-independent.
-
-    Logical state is changed only through commit().
-    prepare_*() methods create candidate states without
-    mutating the manager's authoritative state.
+    This class is completely toolkit-independent.
     """
 
     def __init__(
         self,
-        definitions: Mapping[
-            str,
-            WorkspaceDefinition,
-        ] | None = None,
+        definitions: Mapping[str, WorkspaceDefinition] | None = None,
     ) -> None:
-        """
-        Construct a WorkspaceManager.
-
-        Parameters
-        ----------
-        definitions:
-            Optional mapping of workspace IDs to immutable
-            WorkspaceDefinition objects.
-        """
-
-        self._definitions: dict[
-            str,
-            WorkspaceDefinition,
-        ] = {}
-
+        self._definitions: dict[str, WorkspaceDefinition] = {}
         self._active_workspace_id: str | None = None
-
         self._state: WorkspaceState | None = None
 
         if definitions is not None:
-            if not isinstance(
-                definitions,
-                Mapping,
-            ):
+            if not isinstance(definitions, Mapping):
                 raise TypeError(
                     "definitions must be a mapping."
                 )
 
             for workspace_id, definition in definitions.items():
-                if not isinstance(
-                    workspace_id,
-                    str,
-                ):
+                if not isinstance(workspace_id, str):
                     raise TypeError(
                         "definition mapping keys must be strings."
                     )
@@ -139,59 +97,39 @@ class WorkspaceManager:
                         "WorkspaceDefinition objects."
                     )
 
-                if (
-                    workspace_id
-                    != definition.workspace_id
-                ):
+                if workspace_id != definition.workspace_id:
                     raise ValueError(
                         "definition mapping key must match "
                         "definition.workspace_id."
                     )
 
-                self.register(
-                    definition
-                )
+                self.register(definition)
 
     # ========================================================
     # Properties
     # ========================================================
 
     @property
-    def active_workspace_id(
-        self,
-    ) -> str | None:
-        """
-        Return the active workspace identifier.
-        """
+    def active_workspace_id(self) -> str | None:
+        """Return the active workspace identifier."""
 
         return self._active_workspace_id
 
     @property
-    def state(
-        self,
-    ) -> WorkspaceState | None:
-        """
-        Return the current authoritative logical state.
-        """
+    def state(self) -> WorkspaceState | None:
+        """Return the current authoritative logical state."""
 
         return self._state
 
     @property
     def definitions(
         self,
-    ) -> Mapping[
-        str,
-        WorkspaceDefinition,
-    ]:
+    ) -> Mapping[str, WorkspaceDefinition]:
         """
-        Return a defensive mapping copy of definitions.
-
-        Callers cannot mutate the manager's internal registry.
+        Return a defensive copy of the workspace definitions.
         """
 
-        return dict(
-            self._definitions
-        )
+        return dict(self._definitions)
 
     # ========================================================
     # Registration
@@ -201,9 +139,7 @@ class WorkspaceManager:
         self,
         definition: WorkspaceDefinition,
     ) -> None:
-        """
-        Register one immutable workspace definition.
-        """
+        """Register one workspace definition."""
 
         if not isinstance(
             definition,
@@ -217,13 +153,10 @@ class WorkspaceManager:
 
         if workspace_id in self._definitions:
             raise ValueError(
-                f"Workspace already registered: "
-                f"{workspace_id!r}"
+                f"Workspace already registered: {workspace_id!r}"
             )
 
-        self._definitions[
-            workspace_id
-        ] = definition
+        self._definitions[workspace_id] = definition
 
     def unregister(
         self,
@@ -235,14 +168,9 @@ class WorkspaceManager:
         The active workspace cannot be removed.
         """
 
-        self._validate_workspace_id(
-            workspace_id
-        )
+        self._validate_workspace_id(workspace_id)
 
-        if (
-            workspace_id
-            == self._active_workspace_id
-        ):
+        if workspace_id == self._active_workspace_id:
             raise RuntimeError(
                 "Cannot unregister the active workspace."
             )
@@ -260,29 +188,19 @@ class WorkspaceManager:
         self,
         workspace_id: str,
     ) -> WorkspaceDefinition | None:
-        """
-        Return a registered workspace definition.
-        """
+        """Return a registered workspace definition."""
 
-        self._validate_workspace_id(
-            workspace_id
-        )
+        self._validate_workspace_id(workspace_id)
 
-        return self._definitions.get(
-            workspace_id
-        )
+        return self._definitions.get(workspace_id)
 
     def contains(
         self,
         workspace_id: str,
     ) -> bool:
-        """
-        Return whether a workspace is registered.
-        """
+        """Return whether a workspace is registered."""
 
-        self._validate_workspace_id(
-            workspace_id
-        )
+        self._validate_workspace_id(workspace_id)
 
         return workspace_id in self._definitions
 
@@ -297,22 +215,12 @@ class WorkspaceManager:
         """
         Prepare activation of a registered workspace.
 
-        This method does NOT mutate authoritative manager state.
-
-        Returns
-        -------
-        WorkspaceState
-            Candidate state to be realized externally and then
-            committed with commit().
+        No authoritative manager state is changed.
         """
 
-        self._validate_workspace_id(
-            workspace_id
-        )
+        self._validate_workspace_id(workspace_id)
 
-        definition = self._definitions.get(
-            workspace_id
-        )
+        definition = self._definitions.get(workspace_id)
 
         if definition is None:
             raise KeyError(
@@ -337,15 +245,9 @@ class WorkspaceManager:
         layout: WorkspaceLayout,
     ) -> WorkspaceState:
         """
-        Prepare replacement of the active workspace layout.
+        Prepare a replacement layout for the active workspace.
 
-        This method does NOT mutate authoritative manager state.
-
-        Returns
-        -------
-        WorkspaceState
-            Candidate state to be realized externally and then
-            committed with commit().
+        No authoritative manager state is changed.
         """
 
         if not isinstance(
@@ -367,6 +269,28 @@ class WorkspaceManager:
         )
 
     # ========================================================
+    # Preparation — Reset
+    # ========================================================
+
+    def prepare_reset_active(
+        self,
+    ) -> WorkspaceState:
+        """
+        Prepare restoration of the active workspace definition.
+
+        No authoritative manager state is changed.
+        """
+
+        if self._active_workspace_id is None:
+            raise RuntimeError(
+                "No workspace is currently active."
+            )
+
+        return self.prepare_activate(
+            self._active_workspace_id
+        )
+
+    # ========================================================
     # Commit
     # ========================================================
 
@@ -375,17 +299,12 @@ class WorkspaceManager:
         state: WorkspaceState,
     ) -> WorkspaceState:
         """
-        Commit a prepared WorkspaceState.
+        Commit a previously prepared WorkspaceState.
 
         The state must belong to a registered workspace.
 
-        For an existing active workspace, the candidate must
-        preserve the active workspace identity.
-
-        For a first activation, no active workspace exists and
-        the candidate's workspace must be registered.
-
-        No Qt or realization is performed here.
+        If a workspace is already active, the committed state
+        must belong to that same workspace.
         """
 
         if not isinstance(
@@ -404,17 +323,15 @@ class WorkspaceManager:
                 f"{workspace_id!r}"
             )
 
-        if self._active_workspace_id is not None:
-            if (
-                workspace_id
-                != self._active_workspace_id
-            ):
-                raise ValueError(
-                    "Cannot commit a state for workspace "
-                    f"{workspace_id!r} while "
-                    f"{self._active_workspace_id!r} "
-                    "is active."
-                )
+        if (
+            self._active_workspace_id is not None
+            and workspace_id != self._active_workspace_id
+        ):
+            raise ValueError(
+                "Cannot commit a state for workspace "
+                f"{workspace_id!r} while "
+                f"{self._active_workspace_id!r} is active."
+            )
 
         self._active_workspace_id = workspace_id
         self._state = state
@@ -422,7 +339,7 @@ class WorkspaceManager:
         return state
 
     # ========================================================
-    # Compatibility Activation API
+    # Logical Convenience API
     # ========================================================
 
     def activate(
@@ -430,103 +347,57 @@ class WorkspaceManager:
         workspace_id: str,
     ) -> WorkspaceState:
         """
-        Activate a workspace immediately at the logical layer.
+        Activate a workspace at the logical layer only.
 
-        This method is retained as the logical convenience API.
+        This method does not perform UI realization.
 
-        It performs:
+        Application-level orchestration should use:
 
             prepare_activate()
-                ↓
+            realize()
             commit()
-
-        It performs NO Qt realization.
-
-        Application-level orchestration should normally use
-        prepare_activate() + external realization + commit().
         """
 
         state = self.prepare_activate(
             workspace_id
         )
 
-        return self.commit(
-            state
-        )
-
-    # ========================================================
-    # Compatibility Layout API
-    # ========================================================
+        return self.commit(state)
 
     def set_layout(
         self,
         layout: WorkspaceLayout,
     ) -> WorkspaceState:
         """
-        Replace the active workspace layout immediately at the
-        logical layer.
+        Set a layout at the logical layer only.
 
-        This method performs:
+        This method does not perform UI realization.
+
+        Application-level orchestration should use:
 
             prepare_layout()
-                ↓
+            realize()
             commit()
-
-        It performs NO Qt realization.
-
-        Application-level orchestration should normally use
-        prepare_layout() + external realization + commit().
         """
 
         state = self.prepare_layout(
             layout
         )
 
-        return self.commit(
-            state
-        )
-
-    # ========================================================
-    # Reset Preparation
-    # ========================================================
-
-    def prepare_reset_active(
-        self,
-    ) -> WorkspaceState:
-        """
-        Prepare restoration of the active workspace's definition.
-
-        No authoritative state is mutated.
-        """
-
-        if self._active_workspace_id is None:
-            raise RuntimeError(
-                "No workspace is currently active."
-            )
-
-        return self.prepare_activate(
-            self._active_workspace_id
-        )
-
-    # ========================================================
-    # Reset
-    # ========================================================
+        return self.commit(state)
 
     def reset_active(
         self,
     ) -> WorkspaceState:
         """
-        Restore the active workspace immediately at the logical
-        layer.
+        Reset the active workspace at the logical layer only.
 
-        No Qt realization is performed.
+        This method does not perform UI realization.
         """
 
         state = self.prepare_reset_active()
 
-        return self.commit(
-            state
-        )
+        return self.commit(state)
 
     # ========================================================
     # Internal Validation
@@ -536,9 +407,7 @@ class WorkspaceManager:
     def _validate_workspace_id(
         workspace_id: str,
     ) -> None:
-        """
-        Validate a workspace identifier.
-        """
+        """Validate a workspace identifier."""
 
         if not isinstance(
             workspace_id,
@@ -554,10 +423,7 @@ class WorkspaceManager:
             )
 
 
-# ============================================================
-# Public API
-# ============================================================
-
 __all__ = [
     "WorkspaceManager",
 ]
+```
