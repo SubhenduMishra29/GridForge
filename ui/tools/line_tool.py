@@ -1,297 +1,106 @@
 # ============================================================
-# File: ui/tools/line_tool.py
-# GridForge V2 — Line Tool
+# GridForge V2
 # ============================================================
-"""
-Line creation tool for GridForge V2.
-
-LineTool implements the two-stage interaction required to create
-an electrical line between two valid connection points.
-
-Architecture
-------------
-
-    GraphicsView
-         │
-         ▼
-    InteractionManager
-         │
-         ▼
-      LineTool
-         │
-         ├── SnapSystem
-         │
-         └── CommandManager
-                 │
-                 ▼
-        Application Controller
-                 │
-                 ▼
-                Core
-
-Interaction
-------------
-
-    First click
-        │
-        ▼
-    acquire start point
-        │
-        ▼
-    pointer movement
-        │
-        ▼
-    update transient preview
-        │
-        ▼
-    second click
-        │
-        ▼
-    acquire end point
-        │
-        ▼
-    submit line-creation command
-        │
-        ▼
-    reset interaction
-
-The electrical topology remains authoritative in Core.
-
-Responsibilities
-----------------
-LineTool:
-
-    - acquire a first connection point;
-    - acquire a second connection point;
-    - use the existing SnapSystem when available;
-    - maintain transient endpoint state;
-    - expose preview geometry information;
-    - submit the canonical line-creation command;
-    - cancel an incomplete line operation.
-
-LineTool does NOT:
-
-    - create Core Line objects directly;
-    - mutate Network/Topology;
-    - decide whether a connection is electrically valid;
-    - own permanent graphics;
-    - render the preview;
-    - maintain command history;
-    - bypass CommandManager;
-    - invent a secondary CAD topology.
-
-Preview
--------
-LineTool exposes preview state to the canvas/rendering layer.
-
-The tool does not create QGraphicsItems itself.
-
-Connection points
------------------
-The preferred interaction event contract exposes an explicit
-connection-point reference:
-
-    event.connection_point
-
-or:
-
-    event.terminal
-    event.terminal_id
-    event.object_id
-
-The SnapSystem may additionally resolve a scene position to a
-valid connection target.
-
-The exact electrical validity remains a Core concern.
-"""
+# File:
+#     ui/tools/line_tool.py
+#
+# Purpose:
+#     SLD line-connection interaction tool.
+#
+# Architectural Role:
+#     LineTool resolves two scene-space endpoints through the
+#     canonical SnapSystem and maintains only transient drawing
+#     intent.
+#
+# IMPORTANT:
+#     The current repository does not expose a confirmed
+#     Core CreateLine command/factory. Therefore this tool does
+#     NOT invent one and does NOT mutate Core directly.
+#
+# ============================================================
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
-from ui.tools.tool_base import ToolBase
+from .tool_base import ToolBase
 
 
 class LineTool(ToolBase):
     """
-    Tool for creating an electrical line between two endpoints.
+    SLD line-connection tool.
 
-    A LineTool instance has at most one transient start endpoint.
+    Interaction model:
+
+        first endpoint
+            ↓
+        transient preview
+            ↓
+        second endpoint
+            ↓
+        Core-backed line creation command
+
+    The final Core mutation remains outside this tool until the
+    actual Core command contract exists.
     """
 
     TOOL_ID = "line"
 
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
-
     def __init__(
         self,
         controller: Any,
-        *,
-        command_manager: Optional[Any] = None,
-        selection_manager: Optional[Any] = None,
-        snap_system: Optional[Any] = None,
-        renderer_registry: Optional[Any] = None,
+        command_manager: Any,
+        selection_manager: Any,
+        snap_system: Any,
+        renderer_registry: Any,
     ) -> None:
-        """
-        Initialize LineTool.
-        """
-
         super().__init__(
-            controller,
+            controller=controller,
             command_manager=command_manager,
             selection_manager=selection_manager,
             snap_system=snap_system,
             renderer_registry=renderer_registry,
         )
 
-        self._start_point: Any = None
-        self._current_point: Any = None
+        self._start_position: Optional[
+            Tuple[float, float]
+        ] = None
 
-        self._start_position: Any = None
-        self._current_position: Any = None
+        self._current_position: Optional[
+            Tuple[float, float]
+        ] = None
 
         self._preview_active = False
 
-        self._creation_count = 0
-
     # ========================================================
-    # IDENTITY
+    # METADATA
     # ========================================================
 
     @property
-    def tool_id(
-        self,
-    ) -> str:
-        """
-        Stable ToolManager identifier.
-        """
-
+    def tool_id(self) -> str:
+        """Return the stable tool identifier."""
         return self.TOOL_ID
 
-    # --------------------------------------------------------
-
     @property
-    def name(
-        self,
-    ) -> str:
-        """
-        Human-readable tool name.
-        """
-
+    def name(self) -> str:
+        """Return the user-facing tool name."""
         return "Line"
 
-    # --------------------------------------------------------
-
     @property
-    def description(
-        self,
-    ) -> str:
-        """
-        Human-readable tool description.
-        """
-
-        return "Create an electrical line between two connection points."
+    def description(self) -> str:
+        """Return the SLD line-connection tool description."""
+        return "Create a connection between two SLD endpoints."
 
     # ========================================================
-    # STATE
+    # LIFECYCLE
     # ========================================================
 
-    @property
-    def has_start_point(
-        self,
-    ) -> bool:
-        """
-        Return True when the first endpoint has been acquired.
-        """
-
-        return self._start_point is not None
-
-    # --------------------------------------------------------
-
-    @property
-    def preview_active(
-        self,
-    ) -> bool:
-        """
-        Return whether a transient line preview is active.
-        """
-
-        return self._preview_active
-
-    # --------------------------------------------------------
-
-    @property
-    def start_point(
-        self,
-    ) -> Any:
-        """
-        Return the transient first endpoint.
-        """
-
-        return self._start_point
-
-    # --------------------------------------------------------
-
-    @property
-    def current_point(
-        self,
-    ) -> Any:
-        """
-        Return the transient current endpoint.
-        """
-
-        return self._current_point
-
-    # --------------------------------------------------------
-
-    @property
-    def start_position(
-        self,
-    ) -> Any:
-        """
-        Return the scene-space first endpoint position.
-        """
-
-        return self._start_position
-
-    # --------------------------------------------------------
-
-    @property
-    def current_position(
-        self,
-    ) -> Any:
-        """
-        Return the scene-space current endpoint position.
-        """
-
-        return self._current_position
-
-    # ========================================================
-    # ACTIVATION
-    # ========================================================
-
-    def on_activate(
-        self,
-    ) -> None:
-        """
-        Reset transient line state.
-        """
-
+    def on_activate(self) -> None:
+        """Reset transient line state."""
         self._clear_state()
 
-    # ========================================================
-    # DEACTIVATION
-    # ========================================================
-
-    def on_deactivate(
-        self,
-    ) -> None:
-        """
-        Cancel any incomplete line interaction.
-        """
-
+    def on_deactivate(self) -> None:
+        """Clear transient line state."""
         self._clear_state()
 
     # ========================================================
@@ -303,36 +112,34 @@ class LineTool(ToolBase):
         event: Any,
     ) -> bool:
         """
-        Begin or complete a line endpoint interaction.
+        Start or finish a line interaction.
 
-        Press is intentionally used only to acquire endpoint
-        intent. The release event completes the operation.
+        First click:
+            establish start endpoint.
+
+        Second click:
+            establish end endpoint and request the Core
+            command boundary.
         """
 
-        point = self._resolve_connection_point(
-            event
-        )
+        self._ensure_active()
 
-        position = self._resolve_position(
-            event,
-            point,
-        )
+        position = self._snap_position(event)
 
-        if point is None:
-            return True
+        if position is None:
+            return False
 
-        if not self.has_start_point:
-            self._start_point = point
+        if self._start_position is None:
             self._start_position = position
-            self._current_point = point
             self._current_position = position
             self._preview_active = True
             return True
 
-        self._current_point = point
         self._current_position = position
 
-        return True
+        self._require_line_command_boundary()
+
+        return False
 
     # ========================================================
     # MOUSE MOVE
@@ -342,34 +149,19 @@ class LineTool(ToolBase):
         self,
         event: Any,
     ) -> bool:
-        """
-        Update transient line preview.
+        """Update the transient line preview."""
 
-        If a start endpoint has not yet been selected, movement
-        is ignored.
+        self._ensure_active()
 
-        The SnapSystem is consulted when available.
-        """
-
-        if not self.has_start_point:
+        if self._start_position is None:
             return False
 
-        point = self._resolve_connection_point(
-            event,
-            allow_position_fallback=True,
-        )
+        position = self._snap_position(event)
 
-        position = self._resolve_position(
-            event,
-            point,
-        )
+        if position is None:
+            return False
 
-        if point is not None:
-            self._current_point = point
-
-        if position is not None:
-            self._current_position = position
-
+        self._current_position = position
         self._preview_active = True
 
         return True
@@ -383,86 +175,29 @@ class LineTool(ToolBase):
         event: Any,
     ) -> bool:
         """
-        Acquire or complete a line endpoint.
+        Release the pointer without independently committing
+        the line.
 
-        A valid second endpoint causes one command submission.
-
-        An invalid/empty second endpoint leaves the first endpoint
-        intact so the user can continue the operation.
+        Line completion is intentionally controlled by the
+        endpoint-selection interaction in on_mouse_press().
         """
 
-        point = self._resolve_connection_point(
-            event
-        )
+        self._ensure_active()
 
-        position = self._resolve_position(
-            event,
-            point,
-        )
+        return self._start_position is not None
 
-        if point is None:
-            return True
-
-        if not self.has_start_point:
-            self._start_point = point
-            self._start_position = position
-            self._current_point = point
-            self._current_position = position
-            self._preview_active = True
-            return True
-
-        if self._same_endpoint(
-            self._start_point,
-            point,
-        ):
-            # A zero-length electrical connection is not submitted.
-            # The current start point remains active.
-            self._current_point = point
-            self._current_position = position
-            return True
-
-        self._current_point = point
-        self._current_position = position
-
-        command = self._build_create_command(
-            self._start_point,
-            point,
-            self._start_position,
-            position,
-        )
-
-        if command is None:
-            raise RuntimeError(
-                "Unable to create the line command. "
-                "The application controller or command manager "
-                "must expose a canonical line-creation command path."
-            )
-
-        self.execute_command(
-            command
-        )
-
-        self._creation_count += 1
-
-        self._clear_state()
-
-        return True
-
-    # ========================================================
-    # DOUBLE CLICK
-    # ========================================================
+    # --------------------------------------------------------
 
     def on_mouse_double_click(
         self,
         event: Any,
     ) -> bool:
         """
-        Consume double-clicks without creating an additional line.
-
-        Line creation remains a two-endpoint operation.
+        A double-click does not introduce a separate line
+        creation path.
         """
 
-        return True
+        return self.on_mouse_press(event)
 
     # ========================================================
     # KEYBOARD
@@ -472,28 +207,27 @@ class LineTool(ToolBase):
         self,
         event: Any,
     ) -> bool:
-        """
-        Handle line-tool keyboard input.
+        """Handle keyboard input owned by LineTool."""
 
-        Escape is handled by ToolBase.
-        """
+        self._ensure_active()
+
+        if self._is_escape_event(event):
+            return self.on_cancel()
 
         return False
 
     # ========================================================
-    # CANCEL
+    # CANCEL / RESET
     # ========================================================
 
-    def on_cancel(
-        self,
-    ) -> bool:
-        """
-        Cancel an incomplete line operation.
-        """
+    def on_cancel(self) -> bool:
+        """Cancel the current line preview."""
+
+        self._ensure_active()
 
         had_state = (
-            self._start_point is not None
-            or self._current_point is not None
+            self._start_position is not None
+            or self._current_position is not None
             or self._preview_active
         )
 
@@ -501,547 +235,158 @@ class LineTool(ToolBase):
 
         return had_state
 
-    # ========================================================
-    # RESET
-    # ========================================================
+    def on_reset(self) -> None:
+        """Reset transient line state."""
 
-    def on_reset(
-        self,
-    ) -> None:
-        """
-        Reset transient line state.
-        """
-
+        self._ensure_active()
         self._clear_state()
 
     # ========================================================
-    # SNAP / CONNECTION RESOLUTION
+    # SNAP
     # ========================================================
 
-    def _resolve_connection_point(
+    def _snap_position(
         self,
         event: Any,
-        *,
-        allow_position_fallback: bool = False,
-    ) -> Any:
+    ) -> Optional[Tuple[float, float]]:
         """
-        Resolve a connection point from an interaction event.
-
-        Resolution order:
-
-            1. Explicit event connection point.
-            2. Explicit terminal reference.
-            3. SnapSystem resolution.
-
-        A raw object ID is not automatically considered a valid
-        terminal because the electrical connection contract belongs
-        to the topology/model layer.
+        Resolve a scene-space pointer position through the
+        canonical SnapSystem.snap() API.
         """
 
-        if event is None:
-            return None
+        scene_position = self.event_position(event)
 
-        # ----------------------------------------------------
-        # Explicit connection-point contract.
-        # ----------------------------------------------------
+        snap_system = self.get_snap_system()
 
-        for attribute in (
-            "connection_point",
-            "connection",
-            "terminal",
-        ):
-            value = getattr(
-                event,
-                attribute,
-                None,
-            )
-
-            if callable(value):
-                try:
-                    value = value()
-                except TypeError:
-                    value = None
-
-            if value is not None:
-                return value
-
-        # ----------------------------------------------------
-        # Explicit terminal identifier.
-        # ----------------------------------------------------
-
-        for attribute in (
-            "terminal_id",
-            "connection_point_id",
-        ):
-            value = getattr(
-                event,
-                attribute,
-                None,
-            )
-
-            if callable(value):
-                try:
-                    value = value()
-                except TypeError:
-                    value = None
-
-            if value is not None:
-                return value
-
-        # ----------------------------------------------------
-        # SnapSystem.
-        # ----------------------------------------------------
-
-        snap_system = self.snap_system
-
-        if snap_system is not None:
-            position = self._extract_position(
-                event
-            )
-
-            if position is not None:
-                result = self._snap(
-                    snap_system,
-                    position,
-                )
-
-                if result is not None:
-                    return result
-
-        # ----------------------------------------------------
-        # A raw position is never promoted to an electrical
-        # endpoint unless the caller explicitly provides such
-        # a contract.
-        # ----------------------------------------------------
-
-        if allow_position_fallback:
-            return None
-
-        return None
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _snap(
-        snap_system: Any,
-        position: Any,
-    ) -> Any:
-        """
-        Resolve a scene position through SnapSystem.
-
-        Supports the canonical snap/resolve method names while
-        keeping the tool independent of SnapSystem internals.
-        """
-
-        for method_name in (
+        snap = getattr(
+            snap_system,
             "snap",
-            "resolve",
-            "snap_position",
-            "find_connection",
-            "find_connection_point",
-        ):
-            method = getattr(
-                snap_system,
-                method_name,
-                None,
-            )
-
-            if not callable(method):
-                continue
-
-            try:
-                result = method(
-                    position
-                )
-            except TypeError:
-                continue
-
-            if result is not None:
-                return result
-
-        return None
-
-    # ========================================================
-    # POSITION RESOLUTION
-    # ========================================================
-
-    @staticmethod
-    def _resolve_position(
-        event: Any,
-        point: Any,
-    ) -> Any:
-        """
-        Resolve the scene-space position associated with an
-        endpoint.
-        """
-
-        if event is not None:
-            position = LineTool._extract_position(
-                event
-            )
-
-            if position is not None:
-                return position
-
-        if point is None:
-            return None
-
-        for attribute in (
-            "scene_position",
-            "position",
-        ):
-            value = getattr(
-                point,
-                attribute,
-                None,
-            )
-
-            if callable(value):
-                try:
-                    value = value()
-                except TypeError:
-                    value = None
-
-            if value is not None:
-                return value
-
-        return None
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _extract_position(
-        event: Any,
-    ) -> Any:
-        """
-        Extract scene-space position from the event.
-        """
-
-        if event is None:
-            return None
-
-        scene_position = getattr(
-            event,
-            "scene_position",
             None,
         )
 
-        if callable(scene_position):
-            try:
-                return scene_position()
-            except TypeError:
-                pass
+        if not callable(snap):
+            raise TypeError(
+                "SnapSystem must provide snap()."
+            )
 
-        if scene_position is not None:
-            return scene_position
+        result = snap(
+            scene_position,
+            allow_grid=True,
+            allow_object=True,
+        )
 
         position = getattr(
-            event,
+            result,
             "position",
             None,
         )
 
-        if callable(position):
-            try:
-                return position()
-            except TypeError:
-                return None
+        if position is None:
+            return None
 
-        if position is not None:
-            return position
-
-        return None
+        return self._position_tuple(position)
 
     # ========================================================
-    # COMMAND CREATION
+    # COMMAND BOUNDARY
     # ========================================================
 
-    def _build_create_command(
-        self,
-        start_point: Any,
-        end_point: Any,
-        start_position: Any,
-        end_position: Any,
-    ) -> Any:
+    @staticmethod
+    def _require_line_command_boundary() -> None:
         """
-        Resolve the canonical line-creation command.
+        Fail explicitly until the Core line-creation command is
+        defined.
 
-        Preferred application-controller factories:
-
-            create_line_command(...)
-            build_create_line_command(...)
-
-        CommandManager factories are accepted as a fallback.
-
-        No concrete command class is imported here.
+        This prevents speculative command factories and direct
+        model mutation.
         """
 
-        controller = self.get_controller()
-
-        factories = (
-            "create_line_command",
-            "build_create_line_command",
+        raise RuntimeError(
+            "Line creation requires a confirmed Core line-creation "
+            "command. No CreateLine command is currently exposed "
+            "by the GridForge Core command API."
         )
 
-        # ----------------------------------------------------
-        # Preferred controller factory.
-        # ----------------------------------------------------
+    # ========================================================
+    # HELPERS
+    # ========================================================
 
-        for method_name in factories:
-            factory = getattr(
-                controller,
-                method_name,
-                None,
-            )
+    @staticmethod
+    def _position_tuple(
+        position: Any,
+    ) -> Tuple[float, float]:
+        """Convert a QPointF-like object or pair to a tuple."""
 
-            if not callable(factory):
-                continue
+        if hasattr(position, "x") and hasattr(position, "y"):
+            x = position.x()
+            y = position.y()
+            return float(x), float(y)
 
-            return self._invoke_command_factory(
-                factory,
-                start_point,
-                end_point,
-                start_position,
-                end_position,
-            )
+        if isinstance(position, (tuple, list)) and len(position) >= 2:
+            return float(position[0]), float(position[1])
 
-        # ----------------------------------------------------
-        # Optional CommandManager factory.
-        # ----------------------------------------------------
-
-        manager = self.command_manager
-
-        if manager is not None:
-            for method_name in factories:
-                factory = getattr(
-                    manager,
-                    method_name,
-                    None,
-                )
-
-                if not callable(factory):
-                    continue
-
-                return self._invoke_command_factory(
-                    factory,
-                    start_point,
-                    end_point,
-                    start_position,
-                    end_position,
-                )
-
-        return None
+        raise TypeError(
+            "SnapResult.position must provide x/y coordinates "
+            "or a two-element position."
+        )
 
     # --------------------------------------------------------
 
     @staticmethod
-    def _invoke_command_factory(
-        factory: Any,
-        start_point: Any,
-        end_point: Any,
-        start_position: Any,
-        end_position: Any,
-    ) -> Any:
-        """
-        Invoke a line-command factory using the most expressive
-        endpoint contract first.
-
-        The fallback signatures exist to accommodate the current
-        command/application integration without importing a
-        concrete command implementation into the tool layer.
-        """
-
-        attempts = (
-            (
-                start_point,
-                end_point,
-                start_position,
-                end_position,
-            ),
-            (
-                start_point,
-                end_point,
-            ),
-        )
-
-        last_error: Optional[TypeError] = None
-
-        for args in attempts:
-            try:
-                return factory(
-                    *args
-                )
-            except TypeError as exc:
-                last_error = exc
-
-        if last_error is not None:
-            raise last_error
-
-        return None
-
-    # ========================================================
-    # ENDPOINT COMPARISON
-    # ========================================================
-
-    @staticmethod
-    def _same_endpoint(
-        first: Any,
-        second: Any,
+    def _is_escape_event(
+        event: Any,
     ) -> bool:
-        """
-        Determine whether two endpoint references represent the
-        same connection point.
-        """
+        """Recognize Escape without importing Qt."""
 
-        if first is second:
-            return True
-
-        if first is None or second is None:
+        if event is None:
             return False
 
-        try:
-            return bool(
-                first == second
+        key = getattr(
+            event,
+            "key",
+            None,
+        )
+
+        if callable(key):
+            key = key()
+
+        if isinstance(event, dict):
+            key = event.get(
+                "key",
+                key,
             )
-        except Exception:
-            pass
 
-        first_id = LineTool._endpoint_id(
-            first
-        )
-        second_id = LineTool._endpoint_id(
-            second
-        )
-
-        if (
-            first_id is not None
-            and second_id is not None
+        if key in (
+            "Escape",
+            "escape",
+            0x01000000,
         ):
-            return (
-                first_id == second_id
-            )
+            return True
 
         return False
 
     # --------------------------------------------------------
 
-    @staticmethod
-    def _endpoint_id(
-        endpoint: Any,
-    ) -> Any:
-        """
-        Extract a stable identifier from an endpoint reference.
-        """
-
-        for attribute in (
-            "terminal_id",
-            "connection_point_id",
-            "object_id",
-            "entity_id",
-            "id",
-        ):
-            value = getattr(
-                endpoint,
-                attribute,
-                None,
-            )
-
-            if callable(value):
-                try:
-                    value = value()
-                except TypeError:
-                    value = None
-
-            if value is not None:
-                return value
-
-        if isinstance(
-            endpoint,
-            (str, int),
-        ):
-            return endpoint
-
-        return None
-
-    # ========================================================
-    # TRANSIENT STATE
-    # ========================================================
-
-    def _clear_state(
-        self,
-    ) -> None:
-        """
-        Clear all transient line interaction state.
-        """
-
-        self._start_point = None
-        self._current_point = None
+    def _clear_state(self) -> None:
+        """Clear all transient line state."""
 
         self._start_position = None
         self._current_position = None
-
         self._preview_active = False
 
     # ========================================================
     # DIAGNOSTICS
     # ========================================================
 
-    @property
-    def creation_count(
-        self,
-    ) -> int:
-        """
-        Return the number of successful line command submissions.
-
-        This is diagnostic UI state only.
-        """
-
-        return self._creation_count
-
-    # --------------------------------------------------------
-
-    def get_preview(
-        self,
-    ) -> Optional[dict[str, Any]]:
-        """
-        Return transient preview information.
-
-        Returns None when no line operation is active.
-
-        The rendering layer may consume this data to draw a
-        temporary preview without the tool owning any graphics
-        object.
-        """
-
-        if not self._preview_active:
-            return None
-
-        return {
-            "start_point": self._start_point,
-            "current_point": self._current_point,
-            "start_position": self._start_position,
-            "current_position": self._current_position,
-        }
-
-    # --------------------------------------------------------
-
-    def get_state(
-        self,
-    ) -> dict[str, Any]:
-        """
-        Return LineTool diagnostic state.
-        """
+    def get_state(self) -> dict[str, Any]:
+        """Return the base tool state plus line state."""
 
         state = super().get_state()
 
         state.update(
             {
-                "start_point": self._start_point,
-                "current_point": self._current_point,
                 "start_position": self._start_position,
                 "current_position": self._current_position,
                 "preview_active": self._preview_active,
-                "creation_count": self._creation_count,
             }
         )
 
