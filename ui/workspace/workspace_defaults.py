@@ -6,53 +6,48 @@
 #     ui/workspace/workspace_defaults.py
 #
 # Purpose:
-#     Authoritative logical definition of the initial
+#     Authoritative logical definitions for the initial
 #     SLD-first application Workspace.
 #
 # Architectural boundary:
-#     This module defines logical WorkspaceDefinition data only.
+#     Logical Workspace data only.
 #
-# It does NOT:
+# This module does NOT:
 #     - import Qt;
-#     - create QDockWidget;
+#     - create QWidget/QDockWidget;
 #     - access MainWindow;
-#     - create widgets;
+#     - create panels;
 #     - register panels;
+#     - arrange docks;
 #     - activate a Workspace;
-#     - realize a Workspace;
-#     - manipulate dock geometry.
+#     - perform Workspace realization.
 #
 # WorkspaceManager consumes these definitions.
-# WorkspaceController orchestrates activation.
-# WorkspaceRealizer translates the resulting WorkspaceLayout
-# into Qt operations.
+# WorkspaceController orchestrates transitions.
+# WorkspaceRealizer performs Qt realization.
 #
 # ============================================================
 
 """
 GridForge V2 — Default Workspace Definitions.
 
-The initial application Workspace is SLD-first:
+Initial Workspace:
 
-    central SLD/Grid canvas
+    SLD/Grid canvas
         +
-    project
-    equipment
-    properties
+    Project Explorer
+    Equipment Browser
+    Properties
 
-The SLD canvas is the central application surface. The three
-listed IDs are supporting dockable panels.
-
-Only logical placement information belongs here.
+The SLD/Grid canvas is the central application surface.
+The three supporting surfaces are logical dock placements.
 """
 
 from __future__ import annotations
 
-from ui.workspace.workspace_definition import (
+from .panel_area import PanelArea
+from .workspace_definition import (
     WorkspaceDefinition,
-)
-from ui.workspace.workspace_layout import (
-    PanelArea,
     WorkspacePlacement,
 )
 
@@ -68,6 +63,13 @@ EQUIPMENT_PANEL_ID = "equipment"
 PROPERTIES_PANEL_ID = "properties"
 
 
+CANONICAL_PANEL_IDS: tuple[str, ...] = (
+    PROJECT_PANEL_ID,
+    EQUIPMENT_PANEL_ID,
+    PROPERTIES_PANEL_ID,
+)
+
+
 # ============================================================
 # CANONICAL PLACEMENTS
 # ============================================================
@@ -79,36 +81,40 @@ SLD_WORKSPACE_PLACEMENTS: tuple[
     WorkspacePlacement(
         panel_id=PROJECT_PANEL_ID,
         area=PanelArea.LEFT,
+        order=0,
         visible=True,
-        floating=False,
     ),
     WorkspacePlacement(
         panel_id=EQUIPMENT_PANEL_ID,
         area=PanelArea.LEFT,
+        order=1,
         visible=True,
-        floating=False,
     ),
     WorkspacePlacement(
         panel_id=PROPERTIES_PANEL_ID,
         area=PanelArea.RIGHT,
+        order=0,
         visible=True,
-        floating=False,
     ),
 )
 
 
 # ============================================================
-# CANONICAL WORKSPACE DEFINITION
+# CANONICAL WORKSPACE
 # ============================================================
 
 SLD_WORKSPACE = WorkspaceDefinition(
     workspace_id=SLD_WORKSPACE_ID,
-    name="SLD Workspace",
-    description=(
-        "Initial GridForge single-line-diagram workspace "
-        "with project, equipment, and properties panels."
-    ),
+    title="SLD Workspace",
     placements=SLD_WORKSPACE_PLACEMENTS,
+    metadata={
+        "kind": "sld",
+        "description": (
+            "Initial GridForge single-line-diagram "
+            "workspace."
+        ),
+        "central_surface": "sld",
+    },
 )
 
 
@@ -134,9 +140,6 @@ def default_workspaces() -> tuple[
 ]:
     """
     Return the canonical default Workspace definitions.
-
-    A tuple is returned so callers cannot mutate the
-    authoritative collection.
     """
 
     return DEFAULT_WORKSPACES
@@ -168,6 +171,11 @@ def get_default_workspace(
             "workspace_id must be a string."
         )
 
+    if not workspace_id.strip():
+        raise ValueError(
+            "workspace_id must not be empty."
+        )
+
     for workspace in DEFAULT_WORKSPACES:
         if workspace.workspace_id == workspace_id:
             return workspace
@@ -190,36 +198,43 @@ def get_initial_workspace() -> WorkspaceDefinition:
 # VALIDATION
 # ============================================================
 
-_EXPECTED_PANEL_IDS = (
-    PROJECT_PANEL_ID,
-    EQUIPMENT_PANEL_ID,
-    PROPERTIES_PANEL_ID,
-)
-
-
 def validate_default_workspace() -> None:
     """
-    Validate the invariants of the initial Workspace.
+    Validate the canonical initial Workspace.
 
-    This function performs logical validation only and has no
-    Qt or application-host dependency.
+    Validation is entirely logical and Qt-independent.
     """
 
     if SLD_WORKSPACE.workspace_id != SLD_WORKSPACE_ID:
         raise RuntimeError(
-            "Initial Workspace ID does not match the "
-            "canonical SLD Workspace ID."
+            "Initial Workspace ID does not match "
+            "SLD_WORKSPACE_ID."
+        )
+
+    if not SLD_WORKSPACE.title.strip():
+        raise RuntimeError(
+            "Initial Workspace title must not be empty."
+        )
+
+    placements = SLD_WORKSPACE.placements
+
+    if not isinstance(
+        placements,
+        tuple,
+    ):
+        raise RuntimeError(
+            "Initial Workspace placements must be a tuple."
         )
 
     placement_ids = tuple(
         placement.panel_id
-        for placement in SLD_WORKSPACE.placements
+        for placement in placements
     )
 
-    if placement_ids != _EXPECTED_PANEL_IDS:
+    if placement_ids != CANONICAL_PANEL_IDS:
         raise RuntimeError(
-            "Initial Workspace panel IDs do not match the "
-            f"canonical panel set: {placement_ids!r}"
+            "Initial Workspace panel IDs do not match "
+            f"the canonical panel set: {placement_ids!r}"
         )
 
     if len(set(placement_ids)) != len(placement_ids):
@@ -227,23 +242,61 @@ def validate_default_workspace() -> None:
             "Initial Workspace contains duplicate panel IDs."
         )
 
-    for placement in SLD_WORKSPACE.placements:
+    for placement in placements:
         if placement.area == PanelArea.CENTER:
             raise RuntimeError(
-                "Supporting panels must not occupy the "
-                "central SLD canvas area."
+                "Supporting panels must not occupy "
+                "PanelArea.CENTER."
             )
 
-        if placement.floating:
+        if placement.area == PanelArea.FLOATING:
             raise RuntimeError(
                 "Initial SLD Workspace must not contain "
                 "floating panels."
             )
 
+        if not placement.visible:
+            raise RuntimeError(
+                "Initial SLD Workspace panels must be "
+                "visible by default."
+            )
 
-# Validate the immutable module-level definition once when
-# imported. This catches malformed bootstrap data early while
-# remaining independent of Qt and application construction.
+    project = SLD_WORKSPACE.placements[0]
+    equipment = SLD_WORKSPACE.placements[1]
+    properties = SLD_WORKSPACE.placements[2]
+
+    if project.area != PanelArea.LEFT:
+        raise RuntimeError(
+            "Project panel must occupy PanelArea.LEFT."
+        )
+
+    if equipment.area != PanelArea.LEFT:
+        raise RuntimeError(
+            "Equipment panel must occupy PanelArea.LEFT."
+        )
+
+    if properties.area != PanelArea.RIGHT:
+        raise RuntimeError(
+            "Properties panel must occupy PanelArea.RIGHT."
+        )
+
+    if project.order != 0:
+        raise RuntimeError(
+            "Project panel must have LEFT order 0."
+        )
+
+    if equipment.order != 1:
+        raise RuntimeError(
+            "Equipment panel must have LEFT order 1."
+        )
+
+    if properties.order != 0:
+        raise RuntimeError(
+            "Properties panel must have RIGHT order 0."
+        )
+
+
+# Validate immutable bootstrap data at import time.
 validate_default_workspace()
 
 
@@ -256,6 +309,7 @@ __all__ = [
     "PROJECT_PANEL_ID",
     "EQUIPMENT_PANEL_ID",
     "PROPERTIES_PANEL_ID",
+    "CANONICAL_PANEL_IDS",
     "SLD_WORKSPACE_PLACEMENTS",
     "SLD_WORKSPACE",
     "DEFAULT_WORKSPACES",
