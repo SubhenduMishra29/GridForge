@@ -18,3 +18,313 @@ GF-V2-ARCH-BASELINE
 13. No canvas component silently creates application-owned services
 14. Flexible docked/floating/tabbed editors
 15. Seven-question UI design gate
+
+AUDIT REGISTER
+══════════════════════════════════════════════
+
+GF-AUD-001
+File: main.py
+Symbol: main()
+Layer: Application Bootstrap / Composition Root
+Severity: P2
+Status: 🔵 APPROVED WITH FOLLOW-UP
+
+Finding:
+main.py correctly performs the application bootstrap sequence:
+QApplication → Core Grid → UI Controller → MainWindow → Qt event loop.
+
+It does not directly construct the canvas, render system, renderer
+registry, tools, interaction system, workspace editors, or other
+presentation services.
+
+Architectural decision:
+Keep main.py as the executable application composition root.
+
+main.py should remain intentionally small and should delegate UI
+composition to MainWindow and its designated UI composition layer.
+
+Modification required:
+No immediate modification to main.py.
+
+During the MainWindow audit, verify that MainWindow acts only as the
+delegated UI composition boundary and does not become a competing
+application composition root.
+
+Related principles:
+#1 Model-centric
+#7 Core independent of UI/Blender
+#12 Explicit application composition
+#13 No canvas component silently creates application-owned services
+
+Implementation order:
+No change required at this stage.
+Follow-up during MainWindow/workspace audit.
+
+Verification:
+Static dependency audit and application composition inspection.
+
+
+GF-AUD-002
+File: ui/main_window.py
+Symbol: MainWindow.__init__()
+Layer: UI Composition
+Severity: P1
+Status: 🟡 DECISION REQUIRED
+
+Finding:
+MainWindow currently performs substantial UI/plugin composition,
+including ToolManager creation, PluginContext creation, PluginManager
+creation, plugin registration, context assignment, and plugin
+initialization.
+
+This is acceptable as a delegated UI composition boundary only if it
+remains subordinate to the application composition root in main.py.
+
+Architectural concern:
+The future Blender-inspired workspace/editor architecture must not
+introduce a second independent composition mechanism alongside the
+existing plugin/panel composition system.
+
+Architectural decision required:
+Define the ownership boundary explicitly:
+
+main.py
+    = application composition root
+
+MainWindow
+    = delegated UI composition root
+
+Workspace/Editor system
+    = UI layout/editor composition layer
+
+Canvas/GraphicsView/GridScene
+    = presentation/interaction components
+
+No child UI component may independently create application-owned
+services.
+
+Modification required:
+Audit MainWindow and the Workspace/Editor/Docking architecture before
+making production changes.
+
+The final architecture must provide one coherent composition graph for
+workspace, editors, panels, tools, commands, canvas, interaction,
+navigation, rendering, and inspection.
+
+Related principles:
+#12 Explicit application composition
+#13 No canvas component silently creates application-owned services
+#14 Flexible docked/floating/tabbed editors
+
+Implementation order:
+After main.py audit.
+Before workspace/editor implementation.
+Before further canvas composition changes.
+
+Verification:
+Constructor ownership audit.
+Dependency graph audit.
+Lifecycle audit.
+
+
+GF-AUD-003
+File: ui/main_window.py
+Symbol: MainWindow.__init__()
+Layer: UI Composition
+Severity: P1
+Status: 🟡 DECISION REQUIRED
+
+Finding:
+MainWindow supports controller=None and can construct a Controller
+internally.
+
+This creates a potential second application-owned Controller and
+weakens the explicit composition boundary established by main.py.
+
+Architectural concern:
+GridForge requires an authoritative Core model and explicit
+application-owned service composition.
+
+A lower-level UI object should not silently create an alternative
+application Controller when the application already supplies one.
+
+Modification required:
+Determine whether normal production construction should require an
+explicit Controller.
+
+If a fallback is retained for isolated/test construction, it must not
+interfere with the authoritative application composition path and
+should be explicitly documented as a non-production convenience.
+
+Preferred production architecture:
+
+main.py
+    ↓
+authoritative Controller
+    ↓
+MainWindow
+    ↓
+UI composition
+
+Related principles:
+#11 Authoritative Core model
+#12 Explicit application composition
+#13 No canvas component silently creates application-owned services
+
+Implementation order:
+Resolve during MainWindow audit.
+
+Verification:
+Trace all Controller construction paths.
+Confirm there is only one authoritative Controller in normal
+application startup.
+
+
+GF-AUD-004
+File: ui/main_window.py
+Symbol: create_main_window()
+Layer: UI Lifecycle / Composition
+Severity: P2
+Status: 🔵 APPROVED WITH FOLLOW-UP
+
+Finding:
+create_main_window() constructs MainWindow and initializes the plugin
+composition before returning the window.
+
+Architectural observation:
+The function therefore acts as both a factory and a UI initialization
+boundary.
+
+Architectural decision:
+This may remain valid provided that initialization order is explicit
+and the future workspace/editor system participates in the same
+composition lifecycle.
+
+Modification required:
+No immediate modification.
+
+During the Workspace/Editor audit verify:
+
+1. Workspace creation occurs at the correct lifecycle stage.
+2. Editors are registered before they are requested by dependent
+   components.
+3. Canvas composition receives already-created application-owned
+   services.
+4. Renderer services are not silently created by canvas components.
+5. Docking/floating editors do not create duplicate services.
+6. Plugin initialization order remains deterministic.
+
+Related principles:
+#12 Explicit application composition
+#14 Flexible docked/floating/tabbed editors
+
+Implementation order:
+Workspace/Editor audit.
+
+Verification:
+Lifecycle sequence audit.
+
+
+GF-AUD-005
+File: Application UI composition
+Scope: MainWindow → Workspace → Editors → Canvas
+Layer: Composition / Dependency Architecture
+Severity: P0
+Status: 🔍 AUDITING
+
+Finding:
+The current architecture must be reconciled with the newly established
+GridForge V2 workspace model.
+
+GridForge V2 is no longer intended to be a fixed:
+
+LeftPanel → Canvas → RightPanel
+
+layout.
+
+The target model is a Blender-inspired flexible editor workspace with:
+
+- SLD Canvas as the primary editor
+- Tool Shelf
+- Project/Network Browser
+- Context-sensitive Inspector
+- Results/Diagnostics editors
+- Docked editors
+- Floating editors
+- Tabbed editors
+- Split editor areas
+- Workspace-specific layouts
+
+Architectural decision:
+The existing Panel system must be evaluated as the foundation for
+this editor/docking architecture.
+
+Do not create a parallel Workspace UI system that duplicates the
+existing PanelRegistry/PanelManager infrastructure.
+
+Modification required:
+Audit:
+
+ui/core/panel_registry.py
+ui/core/...
+panel/plugin infrastructure
+MainWindow
+PanelsPlugin
+ToolbarPlugin
+StatusPlugin
+ShellPlugin
+
+and determine the canonical Editor/Docking composition graph.
+
+Related principles:
+#3 Context-sensitive
+#4 Blender-inspired interaction/workspace
+#5 PySide6 implementation
+#14 Flexible docked/floating/tabbed editors
+
+Implementation order:
+Immediately after MainWindow audit.
+
+Verification:
+Complete dependency/composition graph.
+
+
+GF-AUDIT RULE
+══════════════════════════════════════════════
+
+No production code is to be patched merely because an inconsistency
+is observed.
+
+For every finding:
+
+Finding
+    ↓
+Evidence
+    ↓
+Architectural Decision
+    ↓
+Required Modification
+    ↓
+Dependency Impact
+    ↓
+Implementation Order
+    ↓
+Verification
+
+Only after the affected composition graph is understood should
+production code be modified.
+
+No tests are to be generated at this stage.
+
+Current audit sequence:
+
+main.py
+→ MainWindow
+→ Workspace / Editor / Docking composition
+→ Panel system
+→ Tool / Command / Interaction composition
+→ SLD Canvas composition
+→ RenderSystem
+→ RendererRegistry ↔ RendererLoader
+→ GridScene / GraphicsView
+→ Item / Renderer dependency chain
