@@ -2695,7 +2695,47 @@ Decision:
     PanelSpec.visible
         → MIGRATE TO WORKSPACE STATE/PLACEMENT
           after explicit visibility-boundary correction.
+GF-AUD-058
+======================================================================
 
+Files:
+    ui/workspace/workspace_layout.py
+    ui/workspace/workspace_definition.py
+    ui/workspace/workspace_realizer.py
+
+Status:
+    🔴 CORRECTION REQUIRED
+
+Finding:
+    WorkspacePlacement correctly owns:
+        panel_id
+        area
+        group
+        visible
+        order
+
+    WorkspaceLayout correctly owns immutable placements.
+
+    However WorkspaceRealizer currently relies on
+    visible_panels() during realization.
+
+    This prevents hidden placements from being explicitly
+    realized as hidden when a previously visible dock exists.
+
+Decision:
+    WorkspaceRealizer must iterate over ALL placements when
+    applying visibility.
+
+    visible_panels() remains appropriate for operations that
+    require visible content, such as tab-group realization.
+
+Required correction:
+    Hidden WorkspacePlacement must cause its runtime dock to
+    become hidden.
+
+    WorkspaceLayout and WorkspaceDefinition require no change.
+
+======================================================================
 ======================================================================
 ======================================================================
 ======================================================================
