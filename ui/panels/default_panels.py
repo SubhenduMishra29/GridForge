@@ -24,20 +24,17 @@
 """
 GridForge V2 — Default Panel Registration.
 
-The application currently provides three concrete supporting
-panels for the SLD-first workflow:
+Initial SLD-first supporting panels:
 
     project
     equipment
     properties
 
 The SLD/Grid canvas remains the central application surface and
-is intentionally not registered here as a dock panel.
+is deliberately not registered as a dock panel here.
 """
 
 from __future__ import annotations
-
-from collections.abc import Iterable
 
 from .equipment_panel import EquipmentPanel
 from .panel_descriptor import PanelDescriptor
@@ -50,7 +47,6 @@ from .project_panel import ProjectPanel
 # CANONICAL PANEL DESCRIPTORS
 # ============================================================
 
-
 PROJECT_PANEL = PanelDescriptor(
     panel_id="project",
     title="Project Explorer",
@@ -62,7 +58,6 @@ PROJECT_PANEL = PanelDescriptor(
     floatable=True,
 )
 
-
 EQUIPMENT_PANEL = PanelDescriptor(
     panel_id="equipment",
     title="Equipment Browser",
@@ -73,7 +68,6 @@ EQUIPMENT_PANEL = PanelDescriptor(
     movable=True,
     floatable=True,
 )
-
 
 PROPERTIES_PANEL = PanelDescriptor(
     panel_id="properties",
@@ -87,10 +81,7 @@ PROPERTIES_PANEL = PanelDescriptor(
 )
 
 
-DEFAULT_PANEL_DESCRIPTORS: tuple[
-    PanelDescriptor,
-    ...,
-] = (
+DEFAULT_PANEL_DESCRIPTORS: tuple[PanelDescriptor, ...] = (
     PROJECT_PANEL,
     EQUIPMENT_PANEL,
     PROPERTIES_PANEL,
@@ -101,69 +92,37 @@ DEFAULT_PANEL_DESCRIPTORS: tuple[
 # REGISTRATION
 # ============================================================
 
-
 def register_default_panels(
     registry: PanelRegistry,
 ) -> tuple[PanelDescriptor, ...]:
     """
-    Register the canonical GridForge application panels.
+    Register all canonical application panels.
 
-    Registration is intentionally idempotent.
-
-    Existing descriptors with the same panel IDs are accepted
-    only when they are the exact same descriptor object.
+    Registration is intentionally strict. PanelRegistry owns
+    duplicate detection, so this function does not attempt to
+    make registration idempotent.
 
     Workspace placement is deliberately not performed here.
     """
 
-    if not isinstance(
-        registry,
-        PanelRegistry,
-    ):
+    if not isinstance(registry, PanelRegistry):
         raise TypeError(
             "registry must be a PanelRegistry."
         )
 
-    registered: list[PanelDescriptor] = []
-
     for descriptor in DEFAULT_PANEL_DESCRIPTORS:
-        existing = registry.get(
-            descriptor.panel_id
-        )
+        registry.register(descriptor)
 
-        if existing is None:
-            registry.register(
-                descriptor
-            )
-            registered.append(
-                descriptor
-            )
-            continue
-
-        if existing is not descriptor:
-            raise RuntimeError(
-                "Conflicting panel descriptor already "
-                f"registered for panel_id={descriptor.panel_id!r}."
-            )
-
-        registered.append(
-            existing
-        )
-
-    return tuple(
-        registered
-    )
+    return DEFAULT_PANEL_DESCRIPTORS
 
 
-def default_panel_descriptors() -> tuple[
-    PanelDescriptor,
-    ...,
-]:
+# ============================================================
+# READ-ONLY DEFAULT DEFINITIONS
+# ============================================================
+
+def default_panel_descriptors() -> tuple[PanelDescriptor, ...]:
     """
     Return the canonical default panel descriptors.
-
-    A tuple is returned so callers cannot mutate the authoritative
-    registration collection.
     """
 
     return DEFAULT_PANEL_DESCRIPTORS
@@ -171,24 +130,12 @@ def default_panel_descriptors() -> tuple[
 
 def default_panel_ids() -> tuple[str, ...]:
     """
-    Return canonical default panel IDs.
+    Return the canonical default panel identifiers.
     """
 
     return tuple(
         descriptor.panel_id
         for descriptor in DEFAULT_PANEL_DESCRIPTORS
-    )
-
-
-def iter_default_panel_descriptors() -> Iterable[
-    PanelDescriptor
-]:
-    """
-    Iterate over canonical default panel descriptors.
-    """
-
-    return iter(
-        DEFAULT_PANEL_DESCRIPTORS
     )
 
 
@@ -204,5 +151,4 @@ __all__ = [
     "register_default_panels",
     "default_panel_descriptors",
     "default_panel_ids",
-    "iter_default_panel_descriptors",
 ]
