@@ -1,276 +1,367 @@
+# ============================================================
+
+# File: ui/workspace/workspace_manager.py
+
+# GridForge V2 — Workspace Manager
+
+# ============================================================
+
 """
 GridForge V2 — Workspace Manager.
 
-Coordinates workspace definitions and logical workspace state.
+Owns named logical workspace definitions and the current
+logical WorkspaceState.
 
-This class does NOT:
-    - create panels;
-    - create Qt widgets;
-    - manipulate QMainWindow;
-    - call addDockWidget();
-    - call tabifyDockWidget();
-    - decide electrical semantics;
-    - modify Core state.
+## Architectural boundary
 
-It is the workspace policy boundary.
+WorkspaceManager owns:
+
+```
+- workspace definitions;
+- active workspace identity;
+- current logical WorkspaceLayout;
+- immutable WorkspaceState transitions.
+```
+
+WorkspaceManager does NOT own:
+
+```
+- Qt;
+- QMainWindow;
+- QDockWidget;
+- panel creation;
+- dock placement;
+- dock visibility realization;
+- tabification;
+- MainWindow lifecycle.
+```
+
+WorkspaceRealizer consumes the resulting WorkspaceLayout and
+translates it into MainWindow host operations.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
-from typing import Iterable
+from typing import Mapping
 
 from .workspace_definition import WorkspaceDefinition
 from .workspace_layout import WorkspaceLayout
 from .workspace_state import WorkspaceState
 
+# ============================================================
+
+# Workspace Manager
+
+# ============================================================
 
 class WorkspaceManager:
+"""
+Coordinates named logical workspaces.
+
+```
+The manager is deliberately toolkit-independent.
+"""
+
+def __init__(
+    self,
+    definitions: Mapping[
+        str,
+        WorkspaceDefinition,
+    ] | None = None,
+) -> None:
     """
-    Registry and coordinator for GridForge workspaces.
+    Construct a WorkspaceManager.
+
+    Parameters
+    ----------
+    definitions:
+        Optional mapping of workspace IDs to immutable
+        WorkspaceDefinition objects.
     """
 
-    def __init__(self) -> None:
-        self._definitions: dict[
-            str,
-            WorkspaceDefinition,
-        ] = {}
+    self._definitions: dict[
+        str,
+        WorkspaceDefinition,
+    ] = {}
 
-        self._state: WorkspaceState | None = None
+    self._active_workspace_id: str | None = None
 
-    # ========================================================
-    # Definitions
-    # ========================================================
+    self._state: WorkspaceState | None = None
 
-    def register(
-        self,
-        definition: WorkspaceDefinition,
-        *,
-        replace: bool = False,
-    ) -> None:
-        """
-        Register a workspace definition.
-        """
-
+    if definitions is not None:
         if not isinstance(
-            definition,
-            WorkspaceDefinition,
+            definitions,
+            Mapping,
         ):
             raise TypeError(
-                "definition must be a "
-                "WorkspaceDefinition."
+                "definitions must be a mapping."
             )
 
-        workspace_id = definition.workspace_id
-
-        if (
-            workspace_id in self._definitions
-            and not replace
-        ):
-            raise ValueError(
-                f"Workspace already registered: "
-                f"{workspace_id!r}"
+        for workspace_id, definition in definitions.items():
+            self.register(
+                definition
             )
 
-        self._definitions[
-            workspace_id
-        ] = definition
+            if workspace_id != definition.workspace_id:
+                raise ValueError(
+                    "definition mapping key must match "
+                    "definition.workspace_id."
+                )
 
-    # --------------------------------------------------------
+# ========================================================
+# Properties
+# ========================================================
 
-    def unregister(
-        self,
-        workspace_id: str,
-    ) -> WorkspaceDefinition | None:
-        """
-        Remove a workspace definition.
+@property
+def active_workspace_id(
+    self,
+) -> str | None:
+    """Return the active workspace identifier."""
 
-        This does not modify Qt state.
-        """
+    return self._active_workspace_id
 
-        return self._definitions.pop(
-            workspace_id,
-            None,
+@property
+def state(
+    self,
+) -> WorkspaceState | None:
+    """Return the current immutable logical workspace state."""
+
+    return self._state
+
+@property
+def definitions(
+    self,
+) -> Mapping[
+    str,
+    WorkspaceDefinition,
+]:
+    """Return a read-only mapping view of definitions."""
+
+    return dict(
+        self._definitions
+    )
+
+# ========================================================
+# Registration
+# ========================================================
+
+def register(
+    self,
+    definition: WorkspaceDefinition,
+) -> None:
+    """
+    Register one immutable workspace definition.
+    """
+
+    if not isinstance(
+        definition,
+        WorkspaceDefinition,
+    ):
+        raise TypeError(
+            "definition must be WorkspaceDefinition."
         )
 
-    # ========================================================
-    # Lookup
-    # ========================================================
+    workspace_id = definition.workspace_id
 
-    def get(
-        self,
-        workspace_id: str,
-    ) -> WorkspaceDefinition | None:
-        """
-        Return a workspace definition.
-        """
-
-        return self._definitions.get(
-            workspace_id
+    if workspace_id in self._definitions:
+        raise ValueError(
+            f"Workspace already registered: "
+            f"{workspace_id!r}"
         )
 
-    # --------------------------------------------------------
+    self._definitions[
+        workspace_id
+    ] = definition
 
-    def require(
-        self,
-        workspace_id: str,
-    ) -> WorkspaceDefinition:
-        """
-        Return a workspace definition or raise KeyError.
-        """
+def unregister(
+    self,
+    workspace_id: str,
+) -> WorkspaceDefinition | None:
+    """
+    Unregister a workspace definition.
 
-        definition = self.get(
-            workspace_id
+    The active workspace cannot be removed.
+    """
+
+    self._validate_workspace_id(
+        workspace_id
+    )
+
+    if (
+        workspace_id
+        == self._active_workspace_id
+    ):
+        raise RuntimeError(
+            "Cannot unregister the active workspace."
         )
 
-        if definition is None:
-            raise KeyError(
-                f"Workspace is not registered: "
-                f"{workspace_id!r}"
-            )
+    return self._definitions.pop(
+        workspace_id,
+        None,
+    )
 
-        return definition
+# ========================================================
+# Lookup
+# ========================================================
 
-    # --------------------------------------------------------
+def get(
+    self,
+    workspace_id: str,
+) -> WorkspaceDefinition | None:
+    """Return a registered workspace definition."""
 
-    @property
-    def workspace_ids(
-        self,
-    ) -> tuple[str, ...]:
-        """
-        Return registered workspace IDs.
-        """
+    self._validate_workspace_id(
+        workspace_id
+    )
 
-        return tuple(
-            self._definitions.keys()
+    return self._definitions.get(
+        workspace_id
+    )
+
+def contains(
+    self,
+    workspace_id: str,
+) -> bool:
+    """Return whether a workspace is registered."""
+
+    self._validate_workspace_id(
+        workspace_id
+    )
+
+    return workspace_id in self._definitions
+
+# ========================================================
+# Activation
+# ========================================================
+
+def activate(
+    self,
+    workspace_id: str,
+) -> WorkspaceState:
+    """
+    Activate a registered workspace.
+
+    Activation changes only logical state.
+
+    Qt realization is intentionally outside this class.
+    """
+
+    self._validate_workspace_id(
+        workspace_id
+    )
+
+    definition = self._definitions.get(
+        workspace_id
+    )
+
+    if definition is None:
+        raise KeyError(
+            f"Unknown workspace: {workspace_id!r}"
         )
 
-    # ========================================================
-    # Activation
-    # ========================================================
+    layout = WorkspaceLayout(
+        placements=definition.placements
+    )
 
-    def activate(
-        self,
-        workspace_id: str,
-    ) -> WorkspaceState:
-        """
-        Activate a registered workspace.
+    state = WorkspaceState(
+        workspace_id=definition.workspace_id,
+        layout=layout,
+    )
 
-        Activation changes only logical workspace state.
+    self._active_workspace_id = (
+        definition.workspace_id
+    )
 
-        Qt realization is deliberately outside this class.
-        """
+    self._state = state
 
-        definition = self.require(
-            workspace_id
+    return state
+
+# ========================================================
+# Layout
+# ========================================================
+
+def set_layout(
+    self,
+    layout: WorkspaceLayout,
+) -> WorkspaceState:
+    """
+    Replace the active workspace layout.
+
+    This changes logical state only.
+    """
+
+    if not isinstance(
+        layout,
+        WorkspaceLayout,
+    ):
+        raise TypeError(
+            "layout must be WorkspaceLayout."
         )
 
-        layout = WorkspaceLayout.from_placements(
-            definition.placements
+    if self._active_workspace_id is None:
+        raise RuntimeError(
+            "No workspace is currently active."
         )
 
-        self._state = WorkspaceState(
-            workspace_id=definition.workspace_id,
-            layout=layout,
+    state = WorkspaceState(
+        workspace_id=self._active_workspace_id,
+        layout=layout,
+    )
+
+    self._state = state
+
+    return state
+
+# ========================================================
+# Reset
+# ========================================================
+
+def reset_active(
+    self,
+) -> WorkspaceState:
+    """
+    Restore the active workspace to its definition layout.
+    """
+
+    if self._active_workspace_id is None:
+        raise RuntimeError(
+            "No workspace is currently active."
         )
 
-        return self._state
+    return self.activate(
+        self._active_workspace_id
+    )
 
-    # --------------------------------------------------------
+# ========================================================
+# Internal Validation
+# ========================================================
 
-    @property
-    def state(
-        self,
-    ) -> WorkspaceState | None:
-        """
-        Return the current logical workspace state.
-        """
+@staticmethod
+def _validate_workspace_id(
+    workspace_id: str,
+) -> None:
+    """Validate a workspace identifier."""
 
-        return self._state
-
-    # --------------------------------------------------------
-
-    @property
-    def active_workspace_id(
-        self,
-    ) -> str | None:
-        """
-        Return the active workspace ID.
-        """
-
-        if self._state is None:
-            return None
-
-        return self._state.workspace_id
-
-    # ========================================================
-    # Layout Mutation
-    # ========================================================
-
-    def set_layout(
-        self,
-        layout: WorkspaceLayout,
-    ) -> WorkspaceState:
-        """
-        Replace the active workspace layout.
-
-        Does not perform Qt operations.
-        """
-
-        if not isinstance(
-            layout,
-            WorkspaceLayout,
-        ):
-            raise TypeError(
-                "layout must be a WorkspaceLayout."
-            )
-
-        if self._state is None:
-            raise RuntimeError(
-                "No workspace is active."
-            )
-
-        self._state = WorkspaceState(
-            workspace_id=self._state.workspace_id,
-            layout=layout,
+    if not isinstance(
+        workspace_id,
+        str,
+    ):
+        raise TypeError(
+            "workspace_id must be a string."
         )
 
-        return self._state
-
-    # ========================================================
-    # Reset
-    # ========================================================
-
-    def reset_active_workspace(
-        self,
-    ) -> WorkspaceState:
-        """
-        Restore the active workspace definition.
-        """
-
-        if self._state is None:
-            raise RuntimeError(
-                "No workspace is active."
-            )
-
-        return self.activate(
-            self._state.workspace_id
+    if not workspace_id.strip():
+        raise ValueError(
+            "workspace_id must not be empty."
         )
+```
 
-    # ========================================================
-    # Clear
-    # ========================================================
+# ============================================================
 
-    def clear(
-        self,
-    ) -> None:
-        """
-        Remove all workspace definitions and state.
-        """
+# Public API
 
-        self._definitions.clear()
-        self._state = None
+# ============================================================
 
-
-__all__ = [
-    "WorkspaceManager",
+**all** = [
+"WorkspaceManager",
 ]
