@@ -1,35 +1,53 @@
+# ============================================================
+# GridForge V2
+# ============================================================
+# File:
+#     ui/plugins/panels_plugin.py
+#
+# Purpose
+# -------
+# Panel composition plugin for the GridForge UI.
+#
+# Architectural boundary
+# ----------------------
+#
+# PanelsPlugin owns:
+#     - panel specification;
+#     - panel presentation widget creation;
+#     - QDockWidget creation;
+#     - panel capability configuration;
+#     - panel registration;
+#     - panel lifecycle;
+#     - exposure of dock widgets to the composition layer.
+#
+# PanelsPlugin does NOT own:
+#     - Workspace layout;
+#     - logical panel placement;
+#     - dock-area policy;
+#     - tab groups;
+#     - split arrangement;
+#     - MainWindow layout policy;
+#     - authoritative application state;
+#     - Core/domain state.
+#
+# Workspace/Layout is the sole authority for:
+#     - PanelArea;
+#     - placement;
+#     - ordering;
+#     - grouping/tabbing;
+#     - visibility as workspace policy;
+#     - floating placement.
+#
+# WorkspaceRealizer translates WorkspaceLayout into MainWindow
+# operations.
+#
+# MainWindow remains the Qt dock/layout host.
+#
+# No direct PySide6/PyQt imports are permitted here.
+# ============================================================
+
 """
-GridForge V2
-============
-
-File:
-    ui/plugins/panels_plugin.py
-
-Purpose
--------
-Composition plugin responsible for creating and managing the
-application-side panel/dock area of the GridForge UI.
-
-Architectural rules
--------------------
-- The plugin owns panel composition, not application state.
-- Panels are presentation components.
-- The plugin must not perform electrical calculations.
-- The plugin must not mutate Core directly.
-- The plugin must not own authoritative project/network state.
-- The plugin must not construct application services/controllers.
-- MainWindow remains thin and plugin-driven.
-- The shared PluginContext is the plugin dependency boundary.
-- Qt access occurs exclusively through ui.core.qt.
-- No direct PySide6/PyQt imports are permitted here.
-
-Ownership
----------
-PanelsPlugin owns the dock composition it creates.
-
-MainWindow owns the overall dock-area/layout infrastructure.
-
-Application/domain state remains outside this plugin.
+GridForge V2 — Panels Plugin.
 """
 
 from __future__ import annotations
@@ -56,12 +74,13 @@ from ui.plugins.plugin_context import PluginContext
 @dataclass(frozen=True, slots=True)
 class PanelSpec:
     """
-    Declarative description of one UI panel.
+    Declarative description of a panel.
 
-    PanelSpec contains presentation metadata only.
+    PanelSpec describes the panel and its presentation capabilities.
 
-    The supplied widget is a presentation object. It must not be
-    treated as an application-state container by PanelsPlugin.
+    It deliberately contains NO Workspace placement information.
+
+    Placement belongs to WorkspacePlacement / WorkspaceLayout.
     """
 
     panel_id: str
@@ -70,8 +89,6 @@ class PanelSpec:
 
     widget: Optional[QWidget] = None
 
-    area: Optional[Qt.DockWidgetArea] = None
-
     closable: bool = True
 
     movable: bool = True
@@ -79,8 +96,6 @@ class PanelSpec:
     floatable: bool = True
 
     visible: bool = True
-
-    tabbed: bool = False
 
     metadata: Mapping[str, Any] = field(
         default_factory=dict
@@ -100,6 +115,11 @@ class PanelSpec:
                 "title must be a string."
             )
 
+        if not self.title.strip():
+            raise ValueError(
+                "title must not be empty."
+            )
+
         if self.widget is not None and not isinstance(
             self.widget,
             QWidget,
@@ -108,12 +128,24 @@ class PanelSpec:
                 "widget must be QWidget or None."
             )
 
-        if self.area is not None and not isinstance(
-            self.area,
-            Qt.DockWidgetArea,
-        ):
+        if not isinstance(self.closable, bool):
             raise TypeError(
-                "area must be a Qt.DockWidgetArea value."
+                "closable must be bool."
+            )
+
+        if not isinstance(self.movable, bool):
+            raise TypeError(
+                "movable must be bool."
+            )
+
+        if not isinstance(self.floatable, bool):
+            raise TypeError(
+                "floatable must be bool."
+            )
+
+        if not isinstance(self.visible, bool):
+            raise TypeError(
+                "visible must be bool."
             )
 
 
@@ -124,31 +156,14 @@ class PanelSpec:
 
 class PanelsPlugin(QObject):
     """
-    GridForge panel/dock composition plugin.
+    GridForge panel composition plugin.
 
-    Responsibilities
-    ----------------
-    - create panel dock widgets;
-    - register supplied presentation widgets;
-    - configure dock presentation;
-    - expose registered panels;
-    - manage plugin-owned dock composition.
+    This plugin creates and owns panel presentation objects.
 
-    Non-responsibilities
-    --------------------
-    - project state;
-    - network topology;
-    - electrical calculations;
-    - commands;
-    - undo/redo;
-    - simulation state;
-    - Core/domain ownership;
-    - controller ownership;
-    - service discovery;
-    - application-state synchronization.
+    It does not decide where those panels are placed.
 
-    Application coordination occurs outside this plugin through the
-    established PluginContext/controller architecture.
+    The Workspace subsystem owns arrangement and passes the resulting
+    realization to MainWindow through WorkspaceRealizer.
     """
 
     plugin_id = "panels"
@@ -208,8 +223,8 @@ class PanelsPlugin(QObject):
         """
         Return the plugin presentation root.
 
-        Panels are dock-based, therefore there is no independent
-        central panel widget. The MainWindow owns the dock layout.
+        Panels are independently dockable, therefore this plugin has
+        no central presentation widget.
         """
 
         return None
@@ -222,7 +237,13 @@ class PanelsPlugin(QObject):
 
     @property
     def dock_widgets(self) -> tuple[QDockWidget, ...]:
-        """Return all managed dock widgets."""
+        """
+        Return all managed dock widgets.
+
+        The returned docks are presentation objects.
+
+        Their placement is NOT defined here.
+        """
 
         return tuple(
             self._dock_widgets.values()
@@ -247,9 +268,9 @@ class PanelsPlugin(QObject):
         """
         Initialize panel composition.
 
-        PluginContext is the sole application dependency boundary.
+        PluginContext is the application dependency boundary.
 
-        Initialization is idempotent for the same lifecycle.
+        No docks are created until a panel is explicitly registered.
         """
 
         if not isinstance(
@@ -280,24 +301,29 @@ class PanelsPlugin(QObject):
             )
 
         self._context = context
-
         self._initialized = True
 
     def shutdown(self) -> None:
         """
         Shut down panel composition.
 
-        Application services and MainWindow are never destroyed.
+        MainWindow itself is never destroyed here.
 
-        Managed dock widgets are removed from MainWindow and scheduled
-        for Qt deletion.
+        Docks are detached from the window through the MainWindow
+        host abstraction and then scheduled for Qt deletion.
         """
 
         if not self._initialized:
             return
 
-        self._remove_all_docks()
+        for dock in tuple(
+            self._dock_widgets.values()
+        ):
+            self._remove_dock(
+                dock
+            )
 
+        self._dock_widgets.clear()
         self._panels.clear()
         self._panel_specs.clear()
 
@@ -315,7 +341,9 @@ class PanelsPlugin(QObject):
         """
         Register and compose one panel.
 
-        The plugin must already be initialized.
+        This creates the presentation dock but does NOT place it.
+
+        WorkspaceRealizer is responsible for realizing placement.
         """
 
         self._require_initialized()
@@ -421,6 +449,38 @@ class PanelsPlugin(QObject):
             panel_id
         )
 
+    def dock(
+        self,
+        panel_id: str,
+    ) -> Optional[QDockWidget]:
+        """
+        Return the presentation dock for a panel.
+
+        This does not imply any placement policy.
+        """
+
+        self._validate_panel_id(
+            panel_id
+        )
+
+        return self._dock_widgets.get(
+            panel_id
+        )
+
+    def spec(
+        self,
+        panel_id: str,
+    ) -> Optional[PanelSpec]:
+        """Return the registered panel specification."""
+
+        self._validate_panel_id(
+            panel_id
+        )
+
+        return self._panel_specs.get(
+            panel_id
+        )
+
     def panels(self) -> tuple[QWidget, ...]:
         """Return all registered panel widgets."""
 
@@ -436,11 +496,15 @@ class PanelsPlugin(QObject):
         self,
         spec: PanelSpec,
         widget: QWidget,
-    ) -> None:
+    ) -> QDockWidget:
         """
-        Create and attach the dock for a panel.
+        Create the presentation dock for a panel.
 
-        MainWindow remains the owner of the dock-area layout.
+        IMPORTANT:
+            This method does NOT call addDockWidget().
+            It only creates/configures the dock.
+
+        WorkspaceRealizer/MainWindow owns placement.
         """
 
         context = self._context
@@ -479,17 +543,6 @@ class PanelsPlugin(QObject):
             widget
         )
 
-        area = (
-            spec.area
-            if spec.area is not None
-            else Qt.DockWidgetArea.LeftDockWidgetArea
-        )
-
-        main_window.addDockWidget(
-            area,
-            dock,
-        )
-
         dock.setVisible(
             spec.visible
         )
@@ -498,274 +551,107 @@ class PanelsPlugin(QObject):
             spec.panel_id
         ] = dock
 
-        if spec.tabbed:
-            self._tabify_panel(
-                spec,
-                dock,
-                main_window,
-            )
+        return dock
 
-    def _tabify_panel(
-        self,
-        spec: PanelSpec,
-        dock: QDockWidget,
-        main_window: QMainWindow,
-    ) -> None:
-        """
-        Tabify the panel with the most recently registered panel in
-        the same dock area.
-        """
-
-        for panel_id in reversed(
-            tuple(
-                self._dock_widgets.keys()
-            )
-        ):
-            if panel_id == spec.panel_id:
-                continue
-
-            previous_spec = self._panel_specs.get(
-                panel_id
-            )
-
-            previous_dock = self._dock_widgets.get(
-                panel_id
-            )
-
-            if (
-                previous_spec is None
-                or previous_dock is None
-            ):
-                continue
-
-            if previous_spec.area == spec.area:
-                main_window.tabifyDockWidget(
-                    previous_dock,
-                    dock,
-                )
-
-                return
+    # ========================================================
+    # DOCK CAPABILITIES
+    # ========================================================
 
     @staticmethod
     def _dock_features(
         spec: PanelSpec,
     ) -> QDockWidget.DockWidgetFeatures:
-        """Construct the Qt dock-feature flags."""
+        """
+        Convert panel capabilities into Qt dock features.
+
+        This describes capability only.
+
+        It does NOT describe placement.
+        """
 
         features = (
-            QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
 
-        if spec.closable:
-            features |= (
+        if not spec.closable:
+            features &= ~(
                 QDockWidget.DockWidgetFeature.DockWidgetClosable
             )
 
-        if spec.movable:
-            features |= (
+        if not spec.movable:
+            features &= ~(
                 QDockWidget.DockWidgetFeature.DockWidgetMovable
             )
 
-        if spec.floatable:
-            features |= (
+        if not spec.floatable:
+            features &= ~(
                 QDockWidget.DockWidgetFeature.DockWidgetFloatable
             )
 
         return features
 
     # ========================================================
-    # VISIBILITY
+    # INTERNAL CLEANUP
     # ========================================================
-
-    def set_panel_visible(
-        self,
-        panel_id: str,
-        visible: bool,
-    ) -> None:
-        """Set panel presentation visibility."""
-
-        self._require_initialized()
-
-        self._validate_panel_id(
-            panel_id
-        )
-
-        if not isinstance(
-            visible,
-            bool,
-        ):
-            raise TypeError(
-                "visible must be bool."
-            )
-
-        if panel_id not in self._panels:
-            raise KeyError(
-                f"Unknown panel: {panel_id!r}"
-            )
-
-        dock = self._dock_widgets.get(
-            panel_id
-        )
-
-        if dock is not None:
-            dock.setVisible(
-                visible
-            )
-            return
-
-        widget = self._panels[
-            panel_id
-        ]
-
-        widget.setVisible(
-            visible
-        )
-
-    def is_panel_visible(
-        self,
-        panel_id: str,
-    ) -> bool:
-        """Return panel presentation visibility."""
-
-        self._require_initialized()
-
-        self._validate_panel_id(
-            panel_id
-        )
-
-        if panel_id not in self._panels:
-            raise KeyError(
-                f"Unknown panel: {panel_id!r}"
-            )
-
-        dock = self._dock_widgets.get(
-            panel_id
-        )
-
-        if dock is not None:
-            return dock.isVisible()
-
-        return self._panels[
-            panel_id
-        ].isVisible()
-
-    # ========================================================
-    # DOCK OPERATIONS
-    # ========================================================
-
-    def select_panel(
-        self,
-        panel_id: str,
-    ) -> None:
-        """
-        Show and raise a panel.
-
-        Dock layout remains owned by MainWindow/Qt.
-        """
-
-        self._require_initialized()
-
-        self._validate_panel_id(
-            panel_id
-        )
-
-        if panel_id not in self._panels:
-            raise KeyError(
-                f"Unknown panel: {panel_id!r}"
-            )
-
-        dock = self._dock_widgets.get(
-            panel_id
-        )
-
-        if dock is not None:
-            dock.show()
-            dock.raise_()
-            return
-
-        widget = self._panels[
-            panel_id
-        ]
-
-        widget.show()
-        widget.raise_()
-
-    def has_panel(
-        self,
-        panel_id: str,
-    ) -> bool:
-        """Return whether a panel is registered."""
-
-        return panel_id in self._panels
-
-    def has_dock(
-        self,
-        panel_id: str,
-    ) -> bool:
-        """Return whether a panel has a managed dock."""
-
-        return panel_id in self._dock_widgets
-
-    # ========================================================
-    # CLEANUP
-    # ========================================================
-
-    def _remove_all_docks(self) -> None:
-        """Remove all managed docks from MainWindow."""
-
-        docks = tuple(
-            self._dock_widgets.values()
-        )
-
-        self._dock_widgets.clear()
-
-        for dock in docks:
-            self._remove_dock(
-                dock
-            )
 
     def _remove_dock(
         self,
         dock: QDockWidget,
     ) -> None:
         """
-        Remove one managed dock from MainWindow.
+        Remove a dock from MainWindow through the host abstraction.
 
-        The MainWindow remains alive and owns the overall window
-        composition.
+        PanelsPlugin does not directly manipulate the QMainWindow
+        docking/layout API.
         """
 
         context = self._context
 
-        if context is not None:
-            main_window = context.main_window
+        if context is None:
+            dock.deleteLater()
+            return
 
-            if isinstance(
-                main_window,
-                QMainWindow,
-            ):
-                main_window.removeDockWidget(
-                    dock
-                )
+        main_window = context.main_window
 
-        dock.close()
-        dock.deleteLater()
+        remove_dock = getattr(
+            main_window,
+            "remove_dock_widget",
+            None,
+        )
+
+        if callable(remove_dock):
+            remove_dock(
+                dock
+            )
+        else:
+            dock.deleteLater()
+
+    # --------------------------------------------------------
+
+    def _remove_all_docks(self) -> None:
+        """Remove all managed docks."""
+
+        for dock in tuple(
+            self._dock_widgets.values()
+        ):
+            self._remove_dock(
+                dock
+            )
+
+        self._dock_widgets.clear()
 
     # ========================================================
     # VALIDATION
     # ========================================================
 
     def _require_initialized(self) -> None:
-        """Require an active plugin lifecycle."""
+        """Require an initialized plugin."""
 
         if not self._initialized:
             raise RuntimeError(
-                "PanelsPlugin has not been initialized."
-            )
-
-        if self._context is None:
-            raise RuntimeError(
-                "PanelsPlugin is initialized without PluginContext."
+                "PanelsPlugin is not initialized."
             )
 
     @staticmethod
@@ -774,41 +660,10 @@ class PanelsPlugin(QObject):
     ) -> None:
         """Validate a panel identifier."""
 
-        if not isinstance(
-            panel_id,
-            str,
+        if (
+            not isinstance(panel_id, str)
+            or not panel_id.strip()
         ):
-            raise TypeError(
-                "panel_id must be a string."
-            )
-
-        if not panel_id.strip():
             raise ValueError(
-                "panel_id cannot be empty."
+                "panel_id must be a non-empty string."
             )
-
-
-# ============================================================
-# FACTORY
-# ============================================================
-
-
-def create_panels_plugin(
-    parent: Optional[QObject] = None,
-) -> PanelsPlugin:
-    """
-    Create an uninitialized PanelsPlugin.
-
-    Application context is supplied during initialize().
-    """
-
-    return PanelsPlugin(
-        parent=parent
-    )
-
-
-__all__ = [
-    "PanelSpec",
-    "PanelsPlugin",
-    "create_panels_plugin",
-]
