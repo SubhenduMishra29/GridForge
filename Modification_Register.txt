@@ -2656,7 +2656,47 @@ Do not patch until all consumers of:
 are audited.
 
 visible metadata remains temporarily pending consumer audit.
+======================================================================
+GF-AUD-053
+======================================================================
 
+Status:
+    🔴 CONFIRMED — CORRECTION REQUIRED
+
+Consumer audit:
+    PanelSpec.area is actively consumed by PanelsPlugin.
+
+    PanelSpec.tabbed is actively consumed by PanelsPlugin.
+
+    PanelSpec.visible is actively consumed by PanelsPlugin.
+
+Confirmed dependency:
+
+    PanelSpec.area
+        ↓
+    _create_panel_dock()
+        ↓
+    MainWindow.addDockWidget()
+
+    PanelSpec.tabbed
+        ↓
+    _tabify_panel()
+        ↓
+    MainWindow.tabifyDockWidget()
+
+Decision:
+
+    PanelSpec.area
+        → REMOVE
+
+    PanelSpec.tabbed
+        → REMOVE
+
+    PanelSpec.visible
+        → MIGRATE TO WORKSPACE STATE/PLACEMENT
+          after explicit visibility-boundary correction.
+
+======================================================================
 ======================================================================
 ======================================================================
 ======================================================================
