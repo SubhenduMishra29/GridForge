@@ -2205,6 +2205,164 @@ Modification required:
 Follow-up:
     Determine whether panels or editors should supply widgets through
     explicit factories rather than generic QWidget fallback creation.
+
+======================================================================
+GF-AUD-043
+======================================================================
+
+File:
+    ui/main_window.py
+
+Layer:
+    Application Composition / Workspace Boundary
+
+Severity:
+    P1
+
+Status:
+    🟡 ARCHITECTURAL GAP — AUDIT CONTINUES
+
+Finding:
+    MainWindow is correctly established as the UI composition root and
+    owns the root QWidget, ToolManager, PluginContext and PluginManager.
+
+    However, MainWindow currently has no explicit Workspace/Layout
+    composition boundary.
+
+    Current effective composition is:
+
+        MainWindow
+            ↓
+        PluginManager
+            ↓
+        PanelsPlugin
+            ↓
+        Qt docking
+
+    The locked GridForge V2 architecture requires:
+
+        MainWindow
+            ↓
+        Workspace / Layout
+            ↓
+        Editor arrangement
+            ↓
+        Qt presentation
+
+Architectural decision:
+    MainWindow remains the overall UI composition root.
+
+    MainWindow must own the overall dock-area/layout infrastructure
+    at the application-window level.
+
+    The Workspace/Layout layer must determine editor arrangement.
+
+    Individual panels/plugins must not become the authoritative global
+    workspace-layout owner.
+
+Modification required:
+    None yet.
+
+    First audit all existing MainWindow, PanelsPlugin and workspace/
+    layout-related consumers.
+
+    Do not introduce a new WorkspaceManager until the complete
+    composition graph proves that a new abstraction is necessary.
+
+Related locked decisions:
+
+    PanelSpec.area must not independently define the canonical logical
+    area.
+
+    MainWindow owns the overall dock-area/layout infrastructure.
+
+    Workspace/Layout—not individual panels—decides how editors are
+    arranged.
+
+Related principles:
+    #4 #5 #12 #13 #14
+
+======================================================================
+GF-AUD-044
+======================================================================
+
+File:
+    ui/main_window.py
+
+Symbol:
+    controller fallback
+
+Layer:
+    Application Service Composition
+
+Severity:
+    P2
+
+Status:
+    🟡 FOLLOW-UP — NOT PATCHED
+
+Finding:
+    MainWindow can construct a Controller when controller=None:
+
+        Controller(core=core)
+
+This creates a possible secondary application-service composition path.
+
+Canonical production path remains:
+
+        main.py
+            ↓
+        Controller
+            ↓
+        MainWindow
+
+Architectural decision:
+    Application-owned Controller should be explicitly composed in the
+    normal production path.
+
+    The fallback must be evaluated before finalizing composition.
+
+Modification required:
+    Not during current workspace audit.
+
+    Revisit after the complete application composition graph is locked.
+
+Related principles:
+    #11 #12 #13
+
+======================================================================
+GF-AUD-045
+======================================================================
+
+File:
+    ui/main_window.py
+
+Symbol:
+    PluginContext / ToolManager
+
+Layer:
+    Dependency Injection
+
+Severity:
+    P3
+
+Status:
+    🟢 ACCEPTED
+
+Finding:
+    MainWindow explicitly creates the canonical ToolManager and passes
+    the same dependency context into the plugin system.
+
+Decision:
+    Preserve this explicit dependency-composition pattern.
+
+    Future application-owned services must follow the same principle.
+
+    No canvas/panel/renderer component may independently construct such
+    services.
+
+Modification required:
+    None.
 ======================================================================
 END OF MODIFICATION REGISTER
 ======================================================================
