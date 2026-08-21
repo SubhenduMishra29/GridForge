@@ -1,268 +1,278 @@
 # ============================================================
 # File: ui/main_window.py
-# GridForge V2 — Main Application Window
+# GridForge V2 — Main Window
 # ============================================================
 
 """
 GridForge V2
 ============
 
-Main application window and UI composition root.
+Main application window and Qt workspace host.
 
 Architectural Role
 ------------------
-MainWindow is the authoritative UI composition root and Qt
-workspace host for GridForge V2.
 
-MainWindow owns:
+MainWindow is the top-level Qt host for the GridForge UI.
 
-    - QMainWindow lifetime
-    - root composition widget
-    - authoritative Controller reference
-    - canonical ToolManager
-    - PluginContext
-    - PluginManager
-    - Qt docking/layout infrastructure
+It owns:
 
-MainWindow does NOT own:
+    - the QApplication-facing main window;
+    - the central editor/SLD host;
+    - the Qt docking infrastructure;
+    - the application controller;
+    - the UI plugin composition boundary;
+    - the mechanical Qt operations required by WorkspaceRealizer.
 
-    - electrical/network state
-    - simulation state
-    - analysis
-    - individual panel implementations
-    - individual tools
-    - canvas implementation
-    - renderers
-    - renderer registries/loaders
-    - Workspace/Layout policy
+It does NOT own:
 
-Workspace Rule
---------------
-The Workspace/Layout layer decides how editors are arranged.
+    - electrical/model state;
+    - workspace policy;
+    - panel placement policy;
+    - panel registration;
+    - workspace definitions;
+    - workspace layout state;
+    - engineering semantics.
 
-Individual panels and plugins do not decide global workspace layout.
+Workspace ownership
+-------------------
 
-MainWindow provides the Qt infrastructure required to realize
-the Workspace/Layout decisions.
+Workspace/Layout decides:
 
-Logical Docking Rule
+    WHAT is arranged
+    WHERE it belongs
+    WHETHER it is visible
+    WHETHER it is floating
+    WHICH panels are grouped
+
+MainWindow realizes those decisions through Qt.
+
+Dependency direction
 --------------------
-PanelArea is the canonical GridForge logical docking abstraction.
 
-Qt.DockWidgetArea exists only at the Qt presentation boundary.
+    WorkspaceManager
+          |
+          v
+    WorkspaceLayout
+          |
+          v
+    WorkspaceRealizer
+          |
+          v
+    MainWindow
+          |
+          v
+         Qt
 
-PanelSpec.area must not independently define the canonical
-logical docking area.
+Panel composition remains separate:
 
-Dependency Rule
----------------
-Application-owned services are explicitly composed.
+    PanelsPlugin
+          |
+          v
+    Panel/Dock instances
+          |
+          v
+    WorkspaceRealizer
 
-MainWindow never silently creates an application-owned Controller.
+Important
+---------
 
-Plugins receive application-owned dependencies through
-PluginContext.
+No canvas, panel, plugin, or workspace component may silently
+create an application-owned MainWindow or service.
 
-Canvas, renderer and panel components must not silently create
-application-owned services.
-
-Qt Rule
--------
-All Qt imports must come through:
-
-    ui.core.qt
-
-No direct PySide6 imports are permitted in this module.
+MainWindow receives its dependencies explicitly.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Optional
 
+from ui.core.controller import UIController
+from ui.core.plugin_registry import PluginRegistry
 from ui.core.qt import (
-    QApplication,
     QDockWidget,
     QMainWindow,
     Qt,
     QWidget,
 )
 
-from ui.core.controller import Controller
-from ui.core.tool_manager import ToolManager
-
+# PluginContext is intentionally imported from the established
+# plugin infrastructure rather than recreated here.
 from ui.plugins.plugin_context import PluginContext
-from ui.plugins.plugin_manager import PluginManager
 
 
 # ============================================================
 # MainWindow
 # ============================================================
 
+
 class MainWindow(QMainWindow):
     """
-    GridForge V2 main application window.
+    Top-level GridForge Qt application window.
 
-    This class is the UI composition root and Qt workspace host.
+    MainWindow is the Qt realization host for the UI.
 
-    Application-owned dependencies are supplied explicitly by the
-    application composition root.
+    It does not decide workspace policy. Workspace/Layout provides
+    the decisions; MainWindow performs the corresponding Qt
+    operations.
     """
-
-    # ========================================================
-    # Construction
-    # ========================================================
 
     def __init__(
         self,
         *,
-        controller: Controller,
-        parent: QWidget | None = None,
+        controller: Optional[UIController] = None,
+        plugin_registry: Optional[PluginRegistry] = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         """
-        Construct the main GridForge window.
+        Construct the main application window.
 
         Parameters
         ----------
         controller:
-            Authoritative UI/application Controller.
+            Existing UI controller.
 
-            This dependency MUST be supplied explicitly.
+        plugin_registry:
+            Existing plugin registry.
 
         parent:
             Optional Qt parent.
 
-        Raises
-        ------
-        ValueError
-            If controller is not supplied.
+        Notes
+        -----
+        Dependencies are explicitly supplied. MainWindow does not
+        silently construct application-owned services.
         """
-
-        if controller is None:
-            raise ValueError(
-                "MainWindow requires an explicit Controller."
-            )
 
         super().__init__(parent)
 
-        # ----------------------------------------------------
-        # Window identity
-        # ----------------------------------------------------
+        self._controller = controller
+        self._plugin_registry = plugin_registry
 
-        self.setObjectName(
-            "GridForgeMainWindow"
-        )
+        self._plugin_context: Optional[PluginContext] = None
+
+        self._central_widget: Optional[QWidget] = None
+
+        self._configure_window()
+        self._create_central_host()
+
+    # ========================================================
+    # Window Configuration
+    # ========================================================
+
+    def _configure_window(self) -> None:
+        """
+        Configure only intrinsic MainWindow properties.
+
+        Workspace arrangement is intentionally not configured here.
+        """
 
         self.setWindowTitle(
-            "GridForge"
+            "GridForge V2"
         )
 
-        # ----------------------------------------------------
-        # Authoritative Controller
-        # ----------------------------------------------------
+        self.resize(
+            1600,
+            1000,
+        )
 
-        self.controller = controller
+        self.setDockNestingEnabled(
+            True
+        )
 
-        # ----------------------------------------------------
-        # Root composition widget
-        # ----------------------------------------------------
+    # ========================================================
+    # Central Workspace Host
+    # ========================================================
 
-        self._root_widget = QWidget(self)
+    def _create_central_host(self) -> None:
+        """
+        Create the central editor/SLD host.
 
-        self._root_widget.setObjectName(
-            "GridForgeRootWidget"
+        The central host is intentionally generic. SLD/editor
+        composition belongs to the workspace/editor subsystem.
+        """
+
+        self._central_widget = QWidget(
+            self
+        )
+
+        self._central_widget.setObjectName(
+            "GridForgeCentralWorkspace"
         )
 
         self.setCentralWidget(
-            self._root_widget
+            self._central_widget
         )
-
-        # ----------------------------------------------------
-        # Canonical ToolManager
-        #
-        # Created exactly once at the application UI
-        # composition boundary.
-        # ----------------------------------------------------
-
-        self.tool_manager = ToolManager(
-            controller=self.controller
-        )
-
-        # ----------------------------------------------------
-        # Plugin dependency context
-        #
-        # PluginContext carries existing application-owned
-        # dependencies. It does not create them.
-        # ----------------------------------------------------
-
-        self.plugin_context = PluginContext(
-            main_window=self,
-            parent=self,
-            application=QApplication.instance(),
-            root_widget=self._root_widget,
-            controller=self.controller,
-            tool_manager=self.tool_manager,
-        )
-
-        # ----------------------------------------------------
-        # Plugin manager
-        # ----------------------------------------------------
-
-        self.plugin_manager = PluginManager()
-
-        # ----------------------------------------------------
-        # Canonical plugin definitions
-        # ----------------------------------------------------
-
-        self.plugin_manager.define_defaults()
-
-        # ----------------------------------------------------
-        # Explicit dependency propagation
-        # ----------------------------------------------------
-
-        self.plugin_manager.set_contexts(
-            {
-                plugin_id: self.plugin_context
-                for plugin_id in self.plugin_manager.plugin_ids
-            }
-        )
-
-        # ----------------------------------------------------
-        # Lifecycle state
-        # ----------------------------------------------------
-
-        self._plugins_initialized = False
 
     # ========================================================
     # Properties
     # ========================================================
 
     @property
-    def root_widget(self) -> QWidget:
+    def controller(
+        self,
+    ) -> Optional[UIController]:
         """
-        Return the MainWindow-owned root composition widget.
+        Return the explicitly supplied UI controller.
         """
 
-        return self._root_widget
+        return self._controller
 
     # --------------------------------------------------------
 
     @property
-    def context(self) -> PluginContext:
+    def plugin_registry(
+        self,
+    ) -> Optional[PluginRegistry]:
         """
-        Return the canonical plugin dependency context.
+        Return the explicitly supplied plugin registry.
         """
 
-        return self.plugin_context
+        return self._plugin_registry
 
     # --------------------------------------------------------
 
     @property
-    def tools(self) -> ToolManager:
+    def plugin_context(
+        self,
+    ) -> Optional[PluginContext]:
         """
-        Return the canonical ToolManager.
+        Return the current plugin context.
         """
 
-        return self.tool_manager
+        return self._plugin_context
+
+    # --------------------------------------------------------
+
+    @property
+    def central_workspace(
+        self,
+    ) -> Optional[QWidget]:
+        """
+        Return the central editor/SLD host widget.
+        """
+
+        return self._central_widget
+
+    # ========================================================
+    # Plugin Context
+    # ========================================================
+
+    def set_plugin_context(
+        self,
+        context: PluginContext,
+    ) -> None:
+        """
+        Attach an existing PluginContext.
+
+        MainWindow does not create the context.
+        """
+
+        if context is None:
+            raise ValueError(
+                "context must not be None."
+            )
+
+        self._plugin_context = context
 
     # ========================================================
     # Qt Workspace / Docking Infrastructure
@@ -274,14 +284,10 @@ class MainWindow(QMainWindow):
         dock_widget: QDockWidget,
     ) -> None:
         """
-        Add a dock widget to the MainWindow.
+        Add an existing dock widget to the MainWindow.
 
-        This exposes Qt docking infrastructure.
-
-        It does NOT decide workspace policy.
-
-        The Workspace/Layout layer determines the appropriate
-        arrangement.
+        Workspace/Layout decides the logical area.
+        MainWindow performs the Qt operation.
         """
 
         if dock_widget is None:
@@ -301,7 +307,9 @@ class MainWindow(QMainWindow):
         dock_widget: QDockWidget,
     ) -> None:
         """
-        Remove a dock widget from the MainWindow.
+        Remove an existing dock widget from the MainWindow.
+
+        The dock widget itself is not destroyed here.
         """
 
         if dock_widget is None:
@@ -310,7 +318,7 @@ class MainWindow(QMainWindow):
             )
 
         self.removeDockWidget(
-            dock_widget,
+            dock_widget
         )
 
     # --------------------------------------------------------
@@ -321,11 +329,10 @@ class MainWindow(QMainWindow):
         second: QDockWidget,
     ) -> None:
         """
-        Tabify two dock widgets.
+        Tabify two existing dock widgets.
 
-        Tab grouping is a Workspace/Layout decision.
-
-        MainWindow provides only the Qt operation.
+        Workspace/Layout decides the grouping.
+        MainWindow performs the Qt operation.
         """
 
         if first is None:
@@ -340,7 +347,7 @@ class MainWindow(QMainWindow):
 
         if first is second:
             raise ValueError(
-                "Cannot tabify a dock widget with itself."
+                "first and second dock widgets must be different."
             )
 
         self.tabifyDockWidget(
@@ -348,99 +355,91 @@ class MainWindow(QMainWindow):
             second,
         )
 
-    # ========================================================
-    # Plugin Lifecycle
-    # ========================================================
+    # --------------------------------------------------------
 
-    def initialize_plugins(self) -> None:
+    def set_dock_visible(
+        self,
+        dock_widget: QDockWidget,
+        visible: bool,
+    ) -> None:
         """
-        Initialize all registered plugins.
+        Set the visibility of an existing dock widget.
 
-        Initialization is idempotent.
+        Workspace/Layout owns the visibility decision.
+        MainWindow performs only the Qt operation.
         """
 
-        if self._plugins_initialized:
-            return
+        if dock_widget is None:
+            raise ValueError(
+                "dock_widget must not be None."
+            )
 
-        self.plugin_manager.initialize_all()
-
-        self._plugins_initialized = True
+        dock_widget.setVisible(
+            bool(visible)
+        )
 
     # --------------------------------------------------------
 
-    def shutdown_plugins(self) -> None:
+    def set_dock_floating(
+        self,
+        dock_widget: QDockWidget,
+        floating: bool,
+    ) -> None:
         """
-        Shut down all initialized plugins.
+        Set the floating state of an existing dock widget.
+
+        Workspace/Layout owns the floating decision.
+        MainWindow performs only the Qt operation.
         """
 
-        if not self._plugins_initialized:
-            return
+        if dock_widget is None:
+            raise ValueError(
+                "dock_widget must not be None."
+            )
 
-        self.plugin_manager.shutdown_all()
-
-        self._plugins_initialized = False
+        dock_widget.setFloating(
+            bool(floating)
+        )
 
     # ========================================================
-    # Qt Lifecycle
+    # Controller Integration
+    # ========================================================
+
+    def dispatch_command(
+        self,
+        command,
+    ):
+        """
+        Dispatch a UI command through the existing controller.
+
+        MainWindow does not execute application/model logic itself.
+        """
+
+        if self._controller is None:
+            raise RuntimeError(
+                "No UIController is attached to MainWindow."
+            )
+
+        return self._controller.dispatch(
+            command
+        )
+
+    # ========================================================
+    # Lifecycle
     # ========================================================
 
     def closeEvent(
         self,
-        event: Any,
+        event,
     ) -> None:
         """
-        Shut down plugins before closing the application window.
+        Handle MainWindow shutdown.
+
+        Application/service lifecycle remains outside this class
+        unless explicitly coordinated by the application layer.
         """
 
-        self.shutdown_plugins()
-
         event.accept()
-
-
-# ============================================================
-# Factory
-# ============================================================
-
-def create_main_window(
-    *,
-    controller: Controller,
-    parent: QWidget | None = None,
-) -> MainWindow:
-    """
-    Create and initialize the GridForge MainWindow.
-
-    Application composition order:
-
-        main.py
-            ↓
-        Controller
-            ↓
-        MainWindow
-            ↓
-        ToolManager
-            ↓
-        PluginContext
-            ↓
-        PluginManager
-            ↓
-        Plugin initialization
-
-    Controller creation remains outside MainWindow.
-    """
-
-    if controller is None:
-        raise ValueError(
-            "create_main_window requires an explicit Controller."
-        )
-
-    window = MainWindow(
-        controller=controller,
-        parent=parent,
-    )
-
-    window.initialize_plugins()
-
-    return window
 
 
 # ============================================================
@@ -449,5 +448,4 @@ def create_main_window(
 
 __all__ = [
     "MainWindow",
-    "create_main_window",
 ]
