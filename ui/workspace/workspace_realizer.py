@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # File: ui/workspace/workspace_realizer.py
 # GridForge V2 — Workspace Qt Realizer
@@ -603,4 +602,3 @@ __all__ = [
     "WorkspaceRealizationError",
     "WorkspaceRealizer",
 ]
-```
