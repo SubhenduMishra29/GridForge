@@ -1,1 +1,20 @@
 GridForge V2 Audit & Modification Register
+
+GF-V2-ARCH-BASELINE
+──────────────────────────────────────────────
+
+1. Model-centric
+2. SLD-first
+3. Context-sensitive
+4. Blender-inspired interaction/workspace
+5. PySide6 implementation
+6. ETAP-style electrical semantics
+7. Core independent of UI/Blender
+8. Direct manipulation
+9. Electrical/topological validation
+10. Preview before commit where applicable
+11. Authoritative Core model
+12. Explicit application composition
+13. No canvas component silently creates application-owned services
+14. Flexible docked/floating/tabbed editors
+15. Seven-question UI design gate
