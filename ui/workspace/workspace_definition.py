@@ -222,7 +222,7 @@ def __post_init__(self) -> None:
 
 # ============================================================
 
-**all** = [
+__all__ = [
 "WorkspaceDefinition",
 "WorkspacePlacement",
 ]
