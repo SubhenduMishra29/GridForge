@@ -1,37 +1,20 @@
 # ============================================================
-# GridForge V2
+# File: ui/equipment/symbol/symbol_factory.py
+# GridForge V2 — Symbol Factory
 # ============================================================
-# File:
-#     ui/equipment/symbol/symbol_factory.py
-#
-# Purpose:
-#     Creates logical symbol instances from registered symbol
-#     definitions.
-#
-# Architectural Role:
-#     Separates symbol construction from equipment, tools,
-#     canvas and rendering code.
-#
-# Responsibilities:
-#     - resolve symbol definitions;
-#     - create stable symbol instances;
-#     - apply instance transformations;
-#     - apply instance properties.
-#
-# Does NOT:
-#     - create QGraphicsItem;
-#     - paint symbols;
-#     - perform scene management.
-#
-# ============================================================
-
 """
-GridForge V2 — Symbol Factory.
+Factory for logical SLD symbol instances.
+
+This module creates runtime SymbolBase objects from registered
+SymbolDefinition objects.
+
+It does not create Qt graphics items, render symbols, or manage
+the canvas.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .symbol_base import SymbolBase
 from .symbol_registry import SymbolRegistry
@@ -48,13 +31,22 @@ class SymbolFactory:
     ) -> None:
         if registry is None:
             raise ValueError(
-                "registry must not be None"
+                "registry must not be None."
+            )
+
+        if not isinstance(
+            registry,
+            SymbolRegistry,
+        ):
+            raise TypeError(
+                "registry must be a SymbolRegistry."
             )
 
         self._registry = registry
 
     @property
     def registry(self) -> SymbolRegistry:
+        """Return the symbol-definition registry."""
         return self._registry
 
     def create(
@@ -65,19 +57,28 @@ class SymbolFactory:
         scale: float = 1.0,
         rotation: float = 0.0,
         visible: bool = True,
-        properties: Optional[
-            Dict[str, Any]
-        ] = None,
+        properties: dict[str, Any] | None = None,
     ) -> SymbolBase:
         """
-        Create a symbol instance.
+        Create a logical symbol instance.
 
-        Definition lookup is performed before construction so an invalid
-        symbol cannot silently enter the SLD model.
+        The referenced definition must already be registered.
         """
-        if not symbol_id:
+
+        if (
+            not isinstance(symbol_id, str)
+            or not symbol_id.strip()
+        ):
             raise ValueError(
-                "symbol_id must not be empty"
+                "symbol_id must be a non-empty string."
+            )
+
+        if (
+            not isinstance(definition_id, str)
+            or not definition_id.strip()
+        ):
+            raise ValueError(
+                "definition_id must be a non-empty string."
             )
 
         self._registry.require(
@@ -92,3 +93,8 @@ class SymbolFactory:
             visible=visible,
             properties=properties,
         )
+
+
+__all__ = [
+    "SymbolFactory",
+]
