@@ -1,190 +1,96 @@
 # ============================================================
-# File: ui/tools/bus_tool.py
-# GridForge V2 — Bus Tool
+# GridForge V2
 # ============================================================
-"""
-Bus creation tool for GridForge V2.
-
-BusTool converts canvas interaction into bus-creation intent.
-
-Architecture
-------------
-
-    GraphicsView
-         │
-         ▼
-    InteractionManager
-         │
-         ▼
-       BusTool
-         │
-         ▼
-    CommandManager
-         │
-         ▼
-   Application Controller
-         │
-         ▼
-        Core
-
-Responsibilities
-----------------
-BusTool:
-
-    - receive a canvas click;
-    - obtain the requested scene position;
-    - submit a bus-creation command through CommandManager;
-    - reset transient interaction state;
-    - support cancellation.
-
-BusTool does NOT:
-
-    - create Core Bus objects directly;
-    - mutate the Network;
-    - perform electrical validation;
-    - perform rendering;
-    - own the graphics item;
-    - manipulate QGraphicsScene directly;
-    - implement navigation;
-    - maintain command history;
-    - bypass CommandManager.
-
-Coordinate authority
---------------------
-The tool does not convert viewport coordinates itself.
-
-The event reaching the tool is expected to expose a scene-space
-position through the GridForge interaction event contract.
-
-If an application-specific command requires a different payload,
-the command/application layer is responsible for that conversion.
-
-Current concrete tool set
--------------------------
-GridForge V2 intentionally exposes exactly three concrete tools:
-
-    SelectTool
-    BusTool
-    LineTool
-
-No additional tool is created by this module.
-"""
+# File:
+#     ui/tools/bus_tool.py
+#
+# Purpose:
+#     SLD bus-placement interaction tool.
+#
+# Architectural Role:
+#     BusTool captures placement intent in scene coordinates and
+#     hands the resulting intent to the application command
+#     boundary. It does not mutate Core directly.
+#
+# IMPORTANT:
+#     The current repository does not expose a confirmed
+#     Core CreateBus command/factory. Therefore this tool does
+#     NOT invent one and does NOT bypass CommandManager.
+#
+# ============================================================
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
-from ui.tools.tool_base import ToolBase
+from .tool_base import ToolBase
 
 
 class BusTool(ToolBase):
     """
-    Tool for creating a bus at a canvas position.
+    SLD bus-placement tool.
 
-    One left-click creates one bus-creation intent.
+    The tool owns only transient placement interaction.
 
-    The actual mutation is performed by the application/Core
-    command path.
+    Persistent electrical/model creation must eventually be
+    performed by a Core-backed command dispatched through the
+    established command boundary.
     """
 
     TOOL_ID = "bus"
 
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
-
     def __init__(
         self,
         controller: Any,
-        *,
-        command_manager: Optional[Any] = None,
-        selection_manager: Optional[Any] = None,
-        snap_system: Optional[Any] = None,
-        renderer_registry: Optional[Any] = None,
+        command_manager: Any,
+        selection_manager: Any,
+        snap_system: Any,
+        renderer_registry: Any,
     ) -> None:
-        """
-        Initialize BusTool.
-
-        Dependencies are injected by the UI composition layer.
-        """
-
         super().__init__(
-            controller,
+            controller=controller,
             command_manager=command_manager,
             selection_manager=selection_manager,
             snap_system=snap_system,
             renderer_registry=renderer_registry,
         )
 
-        self._last_position: Any = None
-        self._creation_count = 0
+        self._position: Optional[Tuple[float, float]] = None
+        self._preview_active = False
 
     # ========================================================
-    # IDENTITY
+    # METADATA
     # ========================================================
 
     @property
-    def tool_id(
-        self,
-    ) -> str:
-        """
-        Stable ToolManager identifier.
-        """
-
+    def tool_id(self) -> str:
+        """Return the stable tool identifier."""
         return self.TOOL_ID
 
-    # --------------------------------------------------------
-
     @property
-    def name(
-        self,
-    ) -> str:
-        """
-        Human-readable tool name.
-        """
-
+    def name(self) -> str:
+        """Return the user-facing tool name."""
         return "Bus"
 
-    # --------------------------------------------------------
-
     @property
-    def description(
-        self,
-    ) -> str:
-        """
-        Human-readable tool description.
-        """
-
-        return "Create a bus on the electrical canvas."
+    def description(self) -> str:
+        """Return the tool description."""
+        return "Place a bus on the SLD canvas."
 
     # ========================================================
-    # ACTIVATION
+    # LIFECYCLE
     # ========================================================
 
-    def on_activate(
-        self,
-    ) -> None:
-        """
-        Reset transient creation state.
-        """
+    def on_activate(self) -> None:
+        """Reset transient placement state."""
+        self._clear_state()
 
-        self._last_position = None
-
-    # ========================================================
-    # DEACTIVATION
-    # ========================================================
-
-    def on_deactivate(
-        self,
-    ) -> None:
-        """
-        Clear transient creation state.
-        """
-
-        self._last_position = None
+    def on_deactivate(self) -> None:
+        """Clear transient placement state."""
+        self._clear_state()
 
     # ========================================================
-    # MOUSE PRESS
+    # MOUSE
     # ========================================================
 
     def on_mouse_press(
@@ -192,87 +98,85 @@ class BusTool(ToolBase):
         event: Any,
     ) -> bool:
         """
-        Handle a bus-placement mouse press.
+        Capture a scene-space placement position.
 
-        The tool creates on release rather than press so the
-        interaction follows the standard press/release lifecycle.
+        The actual Core mutation is deliberately not performed
+        here because no confirmed CreateBus command exists in
+        the current Core API.
         """
 
-        self._last_position = self._extract_position(
-            event
-        )
+        self._ensure_active()
+
+        position = self._snap_position(event)
+
+        if position is None:
+            return False
+
+        self._position = position
+        self._preview_active = True
 
         return True
 
-    # ========================================================
-    # MOUSE MOVE
-    # ========================================================
+    # --------------------------------------------------------
 
     def on_mouse_move(
         self,
         event: Any,
     ) -> bool:
-        """
-        Track the latest scene-space cursor position.
+        """Update the transient bus preview position."""
 
-        No preview graphics are created here. Preview ownership
-        belongs to the canvas preview/rendering layer.
-        """
+        self._ensure_active()
 
-        position = self._extract_position(
-            event
-        )
+        position = self._snap_position(event)
 
-        if position is not None:
-            self._last_position = position
+        if position is None:
+            return False
+
+        self._position = position
+        self._preview_active = True
 
         return True
 
-    # ========================================================
-    # MOUSE RELEASE
-    # ========================================================
+    # --------------------------------------------------------
 
     def on_mouse_release(
         self,
         event: Any,
     ) -> bool:
         """
-        Create a bus at the released scene-space position.
+        Complete the placement interaction.
+
+        A Core-backed creation command is intentionally required
+        before persistent bus creation can occur.
         """
 
-        position = self._extract_position(
-            event
-        )
+        self._ensure_active()
 
-        if position is None:
-            position = self._last_position
+        position = self._snap_position(event)
 
         if position is None:
             self._clear_state()
-            return True
+            return False
 
-        self._last_position = position
+        self._position = position
 
-        command = self._build_create_command(
-            position
-        )
+        # Do not bypass the command architecture.
+        #
+        # There is currently no confirmed CreateBus command in
+        # the repository. Therefore persistent creation cannot
+        # be performed by this UI layer.
+        self._require_bus_command_boundary()
 
-        if command is None:
-            raise RuntimeError(
-                "Unable to create the bus command. "
-                "The application controller or command manager "
-                "must expose a canonical bus-creation command path."
-            )
+        return False
 
-        self.execute_command(
-            command
-        )
+    # --------------------------------------------------------
 
-        self._creation_count += 1
-
-        self._clear_state()
-
-        return True
+    def on_mouse_double_click(
+        self,
+        event: Any,
+    ) -> bool:
+        """Bus placement uses the normal single-placement flow."""
+        return self.on_mouse_press(event)
 
     # ========================================================
     # KEYBOARD
@@ -282,233 +186,182 @@ class BusTool(ToolBase):
         self,
         event: Any,
     ) -> bool:
-        """
-        BusTool has no additional keyboard behavior.
+        """Handle keyboard input owned by BusTool."""
 
-        Escape is handled by ToolBase and invokes cancel().
-        """
+        self._ensure_active()
+
+        if self._is_escape_event(event):
+            return self.on_cancel()
 
         return False
 
     # ========================================================
-    # CANCEL
+    # CANCEL / RESET
     # ========================================================
 
-    def on_cancel(
-        self,
-    ) -> bool:
-        """
-        Cancel the current placement interaction.
-        """
+    def on_cancel(self) -> bool:
+        """Cancel the transient placement."""
 
-        had_state = (
-            self._last_position is not None
-        )
+        self._ensure_active()
+
+        had_state = self._preview_active or self._position is not None
 
         self._clear_state()
 
         return had_state
 
-    # ========================================================
-    # RESET
-    # ========================================================
+    def on_reset(self) -> None:
+        """Reset transient placement state."""
 
-    def on_reset(
-        self,
-    ) -> None:
-        """
-        Reset transient bus-placement state.
-        """
-
+        self._ensure_active()
         self._clear_state()
 
     # ========================================================
-    # COMMAND CREATION
+    # SNAP
     # ========================================================
 
-    def _build_create_command(
+    def _snap_position(
         self,
-        position: Any,
-    ) -> Any:
-        """
-        Resolve the canonical bus-creation command.
-
-        Command construction remains outside Core mutation.
-
-        The preferred contract is an application-controller
-        factory:
-
-            controller.create_bus_command(position)
-
-        A command-manager factory is accepted when explicitly
-        provided by the existing UI composition layer.
-
-        No concrete command class is imported here. This prevents
-        the tool layer from becoming coupled to command-module
-        implementation details.
-        """
-
-        controller = self.get_controller()
-
-        # ----------------------------------------------------
-        # Preferred application-controller command factory.
-        # ----------------------------------------------------
-
-        for method_name in (
-            "create_bus_command",
-            "build_create_bus_command",
-        ):
-            factory = getattr(
-                controller,
-                method_name,
-                None,
-            )
-
-            if callable(factory):
-                return factory(
-                    position
-                )
-
-        # ----------------------------------------------------
-        # Optional command-manager factory.
-        # ----------------------------------------------------
-
-        manager = self.command_manager
-
-        if manager is not None:
-            for method_name in (
-                "create_bus_command",
-                "build_create_bus_command",
-            ):
-                factory = getattr(
-                    manager,
-                    method_name,
-                    None,
-                )
-
-                if callable(factory):
-                    return factory(
-                        position
-                    )
-
-        return None
-
-    # ========================================================
-    # POSITION EXTRACTION
-    # ========================================================
-
-    @staticmethod
-    def _extract_position(
         event: Any,
-    ) -> Any:
+    ) -> Optional[Tuple[float, float]]:
         """
-        Extract the scene-space position from an interaction
-        event.
+        Resolve the event position through the canonical
+        SnapSystem.snap() API.
 
-        Supported event contracts:
-
-            event.scene_position()
-            event.scene_position
-            event.position()
-            event.position
-
-        The tool never performs coordinate conversion itself.
+        SnapSystem operates in scene coordinates.
         """
 
-        if event is None:
-            return None
+        scene_position = self.event_position(event)
 
-        # ----------------------------------------------------
-        # Preferred explicit scene-space contract.
-        # ----------------------------------------------------
+        snap_system = self.get_snap_system()
 
-        scene_position = getattr(
-            event,
-            "scene_position",
+        snap = getattr(
+            snap_system,
+            "snap",
             None,
         )
 
-        if callable(scene_position):
-            try:
-                return scene_position()
-            except TypeError:
-                pass
+        if not callable(snap):
+            raise TypeError(
+                "SnapSystem must provide snap()."
+            )
 
-        if scene_position is not None:
-            return scene_position
-
-        # ----------------------------------------------------
-        # Generic position contract.
-        #
-        # InteractionManager/GraphicsView is expected to ensure
-        # this represents scene coordinates before forwarding
-        # the event to the tool.
-        # ----------------------------------------------------
+        result = snap(
+            scene_position,
+            allow_grid=True,
+            allow_object=True,
+        )
 
         position = getattr(
-            event,
+            result,
             "position",
             None,
         )
 
-        if callable(position):
-            try:
-                return position()
-            except TypeError:
-                return None
+        if position is None:
+            return None
 
-        if position is not None:
-            return position
-
-        return None
+        return self._position_tuple(position)
 
     # ========================================================
-    # TRANSIENT STATE
+    # COMMAND BOUNDARY
     # ========================================================
 
-    def _clear_state(
-        self,
-    ) -> None:
+    @staticmethod
+    def _require_bus_command_boundary() -> None:
         """
-        Clear transient placement state.
+        Fail explicitly until the Core bus-creation command is
+        defined.
+
+        This prevents accidental direct model mutation or
+        speculative command-factory APIs.
         """
 
-        self._last_position = None
+        raise RuntimeError(
+            "Bus placement requires a confirmed Core bus-creation "
+            "command. No CreateBus command is currently exposed "
+            "by the GridForge Core command API."
+        )
+
+    # ========================================================
+    # HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _position_tuple(
+        position: Any,
+    ) -> Tuple[float, float]:
+        """Convert a QPointF-like object or pair to a tuple."""
+
+        if hasattr(position, "x") and hasattr(position, "y"):
+            x = position.x()
+            y = position.y()
+            return float(x), float(y)
+
+        if isinstance(position, (tuple, list)) and len(position) >= 2:
+            return float(position[0]), float(position[1])
+
+        raise TypeError(
+            "SnapResult.position must provide x/y coordinates "
+            "or a two-element position."
+        )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _is_escape_event(
+        event: Any,
+    ) -> bool:
+        """Recognize Escape without importing Qt."""
+
+        if event is None:
+            return False
+
+        key = getattr(
+            event,
+            "key",
+            None,
+        )
+
+        if callable(key):
+            key = key()
+
+        if isinstance(event, dict):
+            key = event.get(
+                "key",
+                key,
+            )
+
+        if key in (
+            "Escape",
+            "escape",
+            0x01000000,
+        ):
+            return True
+
+        return False
+
+    # --------------------------------------------------------
+
+    def _clear_state(self) -> None:
+        """Clear all transient placement state."""
+
+        self._position = None
+        self._preview_active = False
 
     # ========================================================
     # DIAGNOSTICS
     # ========================================================
 
-    @property
-    def creation_count(
-        self,
-    ) -> int:
-        """
-        Return the number of successful command submissions made
-        by this tool instance.
-
-        This is diagnostic UI state only.
-
-        It is not authoritative project state.
-        """
-
-        return self._creation_count
-
-    # --------------------------------------------------------
-
-    def get_state(
-        self,
-    ) -> dict[str, Any]:
-        """
-        Return BusTool diagnostic state.
-        """
+    def get_state(self) -> dict[str, Any]:
+        """Return the base tool state plus placement state."""
 
         state = super().get_state()
 
         state.update(
             {
-                "last_position": self._last_position,
-                "creation_count": self._creation_count,
+                "position": self._position,
+                "preview_active": self._preview_active,
             }
         )
 
