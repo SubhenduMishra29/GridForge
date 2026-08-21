@@ -2602,7 +2602,62 @@ UI Workspace/Layout
     workspace_layout.py
     workspace_state.py
     workspace_manager.py
+======================================================================
+GF-AUD-053
+======================================================================
 
+File:
+    ui/core/panel_registry.py
+
+Status:
+    🟡 REQUIRES ARCHITECTURAL CLEANUP
+
+Finding:
+    PanelRegistry is correctly separated from MainWindow, Qt,
+    docking and workspace arrangement.
+
+    However PanelRegistration still contains:
+
+        area
+
+    and PanelRegistry exposes:
+
+        get_by_area()
+
+Decision:
+    Canonical panel placement belongs exclusively to the
+    Workspace/Layout layer.
+
+Required final boundary:
+
+    PanelRegistry
+        → panel identity, registration and existing instance
+
+    WorkspaceManager
+        → workspace composition
+
+    WorkspacePlacement
+        → logical panel placement
+
+    WorkspaceLayout
+        → logical arrangement
+
+Therefore:
+
+    PanelRegistration.area
+        → REMOVE after consumer audit
+
+    PanelRegistry.get_by_area()
+        → REMOVE after consumer audit
+
+Do not patch until all consumers of:
+    - registration.area
+    - get_by_area()
+are audited.
+
+visible metadata remains temporarily pending consumer audit.
+
+======================================================================
 ======================================================================
 ======================================================================
 ======================================================================
