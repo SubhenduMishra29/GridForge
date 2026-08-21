@@ -1,9 +1,7 @@
+```python
 # ============================================================
-
 # File: ui/workspace/workspace_controller.py
-
 # GridForge V2 — Workspace Controller
-
 # ============================================================
 
 """
@@ -12,258 +10,248 @@ GridForge V2 — Workspace Controller.
 Application-level orchestration boundary for the Workspace
 subsystem.
 
-## Architectural role
+Responsibilities
+----------------
 
-WorkspaceManager
-Owns logical workspace definitions and WorkspaceState.
+WorkspaceController coordinates:
 
-WorkspaceLayout
-Represents the immutable logical arrangement.
+    WorkspaceManager
+        ↓
+    WorkspaceState candidate
+        ↓
+    WorkspaceRealizer
+        ↓
+    WorkspaceManager.commit()
 
-WorkspaceRealizer
-Translates WorkspaceLayout into operations on the existing
-MainWindow host.
+The controller does NOT:
 
-WorkspaceController
-Coordinates WorkspaceManager and WorkspaceRealizer.
+    - import Qt;
+    - construct MainWindow;
+    - construct WorkspaceDefinition;
+    - construct WorkspaceLayout;
+    - create panels;
+    - register docks;
+    - manipulate QDockWidget;
+    - define workspace policy;
+    - access Core/domain state;
+    - perform electrical calculations.
 
-The controller deliberately contains orchestration only.
+Transactional invariant
+-----------------------
 
-It does NOT:
+The WorkspaceManager is not committed until the corresponding
+WorkspaceRealizer operation succeeds.
 
-```
-- create MainWindow;
-- create QDockWidget;
-- import Qt;
-- create panels;
-- register panels;
-- define workspace policy;
-- construct WorkspaceDefinition;
-- construct WorkspaceLayout;
-- modify Core/domain state;
-- perform electrical calculations;
-- perform direct Qt operations;
-- know PanelArea realization rules.
-```
+Therefore:
 
-The composition root is responsible for constructing this
-controller and injecting the already-created Manager and
-Realizer.
+    prepare()
+        ↓
+    realize()
+        ↓
+    commit()
+
+If realization raises an exception, commit() is never called
+and the manager's authoritative logical state remains unchanged.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from .workspace_layout import WorkspaceLayout
 from .workspace_manager import WorkspaceManager
 from .workspace_realizer import WorkspaceRealizer
 from .workspace_state import WorkspaceState
 
-# ============================================================
-
-# Workspace Controller
-
-# ============================================================
 
 class WorkspaceController:
-"""
-Coordinate logical Workspace state with its realization.
-
-```
-The controller does not own either subsystem. It coordinates
-the explicitly supplied WorkspaceManager and
-WorkspaceRealizer.
-"""
-
-def __init__(
-    self,
-    *,
-    manager: WorkspaceManager,
-    realizer: WorkspaceRealizer,
-) -> None:
     """
-    Construct the Workspace orchestration boundary.
-
-    Parameters
-    ----------
-    manager:
-        Existing WorkspaceManager responsible for logical
-        workspace state.
-
-    realizer:
-        Existing WorkspaceRealizer responsible for translating
-        logical layout into MainWindow host operations.
-    """
-
-    if not isinstance(
-        manager,
-        WorkspaceManager,
-    ):
-        raise TypeError(
-            "manager must be a WorkspaceManager."
-        )
-
-    if not isinstance(
-        realizer,
-        WorkspaceRealizer,
-    ):
-        raise TypeError(
-            "realizer must be a WorkspaceRealizer."
-        )
-
-    self._manager = manager
-    self._realizer = realizer
-
-# ========================================================
-# Properties
-# ========================================================
-
-@property
-def manager(
-    self,
-) -> WorkspaceManager:
-    """
-    Return the explicitly supplied WorkspaceManager.
-    """
-
-    return self._manager
-
-@property
-def realizer(
-    self,
-) -> WorkspaceRealizer:
-    """
-    Return the explicitly supplied WorkspaceRealizer.
-    """
-
-    return self._realizer
-
-@property
-def state(
-    self,
-) -> WorkspaceState | None:
-    """
-    Return the current logical WorkspaceState.
-
-    No realization is performed.
-    """
-
-    return self._manager.state
-
-@property
-def active_workspace_id(
-    self,
-) -> str | None:
-    """
-    Return the active workspace identifier.
-    """
-
-    return self._manager.active_workspace_id
-
-@property
-def realized_layout(
-    self,
-) -> WorkspaceLayout | None:
-    """
-    Return the last successfully realized layout.
-    """
-
-    return self._realizer.realized_layout
-
-# ========================================================
-# Workspace Activation
-# ========================================================
-
-def activate(
-    self,
-    workspace_id: str,
-) -> WorkspaceState:
-    """
-    Activate and realize a named workspace.
-
-    Sequence
-    --------
-    1. WorkspaceManager activates the logical workspace.
-    2. WorkspaceManager produces WorkspaceState.
-    3. WorkspaceController obtains WorkspaceLayout.
-    4. WorkspaceRealizer realizes that layout.
-    5. The resulting WorkspaceState is returned.
+    Coordinate logical Workspace state with UI realization.
 
     WorkspaceManager remains the logical authority.
-    WorkspaceRealizer remains the Qt realization authority.
+
+    WorkspaceRealizer remains the realization authority.
+
+    WorkspaceController owns neither subsystem; it only
+    orchestrates their interaction.
     """
 
-    state = self._manager.activate(
-        workspace_id
-    )
+    def __init__(
+        self,
+        *,
+        manager: WorkspaceManager,
+        realizer: WorkspaceRealizer,
+    ) -> None:
+        """
+        Construct the Workspace orchestration boundary.
+        """
 
-    self._realizer.realize(
-        state.layout
-    )
+        if not isinstance(
+            manager,
+            WorkspaceManager,
+        ):
+            raise TypeError(
+                "manager must be a WorkspaceManager."
+            )
 
-    return state
+        if not isinstance(
+            realizer,
+            WorkspaceRealizer,
+        ):
+            raise TypeError(
+                "realizer must be a WorkspaceRealizer."
+            )
 
-# ========================================================
-# Layout Update
-# ========================================================
+        self._manager = manager
+        self._realizer = realizer
 
-def set_layout(
-    self,
-    layout: WorkspaceLayout,
-) -> WorkspaceState:
-    """
-    Set and realize a new logical layout.
+    # ========================================================
+    # Properties
+    # ========================================================
 
-    WorkspaceManager remains responsible for changing the
-    logical WorkspaceState.
+    @property
+    def manager(
+        self,
+    ) -> WorkspaceManager:
+        """Return the WorkspaceManager."""
 
-    WorkspaceRealizer remains responsible for realization.
-    """
+        return self._manager
 
-    if not isinstance(
-        layout,
-        WorkspaceLayout,
-    ):
-        raise TypeError(
-            "layout must be a WorkspaceLayout."
+    @property
+    def realizer(
+        self,
+    ) -> WorkspaceRealizer:
+        """Return the WorkspaceRealizer."""
+
+        return self._realizer
+
+    @property
+    def state(
+        self,
+    ) -> WorkspaceState | None:
+        """
+        Return the authoritative logical WorkspaceState.
+
+        This does not trigger realization.
+        """
+
+        return self._manager.state
+
+    @property
+    def active_workspace_id(
+        self,
+    ) -> str | None:
+        """Return the active workspace identifier."""
+
+        return self._manager.active_workspace_id
+
+    @property
+    def realized_layout(
+        self,
+    ) -> WorkspaceLayout | None:
+        """
+        Return the last successfully realized layout.
+        """
+
+        return self._realizer.realized_layout
+
+    # ========================================================
+    # Activation
+    # ========================================================
+
+    def activate(
+        self,
+        workspace_id: str,
+    ) -> WorkspaceState:
+        """
+        Prepare, realize, and commit a workspace activation.
+
+        Transaction:
+
+            manager.prepare_activate()
+                    ↓
+            realizer.realize()
+                    ↓
+            manager.commit()
+
+        If realization fails, the manager is not committed.
+        """
+
+        candidate = self._manager.prepare_activate(
+            workspace_id
         )
 
-    state = self._manager.set_layout(
-        layout
-    )
+        self._realizer.realize(
+            candidate.layout
+        )
 
-    self._realizer.realize(
-        state.layout
-    )
+        return self._manager.commit(
+            candidate
+        )
 
-    return state
+    # ========================================================
+    # Layout Update
+    # ========================================================
 
-# ========================================================
-# Reset
-# ========================================================
+    def set_layout(
+        self,
+        layout: WorkspaceLayout,
+    ) -> WorkspaceState:
+        """
+        Prepare, realize, and commit a layout change.
 
-def reset_active(
-    self,
-) -> WorkspaceState:
-    """
-    Restore and realize the active workspace's definition
-    layout.
-    """
+        If realization fails, the manager's previous state
+        remains authoritative.
+        """
 
-    state = self._manager.reset_active()
+        if not isinstance(
+            layout,
+            WorkspaceLayout,
+        ):
+            raise TypeError(
+                "layout must be a WorkspaceLayout."
+            )
 
-    self._realizer.realize(
-        state.layout
-    )
+        candidate = self._manager.prepare_layout(
+            layout
+        )
 
-    return state
-```
+        self._realizer.realize(
+            candidate.layout
+        )
+
+        return self._manager.commit(
+            candidate
+        )
+
+    # ========================================================
+    # Reset
+    # ========================================================
+
+    def reset_active(
+        self,
+    ) -> WorkspaceState:
+        """
+        Prepare, realize, and commit restoration of the active
+        workspace's definition layout.
+
+        If realization fails, no logical state is committed.
+        """
+
+        candidate = self._manager.prepare_reset_active()
+
+        self._realizer.realize(
+            candidate.layout
+        )
+
+        return self._manager.commit(
+            candidate
+        )
+
 
 # ============================================================
-
 # Public API
-
 # ============================================================
 
-**all** = [
-"WorkspaceController",
+__all__ = [
+    "WorkspaceController",
 ]
+```
