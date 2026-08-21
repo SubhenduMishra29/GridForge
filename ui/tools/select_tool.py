@@ -1,86 +1,68 @@
 # ============================================================
-# File: ui/tools/select_tool.py
-# GridForge V2 — Select Tool
+# GridForge V2
 # ============================================================
-"""
-Selection tool for GridForge V2.
-
-The SelectTool converts canvas pointer interaction into selection
-intent. It does not own authoritative selection state.
-
-Selection authority remains with SelectionManager.
-
-Responsibilities
-----------------
-SelectTool:
-
-    - select a graphical object;
-    - replace the current selection;
-    - extend the selection with modifier-assisted clicks;
-    - toggle selection when requested;
-    - clear selection when clicking empty canvas;
-    - expose a small, deterministic interaction state.
-
-SelectTool does NOT:
-
-    - mutate Core directly;
-    - create electrical topology;
-    - perform snapping;
-    - render objects;
-    - navigate the canvas;
-    - maintain an independent selection set;
-    - execute application commands for selection unless the
-      SelectionManager explicitly requires that architecture.
-
-Qt
---
-No direct Qt import is used here. Events are treated as opaque
-objects and are interpreted through the small event protocol
-provided by the GridForge UI layer.
-"""
+# File:
+#     ui/tools/select_tool.py
+#
+# Purpose:
+#     Selection interaction tool for the GridForge UI.
+#
+# Architectural Role:
+#     SelectTool translates pointer interaction into requests to
+#     the authoritative SelectionManager.
+#
+# Boundaries:
+#     - SelectionManager owns persistent selection state.
+#     - Controller remains authoritative for application state.
+#     - SelectTool owns only transient pointer interaction state.
+#     - No Qt dependency is introduced here.
+#     - No Core model mutation is performed here.
+#     - No rendering is performed here.
+#     - No navigation is performed here.
+#
+# ============================================================
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
-from ui.tools.tool_base import ToolBase
+from .tool_base import ToolBase
 
 
 class SelectTool(ToolBase):
     """
-    Default GridForge selection tool.
+    Default object-selection tool.
 
-    Selection is delegated to SelectionManager. The tool keeps
-    only transient pointer-interaction state.
+    SelectTool converts pointer interaction into selection
+    requests. Persistent selection remains owned by the
+    SelectionManager / Controller boundary.
+
+    The tool does not maintain an authoritative selection
+    collection.
     """
 
     TOOL_ID = "select"
 
-    # Common Qt modifier values. Keeping these constants local
-    # avoids a direct Qt dependency in the tool.
-    _SHIFT_MODIFIER = 0x02000000
-    _CTRL_MODIFIER = 0x04000000
-    _META_MODIFIER = 0x10000000
+    # Qt modifier values are intentionally represented by their
+    # standard integer values so this module remains Qt-independent.
+    SHIFT_MODIFIER = 0x02000000
+    CTRL_MODIFIER = 0x04000000
+    META_MODIFIER = 0x10000000
 
-    # ========================================================
+    # --------------------------------------------------------
     # INITIALIZATION
-    # ========================================================
+    # --------------------------------------------------------
 
     def __init__(
         self,
         controller: Any,
-        *,
-        command_manager: Optional[Any] = None,
-        selection_manager: Optional[Any] = None,
-        snap_system: Optional[Any] = None,
-        renderer_registry: Optional[Any] = None,
+        command_manager: Any,
+        selection_manager: Any,
+        snap_system: Any,
+        renderer_registry: Any,
     ) -> None:
-        """
-        Initialize SelectTool.
-        """
-
         super().__init__(
-            controller,
+            controller=controller,
             command_manager=command_manager,
             selection_manager=selection_manager,
             snap_system=snap_system,
@@ -88,71 +70,44 @@ class SelectTool(ToolBase):
         )
 
         self._pressed_object_id: Any = None
-        self._pressed_position: Any = None
+        self._pressed_position: Optional[
+            Tuple[float, float]
+        ] = None
         self._dragging = False
 
     # ========================================================
-    # IDENTITY
+    # METADATA
     # ========================================================
 
     @property
-    def tool_id(
-        self,
-    ) -> str:
-        """
-        Stable ToolManager identifier.
-        """
-
+    def tool_id(self) -> str:
+        """Return the stable tool identifier."""
         return self.TOOL_ID
 
-    # --------------------------------------------------------
-
     @property
-    def name(
-        self,
-    ) -> str:
-        """
-        Human-readable tool name.
-        """
-
+    def name(self) -> str:
+        """Return the user-facing tool name."""
         return "Select"
 
-    # --------------------------------------------------------
-
     @property
-    def description(
-        self,
-    ) -> str:
-        """
-        Human-readable tool description.
-        """
-
-        return "Select and inspect objects on the canvas."
+    def description(self) -> str:
+        """Return the tool description."""
+        return "Select and manipulate SLD objects."
 
     # ========================================================
     # ACTIVATION
     # ========================================================
 
-    def on_activate(
-        self,
-    ) -> None:
-        """
-        Reset transient interaction state on activation.
-        """
-
+    def on_activate(self) -> None:
+        """Initialize transient state when the tool activates."""
         self._clear_pointer_state()
 
     # ========================================================
     # DEACTIVATION
     # ========================================================
 
-    def on_deactivate(
-        self,
-    ) -> None:
-        """
-        Clear transient interaction state on deactivation.
-        """
-
+    def on_deactivate(self) -> None:
+        """Clear transient pointer state."""
         self._clear_pointer_state()
 
     # ========================================================
@@ -166,31 +121,35 @@ class SelectTool(ToolBase):
         """
         Begin a selection interaction.
 
-        The event may expose one of the following object
-        identification protocols:
+        Expected event attributes:
+            object_id
+            position
+            modifiers
 
-            event.object_id
-            event.object
-            event.item
-            event.target
-
-        Object extraction is deliberately kept local to the UI
-        interaction boundary.
+        Missing optional attributes are treated conservatively.
         """
 
-        self._pressed_position = self._extract_position(
-            event
-        )
+        self._ensure_active()
 
-        self._pressed_object_id = (
-            self._extract_object_id(
-                event
-            )
-        )
+        object_id = self._event_object_id(event)
+        position = self.event_position(event)
+        modifiers = self._event_modifiers(event)
 
+        self._pressed_object_id = object_id
+        self._pressed_position = position
         self._dragging = False
 
-        # Empty-canvas press is still consumed by SelectTool.
+        if object_id is None:
+            self._handle_empty_canvas_click(
+                modifiers
+            )
+            return True
+
+        self._handle_object_click(
+            object_id,
+            modifiers,
+        )
+
         return True
 
     # ========================================================
@@ -202,31 +161,24 @@ class SelectTool(ToolBase):
         event: Any,
     ) -> bool:
         """
-        Track pointer movement.
+        Track pointer movement during a selection interaction.
 
-        Selection drag semantics are intentionally not invented
-        here. A concrete future marquee-selection implementation
-        can extend this behavior without changing the tool
-        contract.
+        SelectTool does not perform object movement. Movement,
+        if supported by the application, belongs to the relevant
+        command/controller layer.
         """
+
+        self._ensure_active()
 
         if self._pressed_position is None:
             return False
 
-        current_position = self._extract_position(
-            event
-        )
+        position = self.event_position(event)
 
-        if current_position is None:
-            return True
-
-        if self._positions_differ(
-            self._pressed_position,
-            current_position,
-        ):
+        if position != self._pressed_position:
             self._dragging = True
 
-        return True
+        return self._dragging
 
     # ========================================================
     # MOUSE RELEASE
@@ -237,44 +189,20 @@ class SelectTool(ToolBase):
         event: Any,
     ) -> bool:
         """
-        Complete a click-selection interaction.
-
-        If the pointer moved far enough to constitute a drag,
-        selection is not changed here. This keeps SelectTool
-        deterministic until marquee selection is explicitly
-        introduced.
+        Finish the current pointer interaction.
         """
 
-        object_id = self._extract_object_id(
-            event
+        self._ensure_active()
+
+        handled = (
+            self._pressed_object_id is not None
+            or self._pressed_position is not None
+            or self._dragging
         )
 
-        if object_id is None:
-            object_id = self._pressed_object_id
+        self._clear_pointer_state()
 
-        try:
-            if self._dragging:
-                return True
-
-            modifiers = self._extract_modifiers(
-                event
-            )
-
-            if object_id is None:
-                self._handle_empty_canvas_click(
-                    modifiers
-                )
-                return True
-
-            self._handle_object_click(
-                object_id,
-                modifiers,
-            )
-
-            return True
-
-        finally:
-            self._clear_pointer_state()
+        return handled
 
     # ========================================================
     # DOUBLE CLICK
@@ -285,23 +213,25 @@ class SelectTool(ToolBase):
         event: Any,
     ) -> bool:
         """
-        Consume a double-click without introducing editing
-        semantics.
+        Handle a double-click.
 
-        Editing/properties behavior belongs to the appropriate
-        application command or controller layer and is not
-        invented by SelectTool.
+        SelectTool does not own object editing/opening behavior.
+        A double-click therefore performs the normal selection
+        action only.
         """
 
-        object_id = self._extract_object_id(
-            event
-        )
+        self._ensure_active()
+
+        object_id = self._event_object_id(event)
 
         if object_id is None:
-            return True
+            return False
 
-        self._select_single(
-            object_id
+        modifiers = self._event_modifiers(event)
+
+        self._handle_object_click(
+            object_id,
+            modifiers,
         )
 
         return True
@@ -322,18 +252,20 @@ class SelectTool(ToolBase):
         command/controller layer.
         """
 
+        self._ensure_active()
+
         return False
 
     # ========================================================
     # CANCEL
     # ========================================================
 
-    def on_cancel(
-        self,
-    ) -> bool:
+    def on_cancel(self) -> bool:
         """
         Cancel the current pointer interaction.
         """
+
+        self._ensure_active()
 
         had_state = (
             self._pressed_object_id is not None
@@ -349,12 +281,12 @@ class SelectTool(ToolBase):
     # RESET
     # ========================================================
 
-    def on_reset(
-        self,
-    ) -> None:
+    def on_reset(self) -> None:
         """
         Reset transient selection-tool state.
         """
+
+        self._ensure_active()
 
         self._clear_pointer_state()
 
@@ -368,23 +300,21 @@ class SelectTool(ToolBase):
         modifiers: int,
     ) -> None:
         """
-        Apply the canonical selection behavior for an object.
+        Apply canonical selection behavior for an object.
+
+        SelectionManager remains authoritative.
         """
 
         manager = self.get_selection_manager()
 
-        if self._has_toggle_modifier(
-            modifiers
-        ):
+        if self._has_toggle_modifier(modifiers):
             self._toggle(
                 manager,
                 object_id,
             )
             return
 
-        if self._has_additive_modifier(
-            modifiers
-        ):
+        if self._has_additive_modifier(modifiers):
             self._select_additive(
                 manager,
                 object_id,
@@ -392,7 +322,8 @@ class SelectTool(ToolBase):
             return
 
         self._select_single(
-            object_id
+            manager,
+            object_id,
         )
 
     # --------------------------------------------------------
@@ -407,12 +338,8 @@ class SelectTool(ToolBase):
         """
 
         if (
-            self._has_additive_modifier(
-                modifiers
-            )
-            or self._has_toggle_modifier(
-                modifiers
-            )
+            self._has_additive_modifier(modifiers)
+            or self._has_toggle_modifier(modifiers)
         ):
             return
 
@@ -435,38 +362,32 @@ class SelectTool(ToolBase):
     # SELECTION OPERATIONS
     # ========================================================
 
+    @staticmethod
     def _select_single(
-        self,
+        manager: Any,
         object_id: Any,
     ) -> Any:
         """
         Replace the current selection with one object.
+
+        Uses the locked SelectionManager.select_single() API.
         """
 
-        manager = self.get_selection_manager()
-
-        select = getattr(
+        select_single = getattr(
             manager,
-            "select",
+            "select_single",
             None,
         )
 
-        if not callable(select):
+        if not callable(select_single):
             raise TypeError(
-                "SelectionManager must provide select()."
+                "SelectionManager must provide "
+                "select_single()."
             )
 
-        # SelectionManager owns the exact additive/replacement
-        # semantics.
-        try:
-            return select(
-                object_id,
-                additive=False,
-            )
-        except TypeError:
-            return select(
-                object_id
-            )
+        return select_single(
+            object_id
+        )
 
     # --------------------------------------------------------
 
@@ -476,29 +397,27 @@ class SelectTool(ToolBase):
         object_id: Any,
     ) -> Any:
         """
-        Add an object to the authoritative selection.
+        Add one object to the authoritative selection.
+
+        Uses the locked SelectionManager.add_to_selection()
+        API.
         """
 
-        select = getattr(
+        add_to_selection = getattr(
             manager,
-            "select",
+            "add_to_selection",
             None,
         )
 
-        if not callable(select):
+        if not callable(add_to_selection):
             raise TypeError(
-                "SelectionManager must provide select()."
+                "SelectionManager must provide "
+                "add_to_selection()."
             )
 
-        try:
-            return select(
-                object_id,
-                additive=True,
-            )
-        except TypeError:
-            return select(
-                object_id
-            )
+        return add_to_selection(
+            object_id
+        )
 
     # --------------------------------------------------------
 
@@ -509,18 +428,11 @@ class SelectTool(ToolBase):
     ) -> Any:
         """
         Toggle one object through SelectionManager.
+
+        SelectionManager does not own a toggle() method, so the
+        operation is expressed through its authoritative
+        selection API.
         """
-
-        toggle = getattr(
-            manager,
-            "toggle",
-            None,
-        )
-
-        if callable(toggle):
-            return toggle(
-                object_id
-            )
 
         is_selected = getattr(
             manager,
@@ -528,270 +440,101 @@ class SelectTool(ToolBase):
             None,
         )
 
-        deselect = getattr(
+        if not callable(is_selected):
+            raise TypeError(
+                "SelectionManager must provide "
+                "is_selected()."
+            )
+
+        if is_selected(object_id):
+            return SelectTool._deselect(
+                manager,
+                object_id,
+            )
+
+        return SelectTool._select_additive(
             manager,
+            object_id,
+        )
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _deselect(
+        manager: Any,
+        object_id: Any,
+    ) -> Any:
+        """
+        Remove one object from the authoritative selection.
+
+        SelectionManager's public contract does not currently
+        expose a deselect() operation. Therefore this operation
+        is delegated through the controller boundary when
+        available.
+        """
+
+        controller = getattr(
+            manager,
+            "controller",
+            None,
+        )
+
+        if controller is None:
+            raise TypeError(
+                "SelectionManager must provide a controller "
+                "for deselection."
+            )
+
+        deselect = getattr(
+            controller,
             "deselect",
             None,
         )
 
-        select = getattr(
-            manager,
-            "select",
-            None,
-        )
-
-        if not callable(is_selected):
-            raise TypeError(
-                "SelectionManager must provide toggle() "
-                "or is_selected()."
-            )
-
-        if is_selected(
-            object_id
-        ):
-            if not callable(deselect):
-                raise TypeError(
-                    "SelectionManager must provide "
-                    "deselect() for toggle fallback."
-                )
-
+        if callable(deselect):
             return deselect(
                 object_id
             )
 
-        if not callable(select):
-            raise TypeError(
-                "SelectionManager must provide "
-                "select() for toggle fallback."
-            )
+        remove_from_selection = getattr(
+            controller,
+            "remove_from_selection",
+            None,
+        )
 
-        try:
-            return select(
-                object_id,
-                additive=True,
-            )
-        except TypeError:
-            return select(
+        if callable(remove_from_selection):
+            return remove_from_selection(
                 object_id
             )
 
-    # ========================================================
-    # EVENT EXTRACTION
-    # ========================================================
-
-    @staticmethod
-    def _extract_object_id(
-        event: Any,
-    ) -> Any:
-        """
-        Extract the authoritative object identifier from an
-        interaction event.
-
-        The event protocol is intentionally permissive because
-        GraphicsView/InteractionManager may provide different
-        event wrappers.
-
-        No object is synthesized when none is available.
-        """
-
-        if event is None:
-            return None
-
-        # Preferred explicit identifier.
-        value = getattr(
-            event,
-            "object_id",
+        clear_selection = getattr(
+            controller,
+            "clear_selection",
             None,
         )
 
-        if callable(value):
-            value = value()
-
-        if value is not None:
-            return value
-
-        # Common aliases used by graphics interaction wrappers.
-        for attribute in (
-            "entity_id",
-            "model_id",
-            "item_id",
-        ):
-            value = getattr(
-                event,
-                attribute,
-                None,
-            )
-
-            if callable(value):
-                value = value()
-
-            if value is not None:
-                return value
-
-        # Object wrapper.
-        for attribute in (
-            "object",
-            "item",
-            "target",
-        ):
-            value = getattr(
-                event,
-                attribute,
-                None,
-            )
-
-            if callable(value):
-                try:
-                    value = value()
-                except TypeError:
-                    continue
-
-            if value is None:
-                continue
-
-            object_id = getattr(
-                value,
-                "object_id",
-                None,
-            )
-
-            if callable(object_id):
-                object_id = object_id()
-
-            if object_id is not None:
-                return object_id
-
-            entity_id = getattr(
-                value,
-                "entity_id",
-                None,
-            )
-
-            if callable(entity_id):
-                entity_id = entity_id()
-
-            if entity_id is not None:
-                return entity_id
-
-            model_id = getattr(
-                value,
-                "model_id",
-                None,
-            )
-
-            if callable(model_id):
-                model_id = model_id()
-
-            if model_id is not None:
-                return model_id
-
-        return None
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _extract_position(
-        event: Any,
-    ) -> Any:
-        """
-        Extract a pointer position from an event.
-
-        No coordinate conversion is performed.
-        """
-
-        if event is None:
-            return None
-
-        position = getattr(
-            event,
-            "position",
-            None,
+        selected_ids = getattr(
+            controller,
+            "selected_ids",
+            (),
         )
 
-        if callable(position):
-            try:
-                return position()
-            except TypeError:
-                return None
+        if callable(clear_selection):
+            remaining = tuple(
+                selected_id
+                for selected_id in selected_ids
+                if selected_id != object_id
+            )
 
-        if position is not None:
-            return position
+            if not remaining:
+                return clear_selection()
 
-        return None
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _extract_modifiers(
-        event: Any,
-    ) -> int:
-        """
-        Extract keyboard modifiers from an interaction event.
-        """
-
-        if event is None:
-            return 0
-
-        modifiers = getattr(
-            event,
-            "modifiers",
-            None,
+        raise TypeError(
+            "Controller must provide a deselection operation."
         )
-
-        if callable(modifiers):
-            try:
-                modifiers = modifiers()
-            except TypeError:
-                return 0
-
-        if modifiers is None:
-            return 0
-
-        if isinstance(
-            modifiers,
-            int,
-        ):
-            return modifiers
-
-        # Test doubles may expose symbolic modifier names.
-        if isinstance(
-            modifiers,
-            str,
-        ):
-            value = 0
-            tokens = {
-                token.strip().lower()
-                for token in modifiers.split(
-                    "|"
-                )
-            }
-
-            if (
-                "shift" in tokens
-                or "shiftmodifier" in tokens
-            ):
-                value |= SelectTool._SHIFT_MODIFIER
-
-            if (
-                "ctrl" in tokens
-                or "control" in tokens
-                or "ctrlmodifier" in tokens
-            ):
-                value |= SelectTool._CTRL_MODIFIER
-
-            if (
-                "meta" in tokens
-                or "command" in tokens
-                or "metamodifier" in tokens
-            ):
-                value |= SelectTool._META_MODIFIER
-
-            return value
-
-        return 0
 
     # ========================================================
-    # MODIFIER SEMANTICS
+    # MODIFIERS
     # ========================================================
 
     @classmethod
@@ -800,14 +543,19 @@ class SelectTool(ToolBase):
         modifiers: int,
     ) -> bool:
         """
-        Return True when the event requests additive selection.
+        Return whether additive selection is requested.
 
-        Shift is the canonical additive modifier.
+        Shift is the canonical additive modifier. Meta is also
+        accepted for platform-independent command-style
+        selection.
         """
 
         return bool(
             modifiers
-            & cls._SHIFT_MODIFIER
+            & (
+                cls.SHIFT_MODIFIER
+                | cls.META_MODIFIER
+            )
         )
 
     # --------------------------------------------------------
@@ -818,71 +566,116 @@ class SelectTool(ToolBase):
         modifiers: int,
     ) -> bool:
         """
-        Return True when the event requests toggle selection.
+        Return whether toggle selection is requested.
 
-        Ctrl is the canonical toggle modifier on Windows/Linux.
-        Meta is also accepted for platform-neutral behavior.
+        Ctrl is the canonical toggle modifier. On platforms
+        using Meta as the command modifier, Meta is also accepted.
         """
 
         return bool(
             modifiers
             & (
-                cls._CTRL_MODIFIER
-                | cls._META_MODIFIER
+                cls.CTRL_MODIFIER
+                | cls.META_MODIFIER
             )
         )
 
     # ========================================================
-    # POINTER STATE
+    # EVENT HELPERS
     # ========================================================
 
-    def _clear_pointer_state(
-        self,
-    ) -> None:
+    @staticmethod
+    def _event_object_id(
+        event: Any,
+    ) -> Any:
         """
-        Clear transient pointer state.
+        Extract an object identifier from an opaque event.
+
+        Supported event representations:
+            event.object_id
+            event["object_id"]
         """
+
+        if event is None:
+            return None
+
+        object_id = getattr(
+            event,
+            "object_id",
+            None,
+        )
+
+        if object_id is not None:
+            return object_id
+
+        if isinstance(event, dict):
+            return event.get(
+                "object_id"
+            )
+
+        return None
+
+    # --------------------------------------------------------
+
+    @staticmethod
+    def _event_modifiers(
+        event: Any,
+    ) -> int:
+        """
+        Extract modifier flags from an opaque event.
+        """
+
+        if event is None:
+            return 0
+
+        modifiers = getattr(
+            event,
+            "modifiers",
+            0,
+        )
+
+        if callable(modifiers):
+            modifiers = modifiers()
+
+        if modifiers is None:
+            return 0
+
+        if isinstance(event, dict):
+            modifiers = event.get(
+                "modifiers",
+                modifiers,
+            )
+
+        try:
+            return int(
+                modifiers
+            )
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                "event modifiers must be integer-compatible."
+            ) from exc
+
+    # ========================================================
+    # TRANSIENT STATE
+    # ========================================================
+
+    def _clear_pointer_state(self) -> None:
+        """Clear all transient pointer state."""
 
         self._pressed_object_id = None
         self._pressed_position = None
         self._dragging = False
 
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _positions_differ(
-        first: Any,
-        second: Any,
-    ) -> bool:
-        """
-        Determine whether two pointer positions differ.
-
-        The method supports common point-like objects while
-        avoiding assumptions about a concrete Qt class.
-        """
-
-        if first is second:
-            return False
-
-        if first is None or second is None:
-            return first is not second
-
-        try:
-            return bool(
-                first != second
-            )
-        except Exception:
-            return True
-
     # ========================================================
     # DIAGNOSTICS
     # ========================================================
 
-    def get_state(
-        self,
-    ) -> dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """
-        Return SelectTool diagnostic state.
+        Return a diagnostic snapshot.
         """
 
         state = super().get_state()
@@ -901,6 +694,10 @@ class SelectTool(ToolBase):
 
         return state
 
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 __all__ = [
     "SelectTool",
