@@ -1,429 +1,474 @@
 # ============================================================
-
-# File: ui/main_window.py
-
-# GridForge V2 — Main Window
-
+# GridForge V2
+# ============================================================
+#
+# File:
+#     ui/main_window.py
+#
+# Purpose:
+#     Main Qt application host.
+#
+# Architectural boundary
+# ----------------------
+#
+# MainWindow owns:
+#     - Qt window construction;
+#     - central application surface;
+#     - dock-host mechanics;
+#     - plugin registry reference;
+#     - UI Controller reference.
+#
+# MainWindow does NOT own:
+#     - WorkspaceDefinition;
+#     - WorkspaceLayout;
+#     - WorkspaceState;
+#     - WorkspaceManager;
+#     - WorkspaceController;
+#     - WorkspaceRealizer;
+#     - Workspace activation;
+#     - Workspace construction.
+#
+# Workspace orchestration belongs to the application
+# composition root.
+#
 # ============================================================
 
 """
-GridForge V2
-============
+GridForge V2 — Main Window.
 
-Main application window and Qt workspace host.
+MainWindow is deliberately a mechanical Qt host.
 
-MainWindow is the top-level Qt host for the GridForge UI.
-
-It owns:
-- the main Qt window;
-- the central SLD/editor host;
-- Qt docking infrastructure;
-- the explicitly supplied UI Controller;
-- the plugin-context attachment point;
-- mechanical Qt operations required by WorkspaceRealizer.
-
-It does NOT own:
-- electrical/model state;
-- WorkspaceDefinition;
-- WorkspaceLayout;
-- WorkspaceState;
-- workspace policy;
-- panel placement policy;
-- panel registration;
-- panel creation;
-- workspace activation;
-- WorkspaceRealizer orchestration.
-
-Workspace policy belongs to the Workspace subsystem.
-
-WorkspaceRealizer translates logical WorkspaceLayout decisions
-into the host methods provided here.
-
-PanelsPlugin remains responsible for panel composition and dock
-creation, not workspace arrangement.
+The application composition root owns Workspace orchestration.
+WorkspaceRealizer translates logical WorkspaceLayout objects
+into the host operations exposed by this class.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
-from typing import Optional
+from typing import Any
+
+from ui.core.qt import (
+    QDockWidget,
+    QMainWindow,
+    Qt,
+    QWidget,
+)
 
 from ui.core.controller import Controller
 from ui.core.plugin_registry import PluginRegistry
-from ui.core.qt import (
-QDockWidget,
-QMainWindow,
-Qt,
-QWidget,
-)
-from ui.plugins.plugin_context import PluginContext
 
-# ============================================================
-
-# MainWindow
-
-# ============================================================
 
 class MainWindow(QMainWindow):
-"""
-Top-level GridForge Qt application window.
-
-```
-MainWindow is a Qt realization host.
-
-It performs Qt operations requested by higher-level
-orchestration but does not own workspace policy.
-"""
-
-def __init__(
-    self,
-    *,
-    controller: Optional[Controller] = None,
-    plugin_registry: Optional[PluginRegistry] = None,
-    parent: Optional[QWidget] = None,
-) -> None:
     """
-    Construct the main application window.
+    Main GridForge application window.
 
-    Dependencies are explicitly supplied.
-    MainWindow does not construct application services.
+    This class provides the host surface required by the UI
+    subsystem and WorkspaceRealizer.
+
+    It never constructs or activates a Workspace.
     """
 
-    super().__init__(parent)
+    WINDOW_TITLE = "GridForge V2"
+    WINDOW_MINIMUM_WIDTH = 1200
+    WINDOW_MINIMUM_HEIGHT = 800
 
-    self._controller = controller
-    self._plugin_registry = plugin_registry
+    def __init__(
+        self,
+        controller: Controller | None = None,
+        plugin_registry: PluginRegistry | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
 
-    self._plugin_context: Optional[PluginContext] = None
+        self._controller = controller
+        self._plugin_registry = plugin_registry
 
-    self._central_widget: Optional[QWidget] = None
+        self._central_widget: QWidget | None = None
 
-    self._configure_window()
-    self._create_central_host()
+        self._initialize_window()
+        self._initialize_central_surface()
 
-# ========================================================
-# Window Configuration
-# ========================================================
+    # ========================================================
+    # PUBLIC PROPERTIES
+    # ========================================================
 
-def _configure_window(self) -> None:
-    """
-    Configure intrinsic MainWindow properties only.
+    @property
+    def controller(self) -> Controller | None:
+        """
+        Return the application UI controller.
 
-    Workspace arrangement is intentionally absent.
-    """
+        MainWindow does not create or own the controller.
+        """
 
-    self.setWindowTitle(
-        "GridForge V2"
-    )
+        return self._controller
 
-    self.resize(
-        1600,
-        1000,
-    )
+    @property
+    def plugin_registry(self) -> PluginRegistry | None:
+        """
+        Return the application plugin registry.
 
-    self.setDockNestingEnabled(
-        True
-    )
+        MainWindow does not construct or manage Workspace
+        services through the registry.
+        """
 
-# ========================================================
-# Central Workspace / SLD Host
-# ========================================================
+        return self._plugin_registry
 
-def _create_central_host(self) -> None:
-    """
-    Create the central editor/SLD host.
+    @property
+    def central_surface(self) -> QWidget | None:
+        """
+        Return the central application surface.
 
-    The central widget is a host only. SLD/editor composition
-    belongs to the appropriate UI subsystem.
-    """
+        For the current SLD-first workflow this is the central
+        canvas/presentation surface.
+        """
 
-    self._central_widget = QWidget(
-        self
-    )
+        return self._central_widget
 
-    self._central_widget.setObjectName(
-        "GridForgeCentralWorkspace"
-    )
+    # ========================================================
+    # WINDOW INITIALIZATION
+    # ========================================================
 
-    self.setCentralWidget(
-        self._central_widget
-    )
+    def _initialize_window(self) -> None:
+        """Initialize basic Qt window properties."""
 
-# ========================================================
-# Properties
-# ========================================================
-
-@property
-def controller(
-    self,
-) -> Optional[Controller]:
-    """Return the explicitly supplied UI Controller."""
-
-    return self._controller
-
-@property
-def plugin_registry(
-    self,
-) -> Optional[PluginRegistry]:
-    """Return the explicitly supplied PluginRegistry."""
-
-    return self._plugin_registry
-
-@property
-def plugin_context(
-    self,
-) -> Optional[PluginContext]:
-    """Return the current PluginContext."""
-
-    return self._plugin_context
-
-@property
-def central_workspace(
-    self,
-) -> Optional[QWidget]:
-    """Return the central SLD/editor host widget."""
-
-    return self._central_widget
-
-# ========================================================
-# Plugin Context
-# ========================================================
-
-def set_plugin_context(
-    self,
-    context: PluginContext,
-) -> None:
-    """
-    Attach an existing PluginContext.
-
-    MainWindow does not create the context.
-    """
-
-    if context is None:
-        raise ValueError(
-            "context must not be None."
+        self.setWindowTitle(
+            self.WINDOW_TITLE
         )
 
-    if not isinstance(
-        context,
-        PluginContext,
-    ):
-        raise TypeError(
-            "context must be PluginContext."
+        self.setMinimumSize(
+            self.WINDOW_MINIMUM_WIDTH,
+            self.WINDOW_MINIMUM_HEIGHT,
         )
 
-    self._plugin_context = context
+    def _initialize_central_surface(self) -> None:
+        """
+        Initialize the central application surface.
 
-# ========================================================
-# Qt Workspace / Dock Host API
-# ========================================================
+        The concrete SLD/canvas widget may be supplied later by
+        the application composition/plugin layer.
 
-def add_dock_widget(
-    self,
-    area: Qt.DockWidgetArea,
-    dock_widget: QDockWidget,
-) -> None:
-    """
-    Add an existing dock widget to the MainWindow.
+        No Workspace definition is constructed here.
+        """
 
-    Workspace/Layout decides the logical area.
-    MainWindow performs the Qt operation.
-    """
+        central = QWidget(self)
 
-    if not isinstance(
-        area,
-        Qt.DockWidgetArea,
-    ):
-        raise TypeError(
-            "area must be Qt.DockWidgetArea."
+        central.setObjectName(
+            "GridForgeCentralSurface"
         )
 
-    if not isinstance(
-        dock_widget,
-        QDockWidget,
-    ):
-        raise TypeError(
-            "dock_widget must be QDockWidget."
+        self._central_widget = central
+
+        self.setCentralWidget(
+            central
         )
 
-    self.addDockWidget(
-        area,
-        dock_widget,
-    )
+    # ========================================================
+    # CENTRAL SURFACE
+    # ========================================================
 
-# --------------------------------------------------------
+    def set_central_surface(
+        self,
+        widget: QWidget,
+    ) -> None:
+        """
+        Replace the central application surface.
 
-def remove_dock_widget(
-    self,
-    dock_widget: QDockWidget,
-) -> None:
-    """
-    Remove an existing dock widget from MainWindow.
+        This is a host operation only.
+        """
 
-    Removing a dock does not destroy the dock widget.
-    """
+        if not isinstance(
+            widget,
+            QWidget,
+        ):
+            raise TypeError(
+                "widget must be QWidget."
+            )
 
-    if not isinstance(
-        dock_widget,
-        QDockWidget,
-    ):
-        raise TypeError(
-            "dock_widget must be QDockWidget."
+        if widget is self._central_widget:
+            return
+
+        old_widget = self._central_widget
+
+        self._central_widget = widget
+
+        self.setCentralWidget(
+            widget
         )
 
-    self.removeDockWidget(
-        dock_widget
-    )
+        if old_widget is not None:
+            old_widget.deleteLater()
 
-# --------------------------------------------------------
+    # ========================================================
+    # DOCK HOST API
+    # ========================================================
+    #
+    # These methods are intentionally mechanical.
+    #
+    # WorkspaceRealizer is responsible for deciding WHEN and
+    # WHY these operations happen.
+    #
+    # ========================================================
 
-def tabify_dock_widgets(
-    self,
-    first: QDockWidget,
-    second: QDockWidget,
-) -> None:
-    """
-    Tabify two existing dock widgets.
+    def add_dock_widget(
+        self,
+        area: Qt.DockWidgetArea,
+        dock_widget: QDockWidget,
+    ) -> None:
+        """
+        Add a dock widget to the requested Qt dock area.
 
-    Workspace/Layout decides grouping.
-    MainWindow performs the Qt operation.
-    """
+        WorkspaceRealizer supplies the area.
+        """
 
-    if not isinstance(
-        first,
-        QDockWidget,
-    ):
-        raise TypeError(
-            "first must be QDockWidget."
+        self._validate_dock(
+            dock_widget
         )
 
-    if not isinstance(
-        second,
-        QDockWidget,
-    ):
-        raise TypeError(
-            "second must be QDockWidget."
+        if not isinstance(
+            area,
+            Qt.DockWidgetArea,
+        ):
+            raise TypeError(
+                "area must be Qt.DockWidgetArea."
+            )
+
+        self.addDockWidget(
+            area,
+            dock_widget,
         )
 
-    if first is second:
-        raise ValueError(
-            "first and second dock widgets must be different."
+    def remove_dock_widget(
+        self,
+        dock_widget: QDockWidget,
+    ) -> None:
+        """
+        Remove a dock widget from the main window.
+
+        This does not delete the dock object.
+        """
+
+        self._validate_dock(
+            dock_widget
         )
 
-    self.tabifyDockWidget(
-        first,
-        second,
-    )
-
-# --------------------------------------------------------
-
-def set_dock_visible(
-    self,
-    dock_widget: QDockWidget,
-    visible: bool,
-) -> None:
-    """
-    Set dock visibility.
-
-    Visibility policy belongs to WorkspaceLayout.
-    """
-
-    if not isinstance(
-        dock_widget,
-        QDockWidget,
-    ):
-        raise TypeError(
-            "dock_widget must be QDockWidget."
+        self.removeDockWidget(
+            dock_widget
         )
 
-    if not isinstance(
-        visible,
-        bool,
-    ):
-        raise TypeError(
-            "visible must be bool."
+    def tabify_dock_widgets(
+        self,
+        first: QDockWidget,
+        second: QDockWidget,
+    ) -> None:
+        """
+        Tabify two existing dock widgets.
+
+        WorkspaceRealizer determines the logical tab group.
+        """
+
+        self._validate_dock(
+            first
         )
 
-    dock_widget.setVisible(
-        visible
-    )
-
-# --------------------------------------------------------
-
-def set_dock_floating(
-    self,
-    dock_widget: QDockWidget,
-    floating: bool,
-) -> None:
-    """
-    Set dock floating state.
-
-    Floating policy belongs to WorkspaceLayout.
-    """
-
-    if not isinstance(
-        dock_widget,
-        QDockWidget,
-    ):
-        raise TypeError(
-            "dock_widget must be QDockWidget."
+        self._validate_dock(
+            second
         )
 
-    if not isinstance(
-        floating,
-        bool,
-    ):
-        raise TypeError(
-            "floating must be bool."
+        if first is second:
+            raise ValueError(
+                "Cannot tabify a dock widget with itself."
+            )
+
+        self.tabifyDockWidget(
+            first,
+            second,
         )
 
-    dock_widget.setFloating(
-        floating
-    )
+    def set_dock_visible(
+        self,
+        dock_widget: QDockWidget,
+        visible: bool,
+    ) -> None:
+        """
+        Set dock visibility.
 
-# ========================================================
-# Controller Integration
-# ========================================================
+        Visibility policy originates from WorkspaceRealizer.
+        """
 
-def dispatch_command(
-    self,
-    command,
-):
-    """
-    Dispatch a command through the existing Controller.
-    """
-
-    if self._controller is None:
-        raise RuntimeError(
-            "No Controller is attached to MainWindow."
+        self._validate_dock(
+            dock_widget
         )
 
-    return self._controller.dispatch(
-        command
-    )
+        if not isinstance(
+            visible,
+            bool,
+        ):
+            raise TypeError(
+                "visible must be bool."
+            )
 
-# ========================================================
-# Lifecycle
-# ========================================================
+        dock_widget.setVisible(
+            visible
+        )
 
-def closeEvent(
-    self,
-    event,
-) -> None:
-    """
-    Handle MainWindow shutdown.
+    def set_dock_floating(
+        self,
+        dock_widget: QDockWidget,
+        floating: bool,
+    ) -> None:
+        """
+        Set dock floating state.
 
-    Application/service lifecycle remains outside MainWindow.
-    """
+        Floating policy originates from WorkspaceRealizer.
+        """
 
-    event.accept()
-```
+        self._validate_dock(
+            dock_widget
+        )
 
-# ============================================================
+        if not isinstance(
+            floating,
+            bool,
+        ):
+            raise TypeError(
+                "floating must be bool."
+            )
 
-# Public API
+        dock_widget.setFloating(
+            floating
+        )
 
-# ============================================================
+    # ========================================================
+    # OPTIONAL LOW-LEVEL HOST HELPERS
+    # ========================================================
 
-**all** = [
-"MainWindow",
+    def dock_area(
+        self,
+        dock_widget: QDockWidget,
+    ) -> Qt.DockWidgetArea:
+        """
+        Return the current Qt dock area.
+
+        This is observational host state only.
+        """
+
+        self._validate_dock(
+            dock_widget
+        )
+
+        return self.dockWidgetArea(
+            dock_widget
+        )
+
+    def is_dock_floating(
+        self,
+        dock_widget: QDockWidget,
+    ) -> bool:
+        """
+        Return whether a dock is currently floating.
+        """
+
+        self._validate_dock(
+            dock_widget
+        )
+
+        return dock_widget.isFloating()
+
+    def is_dock_visible(
+        self,
+        dock_widget: QDockWidget,
+    ) -> bool:
+        """
+        Return whether a dock is currently visible.
+        """
+
+        self._validate_dock(
+            dock_widget
+        )
+
+        return dock_widget.isVisible()
+
+    # ========================================================
+    # GENERIC HOST ACCESS
+    # ========================================================
+
+    def find_dock(
+        self,
+        object_name: str,
+    ) -> QDockWidget | None:
+        """
+        Find a dock by Qt object name.
+
+        This is a host lookup only and has no Workspace meaning.
+        """
+
+        if not isinstance(
+            object_name,
+            str,
+        ):
+            raise TypeError(
+                "object_name must be a string."
+            )
+
+        if not object_name.strip():
+            raise ValueError(
+                "object_name must not be empty."
+            )
+
+        widget = self.findChild(
+            QDockWidget,
+            object_name,
+        )
+
+        return widget
+
+    # ========================================================
+    # STATE / DEBUG
+    # ========================================================
+
+    def get_state(self) -> dict[str, Any]:
+        """
+        Return a lightweight host/UI state snapshot.
+
+        Workspace logical state is deliberately excluded.
+        """
+
+        return {
+            "window_title": self.windowTitle(),
+            "visible": self.isVisible(),
+            "enabled": self.isEnabled(),
+            "central_surface": (
+                self._central_widget.objectName()
+                if self._central_widget is not None
+                else None
+            ),
+            "has_controller": (
+                self._controller is not None
+            ),
+            "has_plugin_registry": (
+                self._plugin_registry is not None
+            ),
+        }
+
+    # ========================================================
+    # INTERNAL VALIDATION
+    # ========================================================
+
+    @staticmethod
+    def _validate_dock(
+        dock_widget: QDockWidget,
+    ) -> None:
+        """Validate a QDockWidget argument."""
+
+        if not isinstance(
+            dock_widget,
+            QDockWidget,
+        ):
+            raise TypeError(
+                "dock_widget must be QDockWidget."
+            )
+
+
+__all__ = [
+    "MainWindow",
 ]
