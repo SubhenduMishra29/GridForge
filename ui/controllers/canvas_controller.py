@@ -8,47 +8,52 @@ Canvas Controller for GridForge V2.
 Architecture
 ------------
 
-                    MainWindow / Plugin
-                           │
-                           ▼
-                   CanvasController
-                           │
-             ┌─────────────┼─────────────┐
-             ▼             ▼             ▼
-       GraphicsView   SelectionManager  Renderers
+                    MainWindow / Application
+                             │
+                             ▼
+                     CanvasController
+                             │
+             ┌───────────────┼────────────────┐
+             ▼               ▼                ▼
+       GraphicsView   SelectionManager   RenderSystem
              │
              ├── InteractionManager
              └── NavigationController
 
 Purpose
 -------
-CanvasController is the UI orchestration boundary for the
-canvas.
+CanvasController is the orchestration boundary for the
+GridForge SLD canvas.
 
-It coordinates already-existing canvas services. It does not
-become a second application controller and does not implement
-canvas subsystems itself.
+It coordinates existing canvas services. It does not implement
+rendering, interaction, navigation, selection, snapping, tools,
+or electrical-network logic.
 
 Responsibilities
 ----------------
 CanvasController:
 
-    - attach and expose the GraphicsView;
-    - coordinate canvas lifecycle;
-    - coordinate scene synchronization;
-    - provide stable access to canvas services;
-    - request rendering of authoritative objects;
-    - request graphical removal of objects;
+    - own the composition relationship between canvas services;
+    - expose the GraphicsView;
+    - expose the canvas scene;
+    - expose InteractionManager;
+    - expose NavigationController;
+    - expose SelectionManager;
+    - expose RenderSystem;
+    - request rendering through RenderSystem;
+    - request graphical removal through RenderSystem;
     - synchronize graphical selection;
-    - expose navigation operations;
+    - delegate navigation operations;
     - reset transient canvas state;
-    - provide canvas diagnostics.
+    - provide canvas diagnostics;
+    - manage canvas-service lifecycle.
 
 CanvasController does NOT:
 
     - own Core model state;
     - mutate Core model objects directly;
     - implement tools;
+    - own tool lifecycle;
     - implement snapping;
     - implement selection ownership;
     - implement navigation algorithms;
@@ -56,7 +61,7 @@ CanvasController does NOT:
     - calculate electrical quantities;
     - validate electrical topology;
     - create Core objects;
-    - maintain a second scene/model state.
+    - maintain a second model state.
 
 Authority
 ---------
@@ -69,25 +74,23 @@ The canvas is a graphical projection:
              ▼
        CanvasController
              │
-       ┌─────┴─────┐
-       ▼           ▼
-   Renderers   SelectionManager
-       │           │
-       ▼           ▼
-    QGraphicsItems
+       ┌─────┴────────────┐
+       ▼                  ▼
+   RenderSystem     SelectionManager
+       │                  │
+       ▼                  ▼
+ QGraphicsItems      Graphical State
 
-Tool interaction remains owned by InteractionManager and the
-active Tool.
+Interaction remains owned by InteractionManager.
 
 Navigation remains owned by NavigationController.
 
-Selection ownership remains with the application's
-Controller.selected_ids and is accessed through
-SelectionManager.
+Tool ownership remains outside CanvasController and is
+provided to GraphicsView during composition.
 
 Qt Architecture
----------------
-All Qt classes must be imported through:
+----------------
+All Qt classes are imported through:
 
     ui.core.qt
 
@@ -99,31 +102,47 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional
 
 from ui.canvas.graphics_view import GraphicsView
+from ui.canvas.render_system import RenderSystem
 from ui.core.selection_manager import SelectionManager
 
 
 class CanvasController:
     """
-    UI orchestration controller for the GridForge canvas.
-
-    The class deliberately remains thin. It coordinates existing
-    UI services instead of reproducing their responsibilities.
+    Thin orchestration controller for the GridForge canvas.
 
     Parameters
     ----------
     controller:
-        Authoritative GridForge application/Core controller.
+        Authoritative application/UI controller.
+
+    tool_manager:
+        Application-owned ToolManager.
+
+        GraphicsView requires this dependency for interaction
+        forwarding. CanvasController does not create or own it.
 
     selection_manager:
-        Optional SelectionManager.
-
-        When omitted, a SelectionManager is created for the
-        canvas scene after GraphicsView initialization.
+        Optional application/canvas SelectionManager.
 
     graphics_view:
         Optional pre-created GraphicsView.
 
-        When omitted, CanvasController creates one.
+        When omitted, CanvasController creates one using the
+        supplied controller and tool_manager.
+
+    render_system:
+        Optional pre-created RenderSystem.
+
+        When omitted, CanvasController creates one for the
+        GraphicsView scene.
+
+    renderer_registry:
+        RendererRegistry required when CanvasController creates
+        a RenderSystem.
+
+    grid_system:
+        Optional GridSystem passed to a newly-created
+        RenderSystem.
 
     parent:
         Optional Qt parent for a newly-created GraphicsView.
@@ -136,12 +155,18 @@ class CanvasController:
     def __init__(
         self,
         controller: Any,
+        tool_manager: Any,
         selection_manager: Optional[
             SelectionManager
         ] = None,
         graphics_view: Optional[
             GraphicsView
         ] = None,
+        render_system: Optional[
+            RenderSystem
+        ] = None,
+        renderer_registry: Any = None,
+        grid_system: Any = None,
         parent: Optional[Any] = None,
     ) -> None:
 
@@ -150,7 +175,13 @@ class CanvasController:
                 "controller must not be None."
             )
 
+        if tool_manager is None:
+            raise ValueError(
+                "tool_manager must not be None."
+            )
+
         self.controller = controller
+        self.tool_manager = tool_manager
 
         # ----------------------------------------------------
         # Graphics view
@@ -158,7 +189,8 @@ class CanvasController:
 
         if graphics_view is None:
             graphics_view = GraphicsView(
-                controller,
+                controller=controller,
+                tool_manager=tool_manager,
                 parent=parent,
             )
 
@@ -173,13 +205,24 @@ class CanvasController:
         self.graphics_view = graphics_view
 
         # ----------------------------------------------------
+        # Scene
+        # ----------------------------------------------------
+
+        self.scene = graphics_view.scene()
+
+        if self.scene is None:
+            raise RuntimeError(
+                "GraphicsView must provide a QGraphicsScene."
+            )
+
+        # ----------------------------------------------------
         # Selection
         # ----------------------------------------------------
 
         if selection_manager is None:
             selection_manager = SelectionManager(
                 controller,
-                scene=graphics_view.get_scene(),
+                scene=self.scene,
             )
 
         if not isinstance(
@@ -193,19 +236,49 @@ class CanvasController:
 
         self.selection_manager = selection_manager
 
-        # ----------------------------------------------------
-        # Ensure selection manager observes the canvas scene.
-        #
-        # This does not alter authoritative selection state.
-        # ----------------------------------------------------
-
         self.selection_manager.set_scene(
-            self.graphics_view.get_scene()
+            self.scene
         )
 
         # ----------------------------------------------------
-        # Lifecycle state
+        # Rendering
         # ----------------------------------------------------
+
+        if render_system is None:
+            if renderer_registry is None:
+                renderer_registry = (
+                    self._get_renderer_registry_from_controller()
+                )
+
+            if renderer_registry is None:
+                raise ValueError(
+                    "renderer_registry must be provided when "
+                    "render_system is not supplied."
+                )
+
+            render_system = RenderSystem(
+                scene=self.scene,
+                controller=controller,
+                renderer_registry=renderer_registry,
+                grid_system=grid_system,
+                selection_manager=selection_manager,
+            )
+
+        if not isinstance(
+            render_system,
+            RenderSystem,
+        ):
+            raise TypeError(
+                "render_system must be a RenderSystem."
+            )
+
+        self.render_system = render_system
+
+        # Ensure the RenderSystem observes the same
+        # SelectionManager used by CanvasController.
+        self.render_system.set_selection_manager(
+            self.selection_manager
+        )
 
         self._disposed = False
 
@@ -223,8 +296,6 @@ class CanvasController:
         self._ensure_active()
 
         return self.graphics_view
-
-    # --------------------------------------------------------
 
     @property
     def view(
@@ -244,12 +315,12 @@ class CanvasController:
         self,
     ) -> Any:
         """
-        Return the canvas QGraphicsScene.
+        Return the GraphicsView-owned QGraphicsScene.
         """
 
         self._ensure_active()
 
-        return self.graphics_view.get_scene()
+        return self.scene
 
     # ========================================================
     # INTERACTION ACCESS
@@ -259,17 +330,15 @@ class CanvasController:
         self,
     ) -> Any:
         """
-        Return the canvas InteractionManager.
+        Return the InteractionManager owned by GraphicsView.
 
-        Tool lifecycle remains owned by InteractionManager.
+        InteractionManager remains responsible for interaction
+        and tool dispatch.
         """
 
         self._ensure_active()
 
-        return (
-            self.graphics_view
-            .get_interaction_manager()
-        )
+        return self.graphics_view.interaction_manager
 
     # ========================================================
     # NAVIGATION ACCESS
@@ -279,15 +348,12 @@ class CanvasController:
         self,
     ) -> Any:
         """
-        Return the canvas NavigationController.
+        Return the NavigationController owned by GraphicsView.
         """
 
         self._ensure_active()
 
-        return (
-            self.graphics_view
-            .get_navigation_controller()
-        )
+        return self.graphics_view.navigation_controller
 
     # ========================================================
     # SELECTION ACCESS
@@ -305,20 +371,40 @@ class CanvasController:
         return self.selection_manager
 
     # ========================================================
+    # RENDER SYSTEM ACCESS
+    # ========================================================
+
+    def get_render_system(
+        self,
+    ) -> RenderSystem:
+        """
+        Return the canvas RenderSystem.
+        """
+
+        self._ensure_active()
+
+        return self.render_system
+
+    # ========================================================
     # RENDERING
     # ========================================================
 
     def render(
         self,
         model: Any,
-    ) -> Any:
+    ) -> tuple[Any, ...]:
         """
-        Render one authoritative application/Core object.
+        Render one authoritative model element.
 
-        Renderer resolution is delegated to RendererRegistry.
+        Rendering is delegated entirely to RenderSystem.
 
-        The CanvasController does not contain a concrete
-        model-type-to-renderer mapping.
+        RenderSystem owns:
+
+            model → renderer resolution
+            renderer → graphics-item creation
+            scene projection bookkeeping
+
+        CanvasController performs no renderer lookup itself.
         """
 
         self._ensure_active()
@@ -328,16 +414,8 @@ class CanvasController:
                 "model must not be None."
             )
 
-        registry = self._get_renderer_registry()
-
-        renderer = self._resolve_renderer(
-            registry,
-            model,
-        )
-
-        return self._render_with_renderer(
-            renderer,
-            model,
+        return self.render_system.render_object(
+            model
         )
 
     # --------------------------------------------------------
@@ -345,14 +423,11 @@ class CanvasController:
     def render_all(
         self,
         models: Iterable[Any],
-    ) -> tuple[Any, ...]:
+    ) -> tuple[tuple[Any, ...], ...]:
         """
-        Render a collection of authoritative objects.
+        Render multiple authoritative model elements.
 
-        Each object is resolved through RendererRegistry.
-
-        Existing graphical projections are updated by the
-        responsible renderer.
+        Each element is delegated independently to RenderSystem.
         """
 
         self._ensure_active()
@@ -371,56 +446,58 @@ class CanvasController:
                 )
             )
 
+        self.render_system.sync_selection()
+
         return tuple(
             result
         )
 
     # --------------------------------------------------------
 
-    def remove(
+    def refresh(
         self,
-        object_id: Any,
-    ) -> bool:
+        models: Optional[
+            Iterable[Any]
+        ] = None,
+    ) -> None:
         """
-        Remove the graphical projection of object_id.
+        Rebuild the complete canvas projection.
 
-        The underlying Core/application object is not removed.
-
-        Renderer resolution is delegated to RendererRegistry.
+        When models is omitted, RenderSystem obtains the
+        authoritative objects from the application controller.
         """
 
         self._ensure_active()
 
-        if object_id is None:
+        self.render_system.refresh(
+            models
+        )
+
+    # --------------------------------------------------------
+
+    def remove(
+        self,
+        model: Any,
+    ) -> bool:
+        """
+        Remove the graphical projection of one authoritative
+        model element.
+
+        The underlying Core/application object is never removed.
+
+        RenderSystem owns projection bookkeeping and graphical
+        removal.
+        """
+
+        self._ensure_active()
+
+        if model is None:
             raise ValueError(
-                "object_id must not be None."
+                "model must not be None."
             )
 
-        registry = self._get_renderer_registry()
-
-        renderer = self._resolve_renderer_for_id(
-            registry,
-            object_id,
-        )
-
-        if renderer is None:
-            return False
-
-        remove = getattr(
-            renderer,
-            "remove",
-            None,
-        )
-
-        if not callable(remove):
-            raise TypeError(
-                "renderer must provide remove()."
-            )
-
-        return bool(
-            remove(
-                object_id
-            )
+        return self.render_system.remove_object(
+            model
         )
 
     # ========================================================
@@ -432,13 +509,13 @@ class CanvasController:
     ) -> None:
         """
         Synchronize graphical selection from authoritative
-        Controller.selected_ids.
+        application selection.
         """
 
         self._ensure_active()
 
         self.selection_manager.sync_graphics(
-            self.get_scene()
+            scene=self.scene
         )
 
     # --------------------------------------------------------
@@ -447,15 +524,15 @@ class CanvasController:
         self,
     ) -> None:
         """
-        Clear only graphical selection state.
+        Clear graphical selection only.
 
-        Authoritative application selection is not modified.
+        Authoritative application selection is untouched.
         """
 
         self._ensure_active()
 
         self.selection_manager.reset_graphics(
-            self.get_scene()
+            scene=self.scene
         )
 
     # ========================================================
@@ -467,12 +544,12 @@ class CanvasController:
         steps: int = 1,
     ) -> None:
         """
-        Request canvas zoom-in through NavigationController.
+        Delegate zoom-in to NavigationController.
         """
 
         self._ensure_active()
 
-        self.graphics_view.zoom_in(
+        self.get_navigation_controller().zoom_in(
             steps
         )
 
@@ -483,12 +560,12 @@ class CanvasController:
         steps: int = 1,
     ) -> None:
         """
-        Request canvas zoom-out through NavigationController.
+        Delegate zoom-out to NavigationController.
         """
 
         self._ensure_active()
 
-        self.graphics_view.zoom_out(
+        self.get_navigation_controller().zoom_out(
             steps
         )
 
@@ -498,12 +575,12 @@ class CanvasController:
         self,
     ) -> None:
         """
-        Reset canvas navigation.
+        Delegate viewport reset to NavigationController.
         """
 
         self._ensure_active()
 
-        self.graphics_view.reset_view()
+        self.get_navigation_controller().reset()
 
     # --------------------------------------------------------
 
@@ -512,12 +589,12 @@ class CanvasController:
         margin: float = 50.0,
     ) -> None:
         """
-        Fit graphical scene content into the viewport.
+        Delegate content fitting to NavigationController.
         """
 
         self._ensure_active()
 
-        self.graphics_view.fit_content(
+        self.get_navigation_controller().fit_content(
             margin
         )
 
@@ -527,7 +604,7 @@ class CanvasController:
         self,
     ) -> None:
         """
-        Pan the canvas left.
+        Delegate left panning to NavigationController.
         """
 
         self._ensure_active()
@@ -540,7 +617,7 @@ class CanvasController:
         self,
     ) -> None:
         """
-        Pan the canvas right.
+        Delegate right panning to NavigationController.
         """
 
         self._ensure_active()
@@ -553,7 +630,7 @@ class CanvasController:
         self,
     ) -> None:
         """
-        Pan the canvas upward.
+        Delegate upward panning to NavigationController.
         """
 
         self._ensure_active()
@@ -566,7 +643,7 @@ class CanvasController:
         self,
     ) -> None:
         """
-        Pan the canvas downward.
+        Delegate downward panning to NavigationController.
         """
 
         self._ensure_active()
@@ -583,17 +660,16 @@ class CanvasController:
         """
         Reset transient canvas state.
 
-        This operation does not modify Core model state and does
-        not clear authoritative application selection.
+        Core/application state is untouched.
+
+        Authoritative application selection is untouched.
         """
 
         self._ensure_active()
 
-        self.graphics_view.reset_canvas()
+        self.render_system.clear()
 
-        self.selection_manager.reset_graphics(
-            self.get_scene()
-        )
+        self.clear_graphical_selection()
 
     # ========================================================
     # SCENE REPLACEMENT
@@ -604,13 +680,15 @@ class CanvasController:
         scene: Any,
     ) -> None:
         """
-        Attach an externally managed scene to the canvas.
+        Attach an externally managed QGraphicsScene.
 
-        The GraphicsView remains the viewport owner.
+        The existing RenderSystem projection is cleared before
+        the scene is replaced.
 
-        SelectionManager is updated to observe the new scene.
+        The SelectionManager and RenderSystem are synchronized
+        with the new scene.
 
-        Existing graphical items are not migrated automatically.
+        Existing graphical items are not migrated.
         """
 
         self._ensure_active()
@@ -620,44 +698,127 @@ class CanvasController:
                 "scene must not be None."
             )
 
-        current_scene = (
-            self.graphics_view.get_scene()
-        )
+        current_scene = self.graphics_view.scene()
 
         if scene is current_scene:
+            self.scene = scene
+
             self.selection_manager.set_scene(
                 scene
             )
+
             return
+
+        self.render_system.clear()
 
         self.graphics_view.setScene(
             scene
         )
+
+        self.scene = scene
+
+        self.render_system.scene = scene
 
         self.selection_manager.set_scene(
             scene
         )
 
     # ========================================================
-    # RENDERER REGISTRY
+    # DIAGNOSTICS
     # ========================================================
 
-    def _get_renderer_registry(
+    def get_state(
+        self,
+    ) -> dict[str, Any]:
+        """
+        Return a diagnostic snapshot of the canvas subsystem.
+        """
+
+        if self._disposed:
+            return {
+                "disposed": True,
+            }
+
+        return {
+            "disposed": False,
+            "scene_item_count": len(
+                self.scene.items()
+            ),
+            "selection": (
+                self.selection_manager.get_state()
+            ),
+            "graphics_view": (
+                self._get_service_state(
+                    self.graphics_view
+                )
+            ),
+            "render_system": (
+                self._get_service_state(
+                    self.render_system
+                )
+            ),
+        }
+
+    # ========================================================
+    # LIFECYCLE
+    # ========================================================
+
+    def dispose(
+        self,
+    ) -> None:
+        """
+        Dispose canvas infrastructure.
+
+        Does not dispose the authoritative application
+        Controller or ToolManager.
+        """
+
+        if self._disposed:
+            return
+
+        self.render_system.clear()
+
+        dispose = getattr(
+            self.render_system,
+            "dispose",
+            None,
+        )
+
+        if callable(dispose):
+            dispose()
+
+        self._disposed = True
+
+    # ========================================================
+    # ACTIVE STATE
+    # ========================================================
+
+    def _ensure_active(
+        self,
+    ) -> None:
+        """
+        Ensure the controller has not been disposed.
+        """
+
+        if self._disposed:
+            raise RuntimeError(
+                "CanvasController has been disposed."
+            )
+
+    # ========================================================
+    # CONTROLLER SERVICES
+    # ========================================================
+
+    def _get_renderer_registry_from_controller(
         self,
     ) -> Any:
         """
-        Obtain the application's RendererRegistry.
+        Resolve the application's RendererRegistry.
 
-        The registry is application infrastructure and is
-        therefore resolved from the authoritative controller.
+        This is only used when CanvasController must construct
+        a RenderSystem.
 
-        Supported controller contracts are:
-
-            controller.renderer_registry
-
-        or:
-
-            controller.get_renderer_registry()
+        No renderer lookup occurs here.
         """
 
         registry = getattr(
@@ -678,216 +839,33 @@ class CanvasController:
         if callable(getter):
             registry = getter()
 
-        if registry is None:
-            raise TypeError(
-                "controller must provide "
-                "renderer_registry or "
-                "get_renderer_registry()."
-            )
-
         return registry
 
     # ========================================================
-    # RENDERER RESOLUTION
+    # DIAGNOSTIC HELPER
     # ========================================================
 
     @staticmethod
-    def _resolve_renderer(
-        registry: Any,
-        model: Any,
+    def _get_service_state(
+        service: Any,
     ) -> Any:
         """
-        Resolve the renderer responsible for model.
-
-        The method supports the canonical registry contract while
-        remaining independent of concrete renderer classes.
+        Obtain optional diagnostic state without requiring every
+        canvas service to expose the same diagnostic interface.
         """
 
-        resolve = getattr(
-            registry,
-            "resolve",
+        getter = getattr(
+            service,
+            "get_state",
             None,
         )
 
-        if callable(resolve):
-            renderer = resolve(
-                model
-            )
-
-            if renderer is None:
-                raise LookupError(
-                    "No renderer registered for "
-                    f"model type "
-                    f"{type(model).__name__}."
-                )
-
-            return renderer
-
-        get_renderer = getattr(
-            registry,
-            "get_renderer",
-            None,
-        )
-
-        if callable(get_renderer):
-            renderer = get_renderer(
-                model
-            )
-
-            if renderer is None:
-                raise LookupError(
-                    "No renderer registered for "
-                    f"model type "
-                    f"{type(model).__name__}."
-                )
-
-            return renderer
-
-        raise TypeError(
-            "RendererRegistry must provide "
-            "resolve() or get_renderer()."
-        )
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _render_with_renderer(
-        renderer: Any,
-        model: Any,
-    ) -> Any:
-        """
-        Invoke the renderer's canonical render contract.
-        """
-
-        render = getattr(
-            renderer,
-            "render",
-            None,
-        )
-
-        if not callable(render):
-            raise TypeError(
-                "renderer must provide render()."
-            )
-
-        return render(
-            model
-        )
-
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _resolve_renderer_for_id(
-        registry: Any,
-        object_id: Any,
-    ) -> Optional[Any]:
-        """
-        Resolve a renderer for an object identifier when the
-        registry provides such a lookup.
-
-        A renderer registry that cannot resolve by ID returns
-        None rather than guessing a renderer.
-        """
-
-        resolver = getattr(
-            registry,
-            "resolve_for_id",
-            None,
-        )
-
-        if callable(resolver):
-            return resolver(
-                object_id
-            )
-
-        get_renderer = getattr(
-            registry,
-            "get_renderer_for_id",
-            None,
-        )
-
-        if callable(get_renderer):
-            return get_renderer(
-                object_id
-            )
-
-        # ----------------------------------------------------
-        # The controller deliberately does not inspect renderer
-        # internals or guess based on object ID.
-        # ----------------------------------------------------
-
-        return None
-
-    # ========================================================
-    # DIAGNOSTICS
-    # ========================================================
-
-    def get_state(
-        self,
-    ) -> dict[str, Any]:
-        """
-        Return a diagnostic snapshot of the canvas subsystem.
-        """
-
-        if self._disposed:
-            return {
-                "disposed": True,
-            }
-
-        scene = self.get_scene()
+        if callable(getter):
+            return getter()
 
         return {
-            "disposed": False,
-            "scene_item_count": len(
-                scene.items()
-            ),
-            "selection": (
-                self.selection_manager.get_state()
-            ),
-            "graphics_view": (
-                self.graphics_view.get_state()
-            ),
+            "type": type(service).__name__,
         }
-
-    # ========================================================
-    # LIFECYCLE
-    # ========================================================
-
-    def dispose(
-        self,
-    ) -> None:
-        """
-        Dispose transient canvas infrastructure.
-
-        This does not modify Core/application state.
-
-        The CanvasController does not dispose the authoritative
-        application Controller.
-        """
-
-        if self._disposed:
-            return
-
-        if self.graphics_view is not None:
-            self.graphics_view.dispose()
-
-        self._disposed = True
-
-    # ========================================================
-    # ACTIVE STATE
-    # ========================================================
-
-    def _ensure_active(
-        self,
-    ) -> None:
-        """
-        Ensure the canvas controller has not been disposed.
-        """
-
-        if self._disposed:
-            raise RuntimeError(
-                "CanvasController has been disposed."
-            )
 
     # ========================================================
     # REPRESENTATION
@@ -907,11 +885,9 @@ class CanvasController:
                 ")"
             )
 
-        scene = self.get_scene()
-
         return (
             "CanvasController("
-            f"items={len(scene.items())}, "
+            f"items={len(self.scene.items())}, "
             f"selected="
             f"{len(self.selection_manager.selected_ids)}"
             ")"
