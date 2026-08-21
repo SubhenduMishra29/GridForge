@@ -2441,7 +2441,84 @@ Qt boundary:
 
 Status:
     FROZEN — subsequent audits must conform to this boundary.
+======================================================================
+GF-AUD-047
+======================================================================
 
+File:
+    ui/plugins/panels_plugin.py
+
+Layer:
+    Panel Composition / Workspace Boundary
+
+Severity:
+    P0
+
+Status:
+    🔴 REQUIRES CORRECTION
+
+Finding:
+    PanelsPlugin currently performs both panel composition and
+    workspace/layout arrangement.
+
+    Specifically:
+
+        PanelSpec.area
+            ↓
+        MainWindow.addDockWidget()
+
+    and:
+
+        PanelSpec.tabbed
+            ↓
+        MainWindow.tabifyDockWidget()
+
+    This makes individual panel specifications and PanelsPlugin
+    implicit workspace-layout authorities.
+
+Architectural violation:
+    Workspace/Layout—not individual panels/plugins—must determine
+    editor arrangement.
+
+Required separation:
+
+    PanelsPlugin
+        = panel registration + panel composition
+
+    Workspace/Layout
+        = editor arrangement + layout state
+
+    MainWindow
+        = Qt workspace host/infrastructure
+
+Required changes:
+    1. Remove layout authority from PanelSpec.
+    2. Remove direct area-based placement from panel composition.
+    3. Remove tab-group decisions from PanelSpec.
+    4. Remove workspace arrangement logic from PanelsPlugin.
+    5. Introduce the Workspace/Layout boundary before restoring
+       actual dock placement.
+    6. Preserve panel presentation capabilities such as closable,
+       movable and floatable.
+    7. Keep Qt access exclusively through ui.core.qt.
+
+Frozen dependency direction:
+
+    PanelSpec
+        ↓
+    Panel Registry / PanelsPlugin
+        ↓
+    Workspace/Layout
+        ↓
+    MainWindow Qt Workspace Host
+        ↓
+    QDockWidget
+
+Do NOT patch by simply moving addDockWidget() into another panel
+helper. The Workspace/Layout abstraction must become the actual
+arrangement authority.
+
+======================================================================
 ======================================================================
 ======================================================================
 END OF MODIFICATION REGISTER
