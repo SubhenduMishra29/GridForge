@@ -2768,6 +2768,492 @@ Decision:
     Do not modify production code yet.
     Do not remove any files.
     Do not declare integration clean.
+
+======================================================================
+GF-AUD-058
+======================================================================
+
+File:
+    ui/workspace/workspace_realizer.py
+
+Layer:
+    Workspace → MainWindow Realization
+
+Severity:
+    P1
+
+Status:
+    🟢 CORRECTED / LOCKED
+
+Finding:
+    Hidden WorkspacePlacement entries must be explicitly realized as
+    hidden Qt docks.
+
+    Iterating only over visible placements could leave a previously
+    visible dock visible after the logical WorkspaceLayout marked the
+    panel hidden.
+
+Architectural decision:
+    WorkspaceLayout remains authoritative.
+
+    WorkspaceRealizer must process every placement.
+
+    visible=False
+        ↓
+    MainWindow.set_dock_visible(dock, False)
+
+    visible=True
+        ↓
+    normal placement realization
+
+Modification:
+    Corrected WorkspaceRealizer.realize() so visibility is explicitly
+    realized for every placement.
+
+Ownership:
+    WorkspaceLayout
+        → decides placement
+
+    WorkspaceRealizer
+        → translates placement
+
+    MainWindow
+        → performs Qt operation
+
+Verification:
+    Static architecture audit.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-059
+======================================================================
+
+Files:
+    ui/workspace/workspace_manager.py
+    ui/workspace/workspace_state.py
+
+Layer:
+    Workspace Logical State
+
+Severity:
+    P2
+
+Status:
+    🟢 VERIFIED / LOCKED
+
+Finding:
+    WorkspaceManager correctly owns logical workspace definitions,
+    activation and current logical workspace state.
+
+    WorkspaceState is immutable and Qt-independent.
+
+Architectural decision:
+    WorkspaceManager must not perform Qt docking or widget creation.
+
+    WorkspaceState remains a logical state container.
+
+No modification required.
+
+Verification:
+    Production source audit.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-060
+======================================================================
+
+File:
+    ui/workspace/panel_area.py
+
+Layer:
+    Workspace Logical Vocabulary
+
+Severity:
+    P1
+
+Status:
+    🟢 VERIFIED / LOCKED
+
+Finding:
+    PanelArea defines the canonical GridForge logical workspace areas:
+
+        LEFT
+        CENTER
+        RIGHT
+        TOP
+        BOTTOM
+        FLOATING
+
+It is Qt-independent.
+
+Architectural decision:
+    ui.workspace.PanelArea is the sole canonical logical area
+    vocabulary.
+
+No duplicate PanelArea implementation is permitted in the active
+panel subsystem.
+
+No modification required.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-061
+======================================================================
+
+File:
+    ui/workspace/__init__.py
+
+Layer:
+    Workspace Public API
+
+Severity:
+    P2
+
+Status:
+    🟢 CORRECTED / LOCKED
+
+Finding:
+    WorkspaceRealizer and related public realization types were not
+    exported by the Workspace package.
+
+Modification:
+    Exported:
+
+        DockBinding
+        WorkspaceRealizationError
+        WorkspaceRealizer
+
+along with the complete Workspace public API.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-062
+======================================================================
+
+Files:
+    ui/workspace/document_manager.py
+    ui/workspace/view_manager.py
+    ui/workspace/viewport_state.py
+    ui/workspace/workspace.py
+
+Layer:
+    Workspace / Document / View Architecture
+
+Severity:
+    P2
+
+Status:
+    🟢 VERIFIED / LOCKED
+
+Finding:
+    These are valid Workspace-layer components.
+
+    DocumentManager
+        → logical document lifecycle
+
+    ViewManager
+        → logical views and document/view association
+
+    ViewportState
+        → toolkit-independent viewport state
+
+    Workspace
+        → logical working environment composed of documents/views
+
+Architectural decision:
+    workspace.py is NOT redundant with workspace_manager.py.
+
+    Workspace represents the working environment.
+
+    WorkspaceManager manages named workspace definitions/layouts.
+
+No modification required.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-063
+======================================================================
+
+File:
+    ui/workspace/__init__.py
+
+Layer:
+    Workspace Public API
+
+Severity:
+    P2
+
+Status:
+    🟢 RESOLVED / LOCKED
+
+Finding:
+    The Workspace package export list was incomplete.
+
+Final public API includes:
+
+    Document
+    DocumentManager
+    PanelArea
+    ViewManager
+    ViewRecord
+    ViewportState
+    Workspace
+    WorkspaceDefinition
+    WorkspacePlacement
+    WorkspaceLayout
+    WorkspaceManager
+    WorkspaceState
+    DockBinding
+    WorkspaceRealizationError
+    WorkspaceRealizer
+
+Decision:
+    Workspace package exports all intentional public abstractions.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-064
+======================================================================
+
+Scope:
+    tests/ui/workspace/
+
+Status:
+    ⏸ DEFERRED
+
+Decision:
+    Workspace tests are intentionally deferred during the current
+    composition/dependency audit.
+
+No test generation or test-driven production modification is to be
+performed unless explicitly requested.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-065
+======================================================================
+
+Scope:
+    Repository-wide Workspace integration
+
+Layer:
+    Workspace Integration
+
+Severity:
+    P1
+
+Status:
+    🔍 AUDIT CONTINUING
+
+Finding:
+    Repository-wide indexed search did not provide sufficient evidence
+    to establish all Workspace consumers.
+
+Decision:
+    Do not treat an empty/incomplete search result as proof that no
+    consumers exist.
+
+Required action:
+    Audit actual UI package contents and direct consumers.
+
+No production modification based solely on incomplete search results.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-066
+======================================================================
+
+Files:
+    ui/panels/panel_area.py
+    ui/workspace/panel_area.py
+    ui/panels/panel_descriptor.py
+
+Layer:
+    Panel / Workspace Placement Ownership
+
+Severity:
+    P0
+
+Status:
+    🟢 RESOLVED ARCHITECTURALLY
+
+Finding:
+    A duplicate PanelArea implementation existed in the panel subsystem
+    while Workspace already defined the canonical logical area model.
+
+    PanelDescriptor also contained an independent `area` field.
+
+Architectural decision:
+    Workspace/Layout owns canonical placement.
+
+    Panel subsystem describes and manages panels.
+
+    PanelDescriptor must not define authoritative workspace placement.
+
+Final ownership:
+
+    ui.workspace.PanelArea
+        → canonical logical areas
+
+    WorkspacePlacement
+        → panel placement
+
+    WorkspaceLayout
+        → arrangement
+
+    WorkspaceRealizer
+        → Qt realization
+
+Decision:
+    Do NOT delete ui/panels/.
+
+    Remove duplicate placement responsibility instead.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-067
+======================================================================
+
+Scope:
+    ui/panels/
+
+Layer:
+    Panel Subsystem
+
+Severity:
+    P1
+
+Status:
+    🟡 TARGETED CORRECTIONS REQUIRED
+
+Finding:
+
+    panel_base.py
+        Valid panel contract.
+
+    panel_manager.py
+        Valid runtime lifecycle manager.
+
+    panel_registry.py
+        Valid registration layer.
+
+    panel_descriptor.py
+        Valid metadata abstraction, but canonical placement must be
+        removed.
+
+    panel_instance.py
+        Valid runtime abstraction, but must not derive placement from
+        PanelDescriptor.
+
+    panel_state.py
+        Valid runtime state abstraction, but placement state overlaps
+        Workspace.
+
+    ui/panels/panel_area.py
+        No longer exists in active package.
+        Archived copy exists under ui/panels/deleted/.
+
+    ui/panels/__init__.py
+        Contains stale import of nonexistent panel_area.py.
+
+Architectural decision:
+    DO NOT delete ui/panels/.
+
+    Retain the package as the panel contract, registration, lifecycle
+    and runtime subsystem.
+
+    Workspace remains the sole owner of logical placement/layout.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-068
+======================================================================
+
+Files:
+    ui/panels/panel_descriptor.py
+    ui/panels/panel_instance.py
+    ui/panels/panel_state.py
+    ui/panels/__init__.py
+
+Layer:
+    Panel / Workspace Boundary
+
+Severity:
+    P0
+
+Status:
+    🟢 CORRECTED / READY TO LOCK
+
+Modifications:
+
+1. panel_descriptor.py
+
+    Removed:
+        area
+
+    PanelDescriptor now describes panel metadata only.
+
+2. panel_instance.py
+
+    Removed propagation of descriptor.area into PanelState.
+
+    PanelInstance now owns panel lifecycle rather than workspace
+    placement.
+
+3. panel_state.py
+
+    Removed:
+        area
+        floating
+        geometry
+
+    PanelState now represents lifecycle state:
+
+        visible
+        active
+
+4. ui/panels/__init__.py
+
+    Removed invalid:
+
+        from .panel_area import PanelArea
+
+    Removed PanelArea from __all__.
+
+    PanelArea is exclusively exported by ui.workspace.
+
+Architectural invariant:
+
+    Panel subsystem
+        → describes/registers/manages panels
+
+    Workspace subsystem
+        → decides where panels are arranged
+
+    WorkspaceRealizer
+        → translates arrangement into MainWindow/Qt
+
+======================================================================
 ======================================================================
 ======================================================================
 ======================================================================
