@@ -131,11 +131,35 @@ class Connection:
 
         if not isinstance(
             self.properties,
-            dict,
+            Mapping,
         ):
             raise TypeError(
-                "properties must be a dictionary."
+                "properties must be a mapping."
             )
+
+        normalized_properties: dict[
+            str,
+            Any,
+        ] = {}
+
+        for key, value in self.properties.items():
+
+            if not isinstance(
+                key,
+                str,
+            ):
+                raise TypeError(
+                    "property keys must be strings."
+                )
+
+            if not key.strip():
+                raise ValueError(
+                    "property keys must not be empty."
+                )
+
+            normalized_properties[key] = value
+
+        self.properties = normalized_properties
 
         if not isinstance(
             self.enabled,
@@ -156,11 +180,6 @@ class Connection:
         """
         Return True when this connection touches the supplied
         terminal.
-
-        Parameters
-        ----------
-        terminal_id:
-            Logical terminal identifier.
         """
 
         if not isinstance(
@@ -266,11 +285,14 @@ class Connection:
         if terminal_a == terminal_b:
             return False
 
-        return self.unordered_endpoint_ids() == frozenset(
-            {
-                terminal_a,
-                terminal_b,
-            }
+        return (
+            self.unordered_endpoint_ids()
+            == frozenset(
+                {
+                    terminal_a,
+                    terminal_b,
+                }
+            )
         )
 
     # ========================================================
@@ -280,9 +302,7 @@ class Connection:
     def is_enabled(
         self,
     ) -> bool:
-        """
-        Return whether the connection is enabled.
-        """
+        """Return whether the connection is enabled."""
 
         return self.enabled
 
@@ -292,9 +312,7 @@ class Connection:
         self,
         enabled: bool,
     ) -> None:
-        """
-        Enable or disable the logical connection.
-        """
+        """Enable or disable the logical connection."""
 
         if not isinstance(
             enabled,
@@ -315,9 +333,7 @@ class Connection:
         key: str,
         default: Any = None,
     ) -> Any:
-        """
-        Return one connection property.
-        """
+        """Return one connection property."""
 
         if not isinstance(
             key,
@@ -339,9 +355,7 @@ class Connection:
         key: str,
         value: Any,
     ) -> None:
-        """
-        Set one connection property.
-        """
+        """Set one connection property."""
 
         if not isinstance(
             key,
@@ -364,14 +378,20 @@ class Connection:
         self,
         key: str,
     ) -> Any:
-        """
-        Remove and return one connection property.
+        """Remove and return one connection property."""
 
-        Raises
-        ------
-        KeyError
-            When the property does not exist.
-        """
+        if not isinstance(
+            key,
+            str,
+        ):
+            raise TypeError(
+                "key must be a string."
+            )
+
+        if not key.strip():
+            raise ValueError(
+                "key must not be empty."
+            )
 
         return self.properties.pop(
             key
@@ -383,9 +403,7 @@ class Connection:
         self,
         key: str,
     ) -> bool:
-        """
-        Return whether a property exists.
-        """
+        """Return whether a property exists."""
 
         if not isinstance(
             key,
@@ -400,9 +418,7 @@ class Connection:
     def clear_properties(
         self,
     ) -> None:
-        """
-        Remove all connection metadata.
-        """
+        """Remove all connection metadata."""
 
         self.properties.clear()
 
@@ -440,18 +456,6 @@ class Connection:
     ) -> "Connection":
         """
         Reconstruct a Connection from serialized data.
-
-        Required fields
-        ---------------
-        connection_id
-        source_terminal_id
-        target_terminal_id
-
-        Optional fields
-        ---------------
-        connection_type
-        properties
-        enabled
         """
 
         if not isinstance(
@@ -542,8 +546,8 @@ class Connection:
         """
         Validate an intrinsic string identifier.
 
-        Existing identifiers are not silently stripped because
-        identifiers must remain stable and deterministic.
+        Identifiers are not silently stripped because identifiers
+        must remain stable and deterministic.
         """
 
         if not isinstance(
@@ -571,9 +575,7 @@ class Connection:
         """
         Validate an identifier supplied by serialized data.
 
-        Unlike the old implementation, arbitrary objects are not
-        silently converted with str(). This prevents malformed
-        serialized data from becoming apparently valid identifiers.
+        Arbitrary objects are not silently converted with str().
         """
 
         if not isinstance(
@@ -596,9 +598,7 @@ class Connection:
     def __repr__(
         self,
     ) -> str:
-        """
-        Return a concise diagnostic representation.
-        """
+        """Return a concise diagnostic representation."""
 
         return (
             "Connection("
@@ -610,10 +610,6 @@ class Connection:
             ")"
         )
 
-
-# ============================================================
-# PUBLIC API
-# ============================================================
 
 __all__ = [
     "Connection",
