@@ -8,58 +8,35 @@
 # Purpose:
 #     Application composition root.
 #
-# Architectural ownership
-# -----------------------
+# Ownership:
+#     main.py owns application-level composition.
 #
-# main.py owns:
-#     - QApplication lifecycle;
-#     - construction of application-level dependencies;
-#     - MainWindow construction;
-#     - PluginManager composition;
-#     - PluginContext injection;
-#     - WorkspaceManager construction;
-#     - WorkspaceRealizer construction;
-#     - WorkspaceController construction;
-#     - initial Workspace activation.
+# It composes:
+#     Controller
+#     ToolManager
+#     MainWindow
+#     PluginContext
+#     PluginManager
+#     WorkspaceManager
+#     WorkspaceRealizer
+#     WorkspaceController
 #
-# MainWindow does NOT own Workspace orchestration.
-# PanelsPlugin does NOT own Workspace orchestration.
+# Canvas loading remains owned by the plugin system:
 #
+#     PluginManager
+#         -> CanvasPlugin
+#         -> ShellPlugin
+#         -> MainWindow.central_surface
+#
+# Workspace activation occurs only after plugin initialization.
 # ============================================================
-
-"""
-GridForge V2 — Application Composition Root.
-
-Startup sequence:
-
-    QApplication
-        ↓
-    Controller
-        ↓
-    MainWindow
-        ↓
-    PluginManager
-        ↓
-    PluginContext
-        ↓
-    Canvas / Panels / Toolbar / Status / Shell
-        ↓
-    WorkspaceManager
-        ↓
-    WorkspaceRealizer
-        ↓
-    WorkspaceController
-        ↓
-    activate("sld")
-        ↓
-    MainWindow.show()
-"""
 
 from __future__ import annotations
 
 import sys
 
 from ui.core.controller import Controller
+from ui.core.tool_manager import ToolManager
 from ui.core.qt import QApplication
 
 from ui.main_window import MainWindow
@@ -67,23 +44,13 @@ from ui.main_window import MainWindow
 from ui.plugins.plugin_context import PluginContext
 from ui.plugins.plugin_manager import PluginManager
 
-from ui.workspace.workspace_controller import (
-    WorkspaceController,
-)
+from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import (
     default_workspaces,
     get_initial_workspace,
 )
-from ui.workspace.workspace_manager import (
-    WorkspaceManager,
-)
-from ui.workspace.workspace_realizer import (
-    WorkspaceRealizer,
-)
-
-from ui.panels.default_panels import (
-    compose_default_panel_specs,
-)
+from ui.workspace.workspace_manager import WorkspaceManager
+from ui.workspace.workspace_realizer import WorkspaceRealizer
 
 
 # ============================================================
@@ -98,19 +65,13 @@ def build_application() -> tuple[
     WorkspaceController,
 ]:
     """
-    Construct the complete GridForge application graph.
+    Build the complete GridForge application graph.
 
-    Construction is intentionally separated from ``main()`` so
-    tests and integration checks can exercise the composition
-    root without entering the Qt event loop.
+    PluginManager remains the sole owner of plugin construction
+    and lifecycle ordering.
 
-    Returns
-    -------
-    tuple
-        QApplication,
-        MainWindow,
-        PluginManager,
-        WorkspaceController
+    WorkspaceController remains application-level orchestration
+    and is deliberately not injected into MainWindow or plugins.
     """
 
     # --------------------------------------------------------
@@ -120,132 +81,163 @@ def build_application() -> tuple[
     app = QApplication.instance()
 
     if app is None:
-        app = QApplication(
-            sys.argv
-        )
+        app = QApplication(sys.argv)
 
     # --------------------------------------------------------
     # Application controller
-    #
-    # Core remains optional here. The current UI composition
-    # root does not manufacture domain state merely to create
-    # the window.
     # --------------------------------------------------------
 
     controller = Controller()
 
     # --------------------------------------------------------
-    # Plugin registry is owned by PluginManager.
+    # Tool lifecycle owner
     #
-    # MainWindow only receives the registry reference.
+    # interaction_manager and preview are currently optional
+    # ToolManager dependencies and therefore remain None until
+    # their concrete application services are introduced.
+    # --------------------------------------------------------
+
+    tool_manager = ToolManager(
+        controller=controller,
+        interaction_manager=None,
+        preview=None,
+        tool_registry=None,
+    )
+
+    # --------------------------------------------------------
+    # Plugin manager
+    #
+    # PluginManager owns PluginRegistry and PluginLoader.
     # --------------------------------------------------------
 
     plugin_manager = PluginManager()
 
     plugin_manager.define_defaults()
 
+    # Load plugins before creating the MainWindow so the actual
+    # PluginRegistry can be injected into MainWindow.
     plugin_manager.load_all()
 
+    plugin_registry = plugin_manager.registry
+
     # --------------------------------------------------------
-    # Main window
+    # MainWindow
     #
-    # No Workspace object is supplied to MainWindow.
+    # MainWindow owns the central surface.
+    # It does not own Workspace orchestration.
     # --------------------------------------------------------
 
     window = MainWindow(
         controller=controller,
-        plugin_registry=plugin_manager.registry,
+        plugin_registry=plugin_registry,
     )
 
+    root_widget = window.central_surface
+
+    if root_widget is None:
+        raise RuntimeError(
+            "MainWindow did not provide a central surface."
+        )
+
     # --------------------------------------------------------
-    # Plugin context
+    # PluginContext
     #
-    # The context carries already-created dependencies.
+    # This is a dependency carrier only.
+    #
+    # ShellPlugin receives root_widget and composes the already
+    # initialized Canvas/Toolbar/Status widgets into it.
     # --------------------------------------------------------
 
     context = PluginContext(
         main_window=window,
         parent=window,
         application=app,
-        root_widget=window.central_surface,
+        root_widget=root_widget,
         controller=controller,
+        tool_manager=tool_manager,
     )
 
+    # PluginManager expects one context for each defined plugin.
+    contexts = {
+        plugin_id: context
+        for plugin_id in plugin_manager.plugin_ids
+    }
+
     plugin_manager.set_contexts(
-        {
-            plugin_id: context
-            for plugin_id
-            in plugin_manager.plugin_ids
-        }
+        contexts
     )
 
     # --------------------------------------------------------
-    # Initialize the explicit plugin graph.
+    # Plugin lifecycle
     #
-    # PluginManager resolves dependency order.
-    # PanelsPlugin is initialized here but does not create or
-    # activate a Workspace.
+    # initialize_all() takes no context argument. It consumes
+    # the contexts installed above.
+    #
+    # Dependency ordering guarantees:
+    #
+    #     Canvas
+    #       ↓
+    #     Toolbar
+    #       ↓
+    #     Status
+    #       ↓
+    #     Shell
+    #
+    # Before Shell initialization PluginManager automatically
+    # performs _prepare_shell_composition(), supplying:
+    #
+    #     CanvasPlugin.widget
+    #     ToolbarPlugin.widget
+    #     StatusPlugin.widget
+    #
+    # to ShellPlugin.
     # --------------------------------------------------------
 
     plugin_manager.initialize_all()
 
     # --------------------------------------------------------
-    # Register the canonical initial panel presentation.
+    # Workspace layer
     #
-    # Panel definitions remain presentation definitions.
-    # Workspace placement is handled below by WorkspaceRealizer.
-    # --------------------------------------------------------
-
-    panels_entry = (
-        plugin_manager.registry.get_entry(
-            "panels"
-        )
-    )
-
-    if panels_entry is None:
-        raise RuntimeError(
-            "PanelsPlugin was not registered."
-        )
-
-    panels_plugin = panels_entry.plugin
-
-    for spec in compose_default_panel_specs():
-        panels_plugin.add_panel(
-            spec
-        )
-
-    # --------------------------------------------------------
-    # Workspace manager
-    #
-    # Definitions are logical data only.
+    # Workspace definitions are logical data.
+    # They do not create Canvas or panels.
     # --------------------------------------------------------
 
     workspace_manager = WorkspaceManager(
         definitions={
-            workspace.workspace_id: workspace
-            for workspace
-            in default_workspaces()
+            definition.workspace_id: definition
+            for definition in default_workspaces()
         }
     )
 
     # --------------------------------------------------------
     # Workspace realizer
     #
-    # The realizer knows the Qt host but does not define
-    # Workspace policy.
+    # MainWindow is the Qt host.
+    # WorkspaceRealizer receives the host reference but does
+    # not become part of MainWindow's responsibilities.
     # --------------------------------------------------------
 
     workspace_realizer = WorkspaceRealizer(
-        main_window=window
+        main_window=window,
     )
 
     # --------------------------------------------------------
-    # Inject concrete panel docks into the realizer.
+    # Register concrete panel docks exposed by PanelsPlugin.
     #
-    # PanelsPlugin owns the docks.
-    # WorkspaceRealizer only receives references and realizes
-    # logical placement.
+    # PanelsPlugin owns the dock widgets.
+    # WorkspaceRealizer only owns their logical realization.
     # --------------------------------------------------------
+
+    panels_entry = plugin_registry.get_entry(
+        "panels"
+    )
+
+    if panels_entry is None:
+        raise RuntimeError(
+            "PanelsPlugin is not registered."
+        )
+
+    panels_plugin = panels_entry.plugin
 
     for panel_id in (
         "project",
@@ -259,7 +251,7 @@ def build_application() -> tuple[
         if dock is None:
             raise RuntimeError(
                 (
-                    f"PanelsPlugin did not expose "
+                    "PanelsPlugin did not expose "
                     f"required dock {panel_id!r}."
                 )
             )
@@ -272,7 +264,8 @@ def build_application() -> tuple[
     # --------------------------------------------------------
     # Workspace controller
     #
-    # This is the application-level orchestration boundary.
+    # This is the legitimate application-level Workspace
+    # orchestration owner.
     # --------------------------------------------------------
 
     workspace_controller = WorkspaceController(
@@ -281,10 +274,13 @@ def build_application() -> tuple[
     )
 
     # --------------------------------------------------------
-    # Initial Workspace activation.
+    # FIRST WORKSPACE ACTIVATION BOUNDARY
     #
-    # This is deliberately the FIRST Workspace activation
-    # boundary and lives only at the composition root.
+    # Canvas has already been initialized by CanvasPlugin and
+    # composed into MainWindow.central_surface by ShellPlugin.
+    #
+    # Workspace activation therefore configures presentation
+    # around an already-existing Canvas rather than loading it.
     # --------------------------------------------------------
 
     initial_workspace = get_initial_workspace()
@@ -294,7 +290,7 @@ def build_application() -> tuple[
     )
 
     # --------------------------------------------------------
-    # Window presentation
+    # Present application
     # --------------------------------------------------------
 
     window.show()
@@ -329,10 +325,6 @@ def main() -> int:
             app.exec()
         )
     finally:
-        # Application-level lifecycle ownership remains here.
-        #
-        # WorkspaceController has no shutdown responsibility for
-        # plugin lifecycle.
         plugin_manager.shutdown_all()
 
 
