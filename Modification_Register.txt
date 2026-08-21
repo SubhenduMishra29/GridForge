@@ -2589,6 +2589,20 @@ Critical rule:
 Do not implement until panel registry and plugin context dependencies
 have been audited.
 
+Engineering Workspace
+    workspace.py
+    document.py
+    document_manager.py
+    view_manager.py
+    viewport_state.py
+
+UI Workspace/Layout
+    panel_area.py
+    workspace_definition.py
+    workspace_layout.py
+    workspace_state.py
+    workspace_manager.py
+
 ======================================================================
 ======================================================================
 ======================================================================
