@@ -14,15 +14,33 @@
 # Responsibilities:
 #     - stable panel ID;
 #     - title;
-#     - panel area;
+#     - factory function;
 #     - singleton behavior;
 #     - default visibility;
-#     - factory function.
+#     - Qt presentation capabilities.
 #
 # Does NOT:
+#     - define canonical workspace placement;
+#     - own dock area;
+#     - own workspace layout;
 #     - construct Qt widgets;
-#     - own panel state;
+#     - own runtime panel state;
 #     - render content.
+#
+# Placement ownership
+# -------------------
+#
+# WorkspacePlacement / WorkspaceLayout own:
+#
+#     - area;
+#     - visibility in a workspace;
+#     - grouping;
+#     - ordering;
+#     - floating placement.
+#
+# PanelDescriptor may describe whether a panel is capable of
+# being moved, closed, or floated, but it does not decide where
+# the panel is placed.
 #
 # ============================================================
 
@@ -33,7 +51,7 @@ GridForge V2 — Panel Descriptor.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable
 
 from .panel_base import PanelBase
 
@@ -45,14 +63,18 @@ PanelFactory = Callable[[], PanelBase]
 class PanelDescriptor:
     """
     Registration metadata for a panel.
+
+    PanelDescriptor describes the panel itself.
+
+    It deliberately does not contain workspace placement
+    information. Active placement belongs to WorkspaceLayout.
     """
 
     panel_id: str
+
     title: str
 
     factory: PanelFactory
-
-    area: str = "right"
 
     singleton: bool = True
 
@@ -65,12 +87,22 @@ class PanelDescriptor:
     floatable: bool = True
 
     def __post_init__(self) -> None:
-        if not self.panel_id:
+        if not isinstance(self.panel_id, str):
+            raise TypeError(
+                "panel_id must be a string"
+            )
+
+        if not self.panel_id.strip():
             raise ValueError(
                 "panel_id must not be empty"
             )
 
-        if not self.title:
+        if not isinstance(self.title, str):
+            raise TypeError(
+                "title must be a string"
+            )
+
+        if not self.title.strip():
             raise ValueError(
                 "title must not be empty"
             )
@@ -78,9 +110,4 @@ class PanelDescriptor:
         if not callable(self.factory):
             raise TypeError(
                 "factory must be callable"
-            )
-
-        if not self.area:
-            raise ValueError(
-                "area must not be empty"
             )
