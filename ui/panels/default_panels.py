@@ -1,87 +1,160 @@
 # ============================================================
 # GridForge V2
 # ============================================================
+#
 # File:
 #     ui/panels/default_panels.py
 #
 # Purpose:
-#     Authoritative registration source for the initial
-#     application panels.
+#     Authoritative presentation definitions for the initial
+#     SLD-first application panels.
 #
-# Architectural boundary:
-#     This module defines which concrete panels exist.
+# Architectural boundary
+# ----------------------
 #
-# It does NOT:
-#     - define WorkspaceLayout;
-#     - define dock areas;
-#     - arrange panels;
-#     - activate a Workspace;
-#     - manipulate MainWindow;
-#     - create QDockWidget;
-#     - own runtime panel state.
+# This module defines:
+#     - canonical panel IDs;
+#     - panel titles;
+#     - panel presentation widgets;
+#     - panel capabilities.
+#
+# This module does NOT define:
+#     - WorkspaceDefinition;
+#     - WorkspaceLayout;
+#     - PanelArea;
+#     - dock placement;
+#     - dock ordering;
+#     - tab groups;
+#     - visibility policy;
+#     - Workspace activation;
+#     - MainWindow layout policy.
+#
+# PanelsPlugin owns dock creation.
+# WorkspaceRealizer owns dock arrangement.
+#
 # ============================================================
 
 """
-GridForge V2 — Default Panel Registration.
+GridForge V2 — Default Application Panels.
 
-Initial SLD-first supporting panels:
+The initial SLD-first application contains three supporting
+dockable panels:
 
     project
     equipment
     properties
 
 The SLD/Grid canvas remains the central application surface and
-is deliberately not registered as a dock panel here.
+is deliberately not represented as a dock panel.
 """
 
 from __future__ import annotations
 
-from .equipment_panel import EquipmentPanel
-from .panel_descriptor import PanelDescriptor
-from .panel_registry import PanelRegistry
-from .properties_panel import PropertiesPanel
-from .project_panel import ProjectPanel
+from collections.abc import Callable
+from typing import Any
+
+from ui.core.qt import QWidget
+
+from ui.plugins.panels_plugin import PanelSpec
 
 
 # ============================================================
-# CANONICAL PANEL DESCRIPTORS
+# PANEL WIDGET FACTORIES
 # ============================================================
 
-PROJECT_PANEL = PanelDescriptor(
+
+class ProjectPanelWidget(QWidget):
+    """
+    Presentation widget for the Project Explorer panel.
+
+    This class intentionally contains only presentation state.
+    Project/network ownership remains outside the panel.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self.setObjectName(
+            "GridForgePanel_project"
+        )
+
+
+class EquipmentPanelWidget(QWidget):
+    """
+    Presentation widget for the Equipment Browser panel.
+
+    Equipment creation remains delegated to the application's
+    command/tool/model workflow.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self.setObjectName(
+            "GridForgePanel_equipment"
+        )
+
+
+class PropertiesPanelWidget(QWidget):
+    """
+    Presentation widget for the Properties panel.
+
+    The authoritative selected object remains outside this widget.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self.setObjectName(
+            "GridForgePanel_properties"
+        )
+
+
+# ============================================================
+# CANONICAL PANEL SPECIFICATIONS
+# ============================================================
+
+
+PROJECT_PANEL = PanelSpec(
     panel_id="project",
     title="Project Explorer",
-    factory=ProjectPanel,
-    singleton=True,
-    visible_by_default=True,
+    widget=None,
     closable=True,
     movable=True,
     floatable=True,
 )
 
-EQUIPMENT_PANEL = PanelDescriptor(
+
+EQUIPMENT_PANEL = PanelSpec(
     panel_id="equipment",
     title="Equipment Browser",
-    factory=EquipmentPanel,
-    singleton=True,
-    visible_by_default=True,
+    widget=None,
     closable=True,
     movable=True,
     floatable=True,
 )
 
-PROPERTIES_PANEL = PanelDescriptor(
+
+PROPERTIES_PANEL = PanelSpec(
     panel_id="properties",
     title="Properties",
-    factory=PropertiesPanel,
-    singleton=True,
-    visible_by_default=True,
+    widget=None,
     closable=True,
     movable=True,
     floatable=True,
 )
 
 
-DEFAULT_PANEL_DESCRIPTORS: tuple[PanelDescriptor, ...] = (
+DEFAULT_PANEL_SPECS: tuple[PanelSpec, ...] = (
     PROJECT_PANEL,
     EQUIPMENT_PANEL,
     PROPERTIES_PANEL,
@@ -89,54 +162,152 @@ DEFAULT_PANEL_DESCRIPTORS: tuple[PanelDescriptor, ...] = (
 
 
 # ============================================================
-# REGISTRATION
+# FACTORIES
 # ============================================================
 
-def register_default_panels(
-    registry: PanelRegistry,
-) -> tuple[PanelDescriptor, ...]:
+
+_PANEL_WIDGET_FACTORIES: dict[
+    str,
+    Callable[[QWidget | None], QWidget],
+] = {
+    "project": ProjectPanelWidget,
+    "equipment": EquipmentPanelWidget,
+    "properties": PropertiesPanelWidget,
+}
+
+
+def create_panel_widget(
+    panel_id: str,
+    parent: QWidget | None = None,
+) -> QWidget:
     """
-    Register all canonical application panels.
-
-    Registration is intentionally strict. PanelRegistry owns
-    duplicate detection, so this function does not attempt to
-    make registration idempotent.
-
-    Workspace placement is deliberately not performed here.
+    Create the presentation widget for a canonical panel ID.
     """
 
-    if not isinstance(registry, PanelRegistry):
+    if not isinstance(panel_id, str):
         raise TypeError(
-            "registry must be a PanelRegistry."
+            "panel_id must be a string."
         )
 
-    for descriptor in DEFAULT_PANEL_DESCRIPTORS:
-        registry.register(descriptor)
+    if not panel_id.strip():
+        raise ValueError(
+            "panel_id must not be empty."
+        )
 
-    return DEFAULT_PANEL_DESCRIPTORS
+    factory = _PANEL_WIDGET_FACTORIES.get(
+        panel_id
+    )
+
+    if factory is None:
+        raise KeyError(
+            f"Unknown default panel ID: {panel_id!r}"
+        )
+
+    return factory(parent)
 
 
-# ============================================================
-# READ-ONLY DEFAULT DEFINITIONS
-# ============================================================
-
-def default_panel_descriptors() -> tuple[PanelDescriptor, ...]:
+def panel_spec_with_widget(
+    spec: PanelSpec,
+) -> PanelSpec:
     """
-    Return the canonical default panel descriptors.
+    Return a PanelSpec containing its concrete presentation
+    widget.
+
+    Workspace information is never added here.
     """
 
-    return DEFAULT_PANEL_DESCRIPTORS
+    if not isinstance(
+        spec,
+        PanelSpec,
+    ):
+        raise TypeError(
+            "spec must be a PanelSpec."
+        )
+
+    widget = create_panel_widget(
+        spec.panel_id
+    )
+
+    return PanelSpec(
+        panel_id=spec.panel_id,
+        title=spec.title,
+        widget=widget,
+        closable=spec.closable,
+        movable=spec.movable,
+        floatable=spec.floatable,
+        metadata=dict(spec.metadata),
+    )
+
+
+def default_panel_specs() -> tuple[PanelSpec, ...]:
+    """
+    Return the canonical immutable panel specifications.
+    """
+
+    return DEFAULT_PANEL_SPECS
 
 
 def default_panel_ids() -> tuple[str, ...]:
     """
-    Return the canonical default panel identifiers.
+    Return the canonical application panel IDs.
     """
 
     return tuple(
-        descriptor.panel_id
-        for descriptor in DEFAULT_PANEL_DESCRIPTORS
+        spec.panel_id
+        for spec in DEFAULT_PANEL_SPECS
     )
+
+
+def compose_default_panel_specs() -> tuple[PanelSpec, ...]:
+    """
+    Create the concrete presentation specifications used by
+    PanelsPlugin.
+
+    This is the only application-level conversion from the
+    declarative panel definitions to concrete QWidget-backed
+    PanelSpec objects.
+    """
+
+    return tuple(
+        panel_spec_with_widget(spec)
+        for spec in DEFAULT_PANEL_SPECS
+    )
+
+
+# ============================================================
+# VALIDATION
+# ============================================================
+
+
+_EXPECTED_PANEL_IDS = (
+    "project",
+    "equipment",
+    "properties",
+)
+
+
+def validate_default_panel_ids() -> tuple[str, ...]:
+    """
+    Validate and return the canonical panel IDs.
+
+    This function checks the invariant locally without touching
+    PanelsPlugin, MainWindow, or Workspace.
+    """
+
+    ids = default_panel_ids()
+
+    if ids != _EXPECTED_PANEL_IDS:
+        raise RuntimeError(
+            "Default panel IDs do not match the canonical "
+            f"application panel set: {ids!r}"
+        )
+
+    if len(set(ids)) != len(ids):
+        raise RuntimeError(
+            "Default panel IDs must be unique."
+        )
+
+    return ids
 
 
 # ============================================================
@@ -144,11 +315,17 @@ def default_panel_ids() -> tuple[str, ...]:
 # ============================================================
 
 __all__ = [
+    "ProjectPanelWidget",
+    "EquipmentPanelWidget",
+    "PropertiesPanelWidget",
     "PROJECT_PANEL",
     "EQUIPMENT_PANEL",
     "PROPERTIES_PANEL",
-    "DEFAULT_PANEL_DESCRIPTORS",
-    "register_default_panels",
-    "default_panel_descriptors",
+    "DEFAULT_PANEL_SPECS",
+    "create_panel_widget",
+    "panel_spec_with_widget",
+    "default_panel_specs",
     "default_panel_ids",
+    "compose_default_panel_specs",
+    "validate_default_panel_ids",
 ]
