@@ -16,47 +16,11 @@
 #         - canvas
 #         - Qt graphics objects
 #
-# Responsibilities:
-#     - resolve an equipment definition;
-#     - generate/accept a stable equipment ID;
-#     - construct EquipmentBase;
-#     - apply default properties;
-#     - apply caller-provided properties;
-#     - construct terminal identifiers.
-#
 # Does NOT:
 #     - create QGraphicsItem objects;
 #     - render symbols;
 #     - connect equipment to the electrical Core;
 #     - validate electrical topology.
-#
-# Detailed Working:
-#
-#     Tool / Controller
-#             |
-#             | equipment_type
-#             v
-#     EquipmentFactory
-#             |
-#             v
-#     EquipmentRegistry
-#             |
-#             v
-#     EquipmentDefinition
-#             |
-#             v
-#     EquipmentBase
-#
-# Later:
-#
-#     EquipmentBase
-#          |
-#          v
-#     Item Factory / Adapter
-#          |
-#          v
-#     QGraphicsItem
-#
 # ============================================================
 
 """
@@ -65,7 +29,7 @@ GridForge V2 — Equipment Factory.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Mapping
 
 from .equipment_base import EquipmentBase
 from .equipment_registry import EquipmentRegistry
@@ -73,7 +37,8 @@ from .equipment_registry import EquipmentRegistry
 
 class EquipmentFactory:
     """
-    Creates UI-side equipment objects using an EquipmentRegistry.
+    Creates UI-side equipment objects using an
+    EquipmentRegistry.
     """
 
     def __init__(
@@ -81,12 +46,23 @@ class EquipmentFactory:
         registry: EquipmentRegistry,
     ) -> None:
         if registry is None:
-            raise ValueError("registry must not be None")
+            raise ValueError(
+                "registry must not be None."
+            )
+
+        if not isinstance(
+            registry,
+            EquipmentRegistry,
+        ):
+            raise TypeError(
+                "registry must be an EquipmentRegistry."
+            )
 
         self._registry = registry
 
     @property
     def registry(self) -> EquipmentRegistry:
+        """Return the equipment-definition registry."""
         return self._registry
 
     def create(
@@ -94,45 +70,108 @@ class EquipmentFactory:
         equipment_type: str,
         equipment_id: str,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         position: tuple[float, float] = (0.0, 0.0),
-        properties: Optional[Dict[str, Any]] = None,
+        properties: Mapping[str, Any] | None = None,
     ) -> EquipmentBase:
         """
-        Create one equipment instance.
+        Create one logical equipment instance.
 
-        The factory performs definition lookup and combines the
-        definition's default properties with instance-specific
-        properties.
+        Definition defaults are copied first, then instance
+        properties are applied over those defaults.
 
-        Instance properties override defaults.
+        An explicitly supplied ``name`` is preserved. Only
+        ``None`` causes the equipment ID to be used as the
+        default name.
         """
-        if not equipment_id:
+
+        # ----------------------------------------------------
+        # Identity validation
+        # ----------------------------------------------------
+
+        if (
+            not isinstance(equipment_type, str)
+            or not equipment_type.strip()
+        ):
             raise ValueError(
-                "equipment_id must not be empty"
+                "equipment_type must be a "
+                "non-empty string."
             )
+
+        if (
+            not isinstance(equipment_id, str)
+            or not equipment_id.strip()
+        ):
+            raise ValueError(
+                "equipment_id must be a "
+                "non-empty string."
+            )
+
+        # ----------------------------------------------------
+        # Property validation
+        # ----------------------------------------------------
+
+        if properties is not None and not isinstance(
+            properties,
+            Mapping,
+        ):
+            raise TypeError(
+                "properties must be a mapping or None."
+            )
+
+        # ----------------------------------------------------
+        # Definition lookup
+        # ----------------------------------------------------
 
         definition = self._registry.require(
             equipment_type
         )
 
+        # ----------------------------------------------------
+        # Default properties
+        # ----------------------------------------------------
+
         merged_properties = (
             definition.create_default_properties()
         )
 
-        if properties:
-            merged_properties.update(properties)
+        # ----------------------------------------------------
+        # Instance overrides
+        # ----------------------------------------------------
+
+        if properties is not None:
+            merged_properties.update(
+                properties
+            )
+
+        # ----------------------------------------------------
+        # Runtime terminal identities
+        # ----------------------------------------------------
 
         terminal_ids = [
             f"{equipment_id}:{terminal_name}"
-            for terminal_name in definition.terminal_names
+            for terminal_name
+            in definition.terminal_names
         ]
+
+        # ----------------------------------------------------
+        # Equipment instance
+        # ----------------------------------------------------
 
         return EquipmentBase(
             equipment_id=equipment_id,
             equipment_type=definition.equipment_type,
-            name=name or equipment_id,
+            name=(
+                equipment_id
+                if name is None
+                else name
+            ),
             position=position,
             properties=merged_properties,
             terminal_ids=terminal_ids,
         )
+
+
+__all__ = [
+    "EquipmentFactory",
+]
