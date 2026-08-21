@@ -8,7 +8,7 @@ UI-level navigation controller for GridForge V2.
 Architecture
 ------------
 
-    MainWindow / Plugin
+    MainWindow / UI
             │
             ▼
     UI NavigationController
@@ -20,50 +20,55 @@ Architecture
        GraphicsView
             │
             ▼
-         QGraphicsScene
+       QGraphicsScene
 
 Purpose
 -------
-This controller provides the application/UI composition boundary
-for canvas navigation.
+This class is a thin application/UI adapter around the
+canonical canvas NavigationController.
 
-The actual navigation implementation remains in:
+The canvas NavigationController owns all navigation state and
+behavior.
 
-    ui.canvas.navigation_controller.NavigationController
+This class does not implement navigation mathematics and does
+not maintain a second navigation state.
 
-This class is deliberately a thin adapter.
+Responsibilities
+----------------
+    - expose the canvas navigation service;
+    - delegate zoom operations;
+    - delegate pan operations;
+    - delegate wheel navigation;
+    - delegate view reset;
+    - delegate content fitting;
+    - delegate coordinate conversion;
+    - expose authoritative navigation state;
+    - provide adapter lifecycle management.
 
-It does NOT:
-
-    - implement zoom mathematics;
-    - implement panning mathematics;
-    - manipulate QGraphicsView transforms directly;
-    - modify Core/application model state;
-    - implement tools;
+This class does NOT:
+    - calculate zoom transforms;
+    - manipulate QGraphicsView directly;
+    - maintain independent zoom state;
+    - maintain independent pan state;
+    - implement snapping;
     - implement selection;
-    - perform snapping;
+    - implement tools;
     - render graphics;
-    - calculate electrical quantities;
-    - own navigation state independently.
+    - modify Core/application state.
 
 Authority
 ---------
-The canvas NavigationController remains the single owner of
+The canvas NavigationController is the sole owner of actual
 navigation state and behavior.
-
-This class only delegates to it.
 
 Qt Architecture
 ---------------
-This module contains no direct Qt imports.
-
-All Qt-specific navigation behavior remains inside the canvas
-navigation implementation.
+No direct Qt imports are used here.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from ui.canvas.navigation_controller import (
     NavigationController as CanvasNavigationController,
@@ -72,10 +77,7 @@ from ui.canvas.navigation_controller import (
 
 class NavigationController:
     """
-    Thin UI orchestration adapter for canvas navigation.
-
-    The underlying CanvasNavigationController owns all actual
-    navigation state.
+    Thin UI adapter for the canonical canvas navigation service.
     """
 
     # ========================================================
@@ -87,14 +89,14 @@ class NavigationController:
         canvas_navigation: CanvasNavigationController,
     ) -> None:
         """
-        Initialize the UI navigation controller.
+        Initialize the UI navigation adapter.
 
         Parameters
         ----------
         canvas_navigation:
             Existing canvas-level NavigationController.
 
-        The supplied controller is not copied or duplicated.
+        The supplied controller is not copied or owned.
         """
 
         if canvas_navigation is None:
@@ -108,24 +110,21 @@ class NavigationController:
         ):
             raise TypeError(
                 "canvas_navigation must be a "
-                "canvas NavigationController."
+                "CanvasNavigationController."
             )
 
-        self._canvas_navigation = (
-            canvas_navigation
-        )
-
+        self._canvas_navigation = canvas_navigation
         self._disposed = False
 
     # ========================================================
-    # UNDERLYING CONTROLLER
+    # UNDERLYING SERVICE
     # ========================================================
 
     def get_canvas_navigation(
         self,
     ) -> CanvasNavigationController:
         """
-        Return the underlying canvas navigation controller.
+        Return the authoritative canvas navigation controller.
         """
 
         self._ensure_active()
@@ -141,7 +140,7 @@ class NavigationController:
         steps: int = 1,
     ) -> None:
         """
-        Zoom into the canvas.
+        Delegate zoom-in to the canvas navigation controller.
         """
 
         self._ensure_active()
@@ -157,7 +156,7 @@ class NavigationController:
         steps: int = 1,
     ) -> None:
         """
-        Zoom out of the canvas.
+        Delegate zoom-out to the canvas navigation controller.
         """
 
         self._ensure_active()
@@ -176,8 +175,8 @@ class NavigationController:
         """
         Zoom around a viewport position.
 
-        The viewport position is forwarded unchanged to the
-        canvas navigation implementation.
+        The position and factor are passed unchanged to the
+        canonical canvas navigation implementation.
         """
 
         self._ensure_active()
@@ -201,7 +200,7 @@ class NavigationController:
         event: Any,
     ) -> None:
         """
-        Forward a wheel event to the canvas navigation system.
+        Delegate wheel navigation.
         """
 
         self._ensure_active()
@@ -224,7 +223,7 @@ class NavigationController:
         viewport_position: Any,
     ) -> None:
         """
-        Start middle-mouse or programmatic canvas panning.
+        Start a canvas pan operation.
         """
 
         self._ensure_active()
@@ -279,7 +278,7 @@ class NavigationController:
         self,
     ) -> bool:
         """
-        Return True while canvas panning is active.
+        Return whether the canvas is currently panning.
         """
 
         self._ensure_active()
@@ -288,15 +287,13 @@ class NavigationController:
             self._canvas_navigation.is_panning
         )
 
-    # ========================================================
-    # KEYBOARD / PROGRAMMATIC PAN
-    # ========================================================
+    # --------------------------------------------------------
 
     def pan_left(
         self,
     ) -> None:
         """
-        Pan the canvas left.
+        Delegate leftward panning.
         """
 
         self._ensure_active()
@@ -309,7 +306,7 @@ class NavigationController:
         self,
     ) -> None:
         """
-        Pan the canvas right.
+        Delegate rightward panning.
         """
 
         self._ensure_active()
@@ -322,7 +319,7 @@ class NavigationController:
         self,
     ) -> None:
         """
-        Pan the canvas upward.
+        Delegate upward panning.
         """
 
         self._ensure_active()
@@ -335,7 +332,7 @@ class NavigationController:
         self,
     ) -> None:
         """
-        Pan the canvas downward.
+        Delegate downward panning.
         """
 
         self._ensure_active()
@@ -343,30 +340,28 @@ class NavigationController:
         self._canvas_navigation.pan_down()
 
     # ========================================================
-    # VIEW RESET
+    # VIEW CONTROL
     # ========================================================
 
     def reset_view(
         self,
     ) -> None:
         """
-        Reset canvas transformation and view position.
+        Delegate viewport reset.
         """
 
         self._ensure_active()
 
         self._canvas_navigation.reset_view()
 
-    # ========================================================
-    # FIT CONTENT
-    # ========================================================
+    # --------------------------------------------------------
 
     def fit_content(
         self,
         margin: float = 50.0,
     ) -> None:
         """
-        Fit the complete graphical scene content into the view.
+        Delegate content fitting.
         """
 
         self._ensure_active()
@@ -376,7 +371,7 @@ class NavigationController:
         )
 
     # ========================================================
-    # SCENE POSITION
+    # COORDINATE CONVERSION
     # ========================================================
 
     def scene_position(
@@ -386,8 +381,8 @@ class NavigationController:
         """
         Convert a viewport position to scene coordinates.
 
-        The actual coordinate mapping remains owned by the
-        canvas navigation implementation.
+        Coordinate conversion remains owned by the canvas
+        navigation implementation.
         """
 
         self._ensure_active()
@@ -402,7 +397,7 @@ class NavigationController:
         )
 
     # ========================================================
-    # ZOOM STATE
+    # NAVIGATION STATE
     # ========================================================
 
     @property
@@ -410,7 +405,7 @@ class NavigationController:
         self,
     ) -> float:
         """
-        Return the authoritative logical canvas zoom factor.
+        Return the authoritative canvas zoom factor.
         """
 
         self._ensure_active()
@@ -421,25 +416,15 @@ class NavigationController:
 
     # --------------------------------------------------------
 
-    def get_zoom_factor(
-        self,
-    ) -> float:
-        """
-        Return the current canvas zoom factor.
-        """
-
-        return self.zoom_factor
-
-    # ========================================================
-    # ZOOM LIMITS
-    # ========================================================
-
     @property
     def min_zoom(
         self,
     ) -> float:
         """
-        Return the minimum permitted canvas zoom.
+        Return the minimum permitted zoom level.
+
+        The value is read from the authoritative canvas
+        navigation implementation.
         """
 
         self._ensure_active()
@@ -455,7 +440,7 @@ class NavigationController:
         self,
     ) -> float:
         """
-        Return the maximum permitted canvas zoom.
+        Return the maximum permitted zoom level.
         """
 
         self._ensure_active()
@@ -471,7 +456,7 @@ class NavigationController:
         self,
     ) -> float:
         """
-        Return the configured zoom multiplier.
+        Return the configured zoom step.
         """
 
         self._ensure_active()
@@ -488,9 +473,10 @@ class NavigationController:
         self,
     ) -> dict[str, Any]:
         """
-        Return a navigation diagnostic snapshot.
+        Return a lightweight navigation diagnostic state.
 
-        The underlying canvas controller remains authoritative.
+        The authoritative navigation values remain owned by the
+        canvas NavigationController.
         """
 
         if self._disposed:
@@ -498,22 +484,13 @@ class NavigationController:
                 "disposed": True,
             }
 
-        state: Optional[dict[str, Any]] = None
-
-        getter = getattr(
-            self._canvas_navigation,
-            "get_state",
-            None,
-        )
-
-        if callable(getter):
-            state = getter()
-
         return {
             "disposed": False,
             "zoom_factor": self.zoom_factor,
             "is_panning": self.is_panning,
-            "canvas_navigation": state,
+            "min_zoom": self.min_zoom,
+            "max_zoom": self.max_zoom,
+            "zoom_step": self.zoom_step,
         }
 
     # ========================================================
@@ -524,7 +501,7 @@ class NavigationController:
         self,
     ) -> None:
         """
-        Dispose this UI adapter.
+        Dispose this adapter.
 
         The underlying canvas NavigationController is not
         disposed because this adapter does not own it.
@@ -536,14 +513,14 @@ class NavigationController:
         self._disposed = True
 
     # ========================================================
-    # ACTIVE STATE
+    # INTERNAL
     # ========================================================
 
     def _ensure_active(
         self,
     ) -> None:
         """
-        Ensure this adapter has not been disposed.
+        Ensure this adapter is active.
         """
 
         if self._disposed:
@@ -571,15 +548,11 @@ class NavigationController:
 
         return (
             "NavigationController("
-            f"zoom={self.zoom_factor}, "
-            f"panning={self.is_panning}"
+            f"zoom_factor={self.zoom_factor}, "
+            f"is_panning={self.is_panning}"
             ")"
         )
 
-
-# ============================================================
-# PUBLIC API
-# ============================================================
 
 __all__ = [
     "NavigationController",
