@@ -1,86 +1,67 @@
 # ============================================================
+
 # GridForge V2
+
 # ============================================================
+
 # File:
-#     main.py
+
+# main.py
+
 #
-# Author:
-#     Subhendu Mishra
-#
+
 # Purpose:
-#     Application bootstrap and composition root for GridForge V2.
+
+# Application bootstrap and composition root for GridForge V2.
+
 #
+
 # Architectural Role:
-#     main.py is the executable composition root.
+
+# main.py is the executable composition root.
+
 #
-# It is responsible only for:
+
+# Responsibilities:
+
+# - create QApplication;
+
+# - create the authoritative Grid model;
+
+# - create the UI Controller;
+
+# - create MainWindow;
+
+# - show MainWindow;
+
+# - start the Qt event loop.
+
 #
-#     1. Creating the Qt application.
-#     2. Creating the authoritative application/domain context.
-#     3. Creating the UI Controller.
-#     4. Creating and initializing the MainWindow.
-#     5. Showing the main window.
-#     6. Starting the Qt event loop.
-#
+
 # It does NOT:
+
+# - implement UI logic;
+
+# - implement business logic;
+
+# - perform electrical calculations;
+
+# - create individual panels;
+
+# - create tools;
+
+# - perform rendering;
+
+# - perform simulation;
+
+# - own workspace policy.
+
 #
-#     - implement UI logic;
-#     - implement business logic;
-#     - perform electrical calculations;
-#     - manipulate the electrical model;
-#     - create individual UI components;
-#     - create tools;
-#     - manage tool lifecycle;
-#     - handle canvas interaction;
-#     - perform rendering;
-#     - perform simulation;
-#     - perform analysis.
-#
-# Composition
-# -----------
-#
-#     QApplication
-#          |
-#          v
-#     Grid
-#     (authoritative domain model)
-#          |
-#          v
-#     Controller
-#     (UI coordination state)
-#          |
-#          v
-#     create_main_window()
-#          |
-#          v
-#     MainWindow
-#          |
-#          v
-#     UI Plugin System
-#
-# Dependency Direction
-# --------------------
-#
-#     Application Bootstrap
-#             |
-#             +---- Core / Domain
-#             |
-#             +---- UI Controller
-#             |
-#             +---- MainWindow
-#                        |
-#                        v
-#                   UI Plugins
-#
-# Qt Boundary
-# -----------
-#
-# Qt is permitted here because main.py is part of the
-# application bootstrap layer.
-#
-# No Qt implementation details are propagated into the
-# GridForge domain model.
-#
+
+# Workspace orchestration will be injected here when the
+
+# WorkspaceController is introduced and locked.
+
 # ============================================================
 
 """
@@ -92,7 +73,7 @@ This module intentionally contains only application-level
 composition and Qt event-loop startup.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 import sys
 
@@ -100,87 +81,69 @@ from PySide6.QtWidgets import QApplication
 
 from core.model.grid import Grid
 from ui.core.controller import Controller
-from ui.main_window import create_main_window
-
+from ui.main_window import MainWindow
 
 def main() -> int:
-    """
-    Start the GridForge application.
+"""
+Start the GridForge application.
 
-    Returns
-    -------
-    int
-        Qt application exit code.
-    """
+```
+Returns
+-------
+int
+    Qt application exit code.
+"""
 
-    # ========================================================
-    # APPLICATION
-    # ========================================================
+# ========================================================
+# APPLICATION
+# ========================================================
 
-    app = QApplication(sys.argv)
+app = QApplication(sys.argv)
 
-    # ========================================================
-    # AUTHORITATIVE DOMAIN MODEL
-    # ========================================================
-    #
-    # Grid is the central GridForge electrical-network
-    # container.
-    #
-    # It is created here because main.py is the application
-    # composition root.
-    #
-    # The UI does not create or own the electrical model.
-    # ========================================================
+# ========================================================
+# AUTHORITATIVE DOMAIN MODEL
+# ========================================================
 
-    model = Grid(
-        name="GridForge"
-    )
+model = Grid(
+    name="GridForge"
+)
 
-    # ========================================================
-    # UI CONTROLLER
-    # ========================================================
-    #
-    # Controller stores UI coordination state only.
-    #
-    # It receives the authoritative model as a reference but
-    # does not become its owner and does not perform domain
-    # calculations.
-    # ========================================================
+# ========================================================
+# UI CONTROLLER
+# ========================================================
 
-    controller = Controller(
-        core=model
-    )
+controller = Controller(
+    core=model
+)
 
-    # ========================================================
-    # ROOT WINDOW
-    # ========================================================
-    #
-    # create_main_window() constructs the thin MainWindow
-    # shell and initializes the UI composition.
-    #
-    # MainWindow does not construct individual concrete UI
-    # components directly; composition remains within the
-    # plugin system.
-    # ========================================================
+# ========================================================
+# ROOT WINDOW
+# ========================================================
 
-    window = create_main_window(
-        controller=controller
-    )
+window = MainWindow(
+    controller=controller
+)
 
-    window.show()
+# ========================================================
+# SHOW
+# ========================================================
 
-    # ========================================================
-    # EVENT LOOP
-    # ========================================================
+window.show()
 
-    return app.exec()
+# ========================================================
+# EVENT LOOP
+# ========================================================
 
+return app.exec()
+```
 
 # ============================================================
+
 # PYTHON ENTRY GUARD
+
 # ============================================================
 
-if __name__ == "__main__":
-    sys.exit(
-        main()
-    )
+if **name** == "**main**":
+sys.exit(
+main()
+)
