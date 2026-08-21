@@ -2517,7 +2517,79 @@ Frozen dependency direction:
 Do NOT patch by simply moving addDockWidget() into another panel
 helper. The Workspace/Layout abstraction must become the actual
 arrangement authority.
+======================================================================
+GF-AUD-048
+======================================================================
 
+Scope:
+    Repository-wide Workspace/Layout and Dock Placement Audit
+
+Status:
+    🔴 ARCHITECTURAL GAP IDENTIFIED
+
+Finding:
+    No dedicated Workspace/Layout implementation currently exists.
+
+    Repository searches found no existing authoritative implementation
+    for:
+
+        workspace
+        addDockWidget
+        DockWidgetArea
+        tabifyDockWidget
+        saveState
+        restoreState
+
+Consequence:
+    PanelsPlugin currently carries workspace-arrangement responsibility
+    because the intended Workspace/Layout layer is absent.
+
+Decision:
+    Do NOT move the existing layout code blindly into another panel
+    helper or manager.
+
+    Introduce a dedicated Workspace/Layout architectural boundary.
+
+Required ownership:
+
+    PanelsPlugin
+        → panel registration and composition
+
+    WorkspaceManager
+        → workspace composition and arrangement policy
+
+    WorkspaceLayout
+        → logical editor arrangement
+
+    MainWindow
+        → Qt workspace host/infrastructure
+
+    Qt
+        → physical dock/widget realization
+
+Required dependency direction:
+
+    Panel definitions
+          ↓
+    PanelsPlugin
+          ↓
+    WorkspaceManager
+          ↓
+    WorkspaceLayout
+          ↓
+    MainWindow
+          ↓
+    Qt
+
+Critical rule:
+
+    No individual panel or plugin may become the global workspace
+    arrangement authority.
+
+Do not implement until panel registry and plugin context dependencies
+have been audited.
+
+======================================================================
 ======================================================================
 ======================================================================
 ======================================================================
