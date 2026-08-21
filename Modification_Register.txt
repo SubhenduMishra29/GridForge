@@ -1811,7 +1811,400 @@ Keep Blender inspiration confined to interaction/workspace concepts.
 
 Keep ETAP semantics central to electrical engineering workflows.
 
+======================================================================
+GF-AUD-035
+======================================================================
 
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    PanelSpec.area
+
+Layer:
+    Logical Panel → Qt Presentation Boundary
+
+Severity:
+    P1
+
+Status:
+    🔴 ARCHITECTURAL INCONSISTENCY — MODIFICATION REQUIRED AFTER
+    DEPENDENCY AUDIT
+
+Finding:
+    PanelSpec defines area using Qt.DockWidgetArea while the logical
+    panel architecture already defines PanelArea.
+
+Current parallel representations:
+
+    PanelState.area
+        ↓
+    PanelArea
+
+and:
+
+    PanelSpec.area
+        ↓
+    Qt.DockWidgetArea
+
+This creates two competing docking vocabularies.
+
+Architectural decision:
+    PanelArea remains the canonical GridForge logical docking abstraction.
+
+    Qt.DockWidgetArea must exist only at the Qt presentation boundary.
+
+Target:
+
+    PanelState / PanelDescriptor
+            ↓
+        PanelArea
+            ↓
+      Docking Adapter
+            ↓
+    Qt.DockWidgetArea
+
+Modification required:
+    Remove the architectural dependency of logical panel composition on
+    Qt.DockWidgetArea.
+
+    Introduce/retain a single explicit conversion boundary.
+
+Implementation must occur only after all PanelSpec creation and
+consumption sites are audited.
+
+Related principles:
+    #5 #12 #14
+
+
+======================================================================
+GF-AUD-036
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    _create_panel_dock()
+
+Layer:
+    Docking Ownership
+
+Severity:
+    P1
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    PanelsPlugin directly invokes:
+
+        QMainWindow.addDockWidget()
+        QMainWindow.tabifyDockWidget()
+
+The module documentation simultaneously states that MainWindow owns
+the overall dock-area/layout infrastructure.
+
+Architectural concern:
+    Ownership is currently ambiguous.
+
+Possible architectures:
+
+    A)
+    PanelsPlugin owns dock composition.
+
+    B)
+    Workspace/Docking manager owns layout while PanelsPlugin supplies
+    panel/editor content.
+
+Target GridForge V2 requires a workspace capable of:
+
+    docked
+    floating
+    tabbed
+    split
+    persistent
+    workspace-specific layouts
+
+Decision:
+    Do not move docking calls yet.
+
+Audit Workspace, editor-area and layout code before changing ownership.
+
+Modification required:
+    Establish one canonical owner of workspace layout policy.
+
+
+======================================================================
+GF-AUD-037
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    PanelSpec
+
+Layer:
+    Panel Descriptor Architecture
+
+Severity:
+    P1
+
+Status:
+    🔴 DUPLICATED ABSTRACTION — AUDIT REQUIRED
+
+Finding:
+    PanelSpec duplicates multiple fields already present in
+    PanelDescriptor:
+
+        panel_id
+        title
+        area
+        closable
+        movable
+        floatable
+        visibility
+
+This creates the possibility of contradictory metadata.
+
+Example:
+
+    PanelDescriptor.area = RIGHT
+    PanelSpec.area = LEFT
+
+Architectural decision:
+    PanelDescriptor should remain the canonical logical registration
+    descriptor unless subsequent dependency audit proves otherwise.
+
+PanelSpec should not become a second independent source of truth.
+
+Modification required:
+    Trace all PanelSpec creation/consumption sites and determine whether
+    PanelSpec should become a pure Qt presentation adapter or be removed
+    in favor of the canonical descriptor plus presentation state.
+
+
+======================================================================
+GF-AUD-038
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    PanelSpec.tabbed
+
+Layer:
+    Workspace Layout
+
+Severity:
+    P1
+
+Status:
+    🔴 ARCHITECTURAL MISPLACEMENT
+
+Finding:
+    PanelSpec contains:
+
+        tabbed: bool
+
+Tab grouping is a workspace/layout relationship rather than an intrinsic
+property of a panel.
+
+A panel/editor may be:
+
+    tabbed in Workspace A
+    floating in Workspace B
+    docked in Workspace C
+
+Architectural decision:
+    Tab grouping must eventually belong to Workspace/Layout composition.
+
+Target:
+
+    Workspace
+        ↓
+    EditorArea
+        ↓
+    TabGroup
+        ↓
+    Editors/Panels
+
+Modification required:
+    Remove tab-group ownership from the logical panel abstraction after
+    Workspace layout architecture is audited.
+
+
+======================================================================
+GF-AUD-039
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    _create_panel_dock()
+
+Layer:
+    Workspace Placement
+
+Severity:
+    P2
+
+Status:
+    🟡 DECISION REQUIRED
+
+Finding:
+    Missing PanelSpec.area silently defaults to:
+
+        LeftDockWidgetArea
+
+This makes the panel plugin impose a workspace placement policy.
+
+Architectural concern:
+    Workspace layout should determine placement.
+
+Architectural decision:
+    No hard-coded global default docking side should become the
+    authoritative GridForge workspace policy.
+
+Modification required:
+    Determine whether default placement belongs to:
+
+        Workspace definition
+        Editor descriptor
+        Layout preset
+        Docking adapter
+
+before modifying the default.
+
+
+======================================================================
+GF-AUD-040
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    _tabify_panel()
+
+Layer:
+    Workspace Layout
+
+Severity:
+    P1
+
+Status:
+    🔴 ARCHITECTURAL INCONSISTENCY
+
+Finding:
+    Tab grouping is determined by reverse registration order and matching
+    dock area.
+
+Therefore:
+
+    plugin registration order
+        ↓
+    tab grouping
+
+Architectural concern:
+    Workspace layout must be deterministic and independently
+    configurable.
+
+Registration order must not define user workspace layout.
+
+Architectural decision:
+    Tab groups belong to explicit Workspace/Layout state.
+
+Modification required:
+    Replace implicit registration-order tabification during the future
+    workspace composition implementation.
+
+Do not patch until Workspace/Layout architecture is finalized.
+
+
+======================================================================
+GF-AUD-041
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    __init__()
+
+Layer:
+    Application Service Ownership
+
+Severity:
+    P3
+
+Status:
+    🟢 ACCEPTED
+
+Finding:
+    PanelsPlugin does not silently construct application-owned services.
+
+It receives PluginContext during initialize() and uses the supplied
+MainWindow.
+
+Architectural decision:
+    Preserve this behavior.
+
+PanelsPlugin must not create:
+
+    Controller
+    ToolManager
+    CommandManager
+    SelectionManager
+    RenderSystem
+    RendererRegistry
+    RendererLoader
+    Core services
+
+Related principle:
+    #13
+
+
+======================================================================
+GF-AUD-042
+======================================================================
+
+File:
+    ui/plugins/panels_plugin.py
+
+Symbol:
+    widget creation
+
+Layer:
+    Presentation Ownership
+
+Severity:
+    P3
+
+Status:
+    🟢 ACCEPTED WITH FOLLOW-UP
+
+Finding:
+    add_panel() may create a QWidget when PanelSpec.widget is None.
+
+This is presentation-widget construction, not application-service
+construction.
+
+Architectural decision:
+    This is not a violation of the application-service ownership rule.
+
+However, once the Workspace/Editor composition is finalized, widget
+creation should occur at the correct presentation factory boundary.
+
+Modification required:
+    None immediately.
+
+Follow-up:
+    Determine whether panels or editors should supply widgets through
+    explicit factories rather than generic QWidget fallback creation.
 ======================================================================
 END OF MODIFICATION REGISTER
 ======================================================================
