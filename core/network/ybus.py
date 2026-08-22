@@ -1,3 +1,7 @@
+# ============================================================
+# File: core/network/ybus.py
+# GridForge V2 — Network Layer
+# ============================================================
 """
 GridForge Network Layer V2
 ==========================
@@ -128,6 +132,35 @@ The builder validates:
 
 Y-bus symmetry is deliberately NOT enforced because phase-shifting
 transformers can legitimately produce a non-symmetric matrix.
+
+Terminal Endpoint Resolution
+----------------------------
+
+The model layer uses Terminal objects as the authoritative physical
+connection representation.
+
+For two-terminal branch equipment:
+
+    element.from_terminal.endpoint
+    element.to_terminal.endpoint
+
+are therefore the authoritative physical references.
+
+The Y-bus remains bus-centric because numerical admittance matrices
+are assembled between electrical buses.
+
+Accordingly, this builder resolves:
+
+    terminal
+        -> endpoint
+        -> bus compatibility resolution
+        -> canonical Network bus
+        -> bus matrix index
+
+The compatibility ``terminal.bus`` accessor is used only after the
+authoritative terminal endpoint has been established.
+
+The builder does not modify terminals or endpoint relationships.
 
 GridForge V2 Status
 -------------------
@@ -333,6 +366,121 @@ class YBusBuilder:
         return self.Ybus
 
     # =================================================================
+    # TERMINAL / BUS RESOLUTION
+    # =================================================================
+
+    @staticmethod
+    def _resolve_terminal_bus(
+        terminal: Any,
+        element: Any,
+        terminal_name: str,
+        element_type: str,
+    ) -> Any:
+        """
+        Resolve a branch Terminal to its canonical electrical Bus.
+
+        Parameters
+        ----------
+        terminal :
+            Authoritative Terminal object.
+
+        element :
+            Canonical branch model.
+
+        terminal_name : str
+            Diagnostic terminal name.
+
+        element_type : str
+            Logical element type.
+
+        Returns
+        -------
+        object
+            Canonical Bus-like object.
+
+        Raises
+        ------
+        AttributeError
+            If the terminal contract is missing.
+
+        ValueError
+            If the terminal is disconnected or cannot resolve to a
+            Bus.
+
+        Notes
+        -----
+        ``terminal.endpoint`` is authoritative.
+
+        ``terminal.bus`` is used only as the model-layer compatibility
+        resolution after the endpoint has been established.
+
+        The concrete Bus class is deliberately not imported here.
+        """
+
+        if terminal is None:
+            raise AttributeError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"must provide a '{terminal_name}' Terminal."
+            )
+
+        if not hasattr(
+            terminal,
+            "endpoint",
+        ):
+            raise AttributeError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"has an invalid '{terminal_name}' Terminal: "
+                "missing endpoint."
+            )
+
+        endpoint = getattr(
+            terminal,
+            "endpoint",
+            None,
+        )
+
+        if endpoint is None:
+            raise ValueError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"has a disconnected '{terminal_name}' Terminal."
+            )
+
+        # -------------------------------------------------------------
+        # Establish that the authoritative endpoint exists before
+        # using the compatibility bus accessor.
+        # -------------------------------------------------------------
+
+        bus = getattr(
+            terminal,
+            "bus",
+            None,
+        )
+
+        if bus is None:
+            raise ValueError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"'{terminal_name}' Terminal endpoint "
+                "does not resolve to a Bus."
+            )
+
+        if not hasattr(
+            bus,
+            "id",
+        ):
+            raise AttributeError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"'{terminal_name}' Terminal resolved to an "
+                "endpoint without an 'id' attribute."
+            )
+
+        return bus
+
+    # =================================================================
     # LINE STAMP
     # =================================================================
 
@@ -365,23 +513,35 @@ class YBusBuilder:
         ):
             return
 
-        from_bus = getattr(
+        # -------------------------------------------------------------
+        # AUTHORITATIVE TERMINAL CONNECTION
+        # -------------------------------------------------------------
+
+        from_terminal = getattr(
             line,
-            "from_bus",
+            "from_terminal",
             None,
         )
 
-        to_bus = getattr(
+        to_terminal = getattr(
             line,
-            "to_bus",
+            "to_terminal",
             None,
         )
 
-        if from_bus is None or to_bus is None:
-            raise ValueError(
-                f"Line '{getattr(line, 'id', line)}' "
-                "must provide from_bus and to_bus."
-            )
+        from_bus = self._resolve_terminal_bus(
+            from_terminal,
+            line,
+            "from_terminal",
+            "line",
+        )
+
+        to_bus = self._resolve_terminal_bus(
+            to_terminal,
+            line,
+            "to_terminal",
+            "line",
+        )
 
         i = self._bus_index(
             from_bus,
@@ -435,11 +595,13 @@ class YBusBuilder:
 
         y_shunt = 1j * b_total / 2.0
 
-        # Diagonal elements.
+        # -------------------------------------------------------------
+        # Nominal-pi line stamp.
+        # -------------------------------------------------------------
+
         Y[i, i] += y + y_shunt
         Y[j, j] += y + y_shunt
 
-        # Mutual elements.
         Y[i, j] -= y
         Y[j, i] -= y
 
@@ -484,24 +646,35 @@ class YBusBuilder:
         ):
             return
 
-        from_bus = getattr(
+        # -------------------------------------------------------------
+        # AUTHORITATIVE TERMINAL CONNECTION
+        # -------------------------------------------------------------
+
+        from_terminal = getattr(
             transformer,
-            "from_bus",
+            "from_terminal",
             None,
         )
 
-        to_bus = getattr(
+        to_terminal = getattr(
             transformer,
-            "to_bus",
+            "to_terminal",
             None,
         )
 
-        if from_bus is None or to_bus is None:
-            raise ValueError(
-                f"Transformer "
-                f"'{getattr(transformer, 'id', transformer)}' "
-                "must provide from_bus and to_bus."
-            )
+        from_bus = self._resolve_terminal_bus(
+            from_terminal,
+            transformer,
+            "from_terminal",
+            "transformer",
+        )
+
+        to_bus = self._resolve_terminal_bus(
+            to_terminal,
+            transformer,
+            "to_terminal",
+            "transformer",
+        )
 
         i = self._bus_index(
             from_bus,
@@ -723,8 +896,48 @@ class YBusBuilder:
             ):
                 continue
 
-            bus = getattr(
+            # ---------------------------------------------------------
+            # Shunt is terminal-first in the model layer.
+            # ---------------------------------------------------------
+
+            terminal = getattr(
                 shunt,
+                "terminal",
+                None,
+            )
+
+            if terminal is None:
+                raise ValueError(
+                    f"Shunt "
+                    f"'{getattr(shunt, 'id', shunt)}' "
+                    "must provide a terminal reference."
+                )
+
+            if not hasattr(
+                terminal,
+                "endpoint",
+            ):
+                raise AttributeError(
+                    f"Shunt "
+                    f"'{getattr(shunt, 'id', shunt)}' "
+                    "terminal is missing endpoint."
+                )
+
+            endpoint = getattr(
+                terminal,
+                "endpoint",
+                None,
+            )
+
+            if endpoint is None:
+                raise ValueError(
+                    f"Shunt "
+                    f"'{getattr(shunt, 'id', shunt)}' "
+                    "has a disconnected terminal."
+                )
+
+            bus = getattr(
+                terminal,
                 "bus",
                 None,
             )
@@ -733,7 +946,7 @@ class YBusBuilder:
                 raise ValueError(
                     f"Shunt "
                     f"'{getattr(shunt, 'id', shunt)}' "
-                    "must provide a bus reference."
+                    "terminal endpoint does not resolve to a bus."
                 )
 
             idx = self._bus_index(
@@ -815,7 +1028,9 @@ class YBusBuilder:
     # VALIDATION
     # =================================================================
 
-    def _validate_dimensions(self) -> None:
+    def _validate_dimensions(
+        self,
+    ) -> None:
         """
         Verify that Y-bus dimensions match the network bus count.
         """
@@ -841,7 +1056,9 @@ class YBusBuilder:
 
     # -----------------------------------------------------------------
 
-    def _validate_finite(self) -> None:
+    def _validate_finite(
+        self,
+    ) -> None:
         """
         Verify that all Y-bus entries are finite.
         """
@@ -873,7 +1090,9 @@ class YBusBuilder:
     # ACCESS
     # =================================================================
 
-    def get_ybus(self) -> csr_matrix:
+    def get_ybus(
+        self,
+    ) -> csr_matrix:
         """
         Return the most recently built Y-bus.
 
@@ -895,7 +1114,9 @@ class YBusBuilder:
     # SUMMARY
     # =================================================================
 
-    def summary(self) -> dict[str, Any]:
+    def summary(
+        self,
+    ) -> dict[str, Any]:
         """
         Return concise Y-bus assembly diagnostics.
         """
@@ -941,7 +1162,9 @@ class YBusBuilder:
     # REPRESENTATION
     # =================================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
         Return a concise developer-facing representation.
         """
