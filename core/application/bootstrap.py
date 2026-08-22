@@ -1,6 +1,6 @@
 # ============================================================
 # File: core/application/bootstrap.py
-# GridForge V2 — Headless Application Bootstrap
+# GridForge V2 — Headless Application Composition Root
 # ============================================================
 """
 GridForge V2
@@ -11,14 +11,11 @@ Module:
 
 Purpose
 -------
-Provides the headless Application composition boundary.
+Constructs the headless Application runtime from an already-created
+canonical Core Network.
 
-This module wires the already-constructed Core Network into an
-ApplicationContext and registers Application command handlers
-with a generic CommandManager.
-
-Architecture
-------------
+Architectural responsibility
+----------------------------
 
     Core Network
           |
@@ -28,88 +25,108 @@ Architecture
           v
     CommandManager
           |
-          +--------------------+
-          |                    |
-          v                    v
-    bus.create            bus.delete
-          |                    |
-          v                    v
-    CreateBusHandler     DeleteBusHandler
-          |                    |
-          +---------+----------+
-                    |
-                    v
-             Application Service
-                    |
-                    v
-                   Core
+          v
+    Model Command Handlers
 
-Responsibilities
-----------------
-This module owns only Application composition.
-
-It:
-
-    * accepts an already-created Core Network;
-    * constructs ApplicationContext;
-    * constructs CommandManager;
-    * registers Application command handlers;
-    * returns the configured CommandManager.
+This module is the Application composition boundary.
 
 It does NOT:
 
-    * construct the Core Network;
+    * construct domain models;
+    * contain business logic;
     * execute commands;
-    * mutate Core objects;
-    * contain domain logic;
-    * contain UI logic;
-    * depend on Qt;
-    * know about SLD/canvas objects;
-    * manage plugins;
-    * perform engineering calculations.
+    * mutate Network;
+    * manipulate topology;
+    * access Qt;
+    * access UI state;
+    * manage plugins.
 
-Headless Requirement
---------------------
-This module is completely independent of:
+The Core Network remains the authoritative domain state.
 
-    * PySide6;
-    * PyQt5;
-    * PyQt6;
-    * Qt;
-    * QGraphicsScene;
-    * renderers;
-    * UI controllers.
+The ApplicationContext remains an immutable dependency container.
 
-Command Registration
---------------------
-Current command registrations:
-
-    "bus.create" -> create_bus_handler
-    "bus.delete" -> delete_bus_handler
-
-CommandManager remains generic and does not know about individual
-commands.
+The CommandManager remains responsible for command dispatch,
+execution history, and command-handler invocation.
 
 Python Compatibility
 --------------------
-GridForge V2 targets Python 3.10/3.11.
+Python 3.10 / 3.11.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
 
+from .command_handlers import register_model_handlers
 from .command_manager import CommandManager
-from .commands.create_bus import create_bus_handler
-from .commands.delete_bus import delete_bus_handler
 from .context import ApplicationContext
 
 
-def create_application_context(
-    network: Any,
-) -> ApplicationContext:
+# =====================================================================
+# APPLICATION RUNTIME
+# =====================================================================
+
+@dataclass(frozen=True)
+class Application:
     """
-    Construct the immutable ApplicationContext.
+    Headless GridForge Application runtime.
+
+    Attributes
+    ----------
+    context:
+        Immutable Application dependency context.
+
+    command_manager:
+        Canonical Application command dispatcher.
+
+    Notes
+    -----
+    Application is intentionally a thin composition object.
+
+    It does not contain domain logic.
+
+    Domain behavior remains in Core and Application services.
+    """
+
+    context: ApplicationContext
+    command_manager: CommandManager
+
+    def execute(self, command):
+        """
+        Execute an Application command.
+
+        Parameters
+        ----------
+        command:
+            Immutable Application Command.
+
+        Returns
+        -------
+        ApplicationResult
+            Result returned by the registered command handler.
+
+        Notes
+        -----
+        The Application façade supplies the canonical context to
+        CommandManager. CommandManager remains responsible for
+        dispatch and history.
+        """
+
+        return self.command_manager.execute(
+            command,
+            self.context,
+        )
+
+
+# =====================================================================
+# FACTORY
+# =====================================================================
+
+def create_application(
+    network,
+) -> Application:
+    """
+    Construct the canonical headless GridForge Application.
 
     Parameters
     ----------
@@ -118,118 +135,48 @@ def create_application_context(
 
     Returns
     -------
-    ApplicationContext
-        Headless Application dependency context.
+    Application
+        Fully composed Application runtime.
 
-    Notes
-    -----
-    The Core Network is constructed outside this module.
+    Composition order
+    -----------------
+        1. Validate supplied Network.
+        2. Construct ApplicationContext.
+        3. Construct CommandManager.
+        4. Register Application command handlers.
+        5. Return immutable Application runtime.
 
-    This function therefore does not become a hidden Core factory.
+    The function deliberately does not construct the Core Network.
+
+    Core construction belongs to the higher-level Composition Root.
     """
 
-    return ApplicationContext(
+    if network is None:
+        raise ValueError(
+            "network must not be None."
+        )
+
+    context = ApplicationContext(
         network=network,
     )
 
+    command_manager = CommandManager()
 
-def create_command_manager(
-    context: ApplicationContext,
-) -> CommandManager:
-    """
-    Construct and configure the Application CommandManager.
-
-    Parameters
-    ----------
-    context:
-        Immutable headless ApplicationContext.
-
-    Returns
-    -------
-    CommandManager
-        Configured command dispatcher.
-
-    Notes
-    -----
-    CommandManager remains generic.
-
-    Command-specific knowledge is introduced here, at the
-    Application composition boundary.
-    """
-
-    if not isinstance(
-        context,
-        ApplicationContext,
-    ):
-        raise TypeError(
-            "create_command_manager requires "
-            "an ApplicationContext."
-        )
-
-    manager = CommandManager(
-        context,
+    register_model_handlers(
+        command_manager,
     )
 
-    # -------------------------------------------------------------
-    # BUS COMMANDS
-    # -------------------------------------------------------------
-
-    manager.register(
-        "bus.create",
-        create_bus_handler,
+    return Application(
+        context=context,
+        command_manager=command_manager,
     )
 
-    manager.register(
-        "bus.delete",
-        delete_bus_handler,
-    )
 
-    return manager
-
-
-def create_application(
-    network: Any,
-) -> tuple[ApplicationContext, CommandManager]:
-    """
-    Construct the complete headless Application boundary.
-
-    Parameters
-    ----------
-    network:
-        Already-constructed canonical Core Network.
-
-    Returns
-    -------
-    tuple
-        ``(ApplicationContext, CommandManager)``
-
-    Architecture
-    ------------
-        network
-            ↓
-        ApplicationContext
-            ↓
-        CommandManager
-            ↓
-        registered handlers
-    """
-
-    context = create_application_context(
-        network,
-    )
-
-    manager = create_command_manager(
-        context,
-    )
-
-    return (
-        context,
-        manager,
-    )
-
+# =====================================================================
+# PUBLIC API
+# =====================================================================
 
 __all__ = [
-    "create_application_context",
-    "create_command_manager",
+    "Application",
     "create_application",
 ]
