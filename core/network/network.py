@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # File: core/network/network.py
 # GridForge V2 — Network Layer
@@ -1199,4 +1198,3 @@ class Network:
         # -------------------------------------------------------------
 
         self._invalidate_topology()
-```
