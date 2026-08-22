@@ -11,42 +11,42 @@ Module:
 
 Purpose
 -------
-Constructs the headless Application runtime from an already-created
-canonical Core Network.
+Constructs the headless Application runtime around the canonical
+Core Network.
 
-Architectural responsibility
-----------------------------
+Composition
+-----------
 
     Core Network
-          |
-          v
+         |
+         v
     ApplicationContext
-          |
-          v
+         |
+         v
     CommandManager
-          |
-          v
-    Model Command Handlers
+         |
+         +--------------------+
+         |                    |
+         v                    v
+    Model Handlers       Command History
+         |
+         v
+    ModelService
+         |
+         v
+        Core
 
-This module is the Application composition boundary.
+This module is composition infrastructure only.
 
 It does NOT:
 
     * construct domain models;
-    * contain business logic;
-    * execute commands;
     * mutate Network;
+    * execute domain logic;
     * manipulate topology;
     * access Qt;
     * access UI state;
     * manage plugins.
-
-The Core Network remains the authoritative domain state.
-
-The ApplicationContext remains an immutable dependency container.
-
-The CommandManager remains responsible for command dispatch,
-execution history, and command-handler invocation.
 
 Python Compatibility
 --------------------
@@ -56,6 +56,7 @@ Python 3.10 / 3.11.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .command_handlers import register_model_handlers
 from .command_manager import CommandManager
@@ -63,7 +64,7 @@ from .context import ApplicationContext
 
 
 # =====================================================================
-# APPLICATION RUNTIME
+# APPLICATION
 # =====================================================================
 
 @dataclass(frozen=True)
@@ -71,51 +72,41 @@ class Application:
     """
     Headless GridForge Application runtime.
 
-    Attributes
-    ----------
-    context:
-        Immutable Application dependency context.
+    The Application owns the ApplicationContext and the
+    CommandManager.
 
-    command_manager:
-        Canonical Application command dispatcher.
-
-    Notes
-    -----
-    Application is intentionally a thin composition object.
-
-    It does not contain domain logic.
-
-    Domain behavior remains in Core and Application services.
+    Domain state remains owned by Core.
     """
 
     context: ApplicationContext
     command_manager: CommandManager
 
-    def execute(self, command):
+    # ================================================================
+    # COMMAND EXECUTION
+    # ================================================================
+
+    def execute(self, command: Any):
         """
         Execute an Application command.
 
-        Parameters
-        ----------
-        command:
-            Immutable Application Command.
-
-        Returns
-        -------
-        ApplicationResult
-            Result returned by the registered command handler.
-
-        Notes
-        -----
-        The Application façade supplies the canonical context to
-        CommandManager. CommandManager remains responsible for
-        dispatch and history.
+        CommandManager already owns the canonical ApplicationContext,
+        therefore the command is the only argument required here.
         """
 
         return self.command_manager.execute(
             command,
-            self.context,
         )
+
+    # ================================================================
+    # CAPABILITY DISCOVERY
+    # ================================================================
+
+    def registered_commands(self) -> tuple[str, ...]:
+        """
+        Return the currently registered Application command types.
+        """
+
+        return self.command_manager.registered_commands()
 
 
 # =====================================================================
@@ -123,7 +114,7 @@ class Application:
 # =====================================================================
 
 def create_application(
-    network,
+    network: Any,
 ) -> Application:
     """
     Construct the canonical headless GridForge Application.
@@ -131,7 +122,7 @@ def create_application(
     Parameters
     ----------
     network:
-        Already-constructed canonical Core Network.
+        Already-created canonical Core Network.
 
     Returns
     -------
@@ -140,15 +131,15 @@ def create_application(
 
     Composition order
     -----------------
-        1. Validate supplied Network.
-        2. Construct ApplicationContext.
-        3. Construct CommandManager.
-        4. Register Application command handlers.
-        5. Return immutable Application runtime.
+    1. Construct ApplicationContext around the canonical Network.
+    2. Construct CommandManager with that context.
+    3. Register canonical model handlers.
+    4. Return the composed Application.
 
-    The function deliberately does not construct the Core Network.
+    The Core Network is intentionally supplied by the caller.
 
-    Core construction belongs to the higher-level Composition Root.
+    This prevents the Application layer from becoming responsible
+    for Core/domain construction.
     """
 
     if network is None:
@@ -160,7 +151,9 @@ def create_application(
         network=network,
     )
 
-    command_manager = CommandManager()
+    command_manager = CommandManager(
+        context,
+    )
 
     register_model_handlers(
         command_manager,
