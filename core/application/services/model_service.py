@@ -63,32 +63,25 @@ Network Ownership
 Once a model object is created, the Network becomes responsible
 for incorporating that object into the assembled network.
 
+Removal follows the same ownership boundary.
+
 For example:
 
-    bus = Bus(...)
     network.add_bus(bus)
-
-Removal follows the same ownership boundary:
-
     network.remove_bus(bus)
 
-The service MUST NOT replace this with:
+and:
 
-    network.buses.append(bus)
+    network.add_line(line)
+    network.remove_line(line)
 
-or:
+The service MUST NOT directly manipulate:
 
-    network.buses.remove(bus)
-
-or:
-
-    network.bus_index[...]
-
-or:
-
+    network.buses
+    network.lines
+    network.bus_index
     network._invalidate_topology()
-
-The public Network API is the Application/Core mutation boundary.
+    network._invalidate_ybus()
 
 Bus Deletion
 ------------
@@ -107,19 +100,42 @@ Network.remove_bus() owns:
     * topology invalidation;
     * Y-bus invalidation.
 
-The Application service therefore does not duplicate any of these
-operations.
+Line Lifecycle
+--------------
+Line physical connectivity is owned by the Line model through:
 
-Current Scope
--------------
-Current concrete operations:
+    line.from_terminal
+    line.to_terminal
 
-    * Bus creation.
-    * Bus deletion.
+The Application service does not manipulate those terminals
+during network membership operations.
 
-Additional equipment operations will be added only after their
-actual Core constructors, ownership rules, and Network APIs have
-been reconciled against the repository.
+Creation:
+
+    Line(...)
+        |
+        v
+    network.add_line(line)
+
+Deletion:
+
+    network.remove_line(line)
+
+Network.remove_line() removes Network membership and invalidates
+derived topology/Y-bus state.
+
+It does not disconnect either Line terminal.
+
+This keeps three concepts separate:
+
+    Terminal connectivity
+        model responsibility
+
+    Network membership
+        network responsibility
+
+    Derived topology/Y-bus
+        network service responsibility
 
 Python Compatibility
 --------------------
@@ -133,11 +149,13 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from core.model import Bus, BusType
+from core.model.line import Line
 
 from ..context import ApplicationContext
 from ..errors import (
     DomainError,
     ExecutionError,
+    ResourceError,
     ValidationError,
 )
 from ..results import ApplicationResult
@@ -212,55 +230,6 @@ class ModelService:
     ) -> ApplicationResult[Bus]:
         """
         Create and register a canonical Core Bus.
-
-        Parameters
-        ----------
-        bus_id:
-            Persistent identifier of the new bus.
-
-        name:
-            Human-readable engineering name.
-
-        bus_type:
-            Canonical Core BusType.
-
-        voltage:
-            Initial per-unit voltage magnitude.
-
-        angle:
-            Initial voltage angle.
-
-        p_spec:
-            Specified active power.
-
-        q_spec:
-            Specified reactive power.
-
-        v_setpoint:
-            Optional voltage setpoint.
-
-        q_min:
-            Minimum reactive-power limit.
-
-        q_max:
-            Maximum reactive-power limit.
-
-        Returns
-        -------
-        ApplicationResult[Bus]
-            Result containing the newly created canonical Bus.
-
-        Raises
-        ------
-        ValidationError
-            If Application-level input is invalid.
-
-        DomainError
-            If the Core rejects the requested operation.
-
-        ExecutionError
-            If an unexpected failure occurs while constructing
-            or registering the Bus.
         """
 
         self._validate_bus_input(
@@ -275,10 +244,6 @@ class ModelService:
             q_min=q_min,
             q_max=q_max,
         )
-
-        # ------------------------------------------------------------
-        # CONSTRUCT CANONICAL CORE MODEL
-        # ------------------------------------------------------------
 
         try:
             bus = Bus(
@@ -306,10 +271,6 @@ class ModelService:
                 },
                 cause=exc,
             ) from exc
-
-        # ------------------------------------------------------------
-        # REGISTER THROUGH PUBLIC NETWORK API
-        # ------------------------------------------------------------
 
         try:
             self._context.network.add_bus(bus)
@@ -365,41 +326,7 @@ class ModelService:
     ) -> ApplicationResult[Bus]:
         """
         Remove a canonical Core Bus from the Network.
-
-        Parameters
-        ----------
-        bus_id:
-            Stable identifier of the registered Bus.
-
-        Returns
-        -------
-        ApplicationResult[Bus]
-            Result containing the removed canonical Bus.
-
-        Raises
-        ------
-        ValidationError
-            If bus_id is invalid.
-
-        DomainError
-            If the Bus does not exist or Core Network rules reject
-            its removal.
-
-        ExecutionError
-            If an unexpected failure occurs during deletion.
-
-        Notes
-        -----
-        The service does not manipulate Network collections.
-
-        It resolves the canonical Bus and delegates removal to:
-
-            Network.remove_bus(bus)
         """
-
-        # ------------------------------------------------------------
-        # APPLICATION INPUT VALIDATION
-        # ------------------------------------------------------------
 
         if not isinstance(bus_id, str) or not bus_id.strip():
             raise ValidationError(
@@ -416,20 +343,15 @@ class ModelService:
 
         network = self._context.network
 
-        # ------------------------------------------------------------
-        # RESOLVE CANONICAL BUS
-        # ------------------------------------------------------------
-
         bus = None
 
         for candidate in network.buses:
-
             if getattr(candidate, "id", None) == bus_id:
                 bus = candidate
                 break
 
         if bus is None:
-            raise DomainError(
+            raise ResourceError(
                 code="BUS_NOT_FOUND",
                 message=(
                     f"Bus '{bus_id}' is not registered "
@@ -441,27 +363,10 @@ class ModelService:
                 },
             )
 
-        # ------------------------------------------------------------
-        # DELEGATE ACTUAL CORE MUTATION
-        # ------------------------------------------------------------
-
         try:
             network.remove_bus(bus)
 
         except ValueError as exc:
-            # Network.remove_bus() uses ValueError for expected
-            # Core-level rejection such as:
-            #
-            #   * unregistered Bus;
-            #   * connected Line;
-            #   * connected Transformer;
-            #   * connected Generator;
-            #   * connected Load;
-            #   * connected Shunt.
-            #
-            # Translate that expected Core rejection into the
-            # Application error taxonomy.
-
             raise DomainError(
                 code="BUS_DELETION_REJECTED",
                 message=(
@@ -488,10 +393,6 @@ class ModelService:
                 cause=exc,
             ) from exc
 
-        # ------------------------------------------------------------
-        # RETURN THE SAME CANONICAL OBJECT
-        # ------------------------------------------------------------
-
         return ApplicationResult.success(
             value=bus,
             message=(
@@ -501,6 +402,300 @@ class ModelService:
                 "operation": "delete_bus",
                 "element_id": bus_id,
                 "element_type": "bus",
+            },
+        )
+
+    # ================================================================
+    # LINE CREATION
+    # ================================================================
+
+    def create_line(
+        self,
+        *,
+        line_id: str,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        r: float,
+        x: float,
+        b: float = 0.0,
+        name: str = "",
+        rate_mva: float = 100.0,
+    ) -> ApplicationResult[Line]:
+        """
+        Create and register a canonical Core Line.
+
+        Parameters
+        ----------
+        line_id:
+            Persistent GridForge Line identifier.
+
+        endpoint_from:
+            Initial from-side physical endpoint.
+
+            This may be a Bus-like object or an existing Terminal,
+            exactly as supported by the canonical Line model.
+
+        endpoint_to:
+            Initial to-side physical endpoint.
+
+        r:
+            Series resistance in per-unit.
+
+        x:
+            Series reactance in per-unit.
+
+        b:
+            Total line shunt susceptance in per-unit.
+
+        name:
+            Human-readable engineering name.
+
+        rate_mva:
+            Thermal/equipment rating in MVA.
+
+        Returns
+        -------
+        ApplicationResult[Line]
+            Result containing the canonical Line.
+
+        Notes
+        -----
+        The Line constructor owns creation of the Line's physical
+        terminals.
+
+        The Application service therefore does NOT call:
+
+            line.connect_from(...)
+            line.connect_to(...)
+
+        after construction.
+
+        The Network is then given ownership of assembled-network
+        membership through:
+
+            network.add_line(line)
+        """
+
+        self._validate_line_input(
+            line_id=line_id,
+            endpoint_from=endpoint_from,
+            endpoint_to=endpoint_to,
+            r=r,
+            x=x,
+            b=b,
+            name=name,
+            rate_mva=rate_mva,
+        )
+
+        # ------------------------------------------------------------
+        # CONSTRUCT CANONICAL CORE LINE
+        # ------------------------------------------------------------
+
+        try:
+            line = Line(
+                id=line_id,
+                endpoint_from=endpoint_from,
+                endpoint_to=endpoint_to,
+                r=r,
+                x=x,
+                b=b,
+                name=name,
+                rate_mva=rate_mva,
+            )
+
+        except ValueError as exc:
+            raise DomainError(
+                code="LINE_CREATION_REJECTED",
+                message=(
+                    f"Line '{line_id}' could not be created."
+                ),
+                details={
+                    "line_id": line_id,
+                    "operation": "create_line",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="LINE_CREATION_FAILED",
+                message=(
+                    f"Unexpected failure while constructing "
+                    f"Line '{line_id}'."
+                ),
+                details={
+                    "line_id": line_id,
+                    "operation": "create_line",
+                },
+                cause=exc,
+            ) from exc
+
+        # ------------------------------------------------------------
+        # REGISTER THROUGH PUBLIC NETWORK API
+        # ------------------------------------------------------------
+
+        try:
+            self._context.network.add_line(line)
+
+        except ValueError as exc:
+            raise DomainError(
+                code="LINE_REGISTRATION_FAILED",
+                message=(
+                    f"Failed to register Line '{line_id}' "
+                    "with the Core Network."
+                ),
+                details={
+                    "line_id": line_id,
+                    "operation": "register_line",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="LINE_REGISTRATION_EXECUTION_FAILED",
+                message=(
+                    f"Unexpected failure while registering "
+                    f"Line '{line_id}'."
+                ),
+                details={
+                    "line_id": line_id,
+                    "operation": "register_line",
+                },
+                cause=exc,
+            ) from exc
+
+        return ApplicationResult.success(
+            value=line,
+            message=(
+                f"Line '{line_id}' created successfully."
+            ),
+            metadata={
+                "operation": "create_line",
+                "element_id": line_id,
+                "element_type": "line",
+            },
+        )
+
+    # ================================================================
+    # LINE DELETION
+    # ================================================================
+
+    def delete_line(
+        self,
+        *,
+        line_id: str,
+    ) -> ApplicationResult[Line]:
+        """
+        Remove a canonical Core Line from the Network.
+
+        Parameters
+        ----------
+        line_id:
+            Stable identifier of the registered Line.
+
+        Returns
+        -------
+        ApplicationResult[Line]
+            Result containing the removed canonical Line.
+
+        Notes
+        -----
+        Network.remove_line() owns actual Network membership
+        mutation and derived-state invalidation.
+
+        This service does not:
+
+            * mutate network.lines;
+            * disconnect Line terminals;
+            * delete endpoint elements;
+            * manipulate topology;
+            * manipulate Y-bus.
+        """
+
+        if not isinstance(line_id, str) or not line_id.strip():
+            raise ValidationError(
+                code="INVALID_LINE_ID",
+                message=(
+                    "Line id must be a non-empty string."
+                ),
+                details={
+                    "field": "line_id",
+                },
+            )
+
+        line_id = line_id.strip()
+
+        network = self._context.network
+
+        # ------------------------------------------------------------
+        # RESOLVE CANONICAL LINE
+        # ------------------------------------------------------------
+
+        line = None
+
+        for candidate in network.lines:
+
+            if getattr(candidate, "id", None) == line_id:
+                line = candidate
+                break
+
+        if line is None:
+            raise ResourceError(
+                code="LINE_NOT_FOUND",
+                message=(
+                    f"Line '{line_id}' is not registered "
+                    "on the Core Network."
+                ),
+                details={
+                    "line_id": line_id,
+                    "operation": "delete_line",
+                },
+            )
+
+        # ------------------------------------------------------------
+        # DELEGATE CORE NETWORK MUTATION
+        # ------------------------------------------------------------
+
+        try:
+            network.remove_line(line)
+
+        except ValueError as exc:
+            raise DomainError(
+                code="LINE_DELETION_REJECTED",
+                message=(
+                    f"Line '{line_id}' could not be removed."
+                ),
+                details={
+                    "line_id": line_id,
+                    "operation": "delete_line",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="LINE_DELETION_FAILED",
+                message=(
+                    f"Unexpected failure while deleting "
+                    f"Line '{line_id}'."
+                ),
+                details={
+                    "line_id": line_id,
+                    "operation": "delete_line",
+                },
+                cause=exc,
+            ) from exc
+
+        return ApplicationResult.success(
+            value=line,
+            message=(
+                f"Line '{line_id}' deleted successfully."
+            ),
+            metadata={
+                "operation": "delete_line",
+                "element_id": line_id,
+                "element_type": "line",
             },
         )
 
@@ -532,11 +727,7 @@ class ModelService:
         canonical Core model.
         """
 
-        if not isinstance(
-            bus_id,
-            str,
-        ) or not bus_id.strip():
-
+        if not isinstance(bus_id, str) or not bus_id.strip():
             raise ValidationError(
                 code="INVALID_BUS_ID",
                 message=(
@@ -547,10 +738,7 @@ class ModelService:
                 },
             )
 
-        if not isinstance(
-            name,
-            str,
-        ):
+        if not isinstance(name, str):
             raise ValidationError(
                 code="INVALID_BUS_NAME",
                 message=(
@@ -561,10 +749,7 @@ class ModelService:
                 },
             )
 
-        if not isinstance(
-            bus_type,
-            BusType,
-        ):
+        if not isinstance(bus_type, BusType):
             raise ValidationError(
                 code="INVALID_BUS_TYPE",
                 message=(
@@ -586,10 +771,7 @@ class ModelService:
 
         for field_name, value in numeric_fields.items():
 
-            if not isinstance(
-                value,
-                (int, float),
-            ):
+            if not isinstance(value, (int, float)):
                 raise ValidationError(
                     code="INVALID_BUS_PARAMETER",
                     message=(
@@ -627,6 +809,131 @@ class ModelService:
                 details={
                     "q_min": q_min,
                     "q_max": q_max,
+                },
+            )
+
+    # ================================================================
+    # LINE INPUT VALIDATION
+    # ================================================================
+
+    @staticmethod
+    def _validate_line_input(
+        *,
+        line_id: str,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        r: float,
+        x: float,
+        b: float,
+        name: str,
+        rate_mva: float,
+    ) -> None:
+        """
+        Validate Application-level Line request integrity.
+
+        Detailed engineering validation remains owned by the
+        canonical Line model.
+        """
+
+        if not isinstance(
+            line_id,
+            str,
+        ) or not line_id.strip():
+            raise ValidationError(
+                code="INVALID_LINE_ID",
+                message=(
+                    "Line id must be a non-empty string."
+                ),
+                details={
+                    "field": "line_id",
+                },
+            )
+
+        if endpoint_from is None:
+            raise ValidationError(
+                code="INVALID_LINE_FROM_ENDPOINT",
+                message=(
+                    "Line from endpoint must not be None."
+                ),
+                details={
+                    "field": "endpoint_from",
+                },
+            )
+
+        if endpoint_to is None:
+            raise ValidationError(
+                code="INVALID_LINE_TO_ENDPOINT",
+                message=(
+                    "Line to endpoint must not be None."
+                ),
+                details={
+                    "field": "endpoint_to",
+                },
+            )
+
+        if endpoint_from is endpoint_to:
+            raise ValidationError(
+                code="INVALID_LINE_ENDPOINTS",
+                message=(
+                    "Line from and to endpoints must be distinct."
+                ),
+                details={
+                    "field": "endpoint_from/endpoint_to",
+                },
+            )
+
+        if not isinstance(r, (int, float)):
+            raise ValidationError(
+                code="INVALID_LINE_RESISTANCE",
+                message=(
+                    "Line resistance r must be numeric."
+                ),
+                details={
+                    "field": "r",
+                },
+            )
+
+        if not isinstance(x, (int, float)):
+            raise ValidationError(
+                code="INVALID_LINE_REACTANCE",
+                message=(
+                    "Line reactance x must be numeric."
+                ),
+                details={
+                    "field": "x",
+                },
+            )
+
+        if not isinstance(b, (int, float)):
+            raise ValidationError(
+                code="INVALID_LINE_SUSCEPTANCE",
+                message=(
+                    "Line shunt susceptance b must be numeric."
+                ),
+                details={
+                    "field": "b",
+                },
+            )
+
+        if not isinstance(name, str):
+            raise ValidationError(
+                code="INVALID_LINE_NAME",
+                message=(
+                    "Line name must be a string."
+                ),
+                details={
+                    "field": "name",
+                },
+            )
+
+        if not isinstance(rate_mva, (int, float)):
+            raise ValidationError(
+                code="INVALID_LINE_RATING",
+                message=(
+                    "Line rate_mva must be numeric."
+                ),
+                details={
+                    "field": "rate_mva",
                 },
             )
 
