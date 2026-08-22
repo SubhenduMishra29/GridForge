@@ -1,3 +1,7 @@
+# ============================================================
+# File: core/network/topology.py
+# GridForge V2 — Network Layer
+# ============================================================
 """
 GridForge Network Layer V2
 ==========================
@@ -33,6 +37,7 @@ Does NOT
 
 Architecture
 ------------
+
     core/model/
         Canonical electrical entities
                 |
@@ -51,6 +56,7 @@ Architecture
     core/solver/
         Numerical algorithms
 
+
 Topology Principle
 ------------------
 The topology manager operates on canonical objects already owned
@@ -59,15 +65,50 @@ by the Network.
 It does not create replacement Bus, Line, Transformer, Breaker, or
 other electrical model objects.
 
+
+Terminal Principle
+------------------
+The physical connection architecture is terminal-first.
+
+For topology-forming equipment, the authoritative endpoint is:
+
+    element.from_terminal.endpoint
+    element.to_terminal.endpoint
+
+The topology layer may use:
+
+    terminal.bus
+
+only as a compatibility accessor after resolving the authoritative
+terminal endpoint.
+
+A Terminal endpoint may itself be another Terminal. In that case
+the Terminal compatibility accessor resolves the connected endpoint
+through the terminal chain.
+
+The topology manager therefore resolves the terminal endpoint first
+and only then determines the corresponding Network bus.
+
+This preserves the separation:
+
+    core/model
+        physical connection state
+
+    core/network
+        global electrical topology
+
+
 Graph Representation
 --------------------
 A NetworkX MultiGraph is used because multiple physical electrical
 connections may exist between the same pair of buses.
 
 Nodes:
+
     bus.id
 
 Edges:
+
     Physical topology-forming network elements.
 
 Each edge stores:
@@ -78,6 +119,7 @@ Each edge stores:
     type
         Logical element type.
 
+
 Current V2 topology-forming branch classes are:
 
     - Line
@@ -85,6 +127,7 @@ Current V2 topology-forming branch classes are:
 
 Switching-device topology can be extended when the Network exposes
 those canonical switching elements to the topology layer.
+
 
 Service State
 -------------
@@ -96,6 +139,7 @@ are excluded from the active topology graph.
 
 Network-level invalidation remains owned by Network. The topology
 manager maintains only the dirty state of its own derived graph.
+
 
 GridForge V2 Status
 -------------------
@@ -135,6 +179,7 @@ class TopologyManager:
     The manager maintains a derived graph.
 
     The graph is never the source of truth for electrical equipment.
+
     Canonical model objects remain owned by the Network/model layers.
 
     Network-level state invalidation is owned by ``Network``.
@@ -144,7 +189,10 @@ class TopologyManager:
     # INITIALIZATION
     # =================================================================
 
-    def __init__(self, network: Any) -> None:
+    def __init__(
+        self,
+        network: Any,
+    ) -> None:
         """
         Initialize the topology manager.
         """
@@ -260,6 +308,129 @@ class TopologyManager:
         return self.graph
 
     # =================================================================
+    # BRANCH ENDPOINT RESOLUTION
+    # =================================================================
+
+    @staticmethod
+    def _resolve_terminal_bus(
+        terminal: Any,
+        element: Any,
+        terminal_name: str,
+        element_type: str,
+    ) -> Any:
+        """
+        Resolve the canonical Bus associated with a branch Terminal.
+
+        Parameters
+        ----------
+        terminal :
+            Authoritative Terminal object.
+
+        element :
+            Owning branch model object.
+
+        terminal_name : str
+            Diagnostic terminal name, normally ``from_terminal`` or
+            ``to_terminal``.
+
+        element_type : str
+            Logical branch type.
+
+        Returns
+        -------
+        object
+            Bus-like endpoint.
+
+        Raises
+        ------
+        AttributeError
+            If the branch does not expose the required Terminal or
+            if the terminal has no connected endpoint.
+
+        ValueError
+            If the terminal endpoint cannot be resolved to a Bus-like
+            object.
+
+        Notes
+        -----
+        ``terminal.endpoint`` is the authoritative physical
+        connection reference.
+
+        ``terminal.bus`` is used only after validating that the
+        terminal exists and is connected.
+
+        This method deliberately does not import the concrete Bus
+        class. The Network/Topology layer operates against the
+        existing Bus-like contract.
+        """
+
+        if terminal is None:
+            raise AttributeError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"must provide a '{terminal_name}' Terminal."
+            )
+
+        if not hasattr(
+            terminal,
+            "endpoint",
+        ):
+            raise AttributeError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"has an invalid '{terminal_name}' Terminal: "
+                "missing endpoint."
+            )
+
+        endpoint = getattr(
+            terminal,
+            "endpoint",
+            None,
+        )
+
+        if endpoint is None:
+            raise ValueError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"has a disconnected '{terminal_name}' Terminal."
+            )
+
+        # -------------------------------------------------------------
+        # Authoritative terminal endpoint has been established.
+        #
+        # The Terminal model already provides the compatibility
+        # resolution through terminal.bus, including the case where
+        # endpoint is another Terminal.
+        # -------------------------------------------------------------
+
+        bus = getattr(
+            terminal,
+            "bus",
+            None,
+        )
+
+        if bus is None:
+            raise ValueError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"'{terminal_name}' Terminal endpoint "
+                "does not resolve to a Bus."
+            )
+
+        if not hasattr(
+            bus,
+            "id",
+        ):
+            raise AttributeError(
+                f"{element_type.capitalize()} "
+                f"'{getattr(element, 'id', element)}' "
+                f"'{terminal_name}' Terminal resolved to an "
+                "endpoint without an 'id' attribute."
+            )
+
+        return bus
+
+    # =================================================================
     # BRANCH GRAPH SUPPORT
     # =================================================================
 
@@ -283,10 +454,18 @@ class TopologyManager:
         -----
         Elements that are out of service are ignored.
 
+        Branch endpoints are resolved from the authoritative
+        Terminal objects:
+
+            element.from_terminal.endpoint
+            element.to_terminal.endpoint
+
+        The topology graph remains bus-centric.
+
         A branch whose endpoints are identical is ignored because it
         does not provide inter-bus connectivity.
 
-        Missing endpoints are treated as structural errors because
+        Missing or unresolved endpoints are structural errors because
         topology cannot be constructed safely without them.
         """
 
@@ -297,35 +476,39 @@ class TopologyManager:
         ):
             return
 
-        from_bus = getattr(
+        # -------------------------------------------------------------
+        # AUTHORITATIVE TERMINAL ENDPOINTS
+        # -------------------------------------------------------------
+
+        from_terminal = getattr(
             element,
-            "from_bus",
+            "from_terminal",
             None,
         )
 
-        to_bus = getattr(
+        to_terminal = getattr(
             element,
-            "to_bus",
+            "to_terminal",
             None,
         )
 
-        if from_bus is None or to_bus is None:
-            raise AttributeError(
-                f"{element_type.capitalize()} topology element "
-                "must provide from_bus and to_bus."
-            )
+        from_bus = self._resolve_terminal_bus(
+            from_terminal,
+            element,
+            "from_terminal",
+            element_type,
+        )
 
-        if not hasattr(from_bus, "id"):
-            raise AttributeError(
-                f"{element_type.capitalize()} from_bus must "
-                "provide an 'id' attribute."
-            )
+        to_bus = self._resolve_terminal_bus(
+            to_terminal,
+            element,
+            "to_terminal",
+            element_type,
+        )
 
-        if not hasattr(to_bus, "id"):
-            raise AttributeError(
-                f"{element_type.capitalize()} to_bus must "
-                "provide an 'id' attribute."
-            )
+        # -------------------------------------------------------------
+        # BUS IDENTIFIERS
+        # -------------------------------------------------------------
 
         u = from_bus.id
         v = to_bus.id
@@ -401,13 +584,19 @@ class TopologyManager:
 
         a = (
             bus_a.id
-            if hasattr(bus_a, "id")
+            if hasattr(
+                bus_a,
+                "id",
+            )
             else bus_a
         )
 
         b = (
             bus_b.id
-            if hasattr(bus_b, "id")
+            if hasattr(
+                bus_b,
+                "id",
+            )
             else bus_b
         )
 
@@ -431,7 +620,9 @@ class TopologyManager:
     # ISLAND DETECTION
     # =================================================================
 
-    def find_islands(self) -> list[list[Any]]:
+    def find_islands(
+        self,
+    ) -> list[list[Any]]:
         """
         Return the electrical islands in the current topology.
 
@@ -459,7 +650,9 @@ class TopologyManager:
     # ISLANDING CHECK
     # =================================================================
 
-    def has_islanding(self) -> bool:
+    def has_islanding(
+        self,
+    ) -> bool:
         """
         Return True when the network contains more than one island.
         """
@@ -640,7 +833,9 @@ class TopologyManager:
     # GRAPH ACCESS
     # =================================================================
 
-    def get_graph(self) -> nx.MultiGraph:
+    def get_graph(
+        self,
+    ) -> nx.MultiGraph:
         """
         Return the current derived topology graph.
 
@@ -653,7 +848,9 @@ class TopologyManager:
     # SUMMARY
     # =================================================================
 
-    def summary(self) -> dict[str, Any]:
+    def summary(
+        self,
+    ) -> dict[str, Any]:
         """
         Return concise topology diagnostics.
         """
@@ -673,7 +870,9 @@ class TopologyManager:
     # REPRESENTATION
     # =================================================================
 
-    def __repr__(self) -> str:
+    def __repr__(
+        self,
+    ) -> str:
         """
         Return a concise developer-facing representation.
         """
