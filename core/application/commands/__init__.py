@@ -11,19 +11,16 @@ Package:
 
 Purpose
 -------
-Contains concrete Application Commands representing explicit
-user/plugin/application intent.
+Public Application command boundary.
 
-Commands belong to the Application layer.
+Concrete commands represent explicit Application intent.
 
-They are NOT:
+Commands:
 
-    * Core domain entities;
-    * UI actions;
-    * Qt events;
-    * graphics objects;
-    * controller state;
-    * domain services.
+    CreateBusCommand
+    DeleteBusCommand
+    CreateLineCommand
+    DeleteLineCommand
 
 Architectural flow
 ------------------
@@ -37,26 +34,63 @@ Architectural flow
        CommandManager
               |
               v
+       Application Handler
+              |
+              v
        Application Service
               |
               v
              Core
 
-A command expresses intent.
+Commands do NOT:
 
-An Application Service performs the use-case orchestration.
+    * mutate Core;
+    * mutate Network;
+    * manipulate topology;
+    * access Qt;
+    * access graphics objects;
+    * execute services.
 
-The Core remains responsible for domain rules and canonical
-electrical state.
+The command package is therefore a transportable Application
+intent boundary.
 
-Current Status
---------------
-Concrete commands are introduced only when the corresponding
-Application service and Core operation have been reconciled.
+Current model commands
+----------------------
 
-No command should bypass the Application execution boundary.
+    model.create_bus
+    model.delete_bus
+    model.create_line
+    model.delete_line
+
+The corresponding handlers are registered through the
+Application composition boundary.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from .model_commands import (
+    CREATE_BUS,
+    CREATE_LINE,
+    DELETE_BUS,
+    DELETE_LINE,
+    CreateBusCommand,
+    CreateLineCommand,
+    DeleteBusCommand,
+    DeleteLineCommand,
+)
+
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
+
+__all__ = [
+    "CREATE_BUS",
+    "DELETE_BUS",
+    "CREATE_LINE",
+    "DELETE_LINE",
+    "CreateBusCommand",
+    "DeleteBusCommand",
+    "CreateLineCommand",
+    "DeleteLineCommand",
+]
