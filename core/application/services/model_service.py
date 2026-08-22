@@ -175,6 +175,9 @@ Python Compatibility
 GridForge V2 targets Python 3.10/3.11.
 
 No Python 3.12-only syntax is used.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
 """
 
 from __future__ import annotations
@@ -731,7 +734,7 @@ class ModelService:
             Off-nominal transformer tap ratio.
 
         shift:
-            Phase-shift angle in degrees.
+            Phase-shift angle in radians.
 
         name:
             Human-readable engineering name.
@@ -1230,6 +1233,9 @@ class ModelService:
 
         Detailed engineering/domain validation remains owned by
         the canonical Transformer model.
+
+        ``shift`` is expressed in radians, matching the canonical
+        Transformer model contract.
         """
 
         if not isinstance(
