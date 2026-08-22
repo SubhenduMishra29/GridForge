@@ -1,6 +1,6 @@
 # ============================================================
 # File: core/application/results.py
-# GridForge V2 — Headless Application Results
+# GridForge V2 — Application Result Contract
 # ============================================================
 """
 GridForge V2
@@ -11,242 +11,320 @@ Module:
 
 Purpose
 -------
-Defines the structured result contract used by the GridForge V2
-Headless Application layer.
+Defines the immutable result contract returned by the headless
+Application layer.
 
-Application operations must not return UI-specific objects,
-Qt objects, widgets, graphics items, or presentation state.
+Application services and command handlers return ApplicationResult
+objects instead of exposing UI-specific state or implementation
+details.
 
-Instead, successful Application operations return an
-ApplicationResult containing:
+Architecture
+------------
 
-    * success state;
-    * optional result value;
-    * optional structured metadata.
+    Application Command
+            |
+            v
+       Command Handler
+            |
+            v
+      Application Service
+            |
+            v
+      ApplicationResult
+            |
+            v
+      Application Consumer
 
-Architectural Boundary
-----------------------
-The dependency direction is:
 
-    UI / Plugins
-          |
-          v
-    core.application
-          |
-          v
-    Core Domain / Network / Analysis
+Result Categories
+-----------------
+The result contract supports:
 
-This module therefore has no dependency on:
+    * success
+    * validation failure
+    * domain failure
+    * resource failure
+    * execution failure
 
-    * PySide6;
-    * PyQt;
-    * Qt;
-    * UI;
-    * SLD;
-    * canvas;
-    * renderers;
-    * UI controllers;
-    * plugin implementations.
+The result object is immutable.
 
-Result objects are immutable.
+Python Compatibility
+--------------------
+GridForge V2 supports Python 3.10 and Python 3.11.
 
-The Application layer owns the structure of the result, while
-the contained ``value`` remains owned by the operation that
-produced it.
+Therefore this module intentionally does NOT use Python 3.12's
+PEP 695 generic class syntax:
 
-Design Principle
-----------------
-The result contract must remain deliberately small.
+    class ApplicationResult[T]:
 
-It must NOT become:
+Instead it uses:
 
-    * a second domain model;
-    * a UI state container;
-    * a serialization framework;
-    * a logging mechanism;
-    * an event bus.
+    TypeVar
+    Generic
 
-The result communicates the outcome of one Application operation.
-
-Typical usage
--------------
-A successful operation may return:
-
-    ApplicationResult.success(
-        value=created_bus,
-        message="Bus created.",
-    )
-
-An operation that completed successfully but has no meaningful
-return object may return:
-
-    ApplicationResult.success(
-        message="Operation completed.",
-    )
-
-For operations where the caller needs structured information:
-
-    ApplicationResult.success(
-        value={"element_id": element_id},
-        metadata={"operation": "create"},
-    )
-
-Failure handling
-----------------
-Expected failures are represented by the Application error
-contract in ``core.application.errors``.
-
-A successful ``ApplicationResult`` therefore represents only
-successful execution.
-
-Unexpected Python exceptions must not be silently converted
-into successful results.
-
-Result semantics
-----------------
-``success``:
-    Indicates successful Application execution.
-
-``value``:
-    Optional operation-specific return value.
-
-``message``:
-    Optional human-readable outcome description.
-
-``metadata``:
-    Optional structured information associated with the result.
-
-No UI assumptions are made about any of these fields.
+which is compatible with Python 3.10/3.11.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, TypeVar
+from typing import Any, Generic, Mapping, TypeVar
 
+
+# =====================================================================
+# TYPE VARIABLE
+# =====================================================================
 
 T = TypeVar("T")
 
 
+# =====================================================================
+# APPLICATION RESULT
+# =====================================================================
+
 @dataclass(frozen=True)
-class ApplicationResult[T]:
+class ApplicationResult(Generic[T]):
     """
-    Immutable result returned by a successful Application operation.
+    Immutable result returned by the Application layer.
 
     Parameters
     ----------
+    success:
+        True when the requested Application operation completed
+        successfully.
+
     value:
-        Optional operation-specific result.
+        Optional result value produced by the operation.
 
     message:
-        Optional human-readable description of the successful
-        operation.
+        Human-readable description of the result.
+
+    code:
+        Stable machine-readable result code.
+
+    category:
+        Result classification.
 
     metadata:
-        Optional structured metadata associated with the result.
+        Optional immutable mapping containing structured result
+        information.
 
     Notes
     -----
-    ``ApplicationResult`` deliberately does not contain an error
-    field.
+    The result object contains Application-level information only.
 
-    Expected failures belong to ``ApplicationError`` and its
-    subclasses.
+    It must not contain:
 
-    This keeps success and failure semantics explicit rather than
-    creating an ambiguous result object that can simultaneously
-    represent success and failure.
+        * Qt objects;
+        * UI objects;
+        * QGraphicsItem instances;
+        * widgets;
+        * renderers;
+        * canvas state.
+
+    A Core model object may be returned as ``value`` when that object
+    is the canonical result of the requested operation.
     """
 
+    success: bool
     value: T | None = None
-    message: str | None = None
+    message: str = ""
+    code: str = ""
+    category: str = "success"
     metadata: Mapping[str, Any] | None = None
 
-    def __post_init__(self) -> None:
-        """Validate the structural integrity of the result."""
-
-        if self.message is not None and not isinstance(
-            self.message,
-            str,
-        ):
-            raise ValueError(
-                "ApplicationResult message must be a string or None."
-            )
-
-        if self.metadata is not None and not isinstance(
-            self.metadata,
-            Mapping,
-        ):
-            raise ValueError(
-                "ApplicationResult metadata must be a mapping or None."
-            )
+    # =================================================================
+    # SUCCESS FACTORY
+    # =================================================================
 
     @classmethod
-    def success(
+    def success_result(
         cls,
-        value: T | None = None,
         *,
-        message: str | None = None,
+        value: T | None = None,
+        message: str = "",
+        code: str = "OK",
         metadata: Mapping[str, Any] | None = None,
-    ) -> ApplicationResult[T]:
+    ) -> "ApplicationResult[T]":
         """
-        Construct a successful Application result.
+        Construct a successful ApplicationResult.
 
         Parameters
         ----------
         value:
-            Optional value produced by the operation.
+            Optional operation result.
 
         message:
-            Optional human-readable success message.
+            Human-readable success message.
+
+        code:
+            Stable success code.
 
         metadata:
-            Optional structured operation metadata.
-
-        Returns
-        -------
-        ApplicationResult[T]
-            Immutable successful result.
+            Optional structured result metadata.
         """
+
         return cls(
+            success=True,
             value=value,
             message=message,
+            code=code,
+            category="success",
             metadata=metadata,
         )
 
-    def has_value(self) -> bool:
-        """
-        Return whether the result contains a non-None value.
+    # =================================================================
+    # COMPATIBILITY SUCCESS FACTORY
+    # =================================================================
 
-        This is a convenience query only.
-
-        ``None`` is a valid operation result, so callers should not
-        interpret the absence of a value as a failed operation.
+    @classmethod
+    def success(
+        cls,
+        *,
+        value: T | None = None,
+        message: str = "",
+        code: str = "OK",
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "ApplicationResult[T]":
         """
-        return self.value is not None
+        Construct a successful ApplicationResult.
 
-    def get(
-        self,
-        default: T | None = None,
-    ) -> T | None:
+        This is the canonical convenience API used by Application
+        services.
+
+        Example
+        -------
+        ::
+
+            return ApplicationResult.success(
+                value=bus,
+                message="Bus created successfully.",
+                metadata={
+                    "operation": "create_bus",
+                    "element_id": bus.id,
+                },
+            )
         """
-        Return the contained value.
+
+        return cls.success_result(
+            value=value,
+            message=message,
+            code=code,
+            metadata=metadata,
+        )
+
+    # =================================================================
+    # FAILURE FACTORY
+    # =================================================================
+
+    @classmethod
+    def failure(
+        cls,
+        *,
+        message: str,
+        code: str,
+        category: str,
+        value: T | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "ApplicationResult[T]":
+        """
+        Construct a failed ApplicationResult.
 
         Parameters
         ----------
-        default:
-            Value returned when ``value`` is ``None``.
+        message:
+            Human-readable failure description.
 
-        Returns
-        -------
-        T | None
-            The operation result value or the supplied default.
+        code:
+            Stable machine-readable failure code.
+
+        category:
+            Failure category.
+
+        value:
+            Optional partial/result value.
+
+        metadata:
+            Optional structured failure metadata.
         """
-        if self.value is None:
-            return default
 
-        return self.value
+        if not message:
+            raise ValueError(
+                "ApplicationResult failure message "
+                "must not be empty."
+            )
 
+        if not code:
+            raise ValueError(
+                "ApplicationResult failure code "
+                "must not be empty."
+            )
+
+        if not category:
+            raise ValueError(
+                "ApplicationResult failure category "
+                "must not be empty."
+            )
+
+        return cls(
+            success=False,
+            value=value,
+            message=message,
+            code=code,
+            category=category,
+            metadata=metadata,
+        )
+
+    # =================================================================
+    # STATUS HELPERS
+    # =================================================================
+
+    @property
+    def failed(self) -> bool:
+        """
+        Return True when the operation failed.
+        """
+
+        return not self.success
+
+    # -----------------------------------------------------------------
+
+    @property
+    def is_success(self) -> bool:
+        """
+        Return True when the operation succeeded.
+        """
+
+        return self.success
+
+    # -----------------------------------------------------------------
+
+    @property
+    def is_failure(self) -> bool:
+        """
+        Return True when the operation failed.
+        """
+
+        return not self.success
+
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
+
+    def __bool__(self) -> bool:
+        """
+        Allow ApplicationResult to be evaluated as a boolean.
+
+        True  -> successful result
+        False -> failed result
+        """
+
+        return self.success
+
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
 
 __all__ = [
     "ApplicationResult",
