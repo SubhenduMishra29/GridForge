@@ -11,99 +11,70 @@ Module:
 
 Purpose
 -------
-Defines Application-layer command history.
+Owns Application-layer command history.
 
-Command history belongs to the Application layer because
-undo/redo is an Application interaction concern, not a Core
-domain concern.
+History records successful Application commands.
 
-The Core remains responsible for domain state and domain
-operations.
+IMPORTANT
+---------
+A command being present in history does NOT automatically mean
+that it is undoable.
 
-Architectural flow
-------------------
+Undo requires an explicit reversible-command contract.
 
-    UI / Plugin / Automation
-              |
-              v
-       Application
-              |
-              v
-       CommandManager
-              |
-              v
-       Command Handler
-              |
-              v
-       Application Service
-              |
-              v
-             Core
+Therefore this module distinguishes:
 
-History is maintained alongside Application command execution.
+    history availability
+        from
+    undo/redo executability.
 
-Responsibilities
-----------------
-ApplicationHistory owns:
+Architecture
+------------
 
-    * executed command records;
-    * undo stack;
-    * redo stack;
-    * history inspection;
-    * history clearing.
+    Command
+       |
+       v
+    CommandManager
+       |
+       +----> CommandHistory
+       |
+       +----> Application Service
+                    |
+                    v
+                   Core
 
-It does NOT:
+The history layer never mutates Core.
 
-    * execute commands;
-    * mutate Core;
-    * know about Qt;
-    * know about UI;
-    * know about SLD/canvas;
-    * calculate engineering results;
-    * access Network internals.
+Headless Requirement
+--------------------
+No dependency on:
 
-Undo / Redo
------------
-This module intentionally stores Application command records.
-
-Actual inverse execution is NOT invented here.
-
-A command must explicitly provide an undo strategy before the
-Application can safely perform undo.
-
-Therefore this initial implementation establishes the history
-boundary and metadata contract without pretending that every
-command is reversible.
+    * Qt
+    * PySide6
+    * UI
+    * SLD
+    * Canvas
+    * Renderers
+    * Controllers
 
 Python Compatibility
 --------------------
-GridForge V2 targets Python 3.10/3.11.
+Python 3.10 / 3.11.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
 
 from .command import Command
+from .reversible import is_reversible
 
 
 @dataclass(frozen=True)
 class CommandRecord:
     """
-    Immutable record of an Application command execution.
-
-    Parameters
-    ----------
-    command:
-        Original immutable Application command.
-
-    executed_at:
-        UTC timestamp at which the command was recorded.
-
-    description:
-        Optional human-readable description.
+    Immutable record of a successfully executed Application command.
     """
 
     command: Command
@@ -112,7 +83,7 @@ class CommandRecord:
 
     @property
     def command_type(self) -> str:
-        """Return the semantic command type."""
+        """Return the command's semantic type."""
         return self.command.command_type
 
     @property
@@ -120,15 +91,24 @@ class CommandRecord:
         """Return the command instance identifier."""
         return str(self.command.command_id)
 
+    @property
+    def reversible(self) -> bool:
+        """
+        Return whether the recorded command explicitly supports
+        reversibility.
+        """
+        return is_reversible(self.command)
+
 
 class CommandHistory:
     """
-    Headless Application command history.
+    Application-owned command history.
 
-    The history object stores immutable command records.
+    This object stores successful command records.
 
-    It does not execute commands and therefore has no dependency
-    on the Core execution mechanism.
+    It does not execute commands.
+
+    It does not modify Core state.
     """
 
     def __init__(self) -> None:
@@ -148,10 +128,7 @@ class CommandHistory:
         """
         Record a successfully executed command.
 
-        Recording a new command invalidates the redo stack.
-
-        The command should only be recorded after successful
-        Application execution.
+        A new successful command invalidates the redo stack.
         """
 
         if not isinstance(command, Command):
@@ -179,21 +156,53 @@ class CommandHistory:
         return record
 
     # ========================================================
-    # UNDO STACK
+    # UNDO CAPABILITY
     # ========================================================
 
-    def can_undo(self) -> bool:
-        """Return whether an undo record exists."""
+    def has_history(self) -> bool:
+        """
+        Return whether any successful command has been recorded.
+        """
         return bool(self._undo_stack)
 
+    def can_undo(self) -> bool:
+        """
+        Return whether the next history entry is explicitly
+        reversible.
+        """
+
+        record = self.peek_undo()
+
+        if record is None:
+            return False
+
+        return record.reversible
+
     def undo_count(self) -> int:
-        """Return the number of records in the undo stack."""
+        """
+        Return the number of recorded commands.
+        """
         return len(self._undo_stack)
+
+    def reversible_undo_count(self) -> int:
+        """
+        Return the number of currently recorded reversible commands.
+
+        This does not imply that every earlier command can be
+        independently undone without respecting stack order.
+        """
+
+        return sum(
+            1
+            for record in self._undo_stack
+            if record.reversible
+        )
 
     def peek_undo(self) -> CommandRecord | None:
         """
-        Return the most recent undo record without removing it.
+        Return the most recent history record without removing it.
         """
+
         if not self._undo_stack:
             return None
 
@@ -203,44 +212,67 @@ class CommandHistory:
         """
         Remove and return the most recent undo record.
 
-        This operation only changes history state.
+        This only changes history.
 
-        It does NOT undo Core/Application state.
+        It does NOT execute an inverse command.
         """
+
         if not self._undo_stack:
             return None
 
         return self._undo_stack.pop()
 
     # ========================================================
-    # REDO STACK
+    # REDO CAPABILITY
     # ========================================================
 
     def can_redo(self) -> bool:
-        """Return whether a redo record exists."""
-        return bool(self._redo_stack)
+        """
+        Return whether the next redo record is explicitly
+        reversible.
+        """
+
+        record = self.peek_redo()
+
+        if record is None:
+            return False
+
+        return record.reversible
 
     def redo_count(self) -> int:
-        """Return the number of records in the redo stack."""
+        """
+        Return the number of redo records.
+        """
         return len(self._redo_stack)
 
     def peek_redo(self) -> CommandRecord | None:
         """
         Return the most recent redo record without removing it.
         """
+
         if not self._redo_stack:
             return None
 
         return self._redo_stack[-1]
+
+    def pop_redo(self) -> CommandRecord | None:
+        """
+        Remove and return the most recent redo record.
+
+        This only changes history.
+        """
+
+        if not self._redo_stack:
+            return None
+
+        return self._redo_stack.pop()
 
     def push_redo(
         self,
         record: CommandRecord,
     ) -> None:
         """
-        Move a record into the redo stack.
-
-        No Core operation is performed.
+        Add a record to the redo stack.
         """
 
         if not isinstance(record, CommandRecord):
@@ -250,35 +282,31 @@ class CommandHistory:
 
         self._redo_stack.append(record)
 
-    def pop_redo(self) -> CommandRecord | None:
-        """
-        Remove and return the most recent redo record.
-        """
-        if not self._redo_stack:
-            return None
-
-        return self._redo_stack.pop()
-
     # ========================================================
-    # HISTORY QUERIES
+    # HISTORY INSPECTION
     # ========================================================
 
-    def undo_commands(self) -> tuple[CommandRecord, ...]:
+    def undo_commands(
+        self,
+    ) -> tuple[CommandRecord, ...]:
         """
-        Return an immutable snapshot of undo history.
+        Return an immutable snapshot of the undo history.
         """
         return tuple(self._undo_stack)
 
-    def redo_commands(self) -> tuple[CommandRecord, ...]:
+    def redo_commands(
+        self,
+    ) -> tuple[CommandRecord, ...]:
         """
-        Return an immutable snapshot of redo history.
+        Return an immutable snapshot of the redo history.
         """
         return tuple(self._redo_stack)
 
     def undo_name(self) -> str | None:
         """
-        Return the description/type of the next undo operation.
+        Return the next undo command description/type.
         """
+
         record = self.peek_undo()
 
         if record is None:
@@ -288,8 +316,9 @@ class CommandHistory:
 
     def redo_name(self) -> str | None:
         """
-        Return the description/type of the next redo operation.
+        Return the next redo command description/type.
         """
+
         record = self.peek_redo()
 
         if record is None:
@@ -305,19 +334,22 @@ class CommandHistory:
         """
         Clear both undo and redo history.
         """
+
         self._undo_stack.clear()
         self._redo_stack.clear()
 
     def clear_redo(self) -> None:
         """
-        Clear only the redo stack.
+        Clear only redo history.
         """
+
         self._redo_stack.clear()
 
     def reset(self) -> None:
         """
-        Reset Application command history.
+        Reset the complete Application history.
         """
+
         self.clear()
 
 
