@@ -1,55 +1,31 @@
 # ============================================================
 # File: core/application/commands/model_commands.py
-# GridForge V2 — Headless Model Commands
+# GridForge V2 — Model Commands
+# Author: Subhendu Mishra
 # ============================================================
 """
 GridForge V2
 ============
 
-Module:
-    core.application.commands.model_commands
+Application commands for canonical electrical model operations.
 
-Purpose
--------
-Defines immutable Application commands for canonical electrical
-model creation and removal.
-
-Architectural flow
+Architectural role
 ------------------
-
-    UI / Plugin / Automation
-              |
-              v
-       Model Command
-              |
-              v
-       CommandManager
-              |
-              v
-         Command Handler
-              |
-              v
-         ModelService
-              |
-              v
-             Core
-
-Command objects represent Application intent only.
+These classes represent immutable Application intent.
 
 They do NOT:
 
-    * mutate Core;
-    * mutate Network;
-    * manipulate terminals;
-    * manipulate topology;
-    * build Y-bus;
-    * access Qt;
-    * access graphics objects;
-    * own Application services;
-    * own CommandManager.
+    - mutate Core models;
+    - mutate Network;
+    - manipulate terminals;
+    - manipulate topology;
+    - build Y-bus;
+    - access Qt;
+    - access graphics objects;
+    - execute services.
 
-The command manager dispatches the command to a registered
-handler. The handler performs Application-level orchestration.
+Execution is performed by CommandManager through registered
+Application handlers.
 
 Current commands
 ----------------
@@ -59,38 +35,33 @@ Current commands
     CreateLineCommand
     DeleteLineCommand
 
-Line endpoint rule
-------------------
-CreateLineCommand carries endpoint identifiers, not Core model
-objects.
-
-The handler resolves those identifiers against the canonical
-Application/Core Network before calling ModelService.
-
-This preserves the headless Application boundary.
-
-Immutability
-------------
-Command payloads use MappingProxyType so callers cannot mutate
-the command payload after construction.
-
-Python Compatibility
+Line endpoint policy
 --------------------
-GridForge V2 targets Python 3.10/3.11.
+CreateLineCommand carries endpoint identifiers rather than
+Core model objects.
+
+The corresponding handler resolves those identifiers against
+the canonical Network before invoking ModelService.
+
+This keeps commands transport-friendly and prevents Core/UI
+objects from leaking into the command payload.
+
+Python compatibility
+---------------------
+Python 3.10 / 3.11.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
 from types import MappingProxyType
-from typing import Any, Mapping
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
 
 from ..command import Command
 
 
 # =====================================================================
-# COMMAND TYPE CONSTANTS
+# COMMAND TYPES
 # =====================================================================
 
 CREATE_BUS = "model.create_bus"
@@ -101,22 +72,17 @@ DELETE_LINE = "model.delete_line"
 
 
 # =====================================================================
-# INTERNAL PAYLOAD HELPER
+# PAYLOAD HELPER
 # =====================================================================
 
-def _immutable_payload(
-    payload: Mapping[str, Any],
-) -> Mapping[str, Any]:
+def _payload(**values: Any) -> MappingProxyType:
     """
-    Convert an Application command payload into an immutable mapping.
+    Create an immutable command payload.
 
-    MappingProxyType prevents mutation of the mapping itself.
-
-    The values are Application-level values only and must not contain
-    UI objects or graphics objects.
+    The command payload contains only Application-level values.
     """
 
-    return MappingProxyType(dict(payload))
+    return MappingProxyType(values)
 
 
 # =====================================================================
@@ -125,41 +91,7 @@ def _immutable_payload(
 
 class CreateBusCommand(Command):
     """
-    Application intent to create a canonical Core Bus.
-
-    Parameters
-    ----------
-    bus_id:
-        Stable Bus identifier.
-
-    name:
-        Human-readable Bus name.
-
-    bus_type:
-        BusType value expected by ModelService.
-
-    voltage:
-        Initial voltage magnitude.
-
-    angle:
-        Initial voltage angle.
-
-    p_spec:
-        Active-power specification.
-
-    q_spec:
-        Reactive-power specification.
-
-    v_setpoint:
-        Optional voltage setpoint.
-
-    q_min:
-        Minimum reactive-power limit.
-
-    q_max:
-        Maximum reactive-power limit.
-
-    The command itself does not construct the Core Bus.
+    Request creation of a canonical Core Bus.
     """
 
     def __init__(
@@ -182,25 +114,22 @@ class CreateBusCommand(Command):
 
         super().__init__(
             command_type=CREATE_BUS,
-            payload=_immutable_payload(
-                {
-                    "bus_id": bus_id,
-                    "name": name,
-                    "bus_type": bus_type,
-                    "voltage": voltage,
-                    "angle": angle,
-                    "p_spec": p_spec,
-                    "q_spec": q_spec,
-                    "v_setpoint": v_setpoint,
-                    "q_min": q_min,
-                    "q_max": q_max,
-                }
+            payload=_payload(
+                bus_id=bus_id,
+                name=name,
+                bus_type=bus_type,
+                voltage=voltage,
+                angle=angle,
+                p_spec=p_spec,
+                q_spec=q_spec,
+                v_setpoint=v_setpoint,
+                q_min=q_min,
+                q_max=q_max,
             ),
             command_id=(
                 command_id
                 if command_id is not None
-                else Command.__dataclass_fields__["command_id"]
-                .default_factory()
+                else uuid4()
             ),
             correlation_id=correlation_id,
             causation_id=causation_id,
@@ -213,12 +142,7 @@ class CreateBusCommand(Command):
 
 class DeleteBusCommand(Command):
     """
-    Application intent to remove a canonical Core Bus.
-
-    Only the stable Bus identifier is carried.
-
-    The handler resolves the canonical Bus through the Network and
-    delegates removal to ModelService.
+    Request removal of a canonical Core Bus.
     """
 
     def __init__(
@@ -232,16 +156,13 @@ class DeleteBusCommand(Command):
 
         super().__init__(
             command_type=DELETE_BUS,
-            payload=_immutable_payload(
-                {
-                    "bus_id": bus_id,
-                }
+            payload=_payload(
+                bus_id=bus_id,
             ),
             command_id=(
                 command_id
                 if command_id is not None
-                else Command.__dataclass_fields__["command_id"]
-                .default_factory()
+                else uuid4()
             ),
             correlation_id=correlation_id,
             causation_id=causation_id,
@@ -254,20 +175,12 @@ class DeleteBusCommand(Command):
 
 class CreateLineCommand(Command):
     """
-    Application intent to create a canonical Core Line.
+    Request creation of a canonical Core Line.
 
-    Endpoint references are stable identifiers.
+    Endpoint identifiers refer to canonical Core endpoint objects.
 
-    The command does not contain:
-
-        * Bus objects;
-        * Terminal objects;
-        * Line objects;
-        * Qt objects;
-        * QGraphicsItems.
-
-    The handler resolves endpoint identifiers against the canonical
-    Network before invoking ModelService.create_line().
+    The command does not contain actual Bus, Terminal, or Line
+    instances.
     """
 
     def __init__(
@@ -288,23 +201,20 @@ class CreateLineCommand(Command):
 
         super().__init__(
             command_type=CREATE_LINE,
-            payload=_immutable_payload(
-                {
-                    "line_id": line_id,
-                    "endpoint_from_id": endpoint_from_id,
-                    "endpoint_to_id": endpoint_to_id,
-                    "r": r,
-                    "x": x,
-                    "b": b,
-                    "name": name,
-                    "rate_mva": rate_mva,
-                }
+            payload=_payload(
+                line_id=line_id,
+                endpoint_from_id=endpoint_from_id,
+                endpoint_to_id=endpoint_to_id,
+                r=r,
+                x=x,
+                b=b,
+                name=name,
+                rate_mva=rate_mva,
             ),
             command_id=(
                 command_id
                 if command_id is not None
-                else Command.__dataclass_fields__["command_id"]
-                .default_factory()
+                else uuid4()
             ),
             correlation_id=correlation_id,
             causation_id=causation_id,
@@ -317,12 +227,7 @@ class CreateLineCommand(Command):
 
 class DeleteLineCommand(Command):
     """
-    Application intent to remove a canonical Core Line.
-
-    Only the stable Line identifier is carried.
-
-    The handler resolves the canonical Line and delegates removal
-    to ModelService.delete_line().
+    Request removal of a canonical Core Line.
     """
 
     def __init__(
@@ -336,16 +241,13 @@ class DeleteLineCommand(Command):
 
         super().__init__(
             command_type=DELETE_LINE,
-            payload=_immutable_payload(
-                {
-                    "line_id": line_id,
-                }
+            payload=_payload(
+                line_id=line_id,
             ),
             command_id=(
                 command_id
                 if command_id is not None
-                else Command.__dataclass_fields__["command_id"]
-                .default_factory()
+                else uuid4()
             ),
             correlation_id=correlation_id,
             causation_id=causation_id,
