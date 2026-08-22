@@ -75,10 +75,16 @@ and:
     network.add_line(line)
     network.remove_line(line)
 
+and:
+
+    network.add_transformer(transformer)
+    network.remove_transformer(transformer)
+
 The service MUST NOT directly manipulate:
 
     network.buses
     network.lines
+    network.transformers
     network.bus_index
     network._invalidate_topology()
     network._invalidate_ybus()
@@ -126,6 +132,33 @@ derived topology/Y-bus state.
 
 It does not disconnect either Line terminal.
 
+Transformer Lifecycle
+---------------------
+Transformer physical connectivity is owned by the Transformer
+model through:
+
+    transformer.from_terminal
+    transformer.to_terminal
+
+The Application service does not manipulate those terminals
+during network membership operations.
+
+Creation:
+
+    Transformer(...)
+        |
+        v
+    network.add_transformer(transformer)
+
+Deletion:
+
+    network.remove_transformer(transformer)
+
+Network removal owns Network membership and derived-state
+invalidation.
+
+It does not disconnect either Transformer terminal.
+
 This keeps three concepts separate:
 
     Terminal connectivity
@@ -135,7 +168,7 @@ This keeps three concepts separate:
         network responsibility
 
     Derived topology/Y-bus
-        network service responsibility
+        network responsibility
 
 Python Compatibility
 --------------------
@@ -150,6 +183,7 @@ from typing import Any, Mapping
 
 from core.model import Bus, BusType
 from core.model.line import Line
+from core.model.transformer import Transformer
 
 from ..context import ApplicationContext
 from ..errors import (
@@ -432,9 +466,6 @@ class ModelService:
         endpoint_from:
             Initial from-side physical endpoint.
 
-            This may be a Bus-like object or an existing Terminal,
-            exactly as supported by the canonical Line model.
-
         endpoint_to:
             Initial to-side physical endpoint.
 
@@ -469,11 +500,6 @@ class ModelService:
             line.connect_to(...)
 
         after construction.
-
-        The Network is then given ownership of assembled-network
-        membership through:
-
-            network.add_line(line)
         """
 
         self._validate_line_input(
@@ -486,10 +512,6 @@ class ModelService:
             name=name,
             rate_mva=rate_mva,
         )
-
-        # ------------------------------------------------------------
-        # CONSTRUCT CANONICAL CORE LINE
-        # ------------------------------------------------------------
 
         try:
             line = Line(
@@ -529,10 +551,6 @@ class ModelService:
                 },
                 cause=exc,
             ) from exc
-
-        # ------------------------------------------------------------
-        # REGISTER THROUGH PUBLIC NETWORK API
-        # ------------------------------------------------------------
 
         try:
             self._context.network.add_line(line)
@@ -589,28 +607,10 @@ class ModelService:
         """
         Remove a canonical Core Line from the Network.
 
-        Parameters
-        ----------
-        line_id:
-            Stable identifier of the registered Line.
-
-        Returns
-        -------
-        ApplicationResult[Line]
-            Result containing the removed canonical Line.
-
-        Notes
-        -----
         Network.remove_line() owns actual Network membership
         mutation and derived-state invalidation.
 
-        This service does not:
-
-            * mutate network.lines;
-            * disconnect Line terminals;
-            * delete endpoint elements;
-            * manipulate topology;
-            * manipulate Y-bus.
+        This service does not disconnect Line terminals.
         """
 
         if not isinstance(line_id, str) or not line_id.strip():
@@ -628,14 +628,9 @@ class ModelService:
 
         network = self._context.network
 
-        # ------------------------------------------------------------
-        # RESOLVE CANONICAL LINE
-        # ------------------------------------------------------------
-
         line = None
 
         for candidate in network.lines:
-
             if getattr(candidate, "id", None) == line_id:
                 line = candidate
                 break
@@ -652,10 +647,6 @@ class ModelService:
                     "operation": "delete_line",
                 },
             )
-
-        # ------------------------------------------------------------
-        # DELEGATE CORE NETWORK MUTATION
-        # ------------------------------------------------------------
 
         try:
             network.remove_line(line)
@@ -700,6 +691,281 @@ class ModelService:
         )
 
     # ================================================================
+    # TRANSFORMER CREATION
+    # ================================================================
+
+    def create_transformer(
+        self,
+        *,
+        transformer_id: str,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        r: float,
+        x: float,
+        tap: float = 1.0,
+        shift: float = 0.0,
+        name: str = "",
+        rate_mva: float = 100.0,
+    ) -> ApplicationResult[Transformer]:
+        """
+        Create and register a canonical Core Transformer.
+
+        Parameters
+        ----------
+        transformer_id:
+            Persistent GridForge Transformer identifier.
+
+        endpoint_from:
+            Initial high-side/from-side physical endpoint.
+
+        endpoint_to:
+            Initial low-side/to-side physical endpoint.
+
+        r:
+            Series resistance in per-unit.
+
+        x:
+            Series reactance in per-unit.
+
+        tap:
+            Off-nominal transformer tap ratio.
+
+        shift:
+            Phase-shift angle in degrees.
+
+        name:
+            Human-readable engineering name.
+
+        rate_mva:
+            Transformer MVA rating.
+
+        Returns
+        -------
+        ApplicationResult[Transformer]
+            Result containing the canonical Transformer.
+
+        Notes
+        -----
+        Transformer owns its physical terminal objects.
+
+        The service therefore does not subsequently manipulate
+        Transformer terminals.
+
+        Network ownership is established exclusively through:
+
+            network.add_transformer(transformer)
+        """
+
+        self._validate_transformer_input(
+            transformer_id=transformer_id,
+            endpoint_from=endpoint_from,
+            endpoint_to=endpoint_to,
+            r=r,
+            x=x,
+            tap=tap,
+            shift=shift,
+            name=name,
+            rate_mva=rate_mva,
+        )
+
+        try:
+            transformer = Transformer(
+                id=transformer_id,
+                endpoint_from=endpoint_from,
+                endpoint_to=endpoint_to,
+                r=r,
+                x=x,
+                tap=tap,
+                shift=shift,
+                name=name,
+                rate_mva=rate_mva,
+            )
+
+        except ValueError as exc:
+            raise DomainError(
+                code="TRANSFORMER_CREATION_REJECTED",
+                message=(
+                    f"Transformer '{transformer_id}' "
+                    "could not be created."
+                ),
+                details={
+                    "transformer_id": transformer_id,
+                    "operation": "create_transformer",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="TRANSFORMER_CREATION_FAILED",
+                message=(
+                    f"Unexpected failure while constructing "
+                    f"Transformer '{transformer_id}'."
+                ),
+                details={
+                    "transformer_id": transformer_id,
+                    "operation": "create_transformer",
+                },
+                cause=exc,
+            ) from exc
+
+        try:
+            self._context.network.add_transformer(
+                transformer
+            )
+
+        except ValueError as exc:
+            raise DomainError(
+                code="TRANSFORMER_REGISTRATION_FAILED",
+                message=(
+                    f"Failed to register Transformer "
+                    f"'{transformer_id}' with the Core Network."
+                ),
+                details={
+                    "transformer_id": transformer_id,
+                    "operation": "register_transformer",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="TRANSFORMER_REGISTRATION_EXECUTION_FAILED",
+                message=(
+                    f"Unexpected failure while registering "
+                    f"Transformer '{transformer_id}'."
+                ),
+                details={
+                    "transformer_id": transformer_id,
+                    "operation": "register_transformer",
+                },
+                cause=exc,
+            ) from exc
+
+        return ApplicationResult.success(
+            value=transformer,
+            message=(
+                f"Transformer '{transformer_id}' "
+                "created successfully."
+            ),
+            metadata={
+                "operation": "create_transformer",
+                "element_id": transformer_id,
+                "element_type": "transformer",
+            },
+        )
+
+    # ================================================================
+    # TRANSFORMER DELETION
+    # ================================================================
+
+    def delete_transformer(
+        self,
+        *,
+        transformer_id: str,
+    ) -> ApplicationResult[Transformer]:
+        """
+        Remove a canonical Core Transformer from the Network.
+
+        The service resolves the canonical registered Transformer
+        and delegates Network membership removal to:
+
+            Network.remove_transformer()
+
+        The Transformer terminals are not disconnected here.
+        """
+
+        if (
+            not isinstance(
+                transformer_id,
+                str,
+            )
+            or not transformer_id.strip()
+        ):
+            raise ValidationError(
+                code="INVALID_TRANSFORMER_ID",
+                message=(
+                    "Transformer id must be a non-empty string."
+                ),
+                details={
+                    "field": "transformer_id",
+                },
+            )
+
+        transformer_id = transformer_id.strip()
+
+        network = self._context.network
+
+        transformer = None
+
+        for candidate in network.transformers:
+            if (
+                getattr(candidate, "id", None)
+                == transformer_id
+            ):
+                transformer = candidate
+                break
+
+        if transformer is None:
+            raise ResourceError(
+                code="TRANSFORMER_NOT_FOUND",
+                message=(
+                    f"Transformer '{transformer_id}' "
+                    "is not registered on the Core Network."
+                ),
+                details={
+                    "transformer_id": transformer_id,
+                    "operation": "delete_transformer",
+                },
+            )
+
+        try:
+            network.remove_transformer(
+                transformer
+            )
+
+        except ValueError as exc:
+            raise DomainError(
+                code="TRANSFORMER_DELETION_REJECTED",
+                message=(
+                    f"Transformer '{transformer_id}' "
+                    "could not be removed."
+                ),
+                details={
+                    "transformer_id": transformer_id,
+                    "operation": "delete_transformer",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="TRANSFORMER_DELETION_FAILED",
+                message=(
+                    f"Unexpected failure while deleting "
+                    f"Transformer '{transformer_id}'."
+                ),
+                details={
+                    "transformer_id": transformer_id,
+                    "operation": "delete_transformer",
+                },
+                cause=exc,
+            ) from exc
+
+        return ApplicationResult.success(
+            value=transformer,
+            message=(
+                f"Transformer '{transformer_id}' "
+                "deleted successfully."
+            ),
+            metadata={
+                "operation": "delete_transformer",
+                "element_id": transformer_id,
+                "element_type": "transformer",
+            },
+        )
+
+    # ================================================================
     # BUS INPUT VALIDATION
     # ================================================================
 
@@ -720,14 +986,14 @@ class ModelService:
         """
         Validate Application-level Bus input.
 
-        This validation is intentionally limited to request
-        integrity.
-
         Engineering/domain validation remains owned by the
         canonical Core model.
         """
 
-        if not isinstance(bus_id, str) or not bus_id.strip():
+        if not isinstance(
+            bus_id,
+            str,
+        ) or not bus_id.strip():
             raise ValidationError(
                 code="INVALID_BUS_ID",
                 message=(
@@ -770,8 +1036,10 @@ class ModelService:
         }
 
         for field_name, value in numeric_fields.items():
-
-            if not isinstance(value, (int, float)):
+            if not isinstance(
+                value,
+                (int, float),
+            ):
                 raise ValidationError(
                     code="INVALID_BUS_PARAMETER",
                     message=(
@@ -926,7 +1194,10 @@ class ModelService:
                 },
             )
 
-        if not isinstance(rate_mva, (int, float)):
+        if not isinstance(
+            rate_mva,
+            (int, float),
+        ):
             raise ValidationError(
                 code="INVALID_LINE_RATING",
                 message=(
@@ -934,6 +1205,113 @@ class ModelService:
                 ),
                 details={
                     "field": "rate_mva",
+                },
+            )
+
+    # ================================================================
+    # TRANSFORMER INPUT VALIDATION
+    # ================================================================
+
+    @staticmethod
+    def _validate_transformer_input(
+        *,
+        transformer_id: str,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        r: float,
+        x: float,
+        tap: float,
+        shift: float,
+        name: str,
+        rate_mva: float,
+    ) -> None:
+        """
+        Validate Application-level Transformer request integrity.
+
+        Detailed engineering/domain validation remains owned by
+        the canonical Transformer model.
+        """
+
+        if not isinstance(
+            transformer_id,
+            str,
+        ) or not transformer_id.strip():
+            raise ValidationError(
+                code="INVALID_TRANSFORMER_ID",
+                message=(
+                    "Transformer id must be a non-empty string."
+                ),
+                details={
+                    "field": "transformer_id",
+                },
+            )
+
+        if endpoint_from is None:
+            raise ValidationError(
+                code="INVALID_TRANSFORMER_FROM_ENDPOINT",
+                message=(
+                    "Transformer from endpoint must not be None."
+                ),
+                details={
+                    "field": "endpoint_from",
+                },
+            )
+
+        if endpoint_to is None:
+            raise ValidationError(
+                code="INVALID_TRANSFORMER_TO_ENDPOINT",
+                message=(
+                    "Transformer to endpoint must not be None."
+                ),
+                details={
+                    "field": "endpoint_to",
+                },
+            )
+
+        if endpoint_from is endpoint_to:
+            raise ValidationError(
+                code="INVALID_TRANSFORMER_ENDPOINTS",
+                message=(
+                    "Transformer from and to endpoints "
+                    "must be distinct."
+                ),
+                details={
+                    "field": "endpoint_from/endpoint_to",
+                },
+            )
+
+        numeric_fields: Mapping[str, Any] = {
+            "r": r,
+            "x": x,
+            "tap": tap,
+            "shift": shift,
+            "rate_mva": rate_mva,
+        }
+
+        for field_name, value in numeric_fields.items():
+            if not isinstance(
+                value,
+                (int, float),
+            ):
+                raise ValidationError(
+                    code="INVALID_TRANSFORMER_PARAMETER",
+                    message=(
+                        f"Transformer parameter "
+                        f"'{field_name}' must be numeric."
+                    ),
+                    details={
+                        "field": field_name,
+                    },
+                )
+
+        if not isinstance(name, str):
+            raise ValidationError(
+                code="INVALID_TRANSFORMER_NAME",
+                message=(
+                    "Transformer name must be a string."
+                ),
+                details={
+                    "field": "name",
                 },
             )
 
