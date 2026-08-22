@@ -11,138 +11,59 @@ Module:
 
 Purpose
 -------
-Provides the headless command-dispatch infrastructure for the
-GridForge V2 Application layer.
+Provides headless Application command dispatch and command-history
+ownership.
 
-The CommandManager is responsible for translating an incoming
-Application Command into an Application operation.
-
-Architectural flow
-------------------
+Architectural Position
+----------------------
 
     UI / Plugin / Automation
               |
               v
-           Command
+       Application
               |
               v
        CommandManager
-              |
-              v
-       Command Handler
-              |
-              v
-       Application Service
-              |
-              v
-             Core
+          /       \
+         v         v
+    CommandHistory Handler
+                    |
+                    v
+             Application Service
+                    |
+                    v
+                   Core
 
-The CommandManager is infrastructure.
+Responsibilities
+----------------
+CommandManager owns:
 
-It is NOT:
+    * command registration;
+    * command dispatch;
+    * synchronous command execution;
+    * successful-command history recording;
+    * Application command capability discovery.
 
-    * a UI controller;
-    * a Qt action manager;
-    * a graphics interaction manager;
-    * a domain service;
-    * a Core model owner;
-    * a plugin manager;
-    * a renderer manager.
+It does NOT own:
 
-Headless Requirement
---------------------
-This module must have zero dependency on:
-
-    * PySide6;
-    * PyQt5;
-    * PyQt6;
+    * Core domain state;
+    * Core Network internals;
+    * UI state;
     * Qt;
-    * QGraphicsScene;
-    * QGraphicsItem;
-    * UI controllers;
-    * SLD/canvas classes.
-
-Command Registration
---------------------
-Each command type is associated with a handler.
-
-Conceptually:
-
-    "element.create" -> handler
-
-The handler is an Application-layer callable.
-
-The CommandManager does not know what the handler does internally.
-
-It simply:
-
-    1. receives a Command;
-    2. identifies its command type;
-    3. resolves the registered handler;
-    4. invokes the handler;
-    5. returns the ApplicationResult.
-
-Dependency Injection
---------------------
-Handlers are registered explicitly.
-
-The manager does not instantiate services automatically.
-
-This keeps construction in the Composition Root.
-
-Example:
-
-    manager.register(
-        "element.create",
-        create_element_handler,
-    )
-
-Then:
-
-    result = manager.execute(command)
-
-Command Immutability
---------------------
-The manager must never modify a Command.
-
-The command is treated as immutable input.
-
-Error Boundary
---------------
-Expected ApplicationError exceptions are allowed to cross the
-manager boundary unchanged.
-
-Unexpected exceptions are wrapped as ExecutionError so that
-Application consumers receive a structured Application-level
-failure without exposing arbitrary implementation exceptions.
-
-The original exception is retained as ``cause``.
+    * SLD/canvas state;
+    * rendering;
+    * plugin lifecycle;
+    * domain calculations.
 
 History
 -------
-The manager establishes the command-history boundary but does
-not yet implement undo/redo semantics.
+Only successfully executed commands are recorded.
 
-This is deliberate.
+A failed command is never placed into the undo history.
 
-Undo/redo requires explicit definition of:
-
-    * reversible commands;
-    * inverse operations;
-    * Core transaction semantics;
-    * failure handling;
-    * history invalidation.
-
-Those rules must not be invented prematurely.
-
-Therefore this implementation maintains no undo stack yet.
-
-Threading
----------
-The CommandManager is deliberately synchronous.
-
-Asynchronous execution is not introduced at this boundary until
-the Application architecture explicitly requires it.
+Undo/redo execution itself is intentionally not implemented yet.
+CommandHistory establishes the ownership boundary; reversible
+command semantics will be introduced separately.
 
 Python Compatibility
 --------------------
@@ -152,11 +73,12 @@ GridForge V2 targets Python 3.10/3.11.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict
+from typing import Callable
 
 from .command import Command
 from .context import ApplicationContext
 from .errors import ApplicationError, ExecutionError
+from .history import CommandHistory
 from .results import ApplicationResult
 
 
@@ -169,15 +91,7 @@ CommandHandler = Callable[
 @dataclass(frozen=True)
 class CommandRegistration:
     """
-    Immutable registration record for one Application command.
-
-    Parameters
-    ----------
-    command_type:
-        Stable semantic command identifier.
-
-    handler:
-        Callable responsible for executing the command.
+    Immutable registration record for an Application command.
     """
 
     command_type: str
@@ -188,21 +102,15 @@ class CommandManager:
     """
     Headless Application command dispatcher.
 
-    The manager owns command-handler registration and synchronous
-    command execution.
+    CommandManager is the Application owner of command history.
 
-    It deliberately does not own:
-
-        * Core objects;
-        * ApplicationContext construction;
-        * services;
-        * UI state;
-        * undo/redo history.
+    Core is never used as the command-history owner.
     """
 
     def __init__(
         self,
         context: ApplicationContext,
+        history: CommandHistory | None = None,
     ) -> None:
         if context is None:
             raise ValueError(
@@ -210,7 +118,16 @@ class CommandManager:
             )
 
         self._context = context
-        self._handlers: Dict[str, CommandHandler] = {}
+        self._history = (
+            history
+            if history is not None
+            else CommandHistory()
+        )
+        self._handlers: dict[str, CommandHandler] = {}
+
+    # ========================================================
+    # CONTEXT
+    # ========================================================
 
     @property
     def context(self) -> ApplicationContext:
@@ -219,6 +136,40 @@ class CommandManager:
         """
         return self._context
 
+    # ========================================================
+    # HISTORY
+    # ========================================================
+
+    @property
+    def history(self) -> CommandHistory:
+        """
+        Return the Application-owned command history.
+
+        The history object contains only Application command
+        records and has no direct Core mutation capability.
+        """
+        return self._history
+
+    def can_undo(self) -> bool:
+        """
+        Return whether Application history contains an undo record.
+
+        Actual undo execution is not yet implemented.
+        """
+        return self._history.can_undo()
+
+    def can_redo(self) -> bool:
+        """
+        Return whether Application history contains a redo record.
+
+        Actual redo execution is not yet implemented.
+        """
+        return self._history.can_redo()
+
+    # ========================================================
+    # REGISTRATION
+    # ========================================================
+
     def register(
         self,
         command_type: str,
@@ -226,23 +177,8 @@ class CommandManager:
     ) -> None:
         """
         Register a handler for an Application command type.
-
-        Parameters
-        ----------
-        command_type:
-            Stable semantic command identifier.
-
-        handler:
-            Application-level callable that executes the command.
-
-        Raises
-        ------
-        ValueError
-            If command_type is invalid or already registered.
-
-        TypeError
-            If handler is not callable.
         """
+
         if not isinstance(command_type, str):
             raise TypeError(
                 "command_type must be a string."
@@ -271,13 +207,14 @@ class CommandManager:
     ) -> bool:
         """
         Remove a registered command handler.
-
-        Returns
-        -------
-        bool
-            True when a handler was removed, otherwise False.
         """
-        return self._handlers.pop(command_type, None) is not None
+        return (
+            self._handlers.pop(
+                command_type,
+                None,
+            )
+            is not None
+        )
 
     def is_registered(
         self,
@@ -290,19 +227,23 @@ class CommandManager:
 
     def registered_commands(self) -> tuple[str, ...]:
         """
-        Return registered command types.
-
-        A tuple is returned so callers cannot mutate the internal
-        registration collection.
+        Return registered command types as an immutable tuple.
         """
         return tuple(self._handlers.keys())
+
+    # ========================================================
+    # EXECUTION
+    # ========================================================
 
     def execute(
         self,
         command: Command,
     ) -> ApplicationResult:
         """
-        Execute a registered Application command synchronously.
+        Execute a registered Application command.
+
+        A command is added to history only after its handler
+        completes successfully.
 
         Parameters
         ----------
@@ -317,21 +258,20 @@ class CommandManager:
         Raises
         ------
         ApplicationError
-            Expected Application failure.
+            Expected Application-level failure.
 
         ExecutionError
-            Unexpected handler failure.
-
-        KeyError
-            Not used. Missing handlers are converted into a
-            structured ExecutionError.
+            Unexpected execution failure or invalid result.
         """
+
         if not isinstance(command, Command):
             raise TypeError(
                 "CommandManager.execute requires a Command."
             )
 
-        handler = self._handlers.get(command.command_type)
+        handler = self._handlers.get(
+            command.command_type,
+        )
 
         if handler is None:
             raise ExecutionError(
@@ -353,13 +293,12 @@ class CommandManager:
             )
 
         except ApplicationError:
-            # Expected Application failures already conform to the
-            # Application boundary and must cross unchanged.
+            # Expected Application failures remain unchanged.
+            #
+            # Crucially, failed commands are NOT recorded.
             raise
 
         except Exception as exc:
-            # Unexpected implementation failures are converted to
-            # a structured Application-level execution failure.
             raise ExecutionError(
                 code="COMMAND_EXECUTION_FAILED",
                 message=(
@@ -373,17 +312,27 @@ class CommandManager:
                 cause=exc,
             ) from exc
 
-        if not isinstance(result, ApplicationResult):
+        if not isinstance(
+            result,
+            ApplicationResult,
+        ):
             raise ExecutionError(
                 code="INVALID_COMMAND_RESULT",
                 message=(
-                    f"Command handler for '{command.command_type}' "
-                    "did not return an ApplicationResult."
+                    f"Command handler for "
+                    f"'{command.command_type}' did not return "
+                    "an ApplicationResult."
                 ),
                 details={
                     "command_type": command.command_type,
                 },
             )
+
+        # History is updated ONLY after successful execution.
+        self._history.record(
+            command,
+            description=result.message,
+        )
 
         return result
 
