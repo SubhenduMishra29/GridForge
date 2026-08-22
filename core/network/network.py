@@ -46,6 +46,7 @@ The Network object:
 - Provides injection aggregation for bus study state.
 - Provides canonical network-element registration/removal.
 
+
 Does NOT
 --------
 The Network does not:
@@ -61,6 +62,7 @@ The Network does not:
 - Perform GUI operations.
 - Implement engineering validation rules.
 
+
 Model Ownership
 ---------------
 ``core.model`` is the single source of truth for electrical
@@ -70,6 +72,7 @@ The Network stores references to those canonical model objects.
 
 It does not define duplicate Bus, Generator, Load, Line,
 Transformer, Shunt, or other equipment classes.
+
 
 Per-Unit Ownership
 ------------------
@@ -83,6 +86,7 @@ The Network exposes a configured instance through:
 
 There is intentionally no active ``core.network.per_unit`` module.
 
+
 Y-Bus Ownership
 ---------------
 Y-bus construction is delegated to ``YBusBuilder``.
@@ -91,10 +95,12 @@ The Network stores the resulting matrix as derived network state:
 
     network.Ybus
 
+
 Topology Ownership
 ------------------
 Topology construction and connectivity analysis are delegated to
 ``TopologyManager``.
+
 
 Injection State
 ---------------
@@ -103,6 +109,7 @@ corresponding Bus study-state quantities by ``sync_injections()``.
 
 The Network does not perform power-flow calculations or bus-type
 switching.
+
 
 Element Removal
 ---------------
@@ -120,6 +127,9 @@ Bus removal is deliberately strict.
 
 A Bus cannot be removed while another registered network element
 still references that Bus.
+
+Line removal removes only Network membership. It does not delete
+or disconnect either endpoint element.
 
 The model layer uses Terminal objects as the authoritative physical
 connection representation for branch and shunt equipment.
@@ -142,6 +152,7 @@ are used for canonical reference checks.
 Compatibility properties such as ``from_bus``, ``to_bus`` and
 ``bus`` remain model-level derived interfaces and are not treated
 as the authoritative storage representation.
+
 
 GridForge V2 Status
 -------------------
@@ -1198,3 +1209,123 @@ class Network:
         # -------------------------------------------------------------
 
         self._invalidate_topology()
+
+    # -----------------------------------------------------------------
+
+    def remove_line(
+        self,
+        line: Any,
+    ) -> None:
+        """
+        Remove a registered Line from the Network.
+
+        Parameters
+        ----------
+        line : Line
+            Canonical Line object registered on this Network.
+
+        Raises
+        ------
+        ValueError
+            If ``line`` is None or the exact canonical Line object
+            is not registered on this Network.
+
+        Notes
+        -----
+        Line removal changes Network membership only.
+
+        It does NOT:
+
+            * disconnect ``from_terminal``;
+            * disconnect ``to_terminal``;
+            * delete either endpoint element;
+            * modify either endpoint Bus;
+            * directly manipulate TopologyManager;
+            * directly manipulate YBusBuilder;
+            * rebuild topology immediately;
+            * rebuild Y-bus immediately.
+
+        The Line's terminal relationships remain part of the Line
+        model object.
+
+        Network owns only the assembled-network membership of the
+        Line.
+
+        Removing a Line is therefore an edge-removal operation:
+
+            Element A
+                |
+              Terminal
+                |
+               Line
+                |
+              Terminal
+                |
+            Element B
+
+        becomes:
+
+            Element A          Element B
+
+        without deleting either Element A or Element B.
+
+        Derived topology and Y-bus representations are invalidated
+        through the existing Network invalidation boundary and will
+        be rebuilt lazily when requested.
+
+        Canonical Object Identity
+        --------------------------
+        The Network stores references to canonical Core model
+        objects.
+
+        Consequently the removal operation searches for the exact
+        object instance using identity:
+
+            registered_line is line
+
+        rather than relying on equality or matching only ``line.id``.
+
+        This prevents an unrelated object with the same identifier
+        from being removed accidentally.
+        """
+
+        if line is None:
+            raise ValueError(
+                "Line cannot be None."
+            )
+
+        # -------------------------------------------------------------
+        # FIND THE CANONICAL REGISTERED OBJECT
+        #
+        # Identity is intentional.
+        # -------------------------------------------------------------
+
+        for index, registered_line in enumerate(self.lines):
+
+            if registered_line is line:
+
+                # -----------------------------------------------------
+                # REMOVE ONLY NETWORK MEMBERSHIP
+                # -----------------------------------------------------
+
+                del self.lines[index]
+
+                # -----------------------------------------------------
+                # INVALIDATE DERIVED NETWORK STATE
+                #
+                # Line membership is topology-affecting.
+                # Therefore both topology and Y-bus become dirty.
+                # -----------------------------------------------------
+
+                self._invalidate_topology()
+
+                return
+
+        # -------------------------------------------------------------
+        # CANONICAL REGISTRATION FAILURE
+        # -------------------------------------------------------------
+
+        raise ValueError(
+            f"Line '{getattr(line, 'id', line)}' "
+            "is not registered on this Network."
+        )
