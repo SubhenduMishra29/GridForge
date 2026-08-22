@@ -11,11 +11,8 @@ Module:
 
 Purpose
 -------
-Provides Application-level orchestration for creation and
-registration of canonical Core model objects.
-
-This service is the first concrete bridge between the
-Headless Application layer and the existing Core Network API.
+Provides Application-level orchestration for creation and removal
+of canonical Core model objects.
 
 Architectural Position
 ----------------------
@@ -32,7 +29,7 @@ Architectural Position
             v
        ApplicationResult
 
-The service coordinates the operation.
+The service coordinates Application operations.
 
 The Core model and Network remain authoritative.
 
@@ -41,8 +38,10 @@ Responsibilities
 ModelService is responsible for:
 
     * validating Application-level input;
+    * resolving canonical Core model objects;
     * constructing canonical Core model objects;
-    * registering those objects through public Network APIs;
+    * registering objects through public Network APIs;
+    * removing objects through public Network APIs;
     * returning ApplicationResult objects;
     * translating expected Core failures into Application errors.
 
@@ -69,22 +68,57 @@ For example:
     bus = Bus(...)
     network.add_bus(bus)
 
+Removal follows the same ownership boundary:
+
+    network.remove_bus(bus)
+
 The service MUST NOT replace this with:
 
     network.buses.append(bus)
 
 or:
 
-    network._bus_index[...]
+    network.buses.remove(bus)
+
+or:
+
+    network.bus_index[...]
+
+or:
+
+    network._invalidate_topology()
 
 The public Network API is the Application/Core mutation boundary.
 
+Bus Deletion
+------------
+Bus deletion is intentionally strict.
+
+The Application service resolves the canonical Bus from the
+Network and delegates the actual removal to:
+
+    Network.remove_bus()
+
+Network.remove_bus() owns:
+
+    * reference checking;
+    * canonical collection mutation;
+    * bus-index rebuilding;
+    * topology invalidation;
+    * Y-bus invalidation.
+
+The Application service therefore does not duplicate any of these
+operations.
+
 Current Scope
 -------------
-The first concrete operation implemented here is Bus creation.
+Current concrete operations:
 
-Additional equipment creation operations will be added only after
-their actual Core constructors and Network registration APIs have
+    * Bus creation.
+    * Bus deletion.
+
+Additional equipment operations will be added only after their
+actual Core constructors, ownership rules, and Network APIs have
 been reconciled against the repository.
 
 Python Compatibility
@@ -101,13 +135,18 @@ from typing import Any, Mapping
 from core.model import Bus, BusType
 
 from ..context import ApplicationContext
-from ..errors import DomainError, ExecutionError, ValidationError
+from ..errors import (
+    DomainError,
+    ExecutionError,
+    ValidationError,
+)
 from ..results import ApplicationResult
 
 
 class ModelService:
     """
-    Headless Application service for canonical Core model creation.
+    Headless Application service for canonical Core model
+    creation and removal.
 
     Parameters
     ----------
@@ -118,14 +157,22 @@ class ModelService:
     -----
     The service does not own the Network.
 
-    The Network is supplied by the ApplicationContext and remains
-    owned by the Composition Root/Core integration.
+    The Network is supplied by ApplicationContext and remains
+    owned by the Core/Application composition boundary.
     """
+
+    # ================================================================
+    # INITIALIZATION
+    # ================================================================
 
     def __init__(
         self,
         context: ApplicationContext,
     ) -> None:
+        """
+        Initialize the ModelService.
+        """
+
         if context is None:
             raise ValueError(
                 "ModelService context must not be None."
@@ -133,12 +180,21 @@ class ModelService:
 
         self._context = context
 
+    # ================================================================
+    # CONTEXT
+    # ================================================================
+
     @property
     def context(self) -> ApplicationContext:
         """
         Return the Application dependency context.
         """
+
         return self._context
+
+    # ================================================================
+    # BUS CREATION
+    # ================================================================
 
     def create_bus(
         self,
@@ -200,12 +256,11 @@ class ModelService:
             If Application-level input is invalid.
 
         DomainError
-            If the Core rejects the requested operation as a
-            domain violation.
+            If the Core rejects the requested operation.
 
         ExecutionError
             If an unexpected failure occurs while constructing
-            or registering the bus.
+            or registering the Bus.
         """
 
         self._validate_bus_input(
@@ -220,6 +275,10 @@ class ModelService:
             q_min=q_min,
             q_max=q_max,
         )
+
+        # ------------------------------------------------------------
+        # CONSTRUCT CANONICAL CORE MODEL
+        # ------------------------------------------------------------
 
         try:
             bus = Bus(
@@ -248,10 +307,14 @@ class ModelService:
                 cause=exc,
             ) from exc
 
+        # ------------------------------------------------------------
+        # REGISTER THROUGH PUBLIC NETWORK API
+        # ------------------------------------------------------------
+
         try:
             self._context.network.add_bus(bus)
 
-        except Exception as exc:
+        except ValueError as exc:
             raise DomainError(
                 code="BUS_REGISTRATION_FAILED",
                 message=(
@@ -261,18 +324,189 @@ class ModelService:
                 details={
                     "bus_id": bus_id,
                     "operation": "register_bus",
+                    "reason": str(exc),
                 },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="BUS_REGISTRATION_EXECUTION_FAILED",
+                message=(
+                    f"Unexpected failure while registering "
+                    f"Bus '{bus_id}'."
+                ),
+                details={
+                    "bus_id": bus_id,
+                    "operation": "register_bus",
+                },
+                cause=exc,
             ) from exc
 
         return ApplicationResult.success(
             value=bus,
-            message=f"Bus '{bus_id}' created successfully.",
+            message=(
+                f"Bus '{bus_id}' created successfully."
+            ),
             metadata={
                 "operation": "create_bus",
                 "element_id": bus_id,
                 "element_type": "bus",
             },
         )
+
+    # ================================================================
+    # BUS DELETION
+    # ================================================================
+
+    def delete_bus(
+        self,
+        *,
+        bus_id: str,
+    ) -> ApplicationResult[Bus]:
+        """
+        Remove a canonical Core Bus from the Network.
+
+        Parameters
+        ----------
+        bus_id:
+            Stable identifier of the registered Bus.
+
+        Returns
+        -------
+        ApplicationResult[Bus]
+            Result containing the removed canonical Bus.
+
+        Raises
+        ------
+        ValidationError
+            If bus_id is invalid.
+
+        DomainError
+            If the Bus does not exist or Core Network rules reject
+            its removal.
+
+        ExecutionError
+            If an unexpected failure occurs during deletion.
+
+        Notes
+        -----
+        The service does not manipulate Network collections.
+
+        It resolves the canonical Bus and delegates removal to:
+
+            Network.remove_bus(bus)
+        """
+
+        # ------------------------------------------------------------
+        # APPLICATION INPUT VALIDATION
+        # ------------------------------------------------------------
+
+        if not isinstance(bus_id, str) or not bus_id.strip():
+            raise ValidationError(
+                code="INVALID_BUS_ID",
+                message=(
+                    "Bus id must be a non-empty string."
+                ),
+                details={
+                    "field": "bus_id",
+                },
+            )
+
+        bus_id = bus_id.strip()
+
+        network = self._context.network
+
+        # ------------------------------------------------------------
+        # RESOLVE CANONICAL BUS
+        # ------------------------------------------------------------
+
+        bus = None
+
+        for candidate in network.buses:
+
+            if getattr(candidate, "id", None) == bus_id:
+                bus = candidate
+                break
+
+        if bus is None:
+            raise DomainError(
+                code="BUS_NOT_FOUND",
+                message=(
+                    f"Bus '{bus_id}' is not registered "
+                    "on the Core Network."
+                ),
+                details={
+                    "bus_id": bus_id,
+                    "operation": "delete_bus",
+                },
+            )
+
+        # ------------------------------------------------------------
+        # DELEGATE ACTUAL CORE MUTATION
+        # ------------------------------------------------------------
+
+        try:
+            network.remove_bus(bus)
+
+        except ValueError as exc:
+            # Network.remove_bus() uses ValueError for expected
+            # Core-level rejection such as:
+            #
+            #   * unregistered Bus;
+            #   * connected Line;
+            #   * connected Transformer;
+            #   * connected Generator;
+            #   * connected Load;
+            #   * connected Shunt.
+            #
+            # Translate that expected Core rejection into the
+            # Application error taxonomy.
+
+            raise DomainError(
+                code="BUS_DELETION_REJECTED",
+                message=(
+                    f"Bus '{bus_id}' could not be removed."
+                ),
+                details={
+                    "bus_id": bus_id,
+                    "operation": "delete_bus",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="BUS_DELETION_FAILED",
+                message=(
+                    f"Unexpected failure while deleting "
+                    f"Bus '{bus_id}'."
+                ),
+                details={
+                    "bus_id": bus_id,
+                    "operation": "delete_bus",
+                },
+                cause=exc,
+            ) from exc
+
+        # ------------------------------------------------------------
+        # RETURN THE SAME CANONICAL OBJECT
+        # ------------------------------------------------------------
+
+        return ApplicationResult.success(
+            value=bus,
+            message=(
+                f"Bus '{bus_id}' deleted successfully."
+            ),
+            metadata={
+                "operation": "delete_bus",
+                "element_id": bus_id,
+                "element_type": "bus",
+            },
+        )
+
+    # ================================================================
+    # BUS INPUT VALIDATION
+    # ================================================================
 
     @staticmethod
     def _validate_bus_input(
@@ -298,28 +532,44 @@ class ModelService:
         canonical Core model.
         """
 
-        if not isinstance(bus_id, str) or not bus_id.strip():
+        if not isinstance(
+            bus_id,
+            str,
+        ) or not bus_id.strip():
+
             raise ValidationError(
                 code="INVALID_BUS_ID",
-                message="Bus id must be a non-empty string.",
+                message=(
+                    "Bus id must be a non-empty string."
+                ),
                 details={
                     "field": "bus_id",
                 },
             )
 
-        if not isinstance(name, str):
+        if not isinstance(
+            name,
+            str,
+        ):
             raise ValidationError(
                 code="INVALID_BUS_NAME",
-                message="Bus name must be a string.",
+                message=(
+                    "Bus name must be a string."
+                ),
                 details={
                     "field": "name",
                 },
             )
 
-        if not isinstance(bus_type, BusType):
+        if not isinstance(
+            bus_type,
+            BusType,
+        ):
             raise ValidationError(
                 code="INVALID_BUS_TYPE",
-                message="bus_type must be a BusType.",
+                message=(
+                    "bus_type must be a BusType."
+                ),
                 details={
                     "field": "bus_type",
                 },
@@ -335,7 +585,11 @@ class ModelService:
         }
 
         for field_name, value in numeric_fields.items():
-            if not isinstance(value, (int, float)):
+
+            if not isinstance(
+                value,
+                (int, float),
+            ):
                 raise ValidationError(
                     code="INVALID_BUS_PARAMETER",
                     message=(
@@ -347,13 +601,18 @@ class ModelService:
                     },
                 )
 
-        if v_setpoint is not None and not isinstance(
-            v_setpoint,
-            (int, float),
+        if (
+            v_setpoint is not None
+            and not isinstance(
+                v_setpoint,
+                (int, float),
+            )
         ):
             raise ValidationError(
                 code="INVALID_BUS_SETPOINT",
-                message="v_setpoint must be numeric or None.",
+                message=(
+                    "v_setpoint must be numeric or None."
+                ),
                 details={
                     "field": "v_setpoint",
                 },
