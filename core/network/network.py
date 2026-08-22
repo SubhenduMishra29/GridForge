@@ -1,3 +1,8 @@
+```python
+# ============================================================
+# File: core/network/network.py
+# GridForge V2 — Network Layer
+# ============================================================
 """
 GridForge Network Layer V2
 ==========================
@@ -40,6 +45,7 @@ The Network object:
 - Maintains lightweight network study state.
 - Provides network-level utilities.
 - Provides injection aggregation for bus study state.
+- Provides canonical network-element registration/removal.
 
 Does NOT
 --------
@@ -99,6 +105,45 @@ corresponding Bus study-state quantities by ``sync_injections()``.
 The Network does not perform power-flow calculations or bus-type
 switching.
 
+Element Removal
+---------------
+Canonical element membership belongs to Network.
+
+Removal therefore occurs through Network-level APIs rather than
+through:
+
+    * Application;
+    * TopologyManager;
+    * UI;
+    * plugins.
+
+Bus removal is deliberately strict.
+
+A Bus cannot be removed while another registered network element
+still references that Bus.
+
+The model layer uses Terminal objects as the authoritative physical
+connection representation for branch and shunt equipment.
+
+Therefore:
+
+    Line
+        from_terminal.endpoint
+        to_terminal.endpoint
+
+    Transformer
+        from_terminal.endpoint
+        to_terminal.endpoint
+
+    Shunt
+        terminal.endpoint
+
+are used for canonical reference checks.
+
+Compatibility properties such as ``from_bus``, ``to_bus`` and
+``bus`` remain model-level derived interfaces and are not treated
+as the authoritative storage representation.
+
 GridForge V2 Status
 -------------------
 This module is part of the GridForge Network Layer V2 baseline.
@@ -147,6 +192,7 @@ class Network:
     - Y-bus construction
     - injection aggregation
     - lightweight fault state
+    - canonical element registration/removal
     """
 
     # =================================================================
@@ -945,6 +991,26 @@ class Network:
         references it because doing so would leave dangling
         topology/model references.
 
+        Connection references are checked using the authoritative
+        Terminal architecture of the model layer:
+
+            Line:
+                from_terminal.endpoint
+                to_terminal.endpoint
+
+            Transformer:
+                from_terminal.endpoint
+                to_terminal.endpoint
+
+            Generator:
+                bus
+
+            Load:
+                bus
+
+            Shunt:
+                terminal.endpoint
+
         The Network owns:
 
             * canonical collection membership;
@@ -979,13 +1045,39 @@ class Network:
 
         # -------------------------------------------------------------
         # REFERENCE CHECK — LINES
+        #
+        # Terminal endpoints are authoritative.
         # -------------------------------------------------------------
 
         for line in self.lines:
 
+            from_terminal = getattr(
+                line,
+                "from_terminal",
+                None,
+            )
+
+            to_terminal = getattr(
+                line,
+                "to_terminal",
+                None,
+            )
+
+            from_endpoint = getattr(
+                from_terminal,
+                "endpoint",
+                None,
+            )
+
+            to_endpoint = getattr(
+                to_terminal,
+                "endpoint",
+                None,
+            )
+
             if (
-                getattr(line, "from_bus", None) is bus
-                or getattr(line, "to_bus", None) is bus
+                from_endpoint is bus
+                or to_endpoint is bus
             ):
                 raise ValueError(
                     f"Bus '{bus.id}' cannot be removed because "
@@ -994,13 +1086,39 @@ class Network:
 
         # -------------------------------------------------------------
         # REFERENCE CHECK — TRANSFORMERS
+        #
+        # Terminal endpoints are authoritative.
         # -------------------------------------------------------------
 
         for transformer in self.transformers:
 
+            from_terminal = getattr(
+                transformer,
+                "from_terminal",
+                None,
+            )
+
+            to_terminal = getattr(
+                transformer,
+                "to_terminal",
+                None,
+            )
+
+            from_endpoint = getattr(
+                from_terminal,
+                "endpoint",
+                None,
+            )
+
+            to_endpoint = getattr(
+                to_terminal,
+                "endpoint",
+                None,
+            )
+
             if (
-                getattr(transformer, "from_bus", None) is bus
-                or getattr(transformer, "to_bus", None) is bus
+                from_endpoint is bus
+                or to_endpoint is bus
             ):
                 raise ValueError(
                     f"Bus '{bus.id}' cannot be removed because "
@@ -1033,11 +1151,25 @@ class Network:
 
         # -------------------------------------------------------------
         # REFERENCE CHECK — SHUNTS
+        #
+        # Shunt is a single-terminal element.
         # -------------------------------------------------------------
 
         for shunt in self.shunts:
 
-            if getattr(shunt, "bus", None) is bus:
+            terminal = getattr(
+                shunt,
+                "terminal",
+                None,
+            )
+
+            endpoint = getattr(
+                terminal,
+                "endpoint",
+                None,
+            )
+
+            if endpoint is bus:
                 raise ValueError(
                     f"Bus '{bus.id}' cannot be removed because "
                     f"Shunt '{shunt.id}' references it."
@@ -1051,17 +1183,20 @@ class Network:
 
         # -------------------------------------------------------------
         # UPDATE BUS INDEX
+        #
+        # The existing deterministic index may now contain stale
+        # positions for buses after the removed bus. Therefore the
+        # entire index is rebuilt rather than merely deleting one key.
         # -------------------------------------------------------------
 
-        if getattr(self, "bus_index", None) is not None:
-
-            bus_id = getattr(bus, "id", None)
-
-            if bus_id in self.bus_index:
-                del self.bus_index[bus_id]
+        self.rebuild_bus_index()
 
         # -------------------------------------------------------------
         # INVALIDATE DERIVED NETWORK STATE
+        #
+        # Bus membership is topology-affecting and therefore both
+        # topology and Y-bus must be invalidated.
         # -------------------------------------------------------------
 
         self._invalidate_topology()
+```
