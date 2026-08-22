@@ -1329,34 +1329,101 @@ class Network:
             f"Line '{getattr(line, 'id', line)}' "
             "is not registered on this Network."
         )
-        def remove_transformer(
-    self,
-    transformer: Any,
-) -> None:
-    """
-    Remove a registered Transformer from the Network.
 
-    Network membership is removed only. The Transformer's
-    terminal relationships remain owned by the Transformer model.
-    """
+    # -----------------------------------------------------------------
 
-    if transformer is None:
+    def remove_transformer(
+        self,
+        transformer: Any,
+    ) -> None:
+        """
+        Remove a registered Transformer from the Network.
+
+        Parameters
+        ----------
+        transformer : Transformer
+            Canonical Transformer object registered on this Network.
+
+        Raises
+        ------
+        ValueError
+            If ``transformer`` is None or the exact canonical
+            Transformer object is not registered on this Network.
+
+        Notes
+        -----
+        Transformer removal changes Network membership only.
+
+        It does NOT:
+
+            * disconnect ``from_terminal``;
+            * disconnect ``to_terminal``;
+            * delete either endpoint element;
+            * modify either endpoint Bus;
+            * directly manipulate TopologyManager;
+            * directly manipulate YBusBuilder;
+            * rebuild topology immediately;
+            * rebuild Y-bus immediately.
+
+        The Transformer's terminal relationships remain part of the
+        Transformer model object.
+
+        Canonical Object Identity
+        --------------------------
+        The Network stores references to canonical Core model
+        objects.
+
+        Consequently the removal operation searches for the exact
+        object instance using identity:
+
+            registered_transformer is transformer
+
+        rather than relying on equality or matching only
+        ``transformer.id``.
+
+        This prevents an unrelated object with the same identifier
+        from being removed accidentally.
+        """
+
+        if transformer is None:
+            raise ValueError(
+                "Transformer cannot be None."
+            )
+
+        # -------------------------------------------------------------
+        # FIND THE CANONICAL REGISTERED OBJECT
+        #
+        # Identity is intentional.
+        # -------------------------------------------------------------
+
+        for index, registered_transformer in enumerate(
+            self.transformers
+        ):
+
+            if registered_transformer is transformer:
+
+                # -----------------------------------------------------
+                # REMOVE ONLY NETWORK MEMBERSHIP
+                # -----------------------------------------------------
+
+                del self.transformers[index]
+
+                # -----------------------------------------------------
+                # INVALIDATE DERIVED NETWORK STATE
+                #
+                # Transformer membership is topology-affecting.
+                # Therefore both topology and Y-bus become dirty.
+                # -----------------------------------------------------
+
+                self._invalidate_topology()
+
+                return
+
+        # -------------------------------------------------------------
+        # CANONICAL REGISTRATION FAILURE
+        # -------------------------------------------------------------
+
         raise ValueError(
-            "Transformer cannot be None."
+            f"Transformer '{getattr(transformer, 'id', transformer)}' "
+            "is not registered on this Network."
         )
-
-    for index, registered_transformer in enumerate(
-        self.transformers
-    ):
-        if registered_transformer is transformer:
-
-            del self.transformers[index]
-
-            self._invalidate_topology()
-
-            return
-
-    raise ValueError(
-        f"Transformer '{getattr(transformer, 'id', transformer)}' "
-        "is not registered on this Network."
-    )
