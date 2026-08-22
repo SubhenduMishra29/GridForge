@@ -1329,3 +1329,34 @@ class Network:
             f"Line '{getattr(line, 'id', line)}' "
             "is not registered on this Network."
         )
+        def remove_transformer(
+    self,
+    transformer: Any,
+) -> None:
+    """
+    Remove a registered Transformer from the Network.
+
+    Network membership is removed only. The Transformer's
+    terminal relationships remain owned by the Transformer model.
+    """
+
+    if transformer is None:
+        raise ValueError(
+            "Transformer cannot be None."
+        )
+
+    for index, registered_transformer in enumerate(
+        self.transformers
+    ):
+        if registered_transformer is transformer:
+
+            del self.transformers[index]
+
+            self._invalidate_topology()
+
+            return
+
+    raise ValueError(
+        f"Transformer '{getattr(transformer, 'id', transformer)}' "
+        "is not registered on this Network."
+    )
