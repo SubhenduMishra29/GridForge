@@ -11,45 +11,84 @@ Module:
 
 Purpose
 -------
-Defines the headless Application command representing the intent
-to remove a Bus from the assembled electrical Network.
+Defines the Application command used to request deletion of a
+canonical electrical Bus.
 
-Architecture
-------------
+This command represents INTENT.
+
+It does not remove the Bus itself.
+
+Execution is performed through:
 
     DeleteBusCommand
-            |
-            v
-       ModelService
-            |
-            v
-       Network.remove_bus()
-            |
-            v
-           Core
+          |
+          v
+    CommandManager
+          |
+          v
+    delete_bus_handler()
+          |
+          v
+    ModelService.delete_bus()
+          |
+          v
+    core.network.Network.remove_bus()
 
-Responsibilities
+Headless Boundary
+-----------------
+This module contains no dependency on:
+
+    * PySide6;
+    * PyQt;
+    * Qt;
+    * QGraphicsScene;
+    * QGraphicsItem;
+    * SLD;
+    * Canvas;
+    * UI controllers;
+    * renderers.
+
+The command therefore remains usable from:
+
+    * UI;
+    * plugins;
+    * automation;
+    * CLI;
+    * batch processing.
+
+Payload
+-------
+The command payload contains only Application-level data.
+
+No Core collection, Network instance, terminal object, or UI
+object is stored in the command payload.
+
+The stable Bus identifier is sufficient to identify the intended
+canonical Core object.
+
+Command Type
+------------
+The semantic command type is:
+
+    "bus.delete"
+
+This follows the existing CreateBusCommand convention:
+
+    "bus.create"
+
+Command Contract
 ----------------
-This command:
+The command conforms to the frozen Application Command contract:
 
-    * represents deletion intent;
-    * carries the stable Bus identifier;
-    * contains no UI state;
-    * contains no Qt dependency;
-    * contains no Network implementation details;
-    * contains no topology mutation logic.
+    core.application.command.Command
 
-The command does NOT:
+The inherited immutable fields are preserved:
 
-    * access Network collections directly;
-    * manipulate bus_index;
-    * manipulate topology;
-    * manipulate Y-bus;
-    * manipulate SLD objects;
-    * perform engineering calculations.
-
-Those responsibilities belong to the appropriate Application/Core
-layers.
+    * command_type;
+    * payload;
+    * command_id;
+    * correlation_id;
+    * causation_id.
 
 Python Compatibility
 --------------------
@@ -58,41 +97,137 @@ GridForge V2 targets Python 3.10/3.11.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Any
+from uuid import UUID
 
 from ..command import Command
+from ..context import ApplicationContext
+from ..results import ApplicationResult
+from ..services.model_service import ModelService
 
 
-@dataclass(frozen=True)
 class DeleteBusCommand(Command):
     """
-    Application command requesting deletion of a Bus.
+    Application command representing the intent to delete a Bus.
 
     Parameters
     ----------
     bus_id:
-        Stable identifier of the canonical Core Bus to remove.
+        Stable identifier of the canonical Core Bus.
+
+    command_id:
+        Optional unique command instance identifier.
+
+    correlation_id:
+        Optional identifier associating this command with a larger
+        Application operation.
+
+    causation_id:
+        Optional identifier identifying the command/event that
+        caused this command.
 
     Notes
     -----
-    The command carries an identifier rather than a Bus object.
+    This class intentionally follows the same construction pattern
+    as CreateBusCommand.
 
-    This is deliberate.
+    It does not store the Core Bus object.
 
-    Application commands should represent user/application intent,
-    while canonical Core objects remain owned by the Core Network.
+    The canonical Bus remains owned by Network.
     """
 
-    bus_id: str
+    def __init__(
+        self,
+        *,
+        bus_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        """
+        Construct an immutable DeleteBusCommand.
+        """
 
-    @property
-    def command_type(self) -> str:
-        """
-        Return the canonical Application command type.
-        """
-        return "delete_bus"
+        payload: dict[str, Any] = {
+            "bus_id": bus_id,
+        }
+
+        if command_id is None:
+            super().__init__(
+                command_type="bus.delete",
+                payload=payload,
+                correlation_id=correlation_id,
+                causation_id=causation_id,
+            )
+
+        else:
+            super().__init__(
+                command_type="bus.delete",
+                payload=payload,
+                command_id=command_id,
+                correlation_id=correlation_id,
+                causation_id=causation_id,
+            )
+
+
+def delete_bus_handler(
+    command: Command,
+    context: ApplicationContext,
+) -> ApplicationResult:
+    """
+    Execute a DeleteBusCommand through ModelService.
+
+    This function is the Application command-handler boundary.
+
+    It deliberately does not:
+
+        * access Network collections;
+        * search topology;
+        * manipulate bus_index;
+        * remove the Bus directly;
+        * manipulate terminal references.
+
+    The handler:
+
+        1. validates the command type;
+        2. extracts the stable Bus identifier;
+        3. delegates to ModelService;
+        4. returns the ApplicationResult.
+
+    Parameters
+    ----------
+    command:
+        Application command dispatched by CommandManager.
+
+    context:
+        Headless ApplicationContext.
+
+    Returns
+    -------
+    ApplicationResult
+        Result produced by ModelService.
+
+    Raises
+    ------
+    TypeError
+        If the supplied command is not DeleteBusCommand.
+    """
+
+    if not isinstance(command, DeleteBusCommand):
+        raise TypeError(
+            "delete_bus_handler requires DeleteBusCommand."
+        )
+
+    service = ModelService(context)
+
+    payload = command.payload
+
+    return service.delete_bus(
+        bus_id=payload["bus_id"],
+    )
 
 
 __all__ = [
     "DeleteBusCommand",
+    "delete_bus_handler",
 ]
