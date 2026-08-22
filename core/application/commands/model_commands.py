@@ -26,12 +26,15 @@ Architectural flow
        CommandManager
               |
               v
+         Command Handler
+              |
+              v
          ModelService
               |
               v
              Core
 
-Command objects represent intent only.
+Command objects represent Application intent only.
 
 They do NOT:
 
@@ -42,32 +45,34 @@ They do NOT:
     * build Y-bus;
     * access Qt;
     * access graphics objects;
-    * own services;
+    * own Application services;
     * own CommandManager.
 
-Execution belongs to CommandManager handlers.
+The command manager dispatches the command to a registered
+handler. The handler performs Application-level orchestration.
 
 Current commands
 ----------------
 
     CreateBusCommand
     DeleteBusCommand
-
     CreateLineCommand
     DeleteLineCommand
 
-The command payload contains Application-level input only.
-
-Canonical Core objects are intentionally NOT stored in command
-payloads for creation/deletion requests. Commands use stable IDs
-where the operation is based on an already registered object.
-
-Line creation is the exception in that its endpoints must be
-resolved before the canonical Line can be constructed. The
-command therefore carries endpoint identifiers, not Core objects.
+Line endpoint rule
+------------------
+CreateLineCommand carries endpoint identifiers, not Core model
+objects.
 
 The handler resolves those identifiers against the canonical
 Application/Core Network before calling ModelService.
+
+This preserves the headless Application boundary.
+
+Immutability
+------------
+Command payloads use MappingProxyType so callers cannot mutate
+the command payload after construction.
 
 Python Compatibility
 --------------------
@@ -76,8 +81,9 @@ GridForge V2 targets Python 3.10/3.11.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import replace
+from types import MappingProxyType
+from typing import Any, Mapping
 from uuid import UUID
 
 from ..command import Command
@@ -95,20 +101,66 @@ DELETE_LINE = "model.delete_line"
 
 
 # =====================================================================
+# INTERNAL PAYLOAD HELPER
+# =====================================================================
+
+def _immutable_payload(
+    payload: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """
+    Convert an Application command payload into an immutable mapping.
+
+    MappingProxyType prevents mutation of the mapping itself.
+
+    The values are Application-level values only and must not contain
+    UI objects or graphics objects.
+    """
+
+    return MappingProxyType(dict(payload))
+
+
+# =====================================================================
 # CREATE BUS
 # =====================================================================
 
-@dataclass(frozen=True)
 class CreateBusCommand(Command):
     """
-    Application intent to create a canonical Bus.
+    Application intent to create a canonical Core Bus.
 
-    The payload is kept in the base Command mapping because the
-    Application command contract deliberately uses immutable,
-    transport-friendly payloads.
+    Parameters
+    ----------
+    bus_id:
+        Stable Bus identifier.
+
+    name:
+        Human-readable Bus name.
+
+    bus_type:
+        BusType value expected by ModelService.
+
+    voltage:
+        Initial voltage magnitude.
+
+    angle:
+        Initial voltage angle.
+
+    p_spec:
+        Active-power specification.
+
+    q_spec:
+        Reactive-power specification.
+
+    v_setpoint:
+        Optional voltage setpoint.
+
+    q_min:
+        Minimum reactive-power limit.
+
+    q_max:
+        Maximum reactive-power limit.
+
+    The command itself does not construct the Core Bus.
     """
-
-    command_type: str = CREATE_BUS
 
     def __init__(
         self,
@@ -127,71 +179,47 @@ class CreateBusCommand(Command):
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
-        payload = {
-            "bus_id": bus_id,
-            "name": name,
-            "bus_type": bus_type,
-            "voltage": voltage,
-            "angle": angle,
-            "p_spec": p_spec,
-            "q_spec": q_spec,
-            "v_setpoint": v_setpoint,
-            "q_min": q_min,
-            "q_max": q_max,
-        }
 
-        # Command is frozen, therefore object.__setattr__ is used
-        # to construct the immutable base object explicitly.
-        object.__setattr__(
-            self,
-            "command_type",
-            CREATE_BUS,
+        super().__init__(
+            command_type=CREATE_BUS,
+            payload=_immutable_payload(
+                {
+                    "bus_id": bus_id,
+                    "name": name,
+                    "bus_type": bus_type,
+                    "voltage": voltage,
+                    "angle": angle,
+                    "p_spec": p_spec,
+                    "q_spec": q_spec,
+                    "v_setpoint": v_setpoint,
+                    "q_min": q_min,
+                    "q_max": q_max,
+                }
+            ),
+            command_id=(
+                command_id
+                if command_id is not None
+                else Command.__dataclass_fields__["command_id"]
+                .default_factory()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
         )
-        object.__setattr__(
-            self,
-            "payload",
-            payload,
-        )
-
-        from uuid import uuid4
-
-        object.__setattr__(
-            self,
-            "command_id",
-            command_id if command_id is not None else uuid4(),
-        )
-
-        object.__setattr__(
-            self,
-            "correlation_id",
-            correlation_id,
-        )
-
-        object.__setattr__(
-            self,
-            "causation_id",
-            causation_id,
-        )
-
-        Command.__post_init__(self)
 
 
 # =====================================================================
 # DELETE BUS
 # =====================================================================
 
-@dataclass(frozen=True)
 class DeleteBusCommand(Command):
     """
-    Application intent to delete a canonical Bus.
+    Application intent to remove a canonical Core Bus.
 
-    Only the stable Bus ID is carried.
+    Only the stable Bus identifier is carried.
 
-    The handler resolves the canonical Bus through the Network
-    before invoking ModelService.delete_bus().
+    The handler resolves the canonical Bus through the Network and
+    delegates removal to ModelService.
     """
-
-    command_type: str = DELETE_BUS
 
     def __init__(
         self,
@@ -201,61 +229,46 @@ class DeleteBusCommand(Command):
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
-        from uuid import uuid4
 
-        object.__setattr__(
-            self,
-            "command_type",
-            DELETE_BUS,
+        super().__init__(
+            command_type=DELETE_BUS,
+            payload=_immutable_payload(
+                {
+                    "bus_id": bus_id,
+                }
+            ),
+            command_id=(
+                command_id
+                if command_id is not None
+                else Command.__dataclass_fields__["command_id"]
+                .default_factory()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
         )
-
-        object.__setattr__(
-            self,
-            "payload",
-            {
-                "bus_id": bus_id,
-            },
-        )
-
-        object.__setattr__(
-            self,
-            "command_id",
-            command_id if command_id is not None else uuid4(),
-        )
-
-        object.__setattr__(
-            self,
-            "correlation_id",
-            correlation_id,
-        )
-
-        object.__setattr__(
-            self,
-            "causation_id",
-            causation_id,
-        )
-
-        Command.__post_init__(self)
 
 
 # =====================================================================
 # CREATE LINE
 # =====================================================================
 
-@dataclass(frozen=True)
 class CreateLineCommand(Command):
     """
-    Application intent to create a canonical Line.
+    Application intent to create a canonical Core Line.
 
-    Endpoint references are carried as stable identifiers.
+    Endpoint references are stable identifiers.
 
-    The command never carries Qt objects or canonical model objects.
+    The command does not contain:
 
-    Endpoint resolution is performed by the command handler against
-    the canonical Application/Core Network.
+        * Bus objects;
+        * Terminal objects;
+        * Line objects;
+        * Qt objects;
+        * QGraphicsItems.
+
+    The handler resolves endpoint identifiers against the canonical
+    Network before invoking ModelService.create_line().
     """
-
-    command_type: str = CREATE_LINE
 
     def __init__(
         self,
@@ -272,66 +285,45 @@ class CreateLineCommand(Command):
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
-        from uuid import uuid4
 
-        object.__setattr__(
-            self,
-            "command_type",
-            CREATE_LINE,
+        super().__init__(
+            command_type=CREATE_LINE,
+            payload=_immutable_payload(
+                {
+                    "line_id": line_id,
+                    "endpoint_from_id": endpoint_from_id,
+                    "endpoint_to_id": endpoint_to_id,
+                    "r": r,
+                    "x": x,
+                    "b": b,
+                    "name": name,
+                    "rate_mva": rate_mva,
+                }
+            ),
+            command_id=(
+                command_id
+                if command_id is not None
+                else Command.__dataclass_fields__["command_id"]
+                .default_factory()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
         )
-
-        object.__setattr__(
-            self,
-            "payload",
-            {
-                "line_id": line_id,
-                "endpoint_from_id": endpoint_from_id,
-                "endpoint_to_id": endpoint_to_id,
-                "r": r,
-                "x": x,
-                "b": b,
-                "name": name,
-                "rate_mva": rate_mva,
-            },
-        )
-
-        object.__setattr__(
-            self,
-            "command_id",
-            command_id if command_id is not None else uuid4(),
-        )
-
-        object.__setattr__(
-            self,
-            "correlation_id",
-            correlation_id,
-        )
-
-        object.__setattr__(
-            self,
-            "causation_id",
-            causation_id,
-        )
-
-        Command.__post_init__(self)
 
 
 # =====================================================================
 # DELETE LINE
 # =====================================================================
 
-@dataclass(frozen=True)
 class DeleteLineCommand(Command):
     """
-    Application intent to delete a canonical Line.
+    Application intent to remove a canonical Core Line.
 
-    Only the stable Line ID is carried.
+    Only the stable Line identifier is carried.
 
-    The handler resolves the canonical Line and delegates deletion
-    to ModelService.
+    The handler resolves the canonical Line and delegates removal
+    to ModelService.delete_line().
     """
-
-    command_type: str = DELETE_LINE
 
     def __init__(
         self,
@@ -341,45 +333,27 @@ class DeleteLineCommand(Command):
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
-        from uuid import uuid4
 
-        object.__setattr__(
-            self,
-            "command_type",
-            DELETE_LINE,
+        super().__init__(
+            command_type=DELETE_LINE,
+            payload=_immutable_payload(
+                {
+                    "line_id": line_id,
+                }
+            ),
+            command_id=(
+                command_id
+                if command_id is not None
+                else Command.__dataclass_fields__["command_id"]
+                .default_factory()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
         )
-
-        object.__setattr__(
-            self,
-            "payload",
-            {
-                "line_id": line_id,
-            },
-        )
-
-        object.__setattr__(
-            self,
-            "command_id",
-            command_id if command_id is not None else uuid4(),
-        )
-
-        object.__setattr__(
-            self,
-            "correlation_id",
-            correlation_id,
-        )
-
-        object.__setattr__(
-            self,
-            "causation_id",
-            causation_id,
-        )
-
-        Command.__post_init__(self)
 
 
 # =====================================================================
-# EXPORTS
+# PUBLIC API
 # =====================================================================
 
 __all__ = [
