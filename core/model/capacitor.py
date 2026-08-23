@@ -69,10 +69,10 @@ import math
 from typing import Any
 
 from .base import ElectricalObject
+from .injection import Injection
 from .terminal import Terminal
 
-
-class Capacitor(ElectricalObject):
+class Capacitor(ElectricalObject, Injection):
     """
     Static shunt capacitor-bank model.
 
