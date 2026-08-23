@@ -1,4 +1,3 @@
-```python
 """
 GridForge V2 Generic Switch Model
 =================================
@@ -818,4 +817,3 @@ class Switch(ElectricalObject):
 __all__ = [
     "Switch",
 ]
-```
