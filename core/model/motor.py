@@ -1,168 +1,74 @@
+# core/model/motor.py
 """
-GridForge Motor Model
-=====================
+GridForge V2 Motor Model
+========================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
-Defines the GridForge core Motor equipment model.
+Motor is a static electrical equipment model representing an
+electrical motor load.
 
 Architecture
 ------------
-A Motor is a physical electrical load/injection device connected to
-the network through a physical Terminal.
 
     Motor
-       |
-    Terminal
-       |
-    network topology
-       |
-      Bus
+      |
+      +-- ElectricalObject
+      +-- Injection
+      +-- Terminal
+      |
+      +-- steady-state electrical demand
+      +-- equipment ratings
+      +-- operating state
+      +-- plugin references
 
-The Motor model represents the stable electrical identity of a motor
-without embedding a particular motor dynamic model.
+Motor is NOT responsible for:
 
-The core model supports:
+    - Network topology
+    - Bus collections
+    - Y-bus construction
+    - Power-flow solving
+    - Motor dynamic simulation
+    - Mechanical equations
+    - Starting transient calculation
+    - VFD control execution
+    - Protection calculation
+    - SLD state
+    - GUI state
 
-    - Active-power demand
-    - Reactive-power demand
-    - Rated apparent power
-    - Rated voltage
-    - Operating state
-    - Physical terminal
-    - Generic plugin/extension references
-    - Local validation
-    - Diagnostics
+Dynamic motor behavior is supplied by the appropriate simulation/
+plugin layer.
 
-Detailed motor behavior is intentionally delegated to plugins.
+Power convention
+----------------
 
-Possible plugins include:
-
-    dynamics.induction_motor
-    dynamics.synchronous_motor
-    dynamics.motor_starting
-    dynamics.mechanical_load
-    drive.vfd
-    control.motor_controller
-    protection.motor_protection
-    thermal.motor
-
-The Motor does NOT:
-
-    - Build Y-bus.
-    - Perform load flow.
-    - Perform motor-starting studies.
-    - Perform transient motor simulation.
-    - Perform dynamic integration.
-    - Calculate short-circuit currents.
-    - Perform protection calculations.
-    - Control a VFD.
-    - Determine network topology.
-    - Own simulation history.
-    - Store GUI state.
-
-Those responsibilities belong to the appropriate
-network, solver, analysis, protection, simulation, control,
-or plugin layers.
-
-Electrical Sign Convention
---------------------------
-Motor demand is stored internally as positive consumption:
-
-    p > 0
-        Active-power consumption.
-
-    q > 0
-        Reactive-power consumption.
-
-Through the Injection interface the Motor exposes:
-
-    get_power() -> (-P, -Q)
+The Motor stores positive P/Q as electrical consumption.
 
 Therefore:
 
-    positive network injection
-        = power supplied to the network
+    p > 0  -> active-power consumption
+    q > 0  -> reactive-power consumption
 
-    negative network injection
-        = power consumed from the network
+The Injection interface exposes network injection as:
 
-The core Motor therefore behaves as a load at the steady-state
-network-injection interface.
+    P_injection = -p
+    Q_injection = -q
 
-Dynamic motor plugins may provide a different electrical model to
-dynamic or transient studies without changing the core Motor
-identity.
+Units
+-----
 
-Operating State
----------------
-The Motor owns only its current physical operating state:
+The existing Core Motor contract uses per-unit P/Q.
 
-    in_service
-    running
+Therefore this file intentionally preserves:
 
-These are not simulation histories.
+    p : pu
+    q : pu
 
-Simulation/event layers may record events such as:
+Ratings remain in:
 
-    time
-    motor
-    start
-    stop
-    trip
-
-without making that event history part of the authoritative Motor
-model.
-
-Plugin Boundary
----------------
-The Motor itself is NOT a plugin.
-
-It is a fundamental physical equipment object and therefore belongs
-in:
-
-    core/model/motor.py
-
-Specialized behavior belongs in:
-
-    core/plugins/
-
-The generic plugin registry stores references only. The Motor does
-not import, execute, or interpret plugin implementations.
-
-This preserves the architecture:
-
-    core/model
-        stable physical equipment contract
-
-    core/plugins
-        specialized engineering behavior
-
-    core/network
-        topology and connectivity
-
-    core/solver
-        numerical computation
-
-    core/analysis
-        public study interfaces
-
-    core/protection
-        protection engineering
-
-    core/simulation
-        event and dynamic simulation
-
-GridForge V2 Status
--------------------
-This module is part of the GridForge Model Layer V2 baseline.
-
-Changes require evidence of a genuinely fundamental motor-model
-requirement that cannot be satisfied through the existing Motor
-interface, plugin architecture, or higher-level layers.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+    rated_mva       : MVA
+    rated_voltage_kv: kV
 """
 
 from __future__ import annotations
@@ -175,69 +81,32 @@ from .injection import Injection
 from .terminal import Terminal
 
 
-# =====================================================================
-# MOTOR MODEL
-# =====================================================================
-
 class Motor(ElectricalObject, Injection):
     """
-    GridForge core motor equipment model.
+    Static electrical motor model.
 
-    The Motor is a physical electrical demand connected through one
-    authoritative Terminal.
+    The Motor owns one authoritative electrical Terminal.
 
-    Parameters
-    ----------
-    id : str
-        Unique GridForge motor identifier.
-
-    bus :
-        Initial electrical connection endpoint.
-
-        Normally this is a Bus. The network layer determines the
-        complete topology.
-
-    p : float, optional
-        Active-power demand in per-unit.
-
-        Positive values represent consumption.
-
-    q : float, optional
-        Reactive-power demand in per-unit.
-
-        Positive values represent consumption.
-
-    rated_mva : float, optional
-        Motor rated apparent power in MVA.
-
-    rated_voltage_kv : float, optional
-        Motor rated voltage in kV.
-
-    name : str, optional
-        Human-readable motor name.
-
-    Notes
-    -----
-    The Motor intentionally does not assume that every motor is an
-    induction motor.
-
-    Induction-motor, synchronous-motor, VFD-fed, starting, mechanical,
-    thermal, and dynamic behavior can be attached through plugins.
+    A Motor may exist without being connected to a network. The
+    network/application layer is responsible for establishing global
+    topology.
     """
 
-    # =================================================================
-    # INITIALIZATION
-    # =================================================================
+    TYPE = "MOTOR"
 
     def __init__(
         self,
         id: str,
-        bus,
+        bus=None,
+        *,
+        endpoint=None,
         p: float = 0.0,
         q: float = 0.0,
         rated_mva: float | None = None,
         rated_voltage_kv: float | None = None,
         name: str = "",
+        in_service: bool = True,
+        running: bool = True,
     ) -> None:
 
         super().__init__(
@@ -245,173 +114,219 @@ class Motor(ElectricalObject, Injection):
             name=name,
         )
 
-        # -------------------------------------------------------------
-        # Physical electrical connection
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
+        # Endpoint compatibility
+        #
+        # Existing API:
+        #     Motor(id, bus, ...)
+        #
+        # Preferred V2 API:
+        #     Motor(id, endpoint=...)
+        #
+        # Terminal remains authoritative.
+        # ---------------------------------------------------------
+
+        if (
+            bus is not None
+            and endpoint is not None
+            and bus is not endpoint
+        ):
+            raise ValueError(
+                f"Motor '{self.id}' received both 'bus' and "
+                "'endpoint' with different values."
+            )
+
+        if endpoint is None:
+            endpoint = bus
 
         self.terminal = Terminal(
-            endpoint=bus,
+            endpoint=endpoint,
             owner=self,
         )
 
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
         # Steady-state electrical demand
         #
         # Positive P/Q = consumption.
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
 
-        self.p = float(p)
-        self.q = float(q)
+        self.p = self._validate_finite(
+            p,
+            "p",
+        )
 
-        # -------------------------------------------------------------
+        self.q = self._validate_finite(
+            q,
+            "q",
+        )
+
+        # ---------------------------------------------------------
         # Equipment ratings
-        #
-        # Ratings are optional because some network-level models may
-        # initially operate only from P/Q values.
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
 
         self.rated_mva = (
             None
             if rated_mva is None
-            else float(rated_mva)
+            else self._validate_positive(
+                rated_mva,
+                "rated_mva",
+            )
         )
 
         self.rated_voltage_kv = (
             None
             if rated_voltage_kv is None
-            else float(rated_voltage_kv)
+            else self._validate_positive(
+                rated_voltage_kv,
+                "rated_voltage_kv",
+            )
         )
 
-        # -------------------------------------------------------------
-        # Physical operating state
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
+        # Operating state
+        # ---------------------------------------------------------
 
-        self.in_service = True
-        self.running = True
+        self.in_service = bool(in_service)
+        self.running = bool(running)
 
-        # -------------------------------------------------------------
-        # Generic plugin registry
+        # ---------------------------------------------------------
+        # Plugin references
         #
-        # The Motor stores references only.
-        # It does not execute or interpret plugins.
-        # -------------------------------------------------------------
+        # Core stores references only.
+        # It does not execute plugin behavior.
+        # ---------------------------------------------------------
 
         self._plugins: dict[str, Any] = {}
 
-        # -------------------------------------------------------------
-        # Validation
-        # -------------------------------------------------------------
+        self.validate_parameters()
 
-        self._validate()
+    # =============================================================
+    # IDENTITY
+    # =============================================================
 
-    # =================================================================
-    # VALIDATION
-    # =================================================================
+    @property
+    def element_type(self) -> str:
+        """Return canonical GridForge element type."""
+        return self.TYPE
 
-    def _validate(self) -> None:
+    # =============================================================
+    # CONNECTIVITY
+    # =============================================================
+
+    @property
+    def endpoint(self):
         """
-        Validate the core Motor state.
-
-        P and Q are consumption quantities and therefore must be
-        finite and non-negative.
-
-        Ratings, when supplied, must be finite and positive.
+        Return the authoritative electrical endpoint.
         """
-
-        if not math.isfinite(self.p):
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "active power demand must be finite."
-            )
-
-        if not math.isfinite(self.q):
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "reactive power demand must be finite."
-            )
-
-        if self.p < 0.0:
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "active power demand must be >= 0."
-            )
-
-        if self.q < 0.0:
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "reactive power demand must be >= 0."
-            )
-
-        if self.rated_mva is not None:
-            if not math.isfinite(self.rated_mva):
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated MVA must be finite."
-                )
-
-            if self.rated_mva <= 0.0:
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated MVA must be greater than zero."
-                )
-
-        if self.rated_voltage_kv is not None:
-            if not math.isfinite(self.rated_voltage_kv):
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated voltage must be finite."
-                )
-
-            if self.rated_voltage_kv <= 0.0:
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated voltage must be greater than zero."
-                )
-
-    # =================================================================
-    # CONNECTION
-    # =================================================================
+        return self.terminal.endpoint
 
     @property
     def bus(self):
         """
-        Return the endpoint currently associated with the Motor
-        Terminal.
+        Compatibility accessor.
 
-        The authoritative local connection is ``self.terminal``.
-
-        Global topology belongs to the network/topology layer.
+        The returned bus/endpoint is derived from the Terminal.
+        It is not the authoritative connection state.
         """
-
         return self.terminal.bus
 
-    # =================================================================
-    # INJECTION INTERFACE
-    # =================================================================
+    @property
+    def terminals(self) -> tuple[Terminal, ...]:
+        """Return the Motor's electrical terminal."""
+        return (self.terminal,)
+
+    @property
+    def is_connected(self) -> bool:
+        """Return whether the Motor has an electrical endpoint."""
+        return self.terminal.is_connected
+
+    def connect_endpoint(self, endpoint) -> None:
+        """
+        Connect the Motor terminal.
+
+        Global topology is not modified here.
+        """
+        self.terminal.connect(endpoint)
+
+    def disconnect_endpoint(self) -> None:
+        """
+        Disconnect the Motor terminal.
+
+        Global topology is not modified here.
+        """
+        self.terminal.disconnect()
+
+    # =============================================================
+    # OPERATING STATE
+    # =============================================================
+
+    def connect(self) -> None:
+        """Place the Motor in service."""
+        self.in_service = True
+
+    def disconnect(self) -> None:
+        """Take the Motor out of service."""
+        self.in_service = False
+
+    def start(self) -> None:
+        """
+        Set the Motor operating state to running.
+
+        This does not perform a motor-starting simulation.
+        """
+        self.running = True
+
+    def stop(self) -> None:
+        """
+        Set the Motor operating state to stopped.
+
+        This does not perform a dynamic stopping simulation.
+        """
+        self.running = False
+
+    @property
+    def is_available(self) -> bool:
+        """Return whether the Motor is electrically in service."""
+        return self.in_service
+
+    @property
+    def is_running(self) -> bool:
+        """Return whether the Motor is running."""
+        return self.running
+
+    # =============================================================
+    # INJECTION CONTRACT
+    # =============================================================
 
     def get_power(self) -> tuple[float, float]:
         """
-        Return the Motor's network power injection.
+        Return Motor network injection.
 
-        Returns
-        -------
-        tuple[float, float]
-            ``(-P, -Q)`` in per-unit.
+        Internal representation:
 
-        Positive P/Q internally represent motor consumption.
+            +P = consumption
+            +Q = consumption
+
+        Network injection:
+
+            -P
+            -Q
+
+        If the Motor is out of service or stopped, zero injection
+        is returned.
         """
 
         if not self.in_service or not self.running:
-            return (0.0, 0.0)
+            return 0.0, 0.0
 
         return (
             -self.p,
             -self.q,
         )
 
-    # =================================================================
+    # =============================================================
     # POWER CONTROL
-    # =================================================================
+    # =============================================================
 
     def set_power(
         self,
@@ -419,36 +334,31 @@ class Motor(ElectricalObject, Injection):
         q: float,
     ) -> None:
         """
-        Set steady-state motor active and reactive demand.
+        Set steady-state electrical demand.
 
-        Candidate values are validated before modifying model state.
+        P and Q are positive consumption quantities in per-unit.
         """
 
-        p = float(p)
-        q = float(q)
+        p = self._validate_finite(
+            p,
+            "p",
+        )
 
-        if not math.isfinite(p):
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "active power demand must be finite."
-            )
-
-        if not math.isfinite(q):
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "reactive power demand must be finite."
-            )
+        q = self._validate_finite(
+            q,
+            "q",
+        )
 
         if p < 0.0:
             raise ValueError(
-                f"Motor '{self.id}': "
-                "active power demand must be >= 0."
+                f"Motor '{self.id}' active power demand "
+                "cannot be negative."
             )
 
         if q < 0.0:
             raise ValueError(
-                f"Motor '{self.id}': "
-                "reactive power demand must be >= 0."
+                f"Motor '{self.id}' reactive power demand "
+                "cannot be negative."
             )
 
         self.p = p
@@ -458,22 +368,17 @@ class Motor(ElectricalObject, Injection):
         self,
         p: float,
     ) -> None:
-        """
-        Set motor active-power demand.
-        """
+        """Set active-power demand in per-unit."""
 
-        p = float(p)
-
-        if not math.isfinite(p):
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "active power demand must be finite."
-            )
+        p = self._validate_finite(
+            p,
+            "p",
+        )
 
         if p < 0.0:
             raise ValueError(
-                f"Motor '{self.id}': "
-                "active power demand must be >= 0."
+                f"Motor '{self.id}' active power demand "
+                "cannot be negative."
             )
 
         self.p = p
@@ -482,330 +387,225 @@ class Motor(ElectricalObject, Injection):
         self,
         q: float,
     ) -> None:
-        """
-        Set motor reactive-power demand.
-        """
+        """Set reactive-power demand in per-unit."""
 
-        q = float(q)
-
-        if not math.isfinite(q):
-            raise ValueError(
-                f"Motor '{self.id}': "
-                "reactive power demand must be finite."
-            )
+        q = self._validate_finite(
+            q,
+            "q",
+        )
 
         if q < 0.0:
             raise ValueError(
-                f"Motor '{self.id}': "
-                "reactive power demand must be >= 0."
+                f"Motor '{self.id}' reactive power demand "
+                "cannot be negative."
             )
 
         self.q = q
 
-    # =================================================================
-    # RATING
-    # =================================================================
+    @property
+    def active_power(self) -> float:
+        """Return active-power demand in per-unit."""
+        return self.p
 
-    def set_ratings(
+    @property
+    def reactive_power(self) -> float:
+        """Return reactive-power demand in per-unit."""
+        return self.q
+
+    # =============================================================
+    # RATINGS
+    # =============================================================
+
+    def set_rating(
         self,
         rated_mva: float | None = None,
         rated_voltage_kv: float | None = None,
     ) -> None:
-        """
-        Update motor equipment ratings.
+        """Set optional motor equipment ratings."""
 
-        ``None`` means that the corresponding rating is not specified.
-        """
-
-        new_mva = (
-            None
-            if rated_mva is None
-            else float(rated_mva)
-        )
-
-        new_voltage = (
-            None
-            if rated_voltage_kv is None
-            else float(rated_voltage_kv)
-        )
-
-        if new_mva is not None:
-            if not math.isfinite(new_mva):
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated MVA must be finite."
-                )
-
-            if new_mva <= 0.0:
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated MVA must be greater than zero."
-                )
-
-        if new_voltage is not None:
-            if not math.isfinite(new_voltage):
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated voltage must be finite."
-                )
-
-            if new_voltage <= 0.0:
-                raise ValueError(
-                    f"Motor '{self.id}': "
-                    "rated voltage must be greater than zero."
-                )
-
-        self.rated_mva = new_mva
-        self.rated_voltage_kv = new_voltage
-
-    # =================================================================
-    # OPERATING STATE
-    # =================================================================
-
-    def start(self) -> None:
-        """
-        Set the physical motor operating state to running.
-
-        Starting dynamics, acceleration, inrush current, and starting
-        time belong to the appropriate motor/simulation plugin.
-        """
-
-        self.running = True
-
-    def stop(self) -> None:
-        """
-        Set the physical motor operating state to stopped.
-
-        The method does not model mechanical deceleration.
-        """
-
-        self.running = False
-
-    def trip(self) -> None:
-        """
-        Remove the motor from service.
-
-        Protection logic belongs to the protection layer.
-        """
-
-        self.in_service = False
-        self.running = False
-
-    def close(self) -> None:
-        """
-        Return the motor to service.
-
-        This does not automatically start the motor.
-        """
-
-        self.in_service = True
-
-    # =================================================================
-    # STATUS
-    # =================================================================
-
-    @property
-    def is_running(self) -> bool:
-        """
-        Return True when the motor is physically running.
-        """
-
-        return self.running
-
-    @property
-    def is_stopped(self) -> bool:
-        """
-        Return True when the motor is physically stopped.
-        """
-
-        return not self.running
-
-    # =================================================================
-    # GENERIC PLUGIN ARCHITECTURE
-    # =================================================================
-
-    def attach_plugin(
-        self,
-        key: str,
-        plugin: Any,
-        *,
-        replace: bool = False,
-    ) -> None:
-        """
-        Attach a specialized Motor plugin.
-
-        Examples
-        --------
-        ``dynamics.induction_motor``
-        ``dynamics.synchronous_motor``
-        ``dynamics.motor_starting``
-        ``drive.vfd``
-        ``thermal.motor``
-        ``protection.motor_protection``
-
-        The Motor stores the reference but does not execute the
-        plugin.
-        """
-
-        if not isinstance(key, str):
-            raise TypeError(
-                "Motor plugin key must be a string."
+        if rated_mva is not None:
+            rated_mva = self._validate_positive(
+                rated_mva,
+                "rated_mva",
             )
 
-        key = key.strip()
+        if rated_voltage_kv is not None:
+            rated_voltage_kv = self._validate_positive(
+                rated_voltage_kv,
+                "rated_voltage_kv",
+            )
 
-        if not key:
+        self.rated_mva = rated_mva
+        self.rated_voltage_kv = rated_voltage_kv
+
+    # =============================================================
+    # PLUGIN INTERFACE
+    # =============================================================
+
+    def register_plugin(
+        self,
+        plugin_id: str,
+        plugin: Any,
+    ) -> None:
+        """
+        Register a motor-related plugin reference.
+
+        The Core Motor does not execute or interpret the plugin.
+        """
+
+        if not isinstance(plugin_id, str):
+            raise TypeError(
+                "plugin_id must be a string."
+            )
+
+        plugin_id = plugin_id.strip()
+
+        if not plugin_id:
             raise ValueError(
-                "Motor plugin key cannot be empty."
+                "plugin_id cannot be empty."
             )
 
         if plugin is None:
             raise ValueError(
-                "Motor plugin cannot be None."
+                "plugin cannot be None."
             )
 
-        if key in self._plugins and not replace:
+        if plugin_id in self._plugins:
             raise ValueError(
-                f"Motor plugin '{key}' is already attached."
+                f"Plugin '{plugin_id}' is already registered "
+                f"for Motor '{self.id}'."
             )
 
-        self._plugins[key] = plugin
-
-    def detach_plugin(
-        self,
-        key: str,
-    ) -> Any | None:
-        """
-        Detach a Motor plugin.
-        """
-
-        if not isinstance(key, str):
-            raise TypeError(
-                "Motor plugin key must be a string."
-            )
-
-        return self._plugins.pop(
-            key.strip(),
-            None,
-        )
+        self._plugins[plugin_id] = plugin
 
     def get_plugin(
         self,
-        key: str,
+        plugin_id: str,
     ) -> Any | None:
-        """
-        Return an attached Motor plugin by key.
-        """
+        """Return a registered plugin reference."""
+        return self._plugins.get(plugin_id)
 
-        if not isinstance(key, str):
-            raise TypeError(
-                "Motor plugin key must be a string."
-            )
-
-        return self._plugins.get(
-            key.strip()
+    def remove_plugin(
+        self,
+        plugin_id: str,
+    ) -> Any | None:
+        """Remove and return a plugin reference."""
+        return self._plugins.pop(
+            plugin_id,
+            None,
         )
 
-    def has_plugin(
-        self,
-        key: str,
-    ) -> bool:
-        """
-        Return True when a Motor plugin exists.
-        """
-
-        if not isinstance(key, str):
-            raise TypeError(
-                "Motor plugin key must be a string."
-            )
-
-        return key.strip() in self._plugins
-
-    def plugin_keys(self) -> tuple[str, ...]:
-        """
-        Return registered Motor plugin identifiers.
-        """
-
+    @property
+    def plugin_ids(self) -> tuple[str, ...]:
+        """Return registered plugin identifiers."""
         return tuple(self._plugins.keys())
 
-    def plugins(self) -> dict[str, Any]:
+    # =============================================================
+    # VALIDATION
+    # =============================================================
+
+    def validate_parameters(self) -> bool:
         """
-        Return a shallow copy of the Motor plugin registry.
+        Validate Motor-local electrical parameters.
+
+        This method deliberately does not validate global topology.
         """
 
-        return dict(self._plugins)
+        self._validate_finite(
+            self.p,
+            "p",
+        )
 
-    def clear_plugins(self) -> None:
-        """
-        Remove all Motor plugin references.
-        """
+        self._validate_finite(
+            self.q,
+            "q",
+        )
 
-        self._plugins.clear()
+        if self.p < 0.0:
+            raise ValueError(
+                f"Motor '{self.id}' active power demand "
+                "must be >= 0."
+            )
 
-    # =================================================================
+        if self.q < 0.0:
+            raise ValueError(
+                f"Motor '{self.id}' reactive power demand "
+                "must be >= 0."
+            )
+
+        if self.rated_mva is not None:
+            self._validate_positive(
+                self.rated_mva,
+                "rated_mva",
+            )
+
+        if self.rated_voltage_kv is not None:
+            self._validate_positive(
+                self.rated_voltage_kv,
+                "rated_voltage_kv",
+            )
+
+        return True
+
+    # Backward-compatible private validation entry point.
+    def _validate(self) -> None:
+        """Validate the current Motor state."""
+        self.validate_parameters()
+
+    # =============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # =============================================================
 
-    def summary(self) -> dict:
-        """
-        Return structured Motor diagnostic information.
-        """
+    def summary(self) -> dict[str, Any]:
+        """Return a diagnostic representation."""
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": "motor",
-            "bus": (
-                self.bus.id
-                if self.bus is not None
-                else None
-            ),
-            "terminal": self.terminal.summary(),
-            "p": self.p,
-            "q": self.q,
-            "p_injection": (
-                -self.p
-                if self.in_service and self.running
-                else 0.0
-            ),
-            "q_injection": (
-                -self.q
-                if self.in_service and self.running
-                else 0.0
-            ),
+            "type": self.TYPE,
+            "p_pu": self.p,
+            "q_pu": self.q,
             "rated_mva": self.rated_mva,
             "rated_voltage_kv": self.rated_voltage_kv,
             "in_service": self.in_service,
             "running": self.running,
-            "plugins": tuple(
-                self._plugins.keys()
-            ),
+            "endpoint": self.endpoint,
+            "is_connected": self.is_connected,
+            "plugins": self.plugin_ids,
         }
 
-    # =================================================================
-    # REPRESENTATION
-    # =================================================================
+    # =============================================================
+    # VALIDATION HELPERS
+    # =============================================================
 
-    def __repr__(self) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
+    @staticmethod
+    def _validate_finite(
+        value: float,
+        name: str,
+    ) -> float:
+        """Return a finite floating-point value."""
 
-        bus_id = (
-            self.bus.id
-            if self.bus is not None
-            else None
-        )
+        value = float(value)
 
-        return (
-            f"<Motor "
-            f"id={self.id}, "
-            f"bus={bus_id}, "
-            f"P={self.p:.6f}, "
-            f"Q={self.q:.6f}, "
-            f"rated={self.rated_mva}, "
-            f"running={self.running}, "
-            f"in_service={self.in_service}, "
-            f"plugins={len(self._plugins)}>"
-        )
+        if not math.isfinite(value):
+            raise ValueError(
+                f"{name} must be finite."
+            )
 
+        return value
+
+    @staticmethod
+    def _validate_positive(
+        value: float,
+        name: str,
+    ) -> float:
+        """Return a finite positive floating-point value."""
+
+        value = float(value)
+
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(
+                f"{name} must be finite and greater than zero."
+            )
+
+        return value
