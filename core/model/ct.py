@@ -1,108 +1,107 @@
+# core/model/ct.py
 """
-GridForge Model Layer V2
-========================
+GridForge V2 Current Transformer Model
+======================================
 
-File:
-    core/model/ct.py
+Author:
+    Subhendu Mishra
 
-Purpose
--------
-Canonical Current Transformer (CT) equipment model for GridForge V2.
-
-A CT is a physical instrument transformer installed in a power-system
-conductor. It provides an isolated, scaled representation of primary
-current to measurement, protection, metering, control, and
-instrumentation systems.
+A Current Transformer (CT) is an instrument transformer used to
+provide an isolated, scaled representation of primary current to
+measurement, metering, protection, control, and instrumentation
+systems.
 
 Architecture
 ------------
 
-                POWER SYSTEM
-                     |
-                     |
-              Primary terminals
-                 P1       P2
-                  |       |
-                  +--- CT--+
-                       |
-                 Secondary side
-                  S1       S2
-                   |       |
-                   +-------+
-                       |
-             Measurement / protection
-                       |
-              Measurement Channel
-                       |
-                 Relay Input
-                       |
-                    Relay
+                    POWER SYSTEM
+                         |
+                  Primary interface
+                    P1       P2
+                     |       |
+                     +---CT--+
+                         |
+                  Measurement interface
+                    S1       S2
+                     |       |
+                     +-------+
+                         |
+              Measurement / Protection
+                         |
+              MeasurementChannel / RelayInput
+                         |
+                       Relay
 
 The CT is an equipment model.
 
-It does NOT itself:
+It owns:
 
-    - generate measurement signals;
-    - calculate relay quantities;
-    - perform protection logic;
-    - calculate CT saturation;
-    - calculate excitation characteristics dynamically;
-    - create measurement channels;
-    - connect itself to relays;
-    - modify Network topology;
-    - build Y-bus;
-    - perform load flow;
-    - perform short-circuit calculations;
-    - operate circuit breakers;
-    - manage GUI state.
+    - equipment identity
+    - primary interfaces
+    - secondary interfaces
+    - nameplate ratings
+    - transformation ratio
+    - accuracy information
+    - burden
+    - polarity
+    - frequency
+    - service state
 
-Those responsibilities belong to the appropriate GridForge layers.
+It does NOT own:
 
-Authoritative ownership
------------------------
-The CT owns:
+    - network topology
+    - Bus collections
+    - measurement channels
+    - relay inputs
+    - relay logic
+    - protection calculations
+    - CT saturation simulation
+    - excitation-curve simulation
+    - transient simulation
+    - Y-bus construction
+    - load-flow calculations
+    - short-circuit calculations
+    - breaker operation
+    - SLD state
+    - GUI state
 
-    - equipment identity;
-    - primary/secondary interfaces;
-    - nameplate ratings;
-    - transformation ratio;
-    - accuracy information;
-    - burden information;
-    - polarity;
-    - service state.
+Terminal Architecture
+---------------------
 
-Measurement quantities produced from the CT belong to the
-measurement-domain layer.
+The CT has four physical interfaces:
 
-Protection quantities and relay decisions belong to core/protection.
+    Primary:
+        P1
+        P2
 
-Topology belongs to core/network.
+    Secondary:
+        S1
+        S2
 
-Simulation of CT transient behaviour belongs to the appropriate
-simulation/protection plugin.
+Primary terminals are electrical equipment interfaces.
 
-GridForge V2 Design Principle
------------------------------
-The CT is upstream of the relay.
+Secondary terminals are instrument/measurement interfaces.
 
-Therefore:
+The CT does not decide how these interfaces are connected in
+the global topology or measurement architecture.
 
-    Relay
-       ^
-       |
-    RelayInput
-       ^
-       |
-    MeasurementChannel
-       ^
-       |
-      CT
-       ^
-       |
-    Power-system current
+Measurement and protection layers consume the CT through
+appropriate domain services and channels.
 
-The Relay must never treat a raw value stored directly inside the
-Relay model as the authoritative measurement source.
+Dynamic Behaviour
+-----------------
+
+Dynamic CT behaviour is deliberately outside this static model.
+
+Future simulation may provide:
+
+    - excitation characteristics
+    - saturation
+    - remanence
+    - transient response
+    - secondary-current distortion
+
+Those belong to the simulation/protection architecture.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -139,122 +138,84 @@ class CTPolarity(Enum):
 
 class CurrentTransformer(ElectricalObject):
     """
-    Canonical GridForge V2 Current Transformer.
+    Static GridForge V2 Current Transformer model.
 
-    Parameters
-    ----------
-    id:
-        Unique GridForge equipment identifier.
+    The CT provides physical primary and secondary interfaces,
+    together with static nameplate information.
 
-    name:
-        Human-readable CT name.
-
-    rated_primary_current:
-        Rated primary current in amperes.
-
-    rated_secondary_current:
-        Rated secondary current in amperes.
-
-        Typical values are 1 A or 5 A.
-
-    accuracy_class:
-        CT accuracy classification.
-
-        Examples:
-
-            "5P20"
-            "10P10"
-            "0.5"
-            "0.2S"
-
-        The model stores this as engineering metadata.
-        Interpretation belongs to the appropriate
-        measurement/protection layer.
-
-    rated_burden_va:
-        Rated secondary burden in VA.
-
-    polarity:
-        Primary polarity convention.
-
-    frequency:
-        Nominal operating frequency in Hz.
-
-    instrument_ratio:
-        Optional explicit transformation ratio.
-
-        Normally this is derived from the rated primary and
-        secondary currents and therefore should remain None.
-
-        This field is intentionally not exposed as an independent
-        authoritative setting in the normal case.
-
-    in_service:
-        Equipment service state.
-
-    Notes
-    -----
-    The CT owns four local interfaces:
-
-        primary_p1_terminal
-        primary_p2_terminal
-
-        secondary_s1_terminal
-        secondary_s2_terminal
-
-    Primary terminals represent physical electrical interfaces.
-
-    Secondary terminals represent the CT's measurement-side
-    interfaces.
-
-    The CT does not decide how those interfaces participate in
-    global topology or measurement connectivity.
+    It does not calculate measurements or protection quantities.
     """
 
-    # =================================================================
-    # INITIALIZATION
-    # =================================================================
+    TYPE = "CT"
 
     def __init__(
         self,
         id: str,
         name: str = "",
+        *,
         rated_primary_current: float = 1.0,
         rated_secondary_current: float = 1.0,
         accuracy_class: str = "",
         rated_burden_va: float = 0.0,
         polarity: CTPolarity = CTPolarity.P1_P2,
-        frequency: float = 50.0,
+        frequency_hz: float = 50.0,
         in_service: bool = True,
     ) -> None:
+        """
+        Create a Current Transformer.
+
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        name:
+            Human-readable equipment name.
+
+        rated_primary_current:
+            Rated primary current in amperes.
+
+        rated_secondary_current:
+            Rated secondary current in amperes.
+
+        accuracy_class:
+            Engineering accuracy designation such as
+            ``5P20``, ``10P10``, ``0.5`` or ``0.2S``.
+
+        rated_burden_va:
+            Rated secondary burden in VA.
+
+        polarity:
+            CT primary polarity convention.
+
+        frequency_hz:
+            Nominal operating frequency in Hz.
+
+        in_service:
+            Equipment service state.
+        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # -------------------------------------------------------------
-        # Nameplate validation
-        # -------------------------------------------------------------
+        # =============================================================
+        # NAMEPLATE PARAMETERS
+        # =============================================================
 
-        self._validate_positive(
-            rated_primary_current,
-            "rated_primary_current",
+        self.rated_primary_current = (
+            self._validate_positive(
+                rated_primary_current,
+                "rated_primary_current",
+            )
         )
 
-        self._validate_positive(
-            rated_secondary_current,
-            "rated_secondary_current",
-        )
-
-        self._validate_non_negative(
-            rated_burden_va,
-            "rated_burden_va",
-        )
-
-        self._validate_positive(
-            frequency,
-            "frequency",
+        self.rated_secondary_current = (
+            self._validate_positive(
+                rated_secondary_current,
+                "rated_secondary_current",
+            )
         )
 
         if not isinstance(accuracy_class, str):
@@ -264,108 +225,187 @@ class CurrentTransformer(ElectricalObject):
 
         if not isinstance(polarity, CTPolarity):
             raise TypeError(
-                "polarity must be a CTPolarity enum value."
+                "polarity must be a CTPolarity value."
             )
-
-        # -------------------------------------------------------------
-        # Nameplate
-        # -------------------------------------------------------------
-
-        self.rated_primary_current = float(
-            rated_primary_current
-        )
-
-        self.rated_secondary_current = float(
-            rated_secondary_current
-        )
 
         self.accuracy_class = accuracy_class.strip()
 
-        self.rated_burden_va = float(
-            rated_burden_va
+        self.rated_burden_va = (
+            self._validate_non_negative(
+                rated_burden_va,
+                "rated_burden_va",
+            )
         )
 
         self.polarity = polarity
 
-        self.frequency = float(
-            frequency
+        self.frequency_hz = (
+            self._validate_positive(
+                frequency_hz,
+                "frequency_hz",
+            )
         )
 
-        # -------------------------------------------------------------
-        # Service state
-        # -------------------------------------------------------------
+        # =============================================================
+        # SERVICE STATE
+        # =============================================================
 
-        self.in_service = bool(
-            in_service
-        )
+        self.in_service = bool(in_service)
 
-        # -------------------------------------------------------------
-        # Primary physical interfaces
-        # -------------------------------------------------------------
+        # =============================================================
+        # PRIMARY ELECTRICAL INTERFACES
+        # =============================================================
 
         self.primary_p1_terminal = Terminal(
-            owner=self
+            owner=self,
         )
 
         self.primary_p2_terminal = Terminal(
-            owner=self
+            owner=self,
         )
 
-        # -------------------------------------------------------------
-        # Secondary measurement interfaces
-        # -------------------------------------------------------------
-        #
-        # These are local CT interfaces.
-        #
-        # They are NOT automatically registered as power-system
-        # network nodes.
-        # -------------------------------------------------------------
+        # =============================================================
+        # SECONDARY INSTRUMENT INTERFACES
+        # =============================================================
 
         self.secondary_s1_terminal = Terminal(
-            owner=self
+            owner=self,
         )
 
         self.secondary_s2_terminal = Terminal(
-            owner=self
+            owner=self,
+        )
+
+        self.validate_parameters()
+
+    # =================================================================
+    # IDENTITY
+    # =================================================================
+
+    @property
+    def element_type(self) -> str:
+        """
+        Return the canonical GridForge element type.
+        """
+
+        return self.TYPE
+
+    # =================================================================
+    # TERMINALS
+    # =================================================================
+
+    @property
+    def primary_terminals(
+        self,
+    ) -> tuple[Terminal, Terminal]:
+        """
+        Return the ordered primary terminals.
+
+        Order:
+
+            P1, P2
+        """
+
+        return (
+            self.primary_p1_terminal,
+            self.primary_p2_terminal,
+        )
+
+    @property
+    def secondary_terminals(
+        self,
+    ) -> tuple[Terminal, Terminal]:
+        """
+        Return the ordered secondary terminals.
+
+        Order:
+
+            S1, S2
+        """
+
+        return (
+            self.secondary_s1_terminal,
+            self.secondary_s2_terminal,
+        )
+
+    @property
+    def terminals(
+        self,
+    ) -> tuple[Terminal, ...]:
+        """
+        Return all CT interfaces in deterministic order.
+
+        Order:
+
+            P1, P2, S1, S2
+
+        Generic model infrastructure may use this property to
+        enumerate CT interfaces.
+
+        It must not assume that all returned terminals belong
+        to the same electrical network domain.
+        """
+
+        return (
+            self.primary_p1_terminal,
+            self.primary_p2_terminal,
+            self.secondary_s1_terminal,
+            self.secondary_s2_terminal,
         )
 
     # =================================================================
-    # VALIDATION
+    # TERMINAL ACCESSORS
     # =================================================================
 
-    @staticmethod
-    def _validate_positive(
-        value: float,
-        field_name: str,
-    ) -> None:
+    @property
+    def primary_p1(self) -> Terminal:
+        """Return the P1 primary terminal."""
+
+        return self.primary_p1_terminal
+
+    @property
+    def primary_p2(self) -> Terminal:
+        """Return the P2 primary terminal."""
+
+        return self.primary_p2_terminal
+
+    @property
+    def secondary_s1(self) -> Terminal:
+        """Return the S1 secondary terminal."""
+
+        return self.secondary_s1_terminal
+
+    @property
+    def secondary_s2(self) -> Terminal:
+        """Return the S2 secondary terminal."""
+
+        return self.secondary_s2_terminal
+
+    # =================================================================
+    # CONNECTIVITY
+    # =================================================================
+
+    @property
+    def primary_connected(self) -> bool:
         """
-        Validate a strictly positive finite quantity.
+        Return whether both primary interfaces have endpoints.
         """
 
-        value = float(value)
+        return (
+            self.primary_p1_terminal.is_connected
+            and self.primary_p2_terminal.is_connected
+        )
 
-        if not isfinite(value) or value <= 0.0:
-            raise ValueError(
-                f"{field_name} must be finite and greater than zero."
-            )
-
-    # -----------------------------------------------------------------
-
-    @staticmethod
-    def _validate_non_negative(
-        value: float,
-        field_name: str,
-    ) -> None:
+    @property
+    def secondary_connected(self) -> bool:
         """
-        Validate a finite non-negative quantity.
+        Return whether both secondary interfaces have endpoints.
         """
 
-        value = float(value)
-
-        if not isfinite(value) or value < 0.0:
-            raise ValueError(
-                f"{field_name} must be finite and non-negative."
-            )
+        return (
+            self.secondary_s1_terminal.is_connected
+            and self.secondary_s2_terminal.is_connected
+        )
 
     # =================================================================
     # RATIO
@@ -374,17 +414,15 @@ class CurrentTransformer(ElectricalObject):
     @property
     def ratio(self) -> float:
         """
-        Return the nominal CT transformation ratio.
+        Return the nominal current transformation ratio.
 
         Defined as:
 
             primary current / secondary current
 
-        Example
-        -------
-        A 400/5 A CT has:
+        Example:
 
-            ratio = 80.0
+            400 / 5 = 80
         """
 
         return (
@@ -392,79 +430,15 @@ class CurrentTransformer(ElectricalObject):
             / self.rated_secondary_current
         )
 
-    # =================================================================
-    # PRIMARY TERMINALS
-    # =================================================================
-
     @property
-    def primary_terminals(
-        self,
-    ) -> tuple[Terminal, Terminal]:
+    def transformation_ratio(self) -> float:
         """
-        Return the two primary electrical terminals.
-        """
+        Alias for ``ratio``.
 
-        return (
-            self.primary_p1_terminal,
-            self.primary_p2_terminal,
-        )
-
-    # -----------------------------------------------------------------
-
-    @property
-    def primary_p1(self) -> Terminal:
-        """
-        Compatibility/accessor for the P1 primary terminal.
+        ``ratio`` remains the canonical property.
         """
 
-        return self.primary_p1_terminal
-
-    # -----------------------------------------------------------------
-
-    @property
-    def primary_p2(self) -> Terminal:
-        """
-        Compatibility/accessor for the P2 primary terminal.
-        """
-
-        return self.primary_p2_terminal
-
-    # =================================================================
-    # SECONDARY TERMINALS
-    # =================================================================
-
-    @property
-    def secondary_terminals(
-        self,
-    ) -> tuple[Terminal, Terminal]:
-        """
-        Return the two secondary measurement terminals.
-        """
-
-        return (
-            self.secondary_s1_terminal,
-            self.secondary_s2_terminal,
-        )
-
-    # -----------------------------------------------------------------
-
-    @property
-    def secondary_s1(self) -> Terminal:
-        """
-        Compatibility/accessor for the S1 secondary terminal.
-        """
-
-        return self.secondary_s1_terminal
-
-    # -----------------------------------------------------------------
-
-    @property
-    def secondary_s2(self) -> Terminal:
-        """
-        Compatibility/accessor for the S2 secondary terminal.
-        """
-
-        return self.secondary_s2_terminal
+        return self.ratio
 
     # =================================================================
     # SERVICE STATE
@@ -475,42 +449,97 @@ class CurrentTransformer(ElectricalObject):
         in_service: bool,
     ) -> None:
         """
-        Set the CT service state.
+        Set the local CT service state.
 
-        This changes only local equipment state.
-
-        Network topology interpretation belongs to core/network.
+        This does not modify network topology or measurement
+        channel state.
         """
 
-        self.in_service = bool(
-            in_service
+        self.in_service = bool(in_service)
+
+    def connect(self) -> None:
+        """
+        Place the CT in service.
+        """
+
+        self.in_service = True
+
+    def disconnect(self) -> None:
+        """
+        Take the CT out of service.
+        """
+
+        self.in_service = False
+
+    # =================================================================
+    # VALIDATION
+    # =================================================================
+
+    def validate_parameters(self) -> bool:
+        """
+        Validate CT-local engineering parameters.
+
+        This does not validate:
+
+            - network topology
+            - measurement channels
+            - relay configuration
+            - protection settings
+            - simulation state
+        """
+
+        self.rated_primary_current = (
+            self._validate_positive(
+                self.rated_primary_current,
+                "rated_primary_current",
+            )
         )
 
-    # =================================================================
-    # ENGINEERING INFORMATION
-    # =================================================================
+        self.rated_secondary_current = (
+            self._validate_positive(
+                self.rated_secondary_current,
+                "rated_secondary_current",
+            )
+        )
 
-    @property
-    def primary_current_rating(self) -> float:
+        self.rated_burden_va = (
+            self._validate_non_negative(
+                self.rated_burden_va,
+                "rated_burden_va",
+            )
+        )
+
+        self.frequency_hz = (
+            self._validate_positive(
+                self.frequency_hz,
+                "frequency_hz",
+            )
+        )
+
+        if not isinstance(
+            self.accuracy_class,
+            str,
+        ):
+            raise TypeError(
+                "accuracy_class must be a string."
+            )
+
+        if not isinstance(
+            self.polarity,
+            CTPolarity,
+        ):
+            raise TypeError(
+                "polarity must be a CTPolarity value."
+            )
+
+        return True
+
+    def validate(self) -> bool:
         """
-        Return the rated primary current.
-
-        This alias exists for readability in higher-level code.
+        Public CT validation entry point.
         """
 
-        return self.rated_primary_current
-
-    # -----------------------------------------------------------------
-
-    @property
-    def secondary_current_rating(self) -> float:
-        """
-        Return the rated secondary current.
-
-        This alias exists for readability in higher-level code.
-        """
-
-        return self.rated_secondary_current
+        return self.validate_parameters()
 
     # =================================================================
     # DIAGNOSTICS
@@ -518,42 +547,63 @@ class CurrentTransformer(ElectricalObject):
 
     def summary(self) -> dict[str, Any]:
         """
-        Return a compact engineering summary.
+        Return static engineering information.
 
-        The summary contains model data only.
-
-        It does not expose simulated measurement values because
-        measurement state belongs to the measurement layer.
+        Measurement values are deliberately absent.
         """
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": "CurrentTransformer",
+            "type": self.TYPE,
             "in_service": self.in_service,
-            "rated_primary_current": (
-                self.rated_primary_current
-            ),
-            "rated_secondary_current": (
-                self.rated_secondary_current
-            ),
-            "ratio": self.ratio,
-            "accuracy_class": self.accuracy_class,
-            "rated_burden_va": self.rated_burden_va,
-            "polarity": self.polarity.value,
-            "frequency": self.frequency,
-            "primary_p1": (
-                self.primary_p1_terminal.endpoint_id
-            ),
-            "primary_p2": (
-                self.primary_p2_terminal.endpoint_id
-            ),
-            "secondary_s1": (
-                self.secondary_s1_terminal.endpoint_id
-            ),
-            "secondary_s2": (
-                self.secondary_s2_terminal.endpoint_id
-            ),
+
+            "rated_primary_current":
+                self.rated_primary_current,
+
+            "rated_secondary_current":
+                self.rated_secondary_current,
+
+            "ratio":
+                self.ratio,
+
+            "accuracy_class":
+                self.accuracy_class,
+
+            "rated_burden_va":
+                self.rated_burden_va,
+
+            "polarity":
+                self.polarity.value,
+
+            "frequency_hz":
+                self.frequency_hz,
+
+            "primary_connected":
+                self.primary_connected,
+
+            "secondary_connected":
+                self.secondary_connected,
+
+            "primary_p1_endpoint":
+                self._endpoint_id(
+                    self.primary_p1_terminal
+                ),
+
+            "primary_p2_endpoint":
+                self._endpoint_id(
+                    self.primary_p2_terminal
+                ),
+
+            "secondary_s1_endpoint":
+                self._endpoint_id(
+                    self.secondary_s1_terminal
+                ),
+
+            "secondary_s2_endpoint":
+                self._endpoint_id(
+                    self.secondary_s2_terminal
+                ),
         }
 
     # =================================================================
@@ -571,12 +621,100 @@ class CurrentTransformer(ElectricalObject):
             f"ratio="
             f"{self.rated_primary_current:.3f}/"
             f"{self.rated_secondary_current:.3f}, "
-            f"accuracy={self.accuracy_class!r}, "
-            f"in_service={self.in_service}>"
+            f"accuracy="
+            f"{self.accuracy_class!r}, "
+            f"in_service="
+            f"{self.in_service}>"
         )
+
+    # =================================================================
+    # INTERNAL HELPERS
+    # =================================================================
+
+    @staticmethod
+    def _validate_positive(
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate and return a finite positive quantity.
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be numeric."
+            ) from exc
+
+        if not isfinite(value) or value <= 0.0:
+            raise ValueError(
+                f"{field_name} must be finite and "
+                "greater than zero."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_non_negative(
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate and return a finite non-negative quantity.
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be numeric."
+            ) from exc
+
+        if not isfinite(value) or value < 0.0:
+            raise ValueError(
+                f"{field_name} must be finite and "
+                "non-negative."
+            )
+
+        return value
+
+    @staticmethod
+    def _endpoint_id(
+        terminal: Terminal,
+    ) -> Any:
+        """
+        Safely return the terminal endpoint identifier.
+
+        This helper avoids imposing a particular endpoint
+        implementation on the CT model.
+        """
+
+        endpoint = getattr(
+            terminal,
+            "endpoint",
+            None,
+        )
+
+        if endpoint is None:
+            return None
+
+        return getattr(
+            endpoint,
+            "id",
+            None,
+        )
+
+
+# =====================================================================
+# COMPATIBILITY ALIAS
+# =====================================================================
+
+CT = CurrentTransformer
 
 
 __all__ = [
     "CTPolarity",
     "CurrentTransformer",
+    "CT",
 ]
