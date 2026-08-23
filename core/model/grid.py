@@ -1,256 +1,60 @@
+# core/model/grid.py
 """
 GridForge V2 Grid Model
 =======================
 
-File:
-    core/model/grid.py
-
 Author:
     Subhendu Mishra
 
-Purpose
--------
-Defines the canonical GridForge V2 electrical Grid-source model.
-
-Architectural Role
-------------------
-Grid is an electrical source/equipment model representing an external
-utility/grid source connected to the GridForge electrical network.
-
-Grid is an electrical element.
+Grid is an electrical source/equipment element representing an
+external utility/grid source.
 
 Grid is NOT:
-    - an electrical-network container;
-    - a collection of buses;
-    - a collection of loads;
-    - a collection of generators;
-    - a collection of branches;
-    - a topology manager;
-    - a Y-bus builder;
-    - a power-flow solver;
-    - an SLD container;
-    - a GUI object.
+    - a network container
+    - a collection of buses
+    - a collection of loads
+    - a collection of generators
+    - a topology manager
+    - a Y-bus builder
+    - a solver
+    - an SLD container
+    - a GUI object
 
-The assembled electrical network is owned by the network layer.
-
-    Grid
-      |
-      +-- Terminal(s)
-              |
-              v
-        core.network
-              |
-              v
-             Bus
-              |
-              v
-        Network topology
-
-SLD Relationship
-----------------
-The Grid model is the authoritative electrical/domain object.
-
-The SLD representation of Grid is a presentation projection of this
-model. The SLD symbol is not the Grid electrical object.
-
-Engineering Model
------------------
-The Grid model represents an external utility/grid source and stores
-the electrical characteristics required by GridForge studies.
-
-The model supports:
-
-    - nominal voltage;
-    - frequency;
-    - phase/system configuration;
-    - operating voltage;
-    - source active/reactive power information;
-    - short-circuit strength;
-    - positive-sequence source impedance;
-    - negative-sequence source impedance;
-    - zero-sequence source impedance;
-    - X/R information;
-    - source voltage angle;
-    - grounding/reference information;
-    - source operating state;
-    - physical terminal connectivity.
-
-The exact interpretation of these parameters belongs to the
-corresponding engineering study/model and must remain compatible with
-the applicable IEEE/industry modelling conventions.
-
-Grid does not perform the studies itself.
-
-Responsibilities
-----------------
-Grid owns:
-
-    - identity;
-    - engineering name;
-    - electrical source parameters;
-    - physical terminal definitions;
-    - source operating state;
-    - source-model configuration.
-
-Grid does NOT own:
-
-    - global network membership;
-    - global topology;
-    - buses;
-    - loads;
-    - generators;
-    - lines;
-    - transformers;
-    - shunts;
-    - Y-bus;
-    - network indexing;
-    - network validation;
-    - power-flow solution;
-    - short-circuit solution;
-    - protection analysis;
-    - dynamic simulation;
-    - SLD state;
-    - rendering;
-    - persistence.
-
-Those responsibilities belong to the appropriate Core layers.
-
-Terminal Model
---------------
-The Grid owns its physical electrical terminal.
-
-The terminal is the authoritative local connection point.
-
-Global connectivity is established by core.network.
-
-Typical relationship:
+The authoritative physical connection is:
 
     Grid
       |
-      +-- Terminal
-              |
-              +-- network topology
-              |
-              +-- Bus
+    Terminal
+      |
+    Terminal.endpoint
+      |
+    Network / Topology
+      |
+    Bus
 
-The Grid model must therefore never directly modify a Network or
-TopologyManager.
+Grid implements the common Injection contract.
 
-No Container API
-----------------
-Grid intentionally provides NO methods such as:
-
-    add_bus()
-    add_load()
-    add_generator()
-    add_branch()
-    add_line()
-    add_transformer()
-    add_shunt()
-
-It is an electrical element, not a network container.
-
-Validation
-----------
-Grid does not perform global network validation.
-
-Model-level parameter validation is performed when parameters are
-created or changed.
-
-Global network validation belongs to core.validation.
-
-Power Source Semantics
-----------------------
-The Grid represents an external electrical source.
-
-Positive active and reactive power values represent source injection
-into the connected electrical network.
-
-For studies requiring a more specific source representation, the
-appropriate analysis/solver layer interprets the Grid parameters.
-
-Grid does not determine network bus classification.
-
-Plugin Compatibility
---------------------
-Grid may expose a lightweight extension registry for optional
-engineering capabilities.
-
-The core Grid model does not import concrete plugins.
-
-Plugins must not bypass the Core command/application architecture.
-
-Copyright
----------
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
-Proprietary and confidential.
+Positive P/Q represent injection into the electrical network.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from .base import ElectricalObject
+from .injection import Injection
 from .terminal import Terminal
 
 
-class Grid(ElectricalObject):
+class Grid(ElectricalObject, Injection):
     """
-    Canonical GridForge V2 external-grid/source model.
+    External utility/grid source electrical model.
 
-    Grid is an electrical source element, not a network container.
+    Grid is an electrical element, not a network model.
 
-    Parameters
-    ----------
-    id:
-        Stable GridForge object identifier.
-
-    name:
-        Human-readable engineering name.
-
-    nominal_voltage_kv:
-        Nominal line-to-line system voltage in kV.
-
-    frequency_hz:
-        Nominal system frequency in Hz.
-
-    voltage_pu:
-        Present source voltage magnitude in per-unit.
-
-    angle_deg:
-        Source voltage reference angle in degrees.
-
-    p_mw:
-        Active-power injection into the network in MW.
-
-    q_mvar:
-        Reactive-power injection into the network in MVAr.
-
-    short_circuit_mva:
-        Three-phase short-circuit level at the grid connection
-        point, in MVA.
-
-    x_over_r:
-        Positive-sequence source X/R ratio.
-
-    z1_pu:
-        Positive-sequence source impedance in per-unit.
-
-    z2_pu:
-        Negative-sequence source impedance in per-unit.
-
-    z0_pu:
-        Zero-sequence source impedance in per-unit.
-
-    in_service:
-        Whether the Grid source is electrically in service.
-
-    grounded:
-        Whether the source has an applicable grounding/reference
-        connection.
-
+    The Grid may exist disconnected from the network. Connectivity is
+    established through its Terminal by the application/network layer.
     """
 
     TYPE = "GRID"
@@ -260,6 +64,7 @@ class Grid(ElectricalObject):
         id: str,
         name: str = "",
         *,
+        endpoint=None,
         nominal_voltage_kv: float = 0.0,
         frequency_hz: float = 50.0,
         voltage_pu: float = 1.0,
@@ -273,7 +78,8 @@ class Grid(ElectricalObject):
         z0_pu: Optional[complex] = None,
         in_service: bool = True,
         grounded: bool = True,
-        terminal: Optional[Terminal] = None,
+        *,
+        bus=None,
     ) -> None:
 
         super().__init__(
@@ -281,11 +87,24 @@ class Grid(ElectricalObject):
             name=name,
         )
 
-        # ============================================================
-        # SOURCE ELECTRICAL PARAMETERS
-        # ============================================================
+        # ---------------------------------------------------------
+        # Compatibility
+        # ---------------------------------------------------------
 
-        self.nominal_voltage_kv = self._validate_positive_or_zero(
+        if endpoint is not None and bus is not None and endpoint is not bus:
+            raise ValueError(
+                f"Grid '{self.id}' received both endpoint and bus "
+                "with different values."
+            )
+
+        if endpoint is None:
+            endpoint = bus
+
+        # ---------------------------------------------------------
+        # Electrical source parameters
+        # ---------------------------------------------------------
+
+        self.nominal_voltage_kv = self._validate_non_negative(
             nominal_voltage_kv,
             "nominal_voltage_kv",
         )
@@ -315,22 +134,18 @@ class Grid(ElectricalObject):
             "q_mvar",
         )
 
-        # ============================================================
-        # SHORT-CIRCUIT / SOURCE IMPEDANCE PARAMETERS
-        # ============================================================
+        # ---------------------------------------------------------
+        # Short-circuit/source impedance data
+        # ---------------------------------------------------------
 
-        self.short_circuit_mva = (
-            self._validate_optional_positive(
-                short_circuit_mva,
-                "short_circuit_mva",
-            )
+        self.short_circuit_mva = self._validate_optional_positive(
+            short_circuit_mva,
+            "short_circuit_mva",
         )
 
-        self.x_over_r = (
-            self._validate_optional_positive(
-                x_over_r,
-                "x_over_r",
-            )
+        self.x_over_r = self._validate_optional_positive(
+            x_over_r,
+            "x_over_r",
         )
 
         self.z1_pu = self._validate_optional_impedance(
@@ -348,162 +163,125 @@ class Grid(ElectricalObject):
             "z0_pu",
         )
 
-        # ============================================================
-        # OPERATING STATE
-        # ============================================================
+        # ---------------------------------------------------------
+        # Operating state
+        # ---------------------------------------------------------
 
         self.in_service = bool(in_service)
-
         self.grounded = bool(grounded)
 
-        # ============================================================
-        # PHYSICAL CONNECTION
-        # ============================================================
+        # ---------------------------------------------------------
+        # Physical terminal
+        #
+        # Grid OWNS the terminal.
+        # The terminal is the authoritative local connection.
+        # ---------------------------------------------------------
 
-        self.terminal: Optional[Terminal] = None
+        self.terminal = Terminal(
+            endpoint=endpoint,
+            owner=self,
+        )
 
-        if terminal is not None:
-            self.set_terminal(terminal)
+        # ---------------------------------------------------------
+        # Optional engineering extensions
+        # ---------------------------------------------------------
 
-        # ============================================================
-        # OPTIONAL EXTENSIONS
-        # ============================================================
+        self._extensions: dict[str, Any] = {}
 
-        self._extensions: Dict[str, Any] = {}
+        self.validate_parameters()
 
-    # =================================================================
-    # TYPE / IDENTITY
-    # =================================================================
+    # =============================================================
+    # IDENTITY
+    # =============================================================
 
     @property
     def element_type(self) -> str:
-        """
-        Return the canonical GridForge model element type.
-        """
+        """Return the canonical GridForge element type."""
         return self.TYPE
 
-    # =================================================================
-    # TERMINAL
-    # =================================================================
+    # =============================================================
+    # CONNECTIVITY
+    # =============================================================
 
-    def set_terminal(
-        self,
-        terminal: Terminal,
-    ) -> None:
+    @property
+    def endpoint(self):
         """
-        Assign the physical electrical terminal owned by the Grid.
+        Return the authoritative physical endpoint.
 
-        Global topology is not modified here.
+        Terminal.endpoint is authoritative.
         """
+        return self.terminal.endpoint
 
-        if not isinstance(
-            terminal,
-            Terminal,
-        ):
-            raise TypeError(
-                "terminal must be a Terminal instance."
-            )
-
-        self.terminal = terminal
-
-    # -----------------------------------------------------------------
-
-    def clear_terminal(self) -> None:
+    @property
+    def bus(self):
         """
-        Remove the local terminal reference.
+        Compatibility accessor.
 
-        This does not modify global network topology.
+        This is derived from Terminal and is not authoritative.
         """
-
-        self.terminal = None
-
-    # -----------------------------------------------------------------
+        return self.terminal.bus
 
     @property
     def terminals(self) -> tuple[Terminal, ...]:
-        """
-        Return the Grid's physical terminals.
-
-        The returned tuple prevents callers from modifying the
-        terminal collection directly.
-        """
-
-        if self.terminal is None:
-            return ()
-
+        """Return the Grid's physical terminal."""
         return (self.terminal,)
 
-    # =================================================================
-    # SOURCE STATE
-    # =================================================================
+    @property
+    def is_connected(self) -> bool:
+        """Return whether the Grid has a physical endpoint."""
+        return self.terminal.is_connected
+
+    def connect_endpoint(self, endpoint) -> None:
+        """
+        Connect the Grid terminal.
+
+        Global topology is NOT modified here.
+        """
+        self.terminal.connect(endpoint)
+
+    def disconnect_endpoint(self) -> None:
+        """
+        Disconnect the Grid terminal locally.
+
+        Global topology is NOT modified here.
+        """
+        self.terminal.disconnect()
+
+    # =============================================================
+    # OPERATING STATE
+    # =============================================================
 
     def connect(self) -> None:
-        """
-        Mark the Grid source as electrically in service.
-
-        Topology management remains the responsibility of
-        core.network.
-        """
-
+        """Place the Grid source in service."""
         self.in_service = True
 
-    # -----------------------------------------------------------------
-
     def disconnect(self) -> None:
-        """
-        Mark the Grid source as electrically out of service.
-
-        This changes the Grid's local operating state only.
-
-        Network topology interpretation belongs to core.network.
-        """
-
+        """Take the Grid source out of service."""
         self.in_service = False
-
-    # -----------------------------------------------------------------
 
     @property
     def is_available(self) -> bool:
-        """
-        Return whether the Grid source is available for study use.
-        """
-
+        """Return whether the source is in service."""
         return self.in_service
 
-    # =================================================================
-    # POWER INJECTION
-    # =================================================================
+    # =============================================================
+    # INJECTION CONTRACT
+    # =============================================================
 
     def get_power(self) -> tuple[float, float]:
         """
-        Return source active/reactive power injection.
+        Return Grid power injection.
 
-        Returns
-        -------
-        tuple[float, float]
-            (P_MW, Q_MVAr)
-
-        Positive values represent injection into the electrical
-        network.
+        Positive P/Q mean injection into the electrical network.
         """
-
-        return (
-            self.p_mw,
-            self.q_mvar,
-        )
-
-    # -----------------------------------------------------------------
+        return self.p_mw, self.q_mvar
 
     def set_power(
         self,
         p_mw: float,
         q_mvar: float,
     ) -> None:
-        """
-        Set source active/reactive power injection.
-
-        No numerical study is performed.
-        """
+        """Set Grid active/reactive power injection."""
 
         self.p_mw = self._validate_finite(
             p_mw,
@@ -515,18 +293,16 @@ class Grid(ElectricalObject):
             "q_mvar",
         )
 
-    # =================================================================
-    # VOLTAGE SOURCE
-    # =================================================================
+    # =============================================================
+    # VOLTAGE
+    # =============================================================
 
     def set_voltage(
         self,
         voltage_pu: float,
         angle_deg: float = 0.0,
     ) -> None:
-        """
-        Set the source voltage magnitude and reference angle.
-        """
+        """Set source voltage magnitude and angle."""
 
         self.voltage_pu = self._validate_positive(
             voltage_pu,
@@ -538,9 +314,9 @@ class Grid(ElectricalObject):
             "angle_deg",
         )
 
-    # =================================================================
-    # SOURCE IMPEDANCE
-    # =================================================================
+    # =============================================================
+    # SEQUENCE IMPEDANCE
+    # =============================================================
 
     def set_sequence_impedances(
         self,
@@ -549,14 +325,7 @@ class Grid(ElectricalObject):
         z2_pu: Optional[complex] = None,
         z0_pu: Optional[complex] = None,
     ) -> None:
-        """
-        Set positive-, negative-, and zero-sequence source
-        impedances.
-
-        The Grid model stores the parameters.
-
-        It does not calculate fault currents.
-        """
+        """Set positive, negative and zero sequence impedances."""
 
         self.z1_pu = self._validate_optional_impedance(
             z1_pu,
@@ -573,121 +342,22 @@ class Grid(ElectricalObject):
             "z0_pu",
         )
 
-    # -----------------------------------------------------------------
-
     def has_sequence_impedance_data(self) -> bool:
-        """
-        Return True when at least positive-sequence source impedance
-        data is available.
-        """
-
+        """Return whether positive-sequence impedance is available."""
         return self.z1_pu is not None
 
-    # =================================================================
-    # PLUGIN / EXTENSION REGISTRY
-    # =================================================================
-
-    def register_extension(
-        self,
-        extension_id: str,
-        extension: Any,
-    ) -> None:
-        """
-        Register an optional extension object.
-
-        Grid does not interpret or execute extension behavior.
-        """
-
-        if not isinstance(
-            extension_id,
-            str,
-        ):
-            raise TypeError(
-                "extension_id must be a string."
-            )
-
-        extension_id = extension_id.strip()
-
-        if not extension_id:
-            raise ValueError(
-                "extension_id cannot be empty."
-            )
-
-        if extension is None:
-            raise ValueError(
-                "extension cannot be None."
-            )
-
-        if extension_id in self._extensions:
-            raise ValueError(
-                f"Extension '{extension_id}' is already registered."
-            )
-
-        self._extensions[extension_id] = extension
-
-    # -----------------------------------------------------------------
-
-    def get_extension(
-        self,
-        extension_id: str,
-    ) -> Any:
-        """
-        Return a registered extension.
-        """
-
-        try:
-            return self._extensions[extension_id]
-
-        except KeyError as exc:
-            raise KeyError(
-                f"Extension '{extension_id}' is not registered."
-            ) from exc
-
-    # -----------------------------------------------------------------
-
-    def remove_extension(
-        self,
-        extension_id: str,
-    ) -> None:
-        """
-        Remove a registered extension.
-        """
-
-        try:
-            del self._extensions[extension_id]
-
-        except KeyError as exc:
-            raise KeyError(
-                f"Extension '{extension_id}' is not registered."
-            ) from exc
-
-    # -----------------------------------------------------------------
-
-    @property
-    def extension_ids(self) -> tuple[str, ...]:
-        """
-        Return registered extension identifiers.
-        """
-
-        return tuple(
-            self._extensions.keys()
-        )
-
-    # =================================================================
-    # MODEL VALIDATION
-    # =================================================================
+    # =============================================================
+    # ENGINEERING VALIDATION
+    # =============================================================
 
     def validate_parameters(self) -> bool:
         """
-        Validate the Grid's own engineering parameters.
+        Validate only Grid-local engineering parameters.
 
-        This method deliberately does NOT validate the global
-        electrical network.
-
-        Global validation belongs to core.validation.
+        Global topology/network validation belongs elsewhere.
         """
 
-        self._validate_positive_or_zero(
+        self._validate_non_negative(
             self.nominal_voltage_kv,
             "nominal_voltage_kv",
         )
@@ -717,206 +387,169 @@ class Grid(ElectricalObject):
             "q_mvar",
         )
 
-        self._validate_optional_positive(
-            self.short_circuit_mva,
-            "short_circuit_mva",
-        )
-
-        self._validate_optional_positive(
-            self.x_over_r,
-            "x_over_r",
-        )
-
-        self._validate_optional_impedance(
-            self.z1_pu,
-            "z1_pu",
-        )
-
-        self._validate_optional_impedance(
-            self.z2_pu,
-            "z2_pu",
-        )
-
-        self._validate_optional_impedance(
-            self.z0_pu,
-            "z0_pu",
-        )
-
-        if self.terminal is not None:
-            if not isinstance(
-                self.terminal,
-                Terminal,
-            ):
-                raise TypeError(
-                    "Grid terminal must be a Terminal instance."
-                )
-
         return True
 
-    # =================================================================
+    # =============================================================
+    # EXTENSIONS
+    # =============================================================
+
+    def register_extension(
+        self,
+        extension_id: str,
+        extension: Any,
+    ) -> None:
+        """Register an optional engineering extension."""
+
+        if not isinstance(extension_id, str):
+            raise TypeError(
+                "extension_id must be a string."
+            )
+
+        extension_id = extension_id.strip()
+
+        if not extension_id:
+            raise ValueError(
+                "extension_id cannot be empty."
+            )
+
+        if extension is None:
+            raise ValueError(
+                "extension cannot be None."
+            )
+
+        if extension_id in self._extensions:
+            raise ValueError(
+                f"Extension '{extension_id}' is already registered."
+            )
+
+        self._extensions[extension_id] = extension
+
+    def get_extension(
+        self,
+        extension_id: str,
+    ) -> Any | None:
+        """Return an extension, or None when not registered."""
+        return self._extensions.get(extension_id)
+
+    def remove_extension(
+        self,
+        extension_id: str,
+    ) -> Any | None:
+        """Remove and return an extension."""
+        return self._extensions.pop(
+            extension_id,
+            None,
+        )
+
+    @property
+    def extension_ids(self) -> tuple[str, ...]:
+        """Return registered extension identifiers."""
+        return tuple(self._extensions.keys())
+
+    # =============================================================
+    # DIAGNOSTICS
+    # =============================================================
+
+    def summary(self) -> dict[str, Any]:
+        """Return a diagnostic summary."""
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "type": self.TYPE,
+            "nominal_voltage_kv": self.nominal_voltage_kv,
+            "frequency_hz": self.frequency_hz,
+            "voltage_pu": self.voltage_pu,
+            "angle_deg": self.angle_deg,
+            "p_mw": self.p_mw,
+            "q_mvar": self.q_mvar,
+            "short_circuit_mva": self.short_circuit_mva,
+            "x_over_r": self.x_over_r,
+            "z1_pu": self.z1_pu,
+            "z2_pu": self.z2_pu,
+            "z0_pu": self.z0_pu,
+            "in_service": self.in_service,
+            "grounded": self.grounded,
+            "endpoint": self.endpoint,
+            "is_connected": self.is_connected,
+            "extensions": self.extension_ids,
+        }
+
+    # =============================================================
     # VALIDATION HELPERS
-    # =================================================================
+    # =============================================================
 
     @staticmethod
     def _validate_finite(
         value: float,
-        field_name: str,
+        name: str,
     ) -> float:
-        """
-        Validate a finite numeric value.
-        """
-
-        if isinstance(
-            value,
-            bool,
-        ):
-            raise TypeError(
-                f"{field_name} cannot be bool."
-            )
-
-        try:
-            value = float(value)
-
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
-            raise TypeError(
-                f"{field_name} must be numeric."
-            ) from exc
+        value = float(value)
 
         if not math.isfinite(value):
             raise ValueError(
-                f"{field_name} must be finite."
+                f"{name} must be finite."
             )
 
         return value
 
-    # -----------------------------------------------------------------
-
-    @classmethod
+    @staticmethod
     def _validate_positive(
-        cls,
         value: float,
-        field_name: str,
+        name: str,
     ) -> float:
-        """
-        Validate a strictly positive numeric value.
-        """
+        value = float(value)
 
-        value = cls._validate_finite(
-            value,
-            field_name,
-        )
-
-        if value <= 0.0:
+        if not math.isfinite(value) or value <= 0.0:
             raise ValueError(
-                f"{field_name} must be greater than zero."
+                f"{name} must be finite and greater than zero."
             )
 
         return value
 
-    # -----------------------------------------------------------------
-
-    @classmethod
-    def _validate_positive_or_zero(
-        cls,
+    @staticmethod
+    def _validate_non_negative(
         value: float,
-        field_name: str,
+        name: str,
     ) -> float:
-        """
-        Validate a non-negative numeric value.
-        """
+        value = float(value)
 
-        value = cls._validate_finite(
-            value,
-            field_name,
-        )
-
-        if value < 0.0:
+        if not math.isfinite(value) or value < 0.0:
             raise ValueError(
-                f"{field_name} cannot be negative."
+                f"{name} must be finite and non-negative."
             )
 
         return value
 
-    # -----------------------------------------------------------------
-
-    @classmethod
+    @staticmethod
     def _validate_optional_positive(
-        cls,
         value: Optional[float],
-        field_name: str,
+        name: str,
     ) -> Optional[float]:
-        """
-        Validate an optional strictly positive value.
-        """
-
         if value is None:
             return None
 
-        return cls._validate_positive(
+        return Grid._validate_positive(
             value,
-            field_name,
+            name,
         )
-
-    # -----------------------------------------------------------------
 
     @staticmethod
     def _validate_optional_impedance(
         value: Optional[complex],
-        field_name: str,
+        name: str,
     ) -> Optional[complex]:
-        """
-        Validate an optional finite complex impedance.
-        """
-
         if value is None:
             return None
 
-        if isinstance(
-            value,
-            bool,
-        ):
-            raise TypeError(
-                f"{field_name} cannot be bool."
-            )
+        value = complex(value)
 
-        try:
-            impedance = complex(value)
-
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
-            raise TypeError(
-                f"{field_name} must be a numeric complex impedance."
-            ) from exc
-
-        if (
-            not math.isfinite(impedance.real)
-            or not math.isfinite(impedance.imag)
+        if not (
+            math.isfinite(value.real)
+            and math.isfinite(value.imag)
         ):
             raise ValueError(
-                f"{field_name} must contain finite values."
+                f"{name} must contain finite real and imaginary parts."
             )
 
-        return impedance
-
-    # =================================================================
-    # REPRESENTATION
-    # =================================================================
-
-    def __repr__(self) -> str:
-        return (
-            f"Grid("
-            f"id={self.id!r}, "
-            f"name={self.name!r}, "
-            f"nominal_voltage_kv={self.nominal_voltage_kv!r}, "
-            f"frequency_hz={self.frequency_hz!r}, "
-            f"voltage_pu={self.voltage_pu!r}, "
-            f"p_mw={self.p_mw!r}, "
-            f"q_mvar={self.q_mvar!r}, "
-            f"in_service={self.in_service!r}"
-            f")"
-        )
+        return value
