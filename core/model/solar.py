@@ -1,67 +1,77 @@
 # core/model/solar.py
 """
-GridForge V2 Solar Model
-========================
+GridForge V2 Solar Generator Model
+==================================
 
 Author:
     Subhendu Mishra
 
-Solar is a static electrical generation/injection element.
+File:
+    core/model/solar.py
 
-Architecture
-------------
+Purpose
+-------
+Defines the canonical GridForge V2 static solar generation model.
 
-    Solar
-      |
-      +-- ElectricalObject
-      +-- Injection
-      +-- Terminal
-      |
-      +-- static electrical operating data
-      |
-      +-- optional dynamic-model binding
+Architectural role
+------------------
+Solar is an electrical generation/injection model.
 
-Solar does NOT own:
+It owns:
 
-    - Network topology
-    - Bus collections
-    - SLD state
+    - identity
+    - electrical operating point
+    - active/reactive power limits
+    - operating state
+    - one electrical terminal
+    - optional dynamic-model metadata
+
+It does NOT own:
+
+    - network topology
+    - bus collections
+    - graph state
     - Y-bus construction
-    - Power-flow solving
-    - Dynamic simulation
-    - Protection
-    - UI state
+    - power-flow solving
+    - short-circuit solving
+    - protection logic
+    - SLD geometry
+    - GUI state
+    - dynamic simulation execution
 
-Physical connectivity is authoritative through:
+Power convention
+----------------
+GridForge uses the injection convention:
 
-    Solar
-      |
-    Terminal
-      |
-    Terminal.endpoint
+    P > 0  -> active power injected into network
+    Q > 0  -> reactive power injected into network
 
-Positive P/Q represent injection into the electrical network.
+Therefore:
 
-Dynamic PV/inverter behaviour is intentionally NOT implemented here.
-It will be supplied later through the Dynamic Model architecture.
+    P < 0  -> net active-power absorption
+    Q < 0  -> net reactive-power absorption
+
+The Network layer owns connectivity and topology.
+
+The analysis/numerical layers consume the electrical state and
+perform calculations.
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Any
 
 from .base import ElectricalObject
-from .injection import Injection
 from .terminal import Terminal
 
 
-class Solar(ElectricalObject, Injection):
+class Solar(ElectricalObject):
     """
-    Static solar-generation electrical model.
-
-    A Solar element may be created before it is electrically connected.
-    Therefore ``endpoint`` may be ``None``.
+    Static solar generation/injection model.
 
     Parameters
     ----------
@@ -72,37 +82,35 @@ class Solar(ElectricalObject, Injection):
         Human-readable name.
 
     endpoint:
-        Physical electrical endpoint. May be ``None``.
+        Electrical endpoint. May be None until connected.
 
     p_mw:
-        Current active-power injection.
+        Active-power injection in MW.
 
     q_mvar:
-        Current reactive-power injection.
+        Reactive-power injection in MVAr.
 
     p_max_mw:
-        Maximum available active power.
+        Maximum active-power output in MW.
 
-    q_min_mvar:
-        Minimum reactive-power capability.
+    p_min_mw:
+        Minimum active-power output in MW.
 
     q_max_mvar:
-        Maximum reactive-power capability.
+        Maximum reactive-power injection in MVAr.
 
-    nominal_voltage_kv:
-        Nominal AC voltage.
-
-    frequency_hz:
-        Nominal system frequency.
-
-    voltage_pu:
-        Voltage operating value.
+    q_min_mvar:
+        Minimum reactive-power injection in MVAr.
 
     in_service:
-        Whether the Solar source is electrically in service.
+        Whether the solar generator is electrically active.
 
     bus:
         Backward-compatible endpoint alias.
+
+    dynamic_model:
+        Optional dynamic-model reference/metadata. The Solar model
+        never executes the dynamic model itself.
     """
 
     TYPE = "SOLAR"
@@ -112,17 +120,16 @@ class Solar(ElectricalObject, Injection):
         id: str,
         name: str = "",
         *,
-        endpoint=None,
+        endpoint: Any = None,
         p_mw: float = 0.0,
         q_mvar: float = 0.0,
-        p_max_mw: float = 0.0,
-        q_min_mvar: float = -float("inf"),
-        q_max_mvar: float = float("inf"),
-        nominal_voltage_kv: float = 0.0,
-        frequency_hz: float = 50.0,
-        voltage_pu: float = 1.0,
+        p_max_mw: float | None = None,
+        p_min_mw: float = 0.0,
+        q_max_mvar: float | None = None,
+        q_min_mvar: float | None = None,
         in_service: bool = True,
-        bus=None,
+        bus: Any = None,
+        dynamic_model: Any = None,
     ) -> None:
 
         super().__init__(
@@ -130,11 +137,15 @@ class Solar(ElectricalObject, Injection):
             name=name,
         )
 
-        # ---------------------------------------------------------
-        # Endpoint compatibility
-        # ---------------------------------------------------------
+        # =============================================================
+        # ENDPOINT COMPATIBILITY
+        # =============================================================
 
-        if endpoint is not None and bus is not None and endpoint is not bus:
+        if (
+            endpoint is not None
+            and bus is not None
+            and endpoint is not bus
+        ):
             raise ValueError(
                 f"Solar '{self.id}' received both endpoint and bus "
                 "with different values."
@@ -143,9 +154,9 @@ class Solar(ElectricalObject, Injection):
         if endpoint is None:
             endpoint = bus
 
-        # ---------------------------------------------------------
-        # Static electrical parameters
-        # ---------------------------------------------------------
+        # =============================================================
+        # POWER STATE
+        # =============================================================
 
         self.p_mw = self._validate_finite(
             p_mw,
@@ -157,511 +168,719 @@ class Solar(ElectricalObject, Injection):
             "q_mvar",
         )
 
-        self.p_max_mw = self._validate_non_negative(
+        # -------------------------------------------------------------
+        # Active-power limits
+        # -------------------------------------------------------------
+
+        self.p_min_mw = self._validate_finite(
+            p_min_mw,
+            "p_min_mw",
+        )
+
+        if p_max_mw is None:
+            p_max_mw = max(
+                self.p_mw,
+                self.p_min_mw,
+            )
+
+        self.p_max_mw = self._validate_finite(
             p_max_mw,
             "p_max_mw",
         )
 
-        self.q_min_mvar = self._validate_finite(
-            q_min_mvar,
-            "q_min_mvar",
+        # -------------------------------------------------------------
+        # Reactive-power limits
+        # -------------------------------------------------------------
+
+        self.q_max_mvar = (
+            None
+            if q_max_mvar is None
+            else self._validate_finite(
+                q_max_mvar,
+                "q_max_mvar",
+            )
         )
 
-        self.q_max_mvar = self._validate_finite(
-            q_max_mvar,
-            "q_max_mvar",
+        self.q_min_mvar = (
+            None
+            if q_min_mvar is None
+            else self._validate_finite(
+                q_min_mvar,
+                "q_min_mvar",
+            )
         )
 
-        self.nominal_voltage_kv = self._validate_non_negative(
-            nominal_voltage_kv,
-            "nominal_voltage_kv",
+        # =============================================================
+        # SERVICE STATE
+        # =============================================================
+
+        self._validate_bool(
+            in_service,
+            "in_service",
         )
 
-        self.frequency_hz = self._validate_positive(
-            frequency_hz,
-            "frequency_hz",
-        )
+        self.in_service = in_service
 
-        self.voltage_pu = self._validate_positive(
-            voltage_pu,
-            "voltage_pu",
-        )
-
-        self.in_service = bool(in_service)
-
-        # ---------------------------------------------------------
-        # Physical electrical terminal
-        # ---------------------------------------------------------
+        # =============================================================
+        # AUTHORITATIVE TERMINAL
+        # =============================================================
 
         self.terminal = Terminal(
             endpoint=endpoint,
             owner=self,
         )
 
-        # ---------------------------------------------------------
-        # Dynamic model binding
-        #
-        # No dynamic behaviour is implemented here.
-        # This reference allows future dynamic infrastructure to
-        # associate a PV/inverter model without polluting this model.
-        # ---------------------------------------------------------
+        # =============================================================
+        # OPTIONAL DYNAMIC MODEL REFERENCE
+        # =============================================================
 
-        self._dynamic_model: Any | None = None
+        self.dynamic_model = dynamic_model
 
-        # ---------------------------------------------------------
-        # Optional engineering extensions
-        # ---------------------------------------------------------
+        # =============================================================
+        # COMMON MODEL VALIDATION
+        # =============================================================
 
-        self._extensions: dict[str, Any] = {}
+        self.validate()
 
-        self.validate_parameters()
-
-    # =============================================================
+    # =================================================================
     # IDENTITY
-    # =============================================================
+    # =================================================================
 
     @property
     def element_type(self) -> str:
-        """Return the canonical GridForge element type."""
+        """Return canonical GridForge element type."""
+
         return self.TYPE
 
-    # =============================================================
-    # CONNECTIVITY
-    # =============================================================
-
-    @property
-    def endpoint(self):
-        """
-        Return the authoritative physical endpoint.
-
-        Terminal.endpoint is the source of truth.
-        """
-        return self.terminal.endpoint
-
-    @property
-    def bus(self):
-        """
-        Compatibility accessor.
-
-        The Bus is derived from Terminal and is not authoritative.
-        """
-        return self.terminal.bus
+    # =================================================================
+    # TERMINALS
+    # =================================================================
 
     @property
     def terminals(self) -> tuple[Terminal, ...]:
-        """Return the Solar electrical terminal."""
-        return (self.terminal,)
+        """Return the authoritative Solar terminal."""
+
+        return (
+            self.terminal,
+        )
+
+    @property
+    def endpoint(self) -> Any:
+        """Return the authoritative electrical endpoint."""
+
+        return self.terminal.endpoint
+
+    @property
+    def bus(self) -> Any:
+        """
+        Compatibility accessor for the historical bus API.
+
+        The Terminal remains authoritative.
+        """
+
+        return self.terminal.bus
 
     @property
     def is_connected(self) -> bool:
-        """Return whether Solar has a physical endpoint."""
+        """Return whether the Solar terminal is connected."""
+
         return self.terminal.is_connected
 
-    def connect_endpoint(self, endpoint) -> None:
-        """
-        Connect Solar to an electrical endpoint.
+    # =================================================================
+    # ENDPOINT CONNECTIVITY
+    # =================================================================
 
-        Global topology is managed outside this model.
+    def connect_endpoint(
+        self,
+        endpoint: Any,
+    ) -> None:
         """
-        self.terminal.connect(endpoint)
+        Connect the Solar terminal.
+
+        Network topology remains owned by the Network layer.
+        """
+
+        if endpoint is None:
+            raise ValueError(
+                f"Solar '{self.id}' endpoint cannot be None."
+            )
+
+        self.terminal.connect(
+            endpoint
+        )
 
     def disconnect_endpoint(self) -> None:
         """
-        Disconnect Solar from its electrical endpoint.
+        Disconnect the Solar terminal.
+
+        This does not change service state.
         """
+
         self.terminal.disconnect()
 
-    # =============================================================
-    # OPERATING STATE
-    # =============================================================
+    # =================================================================
+    # SERVICE STATE
+    # =================================================================
 
-    def connect(self) -> None:
-        """Place Solar in service."""
-        self.in_service = True
+    @property
+    def is_in_service(self) -> bool:
+        """Return whether the Solar generator is in service."""
 
-    def disconnect(self) -> None:
-        """Take Solar out of service."""
-        self.in_service = False
+        return self.in_service
+
+    @property
+    def is_out_of_service(self) -> bool:
+        """Return whether the Solar generator is out of service."""
+
+        return not self.in_service
 
     @property
     def is_available(self) -> bool:
-        """Return whether Solar is in service."""
+        """Return whether the Solar generator is electrically active."""
+
         return self.in_service
 
-    # =============================================================
-    # INJECTION CONTRACT
-    # =============================================================
+    def put_in_service(self) -> None:
+        """Place the Solar generator in service."""
 
-    def get_power(self) -> tuple[float, float]:
-        """
-        Return Solar network injection.
+        self.in_service = True
 
-        Positive P/Q mean injection into the network.
+    def take_out_of_service(self) -> None:
+        """Take the Solar generator out of service."""
 
-        When Solar is out of service, zero injection is returned.
-        """
-        if not self.in_service:
-            return 0.0, 0.0
+        self.in_service = False
 
-        return self.p_mw, self.q_mvar
-
-    def set_power(
+    def set_in_service(
         self,
-        p_mw: float,
-        q_mvar: float,
+        value: bool,
     ) -> None:
-        """
-        Set Solar active/reactive injection.
+        """Set service state without silent boolean coercion."""
 
-        The requested values are checked against the local static
-        capability limits.
-        """
-
-        p_mw = self._validate_finite(
-            p_mw,
-            "p_mw",
+        self._validate_bool(
+            value,
+            "in_service",
         )
 
-        q_mvar = self._validate_finite(
-            q_mvar,
-            "q_mvar",
-        )
+        self.in_service = value
 
-        if p_mw < 0.0:
-            raise ValueError(
-                f"Solar '{self.id}' active power cannot be negative."
-            )
+    # Compatibility aliases. These are service-state operations,
+    # not network-topology operations.
 
-        if p_mw > self.p_max_mw:
-            raise ValueError(
-                f"Solar '{self.id}' active power {p_mw} MW exceeds "
-                f"Pmax {self.p_max_mw} MW."
-            )
+    def connect(self) -> None:
+        """Compatibility alias for put_in_service()."""
 
-        if q_mvar < self.q_min_mvar:
-            raise ValueError(
-                f"Solar '{self.id}' reactive power {q_mvar} MVAr "
-                f"is below Qmin {self.q_min_mvar} MVAr."
-            )
+        self.put_in_service()
 
-        if q_mvar > self.q_max_mvar:
-            raise ValueError(
-                f"Solar '{self.id}' reactive power {q_mvar} MVAr "
-                f"exceeds Qmax {self.q_max_mvar} MVAr."
-            )
+    def disconnect(self) -> None:
+        """Compatibility alias for take_out_of_service()."""
 
-        self.p_mw = p_mw
-        self.q_mvar = q_mvar
+        self.take_out_of_service()
 
-    # =============================================================
+    def close(self) -> None:
+        """Compatibility alias for putting the generator in service."""
+
+        self.put_in_service()
+
+    def trip(self) -> None:
+        """Compatibility alias for taking the generator out of service."""
+
+        self.take_out_of_service()
+
+    # =================================================================
     # ACTIVE POWER
-    # =============================================================
+    # =================================================================
 
     @property
-    def active_power(self) -> float:
-        """Return current active-power injection."""
+    def active_power_injection_mw(self) -> float:
+        """
+        Return effective active-power injection.
+
+        An out-of-service generator contributes zero injection.
+        """
+
+        if not self.in_service:
+            return 0.0
+
         return self.p_mw
 
     @property
-    def reactive_power(self) -> float:
-        """Return current reactive-power injection."""
-        return self.q_mvar
+    def active_power_mw(self) -> float:
+        """Compatibility alias for effective active power."""
+
+        return self.active_power_injection_mw
 
     def set_active_power(
         self,
         p_mw: float,
     ) -> None:
-        """Set active power within Pmax capability."""
+        """
+        Set active-power injection.
+
+        The value must remain within the configured active-power
+        operating range.
+        """
 
         p_mw = self._validate_finite(
             p_mw,
             "p_mw",
         )
 
-        if p_mw < 0.0:
-            raise ValueError(
-                f"Solar '{self.id}' active power cannot be negative."
-            )
-
-        if p_mw > self.p_max_mw:
-            raise ValueError(
-                f"Solar '{self.id}' active power {p_mw} MW exceeds "
-                f"Pmax {self.p_max_mw} MW."
-            )
+        self._validate_active_power(
+            p_mw
+        )
 
         self.p_mw = p_mw
 
-    def set_active_power_limit(
+    def set_p(
         self,
-        p_max_mw: float,
+        p_mw: float,
     ) -> None:
-        """Set maximum available active power."""
+        """Compatibility alias for set_active_power()."""
 
-        p_max_mw = self._validate_non_negative(
-            p_max_mw,
-            "p_max_mw",
+        self.set_active_power(
+            p_mw
         )
 
-        if self.p_mw > p_max_mw:
-            raise ValueError(
-                f"Solar '{self.id}' Pmax cannot be set below "
-                f"current active power {self.p_mw} MW."
-            )
-
-        self.p_max_mw = p_max_mw
-
-    # =============================================================
+    # =================================================================
     # REACTIVE POWER
-    # =============================================================
+    # =================================================================
 
     @property
-    def q_limits(self) -> tuple[float, float]:
-        """Return ``(Qmin, Qmax)``."""
-        return self.q_min_mvar, self.q_max_mvar
+    def reactive_power_injection_mvar(self) -> float:
+        """
+        Return effective reactive-power injection.
+
+        An out-of-service generator contributes zero injection.
+        """
+
+        if not self.in_service:
+            return 0.0
+
+        return self.q_mvar
+
+    @property
+    def reactive_power_mvar(self) -> float:
+        """Compatibility alias for effective reactive power."""
+
+        return self.reactive_power_injection_mvar
 
     def set_reactive_power(
         self,
         q_mvar: float,
     ) -> None:
-        """Set reactive power within capability limits."""
+        """
+        Set reactive-power injection.
+
+        If reactive limits are configured, the value must remain
+        inside those limits.
+        """
 
         q_mvar = self._validate_finite(
             q_mvar,
             "q_mvar",
         )
 
-        if q_mvar < self.q_min_mvar:
-            raise ValueError(
-                f"Solar '{self.id}' reactive power is below Qmin."
-            )
-
-        if q_mvar > self.q_max_mvar:
-            raise ValueError(
-                f"Solar '{self.id}' reactive power exceeds Qmax."
-            )
+        self._validate_reactive_power(
+            q_mvar
+        )
 
         self.q_mvar = q_mvar
 
-    def set_q_limits(
+    def set_q(
         self,
-        q_min_mvar: float,
-        q_max_mvar: float,
+        q_mvar: float,
     ) -> None:
-        """Set reactive-power capability limits."""
+        """Compatibility alias for set_reactive_power()."""
 
-        q_min_mvar = self._validate_finite(
-            q_min_mvar,
-            "q_min_mvar",
+        self.set_reactive_power(
+            q_mvar
         )
 
-        q_max_mvar = self._validate_finite(
-            q_max_mvar,
-            "q_max_mvar",
+    # =================================================================
+    # POWER LIMITS
+    # =================================================================
+
+    def set_active_power_limits(
+        self,
+        p_min_mw: float,
+        p_max_mw: float,
+    ) -> None:
+        """Set active-power operating limits."""
+
+        p_min_mw = self._validate_finite(
+            p_min_mw,
+            "p_min_mw",
         )
 
-        if q_min_mvar > q_max_mvar:
+        p_max_mw = self._validate_finite(
+            p_max_mw,
+            "p_max_mw",
+        )
+
+        if p_min_mw > p_max_mw:
             raise ValueError(
-                f"Solar '{self.id}' Qmin cannot exceed Qmax."
+                "p_min_mw cannot be greater than p_max_mw."
             )
 
-        if not (
-            q_min_mvar <= self.q_mvar <= q_max_mvar
+        self.p_min_mw = p_min_mw
+        self.p_max_mw = p_max_mw
+
+        self._validate_active_power(
+            self.p_mw
+        )
+
+    def set_reactive_power_limits(
+        self,
+        q_min_mvar: float | None,
+        q_max_mvar: float | None,
+    ) -> None:
+        """
+        Set reactive-power operating limits.
+
+        Passing None for both limits means unlimited reactive power.
+        """
+
+        if q_min_mvar is None:
+            q_min = None
+        else:
+            q_min = self._validate_finite(
+                q_min_mvar,
+                "q_min_mvar",
+            )
+
+        if q_max_mvar is None:
+            q_max = None
+        else:
+            q_max = self._validate_finite(
+                q_max_mvar,
+                "q_max_mvar",
+            )
+
+        if (
+            q_min is not None
+            and q_max is not None
+            and q_min > q_max
         ):
             raise ValueError(
-                f"Solar '{self.id}' existing Q={self.q_mvar} MVAr "
-                "would violate the new Q limits."
+                "q_min_mvar cannot be greater than q_max_mvar."
             )
 
-        self.q_min_mvar = q_min_mvar
-        self.q_max_mvar = q_max_mvar
+        self.q_min_mvar = q_min
+        self.q_max_mvar = q_max
 
-    # =============================================================
-    # VOLTAGE
-    # =============================================================
-
-    def set_voltage(
-        self,
-        voltage_pu: float,
-    ) -> None:
-        """Set static operating voltage."""
-        self.voltage_pu = self._validate_positive(
-            voltage_pu,
-            "voltage_pu",
+        self._validate_reactive_power(
+            self.q_mvar
         )
 
-    # =============================================================
-    # DYNAMIC MODEL BINDING
-    # =============================================================
+    @property
+    def active_power_headroom_mw(self) -> float:
+        """Return remaining upward active-power headroom."""
+
+        return max(
+            0.0,
+            self.p_max_mw - self.p_mw,
+        )
 
     @property
-    def dynamic_model(self) -> Any | None:
+    def active_power_reserve_mw(self) -> float:
+        """Compatibility alias for active-power headroom."""
+
+        return self.active_power_headroom_mw
+
+    @property
+    def reactive_power_headroom_mvar(self) -> float | None:
         """
-        Return the associated dynamic model reference.
+        Return upward reactive-power headroom.
 
-        This is only a binding/reference. The Solar model does not
-        execute the dynamic model.
+        None means no upper Q limit is configured.
         """
-        return self._dynamic_model
 
-    def bind_dynamic_model(
-        self,
-        model: Any,
-    ) -> None:
-        """
-        Bind a dynamic model reference.
+        if self.q_max_mvar is None:
+            return None
 
-        Dynamic simulation remains the responsibility of the
-        simulation/dynamics layer.
-        """
-        if model is None:
-            raise ValueError(
-                "Dynamic model cannot be None."
-            )
+        return max(
+            0.0,
+            self.q_max_mvar - self.q_mvar,
+        )
 
-        self._dynamic_model = model
-
-    def unbind_dynamic_model(self) -> Any | None:
-        """Remove and return the dynamic model reference."""
-        model = self._dynamic_model
-        self._dynamic_model = None
-        return model
+    # =================================================================
+    # DYNAMIC MODEL REFERENCE
+    # =================================================================
 
     @property
     def has_dynamic_model(self) -> bool:
-        """Return whether a dynamic model is bound."""
-        return self._dynamic_model is not None
+        """Return whether dynamic-model metadata is attached."""
 
-    # =============================================================
-    # EXTENSIONS
-    # =============================================================
+        return self.dynamic_model is not None
 
-    def register_extension(
+    def attach_dynamic_model(
         self,
-        extension_id: str,
-        extension: Any,
+        dynamic_model: Any,
     ) -> None:
-        """Register an optional engineering extension."""
+        """
+        Attach a dynamic-model reference.
 
-        if not isinstance(extension_id, str):
-            raise TypeError(
-                "extension_id must be a string."
-            )
+        The Solar model does not execute the dynamic model.
+        """
 
-        extension_id = extension_id.strip()
-
-        if not extension_id:
+        if dynamic_model is None:
             raise ValueError(
-                "extension_id cannot be empty."
+                "dynamic_model cannot be None."
             )
 
-        if extension is None:
-            raise ValueError(
-                "extension cannot be None."
-            )
+        self.dynamic_model = dynamic_model
 
-        if extension_id in self._extensions:
-            raise ValueError(
-                f"Extension '{extension_id}' is already registered."
-            )
+    def detach_dynamic_model(self) -> Any:
+        """
+        Detach and return the dynamic-model reference.
+        """
 
-        self._extensions[extension_id] = extension
+        dynamic_model = self.dynamic_model
+        self.dynamic_model = None
+        return dynamic_model
 
-    def get_extension(
-        self,
-        extension_id: str,
-    ) -> Any | None:
-        """Return an extension, or None."""
-        return self._extensions.get(extension_id)
-
-    def remove_extension(
-        self,
-        extension_id: str,
-    ) -> Any | None:
-        """Remove and return an extension."""
-        return self._extensions.pop(
-            extension_id,
-            None,
-        )
-
-    @property
-    def extension_ids(self) -> tuple[str, ...]:
-        """Return registered extension identifiers."""
-        return tuple(self._extensions.keys())
-
-    # =============================================================
+    # =================================================================
     # VALIDATION
-    # =============================================================
+    # =================================================================
 
     def validate_parameters(self) -> bool:
         """
-        Validate Solar-local engineering invariants.
+        Validate Solar-local engineering parameters.
 
-        This does not validate network topology.
+        Network topology and numerical studies are deliberately
+        excluded.
         """
 
-        if self.p_mw < 0.0:
+        self.p_mw = self._validate_finite(
+            self.p_mw,
+            "p_mw",
+        )
+
+        self.q_mvar = self._validate_finite(
+            self.q_mvar,
+            "q_mvar",
+        )
+
+        self.p_min_mw = self._validate_finite(
+            self.p_min_mw,
+            "p_min_mw",
+        )
+
+        self.p_max_mw = self._validate_finite(
+            self.p_max_mw,
+            "p_max_mw",
+        )
+
+        if self.p_min_mw > self.p_max_mw:
             raise ValueError(
-                f"Solar '{self.id}' active power cannot be negative."
+                "p_min_mw cannot be greater than p_max_mw."
             )
 
-        if self.p_mw > self.p_max_mw:
-            raise ValueError(
-                f"Solar '{self.id}' P exceeds Pmax."
+        if self.q_min_mvar is not None:
+            self.q_min_mvar = self._validate_finite(
+                self.q_min_mvar,
+                "q_min_mvar",
             )
 
-        if self.q_min_mvar > self.q_max_mvar:
-            raise ValueError(
-                f"Solar '{self.id}' Qmin cannot exceed Qmax."
+        if self.q_max_mvar is not None:
+            self.q_max_mvar = self._validate_finite(
+                self.q_max_mvar,
+                "q_max_mvar",
             )
 
-        if not (
-            self.q_min_mvar
-            <= self.q_mvar
-            <= self.q_max_mvar
+        if (
+            self.q_min_mvar is not None
+            and self.q_max_mvar is not None
+            and self.q_min_mvar > self.q_max_mvar
         ):
             raise ValueError(
-                f"Solar '{self.id}' reactive power is outside "
-                "its capability limits."
+                "q_min_mvar cannot be greater than q_max_mvar."
             )
+
+        self._validate_bool(
+            self.in_service,
+            "in_service",
+        )
+
+        if self.terminal.owner is not self:
+            raise ValueError(
+                f"Solar '{self.id}' terminal ownership is invalid."
+            )
+
+        self._validate_active_power(
+            self.p_mw
+        )
+
+        self._validate_reactive_power(
+            self.q_mvar
+        )
 
         return True
 
-    # =============================================================
+    def validate(self) -> bool:
+        """
+        Validate the complete Solar model through the common
+        ElectricalObject contract.
+        """
+
+        return super().validate()
+
+    # =================================================================
+    # POWER INJECTION
+    # =================================================================
+
+    def injection(self) -> tuple[float, float]:
+        """
+        Return effective P/Q injection.
+
+        Returns
+        -------
+        tuple[float, float]
+            (P_MW, Q_MVAr)
+
+        Positive values represent injection into the network.
+        """
+
+        return (
+            self.active_power_injection_mw,
+            self.reactive_power_injection_mvar,
+        )
+
+    @property
+    def p_injection_mw(self) -> float:
+        """Return effective active-power injection."""
+
+        return self.active_power_injection_mw
+
+    @property
+    def q_injection_mvar(self) -> float:
+        """Return effective reactive-power injection."""
+
+        return self.reactive_power_injection_mvar
+
+    # =================================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =================================================================
 
     def summary(self) -> dict[str, Any]:
-        """Return a diagnostic summary."""
+        """Return structured Solar diagnostics."""
+
+        endpoint_id = None
+
+        if self.endpoint is not None:
+            endpoint_id = getattr(
+                self.endpoint,
+                "id",
+                self.endpoint,
+            )
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
+
             "p_mw": self.p_mw,
             "q_mvar": self.q_mvar,
+
+            "p_min_mw": self.p_min_mw,
             "p_max_mw": self.p_max_mw,
+
             "q_min_mvar": self.q_min_mvar,
             "q_max_mvar": self.q_max_mvar,
-            "nominal_voltage_kv": self.nominal_voltage_kv,
-            "frequency_hz": self.frequency_hz,
-            "voltage_pu": self.voltage_pu,
+
+            "active_power_injection_mw":
+                self.active_power_injection_mw,
+
+            "reactive_power_injection_mvar":
+                self.reactive_power_injection_mvar,
+
             "in_service": self.in_service,
-            "endpoint": self.endpoint,
+            "is_available": self.is_available,
+
+            "endpoint": endpoint_id,
             "is_connected": self.is_connected,
-            "has_dynamic_model": self.has_dynamic_model,
-            "extensions": self.extension_ids,
+
+            "has_dynamic_model":
+                self.has_dynamic_model,
         }
 
-    # =============================================================
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
+
+    def __repr__(self) -> str:
+        """Return concise developer-facing representation."""
+
+        return (
+            f"<Solar "
+            f"id={self.id}, "
+            f"P={self.p_mw:.6f} MW, "
+            f"Q={self.q_mvar:.6f} MVAr, "
+            f"in_service={self.in_service}>"
+        )
+
+    # =================================================================
     # VALIDATION HELPERS
-    # =============================================================
+    # =================================================================
+
+    def _validate_active_power(
+        self,
+        p_mw: float,
+    ) -> None:
+        """Validate active-power operating limits."""
+
+        if p_mw < self.p_min_mw:
+            raise ValueError(
+                f"p_mw={p_mw} is below "
+                f"p_min_mw={self.p_min_mw}."
+            )
+
+        if p_mw > self.p_max_mw:
+            raise ValueError(
+                f"p_mw={p_mw} exceeds "
+                f"p_max_mw={self.p_max_mw}."
+            )
+
+    def _validate_reactive_power(
+        self,
+        q_mvar: float,
+    ) -> None:
+        """Validate configured reactive-power limits."""
+
+        if (
+            self.q_min_mvar is not None
+            and q_mvar < self.q_min_mvar
+        ):
+            raise ValueError(
+                f"q_mvar={q_mvar} is below "
+                f"q_min_mvar={self.q_min_mvar}."
+            )
+
+        if (
+            self.q_max_mvar is not None
+            and q_mvar > self.q_max_mvar
+        ):
+            raise ValueError(
+                f"q_mvar={q_mvar} exceeds "
+                f"q_max_mvar={self.q_max_mvar}."
+            )
 
     @staticmethod
     def _validate_finite(
         value: float,
         name: str,
     ) -> float:
-        value = float(value)
+        """Convert to float and require a finite value."""
+
+        try:
+            value = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                f"{name} must be numeric."
+            ) from exc
 
         if not math.isfinite(value):
             raise ValueError(
@@ -671,29 +890,21 @@ class Solar(ElectricalObject, Injection):
         return value
 
     @staticmethod
-    def _validate_positive(
-        value: float,
+    def _validate_bool(
+        value: bool,
         name: str,
-    ) -> float:
-        value = float(value)
+    ) -> None:
+        """Require an actual boolean."""
 
-        if not math.isfinite(value) or value <= 0.0:
-            raise ValueError(
-                f"{name} must be finite and greater than zero."
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} must be boolean."
             )
 
-        return value
 
-    @staticmethod
-    def _validate_non_negative(
-        value: float,
-        name: str,
-    ) -> float:
-        value = float(value)
-
-        if not math.isfinite(value) or value < 0.0:
-            raise ValueError(
-                f"{name} must be finite and non-negative."
-            )
-
-        return value
+__all__ = [
+    "Solar",
+]
