@@ -1,57 +1,52 @@
+# core/model/transformer.py
 """
-GridForge Transformer Model
-===========================
+GridForge V2 Transformer Model
+==============================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
-Defines the core two-terminal transformer equipment model.
+A Transformer is a static two-terminal electrical equipment model.
 
-The authoritative physical connection points are:
+Architecture
+------------
 
-    from_terminal
-    to_terminal
+    Transformer
+        |
+        +-- Branch
+        |
+        +-- from_terminal
+        +-- to_terminal
+        |
+        +-- R
+        +-- X
+        +-- tap ratio
+        +-- phase shift
+        +-- rating
 
-The connected buses are derived from those terminals.
+The Transformer owns its local electrical parameters and two
+electrical terminals.
 
-The core Transformer intentionally provides the stable electrical
-interface required by the network and solver layers while leaving
-detailed transformer engineering behavior extensible through the
-plugin architecture.
+It does NOT:
 
-Core representation:
+    - own global network topology
+    - add itself to a Grid
+    - maintain bus collections
+    - build Y-bus matrices
+    - solve load flow
+    - solve short circuit
+    - perform protection studies
+    - perform dynamic simulation
+    - implement OLTC control logic
+    - own SLD geometry
+    - own GUI state
 
-    Z_series = R + jX
+Dynamic transformer behavior belongs to the future dynamic-model
+architecture.
 
-    tap   = off-nominal magnitude ratio
-    shift = phase-shift angle in radians
-
-Detailed transformer capabilities such as:
-
-* winding configuration
-* vector group
-* grounding
-* neutral
-* OLTC
-* tap-control logic
-* magnetizing branch
-* core losses
-* sequence-specific models
-* thermal models
-
-belong to appropriate higher-level/plugin models.
-
-The Transformer does NOT:
-
-* build Y-bus
-* perform power flow
-* calculate losses
-* calculate loading
-* perform short circuit
-* execute tap control
-* perform protection
-* perform dynamic simulation
-* own global network topology
-* manage GUI state
+Tap ratio and phase shift in this class are static electrical
+parameters. A controller that changes the tap is a separate
+application/domain service.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -59,212 +54,264 @@ All Rights Reserved.
 
 from __future__ import annotations
 
-from math import isfinite
+import math
+from typing import Any
 
 from .branch import Branch
 from .terminal import Terminal
 
 
-# =====================================================================
-# TRANSFORMER
-# =====================================================================
-
-
 class Transformer(Branch):
     """
-    GridForge core two-terminal transformer model.
+    Static two-terminal transformer electrical model.
 
     Parameters
     ----------
-    id : str
-        Unique GridForge transformer identifier.
+    id:
+        Stable GridForge object identifier.
 
-    endpoint_from :
-        From-side electrical endpoint or Terminal.
+    endpoint_from:
+        Initial from-side electrical endpoint.
+        May be None.
 
-    endpoint_to :
-        To-side electrical endpoint or Terminal.
+    endpoint_to:
+        Initial to-side electrical endpoint.
+        May be None.
 
-    r : float
-        Series resistance in per-unit.
+    r:
+        Equivalent series resistance in per-unit.
 
-    x : float
-        Series reactance in per-unit.
+    x:
+        Equivalent series reactance in per-unit.
 
-    tap : float, optional
-        Off-nominal magnitude tap ratio.
+    tap:
+        Static magnitude tap ratio.
 
-        Default: 1.0
+        1.0 represents nominal ratio.
 
-    shift : float, optional
-        Phase-shifting angle in radians.
+    shift:
+        Static phase shift in radians.
 
-        Default: 0.0
-
-    name : str, optional
+    name:
         Human-readable transformer name.
 
-    rate_mva : float, optional
-        Transformer equipment rating in MVA.
+    rate_mva:
+        Optional transformer rating in MVA.
+
+    b:
+        Total equivalent shunt susceptance in per-unit.
 
     Notes
     -----
-    ``from_terminal`` and ``to_terminal`` are authoritative.
+    The exact transformer equivalent-circuit interpretation is
+    determined by the numerical/network layer.
 
-    ``from_bus`` and ``to_bus`` are derived compatibility accessors.
+    This model stores the engineering parameters; it does not
+    perform network matrix assembly.
     """
+
+    TYPE = "TRANSFORMER"
 
     def __init__(
         self,
         id: str,
-        endpoint_from,
-        endpoint_to,
-        r: float,
-        x: float,
+        endpoint_from=None,
+        endpoint_to=None,
+        *,
+        r: float = 0.0,
+        x: float = 0.0,
+        b: float = 0.0,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
-        rate_mva: float = 100.0,
-    ):
-        """
-        Initialize a GridForge transformer.
-        """
+        rate_mva: float | None = None,
+    ) -> None:
 
-        # -------------------------------------------------------------
-        # Branch initialization
+        # ---------------------------------------------------------
+        # Branch creates the authoritative terminals.
         #
-        # The inherited bus fields are retained only for compatibility
-        # with the existing frozen Branch/solver interface. The
-        # authoritative physical connection is established below.
-        # -------------------------------------------------------------
+        # We do not replace them afterwards.
+        # ---------------------------------------------------------
 
         super().__init__(
             id=id,
-            bus_from=(
-                endpoint_from
-                if hasattr(endpoint_from, "id")
-                else None
-            ),
-            bus_to=(
-                endpoint_to
-                if hasattr(endpoint_to, "id")
-                else None
-            ),
+            endpoint_from=endpoint_from,
+            endpoint_to=endpoint_to,
             r=r,
             x=x,
-            b=0.0,
+            b=b,
             name=name,
             rate_mva=rate_mva,
             tap=tap,
             shift=shift,
         )
 
-        # -------------------------------------------------------------
-        # Authoritative physical terminals
-        # -------------------------------------------------------------
+        self.validate_parameters()
 
-        self.from_terminal = (
-            endpoint_from
-            if isinstance(endpoint_from, Terminal)
-            else Terminal(endpoint_from, owner=self)
+    # =============================================================
+    # IDENTITY
+    # =============================================================
+
+    @property
+    def element_type(self) -> str:
+        """Return canonical GridForge element type."""
+
+        return self.TYPE
+
+    # =============================================================
+    # TRANSFORMER ELECTRICAL PARAMETERS
+    # =============================================================
+
+    @property
+    def turns_ratio(self) -> float:
+        """
+        Return the effective static magnitude ratio.
+
+        In the simplified per-unit model this corresponds to the
+        configured tap ratio.
+
+        Detailed winding/nominal-voltage conversion is handled by
+        the transformer numerical model.
+        """
+
+        return self.tap
+
+    @property
+    def tap_ratio(self) -> float:
+        """Return the static tap ratio."""
+
+        return self.tap
+
+    @property
+    def phase_shift_rad(self) -> float:
+        """Return phase shift in radians."""
+
+        return self.shift
+
+    @property
+    def phase_shift_deg(self) -> float:
+        """Return phase shift in degrees."""
+
+        return math.degrees(self.shift)
+
+    # =============================================================
+    # TAP
+    # =============================================================
+
+    def set_tap(
+        self,
+        tap: float,
+    ) -> None:
+        """
+        Set the static transformer tap ratio.
+
+        This changes the model parameter only.
+
+        It does not implement an OLTC controller.
+        """
+
+        tap = self._validate_positive(
+            tap,
+            "tap",
         )
 
-        self.to_terminal = (
-            endpoint_to
-            if isinstance(endpoint_to, Terminal)
-            else Terminal(endpoint_to, owner=self)
+        self.tap = tap
+
+    # =============================================================
+    # PHASE SHIFT
+    # =============================================================
+
+    def set_phase_shift(
+        self,
+        shift: float,
+    ) -> None:
+        """
+        Set static phase shift in radians.
+
+        This is a model parameter, not a controller action.
+        """
+
+        self.shift = self._validate_finite(
+            shift,
+            "shift",
         )
 
-        if self.from_terminal is self.to_terminal:
-            raise ValueError(
-                f"Transformer '{self.id}' cannot connect "
-                "a terminal to itself."
-            )
+    def set_phase_shift_degrees(
+        self,
+        degrees: float,
+    ) -> None:
+        """
+        Set static phase shift in degrees.
+        """
 
-        # -------------------------------------------------------------
-        # Terminal ownership
-        # -------------------------------------------------------------
+        degrees = self._validate_finite(
+            degrees,
+            "degrees",
+        )
 
-        if (
-            self.from_terminal.owner is not None
-            and self.from_terminal.owner is not self
-        ):
-            raise ValueError(
-                f"Transformer '{self.id}' from_terminal already "
-                "belongs to another equipment object."
-            )
+        self.shift = math.radians(
+            degrees
+        )
 
-        if (
-            self.to_terminal.owner is not None
-            and self.to_terminal.owner is not self
-        ):
-            raise ValueError(
-                f"Transformer '{self.id}' to_terminal already "
-                "belongs to another equipment object."
-            )
+    # =============================================================
+    # TRANSFORMER RATING
+    # =============================================================
 
-        self.from_terminal.owner = self
-        self.to_terminal.owner = self
+    @property
+    def has_rating(self) -> bool:
+        """Return whether a transformer rating is defined."""
 
-        self._validate_transformer_parameters()
+        return self.rate_mva is not None
 
-    # =================================================================
+    def set_rating(
+        self,
+        rate_mva: float | None,
+    ) -> None:
+        """
+        Set or clear transformer rating.
+        """
+
+        if rate_mva is None:
+            self.rate_mva = None
+            return
+
+        self.rate_mva = self._validate_positive(
+            rate_mva,
+            "rate_mva",
+        )
+
+    # =============================================================
     # TERMINALS
-    # =================================================================
+    # =============================================================
 
     @property
     def terminals(self) -> tuple[Terminal, Terminal]:
-        """
-        Return the physical transformer terminal pair.
-        """
+        """Return the two authoritative transformer terminals."""
 
         return (
             self.from_terminal,
             self.to_terminal,
         )
 
-    # =================================================================
-    # ENDPOINTS
-    # =================================================================
-
     @property
     def from_endpoint(self):
-        """
-        Return the authoritative from-side endpoint.
-        """
+        """Return from-side endpoint."""
 
         return self.from_terminal.endpoint
 
     @property
     def to_endpoint(self):
-        """
-        Return the authoritative to-side endpoint.
-        """
+        """Return to-side endpoint."""
 
         return self.to_terminal.endpoint
-
-    def endpoints(self) -> tuple:
-        """
-        Return the authoritative physical endpoint pair.
-        """
-
-        return (
-            self.from_endpoint,
-            self.to_endpoint,
-        )
-
-    # =================================================================
-    # BUS COMPATIBILITY
-    # =================================================================
 
     @property
     def from_bus(self):
         """
-        Return the bus associated with the from-side terminal.
+        Return bus derived from the from terminal.
 
-        This is a derived compatibility property.
-
-        The authoritative connection remains ``from_terminal``.
+        This is a compatibility accessor, not independent topology
+        state.
         """
 
         return self.from_terminal.bus
@@ -272,23 +319,22 @@ class Transformer(Branch):
     @property
     def to_bus(self):
         """
-        Return the bus associated with the to-side terminal.
+        Return bus derived from the to terminal.
 
-        This is a derived compatibility property.
-
-        The authoritative connection remains ``to_terminal``.
+        This is a compatibility accessor, not independent topology
+        state.
         """
 
         return self.to_terminal.bus
 
-    # =================================================================
-    # CONNECTION STATE
-    # =================================================================
+    # =============================================================
+    # CONNECTIVITY
+    # =============================================================
 
     @property
     def is_connected(self) -> bool:
         """
-        Return True when both transformer terminals are connected.
+        Return True when both transformer terminals have endpoints.
         """
 
         return (
@@ -296,147 +342,258 @@ class Transformer(Branch):
             and self.to_terminal.is_connected
         )
 
-    def connect_from(self, endpoint) -> None:
-        """
-        Connect the from-side terminal locally.
+    @property
+    def has_from_endpoint(self) -> bool:
+        """Return whether the from terminal is connected."""
 
-        Global topology is managed by core/network.
+        return self.from_terminal.is_connected
+
+    @property
+    def has_to_endpoint(self) -> bool:
+        """Return whether the to terminal is connected."""
+
+        return self.to_terminal.is_connected
+
+    def connect_from(
+        self,
+        endpoint,
+    ) -> None:
+        """
+        Connect the from-side terminal.
+
+        Global topology is managed elsewhere.
         """
 
         self.from_terminal.connect(endpoint)
 
-    def connect_to(self, endpoint) -> None:
+    def connect_to(
+        self,
+        endpoint,
+    ) -> None:
         """
-        Connect the to-side terminal locally.
+        Connect the to-side terminal.
 
-        Global topology is managed by core/network.
+        Global topology is managed elsewhere.
         """
 
         self.to_terminal.connect(endpoint)
 
     def disconnect_from(self) -> None:
-        """
-        Disconnect the from-side terminal locally.
-        """
+        """Disconnect the from-side terminal."""
 
         self.from_terminal.disconnect()
 
     def disconnect_to(self) -> None:
-        """
-        Disconnect the to-side terminal locally.
-        """
+        """Disconnect the to-side terminal."""
 
         self.to_terminal.disconnect()
 
-    # =================================================================
-    # TRANSFORMER IDENTIFICATION
-    # =================================================================
+    # =============================================================
+    # SERVICE STATE
+    # =============================================================
+
+    def connect(self) -> None:
+        """
+        Place transformer in service.
+
+        This does not modify terminal topology.
+        """
+
+        self.in_service = True
+
+    def disconnect(self) -> None:
+        """
+        Take transformer out of service.
+
+        This does not modify terminal topology.
+        """
+
+        self.in_service = False
+
+    def close(self) -> None:
+        """Compatibility alias for connect()."""
+
+        self.connect()
+
+    def trip(self) -> None:
+        """Compatibility alias for disconnect()."""
+
+        self.disconnect()
 
     @property
-    def is_transformer(self) -> bool:
-        """
-        Return True because this equipment is a transformer.
-        """
+    def is_in_service(self) -> bool:
+        """Return whether transformer is in service."""
 
-        return True
-
-    # =================================================================
-    # TRANSFORMER STATE
-    # =================================================================
+        return self.in_service
 
     @property
-    def is_off_nominal(self) -> bool:
-        """
-        Return True when the tap ratio differs from unity.
-        """
+    def is_out_of_service(self) -> bool:
+        """Return whether transformer is out of service."""
 
-        return self.tap != 1.0
+        return not self.in_service
+
+    # =============================================================
+    # ELECTRICAL MODEL
+    # =============================================================
 
     @property
-    def has_phase_shift(self) -> bool:
+    def series_impedance(self) -> complex:
         """
-        Return True when a non-zero phase shift is present.
+        Return transformer equivalent series impedance.
 
-        ``shift`` is expressed in radians.
-        """
-
-        return self.shift != 0.0
-
-    # =================================================================
-    # LOCAL VALIDATION
-    # =================================================================
-
-    def _validate_transformer_parameters(self) -> None:
-        """
-        Validate local transformer parameters.
-
-        Network compatibility and engineering validation belong to
-        higher layers.
+            Z = R + jX
         """
 
-        if not isfinite(self.r):
-            raise ValueError(
-                f"Transformer '{self.id}' resistance must be finite."
+        return complex(
+            self.r,
+            self.x,
+        )
+
+    @property
+    def series_admittance(self) -> complex:
+        """
+        Return transformer series admittance.
+
+            Y = 1 / Z
+
+        Network matrix construction remains outside this model.
+        """
+
+        z = self.series_impedance
+
+        if abs(z) <= 1e-15:
+            raise ZeroDivisionError(
+                f"Transformer '{self.id}' has zero "
+                "series impedance."
             )
+
+        return 1.0 / z
+
+    @property
+    def shunt_admittance(self) -> complex:
+        """
+        Return equivalent shunt admittance.
+
+            Ysh = jB
+        """
+
+        return complex(
+            0.0,
+            self.b,
+        )
+
+    # =============================================================
+    # NUMERICAL REPRESENTATION
+    # =============================================================
+
+    def get_electrical_parameters(self) -> dict[str, float]:
+        """
+        Return the static transformer electrical parameters.
+
+        The numerical layer may use these values to construct its
+        selected transformer equivalent circuit.
+        """
+
+        return {
+            "r_pu": self.r,
+            "x_pu": self.x,
+            "b_pu": self.b,
+            "tap": self.tap,
+            "shift_rad": self.shift,
+            "rate_mva": (
+                self.rate_mva
+                if self.rate_mva is not None
+                else float("nan")
+            ),
+        }
+
+    # =============================================================
+    # VALIDATION
+    # =============================================================
+
+    def validate_parameters(self) -> bool:
+        """
+        Validate transformer-local engineering parameters.
+
+        This does not validate network topology.
+        """
+
+        self.r = self._validate_finite(
+            self.r,
+            "r",
+        )
+
+        self.x = self._validate_finite(
+            self.x,
+            "x",
+        )
+
+        self.b = self._validate_finite(
+            self.b,
+            "b",
+        )
 
         if self.r < 0.0:
             raise ValueError(
-                f"Transformer '{self.id}' resistance cannot be negative."
+                f"Transformer '{self.id}' resistance "
+                "cannot be negative."
             )
 
-        if not isfinite(self.x):
+        if (
+            math.isclose(
+                self.r,
+                0.0,
+                abs_tol=1e-15,
+            )
+            and math.isclose(
+                self.x,
+                0.0,
+                abs_tol=1e-15,
+            )
+        ):
             raise ValueError(
-                f"Transformer '{self.id}' reactance must be finite."
+                f"Transformer '{self.id}' cannot have "
+                "zero series impedance."
             )
 
-        if self.x == 0.0:
-            raise ValueError(
-                f"Transformer '{self.id}' reactance cannot be zero."
+        self.tap = self._validate_positive(
+            self.tap,
+            "tap",
+        )
+
+        self.shift = self._validate_finite(
+            self.shift,
+            "shift",
+        )
+
+        if self.rate_mva is not None:
+            self.rate_mva = self._validate_positive(
+                self.rate_mva,
+                "rate_mva",
             )
 
-        if not isfinite(self.tap):
-            raise ValueError(
-                f"Transformer '{self.id}' tap ratio must be finite."
-            )
+        return True
 
-        if self.tap <= 0.0:
-            raise ValueError(
-                f"Transformer '{self.id}' tap ratio must be "
-                "greater than zero."
-            )
+    def validate(self) -> bool:
+        """
+        Public local validation entry point.
 
-        if not isfinite(self.shift):
-            raise ValueError(
-                f"Transformer '{self.id}' phase shift must be finite."
-            )
+        Network topology and study validity are outside this model.
+        """
 
-        if not isfinite(self.rate_mva):
-            raise ValueError(
-                f"Transformer '{self.id}' MVA rating must be finite."
-            )
+        return self.validate_parameters()
 
-        if self.rate_mva <= 0.0:
-            raise ValueError(
-                f"Transformer '{self.id}' MVA rating must be "
-                "greater than zero."
-            )
-
-    # =================================================================
+    # =============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # =============================================================
 
-    def summary(self) -> dict:
-        """
-        Return structured transformer information.
-        """
+    def summary(self) -> dict[str, Any]:
+        """Return structured transformer diagnostics."""
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": "transformer",
-
-            "from_terminal": self.from_terminal.summary(),
-            "to_terminal": self.to_terminal.summary(),
+            "type": self.TYPE,
 
             "from_endpoint": (
                 self.from_endpoint.id
@@ -462,27 +619,30 @@ class Transformer(Branch):
                 else None
             ),
 
-            "connected": self.is_connected,
+            "is_connected": self.is_connected,
+            "in_service": self.in_service,
 
             "r_pu": self.r,
             "x_pu": self.x,
+            "b_pu": self.b,
 
-            "tap": self.tap,
-            "shift": self.shift,
+            "series_impedance": self.series_impedance,
+            "series_admittance": self.series_admittance,
+            "shunt_admittance": self.shunt_admittance,
+
+            "tap_ratio": self.tap,
+            "phase_shift_rad": self.shift,
+            "phase_shift_deg": self.phase_shift_deg,
 
             "rate_mva": self.rate_mva,
-
-            "in_service": self.in_service,
         }
 
-    # =================================================================
+    # =============================================================
     # REPRESENTATION
-    # =================================================================
+    # =============================================================
 
     def __repr__(self) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
+        """Return concise developer-facing representation."""
 
         from_id = (
             self.from_endpoint.id
@@ -502,8 +662,45 @@ class Transformer(Branch):
             f"{from_id} -> {to_id}, "
             f"r={self.r:.6f}, "
             f"x={self.x:.6f}, "
+            f"b={self.b:.6f}, "
             f"tap={self.tap:.6f}, "
-            f"shift={self.shift:.6f} rad, "
-            f"rate={self.rate_mva:.2f} MVA, "
+            f"shift={self.shift:.6f}, "
+            f"rate={self.rate_mva}, "
             f"in_service={self.in_service}>"
         )
+
+    # =============================================================
+    # VALIDATION HELPERS
+    # =============================================================
+
+    @staticmethod
+    def _validate_finite(
+        value: float,
+        name: str,
+    ) -> float:
+        """Return a finite floating-point value."""
+
+        value = float(value)
+
+        if not math.isfinite(value):
+            raise ValueError(
+                f"{name} must be finite."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_positive(
+        value: float,
+        name: str,
+    ) -> float:
+        """Return a finite positive floating-point value."""
+
+        value = float(value)
+
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(
+                f"{name} must be finite and greater than zero."
+            )
+
+        return value
