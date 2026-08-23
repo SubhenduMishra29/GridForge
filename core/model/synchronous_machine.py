@@ -73,10 +73,10 @@ import math
 from typing import Any
 
 from .base import ElectricalObject
+from .injection import Injection
 from .terminal import Terminal
 
-
-class SynchronousMachine(ElectricalObject):
+class SynchronousMachine(ElectricalObject, Injection):
     """
     Static synchronous-machine electrical model.
 
