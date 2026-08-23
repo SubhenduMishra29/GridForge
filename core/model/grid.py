@@ -1,814 +1,922 @@
 """
-GridForge Grid Model
-====================
+GridForge V2 Grid Model
+=======================
 
 File:
     core/model/grid.py
 
-Defines the central electrical-network container.
+Author:
+    Subhendu Mishra
+
+Purpose
+-------
+Defines the canonical GridForge V2 electrical Grid-source model.
+
+Architectural Role
+------------------
+Grid is an electrical source/equipment model representing an external
+utility/grid source connected to the GridForge electrical network.
+
+Grid is an electrical element.
+
+Grid is NOT:
+    - an electrical-network container;
+    - a collection of buses;
+    - a collection of loads;
+    - a collection of generators;
+    - a collection of branches;
+    - a topology manager;
+    - a Y-bus builder;
+    - a power-flow solver;
+    - an SLD container;
+    - a GUI object.
+
+The assembled electrical network is owned by the network layer.
+
+    Grid
+      |
+      +-- Terminal(s)
+              |
+              v
+        core.network
+              |
+              v
+             Bus
+              |
+              v
+        Network topology
+
+SLD Relationship
+----------------
+The Grid model is the authoritative electrical/domain object.
+
+The SLD representation of Grid is a presentation projection of this
+model. The SLD symbol is not the Grid electrical object.
+
+Engineering Model
+-----------------
+The Grid model represents an external utility/grid source and stores
+the electrical characteristics required by GridForge studies.
+
+The model supports:
+
+    - nominal voltage;
+    - frequency;
+    - phase/system configuration;
+    - operating voltage;
+    - source active/reactive power information;
+    - short-circuit strength;
+    - positive-sequence source impedance;
+    - negative-sequence source impedance;
+    - zero-sequence source impedance;
+    - X/R information;
+    - source voltage angle;
+    - grounding/reference information;
+    - source operating state;
+    - physical terminal connectivity.
+
+The exact interpretation of these parameters belongs to the
+corresponding engineering study/model and must remain compatible with
+the applicable IEEE/industry modelling conventions.
+
+Grid does not perform the studies itself.
 
 Responsibilities
 ----------------
-- Registry for electrical components.
-- Stable component ordering for numerical analysis.
-- Component lookup.
-- Bus indexing.
-- Structural/reference validation.
-- Aggregation of connected power injections.
-- Registration of passive network elements.
+Grid owns:
 
-Supported components
+    - identity;
+    - engineering name;
+    - electrical source parameters;
+    - physical terminal definitions;
+    - source operating state;
+    - source-model configuration.
+
+Grid does NOT own:
+
+    - global network membership;
+    - global topology;
+    - buses;
+    - loads;
+    - generators;
+    - lines;
+    - transformers;
+    - shunts;
+    - Y-bus;
+    - network indexing;
+    - network validation;
+    - power-flow solution;
+    - short-circuit solution;
+    - protection analysis;
+    - dynamic simulation;
+    - SLD state;
+    - rendering;
+    - persistence.
+
+Those responsibilities belong to the appropriate Core layers.
+
+Terminal Model
+--------------
+The Grid owns its physical electrical terminal.
+
+The terminal is the authoritative local connection point.
+
+Global connectivity is established by core.network.
+
+Typical relationship:
+
+    Grid
+      |
+      +-- Terminal
+              |
+              +-- network topology
+              |
+              +-- Bus
+
+The Grid model must therefore never directly modify a Network or
+TopologyManager.
+
+No Container API
+----------------
+Grid intentionally provides NO methods such as:
+
+    add_bus()
+    add_load()
+    add_generator()
+    add_branch()
+    add_line()
+    add_transformer()
+    add_shunt()
+
+It is an electrical element, not a network container.
+
+Validation
+----------
+Grid does not perform global network validation.
+
+Model-level parameter validation is performed when parameters are
+created or changed.
+
+Global network validation belongs to core.validation.
+
+Power Source Semantics
+----------------------
+The Grid represents an external electrical source.
+
+Positive active and reactive power values represent source injection
+into the connected electrical network.
+
+For studies requiring a more specific source representation, the
+appropriate analysis/solver layer interprets the Grid parameters.
+
+Grid does not determine network bus classification.
+
+Plugin Compatibility
 --------------------
-- Bus
-- Load
-- Generator
-- Branch
-- Line
-- Transformer
-- Shunt
+Grid may expose a lightweight extension registry for optional
+engineering capabilities.
 
-The Grid model does NOT:
-- Build Ybus.
-- Run power-flow calculations.
-- Solve numerical systems.
-- Perform short-circuit calculations.
-- Perform protection calculations.
-- Perform dynamic simulation.
+The core Grid model does not import concrete plugins.
 
-Numerical analysis belongs in the solver/network/analysis layers.
+Plugins must not bypass the Core command/application architecture.
 
+Copyright
+---------
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
+Proprietary and confidential.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List
+import math
+from typing import Any, Dict, Optional
 
-from .bus import Bus, BusType
-from .load import Load
-from .generator import Generator
-from .branch import Branch
-from .line import Line
-from .transformer import Transformer
-from .shunt import Shunt
+from .base import ElectricalObject
+from .terminal import Terminal
 
 
-class Grid:
+class Grid(ElectricalObject):
     """
-    Central container for a GridForge electrical network.
+    Canonical GridForge V2 external-grid/source model.
 
-    Component registries use dictionaries keyed by stable object IDs.
+    Grid is an electrical source element, not a network container.
 
-    Numerical code should use the ordered list properties:
+    Parameters
+    ----------
+    id:
+        Stable GridForge object identifier.
 
-        bus_list
-        load_list
-        generator_list
-        branch_list
-        line_list
-        transformer_list
-        shunt_list
+    name:
+        Human-readable engineering name.
 
-    rather than depending on the internal dictionary
-    representation.
+    nominal_voltage_kv:
+        Nominal line-to-line system voltage in kV.
+
+    frequency_hz:
+        Nominal system frequency in Hz.
+
+    voltage_pu:
+        Present source voltage magnitude in per-unit.
+
+    angle_deg:
+        Source voltage reference angle in degrees.
+
+    p_mw:
+        Active-power injection into the network in MW.
+
+    q_mvar:
+        Reactive-power injection into the network in MVAr.
+
+    short_circuit_mva:
+        Three-phase short-circuit level at the grid connection
+        point, in MVA.
+
+    x_over_r:
+        Positive-sequence source X/R ratio.
+
+    z1_pu:
+        Positive-sequence source impedance in per-unit.
+
+    z2_pu:
+        Negative-sequence source impedance in per-unit.
+
+    z0_pu:
+        Zero-sequence source impedance in per-unit.
+
+    in_service:
+        Whether the Grid source is electrically in service.
+
+    grounded:
+        Whether the source has an applicable grounding/reference
+        connection.
+
     """
 
-    def __init__(self, name: str = ""):
+    TYPE = "GRID"
 
-        self.name = name
-
-        # =========================================================
-        # COMPONENT REGISTRIES
-        # =========================================================
-
-        self.buses: Dict[str, Bus] = {}
-
-        self.loads: Dict[str, Load] = {}
-
-        self.generators: Dict[str, Generator] = {}
-
-        self.branches: Dict[str, Branch] = {}
-
-        self.lines: Dict[str, Line] = {}
-
-        self.transformers: Dict[str, Transformer] = {}
-
-        self.shunts: Dict[str, Shunt] = {}
-
-        # =========================================================
-        # DERIVED / ANALYSIS STATE
-        # =========================================================
-
-        # Grid does not construct Ybus.
-        #
-        # A dedicated network/Ybus builder may populate this
-        # attribute after construction.
-
-        self.Ybus = None
-
-        # Stable bus ID -> numerical index mapping.
-
-        self.bus_index: Dict[str, int] = {}
-
-    # =============================================================
-    # ADD COMPONENTS
-    # =============================================================
-
-    def add_bus(self, bus: Bus) -> None:
-        """
-        Add a Bus to the grid.
-        """
-
-        if not isinstance(bus, Bus):
-            raise TypeError(
-                "add_bus() requires a Bus object"
-            )
-
-        self._add(
-            self.buses,
-            bus
-        )
-
-        self._invalidate_bus_index()
-
-    def add_load(self, load: Load) -> None:
-        """
-        Add a Load to the grid.
-        """
-
-        if not isinstance(load, Load):
-            raise TypeError(
-                "add_load() requires a Load object"
-            )
-
-        self._add(
-            self.loads,
-            load
-        )
-
-    def add_generator(
+    def __init__(
         self,
-        generator: Generator
+        id: str,
+        name: str = "",
+        *,
+        nominal_voltage_kv: float = 0.0,
+        frequency_hz: float = 50.0,
+        voltage_pu: float = 1.0,
+        angle_deg: float = 0.0,
+        p_mw: float = 0.0,
+        q_mvar: float = 0.0,
+        short_circuit_mva: Optional[float] = None,
+        x_over_r: Optional[float] = None,
+        z1_pu: Optional[complex] = None,
+        z2_pu: Optional[complex] = None,
+        z0_pu: Optional[complex] = None,
+        in_service: bool = True,
+        grounded: bool = True,
+        terminal: Optional[Terminal] = None,
+    ) -> None:
+
+        super().__init__(
+            id=id,
+            name=name,
+        )
+
+        # ============================================================
+        # SOURCE ELECTRICAL PARAMETERS
+        # ============================================================
+
+        self.nominal_voltage_kv = self._validate_positive_or_zero(
+            nominal_voltage_kv,
+            "nominal_voltage_kv",
+        )
+
+        self.frequency_hz = self._validate_positive(
+            frequency_hz,
+            "frequency_hz",
+        )
+
+        self.voltage_pu = self._validate_positive(
+            voltage_pu,
+            "voltage_pu",
+        )
+
+        self.angle_deg = self._validate_finite(
+            angle_deg,
+            "angle_deg",
+        )
+
+        self.p_mw = self._validate_finite(
+            p_mw,
+            "p_mw",
+        )
+
+        self.q_mvar = self._validate_finite(
+            q_mvar,
+            "q_mvar",
+        )
+
+        # ============================================================
+        # SHORT-CIRCUIT / SOURCE IMPEDANCE PARAMETERS
+        # ============================================================
+
+        self.short_circuit_mva = (
+            self._validate_optional_positive(
+                short_circuit_mva,
+                "short_circuit_mva",
+            )
+        )
+
+        self.x_over_r = (
+            self._validate_optional_positive(
+                x_over_r,
+                "x_over_r",
+            )
+        )
+
+        self.z1_pu = self._validate_optional_impedance(
+            z1_pu,
+            "z1_pu",
+        )
+
+        self.z2_pu = self._validate_optional_impedance(
+            z2_pu,
+            "z2_pu",
+        )
+
+        self.z0_pu = self._validate_optional_impedance(
+            z0_pu,
+            "z0_pu",
+        )
+
+        # ============================================================
+        # OPERATING STATE
+        # ============================================================
+
+        self.in_service = bool(in_service)
+
+        self.grounded = bool(grounded)
+
+        # ============================================================
+        # PHYSICAL CONNECTION
+        # ============================================================
+
+        self.terminal: Optional[Terminal] = None
+
+        if terminal is not None:
+            self.set_terminal(terminal)
+
+        # ============================================================
+        # OPTIONAL EXTENSIONS
+        # ============================================================
+
+        self._extensions: Dict[str, Any] = {}
+
+    # =================================================================
+    # TYPE / IDENTITY
+    # =================================================================
+
+    @property
+    def element_type(self) -> str:
+        """
+        Return the canonical GridForge model element type.
+        """
+        return self.TYPE
+
+    # =================================================================
+    # TERMINAL
+    # =================================================================
+
+    def set_terminal(
+        self,
+        terminal: Terminal,
     ) -> None:
         """
-        Add a Generator to the grid.
+        Assign the physical electrical terminal owned by the Grid.
+
+        Global topology is not modified here.
         """
 
-        if not isinstance(generator, Generator):
-            raise TypeError(
-                "add_generator() requires a Generator object"
-            )
-
-        self._add(
-            self.generators,
-            generator
-        )
-
-    def add_branch(self, branch: Branch) -> None:
-        """
-        Add a generic Branch to the grid.
-
-        Branch subclasses such as Line and Transformer can also
-        be represented in the common branch registry.
-        """
-
-        if not isinstance(branch, Branch):
-            raise TypeError(
-                "add_branch() requires a Branch object"
-            )
-
-        self._add(
-            self.branches,
-            branch
-        )
-
-    def add_line(self, line: Line) -> None:
-        """
-        Add a transmission Line.
-
-        The line is registered both in the specialized line
-        registry and in the common branch registry.
-        """
-
-        if not isinstance(line, Line):
-            raise TypeError(
-                "add_line() requires a Line object"
-            )
-
-        self._add(
-            self.lines,
-            line
-        )
-
-        self._add(
-            self.branches,
-            line
-        )
-
-    def add_transformer(
-        self,
-        transformer: Transformer
-    ) -> None:
-        """
-        Add a Transformer.
-
-        Transformer is expected to participate in the common
-        two-terminal network-element interface.
-        """
-
-        if not isinstance(transformer, Transformer):
-            raise TypeError(
-                "add_transformer() requires a Transformer object"
-            )
-
-        self._add(
-            self.transformers,
-            transformer
-        )
-
-        # Transformer is added to the common branch registry only
-        # when it implements the Branch interface.
-        #
-        # This keeps Grid tolerant of the current Transformer model
-        # while allowing the model to evolve toward Branch
-        # inheritance.
-
-        if isinstance(transformer, Branch):
-
-            self._add(
-                self.branches,
-                transformer
-            )
-
-    def add_shunt(self, shunt: Shunt) -> None:
-        """
-        Add a passive Shunt element.
-        """
-
-        if not isinstance(shunt, Shunt):
-            raise TypeError(
-                "add_shunt() requires a Shunt object"
-            )
-
-        self._add(
-            self.shunts,
-            shunt
-        )
-
-    @staticmethod
-    def _add(
-        container: Dict,
-        obj
-    ) -> None:
-        """
-        Add an object to a component registry.
-
-        IDs must be unique within the target registry.
-        """
-
-        if obj.id in container:
-            raise ValueError(
-                f"Duplicate ID detected: {obj.id}"
-            )
-
-        container[obj.id] = obj
-
-    # =============================================================
-    # LOOKUP
-    # =============================================================
-
-    def get_bus(self, id: str) -> Bus:
-        """
-        Return a Bus by ID.
-        """
-
-        try:
-            return self.buses[id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Bus '{id}' does not exist"
-            ) from exc
-
-    def get_load(self, id: str) -> Load:
-        """
-        Return a Load by ID.
-        """
-
-        try:
-            return self.loads[id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Load '{id}' does not exist"
-            ) from exc
-
-    def get_generator(
-        self,
-        id: str
-    ) -> Generator:
-        """
-        Return a Generator by ID.
-        """
-
-        try:
-            return self.generators[id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Generator '{id}' does not exist"
-            ) from exc
-
-    def get_branch(self, id: str) -> Branch:
-        """
-        Return a common Branch by ID.
-        """
-
-        try:
-            return self.branches[id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Branch '{id}' does not exist"
-            ) from exc
-
-    def get_line(self, id: str) -> Line:
-        """
-        Return a Line by ID.
-        """
-
-        try:
-            return self.lines[id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Line '{id}' does not exist"
-            ) from exc
-
-    def get_transformer(
-        self,
-        id: str
-    ) -> Transformer:
-        """
-        Return a Transformer by ID.
-        """
-
-        try:
-            return self.transformers[id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Transformer '{id}' does not exist"
-            ) from exc
-
-    def get_shunt(self, id: str) -> Shunt:
-        """
-        Return a Shunt by ID.
-        """
-
-        try:
-            return self.shunts[id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Shunt '{id}' does not exist"
-            ) from exc
-
-    # =============================================================
-    # ORDERED COMPONENT VIEWS
-    # =============================================================
-
-    @property
-    def bus_list(self) -> List[Bus]:
-        """
-        Return buses in stable registry order.
-        """
-
-        return list(
-            self.buses.values()
-        )
-
-    @property
-    def load_list(self) -> List[Load]:
-        """
-        Return loads in registry order.
-        """
-
-        return list(
-            self.loads.values()
-        )
-
-    @property
-    def generator_list(self) -> List[Generator]:
-        """
-        Return generators in registry order.
-        """
-
-        return list(
-            self.generators.values()
-        )
-
-    @property
-    def branch_list(self) -> List[Branch]:
-        """
-        Return all common branch elements.
-
-        This is the preferred collection for Ybus and other
-        network-topology algorithms.
-        """
-
-        return list(
-            self.branches.values()
-        )
-
-    @property
-    def line_list(self) -> List[Line]:
-        """
-        Return transmission lines in registry order.
-        """
-
-        return list(
-            self.lines.values()
-        )
-
-    @property
-    def transformer_list(self) -> List[Transformer]:
-        """
-        Return transformers in registry order.
-        """
-
-        return list(
-            self.transformers.values()
-        )
-
-    @property
-    def shunt_list(self) -> List[Shunt]:
-        """
-        Return shunts in registry order.
-        """
-
-        return list(
-            self.shunts.values()
-        )
-
-    # =============================================================
-    # INJECTION COLLECTION
-    # =============================================================
-
-    @property
-    def injection_list(self) -> List:
-        """
-        Return all objects implementing the Injection interface.
-
-        Ordering:
-
-            Generators
-            Loads
-
-        This ordering is deterministic but must not be interpreted
-        as bus ordering.
-        """
-
-        return [
-            *self.generator_list,
-            *self.load_list
-        ]
-
-    def injections(self) -> List:
-        """
-        Backward-compatible access to all injections.
-        """
-
-        return self.injection_list
-
-    # =============================================================
-    # BUS INDEXING
-    # =============================================================
-
-    def build_bus_index(self) -> Dict[str, int]:
-        """
-        Build and store the bus-ID -> numerical-index mapping.
-
-        The mapping corresponds exactly to ``bus_list`` ordering.
-        """
-
-        self.bus_index = {
-            bus.id: index
-            for index, bus in enumerate(
-                self.bus_list
-            )
-        }
-
-        return self.bus_index.copy()
-
-    def get_bus_index(
-        self,
-        bus_id: str
-    ) -> int:
-        """
-        Return the numerical index of a bus.
-
-        The index is generated lazily when required.
-        """
-
-        if (
-            not self.bus_index
-            or len(self.bus_index) != len(self.buses)
-            or set(self.bus_index.keys())
-            != set(self.buses.keys())
+        if not isinstance(
+            terminal,
+            Terminal,
         ):
-            self.build_bus_index()
-
-        try:
-            return self.bus_index[bus_id]
-
-        except KeyError as exc:
-
-            raise KeyError(
-                f"Bus '{bus_id}' does not exist in bus index"
-            ) from exc
-
-    def _invalidate_bus_index(self) -> None:
-        """
-        Invalidate the cached bus index.
-        """
-
-        self.bus_index = {}
-
-    # =============================================================
-    # YBUS INTERFACE
-    # =============================================================
-
-    def set_ybus(self, Ybus) -> None:
-        """
-        Attach a calculated Ybus matrix to the grid.
-
-        Ybus construction belongs to the network layer.
-        """
-
-        if Ybus is None:
-            raise ValueError(
-                "Ybus cannot be None"
+            raise TypeError(
+                "terminal must be a Terminal instance."
             )
 
-        expected_shape = (
-            len(self.buses),
-            len(self.buses)
-        )
+        self.terminal = terminal
 
-        if not hasattr(
-            Ybus,
-            "shape"
-        ):
-            raise ValueError(
-                "Ybus must provide a matrix shape"
-            )
+    # -----------------------------------------------------------------
 
-        if Ybus.shape != expected_shape:
-
-            raise ValueError(
-                "Ybus dimension does not match grid "
-                "bus count: "
-                f"expected {expected_shape}, "
-                f"received {Ybus.shape}"
-            )
-
-        self.Ybus = Ybus
-
-    def clear_ybus(self) -> None:
+    def clear_terminal(self) -> None:
         """
-        Remove the currently attached Ybus matrix.
+        Remove the local terminal reference.
+
+        This does not modify global network topology.
         """
 
-        self.Ybus = None
+        self.terminal = None
 
-    # =============================================================
-    # STRUCTURAL VALIDATION
-    # =============================================================
+    # -----------------------------------------------------------------
 
-    def validate(self) -> bool:
+    @property
+    def terminals(self) -> tuple[Terminal, ...]:
         """
-        Perform structural and reference-integrity validation.
+        Return the Grid's physical terminals.
 
-        This method does not perform numerical calculations.
-        """
-
-        # ---------------------------------------------------------
-        # Bus existence
-        # ---------------------------------------------------------
-
-        if not self.buses:
-
-            raise ValueError(
-                "Grid must contain at least one bus."
-            )
-
-        # ---------------------------------------------------------
-        # Exactly one slack bus
-        # ---------------------------------------------------------
-
-        slack_buses = [
-            bus
-            for bus in self.bus_list
-            if bus.type is BusType.SLACK
-        ]
-
-        if len(slack_buses) != 1:
-
-            raise ValueError(
-                "Grid must have exactly one SLACK bus."
-            )
-
-        # ---------------------------------------------------------
-        # Load references
-        # ---------------------------------------------------------
-
-        for load in self.load_list:
-
-            if load.bus.id not in self.buses:
-
-                raise ValueError(
-                    f"Load '{load.id}' connected to "
-                    f"unknown bus '{load.bus.id}'."
-                )
-
-        # ---------------------------------------------------------
-        # Generator references
-        # ---------------------------------------------------------
-
-        for generator in self.generator_list:
-
-            if generator.bus.id not in self.buses:
-
-                raise ValueError(
-                    f"Generator '{generator.id}' connected "
-                    f"to unknown bus '{generator.bus.id}'."
-                )
-
-        # ---------------------------------------------------------
-        # Branch references
-        # ---------------------------------------------------------
-
-        for branch in self.branch_list:
-
-            try:
-                from_bus, to_bus = branch.buses()
-
-            except AttributeError as exc:
-
-                raise ValueError(
-                    f"Branch '{branch.id}' does not provide "
-                    f"the required buses() interface."
-                ) from exc
-
-            if from_bus.id not in self.buses:
-
-                raise ValueError(
-                    f"Branch '{branch.id}' connected to "
-                    f"unknown from-bus '{from_bus.id}'."
-                )
-
-            if to_bus.id not in self.buses:
-
-                raise ValueError(
-                    f"Branch '{branch.id}' connected to "
-                    f"unknown to-bus '{to_bus.id}'."
-                )
-
-        # ---------------------------------------------------------
-        # Shunt references
-        # ---------------------------------------------------------
-
-        for shunt in self.shunt_list:
-
-            if shunt.bus.id not in self.buses:
-
-                raise ValueError(
-                    f"Shunt '{shunt.id}' connected to "
-                    f"unknown bus '{shunt.bus.id}'."
-                )
-
-        # ---------------------------------------------------------
-        # Refresh bus indexing.
-        # ---------------------------------------------------------
-
-        self.build_bus_index()
-
-        return True
-
-    # =============================================================
-    # COUNTS
-    # =============================================================
-
-    @property
-    def bus_count(self) -> int:
-        return len(self.buses)
-
-    @property
-    def load_count(self) -> int:
-        return len(self.loads)
-
-    @property
-    def generator_count(self) -> int:
-        return len(self.generators)
-
-    @property
-    def branch_count(self) -> int:
-        return len(self.branches)
-
-    @property
-    def line_count(self) -> int:
-        return len(self.lines)
-
-    @property
-    def transformer_count(self) -> int:
-        return len(self.transformers)
-
-    @property
-    def shunt_count(self) -> int:
-        return len(self.shunts)
-
-    # =============================================================
-    # SUMMARY
-    # =============================================================
-
-    def summary(self) -> dict:
-        """
-        Return structured grid information.
+        The returned tuple prevents callers from modifying the
+        terminal collection directly.
         """
 
-        slack_count = sum(
-            bus.type is BusType.SLACK
-            for bus in self.bus_list
-        )
+        if self.terminal is None:
+            return ()
 
-        pv_count = sum(
-            bus.type is BusType.PV
-            for bus in self.bus_list
-        )
+        return (self.terminal,)
 
-        pq_count = sum(
-            bus.type is BusType.PQ
-            for bus in self.bus_list
-        )
+    # =================================================================
+    # SOURCE STATE
+    # =================================================================
 
-        return {
-            "name": self.name,
-
-            "buses": self.bus_count,
-
-            "loads": self.load_count,
-
-            "generators": self.generator_count,
-
-            "branches": self.branch_count,
-
-            "lines": self.line_count,
-
-            "transformers": self.transformer_count,
-
-            "shunts": self.shunt_count,
-
-            "slack_buses": slack_count,
-
-            "pv_buses": pv_count,
-
-            "pq_buses": pq_count,
-
-            "ybus_available": (
-                self.Ybus is not None
-            ),
-
-            "bus_index_available": bool(
-                self.bus_index
-            ),
-        }
-
-    # =============================================================
-    # DEBUG
-    # =============================================================
-
-    def __repr__(self) -> str:
+    def connect(self) -> None:
         """
-        Developer-friendly representation.
+        Mark the Grid source as electrically in service.
+
+        Topology management remains the responsibility of
+        core.network.
+        """
+
+        self.in_service = True
+
+    # -----------------------------------------------------------------
+
+    def disconnect(self) -> None:
+        """
+        Mark the Grid source as electrically out of service.
+
+        This changes the Grid's local operating state only.
+
+        Network topology interpretation belongs to core.network.
+        """
+
+        self.in_service = False
+
+    # -----------------------------------------------------------------
+
+    @property
+    def is_available(self) -> bool:
+        """
+        Return whether the Grid source is available for study use.
+        """
+
+        return self.in_service
+
+    # =================================================================
+    # POWER INJECTION
+    # =================================================================
+
+    def get_power(self) -> tuple[float, float]:
+        """
+        Return source active/reactive power injection.
+
+        Returns
+        -------
+        tuple[float, float]
+            (P_MW, Q_MVAr)
+
+        Positive values represent injection into the electrical
+        network.
         """
 
         return (
-            f"<Grid "
-            f"name='{self.name}', "
-            f"buses={self.bus_count}, "
-            f"loads={self.load_count}, "
-            f"generators={self.generator_count}, "
-            f"branches={self.branch_count}, "
-            f"lines={self.line_count}, "
-            f"transformers={self.transformer_count}, "
-            f"shunts={self.shunt_count}>"
+            self.p_mw,
+            self.q_mvar,
+        )
+
+    # -----------------------------------------------------------------
+
+    def set_power(
+        self,
+        p_mw: float,
+        q_mvar: float,
+    ) -> None:
+        """
+        Set source active/reactive power injection.
+
+        No numerical study is performed.
+        """
+
+        self.p_mw = self._validate_finite(
+            p_mw,
+            "p_mw",
+        )
+
+        self.q_mvar = self._validate_finite(
+            q_mvar,
+            "q_mvar",
+        )
+
+    # =================================================================
+    # VOLTAGE SOURCE
+    # =================================================================
+
+    def set_voltage(
+        self,
+        voltage_pu: float,
+        angle_deg: float = 0.0,
+    ) -> None:
+        """
+        Set the source voltage magnitude and reference angle.
+        """
+
+        self.voltage_pu = self._validate_positive(
+            voltage_pu,
+            "voltage_pu",
+        )
+
+        self.angle_deg = self._validate_finite(
+            angle_deg,
+            "angle_deg",
+        )
+
+    # =================================================================
+    # SOURCE IMPEDANCE
+    # =================================================================
+
+    def set_sequence_impedances(
+        self,
+        *,
+        z1_pu: Optional[complex] = None,
+        z2_pu: Optional[complex] = None,
+        z0_pu: Optional[complex] = None,
+    ) -> None:
+        """
+        Set positive-, negative-, and zero-sequence source
+        impedances.
+
+        The Grid model stores the parameters.
+
+        It does not calculate fault currents.
+        """
+
+        self.z1_pu = self._validate_optional_impedance(
+            z1_pu,
+            "z1_pu",
+        )
+
+        self.z2_pu = self._validate_optional_impedance(
+            z2_pu,
+            "z2_pu",
+        )
+
+        self.z0_pu = self._validate_optional_impedance(
+            z0_pu,
+            "z0_pu",
+        )
+
+    # -----------------------------------------------------------------
+
+    def has_sequence_impedance_data(self) -> bool:
+        """
+        Return True when at least positive-sequence source impedance
+        data is available.
+        """
+
+        return self.z1_pu is not None
+
+    # =================================================================
+    # PLUGIN / EXTENSION REGISTRY
+    # =================================================================
+
+    def register_extension(
+        self,
+        extension_id: str,
+        extension: Any,
+    ) -> None:
+        """
+        Register an optional extension object.
+
+        Grid does not interpret or execute extension behavior.
+        """
+
+        if not isinstance(
+            extension_id,
+            str,
+        ):
+            raise TypeError(
+                "extension_id must be a string."
+            )
+
+        extension_id = extension_id.strip()
+
+        if not extension_id:
+            raise ValueError(
+                "extension_id cannot be empty."
+            )
+
+        if extension is None:
+            raise ValueError(
+                "extension cannot be None."
+            )
+
+        if extension_id in self._extensions:
+            raise ValueError(
+                f"Extension '{extension_id}' is already registered."
+            )
+
+        self._extensions[extension_id] = extension
+
+    # -----------------------------------------------------------------
+
+    def get_extension(
+        self,
+        extension_id: str,
+    ) -> Any:
+        """
+        Return a registered extension.
+        """
+
+        try:
+            return self._extensions[extension_id]
+
+        except KeyError as exc:
+            raise KeyError(
+                f"Extension '{extension_id}' is not registered."
+            ) from exc
+
+    # -----------------------------------------------------------------
+
+    def remove_extension(
+        self,
+        extension_id: str,
+    ) -> None:
+        """
+        Remove a registered extension.
+        """
+
+        try:
+            del self._extensions[extension_id]
+
+        except KeyError as exc:
+            raise KeyError(
+                f"Extension '{extension_id}' is not registered."
+            ) from exc
+
+    # -----------------------------------------------------------------
+
+    @property
+    def extension_ids(self) -> tuple[str, ...]:
+        """
+        Return registered extension identifiers.
+        """
+
+        return tuple(
+            self._extensions.keys()
+        )
+
+    # =================================================================
+    # MODEL VALIDATION
+    # =================================================================
+
+    def validate_parameters(self) -> bool:
+        """
+        Validate the Grid's own engineering parameters.
+
+        This method deliberately does NOT validate the global
+        electrical network.
+
+        Global validation belongs to core.validation.
+        """
+
+        self._validate_positive_or_zero(
+            self.nominal_voltage_kv,
+            "nominal_voltage_kv",
+        )
+
+        self._validate_positive(
+            self.frequency_hz,
+            "frequency_hz",
+        )
+
+        self._validate_positive(
+            self.voltage_pu,
+            "voltage_pu",
+        )
+
+        self._validate_finite(
+            self.angle_deg,
+            "angle_deg",
+        )
+
+        self._validate_finite(
+            self.p_mw,
+            "p_mw",
+        )
+
+        self._validate_finite(
+            self.q_mvar,
+            "q_mvar",
+        )
+
+        self._validate_optional_positive(
+            self.short_circuit_mva,
+            "short_circuit_mva",
+        )
+
+        self._validate_optional_positive(
+            self.x_over_r,
+            "x_over_r",
+        )
+
+        self._validate_optional_impedance(
+            self.z1_pu,
+            "z1_pu",
+        )
+
+        self._validate_optional_impedance(
+            self.z2_pu,
+            "z2_pu",
+        )
+
+        self._validate_optional_impedance(
+            self.z0_pu,
+            "z0_pu",
+        )
+
+        if self.terminal is not None:
+            if not isinstance(
+                self.terminal,
+                Terminal,
+            ):
+                raise TypeError(
+                    "Grid terminal must be a Terminal instance."
+                )
+
+        return True
+
+    # =================================================================
+    # VALIDATION HELPERS
+    # =================================================================
+
+    @staticmethod
+    def _validate_finite(
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate a finite numeric value.
+        """
+
+        if isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{field_name} cannot be bool."
+            )
+
+        try:
+            value = float(value)
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                f"{field_name} must be numeric."
+            ) from exc
+
+        if not math.isfinite(value):
+            raise ValueError(
+                f"{field_name} must be finite."
+            )
+
+        return value
+
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def _validate_positive(
+        cls,
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate a strictly positive numeric value.
+        """
+
+        value = cls._validate_finite(
+            value,
+            field_name,
+        )
+
+        if value <= 0.0:
+            raise ValueError(
+                f"{field_name} must be greater than zero."
+            )
+
+        return value
+
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def _validate_positive_or_zero(
+        cls,
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate a non-negative numeric value.
+        """
+
+        value = cls._validate_finite(
+            value,
+            field_name,
+        )
+
+        if value < 0.0:
+            raise ValueError(
+                f"{field_name} cannot be negative."
+            )
+
+        return value
+
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def _validate_optional_positive(
+        cls,
+        value: Optional[float],
+        field_name: str,
+    ) -> Optional[float]:
+        """
+        Validate an optional strictly positive value.
+        """
+
+        if value is None:
+            return None
+
+        return cls._validate_positive(
+            value,
+            field_name,
+        )
+
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _validate_optional_impedance(
+        value: Optional[complex],
+        field_name: str,
+    ) -> Optional[complex]:
+        """
+        Validate an optional finite complex impedance.
+        """
+
+        if value is None:
+            return None
+
+        if isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{field_name} cannot be bool."
+            )
+
+        try:
+            impedance = complex(value)
+
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise TypeError(
+                f"{field_name} must be a numeric complex impedance."
+            ) from exc
+
+        if (
+            not math.isfinite(impedance.real)
+            or not math.isfinite(impedance.imag)
+        ):
+            raise ValueError(
+                f"{field_name} must contain finite values."
+            )
+
+        return impedance
+
+    # =================================================================
+    # REPRESENTATION
+    # =================================================================
+
+    def __repr__(self) -> str:
+        return (
+            f"Grid("
+            f"id={self.id!r}, "
+            f"name={self.name!r}, "
+            f"nominal_voltage_kv={self.nominal_voltage_kv!r}, "
+            f"frequency_hz={self.frequency_hz!r}, "
+            f"voltage_pu={self.voltage_pu!r}, "
+            f"p_mw={self.p_mw!r}, "
+            f"q_mvar={self.q_mvar!r}, "
+            f"in_service={self.in_service!r}"
+            f")"
         )
