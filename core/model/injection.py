@@ -1,186 +1,29 @@
 # core/model/injection.py
-
 """
-GridForge Power Injection Interface
-===================================
+GridForge V2 Power Injection Interface
+======================================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
-Defines the common interface for e# core/model/injection.py
-
-"""
-GridForge Power Injection Interface
-===================================
-
-GridForge Model Layer V2
-
-Defines the common interface for electrical power injections
-connected to the GridForge electrical network.
-
-An Injection represents the electrical power contribution of an
-equipment model. Physical connectivity is provided by the
-equipment's Terminal objects.
+Defines the common electrical power-injection contract used by
+GridForge model objects.
 
 Examples
 --------
-- Generator
-- Grid
-- Solar
-- Battery
-- Load
-- Motor
-- Future converter-based sources and loads
+Typical implementations include:
+
+    Generator
+    Grid
+    Solar
+    Battery
+    Load
+    Motor
+    Future converter-based sources and loads
 
 Network Injection Convention
 -----------------------------
 
-    +P, +Q
-        Power injected into the electrical network.
-
-    -P, -Q
-        Power consumed from the electrical network.
-
-Typical implementations therefore provide:
-
-    Generator / Grid / Solar -> (+P, +Q)
-    Load / Motor              -> (-P, -Q)
-
-Architectural Boundary
-----------------------
-
-Injection defines only the common electrical power interface.
-
-Physical connectivity is NOT part of the abstract Injection
-contract.
-
-The connection hierarchy is:
-
-    Injection
-        |
-        v
-    Equipment Terminal
-        |
-        v
-    Terminal.endpoint
-        |
-        v
-    Bus / electrical endpoint
-
-Network and topology layers resolve that connection.
-
-This interface does NOT:
-
-- calculate bus power balance;
-- modify Bus state;
-- perform load-flow calculations;
-- build Y-bus;
-- enforce generator limits;
-- perform contingency analysis;
-- perform dynamic simulation;
-- perform protection calculations;
-- manage network registration;
-- manage GUI objects.
-
-Those responsibilities belong to the appropriate Core and UI
-layers.
-
-Design Principle
-----------------
-
-Injection is intentionally technology-neutral.
-
-It provides the minimum common numerical contract required by
-Network and Solver layers without imposing assumptions about:
-
-- Bus implementation;
-- Terminal implementation;
-- equipment technology;
-- storage technology;
-- generation technology;
-- load technology.
-
-Concrete equipment models may expose convenience properties such
-as ``bus`` when useful, but ``bus`` is NOT an abstract Injection
-requirement.
-
-GridForge V2 Status
--------------------
-
-This module belongs to the GridForge Model Layer V2.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
-"""
-
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
-
-
-class Injection(ABC):
-    """
-    Abstract interface for a GridForge electrical power injection.
-
-    Implementations must provide:
-
-        get_power()
-
-    ``get_power()`` returns electrical power using the GridForge
-    network-injection sign convention.
-
-    Physical connection is provided by the concrete equipment's
-    Terminal model and resolved by Network/Topology.
-    """
-
-    @abstractmethod
-    def get_power(self) -> tuple[float, float]:
-        """
-        Return the object's electrical power injection.
-
-        Returns
-        -------
-        tuple[float, float]
-            ``(P, Q)`` using the GridForge network-injection
-            sign convention.
-
-        Sign Convention
-        ----------------
-        +P
-            Active power injected into the network.
-
-        -P
-            Active power consumed from the network.
-
-        +Q
-            Reactive power injected into the network.
-
-        -Q
-            Reactive power consumed from the network.
-
-        Notes
-        -----
-        The returned values are electrical model quantities.
-
-        Numerical consumers such as Network and power-flow solvers
-        may aggregate or transform them as required.
-
-        The Injection interface itself performs no calculations.
-        """
-        raise NotImplementedErrorlectrical power injections
-connected to a GridForge Bus.
-
-The interface is implemented by model objects such as:
-
-- Load
-- Generator
-- Distributed-energy resources
-- Energy-storage systems
-- Grid-forming sources
-- Grid-following sources
-- Future electrical injection devices
-
-Network Injection Convention
-----------------------------
 GridForge uses the network-injection sign convention:
 
     +P, +Q
@@ -191,69 +34,126 @@ GridForge uses the network-injection sign convention:
 
 Therefore, typical implementations are:
 
-    Generator -> (+P, +Q)
-    Load      -> (-P, -Q)
+    Generator / Grid / Solar -> (+P, +Q)
+    Battery                  -> (+P, +Q) when discharging
+                                (-P, -Q) when charging
+    Load / Motor             -> (-P, -Q)
 
-The interface does not prescribe how an individual device stores
-its internal engineering quantities.
+The concrete model decides how its internal engineering
+quantities are represented and converts them to this convention
+through ``get_power()``.
 
-For example, Load may store positive consumption internally and
-return the corresponding negative network injection through
-``get_power()``.
+Architectural Boundary
+----------------------
+
+Injection defines only the common electrical power interface.
+
+Physical connectivity is NOT part of the abstract Injection
+contract.
+
+Connectivity is represented separately:
+
+    Equipment
+        |
+        v
+    Terminal
+        |
+        v
+    Terminal.endpoint
+        |
+        v
+    Network / topology
+        |
+        v
+    Bus / electrical endpoint
+
+The Injection interface therefore does NOT require:
+
+    - a Bus property
+    - a Terminal implementation
+    - an ElectricalObject base class
+    - an identifier
+    - a name
+    - network registration
+
+Concrete equipment models may expose convenience properties such
+as ``bus`` when useful, but ``bus`` is not an abstract Injection
+requirement.
 
 Responsibilities
 ----------------
-This interface:
 
-- Defines the common power-injection contract.
-- Defines access to the connected Bus.
-- Allows numerical layers to process different injection types
-  polymorphically.
-- Provides a stable boundary between model objects and numerical
-  network/solver layers.
+Injection:
 
-This interface does NOT:
+    - defines the common P/Q contract;
+    - provides a stable polymorphic interface for numerical layers;
+    - remains technology-neutral.
 
-- Calculate bus power balance.
-- Modify Bus state.
-- Perform load-flow calculations.
-- Build Y-bus.
-- Enforce generator reactive-power limits.
-- Perform contingency analysis.
-- Perform dynamic simulation.
-- Perform protection calculations.
-- Manage network registration.
-- Manage GUI objects.
+Injection does NOT:
 
-Those responsibilities belong to the appropriate
-network/solver/analysis/simulation/UI layers.
+    - calculate bus power balance;
+    - modify Bus state;
+    - build Y-bus;
+    - perform load-flow calculations;
+    - perform short-circuit calculations;
+    - enforce generator limits;
+    - perform contingency analysis;
+    - perform dynamic simulation;
+    - perform protection calculations;
+    - manage network registration;
+    - manage topology;
+    - manage GUI/SLD state.
+
+Those responsibilities belong to the appropriate Core
+network, analysis, solver, simulation, protection, application,
+and UI layers.
+
+Dynamic Simulation
+------------------
+
+Dynamic behavior is deliberately outside this interface.
+
+Static equipment models may later expose or bind to separate
+dynamic-model definitions through the appropriate simulation
+architecture.
+
+For example:
+
+    Battery
+        |
+        +-- static Injection model
+        |
+        +-- optional dynamic model
+                |
+                +-- simulation layer
+
+The Injection contract itself remains unchanged.
 
 Design Principle
 ----------------
-``Injection`` intentionally contains only the minimum common
-contract required by numerical consumers.
 
-It does not require:
+Injection is intentionally minimal.
 
-- a specific concrete Bus class,
-- a Terminal implementation,
-- an ElectricalObject base class,
-- an identifier,
-- a name,
-- a particular device technology.
+It provides the smallest common contract required by numerical
+consumers without imposing assumptions about:
 
-Concrete model classes may provide these features independently.
-
-This keeps the interface suitable for future DER, storage,
-converter-based sources, and other injection models.
+    - Bus implementation
+    - Terminal implementation
+    - equipment technology
+    - generation technology
+    - load technology
+    - storage technology
+    - converter technology
+    - simulation technology
 
 GridForge V2 Status
 -------------------
-This module is part of the frozen GridForge Model Layer V2 baseline.
 
-Changes require evidence of a genuinely fundamental model-interface
-requirement that cannot be satisfied by a concrete injection model
-or a higher-level network/solver interface.
+This module belongs to the GridForge V2 Model Layer.
+
+Changes to this interface should require a fundamental
+cross-model requirement. Device-specific requirements must remain
+in concrete model classes or higher-level services.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -264,26 +164,21 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 
-# =====================================================================
-# POWER INJECTION INTERFACE
-# =====================================================================
-
 class Injection(ABC):
     """
-    Abstract interface for a GridForge power-injecting model object.
+    Abstract electrical power-injection interface.
 
-    Implementations must provide:
-
-        get_power()
-        bus
-
-    ``get_power()`` returns electrical power using the GridForge
+    Concrete model classes implement ``get_power()`` and return
+    their electrical power contribution using the GridForge
     network-injection sign convention.
+
+    The interface deliberately contains no topology or terminal
+    ownership.
     """
 
-    # =================================================================
+    # =============================================================
     # POWER INTERFACE
-    # =================================================================
+    # =============================================================
 
     @abstractmethod
     def get_power(self) -> tuple[float, float]:
@@ -298,56 +193,104 @@ class Injection(ABC):
 
         Sign Convention
         ----------------
-        +P
+        +P:
             Active power injected into the network.
 
-        -P
+        -P:
             Active power consumed from the network.
 
-        +Q
+        +Q:
             Reactive power injected into the network.
 
-        -Q
+        -Q:
             Reactive power consumed from the network.
 
         Notes
         -----
         The returned values are electrical model quantities.
-        Numerical consumers such as power-flow solvers may transform
-        or aggregate them as required.
 
-        The interface itself performs no calculations.
+        Numerical consumers such as Network and Solver may
+        aggregate, transform, or normalize these values as
+        required by a particular study.
+
+        The Injection interface itself performs no study
+        calculations.
         """
 
         raise NotImplementedError
 
-    # =================================================================
-    # CONNECTION INTERFACE
-    # =================================================================
+    # =============================================================
+    # OPTIONAL CONVENIENCE VALIDATION
+    # =============================================================
 
-    @property
-    @abstractmethod
-    def bus(self):
+    def validate_injection(
+        self,
+        power: tuple[float, float] | None = None,
+    ) -> bool:
         """
-        Return the Bus to which this injection is connected.
+        Validate an injection power tuple.
+
+        This performs only generic interface-level validation.
+
+        Device-specific limits belong to the concrete model.
+
+        Parameters
+        ----------
+        power:
+            Optional ``(P, Q)`` tuple.
+
+            If omitted, ``get_power()`` is called.
 
         Returns
         -------
-        Bus
-            Connected GridForge Bus object.
-
-        Notes
-        -----
-        The interface intentionally does not import the concrete
-        ``Bus`` class.
-
-        This avoids coupling the abstract injection interface to
-        concrete model implementations and prevents unnecessary
-        circular dependencies.
-
-        Concrete implementations may obtain the Bus directly or
-        through a Terminal abstraction.
+        bool
+            ``True`` when the values are finite.
         """
 
-        raise NotImplementedError
+        if power is None:
+            power = self.get_power()
 
+        if (
+            not isinstance(power, tuple)
+            or len(power) != 2
+        ):
+            raise ValueError(
+                "Injection power must be a "
+                "(P, Q) tuple."
+            )
+
+        p, q = power
+
+        try:
+            p = float(p)
+            q = float(q)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Injection P and Q must be numeric."
+            ) from exc
+
+        if not _is_finite(p):
+            raise ValueError(
+                "Injection active power P must be finite."
+            )
+
+        if not _is_finite(q):
+            raise ValueError(
+                "Injection reactive power Q must be finite."
+            )
+
+        return True
+
+
+def _is_finite(value: float) -> bool:
+    """
+    Return whether a numeric value is finite.
+
+    Kept local to avoid introducing a dependency into this
+    technology-neutral interface.
+    """
+
+    return value == value and value not in (
+        float("inf"),
+        float("-inf"),
+    )
