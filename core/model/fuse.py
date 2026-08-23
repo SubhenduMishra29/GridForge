@@ -1,150 +1,65 @@
 # core/model/fuse.py
-
 """
-GridForge Fuse Model
-====================
+GridForge V2 Fuse Model
+=======================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
-Defines the physical electrical fuse model.
+A fuse is a passive series protection device.
+
+The fuse model represents the physical/electrical state of the
+fuse element. Protection calculations, fault detection, network
+topology management, and SLD representation remain outside this
+model.
 
 Architecture
 ------------
 
-A Fuse is a physical two-terminal series protection device.
+                 FUSE
+          ┌─────────────────┐
+          │                 │
+    IN ───┤    Fuse Link    ├─── OUT
+          │                 │
+          └─────────────────┘
 
-    Equipment A
-        │
-     Terminal
-        │
-       Fuse
-        │
-     Terminal
-        │
-    Equipment B
+The fuse owns:
 
-Typical applications include:
+    - equipment identity
+    - two electrical terminals
+    - rated current
+    - rated voltage
+    - interrupting rating
+    - service state
+    - blown state
+    - optional metadata
 
-    Bus ── Fuse ── Load
-    Bus ── Fuse ── Transformer
-    Bus ── Fuse ── Motor
-    Bus ── Fuse ── Auxiliary circuit
+The fuse does NOT own:
 
-The Fuse owns its two physical terminals.
+    - network topology
+    - Bus collections
+    - fault calculations
+    - short-circuit studies
+    - relay logic
+    - protection coordination
+    - SLD state
+    - GUI state
+    - solver state
+    - simulation state
 
-The terminals identify local physical connection points. The
-network/topology layer is responsible for assembling those terminals
-into the global physical and electrical topology.
-
-A Fuse differs from a Circuit Breaker:
-
-    Fuse
-        - passive protection device
-        - normally conducts while intact
-        - operates by melting/opening its fusible element
-        - does not normally have a remote close command
-        - replacement/reset is an equipment operation
-
-    Circuit Breaker
-        - actively operated switching device
-        - can be opened and closed by a control/protection system
-        - has specified interruption and operating characteristics
-
-Responsibilities
-----------------
-
-The Fuse model provides:
-
-- Physical two-terminal electrical equipment.
-- Fuse identity.
-- Local terminal ownership.
-- Voltage rating.
-- Continuous current rating.
-- Interrupting rating.
-- Fuse operating/current rating.
-- Physical intact/blown state.
-- Equipment service state.
-- Basic local parameter validation.
-- Diagnostic information.
-
-The Fuse model does NOT:
-
-- Detect faults.
-- Calculate fault current.
-- Determine fuse operating time from a fault.
-- Implement time-current curves.
-- Perform protection coordination.
-- Build global topology.
-- Register terminals with the network.
-- Build Y-bus matrices.
-- Perform load-flow calculations.
-- Perform short-circuit calculations.
-- Perform contingency analysis.
-- Perform dynamic simulation.
-- Store simulation event history.
-- Store GUI geometry.
-
-Those responsibilities belong to the appropriate GridForge layers.
-
-State Ownership
+State Semantics
 ---------------
 
-The Fuse owns its authoritative physical state:
+A fuse conducts when:
 
-    INTACT
-    BLOWN
+    in_service == True
+    AND
+    blown == False
 
-It also stores whether the equipment is in service.
+A blown fuse does not conduct.
 
-A blown fuse is electrically open.
-
-The model does not store operation history.
-
-A protection/simulation layer may separately record:
-
-    time
-    fuse
-    initiating condition
-    operation
-    resulting state
-
-without making that history part of the authoritative equipment model.
-
-Topology
---------
-
-The authoritative local connection points are:
-
-    from_terminal
-    to_terminal
-
-The Electrical Topology layer determines whether the fuse contributes
-a conductive branch.
-
-Conceptually:
-
-    INTACT + IN_SERVICE
-        -> conductive
-
-    BLOWN
-        -> open
-
-    OUT_OF_SERVICE
-        -> excluded from active topology
-
-The Fuse model itself does not modify the topology graph.
-
-GridForge V2 Status
--------------------
-
-This module is part of the GridForge Model Layer V2 baseline.
-
-The Fuse is a fundamental physical electrical protection component
-and therefore belongs in ``core/model``.
-
-Detailed protection behavior, time-current characteristics,
-coordination, topology derivation, and simulation events remain
-outside this module.
+Resetting a fuse changes only the fuse's local physical state.
+It does not create or modify network topology.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -152,239 +67,278 @@ All Rights Reserved.
 
 from __future__ import annotations
 
-from enum import Enum
 from math import isfinite
+from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
 
 
 # =====================================================================
-# FUSE STATE
-# =====================================================================
-
-class FuseState(Enum):
-    """
-    Authoritative physical fuse state.
-
-    INTACT
-        Fusible element is physically intact and electrically
-        conductive.
-
-    BLOWN
-        Fusible element has operated and the electrical path is open.
-    """
-
-    INTACT = 1
-    BLOWN = 2
-
-
-# =====================================================================
 # FUSE
 # =====================================================================
 
+
 class Fuse(ElectricalObject):
     """
-    GridForge physical electrical fuse.
+    Static GridForge V2 fuse model.
 
-    A Fuse is a two-terminal passive series protection device.
+    The fuse is a two-terminal passive series protection device.
 
-    Parameters
-    ----------
-    id : str
-        Unique GridForge fuse identifier.
+    Its physical state is represented by:
 
-    voltage_kv : float
-        Rated operating voltage in kV.
+        - in_service
+        - blown
 
-    rated_current_a : float
-        Continuous current rating in amperes.
-
-    interrupting_capacity_ka : float
-        Symmetrical interrupting-current capability in kA.
-
-    fuse_current_a : float
-        Nominal fuse operating/current rating in amperes.
-
-    endpoint_from : optional
-        Initial from-side electrical endpoint.
-
-    endpoint_to : optional
-        Initial to-side electrical endpoint.
-
-    state : FuseState, optional
-        Initial physical fuse state.
-
-    in_service : bool, optional
-        Equipment service state.
-
-    name : str, optional
-        Human-readable fuse name.
-
-    Notes
-    -----
-    The Fuse owns its physical terminals.
-
-    The Fuse does not own or manipulate global topology.
-
-    A blown Fuse is physically open. The network layer determines the
-    resulting electrical-topology consequence.
+    The model does not perform protection calculations.
     """
+
+    TYPE = "FUSE"
 
     def __init__(
         self,
         id: str,
-        voltage_kv: float,
-        rated_current_a: float,
-        interrupting_capacity_ka: float,
-        fuse_current_a: float,
-        endpoint_from=None,
-        endpoint_to=None,
-        state: FuseState = FuseState.INTACT,
-        in_service: bool = True,
         name: str = "",
-    ):
+        *,
+        rated_current_a: float = 1.0,
+        rated_voltage_v: float = 1.0,
+        interrupting_rating_ka: float = 0.0,
+        in_service: bool = True,
+        blown: bool = False,
+    ) -> None:
+        """
+        Create a Fuse.
+
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        name:
+            Human-readable equipment name.
+
+        rated_current_a:
+            Continuous rated current in amperes.
+
+        rated_voltage_v:
+            Maximum rated operating voltage in volts.
+
+        interrupting_rating_ka:
+            Maximum fault-current interrupting capability in kA.
+
+        in_service:
+            Whether the fuse is installed and in service.
+
+        blown:
+            Whether the fuse element has operated/opened.
+        """
+
         super().__init__(
             id=id,
             name=name,
         )
 
         # =============================================================
-        # PHYSICAL TERMINALS
+        # NAMEPLATE PARAMETERS
         # =============================================================
 
-        self.from_terminal = Terminal(
-            endpoint=endpoint_from,
-            owner=self,
+        self.rated_current_a = (
+            self._validate_positive(
+                rated_current_a,
+                "rated_current_a",
+            )
         )
 
-        self.to_terminal = Terminal(
-            endpoint=endpoint_to,
-            owner=self,
+        self.rated_voltage_v = (
+            self._validate_positive(
+                rated_voltage_v,
+                "rated_voltage_v",
+            )
         )
 
-        # =============================================================
-        # RATINGS
-        # =============================================================
-
-        self.voltage_kv = float(voltage_kv)
-
-        self.rated_current_a = float(
-            rated_current_a
-        )
-
-        self.interrupting_capacity_ka = float(
-            interrupting_capacity_ka
-        )
-
-        self.fuse_current_a = float(
-            fuse_current_a
+        self.interrupting_rating_ka = (
+            self._validate_non_negative(
+                interrupting_rating_ka,
+                "interrupting_rating_ka",
+            )
         )
 
         # =============================================================
         # PHYSICAL STATE
         # =============================================================
 
-        if not isinstance(state, FuseState):
-            raise TypeError(
-                "Fuse state must be a FuseState enum value."
-            )
-
-        self.state = state
-
-        # =============================================================
-        # SERVICE STATE
-        # =============================================================
-
         self.in_service = bool(in_service)
+        self.blown = bool(blown)
 
         # =============================================================
-        # VALIDATION
+        # ELECTRICAL TERMINALS
         # =============================================================
 
-        self._validate_parameters()
+        self.from_terminal = Terminal(
+            owner=self,
+        )
+
+        self.to_terminal = Terminal(
+            owner=self,
+        )
+
+        self.validate_parameters()
 
     # =================================================================
-    # ENDPOINT ACCESS
+    # IDENTITY
     # =================================================================
 
     @property
-    def from_endpoint(self):
+    def element_type(self) -> str:
         """
-        Return the local from-side endpoint.
+        Return the canonical GridForge element type.
         """
 
-        return self.from_terminal.endpoint
+        return self.TYPE
+
+    # =================================================================
+    # TERMINALS
+    # =================================================================
 
     @property
-    def to_endpoint(self):
+    def terminals(
+        self,
+    ) -> tuple[Terminal, Terminal]:
         """
-        Return the local to-side endpoint.
-        """
+        Return the fuse's terminals in deterministic order.
 
-        return self.to_terminal.endpoint
+        Order:
 
-    def endpoints(self):
-        """
-        Return the local endpoint pair.
-
-        Returns
-        -------
-        tuple
-            ``(from_endpoint, to_endpoint)``
+            from_terminal
+            to_terminal
         """
 
         return (
-            self.from_endpoint,
-            self.to_endpoint,
+            self.from_terminal,
+            self.to_terminal,
         )
 
-    # =================================================================
-    # TERMINAL CONNECTION
-    # =================================================================
-
-    def connect_from(self, endpoint) -> None:
+    @property
+    def input_terminal(self) -> Terminal:
         """
-        Connect the from-side terminal to a local endpoint.
+        Return the input-side terminal.
 
-        Global topology remains the responsibility of
-        ``core/network``.
+        Alias for ``from_terminal``.
         """
 
-        self.from_terminal.connect(endpoint)
+        return self.from_terminal
 
-    def connect_to(self, endpoint) -> None:
+    @property
+    def output_terminal(self) -> Terminal:
         """
-        Connect the to-side terminal to a local endpoint.
+        Return the output-side terminal.
 
-        Global topology remains the responsibility of
-        ``core/network``.
-        """
-
-        self.to_terminal.connect(endpoint)
-
-    def disconnect_from(self) -> None:
-        """
-        Disconnect the from-side terminal locally.
+        Alias for ``to_terminal``.
         """
 
-        self.from_terminal.disconnect()
-
-    def disconnect_to(self) -> None:
-        """
-        Disconnect the to-side terminal locally.
-        """
-
-        self.to_terminal.disconnect()
+        return self.to_terminal
 
     # =================================================================
-    # CONNECTION STATE
+    # PHYSICAL STATE
     # =================================================================
 
     @property
-    def is_connected(self) -> bool:
+    def conducts(self) -> bool:
         """
-        Return True when both physical terminals have endpoints.
+        Return whether the fuse currently conducts.
+
+        Conductivity requires both:
+
+            in_service == True
+            blown == False
+        """
+
+        return (
+            self.in_service
+            and not self.blown
+        )
+
+    @property
+    def is_open(self) -> bool:
+        """
+        Return whether the fuse is electrically open.
+        """
+
+        return not self.conducts
+
+    @property
+    def is_blown(self) -> bool:
+        """
+        Return whether the fuse element has operated.
+        """
+
+        return self.blown
+
+    # =================================================================
+    # FUSE OPERATIONS
+    # =================================================================
+
+    def blow(self) -> None:
+        """
+        Operate the fuse element.
+
+        This changes only the fuse's local physical state.
+
+        It does not calculate the fault that caused the operation
+        and does not modify network topology directly.
+        """
+
+        self.blown = True
+
+    def reset(self) -> None:
+        """
+        Reset the fuse element.
+
+        A reset fuse is conductive only if it is also in service.
+        """
+
+        self.blown = False
+
+    # =================================================================
+    # SERVICE STATE
+    # =================================================================
+
+    def set_in_service(
+        self,
+        in_service: bool,
+    ) -> None:
+        """
+        Set the fuse service state.
+
+        This does not modify network topology.
+        """
+
+        self.in_service = bool(in_service)
+
+    def connect(self) -> None:
+        """
+        Place the fuse in service.
+        """
+
+        self.in_service = True
+
+    def disconnect(self) -> None:
+        """
+        Remove the fuse from service.
+
+        This does not change the blown state.
+        """
+
+        self.in_service = False
+
+    # =================================================================
+    # CONNECTIVITY
+    # =================================================================
+
+    @property
+    def connected(self) -> bool:
+        """
+        Return whether both fuse terminals have endpoints.
         """
 
         return (
@@ -396,195 +350,89 @@ class Fuse(ElectricalObject):
     # VALIDATION
     # =================================================================
 
-    def _validate_parameters(self) -> None:
+    def validate_parameters(self) -> bool:
         """
-        Validate local Fuse parameters.
+        Validate fuse-local engineering parameters.
 
-        This performs only object-level validation.
-
-        Network-level electrical compatibility and engineering rules
-        belong to ``core/network`` and ``core/validation``.
+        This does not validate network topology or fault studies.
         """
 
-        if not isfinite(self.voltage_kv):
-            raise ValueError(
-                f"Fuse '{self.id}' voltage rating "
-                "must be finite."
+        self.rated_current_a = (
+            self._validate_positive(
+                self.rated_current_a,
+                "rated_current_a",
             )
-
-        if self.voltage_kv <= 0.0:
-            raise ValueError(
-                f"Fuse '{self.id}' voltage rating "
-                "must be greater than zero."
-            )
-
-        if not isfinite(self.rated_current_a):
-            raise ValueError(
-                f"Fuse '{self.id}' rated current "
-                "must be finite."
-            )
-
-        if self.rated_current_a <= 0.0:
-            raise ValueError(
-                f"Fuse '{self.id}' rated current "
-                "must be greater than zero."
-            )
-
-        if not isfinite(self.interrupting_capacity_ka):
-            raise ValueError(
-                f"Fuse '{self.id}' interrupting capacity "
-                "must be finite."
-            )
-
-        if self.interrupting_capacity_ka <= 0.0:
-            raise ValueError(
-                f"Fuse '{self.id}' interrupting capacity "
-                "must be greater than zero."
-            )
-
-        if not isfinite(self.fuse_current_a):
-            raise ValueError(
-                f"Fuse '{self.id}' fuse current "
-                "must be finite."
-            )
-
-        if self.fuse_current_a <= 0.0:
-            raise ValueError(
-                f"Fuse '{self.id}' fuse current "
-                "must be greater than zero."
-            )
-
-    # =================================================================
-    # PHYSICAL STATE
-    # =================================================================
-
-    @property
-    def is_intact(self) -> bool:
-        """
-        Return True when the fuse element is intact.
-        """
-
-        return self.state is FuseState.INTACT
-
-    @property
-    def is_blown(self) -> bool:
-        """
-        Return True when the fuse element has operated.
-        """
-
-        return self.state is FuseState.BLOWN
-
-    @property
-    def is_conductive(self) -> bool:
-        """
-        Return True when the Fuse is physically conductive.
-
-        A Fuse contributes a conductive physical path only when it is
-        intact and in service.
-
-        This property is descriptive model state only. It does not
-        modify or build network topology.
-        """
-
-        return (
-            self.in_service
-            and self.state is FuseState.INTACT
         )
 
-    # =================================================================
-    # FUSE OPERATION
-    # =================================================================
+        self.rated_voltage_v = (
+            self._validate_positive(
+                self.rated_voltage_v,
+                "rated_voltage_v",
+            )
+        )
 
-    def blow(self) -> None:
+        self.interrupting_rating_ka = (
+            self._validate_non_negative(
+                self.interrupting_rating_ka,
+                "interrupting_rating_ka",
+            )
+        )
+
+        return True
+
+    def validate(self) -> bool:
         """
-        Operate the fuse physically.
-
-        This changes only the authoritative physical state.
-
-        Fault detection, operating-time calculation and protection
-        decisions belong to the protection/simulation layers.
-        """
-
-        self.state = FuseState.BLOWN
-
-    # =================================================================
-    # FUSE REPLACEMENT / RESET
-    # =================================================================
-
-    def reset(self) -> None:
-        """
-        Reset the fuse to the intact physical state.
-
-        This represents replacement or restoration of the fuse element.
-
-        It does not represent a protection calculation or simulation
-        event.
+        Public fuse validation entry point.
         """
 
-        self.state = FuseState.INTACT
-
-    # =================================================================
-    # SERVICE STATE
-    # =================================================================
-
-    @property
-    def is_in_service(self) -> bool:
-        """
-        Return True when the fuse is in service.
-        """
-
-        return self.in_service
-
-    def put_in_service(self) -> None:
-        """
-        Mark the fuse as in service.
-        """
-
-        self.in_service = True
-
-    def take_out_of_service(self) -> None:
-        """
-        Mark the fuse as out of service.
-
-        The network layer is responsible for applying this state to
-        the derived electrical topology.
-        """
-
-        self.in_service = False
+        return self.validate_parameters()
 
     # =================================================================
     # DIAGNOSTICS
     # =================================================================
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         """
-        Return structured Fuse information.
+        Return static fuse information and local state.
+
+        No calculated fault or protection result is included.
         """
 
         return {
             "id": self.id,
             "name": self.name,
-            "from_endpoint": (
-                self.from_terminal.endpoint_id
-            ),
-            "to_endpoint": (
-                self.to_terminal.endpoint_id
-            ),
-            "from_connected": (
-                self.from_terminal.is_connected
-            ),
-            "to_connected": (
-                self.to_terminal.is_connected
-            ),
-            "voltage_kv": self.voltage_kv,
-            "rated_current_a": self.rated_current_a,
-            "interrupting_capacity_ka": (
-                self.interrupting_capacity_ka
-            ),
-            "fuse_current_a": self.fuse_current_a,
-            "state": self.state.name,
-            "conductive": self.is_conductive,
-            "in_service": self.in_service,
+            "type": self.TYPE,
+
+            "rated_current_a":
+                self.rated_current_a,
+
+            "rated_voltage_v":
+                self.rated_voltage_v,
+
+            "interrupting_rating_ka":
+                self.interrupting_rating_ka,
+
+            "in_service":
+                self.in_service,
+
+            "blown":
+                self.blown,
+
+            "conducts":
+                self.conducts,
+
+            "connected":
+                self.connected,
+
+            "from_endpoint":
+                self._endpoint_id(
+                    self.from_terminal
+                ),
+
+            "to_endpoint":
+                self._endpoint_id(
+                    self.to_terminal
+                ),
         }
 
     # =================================================================
@@ -596,19 +444,96 @@ class Fuse(ElectricalObject):
         Return a concise developer-facing representation.
         """
 
-        from_id = self.from_terminal.endpoint_id
-        to_id = self.to_terminal.endpoint_id
-
         return (
             f"<Fuse "
             f"id={self.id}, "
-            f"{from_id} -> {to_id}, "
-            f"voltage={self.voltage_kv:.3f} kV, "
-            f"rated={self.rated_current_a:.2f} A, "
-            f"interrupting="
-            f"{self.interrupting_capacity_ka:.2f} kA, "
-            f"fuse_current="
-            f"{self.fuse_current_a:.2f} A, "
-            f"state={self.state.name}, "
+            f"rated_current="
+            f"{self.rated_current_a:.3f}A, "
+            f"rated_voltage="
+            f"{self.rated_voltage_v:.3f}V, "
+            f"blown={self.blown}, "
             f"in_service={self.in_service}>"
         )
+
+    # =================================================================
+    # INTERNAL HELPERS
+    # =================================================================
+
+    @staticmethod
+    def _validate_positive(
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate and return a finite positive quantity.
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be numeric."
+            ) from exc
+
+        if not isfinite(value) or value <= 0.0:
+            raise ValueError(
+                f"{field_name} must be finite and "
+                "greater than zero."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_non_negative(
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate and return a finite non-negative quantity.
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be numeric."
+            ) from exc
+
+        if not isfinite(value) or value < 0.0:
+            raise ValueError(
+                f"{field_name} must be finite and "
+                "non-negative."
+            )
+
+        return value
+
+    @staticmethod
+    def _endpoint_id(
+        terminal: Terminal,
+    ) -> Any:
+        """
+        Safely return the terminal endpoint identifier.
+
+        The Fuse does not impose a particular endpoint
+        implementation on the Terminal contract.
+        """
+
+        endpoint = getattr(
+            terminal,
+            "endpoint",
+            None,
+        )
+
+        if endpoint is None:
+            return None
+
+        return getattr(
+            endpoint,
+            "id",
+            None,
+        )
+
+
+__all__ = [
+    "Fuse",
+]
