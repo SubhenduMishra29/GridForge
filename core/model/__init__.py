@@ -1,110 +1,48 @@
+```python
 """
-GridForge Model Layer V2
+GridForge V2 Model Layer
 ========================
 
-Public API for the GridForge Model Layer.
+Author:
+    Subhendu Mishra
 
-The model layer contains the authoritative engineering representation
-of the GridForge digital twin.
+File:
+    core/model/__init__.py
 
-Model-layer responsibilities
-----------------------------
+Purpose
+-------
+Public API for the authoritative GridForge V2 Model Layer.
 
 The model layer owns:
 
-- Persistent model-object identity.
-- Physical equipment representation.
-- Electrical equipment parameters.
-- Physical terminals.
-- Local physical connectivity.
-- Authoritative equipment operating state.
-- Electrical injection interfaces.
-- Equipment ratings and limits.
-- Local model validation.
-- Model diagnostics.
+    - persistent engineering-model identity
+    - physical equipment representation
+    - electrical parameters
+    - terminals
+    - local equipment connectivity
+    - equipment operating state
+    - electrical injection contracts
+    - ratings and limits
+    - local validation
+    - model diagnostics
 
 The model layer does NOT own:
 
-- Global network topology assembly.
-- Network connectivity algorithms.
-- Y-bus construction.
-- Numerical power-flow calculations.
-- Short-circuit calculations.
-- Contingency calculations.
-- Protection coordination algorithms.
-- Dynamic state integration.
-- DAE solving.
-- GUI geometry or rendering.
-- Study orchestration.
+    - global network topology
+    - graph construction
+    - network connectivity algorithms
+    - Y-bus construction
+    - numerical solving
+    - power-flow calculations
+    - short-circuit calculations
+    - protection coordination
+    - dynamic simulation
+    - GUI state
+    - SLD geometry
+    - rendering
 
-Those responsibilities belong to the appropriate GridForge
-network, solver, analysis, protection, simulation, plugin,
-and UI layers.
-
-Public API
-----------
-
-The package exports the canonical GridForge model classes so that
-higher-level layers can use:
-
-    from core.model import Bus, Line, Transformer
-
-instead of depending unnecessarily on individual implementation
-modules.
-
-Architecture
-------------
-
-The semantic model classifications used by GridForge are not a
-rigid inheritance hierarchy:
-
-    Asset
-        Persistent uniquely identifiable Digital Twin entity.
-
-    Equipment
-        Engineered physical apparatus.
-
-    Component
-        Engineering-significant constituent part.
-
-    Device
-        Independently identifiable functional apparatus or element.
-
-These classifications describe engineering semantics and do not
-require a giant Asset -> Equipment -> Component -> Device class tree.
-
-Specialized engineering implementations may be supplied by the
-appropriate plugin/domain layers.
-
-Frozen Model Layer Boundary
----------------------------
-
-The model layer provides the authoritative physical/model state.
-
-    core/model
-         |
-         v
-    core/network
-         |
-         v
-    core/solver
-         |
-         v
-    core/analysis
-
-The model must remain independent of numerical study algorithms.
-
-GridForge V2 Status
--------------------
-
-This package represents the frozen GridForge Model Layer V2
-baseline.
-
-Changes to the model layer require evidence of a genuinely
-fundamental engineering-model requirement that cannot be satisfied
-by an existing model interface, specialized model, plugin,
-network layer, solver layer, analysis layer, protection layer,
-simulation layer, or UI layer.
+Those responsibilities belong to the appropriate Network,
+Solver, Analysis, Protection, Simulation, Plugin, and UI layers.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -114,15 +52,16 @@ from __future__ import annotations
 
 
 # =====================================================================
-# CORE
+# CORE MODEL CONTRACTS
 # =====================================================================
 
 from .base import ElectricalObject
 from .terminal import Terminal
+from .injection import Injection
 
 
 # =====================================================================
-# NETWORK / ELECTRICAL TOPOLOGY MODELS
+# NETWORK / ELECTRICAL ELEMENTS
 # =====================================================================
 
 from .bus import Bus, BusType
@@ -130,29 +69,53 @@ from .branch import Branch
 from .line import Line
 from .cable import Cable
 from .transformer import Transformer
+from .switch import Switch
 
-from .disconnector import Disconnector
 from .breaker import Breaker
+from .disconnector import Disconnector
 from .fuse import Fuse
 
 
 # =====================================================================
-# ELECTRICAL INJECTION MODELS
+# ELECTRICAL POWER / INJECTION MODELS
 # =====================================================================
 
-from .injection import Injection
 from .load import Load
 from .generator import Generator
+from .synchronous_machine import (
+    SynchronousMachine,
+    SyncMachine,
+)
 from .motor import Motor
+
 from .shunt import Shunt
+from .capacitor import Capacitor
+from .reactor import Reactor
+from .solar import Solar
+from .battery import Battery
+
+
+# =====================================================================
+# GRID / SOURCE MODEL
+# =====================================================================
+
+from .grid import Grid
 
 
 # =====================================================================
 # MEASUREMENT / INSTRUMENT TRANSFORMERS
 # =====================================================================
 
-from .ct import CTPolarity, CurrentTransformer
-from .pt import PTPolarity, PotentialTransformer
+from .ct import (
+    CTPolarity,
+    CurrentTransformer,
+)
+
+from .pt import (
+    PTPolarity,
+    PotentialTransformer,
+)
+
 from .cvt import CVT
 
 
@@ -164,12 +127,13 @@ from .relay import Relay
 
 
 # =====================================================================
-# NETWORK CONTAINER / STATE / GRAPH
+# STATE MODELS
 # =====================================================================
 
-from .state import BusState, DynamicState
-from .graph import Graph
-from .grid import Grid
+from .state import (
+    BusState,
+    DynamicState,
+)
 
 
 # =====================================================================
@@ -178,13 +142,14 @@ from .grid import Grid
 
 __all__ = (
     # -----------------------------------------------------------------
-    # Core
+    # Core contracts
     # -----------------------------------------------------------------
     "ElectricalObject",
     "Terminal",
+    "Injection",
 
     # -----------------------------------------------------------------
-    # Bus / branch / switchgear
+    # Network / electrical elements
     # -----------------------------------------------------------------
     "Bus",
     "BusType",
@@ -192,24 +157,37 @@ __all__ = (
     "Line",
     "Cable",
     "Transformer",
-    "Disconnector",
+    "Switch",
     "Breaker",
+    "Disconnector",
     "Fuse",
 
     # -----------------------------------------------------------------
-    # Electrical injections
+    # Power / injection models
     # -----------------------------------------------------------------
-    "Injection",
     "Load",
     "Generator",
+    "SynchronousMachine",
+    "SyncMachine",
     "Motor",
     "Shunt",
+    "Capacitor",
+    "Reactor",
+    "Solar",
+    "Battery",
+
+    # -----------------------------------------------------------------
+    # Grid / source
+    # -----------------------------------------------------------------
+    "Grid",
 
     # -----------------------------------------------------------------
     # Measurement
     # -----------------------------------------------------------------
-    "CT",
-    "PT",
+    "CTPolarity",
+    "CurrentTransformer",
+    "PTPolarity",
+    "PotentialTransformer",
     "CVT",
 
     # -----------------------------------------------------------------
@@ -218,10 +196,9 @@ __all__ = (
     "Relay",
 
     # -----------------------------------------------------------------
-    # Network / state infrastructure
+    # State
     # -----------------------------------------------------------------
-    "State",
-    "Graph",
-    "Grid",
+    "BusState",
+    "DynamicState",
 )
-
+```
