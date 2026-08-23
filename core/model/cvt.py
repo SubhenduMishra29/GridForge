@@ -1,121 +1,107 @@
+# core/model/cvt.py
 """
-GridForge Model Layer V2
-========================
+GridForge V2 Capacitive Voltage Transformer Model
+==================================================
 
-File:
-    core/model/cvt.py
+Author:
+    Subhendu Mishra
 
-Purpose
--------
-Canonical Capacitive Voltage Transformer (CVT) equipment model
-for GridForge V2.
-
-A CVT is an instrument transformer used to provide an isolated,
-scaled representation of a high-voltage electrical quantity for:
-
-    - measurement
-    - protection
-    - metering
-    - control
-    - synchronization
-    - instrumentation
+A Capacitive Voltage Transformer (CVT) is an instrument
+transformer used to provide an isolated, scaled representation
+of primary system voltage to measurement, metering, protection,
+control, and instrumentation systems.
 
 Architecture
 ------------
 
-                 POWER SYSTEM
-                      |
-                      |
-               Primary terminals
-                  H1       H2
-                   |       |
-                   +--- CVT-+
-                       |
-                Internal CVT
-             capacitive divider
-             + electromagnetic
-                transformer
-                       |
-                 Secondary side
-                  X1       X2
-                   |       |
-                   +-------+
-                       |
-             Measurement / protection
-                       |
-              Measurement Channel
-                       |
-                 Relay Input
-                       |
-                    Relay
+                    POWER SYSTEM
+                         |
+                  Primary interface
+                    H1       H2
+                     |       |
+                     +--CVT--+
+                         |
+                  Measurement interface
+                    X1       X2
+                     |       |
+                     +-------+
+                         |
+              Measurement / Protection
+                         |
+              MeasurementChannel / RelayInput
+                         |
+                       Relay
 
-The CVT is a physical equipment model.
+The CVT is an equipment model.
 
-It does NOT:
+It owns:
 
-    - generate measurement signals;
-    - store measured voltage;
-    - implement relay logic;
-    - implement protection functions;
-    - create measurement channels;
-    - connect itself to relays;
-    - modify global network topology;
-    - create Bus objects;
-    - build Y-bus;
-    - perform load flow;
-    - perform short-circuit calculations;
-    - perform dynamic simulation;
-    - operate circuit breakers;
-    - manage GUI state.
+    - equipment identity
+    - primary interfaces
+    - secondary interfaces
+    - rated primary voltage
+    - rated secondary voltage
+    - transformation ratio
+    - accuracy information
+    - burden
+    - polarity
+    - frequency
+    - service state
 
-Those responsibilities belong to the appropriate GridForge layers.
+It does NOT own:
 
-Architectural ownership
------------------------
-The CVT owns:
+    - network topology
+    - Bus collections
+    - measurement channels
+    - relay inputs
+    - relay logic
+    - protection calculations
+    - CVT transient-response simulation
+    - ferroresonance simulation
+    - dynamic simulation
+    - Y-bus construction
+    - load-flow calculations
+    - short-circuit calculations
+    - SLD state
+    - GUI state
 
-    - equipment identity;
-    - primary interfaces;
-    - secondary interfaces;
-    - rated primary voltage;
-    - rated secondary voltage;
-    - nominal frequency;
-    - accuracy class;
-    - burden;
-    - capacitive-divider parameters;
-    - intermediate transformer ratio;
-    - service state.
+Terminal Architecture
+---------------------
 
-Measurement values derived from the CVT belong to the
-measurement-domain layer.
+The CVT has four physical interfaces:
 
-Relay inputs belong to the measurement/protection interface layer.
+    Primary:
+        H1
+        H2
 
-Network topology belongs to core/network.
+    Secondary:
+        X1
+        X2
 
-Dynamic CVT behaviour belongs to the appropriate simulation
-or measurement/protection plugin.
+Primary terminals are electrical equipment interfaces.
 
-GridForge V2 Design Principle
------------------------------
-The CVT is upstream of measurement and protection:
+Secondary terminals are instrument/measurement interfaces.
 
-    Power-system voltage
-            |
-            v
-           CVT
-            |
-            v
-    Measurement Channel
-            |
-            v
-       Relay Input
-            |
-            v
-          Relay
+The CVT does not decide how these interfaces are connected in
+the global topology or measurement architecture.
 
-The Relay must never obtain its authoritative voltage directly
-from a value stored inside the Relay model.
+Measurement and protection layers consume the CVT through
+appropriate domain services and channels.
+
+Dynamic Behaviour
+-----------------
+
+Dynamic CVT behaviour is deliberately outside this static model.
+
+Future simulation may provide:
+
+    - transient response
+    - ferroresonance behaviour
+    - frequency response
+    - secondary voltage distortion
+    - transient recovery behaviour
+
+Those belong to the simulation/protection architecture.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -123,11 +109,26 @@ All Rights Reserved.
 
 from __future__ import annotations
 
+from enum import Enum
 from math import isfinite
-from typing import Any, Optional
+from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
+
+
+# =====================================================================
+# CVT POLARITY
+# =====================================================================
+
+
+class CVTPolarity(Enum):
+    """
+    Capacitive-voltage-transformer polarity convention.
+    """
+
+    H1_H2 = "H1-H2"
+    H2_H1 = "H2-H1"
 
 
 # =====================================================================
@@ -135,131 +136,86 @@ from .terminal import Terminal
 # =====================================================================
 
 
-class CVT(ElectricalObject):
+class CapacitiveVoltageTransformer(ElectricalObject):
     """
-    Canonical GridForge V2 Capacitive Voltage Transformer.
+    Static GridForge V2 Capacitive Voltage Transformer model.
 
-    Parameters
-    ----------
-    id:
-        Unique GridForge equipment identifier.
+    The CVT provides physical primary and secondary interfaces,
+    together with static nameplate information.
 
-    name:
-        Human-readable CVT name.
-
-    rated_primary_voltage:
-        Rated primary voltage in volts.
-
-    rated_secondary_voltage:
-        Rated secondary voltage in volts.
-
-    frequency:
-        Nominal operating frequency in Hz.
-
-    accuracy_class:
-        Instrument-transformer accuracy classification.
-
-    rated_burden_va:
-        Rated secondary burden in VA.
-
-    capacitance_high:
-        High-side divider capacitance in farads.
-
-        Optional because the model may be used without detailed
-        internal divider data.
-
-    capacitance_low:
-        Low-side divider capacitance in farads.
-
-    transformer_ratio:
-        Optional ratio of the intermediate electromagnetic
-        transformer.
-
-        This represents internal engineering data only.
-
-    in_service:
-        Equipment service state.
-
-    Notes
-    -----
-    The CVT owns four local interfaces:
-
-        primary_h1_terminal
-        primary_h2_terminal
-
-        secondary_x1_terminal
-        secondary_x2_terminal
-
-    Primary terminals represent physical electrical interfaces.
-
-    Secondary terminals represent measurement-side interfaces.
-
-    The internal capacitive divider and electromagnetic transformer
-    are represented as equipment characteristics and do not
-    automatically become separate network elements.
+    It does not calculate measured voltage or protection
+    quantities.
     """
 
-    # =================================================================
-    # INITIALIZATION
-    # =================================================================
+    TYPE = "CVT"
 
     def __init__(
         self,
         id: str,
         name: str = "",
-        rated_primary_voltage: float = 110000.0,
-        rated_secondary_voltage: float = 110.0,
-        frequency: float = 50.0,
+        *,
+        rated_primary_voltage_kv: float = 1.0,
+        rated_secondary_voltage_v: float = 100.0,
         accuracy_class: str = "",
         rated_burden_va: float = 0.0,
-        capacitance_high: Optional[float] = None,
-        capacitance_low: Optional[float] = None,
-        transformer_ratio: Optional[float] = None,
+        polarity: CVTPolarity = CVTPolarity.H1_H2,
+        frequency_hz: float = 50.0,
         in_service: bool = True,
     ) -> None:
+        """
+        Create a Capacitive Voltage Transformer.
+
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        name:
+            Human-readable equipment name.
+
+        rated_primary_voltage_kv:
+            Rated primary voltage in kV.
+
+        rated_secondary_voltage_v:
+            Rated secondary voltage in volts.
+
+        accuracy_class:
+            Engineering accuracy designation.
+
+        rated_burden_va:
+            Rated secondary burden in VA.
+
+        polarity:
+            CVT primary polarity convention.
+
+        frequency_hz:
+            Nominal operating frequency in Hz.
+
+        in_service:
+            Equipment service state.
+        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # -------------------------------------------------------------
-        # Validate basic nameplate data
-        # -------------------------------------------------------------
+        # =============================================================
+        # NAMEPLATE PARAMETERS
+        # =============================================================
 
-        self._validate_positive(
-            rated_primary_voltage,
-            "rated_primary_voltage",
+        self.rated_primary_voltage_kv = (
+            self._validate_positive(
+                rated_primary_voltage_kv,
+                "rated_primary_voltage_kv",
+            )
         )
 
-        self._validate_positive(
-            rated_secondary_voltage,
-            "rated_secondary_voltage",
-        )
-
-        self._validate_positive(
-            frequency,
-            "frequency",
-        )
-
-        self._validate_non_negative(
-            rated_burden_va,
-            "rated_burden_va",
-        )
-
-        self._validate_optional_positive(
-            capacitance_high,
-            "capacitance_high",
-        )
-
-        self._validate_optional_positive(
-            capacitance_low,
-            "capacitance_low",
-        )
-
-        self._validate_optional_positive(
-            transformer_ratio,
-            "transformer_ratio",
+        self.rated_secondary_voltage_v = (
+            self._validate_positive(
+                rated_secondary_voltage_v,
+                "rated_secondary_voltage_v",
+            )
         )
 
         if not isinstance(accuracy_class, str):
@@ -267,162 +223,75 @@ class CVT(ElectricalObject):
                 "accuracy_class must be a string."
             )
 
-        # -------------------------------------------------------------
-        # Nameplate
-        # -------------------------------------------------------------
-
-        self.rated_primary_voltage = float(
-            rated_primary_voltage
-        )
-
-        self.rated_secondary_voltage = float(
-            rated_secondary_voltage
-        )
-
-        self.frequency = float(
-            frequency
-        )
+        if not isinstance(polarity, CVTPolarity):
+            raise TypeError(
+                "polarity must be a CVTPolarity value."
+            )
 
         self.accuracy_class = accuracy_class.strip()
 
-        self.rated_burden_va = float(
-            rated_burden_va
+        self.rated_burden_va = (
+            self._validate_non_negative(
+                rated_burden_va,
+                "rated_burden_va",
+            )
         )
 
-        # -------------------------------------------------------------
-        # Internal CVT characteristics
-        # -------------------------------------------------------------
+        self.polarity = polarity
 
-        self.capacitance_high = (
-            None
-            if capacitance_high is None
-            else float(capacitance_high)
+        self.frequency_hz = (
+            self._validate_positive(
+                frequency_hz,
+                "frequency_hz",
+            )
         )
 
-        self.capacitance_low = (
-            None
-            if capacitance_low is None
-            else float(capacitance_low)
-        )
+        # =============================================================
+        # SERVICE STATE
+        # =============================================================
 
-        self.transformer_ratio = (
-            None
-            if transformer_ratio is None
-            else float(transformer_ratio)
-        )
+        self.in_service = bool(in_service)
 
-        # -------------------------------------------------------------
-        # Service state
-        # -------------------------------------------------------------
-
-        self.in_service = bool(
-            in_service
-        )
-
-        # -------------------------------------------------------------
-        # Primary physical interfaces
-        # -------------------------------------------------------------
+        # =============================================================
+        # PRIMARY ELECTRICAL INTERFACES
+        # =============================================================
 
         self.primary_h1_terminal = Terminal(
-            owner=self
+            owner=self,
         )
 
         self.primary_h2_terminal = Terminal(
-            owner=self
+            owner=self,
         )
 
-        # -------------------------------------------------------------
-        # Secondary measurement interfaces
-        # -------------------------------------------------------------
+        # =============================================================
+        # SECONDARY INSTRUMENT INTERFACES
+        # =============================================================
 
         self.secondary_x1_terminal = Terminal(
-            owner=self
+            owner=self,
         )
 
         self.secondary_x2_terminal = Terminal(
-            owner=self
+            owner=self,
         )
 
-    # =================================================================
-    # VALIDATION
-    # =================================================================
-
-    @staticmethod
-    def _validate_positive(
-        value: float,
-        field_name: str,
-    ) -> None:
-        """
-        Validate a strictly positive finite quantity.
-        """
-
-        value = float(value)
-
-        if not isfinite(value) or value <= 0.0:
-            raise ValueError(
-                f"{field_name} must be finite and greater than zero."
-            )
-
-    # -----------------------------------------------------------------
-
-    @staticmethod
-    def _validate_non_negative(
-        value: float,
-        field_name: str,
-    ) -> None:
-        """
-        Validate a finite non-negative quantity.
-        """
-
-        value = float(value)
-
-        if not isfinite(value) or value < 0.0:
-            raise ValueError(
-                f"{field_name} must be finite and non-negative."
-            )
-
-    # -----------------------------------------------------------------
-
-    @staticmethod
-    def _validate_optional_positive(
-        value: Optional[float],
-        field_name: str,
-    ) -> None:
-        """
-        Validate an optional strictly positive quantity.
-        """
-
-        if value is None:
-            return
-
-        value = float(value)
-
-        if not isfinite(value) or value <= 0.0:
-            raise ValueError(
-                f"{field_name} must be finite and greater than zero."
-            )
+        self.validate_parameters()
 
     # =================================================================
-    # RATIO
+    # IDENTITY
     # =================================================================
 
     @property
-    def ratio(self) -> float:
+    def element_type(self) -> str:
         """
-        Return the nominal external CVT voltage ratio.
-
-        Defined as:
-
-            primary voltage / secondary voltage
+        Return the canonical GridForge element type.
         """
 
-        return (
-            self.rated_primary_voltage
-            / self.rated_secondary_voltage
-        )
+        return self.TYPE
 
     # =================================================================
-    # PRIMARY TERMINALS
+    # TERMINALS
     # =================================================================
 
     @property
@@ -430,7 +299,11 @@ class CVT(ElectricalObject):
         self,
     ) -> tuple[Terminal, Terminal]:
         """
-        Return the two primary electrical terminals.
+        Return the ordered primary terminals.
+
+        Order:
+
+            H1, H2
         """
 
         return (
@@ -438,36 +311,16 @@ class CVT(ElectricalObject):
             self.primary_h2_terminal,
         )
 
-    # -----------------------------------------------------------------
-
-    @property
-    def primary_h1(self) -> Terminal:
-        """
-        Return the H1 primary terminal.
-        """
-
-        return self.primary_h1_terminal
-
-    # -----------------------------------------------------------------
-
-    @property
-    def primary_h2(self) -> Terminal:
-        """
-        Return the H2 primary terminal.
-        """
-
-        return self.primary_h2_terminal
-
-    # =================================================================
-    # SECONDARY TERMINALS
-    # =================================================================
-
     @property
     def secondary_terminals(
         self,
     ) -> tuple[Terminal, Terminal]:
         """
-        Return the two secondary measurement terminals.
+        Return the ordered secondary terminals.
+
+        Order:
+
+            X1, X2
         """
 
         return (
@@ -475,25 +328,125 @@ class CVT(ElectricalObject):
             self.secondary_x2_terminal,
         )
 
-    # -----------------------------------------------------------------
+    @property
+    def terminals(
+        self,
+    ) -> tuple[Terminal, ...]:
+        """
+        Return all CVT interfaces in deterministic order.
+
+        Order:
+
+            H1, H2, X1, X2
+
+        Generic model infrastructure may enumerate the interfaces
+        through this property.
+
+        The returned terminals are not assumed to belong to the
+        same network domain.
+        """
+
+        return (
+            self.primary_h1_terminal,
+            self.primary_h2_terminal,
+            self.secondary_x1_terminal,
+            self.secondary_x2_terminal,
+        )
+
+    # =================================================================
+    # TERMINAL ACCESSORS
+    # =================================================================
+
+    @property
+    def primary_h1(self) -> Terminal:
+        """Return the H1 primary terminal."""
+
+        return self.primary_h1_terminal
+
+    @property
+    def primary_h2(self) -> Terminal:
+        """Return the H2 primary terminal."""
+
+        return self.primary_h2_terminal
 
     @property
     def secondary_x1(self) -> Terminal:
-        """
-        Return the X1 secondary terminal.
-        """
+        """Return the X1 secondary terminal."""
 
         return self.secondary_x1_terminal
 
-    # -----------------------------------------------------------------
-
     @property
     def secondary_x2(self) -> Terminal:
-        """
-        Return the X2 secondary terminal.
-        """
+        """Return the X2 secondary terminal."""
 
         return self.secondary_x2_terminal
+
+    # =================================================================
+    # CONNECTIVITY
+    # =================================================================
+
+    @property
+    def primary_connected(self) -> bool:
+        """
+        Return whether both primary interfaces have endpoints.
+        """
+
+        return (
+            self.primary_h1_terminal.is_connected
+            and self.primary_h2_terminal.is_connected
+        )
+
+    @property
+    def secondary_connected(self) -> bool:
+        """
+        Return whether both secondary interfaces have endpoints.
+        """
+
+        return (
+            self.secondary_x1_terminal.is_connected
+            and self.secondary_x2_terminal.is_connected
+        )
+
+    # =================================================================
+    # TRANSFORMATION RATIO
+    # =================================================================
+
+    @property
+    def ratio(self) -> float:
+        """
+        Return the nominal voltage transformation ratio.
+
+        Defined as:
+
+            primary voltage / secondary voltage
+
+        Units are converted consistently:
+
+            kV -> V
+
+        Example:
+
+            132 kV / 110 V
+
+            = 132000 / 110
+
+            = 1200
+        """
+
+        return (
+            self.rated_primary_voltage_kv * 1000.0
+            / self.rated_secondary_voltage_v
+        )
+
+    @property
+    def transformation_ratio(self) -> float:
+        """
+        Alias for ``ratio``.
+
+        ``ratio`` remains the canonical property.
+        """
+
+        return self.ratio
 
     # =================================================================
     # SERVICE STATE
@@ -504,38 +457,93 @@ class CVT(ElectricalObject):
         in_service: bool,
     ) -> None:
         """
-        Set the CVT service state.
+        Set the local CVT service state.
 
-        This modifies only local equipment state.
-
-        Network/topology interpretation belongs to core/network.
+        This does not modify network topology or measurement
+        channel state.
         """
 
-        self.in_service = bool(
-            in_service
+        self.in_service = bool(in_service)
+
+    def connect(self) -> None:
+        """Place the CVT in service."""
+
+        self.in_service = True
+
+    def disconnect(self) -> None:
+        """Take the CVT out of service."""
+
+        self.in_service = False
+
+    # =================================================================
+    # VALIDATION
+    # =================================================================
+
+    def validate_parameters(self) -> bool:
+        """
+        Validate CVT-local engineering parameters.
+
+        This does not validate:
+
+            - network topology
+            - measurement channels
+            - relay configuration
+            - protection settings
+            - simulation state
+        """
+
+        self.rated_primary_voltage_kv = (
+            self._validate_positive(
+                self.rated_primary_voltage_kv,
+                "rated_primary_voltage_kv",
+            )
         )
 
-    # =================================================================
-    # ENGINEERING ACCESSORS
-    # =================================================================
+        self.rated_secondary_voltage_v = (
+            self._validate_positive(
+                self.rated_secondary_voltage_v,
+                "rated_secondary_voltage_v",
+            )
+        )
 
-    @property
-    def primary_voltage_rating(self) -> float:
+        self.rated_burden_va = (
+            self._validate_non_negative(
+                self.rated_burden_va,
+                "rated_burden_va",
+            )
+        )
+
+        self.frequency_hz = (
+            self._validate_positive(
+                self.frequency_hz,
+                "frequency_hz",
+            )
+        )
+
+        if not isinstance(
+            self.accuracy_class,
+            str,
+        ):
+            raise TypeError(
+                "accuracy_class must be a string."
+            )
+
+        if not isinstance(
+            self.polarity,
+            CVTPolarity,
+        ):
+            raise TypeError(
+                "polarity must be a CVTPolarity value."
+            )
+
+        return True
+
+    def validate(self) -> bool:
         """
-        Return the rated primary voltage.
+        Public CVT validation entry point.
         """
 
-        return self.rated_primary_voltage
-
-    # -----------------------------------------------------------------
-
-    @property
-    def secondary_voltage_rating(self) -> float:
-        """
-        Return the rated secondary voltage.
-        """
-
-        return self.rated_secondary_voltage
+        return self.validate_parameters()
 
     # =================================================================
     # DIAGNOSTICS
@@ -543,42 +551,63 @@ class CVT(ElectricalObject):
 
     def summary(self) -> dict[str, Any]:
         """
-        Return a compact engineering summary.
+        Return static engineering information.
 
-        Measurement values are intentionally absent because
-        measurement state belongs to the measurement layer.
+        Measurement values are deliberately absent.
         """
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": "CVT",
+            "type": self.TYPE,
             "in_service": self.in_service,
-            "rated_primary_voltage": (
-                self.rated_primary_voltage
-            ),
-            "rated_secondary_voltage": (
-                self.rated_secondary_voltage
-            ),
-            "ratio": self.ratio,
-            "frequency": self.frequency,
-            "accuracy_class": self.accuracy_class,
-            "rated_burden_va": self.rated_burden_va,
-            "capacitance_high": self.capacitance_high,
-            "capacitance_low": self.capacitance_low,
-            "transformer_ratio": self.transformer_ratio,
-            "primary_h1": (
-                self.primary_h1_terminal.endpoint_id
-            ),
-            "primary_h2": (
-                self.primary_h2_terminal.endpoint_id
-            ),
-            "secondary_x1": (
-                self.secondary_x1_terminal.endpoint_id
-            ),
-            "secondary_x2": (
-                self.secondary_x2_terminal.endpoint_id
-            ),
+
+            "rated_primary_voltage_kv":
+                self.rated_primary_voltage_kv,
+
+            "rated_secondary_voltage_v":
+                self.rated_secondary_voltage_v,
+
+            "ratio":
+                self.ratio,
+
+            "accuracy_class":
+                self.accuracy_class,
+
+            "rated_burden_va":
+                self.rated_burden_va,
+
+            "polarity":
+                self.polarity.value,
+
+            "frequency_hz":
+                self.frequency_hz,
+
+            "primary_connected":
+                self.primary_connected,
+
+            "secondary_connected":
+                self.secondary_connected,
+
+            "primary_h1_endpoint":
+                self._endpoint_id(
+                    self.primary_h1_terminal
+                ),
+
+            "primary_h2_endpoint":
+                self._endpoint_id(
+                    self.primary_h2_terminal
+                ),
+
+            "secondary_x1_endpoint":
+                self._endpoint_id(
+                    self.secondary_x1_terminal
+                ),
+
+            "secondary_x2_endpoint":
+                self._endpoint_id(
+                    self.secondary_x2_terminal
+                ),
         }
 
     # =================================================================
@@ -591,16 +620,105 @@ class CVT(ElectricalObject):
         """
 
         return (
-            f"<CVT "
+            f"<CapacitiveVoltageTransformer "
             f"id={self.id}, "
             f"ratio="
-            f"{self.rated_primary_voltage:.3f}/"
-            f"{self.rated_secondary_voltage:.3f}, "
-            f"accuracy={self.accuracy_class!r}, "
-            f"in_service={self.in_service}>"
+            f"{self.rated_primary_voltage_kv:.3f}kV/"
+            f"{self.rated_secondary_voltage_v:.3f}V, "
+            f"accuracy="
+            f"{self.accuracy_class!r}, "
+            f"in_service="
+            f"{self.in_service}>"
+        )
+
+    # =================================================================
+    # INTERNAL HELPERS
+    # =================================================================
+
+    @staticmethod
+    def _validate_positive(
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate and return a finite positive quantity.
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be numeric."
+            ) from exc
+
+        if not isfinite(value) or value <= 0.0:
+            raise ValueError(
+                f"{field_name} must be finite and "
+                "greater than zero."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_non_negative(
+        value: float,
+        field_name: str,
+    ) -> float:
+        """
+        Validate and return a finite non-negative quantity.
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be numeric."
+            ) from exc
+
+        if not isfinite(value) or value < 0.0:
+            raise ValueError(
+                f"{field_name} must be finite and "
+                "non-negative."
+            )
+
+        return value
+
+    @staticmethod
+    def _endpoint_id(
+        terminal: Terminal,
+    ) -> Any:
+        """
+        Safely return the terminal endpoint identifier.
+
+        This avoids imposing a particular endpoint implementation
+        on the CVT model.
+        """
+
+        endpoint = getattr(
+            terminal,
+            "endpoint",
+            None,
+        )
+
+        if endpoint is None:
+            return None
+
+        return getattr(
+            endpoint,
+            "id",
+            None,
         )
 
 
+# =====================================================================
+# COMPATIBILITY ALIAS
+# =====================================================================
+
+CVT = CapacitiveVoltageTransformer
+
+
 __all__ = [
+    "CVTPolarity",
+    "CapacitiveVoltageTransformer",
     "CVT",
 ]
