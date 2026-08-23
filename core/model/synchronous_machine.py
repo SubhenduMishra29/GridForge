@@ -1096,7 +1096,12 @@ class SynchronousMachine(ElectricalObject, Injection):
             value,
             name,
         )
-
+    def get_power(self) -> tuple[float, float]:
+    """Return effective P/Q network injection."""
+       return (
+         self.active_power_injection_mw,
+         self.reactive_power_injection_mvar,
+       )
     @staticmethod
     def _validate_bool(
         value: bool,
