@@ -1,4 +1,3 @@
-```python
 """
 GridForge V2 Model Layer
 ========================
@@ -201,4 +200,3 @@ __all__ = (
     "BusState",
     "DynamicState",
 )
-```
