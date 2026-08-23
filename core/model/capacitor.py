@@ -679,7 +679,9 @@ class Capacitor(ElectricalObject, Injection):
             )
 
         return steps
-
+    def get_power(self) -> tuple[float, float]:
+            """Return network injection using the GridForge P/Q convention."""
+        return (0.0, self.reactive_power_injection_mvar)
     @staticmethod
     def _validate_energized_steps(
         energized_steps: int,
