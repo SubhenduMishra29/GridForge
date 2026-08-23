@@ -17,7 +17,7 @@ Architecture
            ├── from_terminal
            └── to_terminal
 
-Cable owns cable-specific electrical and physical parameters.
+Cable owns cable-specific physical and electrical parameters.
 
 It does NOT own:
 
@@ -28,14 +28,14 @@ It does NOT own:
     - power-flow solving
     - short-circuit solving
     - protection calculations
-    - thermal study calculations
+    - thermal-study calculations
     - dynamic simulation
 
-The numerical/network layers convert this physical model into the
-appropriate study representation.
+The numerical and analysis layers convert this physical model into
+the appropriate study representation.
 
 Parameter conventions
----------------------
+----------------------
 
 Length:
     km
@@ -62,6 +62,7 @@ All Rights Reserved.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .branch import Branch
@@ -71,8 +72,20 @@ class Cable(Branch):
     """
     Physical cable electrical model.
 
-    Cable is a specialized Branch with cable-specific physical
-    parameters and sequence data.
+    Cable is a specialized Branch whose engineering parameters are
+    represented in physical cable quantities rather than requiring
+    generic per-unit r/x/b values.
+
+    The cable model therefore preserves:
+
+        - length
+        - positive-sequence parameters
+        - zero-sequence parameters
+        - voltage rating
+        - current rating
+
+    Conversion to per-unit or numerical study quantities belongs to
+    the appropriate analysis/numerical layer.
     """
 
     TYPE = "CABLE"
@@ -80,8 +93,8 @@ class Cable(Branch):
     def __init__(
         self,
         id: str,
-        endpoint_from=None,
-        endpoint_to=None,
+        endpoint_from: Any = None,
+        endpoint_to: Any = None,
         *,
         name: str = "",
         length_km: float = 0.0,
@@ -96,9 +109,14 @@ class Cable(Branch):
         in_service: bool = True,
     ) -> None:
 
-        # ---------------------------------------------------------
-        # Branch initialization
-        # ---------------------------------------------------------
+        # =============================================================
+        # GENERIC BRANCH FOUNDATION
+        # =============================================================
+
+        # Cable does not fabricate generic r/x/b values.
+        #
+        # Its electrical parameters are stored in physical cable
+        # units below.
 
         super().__init__(
             id=id,
@@ -108,9 +126,9 @@ class Cable(Branch):
             in_service=in_service,
         )
 
-        # ---------------------------------------------------------
-        # Physical cable parameters
-        # ---------------------------------------------------------
+        # =============================================================
+        # PHYSICAL CABLE PARAMETERS
+        # =============================================================
 
         self.length_km = self._validate_non_negative(
             length_km,
@@ -131,9 +149,9 @@ class Cable(Branch):
             )
         )
 
-        # ---------------------------------------------------------
-        # Positive sequence
-        # ---------------------------------------------------------
+        # =============================================================
+        # POSITIVE SEQUENCE
+        # =============================================================
 
         self.r1_ohm_per_km = self._validate_non_negative(
             r1_ohm_per_km,
@@ -150,9 +168,9 @@ class Cable(Branch):
             "b1_us_per_km",
         )
 
-        # ---------------------------------------------------------
-        # Zero sequence
-        # ---------------------------------------------------------
+        # =============================================================
+        # ZERO SEQUENCE
+        # =============================================================
 
         self.r0_ohm_per_km = (
             self._validate_optional_non_negative(
@@ -177,25 +195,24 @@ class Cable(Branch):
 
         self.validate_parameters()
 
-    # =============================================================
+    # =================================================================
     # IDENTITY
-    # =============================================================
+    # =================================================================
 
     @property
     def element_type(self) -> str:
-        """Return canonical GridForge element type."""
+        """Return the canonical GridForge element type."""
 
         return self.TYPE
 
-    # =============================================================
+    # =================================================================
     # SEQUENCE AVAILABILITY
-    # =============================================================
+    # =================================================================
 
     @property
     def has_zero_sequence_data(self) -> bool:
         """
-        Return True when complete zero-sequence impedance data
-        is available.
+        Return True when complete zero-sequence impedance data exists.
         """
 
         return (
@@ -205,17 +222,21 @@ class Cable(Branch):
 
     @property
     def has_zero_sequence_shunt_data(self) -> bool:
-        """Return True when zero-sequence shunt data is available."""
+        """
+        Return True when zero-sequence shunt data exists.
+        """
 
         return self.b0_us_per_km is not None
 
-    # =============================================================
-    # TOTAL PARAMETERS
-    # =============================================================
+    # =================================================================
+    # TOTAL POSITIVE-SEQUENCE PARAMETERS
+    # =================================================================
 
     @property
     def r1_ohm(self) -> float:
-        """Return total positive-sequence resistance."""
+        """
+        Return total positive-sequence resistance in ohms.
+        """
 
         return (
             self.r1_ohm_per_km
@@ -224,7 +245,9 @@ class Cable(Branch):
 
     @property
     def x1_ohm(self) -> float:
-        """Return total positive-sequence reactance."""
+        """
+        Return total positive-sequence reactance in ohms.
+        """
 
         return (
             self.x1_ohm_per_km
@@ -233,16 +256,25 @@ class Cable(Branch):
 
     @property
     def b1_us(self) -> float:
-        """Return total positive-sequence shunt susceptance."""
+        """
+        Return total positive-sequence shunt susceptance
+        in microSiemens.
+        """
 
         return (
             self.b1_us_per_km
             * self.length_km
         )
 
+    # =================================================================
+    # TOTAL ZERO-SEQUENCE PARAMETERS
+    # =================================================================
+
     @property
     def r0_ohm(self) -> float | None:
-        """Return total zero-sequence resistance."""
+        """
+        Return total zero-sequence resistance in ohms.
+        """
 
         if self.r0_ohm_per_km is None:
             return None
@@ -254,7 +286,9 @@ class Cable(Branch):
 
     @property
     def x0_ohm(self) -> float | None:
-        """Return total zero-sequence reactance."""
+        """
+        Return total zero-sequence reactance in ohms.
+        """
 
         if self.x0_ohm_per_km is None:
             return None
@@ -266,7 +300,10 @@ class Cable(Branch):
 
     @property
     def b0_us(self) -> float | None:
-        """Return total zero-sequence shunt susceptance."""
+        """
+        Return total zero-sequence shunt susceptance
+        in microSiemens.
+        """
 
         if self.b0_us_per_km is None:
             return None
@@ -276,15 +313,51 @@ class Cable(Branch):
             * self.length_km
         )
 
-    # =============================================================
+    # =================================================================
+    # IMPEDANCE ACCESSORS
+    # =================================================================
+
+    @property
+    def positive_sequence_impedance(self) -> complex:
+        """
+        Return total positive-sequence impedance in ohms.
+
+            Z1 = R1 + jX1
+        """
+
+        return complex(
+            self.r1_ohm,
+            self.x1_ohm,
+        )
+
+    @property
+    def zero_sequence_impedance(self) -> complex | None:
+        """
+        Return total zero-sequence impedance in ohms.
+
+        Returns None when complete zero-sequence impedance data is
+        unavailable.
+        """
+
+        if not self.has_zero_sequence_data:
+            return None
+
+        return complex(
+            self.r0_ohm,
+            self.x0_ohm,
+        )
+
+    # =================================================================
     # PARAMETER UPDATE
-    # =============================================================
+    # =================================================================
 
     def set_length(
         self,
         length_km: float,
     ) -> None:
-        """Set physical cable length in km."""
+        """
+        Set physical cable length in kilometres.
+        """
 
         self.length_km = self._validate_non_negative(
             length_km,
@@ -302,24 +375,20 @@ class Cable(Branch):
         Set positive-sequence cable parameters.
         """
 
-        r_ohm_per_km = self._validate_non_negative(
+        self.r1_ohm_per_km = self._validate_non_negative(
             r_ohm_per_km,
             "r_ohm_per_km",
         )
 
-        x_ohm_per_km = self._validate_non_negative(
+        self.x1_ohm_per_km = self._validate_non_negative(
             x_ohm_per_km,
             "x_ohm_per_km",
         )
 
-        b_us_per_km = self._validate_finite(
+        self.b1_us_per_km = self._validate_finite(
             b_us_per_km,
             "b_us_per_km",
         )
-
-        self.r1_ohm_per_km = r_ohm_per_km
-        self.x1_ohm_per_km = x_ohm_per_km
-        self.b1_us_per_km = b_us_per_km
 
     def set_zero_sequence(
         self,
@@ -331,7 +400,7 @@ class Cable(Branch):
         """
         Set zero-sequence cable parameters.
 
-        Passing None explicitly means zero-sequence data is not
+        None means that the corresponding zero-sequence data is not
         available.
         """
 
@@ -356,16 +425,23 @@ class Cable(Branch):
             )
         )
 
-    # =============================================================
+    # =================================================================
     # VALIDATION
-    # =============================================================
+    # =================================================================
 
     def validate_parameters(self) -> bool:
         """
         Validate Cable-local engineering parameters.
 
-        Network topology and numerical-study validity remain outside
-        the Cable model.
+        This validates the physical cable model only.
+
+        It does not validate:
+
+            - network topology
+            - bus compatibility
+            - power-flow solvability
+            - short-circuit applicability
+            - protection coordination
         """
 
         self.length_km = self._validate_non_negative(
@@ -387,25 +463,19 @@ class Cable(Branch):
             )
         )
 
-        self.r1_ohm_per_km = (
-            self._validate_non_negative(
-                self.r1_ohm_per_km,
-                "r1_ohm_per_km",
-            )
+        self.r1_ohm_per_km = self._validate_non_negative(
+            self.r1_ohm_per_km,
+            "r1_ohm_per_km",
         )
 
-        self.x1_ohm_per_km = (
-            self._validate_non_negative(
-                self.x1_ohm_per_km,
-                "x1_ohm_per_km",
-            )
+        self.x1_ohm_per_km = self._validate_non_negative(
+            self.x1_ohm_per_km,
+            "x1_ohm_per_km",
         )
 
-        self.b1_us_per_km = (
-            self._validate_finite(
-                self.b1_us_per_km,
-                "b1_us_per_km",
-            )
+        self.b1_us_per_km = self._validate_finite(
+            self.b1_us_per_km,
+            "b1_us_per_km",
         )
 
         self.r0_ohm_per_km = (
@@ -432,24 +502,35 @@ class Cable(Branch):
         return True
 
     def validate(self) -> bool:
-        """Public local validation entry point."""
+        """
+        Public Cable validation entry point.
+        """
+
+        super().validate()
 
         return self.validate_parameters()
 
-    # =============================================================
+    # =================================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =================================================================
 
     def summary(self) -> dict[str, Any]:
-        """Return structured Cable diagnostics."""
+        """
+        Return structured Cable diagnostics.
+        """
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
 
-            "endpoint_from": self.endpoint_from_id,
-            "endpoint_to": self.endpoint_to_id,
+            "endpoint_from": (
+                self.from_terminal.endpoint_id
+            ),
+
+            "endpoint_to": (
+                self.to_terminal.endpoint_id
+            ),
 
             "connected": self.is_connected,
             "in_service": self.in_service,
@@ -482,36 +563,48 @@ class Cable(Branch):
 
             "has_zero_sequence_data":
                 self.has_zero_sequence_data,
+
+            "has_zero_sequence_shunt_data":
+                self.has_zero_sequence_shunt_data,
         }
 
-    # =============================================================
+    # =================================================================
     # REPRESENTATION
-    # =============================================================
+    # =================================================================
 
     def __repr__(self) -> str:
-        """Return concise developer-facing representation."""
+        """
+        Return a concise developer-facing representation.
+        """
 
         return (
             f"<Cable "
             f"id={self.id}, "
-            f"{self.endpoint_from_id} -> "
-            f"{self.endpoint_to_id}, "
+            f"{self.from_terminal.endpoint_id} -> "
+            f"{self.to_terminal.endpoint_id}, "
             f"length={self.length_km:.6f} km, "
             f"in_service={self.in_service}>"
         )
 
-    # =============================================================
+    # =================================================================
     # VALIDATION HELPERS
-    # =============================================================
+    # =================================================================
 
     @staticmethod
     def _validate_finite(
         value: float,
         name: str,
     ) -> float:
-        """Return a finite floating-point value."""
+        """
+        Validate and return a finite floating-point value.
+        """
 
-        value = float(value)
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} must be numeric."
+            ) from exc
 
         if not math.isfinite(value):
             raise ValueError(
@@ -526,7 +619,9 @@ class Cable(Branch):
         value: float,
         name: str,
     ) -> float:
-        """Return a finite non-negative value."""
+        """
+        Validate and return a finite non-negative value.
+        """
 
         value = cls._validate_finite(
             value,
@@ -546,7 +641,9 @@ class Cable(Branch):
         value: float,
         name: str,
     ) -> float:
-        """Return a finite positive value."""
+        """
+        Validate and return a finite positive value.
+        """
 
         value = cls._validate_finite(
             value,
@@ -607,3 +704,8 @@ class Cable(Branch):
             value,
             name,
         )
+
+
+__all__ = [
+    "Cable",
+]
