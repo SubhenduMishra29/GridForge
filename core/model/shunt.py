@@ -1,508 +1,550 @@
 # core/model/shunt.py
-
 """
-GridForge Shunt Model
-=====================
+GridForge V2 Shunt Model
+========================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
-Defines the GridForge passive shunt-admittance model.
-
-Architecture
-------------
-A Shunt is a single-terminal passive electrical element.
-
-    Shunt
-      |
-    Terminal
-      |
-      +---- network topology ---- Bus
-
-The Shunt owns its physical Terminal.
-
-The Terminal represents the Shunt's physical connection point.
-The network layer is responsible for incorporating that connection
-into the assembled network representation.
-
-A Shunt is NOT a two-terminal branch and therefore does not create
-connectivity between two electrical nodes.
-
-Electrical Model
-----------------
-The Shunt represents a general passive admittance:
+A Shunt is a single-terminal passive electrical element represented
+by its complex admittance:
 
     Y = G + jB
 
 where:
 
-    G : conductance in per-unit
-    B : susceptance in per-unit
+    G > 0  -> conductance
+    B > 0  -> capacitive susceptance
+    B < 0  -> inductive susceptance
 
-Sign convention:
+Architecture
+------------
 
-    B > 0
-        Capacitive shunt.
+    Shunt
+      |
+      +-- ElectricalObject
+      +-- Terminal
+      +-- complex admittance
+      |
+      +-- service state
 
-    B < 0
-        Inductive shunt.
+The Shunt does NOT:
 
-The numerical network/Y-bus layer is responsible for incorporating
-the admittance into the network admittance matrix.
+    - own network topology
+    - maintain bus collections
+    - add itself to a Grid
+    - build a Y-bus
+    - solve power flow
+    - solve short circuit
+    - perform protection calculations
+    - own SLD state
+    - own GUI state
+    - perform dynamic simulation
 
-Responsibilities
-----------------
-The Shunt model:
-
-- Stores authoritative shunt electrical parameters.
-- Owns one physical Terminal.
-- Stores operational service state.
-- Provides the shunt admittance.
-- Provides capacitive/inductive identification.
-- Provides local parameter validation.
-- Provides diagnostic information.
-
-The Shunt model does NOT:
-
-- Build Y-bus.
-- Stamp admittance matrices.
-- Calculate bus power.
-- Perform load flow.
-- Perform short-circuit calculations.
-- Perform voltage-control calculations.
-- Perform protection calculations.
-- Perform contingency analysis.
-- Perform dynamic simulation.
-- Determine global electrical topology.
-- Store study results.
-- Store GUI geometry.
-
-Those responsibilities belong to the appropriate
-network/solver/analysis/protection/simulation layers.
-
-Topology Semantics
-------------------
-A Shunt is a node-attached electrical element.
-
-It does not connect two buses.
-
-Therefore:
-
-    in_service = True
-        -> Shunt contributes its admittance to the electrical model.
-
-    in_service = False
-        -> Shunt contributes no admittance.
-
-Opening/tripping a Shunt must NOT by itself create an electrical
-island because the Shunt is not a connectivity branch.
-
-Terminal Architecture
-----------------------
-The authoritative local physical connection is:
-
-    self.terminal
-
-The ``bus`` property is retained as a compatibility/convenience
-interface derived from the Terminal.
-
-The network layer remains responsible for global topology.
-
-Units
------
-    g : per-unit
-    b : per-unit
-
-GridForge V2 Status
--------------------
-This module is part of the GridForge Model Layer V2 baseline.
-
-Changes require evidence of a genuinely fundamental shunt-model
-requirement that cannot be satisfied through the Terminal,
-existing electrical model interfaces, or higher-level layers.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+The numerical/study layer consumes the Shunt admittance and performs
+the appropriate network calculation or matrix stamping.
 """
 
 from __future__ import annotations
 
-from math import isfinite
+import cmath
+import math
+from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
 
 
-# =====================================================================
-# SHUNT MODEL
-# =====================================================================
-
 class Shunt(ElectricalObject):
     """
-    GridForge passive shunt-admittance model.
+    Static single-terminal shunt admittance element.
 
     Parameters
     ----------
-    id : str
-        Unique GridForge shunt identifier.
+    id:
+        Stable GridForge object identifier.
 
-    bus :
-        Initial electrical connection endpoint.
+    name:
+        Human-readable name.
 
-        Normally this is a Bus. The Terminal architecture permits the
-        network layer to establish the global physical/electrical
-        connection representation.
+    endpoint:
+        Physical electrical endpoint. May be None.
 
-    g : float, optional
+    g_pu:
         Conductance in per-unit.
 
-    b : float, optional
+    b_pu:
         Susceptance in per-unit.
 
-        Positive values represent capacitive susceptance.
-        Negative values represent inductive susceptance.
+        Positive B = capacitive.
+        Negative B = inductive.
 
-    name : str, optional
-        Human-readable shunt name.
+    in_service:
+        Whether the shunt is electrically active.
 
-    Notes
-    -----
-    The Shunt owns its physical Terminal.
-
-    The complete shunt admittance is:
-
-        Y = G + jB
-
-    The Shunt does not perform any numerical network calculation.
+    bus:
+        Backward-compatible endpoint alias.
     """
 
-    # =================================================================
-    # INITIALIZATION
-    # =================================================================
+    TYPE = "SHUNT"
 
     def __init__(
         self,
         id: str,
-        bus,
-        g: float = 0.0,
-        b: float = 0.0,
         name: str = "",
+        *,
+        endpoint=None,
+        g_pu: float = 0.0,
+        b_pu: float = 0.0,
+        in_service: bool = True,
+        bus=None,
     ) -> None:
-        """
-        Initialize a GridForge shunt.
-        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # -------------------------------------------------------------
-        # Physical connection
-        #
-        # The Shunt owns its Terminal.
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
+        # Endpoint compatibility
+        # ---------------------------------------------------------
 
-        if bus is None:
+        if (
+            endpoint is not None
+            and bus is not None
+            and endpoint is not bus
+        ):
             raise ValueError(
-                f"Shunt '{id}' bus/endpoint cannot be None."
+                f"Shunt '{self.id}' received both 'endpoint' and "
+                "'bus' with different values."
             )
 
+        if endpoint is None:
+            endpoint = bus
+
+        # ---------------------------------------------------------
+        # Admittance parameters
+        # ---------------------------------------------------------
+
+        self.g_pu = self._validate_finite(
+            g_pu,
+            "g_pu",
+        )
+
+        self.b_pu = self._validate_finite(
+            b_pu,
+            "b_pu",
+        )
+
+        # ---------------------------------------------------------
+        # Service state
+        # ---------------------------------------------------------
+
+        self.in_service = bool(in_service)
+
+        # ---------------------------------------------------------
+        # Physical terminal
+        # ---------------------------------------------------------
+
         self.terminal = Terminal(
-            endpoint=bus,
+            endpoint=endpoint,
             owner=self,
         )
 
-        # -------------------------------------------------------------
-        # Electrical parameters
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
+        # Optional engineering extensions
+        # ---------------------------------------------------------
 
-        self.g = float(g)
-        self.b = float(b)
+        self._extensions: dict[str, Any] = {}
 
-        # -------------------------------------------------------------
-        # Operational state
-        # -------------------------------------------------------------
+        self.validate_parameters()
 
-        self.in_service = True
+    # =============================================================
+    # IDENTITY
+    # =============================================================
 
-        # -------------------------------------------------------------
-        # Local validation
-        # -------------------------------------------------------------
+    @property
+    def element_type(self) -> str:
+        """Return canonical GridForge element type."""
+        return self.TYPE
 
-        self._validate_parameters()
+    # =============================================================
+    # CONNECTIVITY
+    # =============================================================
 
-    # =================================================================
-    # CONNECTION
-    # =================================================================
+    @property
+    def endpoint(self):
+        """
+        Return the authoritative physical electrical endpoint.
+        """
+        return self.terminal.endpoint
 
     @property
     def bus(self):
         """
-        Return the Bus associated with the Shunt Terminal.
+        Compatibility accessor.
 
-        This is a compatibility/convenience property.
-
-        The authoritative local physical connection is:
-
-            self.terminal
+        The terminal is authoritative; this property exists only
+        for compatibility with code using the historical bus API.
         """
-
         return self.terminal.bus
 
-    # =================================================================
-    # ELECTRICAL PARAMETERS
-    # =================================================================
+    @property
+    def terminals(self) -> tuple[Terminal, ...]:
+        """Return the Shunt electrical terminal."""
+        return (self.terminal,)
 
     @property
-    def g_pu(self) -> float:
-        """
-        Return conductance in per-unit.
+    def is_connected(self) -> bool:
+        """Return whether the Shunt has an electrical endpoint."""
+        return self.terminal.is_connected
 
-        Compatibility alias for ``g``.
+    def connect_endpoint(self, endpoint) -> None:
         """
+        Connect the Shunt to an electrical endpoint.
 
-        return self.g
+        Global topology is managed outside the Shunt model.
+        """
+        self.terminal.connect(endpoint)
+
+    def disconnect_endpoint(self) -> None:
+        """
+        Disconnect the Shunt from its electrical endpoint.
+
+        This does not change service state.
+        """
+        self.terminal.disconnect()
+
+    # =============================================================
+    # SERVICE STATE
+    # =============================================================
+
+    def connect(self) -> None:
+        """
+        Place the Shunt in service.
+
+        This changes electrical operating state, not topology.
+        """
+        self.in_service = True
+
+    def disconnect(self) -> None:
+        """
+        Take the Shunt out of service.
+
+        This changes electrical operating state, not topology.
+        """
+        self.in_service = False
+
+    def close(self) -> None:
+        """Compatibility alias for placing the Shunt in service."""
+        self.connect()
+
+    def trip(self) -> None:
+        """Compatibility alias for taking the Shunt out of service."""
+        self.disconnect()
 
     @property
-    def b_pu(self) -> float:
-        """
-        Return susceptance in per-unit.
+    def is_available(self) -> bool:
+        """Return whether the Shunt is in service."""
+        return self.in_service
 
-        Compatibility alias for ``b``.
-        """
-
-        return self.b
-
-    @property
-    def y_pu(self) -> complex:
-        """
-        Return the complete shunt admittance.
-
-            Y = G + jB
-        """
-
-        return complex(
-            self.g,
-            self.b,
-        )
+    # =============================================================
+    # ADMITTANCE
+    # =============================================================
 
     @property
     def admittance(self) -> complex:
         """
-        Return the complete shunt admittance.
+        Return the complex shunt admittance.
 
-        Alias for ``y_pu``.
+        Y = G + jB
+
+        When out of service, the effective network admittance is zero.
+        """
+        if not self.in_service:
+            return 0.0 + 0.0j
+
+        return complex(
+            self.g_pu,
+            self.b_pu,
+        )
+
+    @property
+    def y(self) -> complex:
+        """Alias for admittance."""
+        return self.admittance
+
+    @property
+    def conductance(self) -> float:
+        """Return conductance G in per-unit."""
+        return self.g_pu
+
+    @property
+    def susceptance(self) -> float:
+        """Return susceptance B in per-unit."""
+        return self.b_pu
+
+    def set_admittance(
+        self,
+        g_pu: float,
+        b_pu: float,
+    ) -> None:
+        """
+        Set the complete complex admittance.
+
+        Parameters
+        ----------
+        g_pu:
+            Conductance in per-unit.
+
+        b_pu:
+            Susceptance in per-unit.
         """
 
-        return self.y_pu
+        g_pu = self._validate_finite(
+            g_pu,
+            "g_pu",
+        )
 
-    # =================================================================
-    # TYPE IDENTIFICATION
-    # =================================================================
+        b_pu = self._validate_finite(
+            b_pu,
+            "b_pu",
+        )
+
+        self.g_pu = g_pu
+        self.b_pu = b_pu
+
+    def set_conductance(
+        self,
+        g_pu: float,
+    ) -> None:
+        """Set conductance G in per-unit."""
+        self.g_pu = self._validate_finite(
+            g_pu,
+            "g_pu",
+        )
+
+    def set_susceptance(
+        self,
+        b_pu: float,
+    ) -> None:
+        """Set susceptance B in per-unit."""
+        self.b_pu = self._validate_finite(
+            b_pu,
+            "b_pu",
+        )
+
+    # =============================================================
+    # SHUNT TYPE
+    # =============================================================
 
     @property
     def is_capacitive(self) -> bool:
         """
-        Return True when the shunt susceptance is positive.
-        """
+        Return True when B is positive.
 
-        return self.b > 0.0
+        Positive susceptance is treated as capacitive.
+        """
+        return self.b_pu > 0.0
 
     @property
     def is_inductive(self) -> bool:
         """
-        Return True when the shunt susceptance is negative.
+        Return True when B is negative.
+
+        Negative susceptance is treated as inductive.
         """
-
-        return self.b < 0.0
-
-    # =================================================================
-    # PARAMETER UPDATE
-    # =================================================================
-
-    def set_admittance(
-        self,
-        g: float | None = None,
-        b: float | None = None,
-    ) -> None:
-        """
-        Update the shunt admittance.
-
-        Parameters
-        ----------
-        g : float, optional
-            New conductance in per-unit.
-
-        b : float, optional
-            New susceptance in per-unit.
-
-        Notes
-        -----
-        Only supplied values are changed.
-
-        The candidate state is validated before it is committed.
-        """
-
-        new_g = (
-            self.g
-            if g is None
-            else float(g)
-        )
-
-        new_b = (
-            self.b
-            if b is None
-            else float(b)
-        )
-
-        self._validate_admittance(
-            new_g,
-            new_b,
-        )
-
-        self.g = new_g
-        self.b = new_b
-
-    # =================================================================
-    # SERVICE STATE
-    # =================================================================
-
-    def trip(self) -> None:
-        """
-        Remove the Shunt from service.
-
-        This changes only the authoritative local service state.
-
-        The network/Y-bus layer is responsible for deriving the
-        resulting electrical representation.
-        """
-
-        self.in_service = False
-
-    def close(self) -> None:
-        """
-        Return the Shunt to service.
-
-        This changes only the authoritative local service state.
-        """
-
-        self.in_service = True
-
-    # =================================================================
-    # STATUS
-    # =================================================================
+        return self.b_pu < 0.0
 
     @property
-    def is_in_service(self) -> bool:
-        """
-        Return True when the Shunt is in service.
-        """
-
-        return self.in_service
+    def is_purely_resistive(self) -> bool:
+        """Return True when B is zero."""
+        return math.isclose(
+            self.b_pu,
+            0.0,
+            abs_tol=1e-12,
+        )
 
     @property
-    def is_out_of_service(self) -> bool:
+    def is_zero_admittance(self) -> bool:
         """
-        Return True when the Shunt is out of service.
+        Return True when both G and B are zero.
+
+        Zero admittance is valid and intentionally supported.
         """
+        return (
+            math.isclose(
+                self.g_pu,
+                0.0,
+                abs_tol=1e-12,
+            )
+            and math.isclose(
+                self.b_pu,
+                0.0,
+                abs_tol=1e-12,
+            )
+        )
 
-        return not self.in_service
+    # =============================================================
+    # ADMITTANCE COMPONENTS
+    # =============================================================
 
-    # =================================================================
+    @property
+    def magnitude(self) -> float:
+        """Return magnitude of the shunt admittance."""
+        return abs(self.admittance)
+
+    @property
+    def angle_rad(self) -> float:
+        """Return admittance angle in radians."""
+        return cmath.phase(self.admittance)
+
+    # =============================================================
+    # NUMERICAL REPRESENTATION
+    # =============================================================
+
+    def get_admittance(self) -> complex:
+        """
+        Return the effective network admittance.
+
+        This method provides the numerical/study layer with the
+        value required for network calculations.
+
+        The Shunt does not perform matrix stamping itself.
+        """
+        return self.admittance
+
+    # =============================================================
     # VALIDATION
-    # =================================================================
+    # =============================================================
 
-    @staticmethod
-    def _validate_admittance(
-        g: float,
-        b: float,
-    ) -> None:
+    def validate_parameters(self) -> bool:
         """
-        Validate a candidate shunt admittance.
+        Validate Shunt-local parameters.
 
-        Both G and B must be finite.
+        Zero admittance is valid.
 
-        A zero admittance is not a meaningful Shunt model and is
-        therefore rejected.
+        This method deliberately does not validate network topology.
         """
 
-        if not isfinite(g):
-            raise ValueError(
-                "Shunt conductance must be finite."
-            )
-
-        if not isfinite(b):
-            raise ValueError(
-                "Shunt susceptance must be finite."
-            )
-
-        if g == 0.0 and b == 0.0:
-            raise ValueError(
-                "Shunt must have non-zero admittance."
-            )
-
-    def _validate_parameters(self) -> None:
-        """
-        Validate the complete local Shunt state.
-        """
-
-        self._validate_admittance(
-            self.g,
-            self.b,
+        self._validate_finite(
+            self.g_pu,
+            "g_pu",
         )
 
-    # =================================================================
+        self._validate_finite(
+            self.b_pu,
+            "b_pu",
+        )
+
+        return True
+
+    # Backward-compatible private validation entry point.
+    def _validate(self) -> None:
+        """Validate current Shunt parameters."""
+        self.validate_parameters()
+
+    # =============================================================
+    # EXTENSIONS
+    # =============================================================
+
+    def register_extension(
+        self,
+        extension_id: str,
+        extension: Any,
+    ) -> None:
+        """
+        Register an optional engineering extension.
+
+        Extensions must not bypass Core/Application command
+        boundaries.
+        """
+
+        if not isinstance(extension_id, str):
+            raise TypeError(
+                "extension_id must be a string."
+            )
+
+        extension_id = extension_id.strip()
+
+        if not extension_id:
+            raise ValueError(
+                "extension_id cannot be empty."
+            )
+
+        if extension is None:
+            raise ValueError(
+                "extension cannot be None."
+            )
+
+        if extension_id in self._extensions:
+            raise ValueError(
+                f"Extension '{extension_id}' is already registered."
+            )
+
+        self._extensions[extension_id] = extension
+
+    def get_extension(
+        self,
+        extension_id: str,
+    ) -> Any | None:
+        """Return an extension reference."""
+        return self._extensions.get(extension_id)
+
+    def remove_extension(
+        self,
+        extension_id: str,
+    ) -> Any | None:
+        """Remove and return an extension reference."""
+        return self._extensions.pop(
+            extension_id,
+            None,
+        )
+
+    @property
+    def extension_ids(self) -> tuple[str, ...]:
+        """Return registered extension identifiers."""
+        return tuple(self._extensions.keys())
+
+    # =============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # =============================================================
 
-    def summary(self) -> dict:
-        """
-        Return structured Shunt diagnostic information.
-
-        The summary contains authoritative model state only and does
-        not contain calculated study results.
-        """
-
-        bus = self.bus
+    def summary(self) -> dict[str, Any]:
+        """Return a diagnostic representation."""
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": "shunt",
-            "bus": (
-                bus.id
-                if bus is not None
-                else None
-            ),
-            "terminal": self.terminal.summary(),
-            "g_pu": self.g,
-            "b_pu": self.b,
-            "y_pu": self.y_pu,
+            "type": self.TYPE,
+            "g_pu": self.g_pu,
+            "b_pu": self.b_pu,
+            "admittance": self.admittance,
             "in_service": self.in_service,
+            "endpoint": self.endpoint,
+            "is_connected": self.is_connected,
             "is_capacitive": self.is_capacitive,
             "is_inductive": self.is_inductive,
+            "is_zero_admittance": self.is_zero_admittance,
+            "extensions": self.extension_ids,
         }
 
-    # =================================================================
-    # REPRESENTATION
-    # =================================================================
+    # =============================================================
+    # VALIDATION HELPERS
+    # =============================================================
 
-    def __repr__(self) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
+    @staticmethod
+    def _validate_finite(
+        value: float,
+        name: str,
+    ) -> float:
+        """Return a finite floating-point value."""
 
-        bus_id = (
-            self.bus.id
-            if self.bus is not None
-            else None
-        )
+        value = float(value)
 
-        return (
-            f"<Shunt "
-            f"id={self.id}, "
-            f"bus={bus_id}, "
-            f"Y={self.g:.6f}"
-            f"+j{self.b:.6f}, "
-            f"in_service={self.in_service}>"
-        )
+        if not math.isfinite(value):
+            raise ValueError(
+                f"{name} must be finite."
+            )
+
+        return value
