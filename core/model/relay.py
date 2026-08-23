@@ -1,6 +1,10 @@
+# core/model/relay.py
 """
-GridForge Relay Model V2
+GridForge V2 Relay Model
 ========================
+
+Author:
+    Subhendu Mishra
 
 File:
     core/model/relay.py
@@ -12,228 +16,62 @@ Defines the canonical GridForge protection Relay device model.
 Architectural role
 ------------------
 The Relay is a physical protection device in the GridForge model
-layer. It represents the relay itself, its configuration, its
-measurement-channel bindings, and its operating state.
+layer. It represents:
+
+    - relay identity
+    - relay type/function identity
+    - measurement-channel bindings
+    - configuration/settings
+    - device operating state
+    - pickup/trip state
 
 The Relay does NOT implement protection algorithms.
 
-Protection algorithms are supplied by:
+Protection algorithms belong to:
 
     core/protection/
 
-The Relay receives electrical signals indirectly through
-MeasurementChannel objects.
+The Relay does not own measured electrical quantities. Measurement
+channels remain authoritative for their signals.
 
-Signal architecture
--------------------
+Signal architecture:
 
-    Power-System Equipment
+    Electrical Equipment
             |
-       CT / PT / CVT
+        CT / PT / CVT
             |
             v
     MeasurementChannel
             |
             v
-        Relay V2
+          Relay
             |
             v
-    Protection Plugin
+    Protection Function / Plugin
             |
             v
-    ProtectionSystem
-            |
-            v
-    BreakerManager
-
-Important architectural rule
-----------------------------
-
-The Relay does NOT store independent copies of:
-
-    current
-    voltage
-    impedance
-    frequency
-    power
-    phase angle
-    sequence components
-
-Those quantities belong to the measurement path.
-
-The authoritative measurement chain is:
-
-    CT / PT / CVT
-        ->
-    MeasurementChannel
-        ->
-    Relay input
-
-Protection plugins consume Relay inputs through the Relay interface.
-
-Responsibilities
-----------------
-Relay V2 is responsible for:
-
-- relay identity
-- relay type/function identity
-- relay service state
-- relay enable/block state
-- relay configuration/settings
-- measurement-channel bindings
-- protection-function/plugin identity
-- pickup state
-- trip state
-- reset state
-- input availability
-- local configuration validation
-- diagnostic/status reporting
-
-Relay V2 does NOT:
-
-- calculate CT transformation
-- calculate PT transformation
-- calculate CVT behaviour
-- simulate measurement channels
-- calculate fault current
-- build Y-bus
-- perform load flow
-- perform short circuit
-- implement overcurrent curves
-- implement directional algorithms
-- implement distance zones
-- implement differential algorithms
-- perform relay coordination
-- calculate TCC coordination
-- operate circuit breakers
-- schedule protection events
-- manage GUI objects
-
-Those responsibilities belong to the appropriate GridForge
-model, measurement, protection, analysis, simulation, and system
-layers.
-
-Measurement ownership
----------------------
-
-The Relay stores references to MeasurementChannel objects.
-
-It does not copy their measured values.
-
-Example:
-
-    relay.bind_input(
-        "IA",
-        current_channel
-    )
-
-The protection plugin can then obtain the current signal through:
-
-    relay.get_input("IA")
-
-The MeasurementChannel remains authoritative for the signal.
-
-Plugin architecture
--------------------
-
-The Relay does not import or instantiate a protection algorithm.
-
-A protection plugin is associated with the relay by a stable
-function/plugin identifier.
-
-Example:
-
-    relay.function_type = "OVER_CURRENT"
-    relay.plugin_id = "iec_overcurrent"
-
-The protection subsystem is responsible for resolving that identifier
-to an executable protection implementation.
-
-This preserves the separation:
-
-    Model
-        ->
-    Protection Plugin
-        ->
     Protection System
+            |
+            v
+    Breaker / Switching Control
 
-Input naming
-------------
+The Relay does NOT:
 
-Relay inputs are intentionally named by protection meaning rather
-than hard-coded electrical quantities.
+    - calculate CT transformation
+    - calculate PT/CVT transformation
+    - calculate fault current
+    - build Y-bus
+    - perform load flow
+    - perform short circuit
+    - calculate TCC curves
+    - implement directional logic
+    - implement distance zones
+    - perform relay coordination
+    - operate breakers directly
+    - own topology
+    - own GUI state
 
-Examples:
-
-    "IA"
-    "IB"
-    "IC"
-    "IN"
-    "VA"
-    "VB"
-    "VC"
-    "VN"
-    "V1"
-    "I1"
-    "Z1"
-    "Z2"
-    "Z0"
-
-The Relay does not impose which inputs a particular protection
-function requires.
-
-The protection plugin defines its required input contract.
-
-Settings
---------
-
-Protection settings are stored as a model configuration dictionary.
-
-Examples:
-
-    {
-        "pickup": 1.2,
-        "curve": "IEC_STANDARD_INVERSE",
-        "time_multiplier": 0.1
-    }
-
-or:
-
-    {
-        "zone1_impedance": 8.5,
-        "zone1_time": 0.0,
-        "zone2_impedance": 18.0
-    }
-
-The Relay stores these settings but does not interpret them.
-
-Interpretation belongs to the protection plugin.
-
-Operating state
----------------
-
-The Relay maintains only device-level operating state:
-
-    in_service
-    enabled
-    blocked
-    picked_up
-    tripped
-
-Protection algorithms determine when pickup/trip should occur.
-
-The Relay provides explicit state mutation methods so that the
-protection subsystem does not directly manipulate internal model
-attributes.
-
-GridForge V2 status
--------------------
-
-Canonical Model Layer V2 protection-device model.
-
-This file supersedes the previous Relay implementation that directly
-stored current, voltage, impedance, generic pickup, and generic
-time-delay behaviour.
+Protection settings are stored but not interpreted by the Relay.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -242,6 +80,7 @@ All Rights Reserved.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 
 
@@ -249,51 +88,37 @@ class Relay:
     """
     Canonical GridForge V2 protection relay model.
 
+    The Relay is intentionally independent of executable protection
+    algorithms.
+
     Parameters
     ----------
     id:
-        Unique GridForge relay identifier.
+        Stable GridForge relay identifier.
 
     relay_type:
-        Stable protection-device/function category.
-
-        Examples:
-
-            "OVER_CURRENT"
-            "DIRECTIONAL"
-            "DISTANCE"
-            "DIFFERENTIAL"
-            "VOLTAGE"
-            "FREQUENCY"
-
-        The model stores the value but does not implement the
-        associated protection algorithm.
+        Stable relay/function category.
 
     name:
         Human-readable relay name.
 
     function_type:
-        Protection function represented by the relay.
-
-        If omitted, ``relay_type`` is used.
+        Protection-function identifier. Defaults to relay_type.
 
     plugin_id:
         Optional stable protection-plugin identifier.
 
-        This is metadata/configuration only. The Relay does not
-        import or instantiate the plugin.
-
     settings:
-        Protection configuration supplied to the protection layer.
+        Protection configuration dictionary.
 
     in_service:
-        Whether the physical relay is in service.
+        Physical relay service state.
 
     enabled:
-        Whether the relay is enabled for operation.
+        Whether the relay is enabled.
 
     blocked:
-        Whether relay operation is externally blocked.
+        Whether relay operation is blocked.
     """
 
     # =============================================================
@@ -329,10 +154,6 @@ class Relay:
         blocked: bool = False,
     ) -> None:
 
-        # ---------------------------------------------------------
-        # Identity
-        # ---------------------------------------------------------
-
         self._validate_id(id)
 
         self.id = id
@@ -342,140 +163,398 @@ class Relay:
         # Relay type
         # ---------------------------------------------------------
 
-        relay_type = str(relay_type).upper()
+        self.type = self._validate_identifier(
+            relay_type,
+            "relay_type",
+        ).upper()
 
-        if relay_type not in self.VALID_TYPES:
+        if self.type not in self.VALID_TYPES:
             raise ValueError(
-                f"Invalid relay type '{relay_type}'. "
-                f"Supported types: {sorted(self.VALID_TYPES)}"
+                f"Invalid relay type '{self.type}'. "
+                f"Supported types: "
+                f"{sorted(self.VALID_TYPES)}"
             )
-
-        self.type = relay_type
 
         # ---------------------------------------------------------
         # Protection function
         # ---------------------------------------------------------
 
         if function_type is None:
-            function_type = relay_type
+            function_type = self.type
 
-        function_type = str(function_type).strip().upper()
-
-        if not function_type:
-            raise ValueError(
-                "function_type cannot be empty."
-            )
-
-        self.function_type = function_type
+        self.function_type = self._validate_identifier(
+            function_type,
+            "function_type",
+        ).upper()
 
         # ---------------------------------------------------------
         # Protection plugin identity
         # ---------------------------------------------------------
 
-        if plugin_id is not None:
-
-            plugin_id = str(plugin_id).strip()
-
-            if not plugin_id:
-                raise ValueError(
-                    "plugin_id cannot be empty when supplied."
-                )
-
-        self.plugin_id = plugin_id
-
-        # ---------------------------------------------------------
-        # Protection settings
-        #
-        # The Relay stores configuration.
-        #
-        # It does NOT interpret protection settings.
-        # ---------------------------------------------------------
-
-        if settings is None:
-            self.settings: dict[str, Any] = {}
-
-        elif isinstance(settings, Mapping):
-            self.settings = dict(settings)
-
+        if plugin_id is None:
+            self.plugin_id = None
         else:
-            raise TypeError(
-                "settings must be a mapping or None."
+            self.plugin_id = self._validate_identifier(
+                plugin_id,
+                "plugin_id",
             )
 
         # ---------------------------------------------------------
-        # Measurement-channel bindings
+        # Protection settings
+        # ---------------------------------------------------------
+
+        self.settings = self._copy_settings(
+            settings
+        )
+
+        # ---------------------------------------------------------
+        # Service / operating state
+        # ---------------------------------------------------------
+
+        self._validate_bool(
+            in_service,
+            "in_service",
+        )
+
+        self._validate_bool(
+            enabled,
+            "enabled",
+        )
+
+        self._validate_bool(
+            blocked,
+            "blocked",
+        )
+
+        self.in_service = in_service
+        self.enabled = enabled
+        self.blocked = blocked
+
+        # ---------------------------------------------------------
+        # Protection operating state
         #
-        # Key:
-        #     relay input name
-        #
-        # Value:
-        #     MeasurementChannel object
-        #
-        # The channel remains authoritative for measurements.
-        # ---------------------------------------------------------
-
-        self._input_channels: dict[str, Any] = {}
-
-        # ---------------------------------------------------------
-        # Service state
-        # ---------------------------------------------------------
-
-        self.in_service = bool(in_service)
-        self.enabled = bool(enabled)
-        self.blocked = bool(blocked)
-
-        # ---------------------------------------------------------
-        # Operating state
+        # These are state results maintained by the protection
+        # subsystem through the Relay API.
         # ---------------------------------------------------------
 
         self.picked_up = False
         self.tripped = False
 
-    # =============================================================
-    # VALIDATION
-    # =============================================================
+        # ---------------------------------------------------------
+        # Measurement-channel bindings
+        #
+        # MeasurementChannel objects remain authoritative for
+        # measured values.
+        # ---------------------------------------------------------
 
-    @staticmethod
-    def _validate_id(
-        id: str,
-    ) -> None:
-        """
-        Validate the Relay identifier.
-        """
+        self._input_channels: dict[str, Any] = {}
 
-        if not isinstance(id, str):
-            raise TypeError(
-                "Relay id must be a string."
-            )
+        # ---------------------------------------------------------
+        # Final local validation
+        # ---------------------------------------------------------
 
-        if not id.strip():
-            raise ValueError(
-                "Relay id cannot be empty."
-            )
+        self.validate()
 
     # =============================================================
-    # FUNCTION IDENTITY
+    # IDENTITY
     # =============================================================
 
     @property
     def relay_type(self) -> str:
         """
-        Compatibility accessor for the relay type.
+        Return the canonical relay type.
 
-        ``type`` remains the stored canonical attribute.
+        ``type`` is retained as the underlying compatibility
+        attribute.
         """
 
         return self.type
 
-    # -------------------------------------------------------------
-
     @property
     def protection_function(self) -> str:
-        """
-        Return the protection function identifier.
-        """
+        """Return the protection function identifier."""
 
         return self.function_type
+
+    # =============================================================
+    # VALIDATION
+    # =============================================================
+
+    def validate(self) -> bool:
+        """
+        Validate the complete Relay model.
+
+        The Relay validates only model-local invariants.
+
+        It does not validate protection algorithms or topology.
+        """
+
+        self._validate_id(
+            self.id
+        )
+
+        if not isinstance(
+            self.name,
+            str,
+        ):
+            raise TypeError(
+                "Relay name must be a string."
+            )
+
+        if self.type not in self.VALID_TYPES:
+            raise ValueError(
+                f"Invalid relay type '{self.type}'."
+            )
+
+        self.function_type = self._validate_identifier(
+            self.function_type,
+            "function_type",
+        ).upper()
+
+        if self.plugin_id is not None:
+            self.plugin_id = self._validate_identifier(
+                self.plugin_id,
+                "plugin_id",
+            )
+
+        self.settings = self._copy_settings(
+            self.settings
+        )
+
+        self._validate_bool(
+            self.in_service,
+            "in_service",
+        )
+
+        self._validate_bool(
+            self.enabled,
+            "enabled",
+        )
+
+        self._validate_bool(
+            self.blocked,
+            "blocked",
+        )
+
+        self._validate_bool(
+            self.picked_up,
+            "picked_up",
+        )
+
+        self._validate_bool(
+            self.tripped,
+            "tripped",
+        )
+
+        for name, channel in self._input_channels.items():
+            self._validate_input_name(name)
+            self._validate_channel(channel)
+
+        return True
+
+    # =============================================================
+    # SERVICE STATE
+    # =============================================================
+
+    @property
+    def is_in_service(self) -> bool:
+        """Return whether the relay is in service."""
+
+        return self.in_service
+
+    @property
+    def is_out_of_service(self) -> bool:
+        """Return whether the relay is out of service."""
+
+        return not self.in_service
+
+    @property
+    def is_operational(self) -> bool:
+        """
+        Return whether the relay is available for protection
+        operation.
+
+        A relay is operational only when:
+
+            in_service
+            AND enabled
+            AND not blocked
+        """
+
+        return (
+            self.in_service
+            and self.enabled
+            and not self.blocked
+        )
+
+    def put_in_service(self) -> None:
+        """Place the relay in service."""
+
+        self.in_service = True
+
+    def take_out_of_service(self) -> None:
+        """Take the relay out of service."""
+
+        self.in_service = False
+
+        # Removing the relay from service also clears active
+        # operating state.
+        self.clear_operating_state()
+
+    # Compatibility aliases.
+
+    def connect(self) -> None:
+        """
+        Compatibility alias for put_in_service().
+
+        This does not mean terminal/network connectivity.
+        """
+
+        self.put_in_service()
+
+    def disconnect(self) -> None:
+        """
+        Compatibility alias for take_out_of_service().
+
+        This does not modify network topology.
+        """
+
+        self.take_out_of_service()
+
+    # =============================================================
+    # ENABLE / BLOCK STATE
+    # =============================================================
+
+    def enable(self) -> None:
+        """Enable relay operation."""
+
+        self.enabled = True
+
+    def disable(self) -> None:
+        """
+        Disable relay operation and clear active protection state.
+        """
+
+        self.enabled = False
+        self.clear_operating_state()
+
+    def block(self) -> None:
+        """
+        Block relay operation and clear active protection state.
+        """
+
+        self.blocked = True
+        self.clear_operating_state()
+
+    def unblock(self) -> None:
+        """Remove relay blocking."""
+
+        self.blocked = False
+
+    # =============================================================
+    # PICKUP / TRIP STATE
+    # =============================================================
+
+    @property
+    def is_picked_up(self) -> bool:
+        """Return whether the relay is picked up."""
+
+        return self.picked_up
+
+    @property
+    def is_tripped(self) -> bool:
+        """Return whether the relay is tripped."""
+
+        return self.tripped
+
+    def set_pickup(
+        self,
+        value: bool,
+    ) -> None:
+        """
+        Set pickup state.
+
+        Protection logic decides whether pickup should occur;
+        the Relay only stores the resulting device state.
+        """
+
+        self._validate_bool(
+            value,
+            "picked_up",
+        )
+
+        if value and not self.is_operational:
+            raise RuntimeError(
+                f"Relay '{self.id}' cannot pick up while "
+                "out of service, disabled, or blocked."
+            )
+
+        self.picked_up = value
+
+    def pickup(self) -> None:
+        """Set the relay to pickup state."""
+
+        self.set_pickup(True)
+
+    def clear_pickup(self) -> None:
+        """Clear pickup state."""
+
+        self.picked_up = False
+
+    def set_trip(
+        self,
+        value: bool,
+    ) -> None:
+        """
+        Set trip state.
+
+        The Relay records the protection result but does not
+        operate a breaker itself.
+        """
+
+        self._validate_bool(
+            value,
+            "tripped",
+        )
+
+        if value and not self.is_operational:
+            raise RuntimeError(
+                f"Relay '{self.id}' cannot trip while "
+                "out of service, disabled, or blocked."
+            )
+
+        self.tripped = value
+
+    def trip(self) -> None:
+        """Set the relay to tripped state."""
+
+        self.set_trip(True)
+
+    def clear_trip(self) -> None:
+        """Clear trip state."""
+
+        self.tripped = False
+
+    def reset(self) -> None:
+        """
+        Reset pickup and trip states.
+
+        Resetting the relay does not alter configuration or
+        measurement-channel bindings.
+        """
+
+        self.picked_up = False
+        self.tripped = False
+
+    def clear_operating_state(self) -> None:
+        """
+        Clear protection operating state.
+
+        Used when the relay becomes unavailable for operation.
+        """
+
+        self.picked_up = False
+        self.tripped = False
 
     # =============================================================
     # SETTINGS
@@ -487,75 +566,67 @@ class Relay:
         value: Any,
     ) -> None:
         """
-        Set one protection configuration parameter.
+        Set one protection setting.
 
-        The Relay stores the setting but does not interpret it.
+        The value is stored without interpretation.
         """
 
-        if not isinstance(name, str):
-            raise TypeError(
-                "Setting name must be a string."
-            )
-
-        name = name.strip()
-
-        if not name:
-            raise ValueError(
-                "Setting name cannot be empty."
-            )
+        name = self._validate_identifier(
+            name,
+            "setting name",
+        )
 
         self.settings[name] = value
-
-    # -------------------------------------------------------------
 
     def get_setting(
         self,
         name: str,
         default: Any = None,
     ) -> Any:
-        """
-        Return one protection configuration parameter.
-        """
+        """Return a protection setting."""
+
+        name = self._validate_identifier(
+            name,
+            "setting name",
+        )
 
         return self.settings.get(
             name,
             default,
         )
 
-    # -------------------------------------------------------------
-
     def remove_setting(
         self,
         name: str,
-    ) -> None:
-        """
-        Remove one protection configuration parameter.
-        """
+    ) -> Any | None:
+        """Remove and return one protection setting."""
 
-        self.settings.pop(
+        name = self._validate_identifier(
+            name,
+            "setting name",
+        )
+
+        return self.settings.pop(
             name,
             None,
         )
-
-    # -------------------------------------------------------------
 
     def set_settings(
         self,
         settings: Mapping[str, Any],
     ) -> None:
         """
-        Replace the complete protection configuration.
-
-        A shallow copy is stored so the caller's mapping remains
-        independent of the Relay settings dictionary.
+        Replace the complete protection settings dictionary.
         """
 
-        if not isinstance(settings, Mapping):
-            raise TypeError(
-                "settings must be a mapping."
-            )
+        self.settings = self._copy_settings(
+            settings
+        )
 
-        self.settings = dict(settings)
+    def clear_settings(self) -> None:
+        """Remove all protection settings."""
+
+        self.settings.clear()
 
     # =============================================================
     # MEASUREMENT CHANNELS
@@ -564,17 +635,14 @@ class Relay:
     @property
     def input_channels(self) -> dict[str, Any]:
         """
-        Return the relay's measurement-channel bindings.
+        Return a shallow copy of relay input bindings.
 
-        A shallow copy is returned so callers cannot directly
-        replace the Relay's binding dictionary.
+        The Relay retains ownership of the binding map.
         """
 
         return dict(
             self._input_channels
         )
-
-    # -------------------------------------------------------------
 
     def bind_input(
         self,
@@ -582,38 +650,13 @@ class Relay:
         channel: Any,
     ) -> None:
         """
-        Bind a MeasurementChannel to a named relay input.
+        Bind a MeasurementChannel to a relay input.
 
-        Parameters
-        ----------
-        name:
-            Protection input name.
-
-            Examples:
-
-                "IA"
-                "IB"
-                "IC"
-                "IN"
-                "VA"
-                "VB"
-                "VC"
-                "V1"
-                "I1"
-
-        channel:
-            MeasurementChannel instance.
-
-        Notes
-        -----
-        The Relay deliberately validates only the minimum channel
-        interface here.
-
-        The detailed measurement-channel contract belongs to
-        ``core/model/measurement_channel.py``.
+        The channel object itself remains authoritative for the
+        measured signal.
         """
 
-        self._validate_input_name(
+        name = self._validate_input_name(
             name
         )
 
@@ -623,42 +666,39 @@ class Relay:
 
         self._input_channels[name] = channel
 
-    # -------------------------------------------------------------
-
     def unbind_input(
         self,
         name: str,
-    ) -> None:
+    ) -> Any | None:
         """
-        Remove a named measurement-channel binding.
+        Remove and return a measurement-channel binding.
         """
 
-        self._validate_input_name(
+        name = self._validate_input_name(
             name
         )
 
-        self._input_channels.pop(
+        return self._input_channels.pop(
             name,
             None,
         )
 
-    # -------------------------------------------------------------
+    def clear_inputs(self) -> None:
+        """Remove all measurement-channel bindings."""
+
+        self._input_channels.clear()
 
     def has_input(
         self,
         name: str,
     ) -> bool:
-        """
-        Return True when the named relay input is bound.
-        """
+        """Return whether a relay input is bound."""
 
-        self._validate_input_name(
+        name = self._validate_input_name(
             name
         )
 
         return name in self._input_channels
-
-    # -------------------------------------------------------------
 
     def get_input(
         self,
@@ -667,13 +707,11 @@ class Relay:
         """
         Return the MeasurementChannel bound to a relay input.
 
-        Raises
-        ------
-        KeyError
-            If the input is not bound.
+        The channel itself, not a copied measurement value, is
+        returned.
         """
 
-        self._validate_input_name(
+        name = self._validate_input_name(
             name
         )
 
@@ -681,36 +719,34 @@ class Relay:
             return self._input_channels[name]
 
         except KeyError as exc:
-
             raise KeyError(
-                f"Relay '{self.id}' has no input "
-                f"channel bound to '{name}'."
+                f"Relay '{self.id}' has no input channel "
+                f"bound to '{name}'."
             ) from exc
-
-    # -------------------------------------------------------------
 
     def get_input_value(
         self,
         name: str,
     ) -> Any:
         """
-        Return the current signal value from a named
-        MeasurementChannel.
+        Obtain the current measurement value from the bound channel.
 
-        The Relay does not store a copy of the value.
+        The Relay does not cache or own the measured value.
 
-        This method intentionally supports the finalized
-        MeasurementChannel interface without requiring the Relay
-        to know how the channel internally represents its signal.
+        Supported channel interfaces:
+
+            channel.value
+            channel.get_value()
         """
 
         channel = self.get_input(
             name
         )
 
-        # Preferred V2 measurement interface.
-        if hasattr(channel, "value"):
-
+        if hasattr(
+            channel,
+            "value",
+        ):
             value = channel.value
 
             if callable(value):
@@ -718,9 +754,10 @@ class Relay:
 
             return value
 
-        # Explicit signal accessor.
-        if hasattr(channel, "get_value"):
-
+        if hasattr(
+            channel,
+            "get_value",
+        ):
             return channel.get_value()
 
         raise TypeError(
@@ -728,16 +765,11 @@ class Relay:
             f"'{name}' does not expose a supported value interface."
         )
 
-    # -------------------------------------------------------------
-
     def input_values(self) -> dict[str, Any]:
         """
-        Return the current values of all bound relay inputs.
+        Return current values for all bound relay inputs.
 
-        Values are read from the authoritative
-        MeasurementChannel objects.
-
-        No measurement values are stored in the Relay.
+        Values are read directly from MeasurementChannel objects.
         """
 
         return {
@@ -745,346 +777,147 @@ class Relay:
             for name in self._input_channels
         }
 
-    # -------------------------------------------------------------
-
-    @staticmethod
-    def _validate_input_name(
-        name: str,
-    ) -> None:
-        """
-        Validate a relay input name.
-        """
-
-        if not isinstance(name, str):
-            raise TypeError(
-                "Relay input name must be a string."
-            )
-
-        if not name.strip():
-            raise ValueError(
-                "Relay input name cannot be empty."
-            )
-
-    # -------------------------------------------------------------
-
-    @staticmethod
-    def _validate_channel(
-        channel: Any,
-    ) -> None:
-        """
-        Validate the minimum MeasurementChannel contract.
-
-        The complete channel semantics remain defined by
-        core.model.measurement_channel.
-        """
-
-        if channel is None:
-            raise ValueError(
-                "MeasurementChannel cannot be None."
-            )
-
-        if not hasattr(channel, "id"):
-            raise TypeError(
-                "MeasurementChannel must expose an 'id' attribute."
-            )
-
-        channel_id = getattr(
-            channel,
-            "id",
-        )
-
-        if not isinstance(channel_id, str):
-            raise TypeError(
-                "MeasurementChannel id must be a string."
-            )
-
-        if not channel_id.strip():
-            raise ValueError(
-                "MeasurementChannel id cannot be empty."
-            )
-
     # =============================================================
-    # INPUT AVAILABILITY
+    # REQUIRED INPUTS
     # =============================================================
 
-    def required_inputs_available(
+    def missing_inputs(
         self,
-        required_inputs,
-    ) -> bool:
+        required_inputs: set[str] | tuple[str, ...] | list[str],
+    ) -> tuple[str, ...]:
         """
-        Return True when all requested relay inputs are bound.
-
-        This checks binding existence only.
-
-        It does not determine whether the measurement itself is
-        electrically valid or numerically healthy.
+        Return required relay inputs that are not currently bound.
         """
+
+        if required_inputs is None:
+            raise TypeError(
+                "required_inputs cannot be None."
+            )
+
+        missing = []
 
         for name in required_inputs:
+            name = self._validate_input_name(
+                name
+            )
 
-            if not self.has_input(name):
-                return False
-
-        return True
-
-    # -------------------------------------------------------------
-
-    def available_inputs(self) -> tuple[str, ...]:
-        """
-        Return names of currently bound relay inputs.
-        """
+            if name not in self._input_channels:
+                missing.append(name)
 
         return tuple(
-            self._input_channels.keys()
+            sorted(
+                set(missing)
+            )
+        )
+
+    def has_required_inputs(
+        self,
+        required_inputs: set[str] | tuple[str, ...] | list[str],
+    ) -> bool:
+        """
+        Return True when all required inputs are bound.
+        """
+
+        return not self.missing_inputs(
+            required_inputs
         )
 
     # =============================================================
-    # SERVICE STATE
+    # PLUGIN IDENTITY
     # =============================================================
 
-    def set_in_service(
+    def set_plugin_id(
         self,
-        in_service: bool,
+        plugin_id: str | None,
     ) -> None:
         """
-        Set relay service state.
+        Set the protection-plugin identifier.
 
-        Removing a relay from service clears its operating state.
+        This stores metadata only; no plugin is imported or created.
         """
 
-        self.in_service = bool(
-            in_service
-        )
-
-        if not self.in_service:
-            self.clear_operating_state()
-
-    # -------------------------------------------------------------
-
-    def enable(self) -> None:
-        """
-        Enable the relay.
-        """
-
-        self.enabled = True
-
-    # -------------------------------------------------------------
-
-    def disable(self) -> None:
-        """
-        Disable the relay.
-
-        Disabled relays cannot operate.
-        """
-
-        self.enabled = False
-        self.clear_operating_state()
-
-    # -------------------------------------------------------------
-
-    def block(self) -> None:
-        """
-        Block relay operation.
-        """
-
-        self.blocked = True
-        self.clear_operating_state()
-
-    # -------------------------------------------------------------
-
-    def unblock(self) -> None:
-        """
-        Remove the relay operating block.
-        """
-
-        self.blocked = False
-
-    # =============================================================
-    # OPERATIONAL AVAILABILITY
-    # =============================================================
-
-    @property
-    def operational(self) -> bool:
-        """
-        Return whether the relay is available for protection
-        evaluation.
-        """
-
-        return (
-            self.in_service
-            and self.enabled
-            and not self.blocked
-        )
-
-    # =============================================================
-    # OPERATING STATE
-    # =============================================================
-
-    @property
-    def pickup(self) -> bool:
-        """
-        Compatibility/readability alias for pickup state.
-
-        ``picked_up`` is the canonical stored state.
-        """
-
-        return self.picked_up
-
-    # -------------------------------------------------------------
-
-    def set_pickup(
-        self,
-        state: bool,
-    ) -> None:
-        """
-        Set relay pickup state.
-
-        Protection algorithms determine when this state should
-        change.
-        """
-
-        if not self.operational:
-            self.picked_up = False
+        if plugin_id is None:
+            self.plugin_id = None
             return
 
-        self.picked_up = bool(
-            state
+        self.plugin_id = self._validate_identifier(
+            plugin_id,
+            "plugin_id",
         )
-
-    # -------------------------------------------------------------
-
-    def set_trip(
-        self,
-        state: bool,
-    ) -> None:
-        """
-        Set relay trip state.
-
-        This changes relay state only.
-
-        It does NOT operate a circuit breaker.
-        """
-
-        if not self.operational:
-            self.tripped = False
-            return
-
-        self.tripped = bool(
-            state
-        )
-
-    # -------------------------------------------------------------
-
-    def trip(
-        self,
-    ) -> None:
-        """
-        Put the relay into the tripped state.
-
-        Breaker operation belongs to ProtectionSystem /
-        BreakerManager.
-        """
-
-        self.set_trip(
-            True
-        )
-
-    # -------------------------------------------------------------
-
-    def reset(
-        self,
-    ) -> None:
-        """
-        Reset relay operating state.
-
-        Measurement channels are NOT reset here.
-
-        Protection-plugin transient state must be reset by the
-        protection subsystem/plugin.
-        """
-
-        self.picked_up = False
-        self.tripped = False
-
-    # -------------------------------------------------------------
-
-    def clear_operating_state(
-        self,
-    ) -> None:
-        """
-        Clear relay pickup and trip states.
-        """
-
-        self.picked_up = False
-        self.tripped = False
 
     # =============================================================
-    # STATUS
+    # DIAGNOSTICS
     # =============================================================
 
     def status(self) -> dict[str, Any]:
         """
-        Return structured relay status.
+        Return device-level protection status.
 
-        Measurement values are intentionally not duplicated into
-        the Relay status object.
-
-        The ``inputs`` section reports channel identity and
-        availability rather than copying measurement state.
+        No calculated electrical quantities are included.
         """
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": self.type,
+            "relay_type": self.type,
             "function_type": self.function_type,
             "plugin_id": self.plugin_id,
-            "settings": dict(
-                self.settings
-            ),
-            "inputs": {
-                name: {
-                    "channel_id": channel.id,
-                    "available": True,
-                }
-                for name, channel
-                in self._input_channels.items()
-            },
+
             "in_service": self.in_service,
             "enabled": self.enabled,
             "blocked": self.blocked,
-            "operational": self.operational,
+            "operational": self.is_operational,
+
             "picked_up": self.picked_up,
             "tripped": self.tripped,
-        }
 
-    # =============================================================
-    # SUMMARY
-    # =============================================================
-
-    def summary(self) -> dict[str, Any]:
-        """
-        Return a compact engineering summary.
-        """
-
-        return {
-            "id": self.id,
-            "name": self.name,
-            "type": self.type,
-            "function_type": self.function_type,
-            "plugin_id": self.plugin_id,
             "input_count": len(
                 self._input_channels
             ),
             "inputs": tuple(
-                self._input_channels.keys()
+                sorted(
+                    self._input_channels
+                )
             ),
+
+            "setting_count": len(
+                self.settings
+            ),
+        }
+
+    def summary(self) -> dict[str, Any]:
+        """
+        Return a structured Relay summary.
+
+        Settings are copied so callers cannot mutate the Relay
+        configuration through the returned dictionary.
+        """
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "type": self.type,
+            "relay_type": self.type,
+            "function_type": self.function_type,
+            "plugin_id": self.plugin_id,
+
             "in_service": self.in_service,
             "enabled": self.enabled,
             "blocked": self.blocked,
-            "operational": self.operational,
+            "operational": self.is_operational,
+
             "picked_up": self.picked_up,
             "tripped": self.tripped,
+
+            "settings": deepcopy(
+                self.settings
+            ),
+
+            "inputs": tuple(
+                sorted(
+                    self._input_channels
+                )
+            ),
         }
 
     # =============================================================
@@ -1092,20 +925,169 @@ class Relay:
     # =============================================================
 
     def __repr__(self) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
+        """Return concise developer-facing representation."""
 
         return (
             f"<Relay "
             f"id={self.id}, "
             f"type={self.type}, "
             f"function={self.function_type}, "
-            f"inputs={len(self._input_channels)}, "
-            f"operational={self.operational}, "
-            f"pickup={self.picked_up}, "
-            f"trip={self.tripped}>"
+            f"operational={self.is_operational}, "
+            f"picked_up={self.picked_up}, "
+            f"tripped={self.tripped}>"
         )
+
+    # =============================================================
+    # VALIDATION HELPERS
+    # =============================================================
+
+    @staticmethod
+    def _validate_id(
+        value: str,
+    ) -> None:
+        """Validate a stable GridForge identifier."""
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            raise TypeError(
+                "Relay id must be a string."
+            )
+
+        if not value.strip():
+            raise ValueError(
+                "Relay id cannot be empty."
+            )
+
+    @staticmethod
+    def _validate_identifier(
+        value: str,
+        name: str,
+    ) -> str:
+        """
+        Validate and normalize a string identifier.
+        """
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            raise TypeError(
+                f"{name} must be a string."
+            )
+
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                f"{name} cannot be empty."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_bool(
+        value: bool,
+        name: str,
+    ) -> None:
+        """
+        Require an actual boolean.
+
+        Values such as 0, 1, \"true\", and \"false\" are deliberately
+        rejected instead of silently coerced.
+        """
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} must be boolean."
+            )
+
+    @classmethod
+    def _copy_settings(
+        cls,
+        settings: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        """
+        Validate and copy protection settings.
+        """
+
+        if settings is None:
+            return {}
+
+        if not isinstance(
+            settings,
+            Mapping,
+        ):
+            raise TypeError(
+                "settings must be a mapping or None."
+            )
+
+        result: dict[str, Any] = {}
+
+        for name, value in settings.items():
+
+            name = cls._validate_identifier(
+                name,
+                "setting name",
+            )
+
+            result[name] = value
+
+        return result
+
+    @staticmethod
+    def _validate_input_name(
+        name: str,
+    ) -> str:
+        """
+        Validate and normalize a protection input name.
+        """
+
+        if not isinstance(
+            name,
+            str,
+        ):
+            raise TypeError(
+                "Relay input name must be a string."
+            )
+
+        name = name.strip()
+
+        if not name:
+            raise ValueError(
+                "Relay input name cannot be empty."
+            )
+
+        return name
+
+    @staticmethod
+    def _validate_channel(
+        channel: Any,
+    ) -> None:
+        """
+        Validate the minimum MeasurementChannel binding contract.
+
+        The Relay intentionally does not require a concrete
+        MeasurementChannel class import. This keeps the model
+        independent of a specific measurement implementation.
+        """
+
+        if channel is None:
+            raise ValueError(
+                "MeasurementChannel cannot be None."
+            )
+
+        if not hasattr(
+            channel,
+            "id",
+        ):
+            raise TypeError(
+                "MeasurementChannel must expose an 'id' attribute."
+            )
 
 
 __all__ = [
