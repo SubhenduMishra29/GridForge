@@ -166,8 +166,70 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID, uuid4
+
+
+def _immutable_mapping(
+    value: Mapping[str, Any] | None,
+) -> Mapping[str, Any]:
+    """
+    Convert a mapping into an immutable top-level mapping.
+
+    Nested mappings are recursively converted so that Application
+    event payloads cannot be mutated through nested dictionaries.
+    Lists, tuples, sets, and other values are preserved as supplied;
+    event payloads should therefore contain immutable application
+    metadata wherever nested mutable containers would otherwise be
+    exposed.
+    """
+
+    if value is None:
+        return MappingProxyType({})
+
+    if not isinstance(value, Mapping):
+        raise TypeError(
+            "Event payload must be a mapping."
+        )
+
+    def freeze(
+        item: Any,
+    ) -> Any:
+        if isinstance(item, Mapping):
+            return MappingProxyType(
+                {
+                    key: freeze(val)
+                    for key, val in item.items()
+                }
+            )
+
+        if isinstance(item, list):
+            return tuple(
+                freeze(element)
+                for element in item
+            )
+
+        if isinstance(item, set):
+            return frozenset(
+                freeze(element)
+                for element in item
+            )
+
+        if isinstance(item, tuple):
+            return tuple(
+                freeze(element)
+                for element in item
+            )
+
+        return item
+
+    return MappingProxyType(
+        {
+            key: freeze(item)
+            for key, item in value.items()
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -181,7 +243,7 @@ class ApplicationEvent:
         Stable semantic event type.
 
     payload:
-        Structured event data.
+        Structured immutable event data.
 
     event_id:
         Unique identifier for this event instance.
@@ -204,7 +266,9 @@ class ApplicationEvent:
     """
 
     event_type: str
-    payload: Mapping[str, Any] = field(default_factory=dict)
+    payload: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     event_id: UUID = field(default_factory=uuid4)
 
@@ -216,7 +280,7 @@ class ApplicationEvent:
     causation_id: UUID | None = None
 
     def __post_init__(self) -> None:
-        """Validate the event contract."""
+        """Validate and normalize the event contract."""
 
         if not isinstance(self.event_type, str):
             raise TypeError(
@@ -233,6 +297,13 @@ class ApplicationEvent:
                 "ApplicationEvent payload must be a mapping."
             )
 
+        # Normalize payload even when a caller supplied a normal dict.
+        object.__setattr__(
+            self,
+            "payload",
+            _immutable_mapping(self.payload),
+        )
+
         if not isinstance(self.event_id, UUID):
             raise TypeError(
                 "ApplicationEvent event_id must be a UUID."
@@ -244,6 +315,11 @@ class ApplicationEvent:
             )
 
         if self.occurred_at.tzinfo is None:
+            raise ValueError(
+                "ApplicationEvent occurred_at must be timezone-aware."
+            )
+
+        if self.occurred_at.utcoffset() is None:
             raise ValueError(
                 "ApplicationEvent occurred_at must be timezone-aware."
             )
