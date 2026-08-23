@@ -1,155 +1,65 @@
 # core/model/disconnector.py
-
 """
-GridForge Disconnector Model
-============================
+GridForge V2 Disconnector Model
+===============================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
-Defines the physical electrical disconnector / isolator model.
+A Disconnector is a physical two-terminal switchgear element used
+primarily for electrical isolation.
 
 Architecture
 ------------
 
-A Disconnector is a physical two-terminal switching device used for
-electrical isolation.
+    ElectricalObject
+          |
+     Disconnector
+        /     \
+   Terminal  Terminal
 
-    Equipment A
-        │
-     Terminal
-        │
-   Disconnector
-        │
-     Terminal
-        │
-    Equipment B
+The Disconnector owns:
 
-Typical applications include:
+    - two authoritative Terminal objects
+    - voltage rating
+    - continuous current rating
+    - mechanical operating time
+    - physical open/closed state
+    - equipment service state
 
-    Bus ── Disconnector ── Breaker
-    Bus ── Disconnector ── Line
-    Bus ── Disconnector ── Transformer
-    Bus ── Disconnector ── Bus
+The Disconnector does NOT own:
 
-The Disconnector owns its two physical terminals.
+    - global network topology
+    - network graph mutation
+    - Y-bus construction
+    - load-flow calculations
+    - short-circuit calculations
+    - protection logic
+    - simulation event history
+    - SLD geometry
+    - GUI state
 
-The terminals identify local physical connection points. The network
-layer is responsible for assembling those terminals into the global
-physical and electrical topology.
-
-A Disconnector differs fundamentally from a Circuit Breaker:
-
-    Disconnector
-        - provides electrical isolation
-        - normally operates without interrupting fault current
-        - does not provide protection interruption capability
-
-    Circuit Breaker
-        - provides switching
-        - can interrupt load/fault current within its ratings
-        - participates in protection clearing
-
-The Disconnector model therefore stores physical switching state but
-does not implement protection or topology logic.
-
-Responsibilities
-----------------
-
-The Disconnector model provides:
-
-- Physical two-terminal electrical equipment.
-- Disconnector identity.
-- Local terminal ownership.
-- Voltage rating.
-- Continuous current rating.
-- Mechanical operating time.
-- Open/closed physical state.
-- Equipment service state.
-- Basic local parameter validation.
-- Diagnostic information.
-
-The Disconnector model does NOT:
-
-- Build global topology.
-- Register terminals with the network.
-- Determine electrical connectivity.
-- Build Y-bus matrices.
-- Perform load-flow calculations.
-- Perform short-circuit calculations.
-- Detect faults.
-- Perform protection calculations.
-- Issue breaker/disconnector control commands.
-- Perform dynamic simulation.
-- Store simulation event history.
-- Store GUI geometry.
-
-Those responsibilities belong to the appropriate GridForge layers.
-
-State Ownership
----------------
-
-The Disconnector owns its authoritative physical state:
-
-    OPEN
-    CLOSED
-
-It also stores whether the physical equipment is in service.
-
-The model does not store operation history.
-
-A simulation/event layer may separately record:
-
-    time
-    disconnector
-    command
-    resulting state
-
-without making that history part of the authoritative equipment model.
-
-Topology
---------
-
-The authoritative local connection points are:
-
-    from_terminal
-    to_terminal
-
-Their actual network connectivity is assembled by the network/topology
-layer.
-
-Changing the Disconnector state changes only the physical equipment
-state. The network layer derives the corresponding electrical topology.
-
-Conducting State
-----------------
-
-The Disconnector is locally considered conducting only when:
-
-    closed == True
-    in_service == True
-
-Therefore:
+Local state
+-----------
 
     conducts = closed and in_service
 
-This is a local equipment-state interpretation.
+This is only a local equipment-state interpretation.
 
-The network/topology layer remains responsible for applying this state
-to the derived electrical topology.
+The network/topology layer is responsible for deriving electrical
+connectivity from the equipment state.
 
-GridForge V2 Status
--------------------
+A Disconnector differs from a Circuit Breaker:
 
-This module is part of the GridForge Model Layer V2 baseline.
+    Disconnector:
+        - isolation device
+        - normally operated without interrupting fault current
+        - no protection-clearing responsibility
 
-The Disconnector is a fundamental switchgear model and therefore
-belongs in ``core/model``.
-
-Detailed topology, protection, control and simulation behavior remains
-outside this module.
-
-Future changes require evidence of a genuinely fundamental
-architectural requirement.
+    Circuit Breaker:
+        - switching/interruption device
+        - capable of interrupting current within ratings
+        - participates in protection clearing
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -158,89 +68,31 @@ All Rights Reserved.
 from __future__ import annotations
 
 from math import isfinite
+from typing import Any
 
 from .base import ElectricalObject
 from .terminal import Terminal
 
 
-# =====================================================================
-# DISCONNECTOR
-# =====================================================================
-
 class Disconnector(ElectricalObject):
     """
-    GridForge physical electrical disconnector / isolator.
-
-    A Disconnector is a two-terminal physical switching device used
-    primarily for electrical isolation.
-
-    Parameters
-    ----------
-    id : str
-        Unique GridForge disconnector identifier.
-
-    voltage_kv : float
-        Rated operating voltage in kV.
-
-    rated_current_a : float
-        Continuous current rating in amperes.
-
-    endpoint_from : object, optional
-        Initial from-side electrical endpoint.
-
-        May be None when the disconnector is created before network
-        assembly.
-
-    endpoint_to : object, optional
-        Initial to-side electrical endpoint.
-
-        May be None when the disconnector is created before network
-        assembly.
-
-    operating_time : float, optional
-        Mechanical operating time in seconds.
-
-    closed : bool, optional
-        Initial physical state.
-
-        True means physically closed.
-        False means physically open.
-
-    in_service : bool, optional
-        Equipment service state.
-
-    name : str, optional
-        Human-readable disconnector name.
-
-    Notes
-    -----
-    The Disconnector owns two Terminal objects.
-
-    The Terminal objects contain the local endpoint references.
-
-    The Disconnector does not own or manipulate global network
-    topology.
+    Physical two-terminal electrical disconnector / isolator.
     """
 
-    # =================================================================
-    # INITIALIZATION
-    # =================================================================
+    TYPE = "DISCONNECTOR"
 
     def __init__(
         self,
         id: str,
         voltage_kv: float,
         rated_current_a: float,
-        endpoint_from=None,
-        endpoint_to=None,
+        endpoint_from: Any = None,
+        endpoint_to: Any = None,
         operating_time: float = 1.0,
         closed: bool = True,
         in_service: bool = True,
         name: str = "",
     ) -> None:
-        """
-        Initialize a physical disconnector.
-        """
 
         super().__init__(
             id=id,
@@ -248,7 +100,7 @@ class Disconnector(ElectricalObject):
         )
 
         # -------------------------------------------------------------
-        # PHYSICAL TERMINALS
+        # AUTHORITATIVE LOCAL TERMINALS
         # -------------------------------------------------------------
 
         self.from_terminal = Terminal(
@@ -262,40 +114,46 @@ class Disconnector(ElectricalObject):
         )
 
         # -------------------------------------------------------------
-        # EQUIPMENT RATINGS
+        # EQUIPMENT PARAMETERS
         # -------------------------------------------------------------
 
-        self.voltage_kv = float(voltage_kv)
+        self.voltage_kv = self._validate_positive(
+            voltage_kv,
+            "voltage_kv",
+        )
 
-        self.rated_current_a = float(
-            rated_current_a
+        self.rated_current_a = self._validate_positive(
+            rated_current_a,
+            "rated_current_a",
+        )
+
+        self.operating_time = self._validate_non_negative(
+            operating_time,
+            "operating_time",
         )
 
         # -------------------------------------------------------------
-        # OPERATING CHARACTERISTICS
-        # -------------------------------------------------------------
-
-        self.operating_time = float(
-            operating_time
-        )
-
-        # -------------------------------------------------------------
-        # PHYSICAL STATE
+        # AUTHORITATIVE PHYSICAL STATE
         # -------------------------------------------------------------
 
         self.closed = bool(closed)
-
-        # -------------------------------------------------------------
-        # SERVICE STATE
-        # -------------------------------------------------------------
-
         self.in_service = bool(in_service)
 
         # -------------------------------------------------------------
-        # VALIDATION
+        # USE THE COMMON MODEL VALIDATION CONTRACT
         # -------------------------------------------------------------
 
-        self._validate_parameters()
+        self.validate()
+
+    # =================================================================
+    # IDENTITY
+    # =================================================================
+
+    @property
+    def element_type(self) -> str:
+        """Return canonical GridForge element type."""
+
+        return self.TYPE
 
     # =================================================================
     # TERMINALS
@@ -304,12 +162,7 @@ class Disconnector(ElectricalObject):
     @property
     def terminals(self) -> tuple[Terminal, Terminal]:
         """
-        Return the two physical terminals.
-
-        Returns
-        -------
-        tuple
-            ``(from_terminal, to_terminal)``
+        Return the two authoritative physical terminals.
         """
 
         return (
@@ -322,43 +175,32 @@ class Disconnector(ElectricalObject):
     # =================================================================
 
     @property
-    def from_endpoint(self):
+    def from_endpoint(self) -> Any:
         """
-        Return the authoritative from-side local endpoint.
+        Return the from-side terminal endpoint.
 
-        Equivalent to:
-
-            self.from_terminal.endpoint
+        This is derived from Terminal state and is not independently
+        stored by the Disconnector.
         """
 
         return self.from_terminal.endpoint
 
     @property
-    def to_endpoint(self):
+    def to_endpoint(self) -> Any:
         """
-        Return the authoritative to-side local endpoint.
+        Return the to-side terminal endpoint.
 
-        Equivalent to:
-
-            self.to_terminal.endpoint
+        This is derived from Terminal state and is not independently
+        stored by the Disconnector.
         """
 
         return self.to_terminal.endpoint
 
-    def endpoints(self) -> tuple[object | None, object | None]:
+    def endpoints(
+        self,
+    ) -> tuple[Any | None, Any | None]:
         """
         Return the local endpoint pair.
-
-        Returns
-        -------
-        tuple
-            ``(from_endpoint, to_endpoint)``
-
-        Notes
-        -----
-        This exposes local model state only.
-
-        It does not resolve global network topology.
         """
 
         return (
@@ -367,30 +209,42 @@ class Disconnector(ElectricalObject):
         )
 
     # =================================================================
-    # TERMINAL CONNECTION
+    # LOCAL TERMINAL CONNECTION
     # =================================================================
 
-    def connect_from(self, endpoint) -> None:
+    def connect_from(
+        self,
+        endpoint: Any,
+    ) -> None:
         """
-        Connect the from-side terminal to a local endpoint.
+        Connect the from-side terminal locally.
 
-        This changes only the terminal's local endpoint reference.
-
-        Global topology remains the responsibility of
-        ``core/network``.
+        This does not mutate global network topology.
         """
+
+        if endpoint is None:
+            raise ValueError(
+                f"Disconnector '{self.id}' from endpoint "
+                "cannot be None."
+            )
 
         self.from_terminal.connect(endpoint)
 
-    def connect_to(self, endpoint) -> None:
+    def connect_to(
+        self,
+        endpoint: Any,
+    ) -> None:
         """
-        Connect the to-side terminal to a local endpoint.
+        Connect the to-side terminal locally.
 
-        This changes only the terminal's local endpoint reference.
-
-        Global topology remains the responsibility of
-        ``core/network``.
+        This does not mutate global network topology.
         """
+
+        if endpoint is None:
+            raise ValueError(
+                f"Disconnector '{self.id}' to endpoint "
+                "cannot be None."
+            )
 
         self.to_terminal.connect(endpoint)
 
@@ -415,7 +269,7 @@ class Disconnector(ElectricalObject):
     @property
     def is_connected(self) -> bool:
         """
-        Return True when both physical terminals have local endpoints.
+        Return True when both local terminals are connected.
         """
 
         return (
@@ -423,80 +277,39 @@ class Disconnector(ElectricalObject):
             and self.to_terminal.is_connected
         )
 
-    # =================================================================
-    # VALIDATION
-    # =================================================================
+    @property
+    def has_from_endpoint(self) -> bool:
+        """Return whether the from terminal has an endpoint."""
 
-    def _validate_parameters(self) -> None:
-        """
-        Validate local disconnector parameters.
+        return self.from_terminal.is_connected
 
-        This performs only object-level validation.
+    @property
+    def has_to_endpoint(self) -> bool:
+        """Return whether the to terminal has an endpoint."""
 
-        Network-level electrical compatibility and topology rules
-        belong to ``core/network`` and ``core/validation``.
-        """
-
-        # -------------------------------------------------------------
-        # Voltage rating
-        # -------------------------------------------------------------
-
-        if not isfinite(self.voltage_kv):
-            raise ValueError(
-                f"Disconnector '{self.id}' voltage rating "
-                "must be finite."
-            )
-
-        if self.voltage_kv <= 0.0:
-            raise ValueError(
-                f"Disconnector '{self.id}' voltage rating "
-                "must be greater than zero."
-            )
-
-        # -------------------------------------------------------------
-        # Continuous current rating
-        # -------------------------------------------------------------
-
-        if not isfinite(self.rated_current_a):
-            raise ValueError(
-                f"Disconnector '{self.id}' rated current "
-                "must be finite."
-            )
-
-        if self.rated_current_a <= 0.0:
-            raise ValueError(
-                f"Disconnector '{self.id}' rated current "
-                "must be greater than zero."
-            )
-
-        # -------------------------------------------------------------
-        # Operating time
-        # -------------------------------------------------------------
-
-        if not isfinite(self.operating_time):
-            raise ValueError(
-                f"Disconnector '{self.id}' operating time "
-                "must be finite."
-            )
-
-        if self.operating_time < 0.0:
-            raise ValueError(
-                f"Disconnector '{self.id}' operating time "
-                "cannot be negative."
-            )
+        return self.to_terminal.is_connected
 
     # =================================================================
-    # OPERATING STATE
+    # PHYSICAL SWITCHING STATE
     # =================================================================
+
+    @property
+    def is_closed(self) -> bool:
+        """Return True when physically closed."""
+
+        return self.closed
+
+    @property
+    def is_open(self) -> bool:
+        """Return True when physically open."""
+
+        return not self.closed
 
     def open(self) -> None:
         """
         Open the disconnector.
 
-        This changes only the authoritative local physical state.
-
-        The network layer must derive the corresponding electrical
-        topology from this state.
+        Only local physical state changes.
         """
 
         self.closed = False
@@ -505,114 +318,189 @@ class Disconnector(ElectricalObject):
         """
         Close the disconnector.
 
-        This changes only the authoritative local physical state.
-
-        The network layer must derive the corresponding electrical
-        topology from this state.
+        Only local physical state changes.
         """
 
         self.closed = True
 
     # =================================================================
-    # STATUS
+    # SERVICE STATE
     # =================================================================
 
     @property
-    def is_closed(self) -> bool:
-        """
-        Return True when the disconnector is physically closed.
-        """
-
-        return self.closed
-
-    @property
-    def is_open(self) -> bool:
-        """
-        Return True when the disconnector is physically open.
-        """
-
-        return not self.closed
-
-    @property
     def is_in_service(self) -> bool:
-        """
-        Return True when the disconnector is in service.
-        """
+        """Return True when equipment is in service."""
 
         return self.in_service
 
     @property
-    def conducts(self) -> bool:
-        """
-        Return whether the disconnector is locally conducting.
+    def is_out_of_service(self) -> bool:
+        """Return True when equipment is out of service."""
 
-        A disconnector conducts only when it is both physically
-        closed and in service.
-
-        This is a local equipment-state interpretation.
-
-        The network/topology layer is responsible for applying this
-        state to the derived electrical topology.
-        """
-
-        return self.closed and self.in_service
-
-    # =================================================================
-    # SERVICE STATE
-    # =================================================================
+        return not self.in_service
 
     def put_in_service(self) -> None:
-        """
-        Mark the physical disconnector as in service.
-
-        This changes only local equipment state.
-        """
+        """Place the disconnector in service."""
 
         self.in_service = True
 
     def take_out_of_service(self) -> None:
-        """
-        Mark the physical disconnector as out of service.
-
-        This changes only local equipment state.
-
-        The network layer is responsible for applying the resulting
-        state to the derived topology.
-        """
+        """Remove the disconnector from service."""
 
         self.in_service = False
+
+    # =================================================================
+    # CONDUCTING STATE
+    # =================================================================
+
+    @property
+    def conducts(self) -> bool:
+        """
+        Return the local conducting state.
+
+        A disconnector conducts only when:
+
+            closed == True
+            in_service == True
+
+        This property does not mutate or query the global network
+        topology.
+        """
+
+        return (
+            self.closed
+            and self.in_service
+        )
+
+    # =================================================================
+    # VALIDATION
+    # =================================================================
+
+    def validate_parameters(self) -> bool:
+        """
+        Validate disconnector-local parameters.
+
+        This satisfies the common ElectricalObject validation
+        contract.
+
+        Network-level compatibility and topology are deliberately
+        excluded.
+        """
+
+        self.voltage_kv = self._validate_positive(
+            self.voltage_kv,
+            "voltage_kv",
+        )
+
+        self.rated_current_a = self._validate_positive(
+            self.rated_current_a,
+            "rated_current_a",
+        )
+
+        self.operating_time = self._validate_non_negative(
+            self.operating_time,
+            "operating_time",
+        )
+
+        if not isinstance(
+            self.closed,
+            bool,
+        ):
+            raise ValueError(
+                f"Disconnector '{self.id}' closed state "
+                "must be boolean."
+            )
+
+        if not isinstance(
+            self.in_service,
+            bool,
+        ):
+            raise ValueError(
+                f"Disconnector '{self.id}' in_service state "
+                "must be boolean."
+            )
+
+        if self.from_terminal.owner is not self:
+            raise ValueError(
+                f"Disconnector '{self.id}' from terminal "
+                "ownership is invalid."
+            )
+
+        if self.to_terminal.owner is not self:
+            raise ValueError(
+                f"Disconnector '{self.id}' to terminal "
+                "ownership is invalid."
+            )
+
+        return True
+
+    def validate(self) -> bool:
+        """
+        Validate the complete Disconnector model.
+
+        Topological connectivity is not required for model validity.
+        """
+
+        return super().validate()
 
     # =================================================================
     # DIAGNOSTICS
     # =================================================================
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         """
-        Return structured disconnector information.
+        Return structured disconnector diagnostics.
         """
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": "Disconnector",
+            "type": self.TYPE,
+
+            "from_terminal": self.from_terminal.id,
+            "to_terminal": self.to_terminal.id,
+
             "from_endpoint": (
                 self.from_terminal.endpoint_id
+                if self.from_terminal.is_connected
+                else None
             ),
+
             "to_endpoint": (
                 self.to_terminal.endpoint_id
+                if self.to_terminal.is_connected
+                else None
             ),
-            "from_connected": (
-                self.from_terminal.is_connected
-            ),
-            "to_connected": (
-                self.to_terminal.is_connected
-            ),
-            "voltage_kv": self.voltage_kv,
-            "rated_current_a": self.rated_current_a,
-            "operating_time": self.operating_time,
-            "closed": self.closed,
-            "in_service": self.in_service,
-            "conducts": self.conducts,
+
+            "from_connected":
+                self.from_terminal.is_connected,
+
+            "to_connected":
+                self.to_terminal.is_connected,
+
+            "is_connected":
+                self.is_connected,
+
+            "voltage_kv":
+                self.voltage_kv,
+
+            "rated_current_a":
+                self.rated_current_a,
+
+            "operating_time":
+                self.operating_time,
+
+            "closed":
+                self.closed,
+
+            "open":
+                self.is_open,
+
+            "in_service":
+                self.in_service,
+
+            "conducts":
+                self.conducts,
         }
 
     # =================================================================
@@ -621,11 +509,20 @@ class Disconnector(ElectricalObject):
 
     def __repr__(self) -> str:
         """
-        Return a concise developer-facing representation.
+        Return concise developer-facing representation.
         """
 
-        from_id = self.from_terminal.endpoint_id
-        to_id = self.to_terminal.endpoint_id
+        from_id = (
+            self.from_terminal.endpoint_id
+            if self.from_terminal.is_connected
+            else None
+        )
+
+        to_id = (
+            self.to_terminal.endpoint_id
+            if self.to_terminal.is_connected
+            else None
+        )
 
         return (
             f"<Disconnector "
@@ -638,3 +535,79 @@ class Disconnector(ElectricalObject):
             f"in_service={self.in_service}, "
             f"conducts={self.conducts}>"
         )
+
+    # =================================================================
+    # VALIDATION HELPERS
+    # =================================================================
+
+    @staticmethod
+    def _validate_finite(
+        value: float,
+        name: str,
+    ) -> float:
+        """
+        Convert to float and require a finite value.
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} must be numeric."
+            ) from exc
+
+        if not isfinite(value):
+            raise ValueError(
+                f"{name} must be finite."
+            )
+
+        return value
+
+    @classmethod
+    def _validate_positive(
+        cls,
+        value: float,
+        name: str,
+    ) -> float:
+        """
+        Convert to float and require value > 0.
+        """
+
+        value = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if value <= 0.0:
+            raise ValueError(
+                f"{name} must be greater than zero."
+            )
+
+        return value
+
+    @classmethod
+    def _validate_non_negative(
+        cls,
+        value: float,
+        name: str,
+    ) -> float:
+        """
+        Convert to float and require value >= 0.
+        """
+
+        value = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if value < 0.0:
+            raise ValueError(
+                f"{name} cannot be negative."
+            )
+
+        return value
+
+
+__all__ = [
+    "Disconnector",
+]
