@@ -6,48 +6,106 @@ GridForge V2 Battery Model
 Author:
     Subhendu Mishra
 
-Battery is a bidirectional electrical energy-storage element.
+A Battery is a bidirectional electrical energy-storage element.
+
+The model represents the STATIC electrical equipment state.
 
 Architecture
 ------------
 
     Battery
-      |
-      +-- ElectricalObject
-      +-- Injection
-      +-- Terminal
-      |
-      +-- static electrical operating data
-      +-- energy/SOC data
-      +-- charge/discharge limits
-      +-- optional dynamic-model binding
+    ├── ElectricalObject
+    ├── Injection
+    └── Terminal
+          │
+          └── endpoint
+                │
+                └── network/topology
+
+Battery owns:
+
+    - electrical operating point
+    - active/reactive power capability
+    - nominal voltage/frequency
+    - energy capacity
+    - state of charge
+    - SOC limits
+    - charge/discharge capability
+    - service state
+    - optional dynamic-model binding
+
+Battery does NOT own:
+
+    - network topology
+    - Bus collections
+    - SLD state
+    - Y-bus construction
+    - power-flow solving
+    - short-circuit calculations
+    - protection
+    - inverter control execution
+    - dynamic simulation
+    - GUI state
 
 Power convention
 ----------------
 
-    P > 0  -> battery discharging -> injection into network
-    P < 0  -> battery charging    -> absorption from network
+    P > 0
+        Battery discharges and injects active power into
+        the electrical network.
 
-Battery does NOT own:
+    P < 0
+        Battery charges and absorbs active power from
+        the electrical network.
 
-    - Network topology
-    - Bus collections
-    - SLD state
-    - Y-bus construction
-    - Power-flow solving
-    - Dynamic simulation
-    - Inverter control execution
-    - Protection
-    - UI state
+Dynamic simulation
+------------------
 
-Dynamic battery, converter and inverter behavior belongs to the
-separate Dynamic Model architecture.
+Dynamic behavior is deliberately separated from this model.
+
+A future dynamic architecture may attach a separate model:
+
+    Battery
+       │
+       └── DynamicBatteryModel
+               ├── SOC dynamics
+               ├── converter dynamics
+               ├── inverter controls
+               ├── current controls
+               └── grid-forming/grid-following behavior
+
+The static Battery model must remain valid independently of
+that dynamic architecture.
+
+Units
+-----
+
+    p_mw / q_mvar:
+        MW / MVAr
+
+    energy_capacity_mwh:
+        MWh
+
+    nominal_voltage_kv:
+        kV
+
+    frequency_hz:
+        Hz
+
+    voltage_pu:
+        per-unit
+
+    soc:
+        0.0 ... 1.0
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Any
 
 from .base import ElectricalObject
 from .injection import Injection
@@ -59,66 +117,10 @@ class Battery(ElectricalObject, Injection):
     Static bidirectional battery electrical model.
 
     Positive active power means discharge/injection.
+
     Negative active power means charge/absorption.
 
-    Parameters
-    ----------
-    id:
-        Stable GridForge object identifier.
-
-    name:
-        Human-readable name.
-
-    endpoint:
-        Physical electrical endpoint. May be None.
-
-    p_mw:
-        Current active-power operating point.
-
-    q_mvar:
-        Current reactive-power operating point.
-
-    p_discharge_max_mw:
-        Maximum active power delivered to the network.
-
-    p_charge_max_mw:
-        Maximum active power absorbed from the network.
-
-    q_min_mvar:
-        Minimum reactive-power capability.
-
-    q_max_mvar:
-        Maximum reactive-power capability.
-
-    energy_capacity_mwh:
-        Usable battery energy capacity.
-
-    soc:
-        State of charge in the range 0.0 to 1.0.
-
-    soc_min:
-        Minimum permissible SOC.
-
-    soc_max:
-        Maximum permissible SOC.
-
-    nominal_voltage_kv:
-        Nominal AC voltage.
-
-    frequency_hz:
-        Nominal system frequency.
-
-    voltage_pu:
-        Static operating voltage.
-
-    round_trip_efficiency:
-        Static charge/discharge efficiency representation.
-
-    in_service:
-        Whether the battery is in service.
-
-    bus:
-        Backward-compatible endpoint alias.
+    Connectivity is represented by the Battery's Terminal.
     """
 
     TYPE = "BATTERY"
@@ -129,6 +131,7 @@ class Battery(ElectricalObject, Injection):
         name: str = "",
         *,
         endpoint=None,
+        bus=None,
         p_mw: float = 0.0,
         q_mvar: float = 0.0,
         p_discharge_max_mw: float = 0.0,
@@ -139,35 +142,100 @@ class Battery(ElectricalObject, Injection):
         soc: float = 1.0,
         soc_min: float = 0.0,
         soc_max: float = 1.0,
-        nominal_voltage_kv: float = 0.0,
+        nominal_voltage_kv: float | None = None,
         frequency_hz: float = 50.0,
         voltage_pu: float = 1.0,
         round_trip_efficiency: float = 1.0,
         in_service: bool = True,
-        bus=None,
     ) -> None:
+        """
+        Create a static Battery model.
+
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        name:
+            Human-readable name.
+
+        endpoint:
+            Authoritative physical electrical endpoint.
+
+        bus:
+            Backward-compatible endpoint alias.
+
+        p_mw:
+            Current active-power operating point.
+
+        q_mvar:
+            Current reactive-power operating point.
+
+        p_discharge_max_mw:
+            Maximum active power the battery can inject.
+
+        p_charge_max_mw:
+            Maximum active power the battery can absorb.
+
+        q_min_mvar:
+            Minimum reactive-power capability.
+
+        q_max_mvar:
+            Maximum reactive-power capability.
+
+        energy_capacity_mwh:
+            Usable energy capacity.
+
+        soc:
+            Current state of charge.
+
+        soc_min:
+            Minimum permissible SOC.
+
+        soc_max:
+            Maximum permissible SOC.
+
+        nominal_voltage_kv:
+            Nominal AC voltage.
+
+        frequency_hz:
+            Nominal system frequency.
+
+        voltage_pu:
+            Static operating voltage.
+
+        round_trip_efficiency:
+            Static efficiency representation.
+
+        in_service:
+            Whether the battery is electrically in service.
+        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # ---------------------------------------------------------
-        # Endpoint compatibility
-        # ---------------------------------------------------------
+        # =========================================================
+        # ENDPOINT COMPATIBILITY
+        # =========================================================
 
-        if endpoint is not None and bus is not None and endpoint is not bus:
+        if (
+            endpoint is not None
+            and bus is not None
+            and endpoint is not bus
+        ):
             raise ValueError(
-                f"Battery '{self.id}' received both endpoint and bus "
-                "with different values."
+                f"Battery '{self.id}' received both endpoint and "
+                "bus with different values."
             )
 
         if endpoint is None:
             endpoint = bus
 
-        # ---------------------------------------------------------
-        # Static electrical parameters
-        # ---------------------------------------------------------
+        # =========================================================
+        # ELECTRICAL OPERATING POINT
+        # =========================================================
 
         self.p_mw = self._validate_finite(
             p_mw,
@@ -179,15 +247,27 @@ class Battery(ElectricalObject, Injection):
             "q_mvar",
         )
 
-        self.p_discharge_max_mw = self._validate_non_negative(
-            p_discharge_max_mw,
-            "p_discharge_max_mw",
+        # =========================================================
+        # ACTIVE POWER CAPABILITY
+        # =========================================================
+
+        self.p_discharge_max_mw = (
+            self._validate_non_negative(
+                p_discharge_max_mw,
+                "p_discharge_max_mw",
+            )
         )
 
-        self.p_charge_max_mw = self._validate_non_negative(
-            p_charge_max_mw,
-            "p_charge_max_mw",
+        self.p_charge_max_mw = (
+            self._validate_non_negative(
+                p_charge_max_mw,
+                "p_charge_max_mw",
+            )
         )
+
+        # =========================================================
+        # REACTIVE POWER CAPABILITY
+        # =========================================================
 
         self.q_min_mvar = self._validate_finite(
             q_min_mvar,
@@ -199,13 +279,15 @@ class Battery(ElectricalObject, Injection):
             "q_max_mvar",
         )
 
-        # ---------------------------------------------------------
-        # Energy / SOC parameters
-        # ---------------------------------------------------------
+        # =========================================================
+        # ENERGY / SOC
+        # =========================================================
 
-        self.energy_capacity_mwh = self._validate_non_negative(
-            energy_capacity_mwh,
-            "energy_capacity_mwh",
+        self.energy_capacity_mwh = (
+            self._validate_non_negative(
+                energy_capacity_mwh,
+                "energy_capacity_mwh",
+            )
         )
 
         self.soc_min = self._validate_soc(
@@ -220,7 +302,8 @@ class Battery(ElectricalObject, Injection):
 
         if self.soc_min > self.soc_max:
             raise ValueError(
-                f"Battery '{self.id}' soc_min cannot exceed soc_max."
+                f"Battery '{self.id}' soc_min cannot exceed "
+                "soc_max."
             )
 
         self.soc = self._validate_soc(
@@ -231,21 +314,26 @@ class Battery(ElectricalObject, Injection):
         if not self.soc_min <= self.soc <= self.soc_max:
             raise ValueError(
                 f"Battery '{self.id}' SOC must be between "
-                f"soc_min={self.soc_min} and soc_max={self.soc_max}."
+                f"soc_min={self.soc_min} and "
+                f"soc_max={self.soc_max}."
             )
 
-        self.round_trip_efficiency = self._validate_efficiency(
-            round_trip_efficiency,
-            "round_trip_efficiency",
+        self.round_trip_efficiency = (
+            self._validate_efficiency(
+                round_trip_efficiency,
+                "round_trip_efficiency",
+            )
         )
 
-        # ---------------------------------------------------------
-        # Electrical operating parameters
-        # ---------------------------------------------------------
+        # =========================================================
+        # ELECTRICAL RATING / OPERATING STATE
+        # =========================================================
 
-        self.nominal_voltage_kv = self._validate_non_negative(
-            nominal_voltage_kv,
-            "nominal_voltage_kv",
+        self.nominal_voltage_kv = (
+            self._validate_optional_positive(
+                nominal_voltage_kv,
+                "nominal_voltage_kv",
+            )
         )
 
         self.frequency_hz = self._validate_positive(
@@ -260,24 +348,24 @@ class Battery(ElectricalObject, Injection):
 
         self.in_service = bool(in_service)
 
-        # ---------------------------------------------------------
-        # Physical terminal
-        # ---------------------------------------------------------
+        # =========================================================
+        # PHYSICAL ELECTRICAL TERMINAL
+        # =========================================================
 
         self.terminal = Terminal(
             endpoint=endpoint,
             owner=self,
         )
 
-        # ---------------------------------------------------------
-        # Dynamic model binding
-        # ---------------------------------------------------------
+        # =========================================================
+        # OPTIONAL DYNAMIC MODEL BINDING
+        # =========================================================
 
         self._dynamic_model: Any | None = None
 
-        # ---------------------------------------------------------
-        # Optional engineering extensions
-        # ---------------------------------------------------------
+        # =========================================================
+        # EXTENSIONS
+        # =========================================================
 
         self._extensions: dict[str, Any] = {}
 
@@ -290,6 +378,7 @@ class Battery(ElectricalObject, Injection):
     @property
     def element_type(self) -> str:
         """Return canonical GridForge element type."""
+
         return self.TYPE
 
     # =============================================================
@@ -298,55 +387,69 @@ class Battery(ElectricalObject, Injection):
 
     @property
     def endpoint(self):
-        """Return the authoritative physical endpoint."""
+        """
+        Return the authoritative physical endpoint.
+
+        The Battery does not own network topology.
+        """
+
         return self.terminal.endpoint
 
     @property
     def bus(self):
         """
-        Compatibility accessor.
+        Compatibility accessor for the connected Bus.
 
-        Bus is derived from the terminal and is not authoritative.
+        The Bus is derived from the Terminal and is NOT the
+        authoritative connectivity state.
         """
+
         return self.terminal.bus
 
     @property
     def terminals(self) -> tuple[Terminal, ...]:
         """Return the Battery electrical terminal."""
+
         return (self.terminal,)
 
     @property
     def is_connected(self) -> bool:
-        """Return whether Battery has a physical endpoint."""
+        """Return whether the Battery has an endpoint."""
+
         return self.terminal.is_connected
 
     def connect_endpoint(self, endpoint) -> None:
         """
-        Connect Battery to an electrical endpoint.
+        Connect the Battery terminal to an endpoint.
 
-        Global topology is handled outside this model.
+        Network topology remains outside this model.
         """
+
         self.terminal.connect(endpoint)
 
     def disconnect_endpoint(self) -> None:
-        """Disconnect Battery from its electrical endpoint."""
+        """Disconnect the Battery terminal."""
+
         self.terminal.disconnect()
 
     # =============================================================
-    # OPERATING STATE
+    # SERVICE STATE
     # =============================================================
 
     def connect(self) -> None:
-        """Place Battery in service."""
+        """Place the Battery in service."""
+
         self.in_service = True
 
     def disconnect(self) -> None:
-        """Take Battery out of service."""
+        """Take the Battery out of service."""
+
         self.in_service = False
 
     @property
     def is_available(self) -> bool:
-        """Return whether Battery is in service."""
+        """Return whether the Battery is in service."""
+
         return self.in_service
 
     # =============================================================
@@ -357,11 +460,19 @@ class Battery(ElectricalObject, Injection):
         """
         Return network power injection.
 
+        Returns
+        -------
+        tuple[float, float]
+            (P, Q) in MW / MVAr.
+
+        Sign convention
+        ----------------
+
         P > 0:
-            Battery discharges into the network.
+            discharge / network injection
 
         P < 0:
-            Battery absorbs power from the network.
+            charge / network absorption
         """
 
         if not self.in_service:
@@ -369,16 +480,16 @@ class Battery(ElectricalObject, Injection):
 
         return self.p_mw, self.q_mvar
 
+    # =============================================================
+    # POWER CONTROL
+    # =============================================================
+
     def set_power(
         self,
         p_mw: float,
         q_mvar: float,
     ) -> None:
-        """
-        Set Battery active/reactive power.
-
-        Active power is checked against charge/discharge capability.
-        """
+        """Set active and reactive power."""
 
         p_mw = self._validate_finite(
             p_mw,
@@ -396,40 +507,23 @@ class Battery(ElectricalObject, Injection):
         self.p_mw = p_mw
         self.q_mvar = q_mvar
 
-    # =============================================================
-    # ACTIVE POWER
-    # =============================================================
-
     @property
     def active_power(self) -> float:
         """Return active-power injection."""
+
         return self.p_mw
 
     @property
     def reactive_power(self) -> float:
         """Return reactive-power injection."""
+
         return self.q_mvar
-
-    @property
-    def is_discharging(self) -> bool:
-        """Return True when Battery is injecting active power."""
-        return self.p_mw > 0.0
-
-    @property
-    def is_charging(self) -> bool:
-        """Return True when Battery is absorbing active power."""
-        return self.p_mw < 0.0
-
-    @property
-    def is_idle(self) -> bool:
-        """Return True when active power is zero."""
-        return math.isclose(self.p_mw, 0.0, abs_tol=1e-12)
 
     def set_active_power(
         self,
         p_mw: float,
     ) -> None:
-        """Set active power within charge/discharge capability."""
+        """Set active power within capability."""
 
         p_mw = self._validate_finite(
             p_mw,
@@ -440,58 +534,11 @@ class Battery(ElectricalObject, Injection):
 
         self.p_mw = p_mw
 
-    def set_discharge_limit(
-        self,
-        p_discharge_max_mw: float,
-    ) -> None:
-        """Set maximum discharge power."""
-
-        value = self._validate_non_negative(
-            p_discharge_max_mw,
-            "p_discharge_max_mw",
-        )
-
-        if self.p_mw > value:
-            raise ValueError(
-                f"Battery '{self.id}' current discharge power "
-                f"{self.p_mw} MW exceeds the new limit {value} MW."
-            )
-
-        self.p_discharge_max_mw = value
-
-    def set_charge_limit(
-        self,
-        p_charge_max_mw: float,
-    ) -> None:
-        """Set maximum charging power."""
-
-        value = self._validate_non_negative(
-            p_charge_max_mw,
-            "p_charge_max_mw",
-        )
-
-        if self.p_mw < -value:
-            raise ValueError(
-                f"Battery '{self.id}' current charge power "
-                f"{abs(self.p_mw)} MW exceeds the new limit {value} MW."
-            )
-
-        self.p_charge_max_mw = value
-
-    # =============================================================
-    # REACTIVE POWER
-    # =============================================================
-
-    @property
-    def q_limits(self) -> tuple[float, float]:
-        """Return reactive-power capability limits."""
-        return self.q_min_mvar, self.q_max_mvar
-
     def set_reactive_power(
         self,
         q_mvar: float,
     ) -> None:
-        """Set reactive power within capability limits."""
+        """Set reactive power within capability."""
 
         q_mvar = self._validate_finite(
             q_mvar,
@@ -501,13 +548,96 @@ class Battery(ElectricalObject, Injection):
         self._validate_reactive_power(q_mvar)
 
         self.q_mvar = q_mvar
+
+    # =============================================================
+    # OPERATING MODE
+    # =============================================================
+
+    @property
+    def is_discharging(self) -> bool:
+        """Return True when the Battery is discharging."""
+
+        return self.p_mw > 0.0
+
+    @property
+    def is_charging(self) -> bool:
+        """Return True when the Battery is charging."""
+
+        return self.p_mw < 0.0
+
+    @property
+    def is_idle(self) -> bool:
+        """Return True when active power is effectively zero."""
+
+        return math.isclose(
+            self.p_mw,
+            0.0,
+            abs_tol=1e-12,
+        )
+
+    # =============================================================
+    # ACTIVE POWER LIMITS
+    # =============================================================
+
+    def set_discharge_limit(
+        self,
+        value_mw: float,
+    ) -> None:
+        """Set maximum discharge power."""
+
+        value_mw = self._validate_non_negative(
+            value_mw,
+            "p_discharge_max_mw",
+        )
+
+        if self.p_mw > value_mw:
+            raise ValueError(
+                f"Battery '{self.id}' current discharge "
+                f"power {self.p_mw} MW exceeds the new "
+                f"limit {value_mw} MW."
+            )
+
+        self.p_discharge_max_mw = value_mw
+
+    def set_charge_limit(
+        self,
+        value_mw: float,
+    ) -> None:
+        """Set maximum charging power."""
+
+        value_mw = self._validate_non_negative(
+            value_mw,
+            "p_charge_max_mw",
+        )
+
+        if self.p_mw < -value_mw:
+            raise ValueError(
+                f"Battery '{self.id}' current charging "
+                f"power {abs(self.p_mw)} MW exceeds the "
+                f"new limit {value_mw} MW."
+            )
+
+        self.p_charge_max_mw = value_mw
+
+    # =============================================================
+    # REACTIVE POWER LIMITS
+    # =============================================================
+
+    @property
+    def q_limits(self) -> tuple[float, float]:
+        """Return reactive-power capability limits."""
+
+        return (
+            self.q_min_mvar,
+            self.q_max_mvar,
+        )
 
     def set_q_limits(
         self,
         q_min_mvar: float,
         q_max_mvar: float,
     ) -> None:
-        """Set reactive-power capability."""
+        """Set reactive-power capability limits."""
 
         q_min_mvar = self._validate_finite(
             q_min_mvar,
@@ -526,8 +656,8 @@ class Battery(ElectricalObject, Injection):
 
         if not q_min_mvar <= self.q_mvar <= q_max_mvar:
             raise ValueError(
-                f"Battery '{self.id}' current Q={self.q_mvar} MVAr "
-                "would violate the new Q limits."
+                f"Battery '{self.id}' current Q={self.q_mvar} "
+                "MVAr would violate the new Q limits."
             )
 
         self.q_min_mvar = q_min_mvar
@@ -540,20 +670,35 @@ class Battery(ElectricalObject, Injection):
     @property
     def available_energy_mwh(self) -> float:
         """Return current stored energy."""
-        return self.energy_capacity_mwh * self.soc
+
+        return (
+            self.energy_capacity_mwh
+            * self.soc
+        )
 
     @property
     def minimum_energy_mwh(self) -> float:
         """Return energy corresponding to minimum SOC."""
-        return self.energy_capacity_mwh * self.soc_min
+
+        return (
+            self.energy_capacity_mwh
+            * self.soc_min
+        )
 
     @property
     def maximum_energy_mwh(self) -> float:
         """Return energy corresponding to maximum SOC."""
-        return self.energy_capacity_mwh * self.soc_max
 
-    def set_soc(self, soc: float) -> None:
-        """Set battery state of charge."""
+        return (
+            self.energy_capacity_mwh
+            * self.soc_max
+        )
+
+    def set_soc(
+        self,
+        soc: float,
+    ) -> None:
+        """Set state of charge."""
 
         soc = self._validate_soc(
             soc,
@@ -587,7 +732,8 @@ class Battery(ElectricalObject, Injection):
 
         if soc_min > soc_max:
             raise ValueError(
-                f"Battery '{self.id}' soc_min cannot exceed soc_max."
+                f"Battery '{self.id}' soc_min cannot exceed "
+                "soc_max."
             )
 
         if not soc_min <= self.soc <= soc_max:
@@ -600,17 +746,29 @@ class Battery(ElectricalObject, Injection):
         self.soc_max = soc_max
 
     # =============================================================
-    # VOLTAGE
+    # ELECTRICAL OPERATING PARAMETERS
     # =============================================================
 
     def set_voltage(
         self,
         voltage_pu: float,
     ) -> None:
-        """Set static operating voltage."""
+        """Set static operating voltage in per-unit."""
+
         self.voltage_pu = self._validate_positive(
             voltage_pu,
             "voltage_pu",
+        )
+
+    def set_frequency(
+        self,
+        frequency_hz: float,
+    ) -> None:
+        """Set nominal operating frequency."""
+
+        self.frequency_hz = self._validate_positive(
+            frequency_hz,
+            "frequency_hz",
         )
 
     # =============================================================
@@ -620,95 +778,96 @@ class Battery(ElectricalObject, Injection):
     @property
     def dynamic_model(self) -> Any | None:
         """
-        Return the associated dynamic model reference.
+        Return the optional dynamic-model binding.
 
-        The Battery does not execute this model.
+        The Battery itself does not execute the dynamic model.
         """
+
         return self._dynamic_model
 
-    def bind_dynamic_model(
+    def attach_dynamic_model(
         self,
-        model: Any,
+        dynamic_model: Any,
     ) -> None:
         """
-        Bind a dynamic battery/converter model.
+        Attach an external dynamic-model object.
 
-        Dynamic simulation belongs to the simulation/dynamics layer.
+        The supplied object is stored only as a reference.
+
+        Dynamic simulation remains the responsibility of the
+        simulation layer.
         """
-        if model is None:
+
+        if dynamic_model is None:
             raise ValueError(
-                "Dynamic model cannot be None."
+                "dynamic_model cannot be None."
             )
 
-        self._dynamic_model = model
+        self._dynamic_model = dynamic_model
 
-    def unbind_dynamic_model(self) -> Any | None:
-        """Remove and return the dynamic model."""
-        model = self._dynamic_model
+    def detach_dynamic_model(self) -> Any | None:
+        """
+        Detach and return the current dynamic model.
+        """
+
+        dynamic_model = self._dynamic_model
         self._dynamic_model = None
-        return model
 
-    @property
-    def has_dynamic_model(self) -> bool:
-        """Return whether a dynamic model is bound."""
-        return self._dynamic_model is not None
+        return dynamic_model
 
     # =============================================================
     # EXTENSIONS
     # =============================================================
 
-    def register_extension(
+    def set_extension(
         self,
-        extension_id: str,
-        extension: Any,
+        key: str,
+        value: Any,
     ) -> None:
-        """Register an optional engineering extension."""
+        """
+        Store an optional engineering extension.
 
-        if not isinstance(extension_id, str):
-            raise TypeError(
-                "extension_id must be a string."
-            )
+        Extensions are metadata only. They do not modify the
+        electrical topology.
+        """
 
-        extension_id = extension_id.strip()
-
-        if not extension_id:
+        if not isinstance(key, str) or not key.strip():
             raise ValueError(
-                "extension_id cannot be empty."
+                "Extension key must be a non-empty string."
             )
 
-        if extension is None:
-            raise ValueError(
-                "extension cannot be None."
-            )
-
-        if extension_id in self._extensions:
-            raise ValueError(
-                f"Extension '{extension_id}' is already registered."
-            )
-
-        self._extensions[extension_id] = extension
+        self._extensions[key] = value
 
     def get_extension(
         self,
-        extension_id: str,
-    ) -> Any | None:
-        """Return an extension, or None."""
-        return self._extensions.get(extension_id)
+        key: str,
+        default: Any = None,
+    ) -> Any:
+        """Return an extension value."""
+
+        return self._extensions.get(
+            key,
+            default,
+        )
 
     def remove_extension(
         self,
-        extension_id: str,
-    ) -> Any | None:
-        """Remove and return an extension."""
+        key: str,
+    ) -> Any:
+        """Remove and return an extension value."""
+
         return self._extensions.pop(
-            extension_id,
+            key,
             None,
         )
 
     @property
-    def extension_ids(self) -> tuple[str, ...]:
-        """Return registered extension identifiers."""
-        return tuple(self._extensions.keys())
+    def extensions(self) -> dict[str, Any]:
+        """
+        Return a copy of engineering extensions.
+        """
+
+        return dict(self._extensions)
 
     # =============================================================
     # VALIDATION
@@ -716,146 +875,267 @@ class Battery(ElectricalObject, Injection):
 
     def validate_parameters(self) -> bool:
         """
-        Validate Battery-local engineering invariants.
+        Validate Battery-local engineering parameters.
 
-        This does not validate network topology.
+        This does not validate:
+
+            - network topology
+            - connected Bus
+            - power-flow convergence
+            - protection
+            - dynamic simulation
         """
 
-        if self.p_discharge_max_mw < 0.0:
-            raise ValueError(
-                "Discharge limit cannot be negative."
-            )
+        self.p_mw = self._validate_finite(
+            self.p_mw,
+            "p_mw",
+        )
 
-        if self.p_charge_max_mw < 0.0:
-            raise ValueError(
-                "Charge limit cannot be negative."
+        self.q_mvar = self._validate_finite(
+            self.q_mvar,
+            "q_mvar",
+        )
+
+        self.p_discharge_max_mw = (
+            self._validate_non_negative(
+                self.p_discharge_max_mw,
+                "p_discharge_max_mw",
             )
+        )
+
+        self.p_charge_max_mw = (
+            self._validate_non_negative(
+                self.p_charge_max_mw,
+                "p_charge_max_mw",
+            )
+        )
+
+        self.q_min_mvar = self._validate_finite(
+            self.q_min_mvar,
+            "q_min_mvar",
+        )
+
+        self.q_max_mvar = self._validate_finite(
+            self.q_max_mvar,
+            "q_max_mvar",
+        )
 
         if self.q_min_mvar > self.q_max_mvar:
             raise ValueError(
-                f"Battery '{self.id}' Qmin cannot exceed Qmax."
+                f"Battery '{self.id}' q_min_mvar cannot "
+                "exceed q_max_mvar."
             )
 
-        if not (
-            self.q_min_mvar
-            <= self.q_mvar
-            <= self.q_max_mvar
-        ):
-            raise ValueError(
-                f"Battery '{self.id}' reactive power is outside "
-                "its capability limits."
+        self.energy_capacity_mwh = (
+            self._validate_non_negative(
+                self.energy_capacity_mwh,
+                "energy_capacity_mwh",
             )
+        )
+
+        self.soc_min = self._validate_soc(
+            self.soc_min,
+            "soc_min",
+        )
+
+        self.soc_max = self._validate_soc(
+            self.soc_max,
+            "soc_max",
+        )
+
+        if self.soc_min > self.soc_max:
+            raise ValueError(
+                f"Battery '{self.id}' soc_min cannot "
+                "exceed soc_max."
+            )
+
+        self.soc = self._validate_soc(
+            self.soc,
+            "soc",
+        )
+
+        if not self.soc_min <= self.soc <= self.soc_max:
+            raise ValueError(
+                f"Battery '{self.id}' SOC must be between "
+                f"soc_min={self.soc_min} and "
+                f"soc_max={self.soc_max}."
+            )
+
+        self.nominal_voltage_kv = (
+            self._validate_optional_positive(
+                self.nominal_voltage_kv,
+                "nominal_voltage_kv",
+            )
+        )
+
+        self.frequency_hz = self._validate_positive(
+            self.frequency_hz,
+            "frequency_hz",
+        )
+
+        self.voltage_pu = self._validate_positive(
+            self.voltage_pu,
+            "voltage_pu",
+        )
+
+        self.round_trip_efficiency = (
+            self._validate_efficiency(
+                self.round_trip_efficiency,
+                "round_trip_efficiency",
+            )
+        )
 
         self._validate_active_power(
             self.p_mw,
         )
 
-        if not self.soc_min <= self.soc <= self.soc_max:
-            raise ValueError(
-                f"Battery '{self.id}' SOC is outside its limits."
-            )
+        self._validate_reactive_power(
+            self.q_mvar,
+        )
 
         return True
+
+    def validate(self) -> bool:
+        """Public Battery validation entry point."""
+
+        return self.validate_parameters()
 
     # =============================================================
     # DIAGNOSTICS
     # =============================================================
 
     def summary(self) -> dict[str, Any]:
-        """Return a diagnostic summary."""
+        """Return structured Battery diagnostics."""
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
+
+            "endpoint": self.endpoint,
+            "connected": self.is_connected,
+
+            "in_service": self.in_service,
+
             "p_mw": self.p_mw,
             "q_mvar": self.q_mvar,
-            "p_discharge_max_mw": self.p_discharge_max_mw,
-            "p_charge_max_mw": self.p_charge_max_mw,
-            "q_min_mvar": self.q_min_mvar,
-            "q_max_mvar": self.q_max_mvar,
-            "energy_capacity_mwh": self.energy_capacity_mwh,
+
+            "p_discharge_max_mw":
+                self.p_discharge_max_mw,
+
+            "p_charge_max_mw":
+                self.p_charge_max_mw,
+
+            "q_min_mvar":
+                self.q_min_mvar,
+
+            "q_max_mvar":
+                self.q_max_mvar,
+
+            "energy_capacity_mwh":
+                self.energy_capacity_mwh,
+
             "soc": self.soc,
             "soc_min": self.soc_min,
             "soc_max": self.soc_max,
-            "available_energy_mwh": self.available_energy_mwh,
-            "nominal_voltage_kv": self.nominal_voltage_kv,
-            "frequency_hz": self.frequency_hz,
-            "voltage_pu": self.voltage_pu,
-            "in_service": self.in_service,
-            "is_charging": self.is_charging,
-            "is_discharging": self.is_discharging,
-            "endpoint": self.endpoint,
-            "is_connected": self.is_connected,
-            "has_dynamic_model": self.has_dynamic_model,
-            "extensions": self.extension_ids,
+
+            "available_energy_mwh":
+                self.available_energy_mwh,
+
+            "nominal_voltage_kv":
+                self.nominal_voltage_kv,
+
+            "frequency_hz":
+                self.frequency_hz,
+
+            "voltage_pu":
+                self.voltage_pu,
+
+            "round_trip_efficiency":
+                self.round_trip_efficiency,
+
+            "dynamic_model_attached":
+                self._dynamic_model is not None,
         }
 
     # =============================================================
-    # PRIVATE VALIDATION
+    # REPRESENTATION
+    # =============================================================
+
+    def __repr__(self) -> str:
+        """Return concise developer-facing representation."""
+
+        return (
+            f"<Battery "
+            f"id={self.id}, "
+            f"P={self.p_mw:.6f} MW, "
+            f"Q={self.q_mvar:.6f} MVAr, "
+            f"SOC={self.soc:.4f}, "
+            f"in_service={self.in_service}>"
+        )
+
+    # =============================================================
+    # INTERNAL VALIDATION
     # =============================================================
 
     def _validate_active_power(
         self,
         p_mw: float,
     ) -> None:
-        """
-        Validate bidirectional active-power capability.
-
-        Positive:
-            discharge
-
-        Negative:
-            charge
-        """
+        """Validate active power against charge/discharge limits."""
 
         if p_mw > self.p_discharge_max_mw:
             raise ValueError(
-                f"Battery '{self.id}' active power {p_mw} MW "
-                f"exceeds discharge limit "
+                f"Battery '{self.id}' active power "
+                f"{p_mw} MW exceeds discharge limit "
                 f"{self.p_discharge_max_mw} MW."
             )
 
         if p_mw < -self.p_charge_max_mw:
             raise ValueError(
-                f"Battery '{self.id}' charging power "
-                f"{abs(p_mw)} MW exceeds charge limit "
-                f"{self.p_charge_max_mw} MW."
+                f"Battery '{self.id}' active power "
+                f"{p_mw} MW exceeds charge limit "
+                f"-{self.p_charge_max_mw} MW."
             )
 
-        # Static SOC guard.
-        #
-        # Detailed SOC/time/efficiency behavior belongs to the
-        # dynamic/storage simulation layer.
-        if p_mw > 0.0 and self.soc <= self.soc_min:
-            raise ValueError(
-                f"Battery '{self.id}' cannot discharge below "
-                "minimum SOC."
-            )
+        # Static SOC boundary checks.
+        if self.energy_capacity_mwh > 0.0:
 
-        if p_mw < 0.0 and self.soc >= self.soc_max:
-            raise ValueError(
-                f"Battery '{self.id}' cannot charge above "
-                "maximum SOC."
-            )
+            if (
+                p_mw > 0.0
+                and self.soc <= self.soc_min
+            ):
+                raise ValueError(
+                    f"Battery '{self.id}' cannot discharge "
+                    "below soc_min."
+                )
+
+            if (
+                p_mw < 0.0
+                and self.soc >= self.soc_max
+            ):
+                raise ValueError(
+                    f"Battery '{self.id}' cannot charge "
+                    "above soc_max."
+                )
 
     def _validate_reactive_power(
         self,
         q_mvar: float,
     ) -> None:
+        """Validate reactive power against capability limits."""
 
-        if q_mvar < self.q_min_mvar:
+        if not (
+            self.q_min_mvar
+            <= q_mvar
+            <= self.q_max_mvar
+        ):
             raise ValueError(
                 f"Battery '{self.id}' reactive power "
-                f"{q_mvar} MVAr is below Qmin "
-                f"{self.q_min_mvar} MVAr."
-            )
-
-        if q_mvar > self.q_max_mvar:
-            raise ValueError(
-                f"Battery '{self.id}' reactive power "
-                f"{q_mvar} MVAr exceeds Qmax "
-                f"{self.q_max_mvar} MVAr."
+                f"{q_mvar} MVAr is outside the capability "
+                f"range "
+                f"[{self.q_min_mvar}, "
+                f"{self.q_max_mvar}] MVAr."
             )
 
     @staticmethod
@@ -863,7 +1143,14 @@ class Battery(ElectricalObject, Injection):
         value: float,
         name: str,
     ) -> float:
-        value = float(value)
+        """Return a finite floating-point value."""
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{name} must be numeric."
+            ) from exc
 
         if not math.isfinite(value):
             raise ValueError(
@@ -872,59 +1159,99 @@ class Battery(ElectricalObject, Injection):
 
         return value
 
-    @staticmethod
-    def _validate_positive(
-        value: float,
-        name: str,
-    ) -> float:
-        value = float(value)
-
-        if not math.isfinite(value) or value <= 0.0:
-            raise ValueError(
-                f"{name} must be finite and greater than zero."
-            )
-
-        return value
-
-    @staticmethod
+    @classmethod
     def _validate_non_negative(
+        cls,
         value: float,
         name: str,
     ) -> float:
-        value = float(value)
+        """Return a finite non-negative value."""
 
-        if not math.isfinite(value) or value < 0.0:
+        value = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if value < 0.0:
             raise ValueError(
-                f"{name} must be finite and non-negative."
+                f"{name} cannot be negative."
             )
 
         return value
 
-    @staticmethod
+    @classmethod
+    def _validate_positive(
+        cls,
+        value: float,
+        name: str,
+    ) -> float:
+        """Return a finite positive value."""
+
+        value = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if value <= 0.0:
+            raise ValueError(
+                f"{name} must be greater than zero."
+            )
+
+        return value
+
+    @classmethod
+    def _validate_optional_positive(
+        cls,
+        value: float | None,
+        name: str,
+    ) -> float | None:
+        """Validate an optional positive value."""
+
+        if value is None:
+            return None
+
+        return cls._validate_positive(
+            value,
+            name,
+        )
+
+    @classmethod
     def _validate_soc(
+        cls,
         value: float,
         name: str,
     ) -> float:
-        value = float(value)
+        """Validate SOC in the range 0.0 ... 1.0."""
 
-        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        value = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if not 0.0 <= value <= 1.0:
             raise ValueError(
-                f"{name} must be finite and between 0.0 and 1.0."
+                f"{name} must be between 0.0 and 1.0."
             )
 
         return value
 
-    @staticmethod
+    @classmethod
     def _validate_efficiency(
+        cls,
         value: float,
         name: str,
     ) -> float:
-        value = float(value)
+        """Validate efficiency in the range (0.0, 1.0]."""
 
-        if not math.isfinite(value) or not 0.0 < value <= 1.0:
+        value = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if not 0.0 < value <= 1.0:
             raise ValueError(
-                f"{name} must be greater than 0.0 and "
-                "less than or equal to 1.0."
+                f"{name} must be greater than 0.0 "
+                "and less than or equal to 1.0."
             )
 
         return value
