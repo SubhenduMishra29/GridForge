@@ -1,202 +1,134 @@
 # core/model/terminal.py
-
 """
-GridForge Terminal Model
-========================
+GridForge V2 Terminal Model
+===========================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
 Defines the physical electrical Terminal abstraction used by
 GridForge equipment models.
 
 Architecture
 ------------
-A Terminal represents a physical electrical connection point belonging
-to an electrical equipment model.
+
+A Terminal represents a local physical connection point belonging
+to an equipment model.
+
+    Equipment
+        |
+     Terminal
+        |
+     endpoint
+        |
+        +---- Bus
+        |
+        +---- Terminal
 
 The Terminal is NOT the global network topology.
 
-A Terminal identifies a local connection point of equipment. The
-network layer remains responsible for determining and maintaining
-global electrical topology.
-
-Examples
---------
-Load:
-
-    Load
-      |
-    Terminal
-      |
-      +---- Network topology ---- Bus
-
-Breaker:
-
-    Breaker
-    |      |
-    from   to
-    terminal terminal
-
-    Bus -- Breaker -- Load
-
-Line:
-
-    Line
-    |    |
-    from to
-
-    Bus -- Line -- Bus
-
-Transformer:
-
-    Transformer
-    |          |
-    from       to
-
-    Bus -- Transformer -- Bus
-
 Responsibilities
 ----------------
+
 The Terminal:
 
-- Represents a physical electrical connection point.
-- Stores its owning equipment object when provided.
-- Stores its local connection endpoint.
-- Provides connection state.
-- Provides local connection validation.
-- Provides connection diagnostics.
-- Provides compatibility access to a connected Bus.
+    - represents one local equipment connection point;
+    - stores its owning equipment;
+    - stores its local connection endpoint;
+    - stores an optional local terminal role;
+    - provides connection state;
+    - provides local endpoint validation;
+    - provides connection diagnostics;
+    - provides compatibility access to a connected Bus-like object.
 
 The Terminal does NOT:
 
-- Build global network topology.
-- Register itself with the network.
-- Modify the network graph.
-- Determine global electrical connectivity.
-- Build Y-bus matrices.
-- Calculate electrical quantities.
-- Perform load-flow calculations.
-- Perform short-circuit calculations.
-- Perform protection calculations.
-- Perform dynamic simulation.
-- Manage GUI objects.
+    - build global network topology;
+    - register itself with the network;
+    - modify the network graph;
+    - determine global electrical connectivity;
+    - build Y-bus matrices;
+    - perform load-flow calculations;
+    - perform short-circuit calculations;
+    - perform protection calculations;
+    - perform dynamic simulation;
+    - manage GUI objects.
 
 Those responsibilities belong to the appropriate GridForge layers.
 
-Ownership
----------
-A Terminal belongs to an equipment model.
+Identity
+--------
 
-Examples:
+A Terminal is not an independent equipment object.
 
-    Load
-      |
-    terminal
+It therefore does NOT inherit from ElectricalObject.
 
-    Breaker
-    |      |
-    from   to
-    terminal terminal
+A Terminal may optionally have a local role such as:
 
-    Line
-    |    |
-    from to
-    terminal terminal
+    P1
+    P2
+    S1
+    S2
+    H1
+    H2
+    X1
+    X2
+    from
+    to
 
-The owner is local model information.
+The equipment remains the owner of the Terminal.
 
-The Terminal does not register itself with the owner or network.
+The optional role is descriptive interface information and is not
+a globally unique model identifier.
 
 Connection Model
 ----------------
-A Terminal contains a local connection endpoint.
 
-The endpoint may represent:
-
-- a Bus-like object;
-- another Terminal.
-
-This allows physical equipment connections such as:
-
-    Bus -- Breaker -- Load
-
-without making the Breaker directly own or manipulate global
-network topology.
-
-The network layer remains responsible for validating complete
-network connections and constructing the global topology.
-
-Bus Compatibility
------------------
-Historically GridForge terminals were Bus-specific.
-
-For compatibility with existing Model/Network interfaces, the
-Terminal provides:
-
-    terminal.bus
-
-This property returns the connected Bus when the endpoint is
-Bus-like.
-
-If the endpoint is another Terminal, ``terminal.bus`` follows the
-terminal connection when possible.
-
-The authoritative local connection reference remains:
+The authoritative local connection reference is:
 
     terminal.endpoint
 
-The Terminal deliberately does not import the concrete Bus class.
+The endpoint may be:
+
+    - a Bus-like object;
+    - another Terminal.
+
+Terminal.connect() modifies only this local reference.
+
+The network layer remains responsible for determining whether the
+connection is electrically legal and for maintaining global
+topology.
+
+Bus Compatibility
+-----------------
+
+For compatibility with existing GridForge interfaces:
+
+    terminal.bus
+
+returns the Bus-like endpoint when available.
+
+If the endpoint is another Terminal, the terminal chain is followed
+when possible.
+
+Cycle detection prevents recursive terminal connections from
+causing infinite traversal.
 
 Validation
 ----------
-The Terminal validates only the local endpoint contract.
 
-An endpoint must expose a non-empty string ``id`` attribute.
+Terminal validation is local only.
 
-A Terminal may connect directly to another Terminal.
+The owner, when present, must expose:
 
-The Terminal does not determine whether a connection is electrically
-legal. That belongs to ``core/network``.
+    owner.id
 
-Disconnection
--------------
-A Terminal may be locally disconnected:
+The endpoint, when present, must expose:
 
-    terminal.disconnect()
+    endpoint.id
 
-A disconnected Terminal has:
-
-    endpoint = None
-
-This modifies only the local model reference.
-
-GridForge V2 Status
--------------------
-This module is part of the GridForge Model Layer V2 baseline.
-
-This revision replaces the original Bus-only Terminal abstraction.
-
-The generalized terminal architecture supports physical switching
-equipment and general equipment connection points while preserving
-the separation between:
-
-    core/model
-        physical equipment state
-
-    core/network
-        global electrical topology
-
-    core/solver
-        numerical computation
-
-    core/analysis
-        study interfaces
-
-    core/protection
-        protection logic
-
-    core/simulation
-        time-domain/event execution
+The Terminal does not validate electrical compatibility. That is
+the responsibility of core/network.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -204,10 +136,13 @@ All Rights Reserved.
 
 from __future__ import annotations
 
+from typing import Any
+
 
 # =====================================================================
 # TERMINAL
 # =====================================================================
+
 
 class Terminal:
     """
@@ -215,55 +150,89 @@ class Terminal:
 
     Parameters
     ----------
-    endpoint :
-        Local electrical connection endpoint.
+    endpoint:
+        Initial local connection endpoint.
 
-        The endpoint may be a Bus-like object or another Terminal.
-
-    owner :
+    owner:
         Optional owning equipment object.
 
-        The owner is local model information and is not registered
-        automatically with the network.
+    role:
+        Optional local terminal role, for example ``P1``, ``H1``,
+        ``from``, or ``to``.
     """
 
     def __init__(
         self,
-        endpoint=None,
-        owner=None,
+        endpoint: Any = None,
+        owner: Any = None,
+        role: str | None = None,
     ) -> None:
         """
         Create a GridForge Terminal.
 
-        Parameters
-        ----------
-        endpoint :
-            Initial local connection endpoint.
-
-        owner :
-            Equipment object owning this Terminal.
-
-        Notes
-        -----
         ``endpoint`` may be None when creating a disconnected
-        Terminal.
+        terminal.
         """
 
         if owner is not None:
             self._validate_owner(owner)
 
+        role = self._normalize_role(role)
+
         if endpoint is not None:
             self._validate_endpoint(endpoint)
 
         self.owner = owner
+        self.role = role
         self.endpoint = endpoint
+
+        self.validate()
+
+    # =================================================================
+    # ROLE
+    # =================================================================
+
+    @staticmethod
+    def _normalize_role(
+        role: str | None,
+    ) -> str | None:
+        """
+        Normalize an optional terminal role.
+        """
+
+        if role is None:
+            return None
+
+        if not isinstance(role, str):
+            raise TypeError(
+                "Terminal role must be a string or None."
+            )
+
+        role = role.strip()
+
+        if not role:
+            return None
+
+        return role
+
+    @property
+    def terminal_role(self) -> str | None:
+        """
+        Return the local terminal role.
+
+        This is an alias for ``role``.
+        """
+
+        return self.role
 
     # =================================================================
     # VALIDATION
     # =================================================================
 
     @staticmethod
-    def _validate_owner(owner) -> None:
+    def _validate_owner(
+        owner: Any,
+    ) -> None:
         """
         Validate the minimum owner contract.
 
@@ -272,11 +241,14 @@ class Terminal:
 
         if not hasattr(owner, "id"):
             raise TypeError(
-                "Terminal owner requires an object with an "
-                "'id' attribute."
+                "Terminal owner requires an object with "
+                "an 'id' attribute."
             )
 
-        owner_id = getattr(owner, "id")
+        owner_id = getattr(
+            owner,
+            "id",
+        )
 
         if not isinstance(owner_id, str):
             raise TypeError(
@@ -289,28 +261,34 @@ class Terminal:
             )
 
     @staticmethod
-    def _validate_endpoint(endpoint) -> None:
+    def _validate_endpoint(
+        endpoint: Any,
+    ) -> None:
         """
         Validate the minimum local endpoint contract.
 
         An endpoint must expose a non-empty string ``id`` attribute.
 
-        Concrete endpoint compatibility is deliberately not validated
-        here because that is a network/topology responsibility.
+        Concrete electrical compatibility is deliberately not
+        validated here because that belongs to core/network.
         """
 
         if endpoint is None:
             raise ValueError(
-                "Terminal endpoint cannot be None during connection."
+                "Terminal endpoint cannot be None during "
+                "connection."
             )
 
         if not hasattr(endpoint, "id"):
             raise TypeError(
-                "Terminal endpoint requires an object with an "
-                "'id' attribute."
+                "Terminal endpoint requires an object with "
+                "an 'id' attribute."
             )
 
-        endpoint_id = getattr(endpoint, "id")
+        endpoint_id = getattr(
+            endpoint,
+            "id",
+        )
 
         if not isinstance(endpoint_id, str):
             raise TypeError(
@@ -322,11 +300,60 @@ class Terminal:
                 "Terminal endpoint cannot have an empty ID."
             )
 
+    def validate_parameters(self) -> bool:
+        """
+        Validate Terminal-local parameters.
+
+        This validates only:
+
+            - owner contract;
+            - role;
+            - endpoint contract.
+
+        It does not validate electrical topology.
+        """
+
+        if self.owner is not None:
+            self._validate_owner(
+                self.owner,
+            )
+
+        if self.role is not None:
+            if not isinstance(
+                self.role,
+                str,
+            ):
+                raise TypeError(
+                    "Terminal role must be a string or None."
+                )
+
+            if not self.role.strip():
+                raise ValueError(
+                    "Terminal role cannot be empty."
+                )
+
+        if self.endpoint is not None:
+            self._validate_endpoint(
+                self.endpoint,
+            )
+
+        return True
+
+    def validate(self) -> bool:
+        """
+        Public Terminal validation entry point.
+        """
+
+        return self.validate_parameters()
+
     # =================================================================
     # CONNECTION
     # =================================================================
 
-    def connect(self, endpoint) -> None:
+    def connect(
+        self,
+        endpoint: Any,
+    ) -> None:
         """
         Connect this Terminal to an electrical endpoint.
 
@@ -334,16 +361,20 @@ class Terminal:
 
         It does NOT:
 
-        - modify global topology;
-        - register the terminal;
-        - update the network graph;
-        - rebuild Y-bus;
-        - update solver structures.
+            - modify global topology;
+            - register the terminal;
+            - update the network graph;
+            - rebuild Y-bus;
+            - update solver structures.
         """
 
-        self._validate_endpoint(endpoint)
+        self._validate_endpoint(
+            endpoint,
+        )
 
         self.endpoint = endpoint
+
+        self.validate()
 
     # =================================================================
     # DISCONNECTION
@@ -375,26 +406,20 @@ class Terminal:
     # =================================================================
 
     @property
-    def bus(self):
+    def bus(self) -> Any:
         """
-        Return the Bus associated with this Terminal when available.
+        Return the Bus-like object associated with this Terminal.
 
-        Returns
-        -------
-        object or None
-            Connected Bus-like object, or None.
+        If the endpoint is another Terminal, follow the local terminal
+        chain until a non-Terminal endpoint is reached.
 
-        Notes
-        -----
-        This is a compatibility accessor for existing GridForge code.
+        Cyclic terminal connections return None.
 
-        It is derived from ``endpoint``.
+        This is a compatibility accessor only.
 
-        If the endpoint is another Terminal, the terminal chain is
-        followed until a non-Terminal endpoint is reached.
+        The authoritative local connection remains:
 
-        A cyclic Terminal connection returns None rather than entering
-        infinite recursion.
+            terminal.endpoint
         """
 
         endpoint = self.endpoint
@@ -404,18 +429,23 @@ class Terminal:
 
         visited: set[int] = set()
 
-        while isinstance(endpoint, Terminal):
-            object_id = id(endpoint)
+        while isinstance(
+            endpoint,
+            Terminal,
+        ):
+            object_identity = id(endpoint)
 
-            if object_id in visited:
+            if object_identity in visited:
                 return None
 
-            visited.add(object_id)
-
-            if endpoint.endpoint is None:
-                return None
+            visited.add(
+                object_identity,
+            )
 
             endpoint = endpoint.endpoint
+
+            if endpoint is None:
+                return None
 
         return endpoint
 
@@ -453,7 +483,7 @@ class Terminal:
     # DIAGNOSTICS
     # =================================================================
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         """
         Return structured Terminal information.
         """
@@ -462,6 +492,7 @@ class Terminal:
 
         return {
             "owner": self.owner_id,
+            "role": self.role,
             "endpoint": self.endpoint_id,
             "connected": self.is_connected,
             "bus": (
@@ -483,5 +514,11 @@ class Terminal:
         return (
             f"<Terminal "
             f"owner={self.owner_id}, "
+            f"role={self.role!r}, "
             f"endpoint={self.endpoint_id}>"
         )
+
+
+__all__ = [
+    "Terminal",
+]
