@@ -328,6 +328,13 @@ class CommandManager:
                 },
             )
 
+        # A handler may return an ApplicationResult.failure(...)
+        # for an expected domain/application failure. Preserve that
+        # result for the caller, but never place the failed command
+        # into Application history.
+        if not result.success:
+            return result
+
         # History is updated ONLY after successful execution.
         self._history.record(
             command,
