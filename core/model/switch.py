@@ -1,4 +1,4 @@
-# core/model/switch.py
+```python
 """
 GridForge V2 Generic Switch Model
 =================================
@@ -11,66 +11,50 @@ File:
 
 Purpose
 -------
-Defines the canonical GridForge V2 generic electrical switch model.
+Defines the canonical GridForge V2 generic two-terminal switching
+element.
 
-Architectural role
-------------------
-Switch is a fundamental two-terminal switching element.
+Architectural boundary
+----------------------
+Switch is a Core domain object.
 
-It represents the electrical/domain state of a controllable conductive
-path without prescribing the specialized behavior of a breaker,
-disconnector, or fuse.
-
-The model owns:
+It owns:
 
     - persistent identity
-    - two authoritative electrical terminals
+    - two electrical terminals
     - open/closed state
     - service state
-    - nominal electrical metadata
-    - local validation
+    - normal operating-state metadata
+    - basic electrical ratings
 
-The model does NOT own:
+It does NOT own:
 
-    - global network topology
+    - network topology
     - graph state
     - connection routing
     - SLD geometry
     - rendering
-    - protection algorithms
-    - fault interruption logic
+    - numerical admittance/impedance representation
+    - power-flow solving
+    - short-circuit solving
+    - protection logic
     - relay coordination
-    - network solving
-    - study execution
+    - GUI state
 
-Topology rule
--------------
-Changing the switch state changes the electrical state of the
-switching element.
+The Network layer interprets the switch state when constructing
+electrical topology.
 
-It does NOT directly mutate the Network layer.
+A closed switch means the electrical path is available.
 
-The authoritative Network layer must interpret the switch state
-through commands/application services and update network topology.
+An open switch means the electrical path is unavailable.
 
-Terminal rule
--------------
-The switch has exactly two electrical terminals:
-
-    terminal_a
-    terminal_b
-
-A closed switch represents a conductive path between them.
-
-An open switch represents a non-conductive path.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+The Core model deliberately does not represent an open switch with
+infinite impedance or a closed switch with infinite admittance.
+Those are numerical concerns belonging to the Network/Solver layer.
 """
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from .base import ElectricalObject
@@ -89,32 +73,32 @@ class Switch(ElectricalObject):
     name:
         Human-readable name.
 
-    terminal_a:
-        Optional first electrical endpoint.
-
-    terminal_b:
-        Optional second electrical endpoint.
-
     endpoint_a:
-        Alias for terminal_a endpoint.
+        Optional electrical endpoint for terminal A.
 
     endpoint_b:
-        Alias for terminal_b endpoint.
+        Optional electrical endpoint for terminal B.
+
+    terminal_a:
+        Optional existing Terminal for terminal A.
+
+    terminal_b:
+        Optional existing Terminal for terminal B.
 
     closed:
-        Initial electrical switching state.
+        Initial switching state.
 
     in_service:
-        Whether the switch is available to the electrical model.
+        Whether the switch is available for network operation.
 
     normally_closed:
-        Normal operating-state metadata.
+        Configured normal operating state.
 
     rated_voltage_kv:
-        Nominal voltage rating in kV.
+        Optional nominal voltage rating.
 
     rated_current_a:
-        Nominal continuous current rating in A.
+        Optional continuous current rating.
 
     bus_a:
         Backward-compatible alias for endpoint_a.
@@ -130,10 +114,10 @@ class Switch(ElectricalObject):
         id: str,
         name: str = "",
         *,
-        terminal_a: Terminal | None = None,
-        terminal_b: Terminal | None = None,
         endpoint_a: Any = None,
         endpoint_b: Any = None,
+        terminal_a: Terminal | None = None,
+        terminal_b: Terminal | None = None,
         closed: bool = False,
         in_service: bool = True,
         normally_closed: bool | None = None,
@@ -142,7 +126,6 @@ class Switch(ElectricalObject):
         bus_a: Any = None,
         bus_b: Any = None,
     ) -> None:
-
         super().__init__(
             id=id,
             name=name,
@@ -173,22 +156,8 @@ class Switch(ElectricalObject):
             endpoint_b = bus_b
 
         # =============================================================
-        # TERMINAL CONSTRUCTION
+        # TERMINALS
         # =============================================================
-
-        if terminal_a is not None and endpoint_a is not None:
-            if terminal_a.endpoint is not endpoint_a:
-                raise ValueError(
-                    f"Switch '{self.id}' terminal_a and endpoint_a "
-                    "refer to different endpoints."
-                )
-
-        if terminal_b is not None and endpoint_b is not None:
-            if terminal_b.endpoint is not endpoint_b:
-                raise ValueError(
-                    f"Switch '{self.id}' terminal_b and endpoint_b "
-                    "refer to different endpoints."
-                )
 
         if terminal_a is None:
             terminal_a = Terminal(
@@ -196,10 +165,19 @@ class Switch(ElectricalObject):
                 owner=self,
             )
         else:
-            self._validate_terminal_owner(
+            self._validate_terminal(
                 terminal_a,
                 "terminal_a",
             )
+
+            if (
+                endpoint_a is not None
+                and terminal_a.endpoint is not endpoint_a
+            ):
+                raise ValueError(
+                    f"Switch '{self.id}' terminal_a and endpoint_a "
+                    "refer to different endpoints."
+                )
 
         if terminal_b is None:
             terminal_b = Terminal(
@@ -207,9 +185,24 @@ class Switch(ElectricalObject):
                 owner=self,
             )
         else:
-            self._validate_terminal_owner(
+            self._validate_terminal(
                 terminal_b,
                 "terminal_b",
+            )
+
+            if (
+                endpoint_b is not None
+                and terminal_b.endpoint is not endpoint_b
+            ):
+                raise ValueError(
+                    f"Switch '{self.id}' terminal_b and endpoint_b "
+                    "refer to different endpoints."
+                )
+
+        if terminal_a is terminal_b:
+            raise ValueError(
+                f"Switch '{self.id}' cannot use the same Terminal "
+                "instance for both terminals."
             )
 
         self.terminal_a = terminal_a
@@ -274,7 +267,7 @@ class Switch(ElectricalObject):
         )
 
         # =============================================================
-        # VALIDATION
+        # FINAL VALIDATION
         # =============================================================
 
         self.validate()
@@ -295,7 +288,7 @@ class Switch(ElectricalObject):
 
     @property
     def terminals(self) -> tuple[Terminal, Terminal]:
-        """Return both authoritative electrical terminals."""
+        """Return the two authoritative electrical terminals."""
 
         return (
             self.terminal_a,
@@ -304,31 +297,33 @@ class Switch(ElectricalObject):
 
     @property
     def endpoint_a(self) -> Any:
-        """Return endpoint A."""
+        """Return terminal-A endpoint."""
 
         return self.terminal_a.endpoint
 
     @property
     def endpoint_b(self) -> Any:
-        """Return endpoint B."""
+        """Return terminal-B endpoint."""
 
         return self.terminal_b.endpoint
 
     @property
     def bus_a(self) -> Any:
-        """Backward-compatible endpoint-A accessor."""
+        """Backward-compatible terminal-A endpoint accessor."""
 
         return self.terminal_a.bus
 
     @property
     def bus_b(self) -> Any:
-        """Backward-compatible endpoint-B accessor."""
+        """Backward-compatible terminal-B endpoint accessor."""
 
         return self.terminal_b.bus
 
     @property
     def is_connected(self) -> bool:
-        """Return True when both terminals have endpoints."""
+        """
+        Return whether both terminals have electrical endpoints.
+        """
 
         return (
             self.terminal_a.is_connected
@@ -336,14 +331,14 @@ class Switch(ElectricalObject):
         )
 
     # =================================================================
-    # CONNECTIVITY
+    # TERMINAL CONNECTION
     # =================================================================
 
     def connect_endpoint_a(
         self,
         endpoint: Any,
     ) -> None:
-        """Connect terminal A to an electrical endpoint."""
+        """Attach terminal A to an endpoint."""
 
         if endpoint is None:
             raise ValueError(
@@ -358,7 +353,7 @@ class Switch(ElectricalObject):
         self,
         endpoint: Any,
     ) -> None:
-        """Connect terminal B to an electrical endpoint."""
+        """Attach terminal B to an endpoint."""
 
         if endpoint is None:
             raise ValueError(
@@ -375,10 +370,11 @@ class Switch(ElectricalObject):
         endpoint_b: Any,
     ) -> None:
         """
-        Connect both switch terminals.
+        Attach both terminals.
 
-        This only establishes terminal references. Global topology
-        remains owned by core/network.
+        This establishes terminal references only.
+
+        Network topology remains owned by core/network.
         """
 
         if endpoint_a is None:
@@ -399,18 +395,18 @@ class Switch(ElectricalObject):
             endpoint_b
         )
 
-    def disconnect_terminal_a(self) -> None:
-        """Disconnect terminal A."""
+    def disconnect_endpoint_a(self) -> None:
+        """Detach terminal A."""
 
         self.terminal_a.disconnect()
 
-    def disconnect_terminal_b(self) -> None:
-        """Disconnect terminal B."""
+    def disconnect_endpoint_b(self) -> None:
+        """Detach terminal B."""
 
         self.terminal_b.disconnect()
 
     # =================================================================
-    # SWITCHING STATE
+    # SWITCH STATE
     # =================================================================
 
     @property
@@ -428,8 +424,13 @@ class Switch(ElectricalObject):
     @property
     def conducts(self) -> bool:
         """
-        Return whether the switch currently represents a conductive
-        electrical path.
+        Return whether the switch currently represents an active
+        conductive path.
+
+        This is a domain-state property.
+
+        Network topology must interpret this state; this property
+        does not modify Network.
         """
 
         return (
@@ -437,21 +438,38 @@ class Switch(ElectricalObject):
             and self.closed
         )
 
-    def close(self) -> None:
-        """Close the switch."""
+    @property
+    def electrically_closed(self) -> bool:
+        """Return whether the switch is electrically conductive."""
 
-        self.closed = True
+        return self.conducts
+
+    @property
+    def electrically_open(self) -> bool:
+        """Return whether the switch is electrically unavailable."""
+
+        return not self.electrically_closed
 
     def open(self) -> None:
         """Open the switch."""
 
         self.closed = False
 
+    def close(self) -> None:
+        """Close the switch."""
+
+        self.closed = True
+
+    def toggle(self) -> None:
+        """Toggle the switch state."""
+
+        self.closed = not self.closed
+
     def set_closed(
         self,
         value: bool,
     ) -> None:
-        """Set switch state explicitly."""
+        """Set the switch state explicitly."""
 
         self._validate_bool(
             value,
@@ -460,24 +478,19 @@ class Switch(ElectricalObject):
 
         self.closed = value
 
-    def toggle(self) -> None:
-        """Toggle the electrical switch state."""
-
-        self.closed = not self.closed
-
     # =================================================================
     # NORMAL STATE
     # =================================================================
 
     @property
     def is_normal_state(self) -> bool:
-        """Return whether current state matches normal state."""
+        """Return whether the current state is the normal state."""
 
         return self.closed == self.normally_closed
 
     @property
     def is_abnormal_state(self) -> bool:
-        """Return whether current state differs from normal state."""
+        """Return whether the switch differs from its normal state."""
 
         return not self.is_normal_state
 
@@ -485,7 +498,7 @@ class Switch(ElectricalObject):
         self,
         value: bool,
     ) -> None:
-        """Set normal-state metadata."""
+        """Set the configured normal operating state."""
 
         self._validate_bool(
             value,
@@ -495,7 +508,7 @@ class Switch(ElectricalObject):
         self.normally_closed = value
 
     def restore_normal_state(self) -> None:
-        """Restore the switch to its configured normal state."""
+        """Restore the configured normal switching state."""
 
         self.closed = self.normally_closed
 
@@ -545,32 +558,12 @@ class Switch(ElectricalObject):
         self.in_service = value
 
     # =================================================================
-    # ELECTRICAL STATE
-    # =================================================================
-
-    @property
-    def electrically_closed(self) -> bool:
-        """
-        Return whether the switch is electrically conductive.
-
-        An open switch or out-of-service switch is non-conductive.
-        """
-
-        return self.conducts
-
-    @property
-    def electrically_open(self) -> bool:
-        """Return whether the switch is electrically open."""
-
-        return not self.electrically_closed
-
-    # =================================================================
-    # CURRENT-CARRYING CAPABILITY
+    # CURRENT RATING
     # =================================================================
 
     @property
     def has_current_rating(self) -> bool:
-        """Return whether a continuous-current rating is configured."""
+        """Return whether a current rating is configured."""
 
         return self.rated_current_a is not None
 
@@ -579,11 +572,10 @@ class Switch(ElectricalObject):
         current_a: float,
     ) -> bool:
         """
-        Validate a current against the configured continuous-current
-        rating.
+        Check a current value against the configured continuous
+        current rating.
 
-        Returns True when no rating is configured or the current is
-        within the rating.
+        Returns True when no rating is configured.
         """
 
         current_a = self._validate_finite(
@@ -599,65 +591,9 @@ class Switch(ElectricalObject):
         if self.rated_current_a is None:
             return True
 
-        return current_a <= (
-            self.rated_current_a
-            + 1e-12
-        )
-
-    # =================================================================
-    # POWER / IMPEDANCE REPRESENTATION
-    # =================================================================
-
-    @property
-    def series_impedance_pu(self) -> complex:
-        """
-        Return idealized switch impedance.
-
-        Closed:
-            Z = 0
-
-        Open:
-            Z = infinity
-
-        This is a domain representation only. Numerical layers may
-        use their own finite numerical approximation.
-        """
-
-        if self.electrically_closed:
-            return complex(
-                0.0,
-                0.0,
-            )
-
-        return complex(
-            math.inf,
-            0.0,
-        )
-
-    @property
-    def admittance_pu(self) -> complex:
-        """
-        Return idealized switch admittance.
-
-        Closed:
-            Y = infinity
-
-        Open:
-            Y = 0
-
-        Numerical solvers must not directly use this property if
-        they require finite matrix entries.
-        """
-
-        if self.electrically_closed:
-            return complex(
-                math.inf,
-                0.0,
-            )
-
-        return complex(
-            0.0,
-            0.0,
+        return (
+            current_a
+            <= self.rated_current_a + 1e-12
         )
 
     # =================================================================
@@ -665,7 +601,7 @@ class Switch(ElectricalObject):
     # =================================================================
 
     def validate_parameters(self) -> bool:
-        """Validate switch-local parameters."""
+        """Validate switch-local engineering parameters."""
 
         self._validate_bool(
             self.closed,
@@ -694,12 +630,12 @@ class Switch(ElectricalObject):
                 "rated_current_a",
             )
 
-        self._validate_terminal_owner(
+        self._validate_terminal(
             self.terminal_a,
             "terminal_a",
         )
 
-        self._validate_terminal_owner(
+        self._validate_terminal(
             self.terminal_b,
             "terminal_b",
         )
@@ -707,7 +643,7 @@ class Switch(ElectricalObject):
         if self.terminal_a is self.terminal_b:
             raise ValueError(
                 f"Switch '{self.id}' cannot use the same Terminal "
-                "object for both terminals."
+                "instance for both terminals."
             )
 
         return True
@@ -799,12 +735,12 @@ class Switch(ElectricalObject):
     # VALIDATION HELPERS
     # =================================================================
 
-    def _validate_terminal_owner(
+    def _validate_terminal(
         self,
         terminal: Terminal,
         name: str,
     ) -> None:
-        """Validate terminal type and ownership."""
+        """Validate Terminal type and ownership."""
 
         if not isinstance(
             terminal,
@@ -882,3 +818,4 @@ class Switch(ElectricalObject):
 __all__ = [
     "Switch",
 ]
+```
