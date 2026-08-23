@@ -1,172 +1,79 @@
 # core/model/load.py
-
 """
-GridForge Constant-Power Load Model
-===================================
+GridForge V2 Load Model
+=======================
 
-GridForge Model Layer V2
+Author:
+    Subhendu Mishra
 
-Defines the GridForge constant-power Load model.
+A Load is a single-terminal static electrical demand model.
 
 Architecture
 ------------
 
-A Load is a single-terminal electrical injection device.
-
     Load
       │
     Terminal
       │
-      └──── network topology ──── Bus
+      └── endpoint ── network topology ── Bus / network element
 
-The Load owns its physical Terminal.
+The Load owns exactly one physical Terminal.
 
-The Terminal represents the Load's local physical electrical
-connection point. The network layer is responsible for determining
-and maintaining global electrical topology.
+The Terminal is the authoritative local connection reference.
+Global topology belongs to the Core network/application layer.
 
-A Load may therefore exist in a disconnected state before network
-assembly:
+Electrical model
+----------------
 
-    Load
-      │
-    Terminal
-      │
-    endpoint = None
+Internally:
 
-or may initially reference a local electrical endpoint:
+    p >= 0
+        active-power consumption
 
-    Load
-      │
-    Terminal
-      │
-    endpoint
+    q >= 0
+        reactive-power consumption
 
-The endpoint is not assumed by this model to be a concrete Bus.
-
-Sign Convention
----------------
-
-Internally, load demand is stored as positive consumption:
-
-    p > 0
-        Active-power consumption.
-
-    q > 0
-        Reactive-power consumption.
-
-Through the Injection interface, the Load exposes network
-injection:
-
-    get_power() -> (-P, -Q)
-
-Therefore:
-
-    positive network injection
-        = power supplied to the network
-
-    negative network injection
-        = power consumed from the network
-
-For a Load:
+Through the Injection interface:
 
     P_injection = -p
     Q_injection = -q
 
-Responsibilities
-----------------
+Thus:
 
-The Load model:
+    positive Load P/Q
+        = consumption
 
-- Stores constant active-power demand.
-- Stores constant reactive-power demand.
-- Owns one physical Terminal.
-- Provides the local electrical endpoint.
-- Provides compatibility access to a connected Bus.
-- Implements the Injection interface.
-- Provides network power injection.
-- Validates load demand.
-- Provides diagnostic information.
+    negative network injection
+        = consumption from the network
 
-The Load model does NOT:
+The Load is a static constant-power model.
 
-- Build global network topology.
-- Register itself with the network.
-- Modify Bus state.
-- Build Y-bus.
-- Perform power-flow calculations.
-- Perform load-flow iterations.
-- Calculate losses.
-- Perform contingency analysis.
-- Perform protection calculations.
-- Perform dynamic simulation.
-- Manage GUI objects.
+This class does NOT:
 
-Those responsibilities belong to the appropriate
-network/solver/analysis/protection/simulation layers.
+    - own global topology
+    - add itself to a Grid
+    - modify Bus state
+    - build Y-bus
+    - solve load flow
+    - calculate losses
+    - perform short-circuit studies
+    - perform protection studies
+    - perform dynamic simulation
+    - manage SLD state
+    - manage GUI state
 
-Terminal and Topology
----------------------
+Dynamic load models such as ZIP, induction-motor
+components, voltage/frequency-dependent models, etc.,
+belong to the future dynamic/simulation architecture.
 
-The Load owns one physical Terminal:
-
-    self.terminal
-
-The authoritative local physical connection is:
-
-    self.terminal.endpoint
-
-The endpoint may be:
-
-- a Bus-like object;
-- another Terminal;
-- another network-supported endpoint.
-
-For example:
-
-    Bus ── Load
-
-or:
-
-    Bus ── Breaker ── Load
-
-The Load does not need to know whether switching equipment exists
-between the Load and the network.
-
-The ``bus`` property is therefore only a compatibility/convenience
-accessor derived from the Terminal.
-
-Modeling Boundary
------------------
-
-A Load represents electrical demand.
-
-Reactive compensation devices, including capacitive or inductive
-shunts, belong to the Shunt model rather than being represented as
-negative load demand.
-
-Therefore this model intentionally requires:
-
-    p >= 0
-    q >= 0
+Reactive compensation is represented by Shunt models,
+not by negative Load demand.
 
 Units
 -----
 
     p : per-unit
     q : per-unit
-
-GridForge V2 Status
--------------------
-
-This module is part of the GridForge Model Layer V2 baseline.
-
-The Load uses the generalized Terminal architecture and does not
-assume that its local endpoint is necessarily a Bus.
-
-Changes require evidence of a genuinely fundamental load-model
-requirement that cannot be satisfied through the Injection, Terminal,
-Shunt, or higher-level network/solver layers.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -182,168 +89,225 @@ from .injection import Injection
 from .terminal import Terminal
 
 
-# =====================================================================
-# LOAD MODEL
-# =====================================================================
-
 class Load(ElectricalObject, Injection):
     """
-    GridForge constant-power electrical load.
+    Static constant-power electrical load.
 
     Parameters
     ----------
-    id : str
-        Unique GridForge object identifier.
+    id:
+        Stable GridForge object identifier.
 
-    bus : object, optional
-        Initial electrical connection endpoint.
+    endpoint:
+        Initial electrical endpoint.
 
-        This parameter name is retained for compatibility with the
-        existing GridForge model/network interfaces.
+        May be None when the Load is created before network
+        connectivity is established.
 
-        The value is passed to the Load's Terminal as its local
-        endpoint. It is not required to be a concrete Bus.
+        The parameter is also accepted as ``bus`` for compatibility
+        with existing GridForge callers.
 
-        ``None`` creates a disconnected Load.
-
-    p : float
+    p:
         Active-power demand in per-unit.
 
-        Stored internally as a positive consumption value.
-
-    q : float
+    q:
         Reactive-power demand in per-unit.
 
-        Stored internally as a positive consumption value.
-
-    name : str, optional
-        Human-readable load name.
+    name:
+        Human-readable Load name.
 
     Notes
     -----
-    The Load owns its physical Terminal.
+    The Load owns one Terminal:
+
+        self.terminal
 
     The authoritative local connection is:
 
         self.terminal.endpoint
 
-    The ``bus`` property is derived from the Terminal and exists for
-    compatibility with existing GridForge interfaces.
-
-    The Load does not directly modify global network topology.
+    The ``bus`` property is derived from the Terminal and is only a
+    compatibility accessor.
     """
 
-    # =================================================================
-    # INITIALIZATION
-    # =================================================================
+    TYPE = "LOAD"
 
     def __init__(
         self,
         id: str,
-        bus: Any = None,
+        endpoint: Any = None,
+        *,
         p: float = 0.0,
         q: float = 0.0,
         name: str = "",
+        bus: Any = None,
     ) -> None:
-        """
-        Initialize a constant-power Load.
 
-        The Load may be created without an electrical endpoint.
-        Network assembly may establish the connection later.
-        """
+        # ---------------------------------------------------------
+        # Backward compatibility
+        # ---------------------------------------------------------
+        #
+        # Existing GridForge code may still construct:
+        #
+        #     Load(..., bus=bus)
+        #
+        # The new architectural terminology is endpoint.
+        #
+        if endpoint is not None and bus is not None:
+            if endpoint is not bus:
+                raise ValueError(
+                    f"Load '{id}' received both 'endpoint' and "
+                    "'bus' with different objects."
+                )
+
+        if endpoint is None:
+            endpoint = bus
+
+        # ---------------------------------------------------------
+        # Base object
+        # ---------------------------------------------------------
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # -------------------------------------------------------------
-        # PHYSICAL TERMINAL
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
+        # Physical terminal
+        # ---------------------------------------------------------
         #
-        # The Load owns its Terminal.
+        # Local ownership only.
         #
-        # owner=self establishes local model ownership only.
-        # It does not register the Terminal with the network.
+        # This does NOT register the Load with the network.
         #
+
         self.terminal = Terminal(
-            endpoint=bus,
+            endpoint=endpoint,
             owner=self,
         )
 
-        # -------------------------------------------------------------
-        # LOAD DEMAND
-        # -------------------------------------------------------------
+        # ---------------------------------------------------------
+        # Static demand
+        # ---------------------------------------------------------
 
-        self.p = float(p)
-        self.q = float(q)
+        self.p = self._validate_power_value(
+            p,
+            "p",
+        )
 
-        # -------------------------------------------------------------
-        # VALIDATION
-        # -------------------------------------------------------------
+        self.q = self._validate_power_value(
+            q,
+            "q",
+        )
 
-        self._validate_power()
+        self.validate_parameters()
 
-    # =================================================================
+    # =============================================================
+    # IDENTITY
+    # =============================================================
+
+    @property
+    def element_type(self) -> str:
+        """Return the canonical GridForge element type."""
+
+        return self.TYPE
+
+    # =============================================================
     # VALIDATION
-    # =================================================================
+    # =============================================================
 
+    @staticmethod
+    def _validate_power_value(
+        value: float,
+        name: str,
+    ) -> float:
+        """
+        Validate a Load consumption value.
+
+        Load P and Q are internally represented as
+        finite non-negative demand values.
+        """
+
+        value = float(value)
+
+        if not isfinite(value):
+            raise ValueError(
+                f"{name} must be finite."
+            )
+
+        if value < 0.0:
+            raise ValueError(
+                f"{name} must be greater than or equal to zero."
+            )
+
+        return value
+
+    def validate_parameters(self) -> bool:
+        """
+        Validate Load-local electrical parameters.
+
+        This validates only the Load model.
+
+        It does not validate global network topology.
+        """
+
+        self.p = self._validate_power_value(
+            self.p,
+            "p",
+        )
+
+        self.q = self._validate_power_value(
+            self.q,
+            "q",
+        )
+
+        return True
+
+    def validate(self) -> bool:
+        """
+        Public local validation entry point.
+
+        Network topology and study validity are handled by
+        the appropriate Core layers.
+        """
+
+        return self.validate_parameters()
+
+    # Backward-compatible private validation method.
     def _validate_power(self) -> None:
         """
-        Validate active and reactive load demand.
+        Compatibility wrapper for existing callers.
 
-        Loads represent consumption, therefore both active and
-        reactive demand are stored as finite, non-negative values.
-
-        Reactive compensation is represented by Shunt models and is
-        not encoded as negative load demand.
+        New code should use validate_parameters().
         """
 
-        if not isfinite(self.p):
-            raise ValueError(
-                f"Load '{self.id}': "
-                "active power demand must be finite."
-            )
+        self.validate_parameters()
 
-        if self.p < 0.0:
-            raise ValueError(
-                f"Load '{self.id}': "
-                "active power demand must be >= 0."
-            )
-
-        if not isfinite(self.q):
-            raise ValueError(
-                f"Load '{self.id}': "
-                "reactive power demand must be finite."
-            )
-
-        if self.q < 0.0:
-            raise ValueError(
-                f"Load '{self.id}': "
-                "reactive power demand must be >= 0."
-            )
-
-    # =================================================================
-    # INJECTION INTERFACE
-    # =================================================================
+    # =============================================================
+    # INJECTION
+    # =============================================================
 
     def get_power(self) -> tuple[float, float]:
         """
-        Return the Load's network power injection.
+        Return network power injection.
 
         Returns
         -------
         tuple[float, float]
-            ``(-P, -Q)`` in per-unit.
+            ``(-p, -q)`` in per-unit.
 
-        Sign convention
-        ----------------
-        Positive values represent injection into the network.
+        Example
+        -------
+        A Load with:
 
-        Negative values represent consumption from the network.
+            p = 0.50
+            q = 0.20
 
-        Therefore a positive load demand is returned as a negative
-        network injection.
+        produces:
+
+            (-0.50, -0.20)
+
+        as network injection.
         """
 
         return (
@@ -351,106 +315,37 @@ class Load(ElectricalObject, Injection):
             -self.q,
         )
 
-    # =================================================================
-    # CONNECTION
-    # =================================================================
+    @property
+    def p_injection(self) -> float:
+        """Return active network injection."""
+
+        return -self.p
 
     @property
-    def bus(self):
-        """
-        Return the Bus associated with this Load when available.
+    def q_injection(self) -> float:
+        """Return reactive network injection."""
 
-        Returns
-        -------
-        object or None
-            Bus-like endpoint associated with the Load.
+        return -self.q
 
-        Notes
-        -----
-        The authoritative local physical connection is:
-
-            self.terminal.endpoint
-
-        This property exists as a compatibility accessor.
-
-        If the terminal is connected to another Terminal, the
-        Terminal implementation resolves its Bus when possible.
-
-        Global topology remains the responsibility of ``core/network``.
-        """
-
-        return self.terminal.bus
-
-    # =================================================================
-    # ENDPOINT ACCESS
-    # =================================================================
+    # =============================================================
+    # POWER PROPERTIES
+    # =============================================================
 
     @property
-    def endpoint(self):
-        """
-        Return the authoritative local electrical endpoint.
+    def active_power(self) -> float:
+        """Return active-power consumption in per-unit."""
 
-        Returns
-        -------
-        object or None
-            The object referenced by ``terminal.endpoint``.
-        """
-
-        return self.terminal.endpoint
+        return self.p
 
     @property
-    def endpoint_id(self) -> str | None:
-        """
-        Return the identifier of the local endpoint.
+    def reactive_power(self) -> float:
+        """Return reactive-power consumption in per-unit."""
 
-        Returns
-        -------
-        str or None
-            Endpoint identifier when connected.
-        """
+        return self.q
 
-        return self.terminal.endpoint_id
-
-    @property
-    def is_connected(self) -> bool:
-        """
-        Return True when the Load's Terminal has a local endpoint.
-        """
-
-        return self.terminal.is_connected
-
-    # =================================================================
-    # TERMINAL CONNECTION
-    # =================================================================
-
-    def connect(self, endpoint: Any) -> None:
-        """
-        Connect the Load's physical Terminal to an endpoint.
-
-        This changes only the local Terminal reference.
-
-        It does not:
-
-        - register the Load with the network;
-        - modify the network graph;
-        - rebuild Y-bus;
-        - perform a study.
-        """
-
-        self.terminal.connect(endpoint)
-
-    def disconnect(self) -> None:
-        """
-        Disconnect the Load's physical Terminal locally.
-
-        Global network topology is not modified by this operation.
-        """
-
-        self.terminal.disconnect()
-
-    # =================================================================
+    # =============================================================
     # POWER UPDATE
-    # =================================================================
+    # =============================================================
 
     def set_power(
         self,
@@ -458,131 +353,277 @@ class Load(ElectricalObject, Injection):
         q: float,
     ) -> None:
         """
-        Update active and reactive load demand.
+        Set active and reactive power demand.
 
-        Parameters
-        ----------
-        p : float
-            Active-power demand in per-unit.
-
-        q : float
-            Reactive-power demand in per-unit.
-
-        Notes
-        -----
-        Values use the Load's internal consumption-positive
-        convention.
-
-        Candidate values are fully validated before model state is
-        modified.
+        Candidate values are completely validated before
+        modifying model state.
         """
 
-        p = float(p)
-        q = float(q)
+        p = self._validate_power_value(
+            p,
+            "p",
+        )
 
-        # -------------------------------------------------------------
-        # Validate candidate state before committing it.
-        # -------------------------------------------------------------
-
-        if not isfinite(p):
-            raise ValueError(
-                f"Load '{self.id}': "
-                "active power demand must be finite."
-            )
-
-        if p < 0.0:
-            raise ValueError(
-                f"Load '{self.id}': "
-                "active power demand must be >= 0."
-            )
-
-        if not isfinite(q):
-            raise ValueError(
-                f"Load '{self.id}': "
-                "reactive power demand must be finite."
-            )
-
-        if q < 0.0:
-            raise ValueError(
-                f"Load '{self.id}': "
-                "reactive power demand must be >= 0."
-            )
-
-        # -------------------------------------------------------------
-        # Commit validated state.
-        # -------------------------------------------------------------
+        q = self._validate_power_value(
+            q,
+            "q",
+        )
 
         self.p = p
         self.q = q
 
-    # =================================================================
-    # POWER PROPERTIES
-    # =================================================================
+    def set_active_power(
+        self,
+        p: float,
+    ) -> None:
+        """Set active-power demand."""
+
+        self.p = self._validate_power_value(
+            p,
+            "p",
+        )
+
+    def set_reactive_power(
+        self,
+        q: float,
+    ) -> None:
+        """Set reactive-power demand."""
+
+        self.q = self._validate_power_value(
+            q,
+            "q",
+        )
+
+    # =============================================================
+    # TERMINAL
+    # =============================================================
 
     @property
-    def active_power(self) -> float:
+    def terminals(self) -> tuple[Terminal]:
         """
-        Return active-power demand in per-unit.
+        Return the Load's authoritative physical terminal.
         """
 
-        return self.p
+        return (
+            self.terminal,
+        )
 
     @property
-    def reactive_power(self) -> float:
+    def endpoint(self):
         """
-        Return reactive-power demand in per-unit.
+        Return the authoritative local electrical endpoint.
         """
 
-        return self.q
+        return self.terminal.endpoint
 
-    # =================================================================
+    @property
+    def endpoint_id(self) -> str | None:
+        """
+        Return the local endpoint identifier when available.
+        """
+
+        return self.terminal.endpoint_id
+
+    @property
+    def bus(self):
+        """
+        Return the bus derived from the terminal.
+
+        This is a compatibility accessor.
+
+        The Load does not own a Bus reference independently.
+        """
+
+        return self.terminal.bus
+
+    @property
+    def bus_id(self) -> str | None:
+        """Return the derived Bus identifier when available."""
+
+        bus = self.bus
+
+        if bus is None:
+            return None
+
+        return getattr(
+            bus,
+            "id",
+            None,
+        )
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Return True when the Load terminal has an endpoint.
+        """
+
+        return self.terminal.is_connected
+
+    # =============================================================
+    # TERMINAL CONNECTION
+    # =============================================================
+
+    def connect(
+        self,
+        endpoint: Any,
+    ) -> None:
+        """
+        Assign the Load's physical endpoint.
+
+        This modifies only local Terminal state.
+
+        It does NOT:
+
+            - register the Load with the network
+            - alter a Bus
+            - modify global topology
+            - rebuild Y-bus
+            - execute a study
+        """
+
+        self.terminal.connect(
+            endpoint
+        )
+
+    def disconnect(self) -> None:
+        """
+        Remove the Load's local physical endpoint.
+
+        Global topology remains the responsibility of the
+        network/application layer.
+        """
+
+        self.terminal.disconnect()
+
+    # Explicit aliases improve readability where callers want
+    # to distinguish endpoint operations from future service-state
+    # operations.
+
+    def connect_terminal(
+        self,
+        endpoint: Any,
+    ) -> None:
+        """Explicit alias for connect()."""
+
+        self.connect(endpoint)
+
+    def disconnect_terminal(self) -> None:
+        """Explicit alias for disconnect()."""
+
+        self.disconnect()
+
+    # =============================================================
+    # SERVICE STATE
+    # =============================================================
+    #
+    # A Load is not treated as electrically disconnected merely
+    # because it is out of service.
+    #
+    # Terminal connectivity and operational state are separate
+    # concepts.
+    #
+
+    @property
+    def in_service(self) -> bool:
+        """
+        Return whether the Load is operationally in service.
+
+        A Load created by this model is initially in service.
+        """
+
+        return self._in_service
+
+    @in_service.setter
+    def in_service(
+        self,
+        value: bool,
+    ) -> None:
+        self._in_service = bool(value)
+
+    @property
+    def is_in_service(self) -> bool:
+        """Return operational service state."""
+
+        return self._in_service
+
+    @property
+    def is_out_of_service(self) -> bool:
+        """Return whether the Load is out of service."""
+
+        return not self._in_service
+
+    def set_in_service(
+        self,
+        value: bool,
+    ) -> None:
+        """
+        Set operational service state.
+
+        This does not modify terminal topology.
+        """
+
+        self._in_service = bool(value)
+
+    def trip(self) -> None:
+        """Take the Load out of service."""
+
+        self._in_service = False
+
+    def close(self) -> None:
+        """Place the Load in service."""
+
+        self._in_service = True
+
+    # =============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # =============================================================
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, Any]:
         """
-        Return structured Load information.
+        Return structured Load diagnostics.
         """
+
+        bus = self.bus
 
         return {
             "id": self.id,
             "name": self.name,
-            "type": "load",
-
-            "endpoint": self.endpoint_id,
-
-            "bus": (
-                self.bus.id
-                if self.bus is not None
-                else None
-            ),
-
-            "connected": self.is_connected,
-
-            "terminal": self.terminal.summary(),
+            "type": self.TYPE,
 
             "p": self.p,
             "q": self.q,
 
-            "p_injection": -self.p,
-            "q_injection": -self.q,
+            "p_injection": self.p_injection,
+            "q_injection": self.q_injection,
+
+            "endpoint": self.endpoint_id,
+
+            "bus": (
+                getattr(bus, "id", None)
+                if bus is not None
+                else None
+            ),
+
+            "connected": self.is_connected,
+            "in_service": self.is_in_service,
+
+            "terminal": self.terminal.summary(),
         }
 
-    # =================================================================
+    # =============================================================
     # REPRESENTATION
-    # =================================================================
+    # =============================================================
 
     def __repr__(self) -> str:
         """
-        Return a concise developer-facing representation.
+        Return concise developer-facing representation.
         """
-
-        endpoint_id = self.endpoint_id
 
         return (
             f"<Load "
             f"id={self.id}, "
-            f"endpoint={endpoint_id}, "
+            f"endpoint={self.endpoint_id}, "
             f"p={self.p:.6f}, "
-            f"q={self.q:.6f}>"
+            f"q={self.q:.6f}, "
+            f"in_service={self.is_in_service}>"
         )
