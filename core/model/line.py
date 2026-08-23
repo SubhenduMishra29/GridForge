@@ -6,60 +6,55 @@ GridForge V2 Transmission Line Model
 Author:
     Subhendu Mishra
 
-A Line is a physical two-terminal electrical conductor-system model.
+A Line is a physical two-terminal electrical branch using the
+standard transmission-line pi equivalent.
 
 Architecture
 ------------
 
-    endpoint_from
-         │
-      Terminal
-         │
-       Line
-         │
-      Terminal
-         │
-    endpoint_to
+    ElectricalObject
+          │
+        Branch
+          │
+        Line
+          │
+       ┌──┴──┐
+    from   to
+   Terminal Terminal
 
-The Line is a specialized Branch.
+Branch owns the common two-terminal contract.
 
-The authoritative local connectivity is held by:
+Line owns only transmission-line-specific electrical behavior.
 
-    from_terminal
-    to_terminal
+Line does NOT own:
 
-The connected endpoints are obtained from those terminals.
-
-The Line does NOT:
-
-    - own global network topology
-    - maintain bus collections
-    - add itself to a Grid
-    - build Y-bus matrices
-    - stamp numerical matrices
-    - solve power flow
-    - solve short circuit
-    - perform protection calculations
-    - perform dynamic simulation
-    - manage SLD geometry
-    - manage GUI state
+    - global network topology
+    - bus collections
+    - network registration
+    - Y-bus construction
+    - numerical matrix stamping
+    - power-flow solving
+    - short-circuit solving
+    - protection calculations
+    - dynamic simulation
+    - SLD geometry
+    - GUI state
 
 Electrical model
 ----------------
 
-The Line uses the standard transmission-line pi equivalent:
+Standard pi equivalent:
 
     Z = R + jX
 
+    Y_series = 1 / Z
+
     Y_shunt,total = jB
 
-where B is the TOTAL line shunt susceptance.
+    Y_shunt,end = jB / 2
 
-The numerical/network layer is responsible for applying:
-
-    jB / 2
-
-at each terminal during network assembly.
+The numerical/network layer is responsible for using these
+quantities during network assembly.
 
 Units
 -----
@@ -69,7 +64,7 @@ Units
     b        : per-unit
     rate_mva : MVA
 
-A Line has no transformer tap or phase-shift parameter.
+A Line does not have transformer tap or phase-shift parameters.
 
     tap   = 1.0
     shift = 0.0
@@ -84,7 +79,6 @@ import math
 from typing import Any
 
 from .branch import Branch
-from .terminal import Terminal
 
 
 class Line(Branch):
@@ -97,14 +91,10 @@ class Line(Branch):
         Stable GridForge object identifier.
 
     endpoint_from:
-        Initial from-side electrical endpoint.
-
-        May be None, a Bus-like object, or a Terminal.
+        Optional initial from-side endpoint.
 
     endpoint_to:
-        Initial to-side electrical endpoint.
-
-        May be None, a Bus-like object, or a Terminal.
+        Optional initial to-side endpoint.
 
     r:
         Series resistance in per-unit.
@@ -120,6 +110,9 @@ class Line(Branch):
 
     rate_mva:
         Optional thermal/equipment rating in MVA.
+
+    in_service:
+        Initial operational state.
     """
 
     TYPE = "LINE"
@@ -127,22 +120,16 @@ class Line(Branch):
     def __init__(
         self,
         id: str,
-        endpoint_from=None,
-        endpoint_to=None,
+        endpoint_from: Any = None,
+        endpoint_to: Any = None,
         *,
-        r: float = 0.0,
-        x: float = 0.0,
+        r: float,
+        x: float,
         b: float = 0.0,
         name: str = "",
         rate_mva: float | None = None,
+        in_service: bool = True,
     ) -> None:
-
-        # ---------------------------------------------------------
-        # Initialize Branch once.
-        #
-        # Branch creates the authoritative two terminals.
-        # We do not replace them afterwards.
-        # ---------------------------------------------------------
 
         super().__init__(
             id=id,
@@ -155,88 +142,53 @@ class Line(Branch):
             rate_mva=rate_mva,
             tap=1.0,
             shift=0.0,
+            in_service=in_service,
         )
 
         self.validate_parameters()
 
-    # =============================================================
+    # =================================================================
     # IDENTITY
-    # =============================================================
+    # =================================================================
 
     @property
     def element_type(self) -> str:
-        """Return canonical GridForge element type."""
+        """Return the canonical GridForge element type."""
 
         return self.TYPE
 
-    # =============================================================
-    # LINE MODEL
-    # =============================================================
+    # =================================================================
+    # MODEL
+    # =================================================================
+
+    @property
+    def model_type(self) -> str:
+        """Return the Line electrical model."""
+
+        return "pi"
 
     @property
     def is_pi_model(self) -> bool:
-        """
-        Return True because the Line uses the standard pi-equivalent.
-        """
+        """Return True because the Line uses the pi equivalent."""
 
         return True
 
-    @property
-    def total_shunt_susceptance(self) -> float:
-        """
-        Return total line shunt susceptance B in per-unit.
-
-        The numerical/network layer decides how B is distributed
-        between the two terminals.
-        """
-
-        return self.b
-
-    @property
-    def half_shunt_susceptance(self) -> float:
-        """
-        Return B/2 for one terminal of the standard pi model.
-        """
-
-        return self.b / 2.0
-
-    @property
-    def shunt_admittance_total(self) -> complex:
-        """
-        Return total line shunt admittance.
-
-            Ysh,total = jB
-        """
-
-        return complex(
-            0.0,
-            self.b,
-        )
-
-    @property
-    def shunt_admittance_per_end(self) -> complex:
-        """
-        Return the shunt admittance assigned to one end.
-
-            Ysh,end = jB/2
-        """
-
-        return complex(
-            0.0,
-            self.b / 2.0,
-        )
-
-    # =============================================================
+    # =================================================================
     # SERIES MODEL
-    # =============================================================
+    # =================================================================
 
     @property
     def series_impedance(self) -> complex:
         """
-        Return:
+        Return the series impedance.
 
             Z = R + jX
         """
+
+        if self.r is None or self.x is None:
+            raise ValueError(
+                f"Line '{self.id}' requires both r and x."
+            )
 
         return complex(
             self.r,
@@ -246,11 +198,9 @@ class Line(Branch):
     @property
     def series_admittance(self) -> complex:
         """
-        Return:
+        Return the series admittance.
 
             Y = 1 / Z
-
-        Numerical matrix construction remains outside Line.
         """
 
         z = self.series_impedance
@@ -262,13 +212,69 @@ class Line(Branch):
 
         return 1.0 / z
 
-    # =============================================================
-    # ELECTRICAL PARAMETERS
-    # =============================================================
+    # =================================================================
+    # SHUNT MODEL
+    # =================================================================
+
+    @property
+    def total_shunt_susceptance(self) -> float:
+        """
+        Return total line shunt susceptance B.
+
+        The returned value represents the complete line, not one end.
+        """
+
+        if self.b is None:
+            return 0.0
+
+        return self.b
+
+    @property
+    def half_shunt_susceptance(self) -> float:
+        """
+        Return B/2 for one terminal of the pi model.
+        """
+
+        return self.total_shunt_susceptance / 2.0
+
+    @property
+    def shunt_admittance_total(self) -> complex:
+        """
+        Return total shunt admittance.
+
+            Ysh,total = jB
+        """
+
+        return complex(
+            0.0,
+            self.total_shunt_susceptance,
+        )
+
+    @property
+    def shunt_admittance_per_end(self) -> complex:
+        """
+        Return shunt admittance assigned to one end.
+
+            Ysh,end = jB/2
+        """
+
+        return complex(
+            0.0,
+            self.half_shunt_susceptance,
+        )
+
+    # =================================================================
+    # PER-UNIT ACCESSORS
+    # =================================================================
 
     @property
     def r_pu(self) -> float:
         """Return series resistance in per-unit."""
+
+        if self.r is None:
+            raise ValueError(
+                f"Line '{self.id}' does not define r."
+            )
 
         return self.r
 
@@ -276,232 +282,58 @@ class Line(Branch):
     def x_pu(self) -> float:
         """Return series reactance in per-unit."""
 
+        if self.x is None:
+            raise ValueError(
+                f"Line '{self.id}' does not define x."
+            )
+
         return self.x
 
     @property
     def b_pu(self) -> float:
         """Return total shunt susceptance in per-unit."""
 
+        if self.b is None:
+            return 0.0
+
         return self.b
 
-    # =============================================================
-    # TERMINALS
-    # =============================================================
-
-    @property
-    def terminals(self) -> tuple[Terminal, Terminal]:
-        """
-        Return the two authoritative Line terminals.
-        """
-
-        return (
-            self.from_terminal,
-            self.to_terminal,
-        )
-
-    @property
-    def from_endpoint(self):
-        """Return the authoritative from-side endpoint."""
-
-        return self.from_terminal.endpoint
-
-    @property
-    def to_endpoint(self):
-        """Return the authoritative to-side endpoint."""
-
-        return self.to_terminal.endpoint
-
-    def endpoints(self) -> tuple:
-        """
-        Return:
-
-            (from_endpoint, to_endpoint)
-        """
-
-        return (
-            self.from_endpoint,
-            self.to_endpoint,
-        )
-
-    # =============================================================
-    # BUS COMPATIBILITY
-    # =============================================================
-
-    @property
-    def from_bus(self):
-        """
-        Return the bus derived from the from terminal.
-
-        This is a compatibility accessor only.
-        """
-
-        return self.from_terminal.bus
-
-    @property
-    def to_bus(self):
-        """
-        Return the bus derived from the to terminal.
-
-        This is a compatibility accessor only.
-        """
-
-        return self.to_terminal.bus
-
-    def buses(self) -> tuple:
-        """
-        Return derived bus references.
-
-        No global topology is resolved here.
-        """
-
-        return (
-            self.from_bus,
-            self.to_bus,
-        )
-
-    # =============================================================
-    # CONNECTIVITY
-    # =============================================================
-
-    @property
-    def is_connected(self) -> bool:
-        """
-        Return True when both physical endpoints are assigned.
-        """
-
-        return (
-            self.from_terminal.is_connected
-            and self.to_terminal.is_connected
-        )
-
-    @property
-    def has_from_endpoint(self) -> bool:
-        """Return True if the from terminal is connected."""
-
-        return self.from_terminal.is_connected
-
-    @property
-    def has_to_endpoint(self) -> bool:
-        """Return True if the to terminal is connected."""
-
-        return self.to_terminal.is_connected
-
-    # =============================================================
-    # TERMINAL OPERATIONS
-    # =============================================================
-
-    def connect_from(self, endpoint) -> None:
-        """
-        Assign the physical from-side endpoint.
-
-        Global topology is not modified here.
-        """
-
-        self.from_terminal.connect(endpoint)
-
-    def connect_to(self, endpoint) -> None:
-        """
-        Assign the physical to-side endpoint.
-
-        Global topology is not modified here.
-        """
-
-        self.to_terminal.connect(endpoint)
-
-    def disconnect_from(self) -> None:
-        """
-        Remove the from-side endpoint.
-        """
-
-        self.from_terminal.disconnect()
-
-    def disconnect_to(self) -> None:
-        """
-        Remove the to-side endpoint.
-        """
-
-        self.to_terminal.disconnect()
-
-    # =============================================================
-    # SERVICE STATE
-    # =============================================================
-
-    def connect(self) -> None:
-        """
-        Place the Line in service.
-
-        This does not connect either terminal.
-        """
-
-        self.in_service = True
-
-    def disconnect(self) -> None:
-        """
-        Take the Line out of service.
-
-        This does not disconnect either terminal.
-        """
-
-        self.in_service = False
-
-    def close(self) -> None:
-        """Compatibility alias for connect()."""
-
-        self.connect()
-
-    def trip(self) -> None:
-        """Compatibility alias for disconnect()."""
-
-        self.disconnect()
-
-    @property
-    def is_in_service(self) -> bool:
-        """Return True when the Line is in service."""
-
-        return self.in_service
-
-    # =============================================================
-    # RATING
-    # =============================================================
-
-    @property
-    def has_rating(self) -> bool:
-        """Return whether a thermal rating is defined."""
-
-        return self.rate_mva is not None
-
-    def set_rating(
-        self,
-        rate_mva: float | None,
-    ) -> None:
-        """
-        Set or clear the Line thermal rating.
-        """
-
-        if rate_mva is None:
-            self.rate_mva = None
-            return
-
-        rate_mva = float(rate_mva)
-
-        if not math.isfinite(rate_mva) or rate_mva <= 0.0:
-            raise ValueError(
-                f"Line '{self.id}' rate_mva must be finite "
-                "and greater than zero."
-            )
-
-        self.rate_mva = rate_mva
-
-    # =============================================================
+    # =================================================================
     # VALIDATION
-    # =============================================================
+    # =================================================================
 
     def validate_parameters(self) -> bool:
         """
-        Validate Line-local engineering parameters.
+        Validate Line-specific electrical parameters.
 
-        This deliberately does not validate network topology.
+        Branch permits r/x/b to be optional because specialized
+        branches may use other physical parameterizations.
+
+        Line, however, requires a valid generic per-unit r/x model.
         """
+
+        # -------------------------------------------------------------
+        # Validate common Branch parameters first.
+        # -------------------------------------------------------------
+
+        super().validate_parameters()
+
+        # -------------------------------------------------------------
+        # Line requires r and x.
+        # -------------------------------------------------------------
+
+        if self.r is None:
+            raise ValueError(
+                f"Line '{self.id}' requires resistance r."
+            )
+
+        if self.x is None:
+            raise ValueError(
+                f"Line '{self.id}' requires reactance x."
+            )
+
+        if self.b is None:
+            self.b = 0.0
 
         self.r = self._validate_finite(
             self.r,
@@ -518,36 +350,37 @@ class Line(Branch):
             "b",
         )
 
+        # -------------------------------------------------------------
+        # Physical resistance cannot be negative.
+        # -------------------------------------------------------------
+
         if self.r < 0.0:
             raise ValueError(
                 f"Line '{self.id}' resistance cannot be negative."
             )
 
-        if (
-            math.isclose(
-                self.r,
-                0.0,
-                abs_tol=1e-15,
-            )
-            and math.isclose(
-                self.x,
-                0.0,
-                abs_tol=1e-15,
-            )
+        # -------------------------------------------------------------
+        # A Line cannot have zero series impedance.
+        # -------------------------------------------------------------
+
+        if math.isclose(
+            self.r,
+            0.0,
+            abs_tol=1e-15,
+        ) and math.isclose(
+            self.x,
+            0.0,
+            abs_tol=1e-15,
         ):
             raise ValueError(
                 f"Line '{self.id}' cannot have zero "
                 "series impedance."
             )
 
-        if self.rate_mva is not None:
-            self.rate_mva = self._validate_positive(
-                self.rate_mva,
-                "rate_mva",
-            )
+        # -------------------------------------------------------------
+        # Lines do not use transformer parameters.
+        # -------------------------------------------------------------
 
-        # A physical transmission line never uses transformer
-        # tap or phase shift.
         self.tap = 1.0
         self.shift = 0.0
 
@@ -555,26 +388,29 @@ class Line(Branch):
 
     def validate(self) -> bool:
         """
-        Public local validation entry point.
+        Validate the complete Line model.
 
-        Network topology is intentionally not validated here.
+        Topology is deliberately not validated here.
         """
 
         return self.validate_parameters()
 
-    # =============================================================
+    # =================================================================
     # DIAGNOSTICS
-    # =============================================================
+    # =================================================================
 
     def summary(self) -> dict[str, Any]:
         """
-        Return a structured Line diagnostic representation.
+        Return structured Line diagnostics.
+
+        Endpoint information comes from Branch/Terminal state.
         """
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
+            "model": self.model_type,
 
             "from_endpoint": (
                 self.from_endpoint.id
@@ -603,11 +439,9 @@ class Line(Branch):
             "is_connected": self.is_connected,
             "in_service": self.in_service,
 
-            "model": "pi",
-
-            "r_pu": self.r,
-            "x_pu": self.x,
-            "b_pu": self.b,
+            "r_pu": self.r_pu,
+            "x_pu": self.x_pu,
+            "b_pu": self.b_pu,
 
             "series_impedance": self.series_impedance,
             "series_admittance": self.series_admittance,
@@ -620,19 +454,16 @@ class Line(Branch):
 
             "rate_mva": self.rate_mva,
 
-            # Fixed for Line.
             "tap": 1.0,
             "shift": 0.0,
         }
 
-    # =============================================================
+    # =================================================================
     # REPRESENTATION
-    # =============================================================
+    # =================================================================
 
     def __repr__(self) -> str:
-        """
-        Return concise developer-facing representation.
-        """
+        """Return concise developer-facing representation."""
 
         from_id = (
             self.from_endpoint.id
@@ -650,45 +481,14 @@ class Line(Branch):
             f"<Line "
             f"id={self.id}, "
             f"{from_id} -> {to_id}, "
-            f"r={self.r:.6f}, "
-            f"x={self.x:.6f}, "
-            f"b={self.b:.6f}, "
+            f"r={self.r_pu:.6f}, "
+            f"x={self.x_pu:.6f}, "
+            f"b={self.b_pu:.6f}, "
             f"rate={self.rate_mva}, "
             f"in_service={self.in_service}>"
         )
 
-    # =============================================================
-    # LOCAL HELPERS
-    # =============================================================
 
-    @staticmethod
-    def _validate_finite(
-        value: float,
-        name: str,
-    ) -> float:
-        """Return a finite floating-point value."""
-
-        value = float(value)
-
-        if not math.isfinite(value):
-            raise ValueError(
-                f"{name} must be finite."
-            )
-
-        return value
-
-    @staticmethod
-    def _validate_positive(
-        value: float,
-        name: str,
-    ) -> float:
-        """Return a finite positive floating-point value."""
-
-        value = float(value)
-
-        if not math.isfinite(value) or value <= 0.0:
-            raise ValueError(
-                f"{name} must be finite and greater than zero."
-            )
-
-        return value
+__all__ = [
+    "Line",
+]
