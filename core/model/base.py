@@ -1,83 +1,124 @@
-# core/model/base.py
+# ============================================================
+# File: core/model/base.py
+# GridForge V2 — Model Layer
+# Author: Subhendu Mishra
+# ============================================================
+
 """
-GridForge V2 Model Layer
-========================
+GridForge V2
+============
 
-Author:
-    Subhendu Mishra
+Module:
+    core.model.base
 
-Common base class for all GridForge electrical and engineering
-domain-model objects.
+Purpose
+-------
+Defines the common identity and validation contract for GridForge
+electrical and engineering model objects.
 
 Responsibilities
 ----------------
-ElectricalObject provides only the common model-object contract:
+ElectricalObject provides only:
 
-    - stable object identifier
-    - human-readable object name
-    - type-aware equality
-    - consistent hashing
-    - common diagnostics
-    - validation entry point
-    - developer-facing representation
+    * stable object identity;
+    * human-readable name;
+    * canonical model type;
+    * equality;
+    * stable hashing;
+    * common validation;
+    * common diagnostics;
+    * developer-facing representation.
 
 ElectricalObject intentionally contains NO:
 
-    - electrical calculations
-    - per-unit calculations
-    - numerical solver logic
-    - network topology logic
-    - graph algorithms
-    - GUI state
-    - rendering state
-    - dynamic simulation logic
-    - protection logic
-    - control logic
+    * electrical calculations;
+    * per-unit calculations;
+    * numerical solver logic;
+    * network topology logic;
+    * graph algorithms;
+    * GUI state;
+    * rendering state;
+    * dynamic simulation logic;
+    * protection logic;
+    * control logic.
 
 Those responsibilities belong to their respective GridForge layers.
 
-Identity and Registry Ownership
---------------------------------
-ElectricalObject does not enforce global identifier uniqueness.
+Identity Contract
+-----------------
+``id`` is the stable identity of the model object.
 
-Identifier uniqueness is the responsibility of the owning registry
-or container, such as Grid.
+The identifier:
 
-The object identifier represents the stable identity of the model
-object.
+    * must be a non-empty string;
+    * is assigned during construction;
+    * cannot be changed after construction;
+    * participates in equality;
+    * participates in hashing.
 
-Architecture
-------------
-All specialized GridForge model objects should derive from
-ElectricalObject unless there is a documented architectural reason
-not to do so.
+Global identifier uniqueness is NOT enforced by ElectricalObject.
 
-Specialized models may define a class-level ``TYPE`` constant.
+Uniqueness is the responsibility of the owning registry/container.
+
+Name Contract
+-------------
+``name`` is a human-readable display name.
+
+Unlike ``id``, ``name`` is intentionally mutable because engineers
+may rename model objects after creation.
+
+If no name is supplied, the identifier is used as the initial name.
+
+Type Contract
+-------------
+Specialized model classes should normally define a class-level
+``TYPE`` constant.
 
 Example:
 
     class Bus(ElectricalObject):
         TYPE = "BUS"
 
-The base class uses ``TYPE`` when available for canonical diagnostic
-type information.
-
 Validation Contract
 -------------------
-ElectricalObject defines the common public validation interface:
+ElectricalObject defines the public validation entry point:
 
     validate()
 
-The default implementation performs only base-object validation.
-
-Specialized model classes should override:
+Base validation is implemented by:
 
     validate_parameters()
 
-when they have domain-specific parameter constraints.
+Specialized model classes should override ``validate_parameters()``
+when they introduce domain-specific parameter constraints.
 
-The base class must not know the electrical parameters of derived
-objects.
+Equality Contract
+-----------------
+Two model objects are equal when:
+
+    1. they have the same concrete model class; and
+    2. they have the same stable identifier.
+
+Hashing follows the same identity contract.
+
+Because the identifier is immutable, hash stability is guaranteed.
+
+Architecture
+------------
+ElectricalObject is a Core Model contract.
+
+It must remain independent of:
+
+    * Application;
+    * UI;
+    * Qt;
+    * SLD;
+    * canvas;
+    * renderers;
+    * plugins;
+    * Network graph implementation;
+    * solvers;
+    * analysis engines.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -100,26 +141,25 @@ class ElectricalObject:
     name:
         Human-readable object name.
 
-        If omitted or empty, ``id`` is used as the name.
+        If omitted or empty, ``id`` is used.
 
     Notes
     -----
-    ElectricalObject provides identity, validation, and diagnostics
-    only.
+    ``id`` is immutable after construction.
 
-    It does not perform electrical calculations, manage topology,
-    communicate with the GUI, execute numerical studies, or implement
-    protection/simulation behaviour.
-
-    Identifier uniqueness is enforced by the owning container,
-    such as Grid.
+    ``name`` remains mutable because it represents a human-readable
+    engineering/display name rather than object identity.
     """
 
-    # -----------------------------------------------------------------
-    # Canonical type
-    # -----------------------------------------------------------------
+    # =================================================================
+    # CANONICAL TYPE
+    # =================================================================
 
     TYPE = "ELECTRICAL_OBJECT"
+
+    # =================================================================
+    # CONSTRUCTION
+    # =================================================================
 
     def __init__(
         self,
@@ -130,9 +170,9 @@ class ElectricalObject:
         Initialize the common model-object identity.
         """
 
-        # =============================================================
-        # IDENTIFIER VALIDATION
-        # =============================================================
+        # -------------------------------------------------------------
+        # Identifier validation
+        # -------------------------------------------------------------
 
         if id is None:
             raise ValueError(
@@ -144,22 +184,16 @@ class ElectricalObject:
                 "Object ID must be a string."
             )
 
-        id = id.strip()
+        normalized_id = id.strip()
 
-        if not id:
+        if not normalized_id:
             raise ValueError(
                 "Object ID cannot be empty."
             )
 
-        # =============================================================
-        # IDENTITY
-        # =============================================================
-
-        self.id = id
-
-        # =============================================================
-        # NAME VALIDATION
-        # =============================================================
+        # -------------------------------------------------------------
+        # Name validation
+        # -------------------------------------------------------------
 
         if name is None:
             name = ""
@@ -169,10 +203,55 @@ class ElectricalObject:
                 "Object name must be a string."
             )
 
-        name = name.strip()
+        normalized_name = name.strip()
 
-        # If no explicit display name is supplied, use the ID.
-        self.name = name or id
+        # -------------------------------------------------------------
+        # Stable identity
+        # -------------------------------------------------------------
+        #
+        # Use object.__setattr__ so subclasses can inherit the
+        # immutable identity contract without requiring a property
+        # setter.
+        #
+        # ``_id`` is never reassigned after construction.
+        # -------------------------------------------------------------
+
+        object.__setattr__(
+            self,
+            "_id",
+            normalized_id,
+        )
+
+        # -------------------------------------------------------------
+        # Human-readable name
+        # -------------------------------------------------------------
+
+        self.name = normalized_name or normalized_id
+
+    # =================================================================
+    # IDENTITY
+    # =================================================================
+
+    @property
+    def id(self) -> str:
+        """
+        Return the stable object identifier.
+
+        The returned identifier cannot be changed through the public
+        ``id`` property.
+        """
+
+        return self._id
+
+    @id.setter
+    def id(self, value: str) -> None:
+        """
+        Prevent modification of stable object identity.
+        """
+
+        raise AttributeError(
+            "ElectricalObject.id is immutable after construction."
+        )
 
     # =================================================================
     # TYPE
@@ -183,7 +262,8 @@ class ElectricalObject:
         """
         Return the canonical GridForge model type.
 
-        Specialized models should normally define their own ``TYPE``.
+        Specialized model classes should normally define their own
+        ``TYPE`` class attribute.
         """
 
         model_type = getattr(
@@ -197,7 +277,10 @@ class ElectricalObject:
 
         model_type = model_type.strip()
 
-        return model_type or self.__class__.__name__
+        return (
+            model_type
+            or self.__class__.__name__
+        )
 
     # =================================================================
     # VALIDATION
@@ -207,27 +290,32 @@ class ElectricalObject:
         """
         Validate base-object parameters.
 
-        The base object has only identity/name constraints, which are
-        already enforced during construction.
-
-        Specialized models should override this method when they have
-        domain-specific parameters to validate.
+        Specialized model classes may override this method and should
+        normally call ``super().validate_parameters()`` first.
 
         Returns
         -------
         bool
-            ``True`` when validation succeeds.
+            True when validation succeeds.
         """
 
-        if not isinstance(self.id, str):
+        # -------------------------------------------------------------
+        # Identity
+        # -------------------------------------------------------------
+
+        if not isinstance(self._id, str):
             raise TypeError(
                 "Object ID must be a string."
             )
 
-        if not self.id.strip():
+        if not self._id.strip():
             raise ValueError(
                 "Object ID cannot be empty."
             )
+
+        # -------------------------------------------------------------
+        # Name
+        # -------------------------------------------------------------
 
         if not isinstance(self.name, str):
             raise TypeError(
@@ -241,18 +329,20 @@ class ElectricalObject:
 
         return True
 
+    # -----------------------------------------------------------------
+
     def validate(self) -> bool:
         """
         Public GridForge model validation entry point.
 
-        Specialized model classes may override
-        ``validate_parameters()`` and inherit this method.
+        Specialized model classes can implement their own parameter
+        validation by overriding ``validate_parameters()``.
         """
 
         return self.validate_parameters()
 
     # =================================================================
-    # IDENTITY
+    # EQUALITY
     # =================================================================
 
     def __eq__(
@@ -260,42 +350,46 @@ class ElectricalObject:
         other: object,
     ) -> bool:
         """
-        Compare two model objects by concrete type and identifier.
+        Compare model objects by concrete type and stable identity.
 
-        Two objects are equal when:
+        Equality requires:
 
-            1. They have the same concrete model class.
-            2. They have the same stable identifier.
-
-        Objects from different model classes are not equal even when
-        their identifiers are identical.
+            same concrete class
+            AND
+            same stable object ID.
 
         Examples
         --------
-        ``Bus("B1") == Bus("B1")``
-
-        ``Bus("B1") != Line("B1")``
+        Bus("B1") == Bus("B1")
+        Bus("B1") != Line("B1")
         """
 
         if self is other:
             return True
 
-        if not isinstance(
-            other,
-            self.__class__,
-        ):
+        if other is None:
             return NotImplemented
 
-        return self.id == other.id
+        if type(self) is not type(other):
+            return NotImplemented
+
+        return self.id == other.id  # type: ignore[attr-defined]
+
+    # =================================================================
+    # HASHING
+    # =================================================================
 
     def __hash__(self) -> int:
         """
-        Return a hash consistent with ``__eq__``.
+        Return a stable hash based on concrete type and immutable ID.
+
+        Because ``id`` cannot change after construction, the hash
+        remains stable for the lifetime of the object.
         """
 
         return hash(
             (
-                self.__class__,
+                type(self),
                 self.id,
             )
         )
@@ -308,8 +402,8 @@ class ElectricalObject:
         """
         Return common model-object identity information.
 
-        Specialized model classes may extend this dictionary with
-        domain-specific information.
+        Specialized models may extend this dictionary with
+        domain-specific diagnostic information.
 
         Returns
         -------
@@ -338,7 +432,7 @@ class ElectricalObject:
         Example
         -------
 
-        ``<Bus id=B1>``
+            <Bus id=BUS-001>
         """
 
         return (
@@ -346,6 +440,10 @@ class ElectricalObject:
             f"id={self.id}>"
         )
 
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
 
 __all__ = [
     "ElectricalObject",
