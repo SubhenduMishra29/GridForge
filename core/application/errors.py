@@ -1,7 +1,9 @@
 # ============================================================
 # File: core/application/errors.py
 # GridForge V2 — Headless Application Errors
+# Author: Subhendu Mishra
 # ============================================================
+
 """
 GridForge V2
 ============
@@ -14,26 +16,32 @@ Purpose
 Defines the structured error contract used at the GridForge V2
 Headless Application boundary.
 
-The Application layer must distinguish between:
+Application errors provide stable machine-readable diagnostics
+without exposing UI or presentation concerns.
 
-    1. expected operational failures; and
-    2. unexpected programming/infrastructure failures.
+Error hierarchy
+---------------
 
-Expected failures are represented by ``ApplicationError`` or one
-of its semantic subclasses.
+    ApplicationError
+        |
+        +-- ValidationError
+        +-- DomainError
+        +-- ResourceError
+        +-- ExecutionError
 
-Unexpected exceptions must NOT be silently swallowed and converted
-into generic errors.
+The Application layer translates expected Core/domain failures
+into this structured boundary where appropriate.
 
-Architectural Role
-------------------
-This module belongs entirely to the headless Application layer.
+Unexpected programming errors must not be silently swallowed.
 
-It has no dependency on:
+Headless Requirement
+--------------------
+This module must remain completely independent of:
 
     * Qt;
     * PySide6;
-    * PyQt;
+    * PyQt5;
+    * PyQt6;
     * UI;
     * SLD;
     * canvas;
@@ -41,99 +49,99 @@ It has no dependency on:
     * plugins;
     * Core controllers.
 
-The error object is an outcome/contract object. It does not perform
-application recovery and does not display anything to the user.
-
-Error Structure
----------------
-An ApplicationError contains:
-
-    code
-        Stable machine-readable identifier.
-
-    message
-        Human-readable diagnostic message.
-
-    category
-        Semantic class of the failure.
-
-    severity
-        Diagnostic severity.
-
-    details
-        Optional structured contextual information.
-
-    cause
-        Optional underlying exception for diagnostic purposes.
-
-The ``code`` is the programmatic contract.
-
-Consumers MUST NOT depend on parsing ``message``.
-
-Example
--------
-A command attempting to operate on a nonexistent element may
-produce:
-
-    ApplicationError(
-        code="ELEMENT_NOT_FOUND",
-        message="The requested element does not exist.",
-        category="resource",
-    )
-
-The UI may translate that error into a dialog, status message,
-SLD highlighting, or another presentation mechanism.
-
-The Application layer itself must not perform that translation.
-
-Error Categories
-----------------
-The initial semantic categories are:
-
-    validation
-        Invalid command/input supplied by the caller.
-
-    domain
-        A Core/domain rule prevents the operation.
-
-    resource
-        Required object/resource is unavailable.
-
-    execution
-        A known failure occurred while executing an operation.
-
-These categories are intentionally small. More specialized
-categories should only be introduced when the repository and
-Application use cases demonstrate a real need.
-
 Immutability
 ------------
 Application errors are immutable after construction.
 
-This prevents a caller from modifying an error after it has crossed
+Structured ``details`` are defensively frozen so that callers
+cannot mutate diagnostic information after the error crosses
 the Application boundary.
 
-Exception Compatibility
------------------------
-``ApplicationError`` derives from ``Exception`` so it can also be
-used when an Application operation needs exception semantics.
+Error Contract
+--------------
+``code``
+    Stable machine-readable identifier.
 
-The structured fields remain the authoritative diagnostic data.
+``message``
+    Human-readable diagnostic message.
 
-Important
----------
-This module does NOT define a global registry of error codes.
+``category``
+    Semantic error category.
 
-Concrete error codes should be introduced together with the
-Application operations that actually require them. This prevents
-premature creation of arbitrary error vocabulary.
+``severity``
+    Diagnostic severity.
+
+``details``
+    Optional immutable structured diagnostic information.
+
+``cause``
+    Optional underlying exception retained for diagnostics.
+
+Consumers must use ``code`` rather than parsing ``message``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Mapping
 
+
+# =====================================================================
+# IMMUTABILITY HELPERS
+# =====================================================================
+
+def _freeze_value(value: Any) -> Any:
+    """
+    Recursively convert common mutable containers into immutable forms.
+    """
+
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {
+                key: _freeze_value(item)
+                for key, item in value.items()
+            }
+        )
+
+    if isinstance(value, (list, tuple)):
+        return tuple(
+            _freeze_value(item)
+            for item in value
+        )
+
+    if isinstance(value, (set, frozenset)):
+        return frozenset(
+            _freeze_value(item)
+            for item in value
+        )
+
+    return value
+
+
+def _freeze_mapping(
+    value: Mapping[str, Any] | None,
+) -> Mapping[str, Any] | None:
+    """
+    Return an immutable representation of a mapping.
+    """
+
+    if value is None:
+        return None
+
+    frozen = _freeze_value(value)
+
+    if not isinstance(frozen, Mapping):
+        raise TypeError(
+            "ApplicationError details must be a mapping."
+        )
+
+    return frozen
+
+
+# =====================================================================
+# BASE APPLICATION ERROR
+# =====================================================================
 
 @dataclass(frozen=True)
 class ApplicationError(Exception):
@@ -146,31 +154,28 @@ class ApplicationError(Exception):
         Stable machine-readable error identifier.
 
     message:
-        Human-readable description of the failure.
+        Human-readable description.
 
     category:
-        Semantic category of the failure.
+        Semantic error category.
 
     severity:
         Diagnostic severity.
 
     details:
-        Optional structured contextual information.
+        Optional immutable structured diagnostic information.
 
     cause:
         Optional underlying exception retained for diagnostics.
-
-    Notes
-    -----
-    ``message`` is deliberately not used as a machine-readable
-    identifier. Consumers must use ``code`` instead.
     """
 
     code: str
     message: str
     category: str = "application"
     severity: str = "error"
+
     details: Mapping[str, Any] | None = None
+
     cause: BaseException | None = field(
         default=None,
         repr=False,
@@ -179,11 +184,9 @@ class ApplicationError(Exception):
 
     def __post_init__(self) -> None:
         """
-        Validate the structural integrity of the error.
-
-        The Application boundary must never expose malformed error
-        objects such as errors without a code or message.
+        Validate and freeze the Application error contract.
         """
+
         if not isinstance(self.code, str) or not self.code.strip():
             raise ValueError(
                 "ApplicationError code must be a non-empty string."
@@ -204,28 +207,24 @@ class ApplicationError(Exception):
                 "ApplicationError severity must be a non-empty string."
             )
 
-        if self.details is not None and not isinstance(
-            self.details,
-            Mapping,
-        ):
-            raise ValueError(
-                "ApplicationError details must be a mapping or None."
-            )
+        frozen_details = _freeze_mapping(self.details)
+
+        object.__setattr__(
+            self,
+            "details",
+            frozen_details,
+        )
 
         Exception.__init__(self, self.message)
 
 
+# =====================================================================
+# VALIDATION ERROR
+# =====================================================================
+
 class ValidationError(ApplicationError):
     """
     Expected failure caused by invalid Application input.
-
-    This represents failures such as:
-
-        * invalid command arguments;
-        * invalid operation parameters;
-        * malformed Application requests.
-
-    Domain invariants remain owned by the Core domain objects.
     """
 
     def __init__(
@@ -235,6 +234,7 @@ class ValidationError(ApplicationError):
         *,
         details: Mapping[str, Any] | None = None,
     ) -> None:
+
         super().__init__(
             code=code,
             message=message,
@@ -243,13 +243,13 @@ class ValidationError(ApplicationError):
         )
 
 
+# =====================================================================
+# DOMAIN ERROR
+# =====================================================================
+
 class DomainError(ApplicationError):
     """
     Expected failure caused by a Core/domain rule.
-
-    This allows the Application boundary to expose a structured
-    domain failure without exposing Core implementation details
-    directly to UI or plugin consumers.
     """
 
     def __init__(
@@ -259,6 +259,7 @@ class DomainError(ApplicationError):
         *,
         details: Mapping[str, Any] | None = None,
     ) -> None:
+
         super().__init__(
             code=code,
             message=message,
@@ -267,15 +268,13 @@ class DomainError(ApplicationError):
         )
 
 
+# =====================================================================
+# RESOURCE ERROR
+# =====================================================================
+
 class ResourceError(ApplicationError):
     """
     Expected failure caused by an unavailable resource.
-
-    Typical examples include:
-
-        * requested element does not exist;
-        * requested study does not exist;
-        * required Application resource is unavailable.
     """
 
     def __init__(
@@ -285,6 +284,7 @@ class ResourceError(ApplicationError):
         *,
         details: Mapping[str, Any] | None = None,
     ) -> None:
+
         super().__init__(
             code=code,
             message=message,
@@ -292,6 +292,10 @@ class ResourceError(ApplicationError):
             details=details,
         )
 
+
+# =====================================================================
+# EXECUTION ERROR
+# =====================================================================
 
 class ExecutionError(ApplicationError):
     """
@@ -309,6 +313,7 @@ class ExecutionError(ApplicationError):
         details: Mapping[str, Any] | None = None,
         cause: BaseException | None = None,
     ) -> None:
+
         super().__init__(
             code=code,
             message=message,
@@ -316,3 +321,16 @@ class ExecutionError(ApplicationError):
             details=details,
             cause=cause,
         )
+
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
+
+__all__ = [
+    "ApplicationError",
+    "ValidationError",
+    "DomainError",
+    "ResourceError",
+    "ExecutionError",
+]
