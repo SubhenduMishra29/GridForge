@@ -1,164 +1,151 @@
+# ============================================================
+# File: core/network/__init__.py
+# GridForge V2 — Network Layer
+# Author: Subhendu Mishra
+# ============================================================
+
 """
-GridForge Network Layer
-=======================
+GridForge V2 Network Layer
+==========================
 
-GridForge Network Layer V2
+Public package boundary for the assembled electrical network.
 
-Provides the assembled-network infrastructure that connects the
-canonical electrical model layer with the numerical solver and
-engineering analysis layers.
+The Network Layer assembles canonical objects from ``core.model``
+into an engineering network representation.
 
 Architecture
 ------------
 
-    core/model/
+    core.model
         Canonical electrical entities
-                |
-                v
-    core/network/
+              |
+              v
+    core.network
         Network
-        TopologyManager
-        PerUnitSystem
-        YBusBuilder
-                |
-                v
-    core/analysis/
-        Engineering study orchestration
-                |
-                v
-    core/solver/
+        Registry
+        Index
+        State
+        Topology
+        Y-Bus
+              |
+              v
+    core.analysis
+        Engineering studies
+              |
+              v
+    core.solver
         Numerical algorithms
 
 
-Responsibilities
+Public Responsibilities
+-----------------------
+
+The package provides:
+
+    Network
+        Central assembled-network façade.
+
+    NetworkRegistry
+        Owns canonical network-element membership.
+
+    BusIndex
+        Owns deterministic bus-to-matrix indexing.
+
+    NetworkState
+        Owns network-derived validity and revision state.
+
+    TopologyManager
+        Builds and queries derived electrical topology.
+
+    YBusBuilder
+        Builds the network admittance matrix.
+
+    PerUnitSystem
+        Re-export of the canonical Base-Layer per-unit service.
+
+
+Architectural Boundary
+----------------------
+
+``core.model`` owns the canonical electrical entities.
+
+``core.network`` does not define alternate electrical models.
+
+The Network Layer assembles references to canonical model objects
+and provides derived network representations required by analysis
+and solver layers.
+
+
+Ownership
+---------
+
+Network owns:
+
+    - network membership;
+    - network-level assembly;
+    - deterministic bus indexing;
+    - topology service;
+    - Y-bus service;
+    - derived network state.
+
+Network does not own:
+
+    - GUI state;
+    - SLD representation;
+    - engineering study orchestration;
+    - numerical solver algorithms;
+    - electrical equipment definitions.
+
+
+Command Boundary
 ----------------
-The Network Layer provides:
 
-- Assembled electrical network management.
-- Canonical model-object collections.
-- System MVA-base management.
-- Deterministic bus indexing.
-- Electrical topology management.
-- Network connectivity and island detection.
-- Y-bus construction and caching.
-- Network-level state and invalidation.
-- Per-unit conversion services through the GridForge Base Layer.
+Commands and application services are responsible for engineering
+workflows such as:
 
-The Network Layer does NOT:
+    create
+    connect
+    disconnect
+    register
+    remove
+    reconfigure
 
-- Define electrical equipment models.
-- Duplicate Bus, Line, Transformer, Generator, Load, or other
-  ``core.model`` classes.
-- Implement Newton-Raphson power-flow algorithms.
-- Implement Jacobian or mismatch mathematics.
-- Implement short-circuit numerical algorithms.
-- Implement protection algorithms.
-- Implement transient or dynamic numerical integration.
-- Implement engineering validation rules.
-- Implement GUI behavior.
+The Network Layer provides the assembled-network APIs consumed by
+those application-level workflows.
+
+The Network package therefore remains headless and UI-independent.
 
 
-Canonical Model Boundary
-------------------------
-``core.model`` remains the single source of truth for electrical
-entities.
+Internal Utility Boundary
+-------------------------
 
-The Network Layer stores references to canonical model objects.
+``endpoint.resolve_terminal_bus`` is an internal network utility
+used for resolving canonical terminal relationships.
 
-It does not create alternate network-specific versions of:
+It is intentionally not promoted as a primary package-level API.
 
-    Bus
-    Line
-    Transformer
-    Generator
-    Load
-    Shunt
-    Breaker
-    Disconnector
-    Fuse
-    CT
-    PT
-    CVT
-    Relay
-    Motor
-    Cable
-    or other electrical equipment.
+This prevents callers from treating endpoint resolution as a
+separate network-domain service.
 
 
 Per-Unit Boundary
 -----------------
-The canonical per-unit implementation is provided by:
+
+The canonical implementation remains:
 
     core.base.per_unit.PerUnitSystem
 
-The Network Layer does not maintain a duplicate ``per_unit.py``.
+There is no duplicate Network-layer implementation.
 
-This keeps fundamental unit-conversion functionality in the Base
-Layer while allowing Network to instantiate a system-wide per-unit
-service using the Network's MVA base.
+``PerUnitSystem`` is re-exported here only for convenient access.
 
 
-Topology Boundary
+Stable Public API
 -----------------
-``TopologyManager`` maintains the derived electrical connectivity
-graph.
 
-It does not become the source of truth for equipment.
+Typical usage:
 
-Topology is derived from canonical model objects and their current
-service state.
-
-Topology-dependent network representations, including Y-bus, are
-invalidated when topology changes.
-
-
-Y-Bus Boundary
---------------
-``YBusBuilder`` constructs the network admittance matrix.
-
-It is responsible for:
-
-- Bus indexing required by Y-bus construction.
-- Line admittance stamping.
-- Transformer admittance stamping.
-- Network shunt stamping.
-- Sparse Y-bus construction.
-
-It does NOT:
-
-- Solve power flow.
-- Perform Newton-Raphson iterations.
-- Calculate faults.
-- Perform dynamic simulation.
-- Perform protection calculations.
-
-
-Public API
-----------
-The principal Network Layer objects are:
-
-    Network
-        Central assembled-network container.
-
-    TopologyManager
-        Electrical connectivity and island-management service.
-
-    YBusBuilder
-        Network admittance-matrix construction service.
-
-    PerUnitSystem
-        Re-exported from ``core.base.per_unit`` for convenient
-        Network-layer access.
-
-Typical usage
--------------
-
-    from core.network import (
-        Network,
-        TopologyManager,
-        YBusBuilder,
-        PerUnitSystem,
-    )
+    from core.network import Network
 
     network = Network(base_mva=100.0)
 
@@ -166,34 +153,46 @@ Typical usage
     network.add_line(line)
 
     network.rebuild_topology()
-    Ybus = network.build_ybus()
+
+    Ybus = network.get_ybus()
 
 
-Design Principles
------------------
-1. ``core/model`` owns electrical entities.
-2. ``core/network`` assembles those entities.
-3. ``core/base`` owns fundamental reusable infrastructure.
-4. ``core/analysis`` orchestrates engineering studies.
-5. ``core/solver`` owns numerical algorithms.
-6. Network services must not perform solver responsibilities.
-7. Derived network state must be invalidated explicitly.
-8. No GUI state is stored in the Network Layer.
-9. No numerical study state is hidden inside model objects.
-10. Network APIs should remain stable and narrow.
+The package-level exports are intentionally narrow.
+
+Consumers should prefer the Network façade rather than reaching
+through internal implementation modules unless a specific service
+contract explicitly requires it.
 
 
 GridForge V2 Status
 -------------------
-This module is part of the GridForge Network Layer V2
-freeze-audit baseline.
 
-The package exports the stable public Network Layer API.
+This package is part of the GridForge V2 Network Layer baseline.
 
-Changes after the Network Layer is frozen require evidence of a
-genuinely fundamental architectural requirement that cannot be
-satisfied through the existing model, base, network, analysis, or
-solver boundaries.
+The package boundary is intentionally separated into:
+
+    network.py
+        façade
+
+    registry.py
+        membership
+
+    indexing.py
+        deterministic indexing
+
+    state.py
+        derived state
+
+    endpoint.py
+        terminal-to-bus resolution
+
+    topology.py
+        connectivity
+
+    ybus.py
+        admittance construction
+
+Changes to this boundary require architectural justification.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -203,39 +202,62 @@ from __future__ import annotations
 
 
 # =====================================================================
-# PUBLIC NETWORK API
+# PRIMARY NETWORK FACADE
 # =====================================================================
 
 from .network import Network
+
+
+# =====================================================================
+# NETWORK ASSEMBLY SERVICES
+# =====================================================================
+
+from .registry import NetworkRegistry
+from .indexing import BusIndex
+from .state import NetworkState
+
+
+# =====================================================================
+# DERIVED NETWORK SERVICES
+# =====================================================================
+
 from .topology import TopologyManager
 from .ybus import YBusBuilder
 
 
 # =====================================================================
-# BASE-LAYER PER-UNIT API
+# BASE-LAYER SERVICE
 # =====================================================================
+
+# PerUnitSystem fundamentally belongs to core.base.
 #
-# PerUnitSystem is fundamentally a Base Layer service.
+# It is re-exported here for Network-layer convenience only.
 #
-# It is re-exported here for convenient Network-layer access, but the
-# implementation remains exclusively in:
+# There must be no duplicate:
 #
-#     core.base.per_unit
-#
-# There must be no core/network/per_unit.py duplicate.
-#
+#     core/network/per_unit.py
 
 from core.base.per_unit import PerUnitSystem
 
 
 # =====================================================================
-# PUBLIC PACKAGE EXPORTS
+# PUBLIC PACKAGE API
 # =====================================================================
 
 __all__ = [
+    # Primary façade
     "Network",
+
+    # Assembly infrastructure
+    "NetworkRegistry",
+    "BusIndex",
+    "NetworkState",
+
+    # Derived network services
     "TopologyManager",
     "YBusBuilder",
+
+    # Base-layer service
     "PerUnitSystem",
 ]
 
