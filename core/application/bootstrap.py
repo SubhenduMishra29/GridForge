@@ -27,7 +27,7 @@ CommandManager
      +----------------------+
      |                      |
      v                      v
-Model Handlers          CommandHistory
+Model Handlers         CommandHistory
      |
      v
 ModelService
@@ -54,27 +54,10 @@ It does NOT:
 * manage plugins.
 ```
 
-## Application ownership
+The canonical Core Network is supplied externally.
 
-The Application façade owns the configured CommandManager.
-
-The Core Network remains externally supplied.
-
-Therefore:
-
-```
-Application
-    owns
-        CommandManager
-            owns
-                ApplicationContext reference
-                CommandHistory
-                command registrations
-
-Core Network
-    remains canonical Core state
-```
-
+The Application façade receives only the configured
+CommandManager.
 """
 
 from **future** import annotations
@@ -107,7 +90,7 @@ network:
 Returns
 -------
 Application
-    Fully composed headless Application façade.
+    Fully configured headless Application façade.
 
 Composition order
 -----------------
@@ -115,11 +98,10 @@ Composition order
 1. Validate the supplied Network.
 2. Construct ApplicationContext.
 3. Construct CommandManager.
-4. Register all canonical model handlers.
+4. Register canonical model handlers.
 5. Construct Application façade.
 
-The Application façade receives only CommandManager because
-CommandManager already owns the Application execution context.
+The Composition Root does not execute commands.
 """
 
 if network is None:
