@@ -1,279 +1,336 @@
 # ============================================================
+
 # File: core/application/command.py
+
 # GridForge V2 — Headless Application Command Contract
+
+# Author: Subhendu Mishra
+
 # ============================================================
+
 """
-GridForge V2
-============
-
-Module:
-    core.application.command
-
-Purpose
--------
-Defines the command contract for the GridForge V2 Headless
-Application layer.
+GridForge V2 Headless Application Command Contract.
 
 A Command represents an explicit Application-level intent.
 
-Examples
---------
-    CreateBusCommand
-    RemoveElementCommand
-    ConnectElementCommand
-    DisconnectElementCommand
-    OpenElementCommand
-    CloseElementCommand
+The command is:
 
-A command describes WHAT the caller wants to accomplish.
+```
+* headless;
+* immutable;
+* serializable at the Application boundary;
+* independent of Core implementation details;
+* independent of UI implementation details.
+```
 
-It does not define:
+## Execution boundary
 
-    * UI behavior;
-    * Qt actions;
-    * toolbar state;
-    * graphics objects;
-    * rendering;
-    * mouse interaction;
-    * canvas state.
-
-Architectural Boundary
-----------------------
-The intended flow is:
-
-    UI / Plugin
-          |
-          v
-       Command
-          |
-          v
-    CommandManager
-          |
-          v
-    Application Service
-          |
-          v
+```
+External Consumer
+      |
+      v
+   Command
+      |
+      v
+CommandManager
+      |
+      v
+   Handler
+      |
+      v
+Application Service
+      |
+      v
     Core
+```
 
-The Command itself is therefore a headless Application contract.
+A Command does not:
 
-Command responsibilities
-------------------------
-A Command contains:
+```
+* mutate Core;
+* mutate Network;
+* execute services;
+* maintain history;
+* perform undo/redo;
+* manipulate topology;
+* build Y-bus;
+* access Qt;
+* access UI;
+* contain graphics objects.
+```
 
-    * command identity;
-    * semantic command type;
-    * immutable input payload;
-    * optional correlation metadata.
+## Payload boundary
 
-A Command does NOT:
+The payload contains Application-level input values only.
 
-    * mutate Core directly;
-    * own application services;
-    * own CommandManager;
-    * emit UI signals;
-    * maintain history;
-    * perform undo/redo;
-    * depend on Qt.
+Valid:
 
-Execution responsibilities
---------------------------
-Command execution belongs to the Application execution layer.
+```
+{
+    "bus_id": "BUS-001",
+    "voltage": 132.0,
+}
+```
 
-The intended future architecture is:
+Invalid:
 
-    CommandManager
-          |
-          v
-    Command execution
-          |
-          v
-    Application Service
-          |
-          v
-    Core
+```
+{
+    "graphics_item": QGraphicsItem(...),
+}
+```
 
-This separation is important because commands represent intent,
-while services perform use-case orchestration.
+Core objects should not be embedded in command payloads.
 
-Payload
--------
-The payload contains immutable Application-level input.
+For example, endpoint references are represented by stable
+Application-level identifiers and resolved by handlers.
 
-It must not contain UI objects.
+## Immutability
 
-For example, this is valid:
-
-    {
-        "element_id": "bus-001",
-        "bus_type": 1,
-    }
-
-This is invalid:
-
-    {
-        "graphics_item": QGraphicsItem(...)
-    }
-
-The latter would violate the headless boundary.
-
-Immutability
-------------
 Commands are immutable after construction.
 
-This guarantees that a command cannot change while it is:
+The payload is converted to a MappingProxyType at construction
+time. Therefore the command's top-level payload mapping cannot
+be modified after creation.
 
-    * queued;
-    * logged;
-    * executed;
-    * stored in history;
-    * passed between Application components.
+Nested values should also be immutable Application values.
 
-Python Compatibility
---------------------
-GridForge V2 currently targets Python 3.10/3.11.
+## Python compatibility
 
-This module therefore deliberately avoids Python 3.12-only
-generic syntax.
+GridForge V2 targets Python 3.10/3.11.
+
+This module therefore avoids Python 3.12-only syntax.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
+# ============================================================
+
+# COMMAND
+
+# ============================================================
 
 @dataclass(frozen=True)
 class Command:
+"""
+Base immutable Application command.
+
+```
+Parameters
+----------
+command_type:
+    Stable semantic identifier for the command.
+
+payload:
+    Application-level input values.
+
+    The supplied mapping is defensively copied and exposed
+    as a read-only MappingProxyType.
+
+command_id:
+    Unique identifier for this command instance.
+
+correlation_id:
+    Optional identifier associating this command with a
+    larger Application operation.
+
+causation_id:
+    Optional identifier identifying the command/event that
+    caused this command.
+"""
+
+command_type: str
+
+payload: Mapping[str, Any] = field(
+    default_factory=dict,
+)
+
+command_id: UUID = field(
+    default_factory=uuid4,
+)
+
+correlation_id: UUID | None = None
+
+causation_id: UUID | None = None
+
+def __post_init__(self) -> None:
     """
-    Base immutable Application command.
-
-    Parameters
-    ----------
-    command_type:
-        Stable semantic identifier for the command.
-
-    payload:
-        Immutable command input data represented as a mapping.
-
-    command_id:
-        Unique identifier for this command instance.
-
-    correlation_id:
-        Optional identifier used to associate the command with
-        a larger Application operation or workflow.
-
-    causation_id:
-        Optional identifier identifying the command/event that
-        caused this command.
-
-    Notes
-    -----
-    ``command_type`` is a semantic contract.
-
-    Consumers should use it for identification rather than
-    relying on Python class names.
+    Validate and freeze the structural command contract.
     """
 
-    command_type: str
-    payload: Mapping[str, Any] = field(default_factory=dict)
+    # ----------------------------------------------------
+    # Command type
+    # ----------------------------------------------------
 
-    command_id: UUID = field(default_factory=uuid4)
+    if not isinstance(
+        self.command_type,
+        str,
+    ):
+        raise TypeError(
+            "Command command_type must be a string."
+        )
 
-    correlation_id: UUID | None = None
-    causation_id: UUID | None = None
+    normalized_type = self.command_type.strip()
 
-    def __post_init__(self) -> None:
-        """Validate the structural command contract."""
+    if not normalized_type:
+        raise ValueError(
+            "Command command_type must not be empty."
+        )
 
-        if not isinstance(self.command_type, str):
-            raise TypeError(
-                "Command command_type must be a string."
-            )
+    object.__setattr__(
+        self,
+        "command_type",
+        normalized_type,
+    )
 
-        if not self.command_type.strip():
-            raise ValueError(
-                "Command command_type must not be empty."
-            )
+    # ----------------------------------------------------
+    # Payload
+    # ----------------------------------------------------
 
-        if not isinstance(self.payload, Mapping):
-            raise TypeError(
-                "Command payload must be a mapping."
-            )
+    if not isinstance(
+        self.payload,
+        Mapping,
+    ):
+        raise TypeError(
+            "Command payload must be a mapping."
+        )
 
-        if not isinstance(self.command_id, UUID):
-            raise TypeError(
-                "Command command_id must be a UUID."
-            )
+    # Defensive copy + read-only wrapper.
+    #
+    # This prevents callers from mutating the command
+    # through the original dictionary after construction.
+    frozen_payload = MappingProxyType(
+        dict(self.payload)
+    )
 
-        if self.correlation_id is not None and not isinstance(
+    object.__setattr__(
+        self,
+        "payload",
+        frozen_payload,
+    )
+
+    # ----------------------------------------------------
+    # Command identity
+    # ----------------------------------------------------
+
+    if not isinstance(
+        self.command_id,
+        UUID,
+    ):
+        raise TypeError(
+            "Command command_id must be a UUID."
+        )
+
+    # ----------------------------------------------------
+    # Correlation identity
+    # ----------------------------------------------------
+
+    if (
+        self.correlation_id is not None
+        and not isinstance(
             self.correlation_id,
             UUID,
-        ):
-            raise TypeError(
-                "Command correlation_id must be a UUID or None."
-            )
+        )
+    ):
+        raise TypeError(
+            "Command correlation_id must be a UUID or None."
+        )
 
-        if self.causation_id is not None and not isinstance(
+    # ----------------------------------------------------
+    # Causation identity
+    # ----------------------------------------------------
+
+    if (
+        self.causation_id is not None
+        and not isinstance(
             self.causation_id,
             UUID,
-        ):
-            raise TypeError(
-                "Command causation_id must be a UUID or None."
-            )
+        )
+    ):
+        raise TypeError(
+            "Command causation_id must be a UUID or None."
+        )
+```
 
+# ============================================================
+
+# COMMAND METADATA
+
+# ============================================================
 
 @dataclass(frozen=True)
 class CommandMetadata:
-    """
-    Optional descriptive metadata associated with a command.
+"""
+Optional descriptive metadata for Application infrastructure.
 
-    This metadata is intentionally separate from the command
-    payload.
+```
+Metadata is intentionally separate from command payload.
 
-    Payload answers:
+Payload answers:
 
-        "What input does this command require?"
+    What input does this command require?
 
-    Metadata answers:
+Metadata answers:
 
-        "How should the Application infrastructure identify
-         or describe this command?"
+    How should Application infrastructure describe
+    or identify this command?
 
-    Examples of appropriate metadata include:
+Appropriate metadata includes:
 
-        * display name;
-        * category;
-        * originating subsystem;
-        * plugin identifier.
+    * display_name;
+    * category;
+    * origin;
+    * plugin_id.
 
-    UI-specific runtime objects must not be stored here.
-    """
+Metadata must remain headless and must not contain UI
+runtime objects.
+"""
 
-    display_name: str | None = None
-    category: str | None = None
-    origin: str | None = None
-    plugin_id: str | None = None
+display_name: str | None = None
 
-    def __post_init__(self) -> None:
-        """Validate optional metadata values."""
+category: str | None = None
 
-        fields = {
-            "display_name": self.display_name,
-            "category": self.category,
-            "origin": self.origin,
-            "plugin_id": self.plugin_id,
-        }
+origin: str | None = None
 
-        for name, value in fields.items():
-            if value is not None and not isinstance(value, str):
-                raise TypeError(
-                    f"CommandMetadata {name} must be a string or None."
-                )
+plugin_id: str | None = None
 
+def __post_init__(self) -> None:
+    """Validate metadata values."""
 
-__all__ = [
-    "Command",
-    "CommandMetadata",
+    fields = {
+        "display_name": self.display_name,
+        "category": self.category,
+        "origin": self.origin,
+        "plugin_id": self.plugin_id,
+    }
+
+    for name, value in fields.items():
+
+        if (
+            value is not None
+            and not isinstance(
+                value,
+                str,
+            )
+        ):
+            raise TypeError(
+                f"CommandMetadata {name} "
+                "must be a string or None."
+            )
+```
+
+# ============================================================
+
+# PUBLIC API
+
+# ============================================================
+
+**all** = [
+"Command",
+"CommandMetadata",
 ]
