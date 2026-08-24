@@ -10,66 +10,92 @@ File:
 
 Purpose
 -------
-Defines the authoritative, headless Control-domain contract.
+Defines the common, headless Control-domain contracts.
 
-This module does NOT implement AVR, Governor, PSS, inverter control,
-or any other concrete controller.
+The Control domain has two major branches:
 
-Concrete implementations live in plugins, primarily:
+    Dynamic Control
+        AVR, Governor, PSS, inverter controllers, plant controllers, etc.
 
-    plugins/dynamics/avr/
-    plugins/dynamics/governor/
-    plugins/dynamics/pss/
+    Logic Control
+        Contacts, coils, AND/OR/NOT, timers, latches, interlocks,
+        sequences, comparators, and related discrete control elements.
 
-Relationship to DynamicPlugin
------------------------------
-DynamicPlugin defines the generic executable dynamic-component
-contract used by the dynamic plugin framework.
+This module defines only the COMMON Control contract.
 
-ControlComponent adds the semantic contract required by the
-GridForge Control domain:
+Branch-specific behavior belongs in:
 
-    state
-    inputs
-    outputs
-    references
-    derivatives
-    time
+    core/control/dynamic/
+    core/control/logic/
 
-ControlComponent does not own numerical integration.
+Concrete implementations remain in plugins.
 
-The solver remains responsible for numerical integration and global
-dynamic-state ownership.
+Dynamic implementations currently live under:
 
-Frozen architectural rule
--------------------------
-Core Control defines contracts.
+    plugins/dynamics/
 
-Plugins implement those contracts.
-
-Core Control must never import concrete plugins.
+Architectural Rules
+-------------------
+1. Core Control owns control-domain semantics.
+2. Plugins implement Core Control contracts.
+3. Core Control never imports concrete plugins.
+4. Control does not own electrical/network truth.
+5. Control does not perform numerical integration.
+6. Dynamic Control supplies derivatives; the solver integrates them.
+7. Logic Control evaluates discrete/event semantics; it does not become
+   a numerical solver.
+8. UI is a projection/editing surface and never owns authoritative
+   control state.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Mapping, MutableMapping, Sequence
+from enum import Enum
+from typing import Any, Mapping, Sequence
 
-import numpy as np
+import math
 
 
 # ============================================================================
 # TYPE ALIASES
 # ============================================================================
 
-Scalar = float | int | np.floating | np.integer
+SignalValue = float | int | bool
 
-State = Mapping[str, float]
-Inputs = Mapping[str, float]
-Outputs = Mapping[str, float]
+State = Mapping[str, SignalValue]
+Inputs = Mapping[str, SignalValue]
+Outputs = Mapping[str, SignalValue]
 
-MutableState = MutableMapping[str, float]
+
+# ============================================================================
+# ENUMERATIONS
+# ============================================================================
+
+
+class ControlKind(str, Enum):
+    """
+    Broad Control-domain classification.
+    """
+
+    DYNAMIC = "dynamic"
+    LOGIC = "logic"
+
+
+class SignalRole(str, Enum):
+    """
+    Semantic role of a Control signal.
+    """
+
+    MEASUREMENT = "measurement"
+    REFERENCE = "reference"
+    INPUT = "input"
+    OUTPUT = "output"
+    FEEDBACK = "feedback"
+    COMMAND = "command"
+    STATUS = "status"
+    INTERNAL = "internal"
 
 
 # ============================================================================
@@ -82,40 +108,48 @@ class ControlError(RuntimeError):
 
 
 class ControlConfigurationError(ControlError):
-    """Invalid controller configuration."""
+    """Invalid Control component configuration."""
 
 
 class ControlStateError(ControlError):
-    """Invalid controller state."""
+    """Invalid Control component state."""
 
 
 class ControlInputError(ControlError):
-    """Invalid controller input."""
+    """Invalid Control input."""
 
 
 class ControlOutputError(ControlError):
-    """Invalid controller output."""
+    """Invalid Control output."""
 
 
 # ============================================================================
-# SIGNAL / PORT DESCRIPTORS
+# SIGNAL DEFINITION
 # ============================================================================
 
 
 @dataclass(frozen=True)
 class ControlSignal:
     """
-    Description of one controller signal.
+    Definition of a Control-domain signal.
 
-    This is metadata only.
+    The signal definition contains metadata only.
 
-    It does not contain mutable runtime state.
+    It does not own runtime state.
+
+    ``value_type`` is intentionally descriptive rather than prescriptive.
+    It supports both:
+
+        continuous/numeric control
+        discrete/Boolean logic
     """
 
     name: str
+    role: SignalRole = SignalRole.INPUT
     unit: str = ""
     description: str = ""
     required: bool = True
+    value_type: type = float
 
     def __post_init__(self) -> None:
         name = str(self.name).strip()
@@ -125,92 +159,87 @@ class ControlSignal:
                 "ControlSignal name cannot be empty."
             )
 
-        object.__setattr__(
-            self,
-            "name",
-            name,
-        )
+        object.__setattr__(self, "name", name)
+
+        if not isinstance(self.role, SignalRole):
+            object.__setattr__(
+                self,
+                "role",
+                SignalRole(self.role),
+            )
+
+        if self.value_type not in (float, int, bool):
+            raise ValueError(
+                "ControlSignal value_type must be float, int, or bool."
+            )
 
 
 # ============================================================================
-# CONTROL EVALUATION RESULT
+# CONTROL RESULT
 # ============================================================================
 
 
 @dataclass(frozen=True)
 class ControlResult:
     """
-    Result produced by one controller evaluation.
+    Result of one Control-component evaluation.
 
-    Attributes
-    ----------
-    derivatives:
-        Controller-state derivatives.
+    ``derivatives`` is optional because only Dynamic Control components
+    necessarily produce derivatives.
 
-    outputs:
-        Controller outputs.
+    Logic components may return:
 
-    time:
-        Evaluation time.
+        derivatives = None
 
-    diagnostics:
-        Optional immutable diagnostic values.
+    while still producing outputs.
 
-    The solver may consume ``derivatives`` while the controlled
-    dynamic component consumes ``outputs``.
+    Numerical integration is never performed here.
     """
 
-    derivatives: Mapping[str, float]
-    outputs: Mapping[str, float]
+    outputs: Mapping[str, SignalValue]
     time: float
+    derivatives: Mapping[str, float] | None = None
     diagnostics: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         time = float(self.time)
 
-        if not np.isfinite(time):
+        if not math.isfinite(time):
             raise ValueError(
                 "ControlResult time must be finite."
             )
 
-        derivatives = {
-            str(name): float(value)
-            for name, value in self.derivatives.items()
-        }
+        outputs = dict(self.outputs)
 
-        outputs = {
-            str(name): float(value)
-            for name, value in self.outputs.items()
-        }
-
-        for name, value in (
-            *derivatives.items(),
-            *outputs.items(),
-        ):
-            if not np.isfinite(value):
+        for name, value in outputs.items():
+            if not isinstance(value, (bool, int, float)):
                 raise ValueError(
-                    f"Control result '{name}' "
-                    "must be finite."
+                    f"Control output '{name}' has unsupported value type."
                 )
 
-        object.__setattr__(
-            self,
-            "derivatives",
-            derivatives,
-        )
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if not math.isfinite(float(value)):
+                    raise ValueError(
+                        f"Control output '{name}' must be finite."
+                    )
 
-        object.__setattr__(
-            self,
-            "outputs",
-            outputs,
-        )
+        derivatives = None
 
-        object.__setattr__(
-            self,
-            "time",
-            time,
-        )
+        if self.derivatives is not None:
+            derivatives = {
+                str(name): float(value)
+                for name, value in self.derivatives.items()
+            }
 
+            for name, value in derivatives.items():
+                if not math.isfinite(value):
+                    raise ValueError(
+                        f"Control derivative '{name}' must be finite."
+                    )
+
+        object.__setattr__(self, "outputs", outputs)
+        object.__setattr__(self, "derivatives", derivatives)
+        object.__setattr__(self, "time", time)
         object.__setattr__(
             self,
             "diagnostics",
@@ -225,43 +254,27 @@ class ControlResult:
 
 class ControlComponent(ABC):
     """
-    Authoritative Control-domain contract.
+    Common authoritative Control-domain contract.
 
-    A ControlComponent represents an engineering control law.
+    This is intentionally broader than the DynamicPlugin contract.
 
-    Examples
-    --------
-    - AVR
-    - Governor
-    - PSS
-    - inverter controller
-    - plant controller
+    It supports two branches:
 
-    It may contain dynamic internal state, but it does not own
-    numerical integration.
+        Dynamic Control
+            derivative-producing continuous/dynamic components.
 
-    State
-    -----
-    Controller state is represented explicitly as named scalar
-    values.
+        Logic Control
+            discrete/event-driven components.
 
-    Inputs
-    ------
-    Runtime measurements, references and external signals.
+    Concrete branch-specific contracts should extend this class.
 
-    Outputs
-    -------
-    Commands/signals supplied to controlled dynamic components or
-    other controllers.
+    The common layer therefore does NOT require:
 
-    Time
-    ----
-    Evaluation time is always explicit.
+        derivatives()
+        numerical state
+        integration
 
-    This makes the contract compatible with the frozen dynamic
-    solver derivative contract:
-
-        derivative(state, time) -> dx/dt
+    Those belong to the appropriate branch.
     """
 
     # ========================================================================
@@ -272,48 +285,118 @@ class ControlComponent(ABC):
     @abstractmethod
     def component_id(self) -> str:
         """
-        Stable runtime identifier.
+        Stable component identifier.
         """
+
         raise NotImplementedError
 
     @property
     @abstractmethod
     def component_type(self) -> str:
         """
-        Engineering controller type.
+        Engineering/control component type.
 
         Examples:
 
-            "avr"
-            "governor"
-            "pss"
+            avr
+            governor
+            pss
+            contact
+            coil
+            and
+            timer
         """
+
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def control_kind(self) -> ControlKind:
+        """
+        Identify whether the component belongs to Dynamic or Logic Control.
+        """
+
         raise NotImplementedError
 
     @property
     def version(self) -> str:
         """
-        Controller contract/implementation version.
+        Contract/implementation version.
         """
 
         return "1.0"
 
     # ========================================================================
-    # STATE DEFINITION
+    # SIGNAL DEFINITIONS
     # ========================================================================
 
     @abstractmethod
+    def input_definition(
+        self,
+    ) -> Sequence[ControlSignal]:
+        """
+        Return the component's external input definitions.
+        """
+
+        raise NotImplementedError
+
+    @abstractmethod
+    def output_definition(
+        self,
+    ) -> Sequence[ControlSignal]:
+        """
+        Return the component's external output definitions.
+        """
+
+        raise NotImplementedError
+
+    @property
+    def input_names(self) -> tuple[str, ...]:
+        """
+        Ordered input names.
+        """
+
+        return tuple(
+            signal.name
+            for signal in self.input_definition()
+        )
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        """
+        Ordered output names.
+        """
+
+        return tuple(
+            signal.name
+            for signal in self.output_definition()
+        )
+
+    # ========================================================================
+    # STATE
+    # ========================================================================
+
     def state_definition(
         self,
     ) -> Sequence[ControlSignal]:
         """
-        Return definitions of all dynamic controller states.
+        Return local component state definitions.
+
+        The common Control contract permits stateless components.
+
+        Dynamic Control components normally override this.
+
+        Logic components may override this when they have persistent
+        state, such as timers, counters, or latches.
         """
-        raise NotImplementedError
+
+        return ()
 
     @property
     def state_names(self) -> tuple[str, ...]:
-        """Return ordered controller-state names."""
+        """
+        Ordered local state names.
+        """
 
         return tuple(
             signal.name
@@ -322,97 +405,26 @@ class ControlComponent(ABC):
 
     @property
     def state_size(self) -> int:
-        """Return number of controller states."""
+        """
+        Number of local state variables.
+        """
 
         return len(self.state_names)
 
-    # ========================================================================
-    # INPUT DEFINITION
-    # ========================================================================
-
-    @abstractmethod
-    def input_definition(
-        self,
-    ) -> Sequence[ControlSignal]:
-        """
-        Return definitions of controller inputs.
-        """
-        raise NotImplementedError
-
-    @property
-    def input_names(self) -> tuple[str, ...]:
-        """Return ordered input names."""
-
-        return tuple(
-            signal.name
-            for signal in self.input_definition()
-        )
-
-    # ========================================================================
-    # OUTPUT DEFINITION
-    # ========================================================================
-
-    @abstractmethod
-    def output_definition(
-        self,
-    ) -> Sequence[ControlSignal]:
-        """
-        Return definitions of controller outputs.
-        """
-        raise NotImplementedError
-
-    @property
-    def output_names(self) -> tuple[str, ...]:
-        """Return ordered output names."""
-
-        return tuple(
-            signal.name
-            for signal in self.output_definition()
-        )
-
-    # ========================================================================
-    # INITIALIZATION
-    # ========================================================================
-
-    @abstractmethod
     def initial_state(
         self,
         inputs: Inputs | None = None,
-    ) -> Mapping[str, float]:
+    ) -> Mapping[str, SignalValue]:
         """
-        Produce the controller's initial dynamic state.
+        Return initial local component state.
 
-        Initialization does not advance time.
+        Stateless components return an empty mapping.
         """
 
-        raise NotImplementedError
+        return {}
 
     # ========================================================================
-    # DERIVATIVES
-    # ========================================================================
-
-    @abstractmethod
-    def derivatives(
-        self,
-        state: State,
-        inputs: Inputs,
-        time: float,
-    ) -> Mapping[str, float]:
-        """
-        Evaluate controller-state derivatives.
-
-        Contract:
-
-            derivatives(state, inputs, time)
-                -> dstate/dt
-
-        Numerical integration is NOT performed here.
-        """
-
-        raise NotImplementedError
-
-    # ========================================================================
-    # OUTPUT
+    # EVALUATION
     # ========================================================================
 
     @abstractmethod
@@ -421,16 +433,15 @@ class ControlComponent(ABC):
         state: State,
         inputs: Inputs,
         time: float,
-    ) -> Mapping[str, float]:
+    ) -> Outputs:
         """
-        Evaluate controller outputs.
+        Evaluate component outputs.
+
+        This is the common execution contract for both Dynamic and
+        Logic Control.
         """
 
         raise NotImplementedError
-
-    # ========================================================================
-    # COMPLETE EVALUATION
-    # ========================================================================
 
     def evaluate(
         self,
@@ -439,28 +450,20 @@ class ControlComponent(ABC):
         time: float,
     ) -> ControlResult:
         """
-        Evaluate derivatives and outputs together.
+        Evaluate the component.
 
-        Concrete implementations may override this if their
-        evaluation can be optimized, but the semantic contract
-        remains unchanged.
+        The common implementation evaluates outputs.
+
+        Dynamic Control branch contracts may extend this method to
+        additionally return state derivatives.
+
+        Logic Control components normally use the common implementation.
         """
 
         time = self._validate_time(time)
 
-        normalized_state = self.validate_state(
-            state
-        )
-
-        normalized_inputs = self.validate_inputs(
-            inputs
-        )
-
-        derivatives = self.derivatives(
-            normalized_state,
-            normalized_inputs,
-            time,
-        )
+        normalized_state = self.validate_state(state)
+        normalized_inputs = self.validate_inputs(inputs)
 
         outputs = self.output(
             normalized_state,
@@ -468,24 +471,25 @@ class ControlComponent(ABC):
             time,
         )
 
+        outputs = self.validate_outputs(outputs)
+
         return ControlResult(
-            derivatives=derivatives,
             outputs=outputs,
             time=time,
         )
 
     # ========================================================================
-    # RESET
+    # LIFECYCLE
     # ========================================================================
 
     def reset(
         self,
         inputs: Inputs | None = None,
-    ) -> Mapping[str, float]:
+    ) -> Mapping[str, SignalValue]:
         """
-        Return a fresh initialized controller state.
+        Return a fresh initial component state.
 
-        Controllers must not silently retain numerical state here.
+        This method does not perform numerical integration.
         """
 
         return self.initial_state(
@@ -499,25 +503,20 @@ class ControlComponent(ABC):
     def validate_state(
         self,
         state: State,
-    ) -> dict[str, float]:
+    ) -> dict[str, SignalValue]:
         """
-        Validate and normalize controller state.
+        Validate local component state.
+
+        Stateless components accept only an empty state.
         """
 
         if state is None:
             raise ControlStateError(
-                f"{self.component_id}: "
-                "state cannot be None."
+                f"{self.component_id}: state cannot be None."
             )
 
-        expected = set(
-            self.state_names
-        )
-
-        actual = {
-            str(name)
-            for name in state
-        }
+        expected = set(self.state_names)
+        actual = {str(name) for name in state}
 
         missing = expected - actual
         unknown = actual - expected
@@ -525,38 +524,32 @@ class ControlComponent(ABC):
         if missing:
             raise ControlStateError(
                 f"{self.component_id}: "
-                f"missing state values: "
-                f"{sorted(missing)}"
+                f"missing state values: {sorted(missing)}"
             )
 
         if unknown:
             raise ControlStateError(
                 f"{self.component_id}: "
-                f"unknown state values: "
-                f"{sorted(unknown)}"
+                f"unknown state values: {sorted(unknown)}"
             )
 
-        result: dict[str, float] = {}
+        result: dict[str, SignalValue] = {}
 
         for name in self.state_names:
-            try:
-                value = float(
-                    state[name]
-                )
-            except (
-                TypeError,
-                ValueError,
-            ) as exc:
-                raise ControlStateError(
-                    f"{self.component_id}: "
-                    f"state '{name}' must be numeric."
-                ) from exc
+            value = state[name]
 
-            if not np.isfinite(value):
+            if not isinstance(value, (bool, int, float)):
                 raise ControlStateError(
                     f"{self.component_id}: "
-                    f"state '{name}' must be finite."
+                    f"state '{name}' has unsupported value type."
                 )
+
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if not math.isfinite(float(value)):
+                    raise ControlStateError(
+                        f"{self.component_id}: "
+                        f"state '{name}' must be finite."
+                    )
 
             result[name] = value
 
@@ -565,32 +558,26 @@ class ControlComponent(ABC):
     def validate_inputs(
         self,
         inputs: Inputs,
-    ) -> dict[str, float]:
+    ) -> dict[str, SignalValue]:
         """
-        Validate and normalize controller inputs.
+        Validate component inputs.
         """
 
         if inputs is None:
             raise ControlInputError(
-                f"{self.component_id}: "
-                "inputs cannot be None."
+                f"{self.component_id}: inputs cannot be None."
             )
 
         definitions = {
             signal.name: signal
-            for signal
-            in self.input_definition()
+            for signal in self.input_definition()
         }
 
-        actual = {
-            str(name)
-            for name in inputs
-        }
+        actual = {str(name) for name in inputs}
 
         required = {
             name
-            for name, signal
-            in definitions.items()
+            for name, signal in definitions.items()
             if signal.required
         }
 
@@ -599,43 +586,47 @@ class ControlComponent(ABC):
         if missing:
             raise ControlInputError(
                 f"{self.component_id}: "
-                f"missing inputs: "
-                f"{sorted(missing)}"
+                f"missing inputs: {sorted(missing)}"
             )
 
-        unknown = (
-            actual
-            - set(definitions)
-        )
+        unknown = actual - set(definitions)
 
         if unknown:
             raise ControlInputError(
                 f"{self.component_id}: "
-                f"unknown inputs: "
-                f"{sorted(unknown)}"
+                f"unknown inputs: {sorted(unknown)}"
             )
 
-        result: dict[str, float] = {}
+        result: dict[str, SignalValue] = {}
 
-        for name in actual:
-            try:
-                value = float(
-                    inputs[name]
-                )
-            except (
-                TypeError,
-                ValueError,
-            ) as exc:
+        for name, value in inputs.items():
+            definition = definitions[name]
+
+            if not isinstance(value, (bool, int, float)):
                 raise ControlInputError(
                     f"{self.component_id}: "
-                    f"input '{name}' must be numeric."
-                ) from exc
-
-            if not np.isfinite(value):
-                raise ControlInputError(
-                    f"{self.component_id}: "
-                    f"input '{name}' must be finite."
+                    f"input '{name}' has unsupported value type."
                 )
+
+            if definition.value_type is bool:
+                if not isinstance(value, bool):
+                    raise ControlInputError(
+                        f"{self.component_id}: "
+                        f"input '{name}' must be Boolean."
+                    )
+
+            elif definition.value_type is float:
+                if isinstance(value, bool):
+                    raise ControlInputError(
+                        f"{self.component_id}: "
+                        f"input '{name}' must be numeric."
+                    )
+
+                if not math.isfinite(float(value)):
+                    raise ControlInputError(
+                        f"{self.component_id}: "
+                        f"input '{name}' must be finite."
+                    )
 
             result[name] = value
 
@@ -644,33 +635,30 @@ class ControlComponent(ABC):
     def validate_outputs(
         self,
         outputs: Outputs,
-    ) -> dict[str, float]:
+    ) -> dict[str, SignalValue]:
         """
-        Validate controller outputs.
+        Validate component outputs.
         """
 
         if outputs is None:
             raise ControlOutputError(
-                f"{self.component_id}: "
-                "outputs cannot be None."
+                f"{self.component_id}: outputs cannot be None."
             )
 
-        expected = set(
-            self.output_names
-        )
-
-        actual = {
-            str(name)
-            for name in outputs
+        definitions = {
+            signal.name: signal
+            for signal in self.output_definition()
         }
+
+        expected = set(definitions)
+        actual = {str(name) for name in outputs}
 
         missing = expected - actual
 
         if missing:
             raise ControlOutputError(
                 f"{self.component_id}: "
-                f"missing outputs: "
-                f"{sorted(missing)}"
+                f"missing outputs: {sorted(missing)}"
             )
 
         unknown = actual - expected
@@ -678,31 +666,39 @@ class ControlComponent(ABC):
         if unknown:
             raise ControlOutputError(
                 f"{self.component_id}: "
-                f"unknown outputs: "
-                f"{sorted(unknown)}"
+                f"unknown outputs: {sorted(unknown)}"
             )
 
-        result: dict[str, float] = {}
+        result: dict[str, SignalValue] = {}
 
-        for name in self.output_names:
-            try:
-                value = float(
-                    outputs[name]
-                )
-            except (
-                TypeError,
-                ValueError,
-            ) as exc:
+        for name, value in outputs.items():
+            definition = definitions[name]
+
+            if not isinstance(value, (bool, int, float)):
                 raise ControlOutputError(
                     f"{self.component_id}: "
-                    f"output '{name}' must be numeric."
-                ) from exc
-
-            if not np.isfinite(value):
-                raise ControlOutputError(
-                    f"{self.component_id}: "
-                    f"output '{name}' must be finite."
+                    f"output '{name}' has unsupported value type."
                 )
+
+            if definition.value_type is bool:
+                if not isinstance(value, bool):
+                    raise ControlOutputError(
+                        f"{self.component_id}: "
+                        f"output '{name}' must be Boolean."
+                    )
+
+            elif definition.value_type is float:
+                if isinstance(value, bool):
+                    raise ControlOutputError(
+                        f"{self.component_id}: "
+                        f"output '{name}' must be numeric."
+                    )
+
+                if not math.isfinite(float(value)):
+                    raise ControlOutputError(
+                        f"{self.component_id}: "
+                        f"output '{name}' must be finite."
+                    )
 
             result[name] = value
 
@@ -712,9 +708,7 @@ class ControlComponent(ABC):
     # DIAGNOSTICS
     # ========================================================================
 
-    def diagnostics(
-        self,
-    ) -> Mapping[str, Any]:
+    def diagnostics(self) -> Mapping[str, Any]:
         """
         Return non-authoritative diagnostic metadata.
         """
@@ -722,48 +716,40 @@ class ControlComponent(ABC):
         return {
             "component_id": self.component_id,
             "component_type": self.component_type,
+            "control_kind": self.control_kind.value,
             "version": self.version,
             "state_names": self.state_names,
             "input_names": self.input_names,
             "output_names": self.output_names,
         }
 
-    # ========================================================================
-    # SUMMARY
-    # ========================================================================
-
-    def summary(
-        self,
-    ) -> Mapping[str, Any]:
+    def summary(self) -> Mapping[str, Any]:
         """
-        Return a serializable controller summary.
+        Return a serializable component summary.
         """
 
         return self.diagnostics()
 
     # ========================================================================
-    # VALIDATION HELPERS
+    # INTERNAL VALIDATION
     # ========================================================================
 
     @staticmethod
-    def _validate_time(
-        time: float,
-    ) -> float:
-        """Validate explicit evaluation time."""
+    def _validate_time(time: float) -> float:
+        """
+        Validate explicit evaluation time.
+        """
 
         try:
             value = float(time)
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
+        except (TypeError, ValueError) as exc:
             raise ControlConfigurationError(
-                "Controller time must be numeric."
+                "Control evaluation time must be numeric."
             ) from exc
 
-        if not np.isfinite(value):
+        if not math.isfinite(value):
             raise ControlConfigurationError(
-                "Controller time must be finite."
+                "Control evaluation time must be finite."
             )
 
         return value
@@ -774,11 +760,12 @@ class ControlComponent(ABC):
 # ============================================================================
 
 __all__ = [
-    "Scalar",
+    "SignalValue",
     "State",
     "Inputs",
     "Outputs",
-    "MutableState",
+    "ControlKind",
+    "SignalRole",
     "ControlSignal",
     "ControlResult",
     "ControlError",
