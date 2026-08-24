@@ -9,73 +9,67 @@
 # ============================================================
 
 """
-GridForge V2 Application Command Manager.
+GridForge V2 Headless Application Command Manager.
 
-CommandManager is the execution coordinator of the headless
-Application layer.
-
-## Architectural position
-
-```
-UI / Plugin / Automation
-          |
-          v
-       Command
-          |
-          v
-   CommandManager
-      /       \
-     v         v
-```
-
-Transaction    Handler
-|
-v
-Application Service
-|
-v
-Core
+CommandManager is the execution coordinator of the Application
+layer.
 
 ## Responsibilities
-
-CommandManager owns:
 
 ```
 * command registration;
 * command dispatch;
-* synchronous command execution;
 * transaction lifecycle;
 * committed command history;
-* undo execution;
-* redo coordination.
+* undo;
+* redo.
 ```
 
-CommandManager does NOT own:
+CommandManager does NOT:
 
 ```
-* Core domain state;
-* Network internals;
-* topology;
-* Y-bus;
-* UI state;
-* Qt;
-* SLD/canvas state;
-* rendering;
-* plugin lifecycle;
-* domain calculations.
+* own Core domain state;
+* mutate Network directly;
+* resolve domain objects;
+* perform engineering calculations;
+* access UI or Qt;
+* manage SLD/canvas state.
 ```
 
-## Transaction boundary
+## Handler contract
 
-Every command handler executes inside one ACTIVE Transaction.
-
-Successful execution:
+Every registered handler has the signature:
 
 ```
-handler
+handler(
+    command,
+    application_context,
+    active_transaction,
+) -> ApplicationResult
+```
+
+Handlers may register inverse operations through Transaction.
+
+Handlers must NOT:
+
+```
+* commit;
+* rollback;
+* modify CommandHistory.
+```
+
+## Execution contract
+
+Successful command:
+
+```
+Command
    |
    v
-transaction.commit()
+Handler
+   |
+   v
+Transaction.commit()
    |
    v
 UndoJournal
@@ -84,63 +78,29 @@ UndoJournal
 CommandHistory.record()
 ```
 
-Failed execution:
+Failed command:
 
 ```
-handler failure
+Handler failure/result
    |
    v
-transaction.rollback()
+Transaction.rollback()
+   |
+   v
+failure result / ApplicationError
 ```
-
-History is updated only after a successful commit.
-
-## Undo
-
-Undo executes the committed undo journal in reverse registration
-order.
-
-History itself does not execute undo operations.
 
 ## Redo
 
-Redo re-enters the normal Application command execution path.
+Redo re-enters the normal command execution path.
 
-Redo therefore does not directly mutate Core.
+The original CommandRecord is retained until the replay succeeds.
 
-## Handler contract
+A successful redo creates a new committed history record with a
+fresh transaction and fresh undo journal.
 
-Handlers receive:
-
-```
-command
-application context
-active transaction
-```
-
-and return:
-
-```
-ApplicationResult
-```
-
-Handlers may register inverse operations with the transaction.
-
-Handlers MUST NOT:
-
-```
-* commit the transaction;
-* rollback the transaction;
-* manipulate CommandHistory.
-```
-
-## Headless requirement
-
-This module has no UI or Qt dependencies.
-
-## Python compatibility
-
-GridForge V2 targets Python 3.10 / 3.11.
+The history record is therefore a record of an actual execution,
+not merely a replay marker.
 """
 
 from **future** import annotations
@@ -151,7 +111,11 @@ from typing import Callable
 from .command import Command
 from .context import ApplicationContext
 from .errors import ApplicationError, ExecutionError
-from .history import CommandHistory, UndoJournal
+from .history import (
+CommandHistory,
+CommandRecord,
+UndoJournal,
+)
 from .results import ApplicationResult
 from .transaction import Transaction
 
@@ -172,7 +136,7 @@ ApplicationResult,
 
 # ============================================================
 
-# COMMAND REGISTRATION
+# REGISTRATION
 
 # ============================================================
 
@@ -202,7 +166,7 @@ CommandManager is the sole coordinator of:
 
     command dispatch
     transaction lifecycle
-    committed command history
+    committed history
     undo
     redo
 """
@@ -213,9 +177,13 @@ def __init__(
     history: CommandHistory | None = None,
 ) -> None:
 
-    if context is None:
-        raise ValueError(
-            "CommandManager context must not be None."
+    if not isinstance(
+        context,
+        ApplicationContext,
+    ):
+        raise TypeError(
+            "CommandManager context must be "
+            "an ApplicationContext."
         )
 
     self._context = context
@@ -225,6 +193,15 @@ def __init__(
         if history is not None
         else CommandHistory()
     )
+
+    if not isinstance(
+        self._history,
+        CommandHistory,
+    ):
+        raise TypeError(
+            "CommandManager history must be "
+            "a CommandHistory."
+        )
 
     self._handlers: dict[
         str,
@@ -242,9 +219,7 @@ def __init__(
 
 @property
 def context(self) -> ApplicationContext:
-    """
-    Return the Application dependency context.
-    """
+    """Return the Application dependency context."""
 
     return self._context
 
@@ -254,27 +229,17 @@ def context(self) -> ApplicationContext:
 
 @property
 def history(self) -> CommandHistory:
-    """
-    Return the Application-owned command history.
-    """
+    """Return the Application-owned command history."""
 
     return self._history
 
-# --------------------------------------------------------
-
 def can_undo(self) -> bool:
-    """
-    Return whether the most recent command is undoable.
-    """
+    """Return whether the next command can be undone."""
 
     return self._history.can_undo()
 
-# --------------------------------------------------------
-
 def can_redo(self) -> bool:
-    """
-    Return whether a command can be replayed.
-    """
+    """Return whether a command can be replayed."""
 
     return self._history.can_redo()
 
@@ -291,7 +256,10 @@ def register(
     Register a handler for a semantic command type.
     """
 
-    if not isinstance(command_type, str):
+    if not isinstance(
+        command_type,
+        str,
+    ):
         raise TypeError(
             "command_type must be a string."
         )
@@ -322,8 +290,6 @@ def register(
     self._handlers[command_type] = handler
     self._registrations[command_type] = registration
 
-# --------------------------------------------------------
-
 def unregister(
     self,
     command_type: str,
@@ -334,7 +300,10 @@ def unregister(
     Returns True when a handler was removed.
     """
 
-    if not isinstance(command_type, str):
+    if not isinstance(
+        command_type,
+        str,
+    ):
         raise TypeError(
             "command_type must be a string."
         )
@@ -353,44 +322,43 @@ def unregister(
 
     return removed is not None
 
-# --------------------------------------------------------
-
 def is_registered(
     self,
     command_type: str,
 ) -> bool:
-    """
-    Return whether a command type is registered.
-    """
+    """Return whether a command type is registered."""
 
-    if not isinstance(command_type, str):
+    if not isinstance(
+        command_type,
+        str,
+    ):
         return False
 
-    return command_type in self._handlers
+    return command_type.strip() in self._handlers
 
-# --------------------------------------------------------
-
-def registered_commands(self) -> tuple[str, ...]:
-    """
-    Return registered semantic command types.
-    """
+def registered_commands(
+    self,
+) -> tuple[str, ...]:
+    """Return registered semantic command types."""
 
     return tuple(
         self._handlers.keys()
     )
 
-# --------------------------------------------------------
-
 def registration(
     self,
     command_type: str,
 ) -> CommandRegistration | None:
-    """
-    Return an immutable registration record.
-    """
+    """Return the immutable registration record."""
+
+    if not isinstance(
+        command_type,
+        str,
+    ):
+        return None
 
     return self._registrations.get(
-        command_type
+        command_type.strip()
     )
 
 # ========================================================
@@ -404,27 +372,17 @@ def execute(
     """
     Execute one registered command atomically.
 
-    Successful execution:
+    A successful execution is committed before history is
+    updated.
 
-        handler
-            |
-            v
-        commit()
-            |
-            v
-        history.record()
-
-    Failed execution:
-
-        handler failure
-            |
-            v
-        rollback()
-
-    A command is recorded only after commit succeeds.
+    A failed handler execution is rolled back while the
+    transaction remains active.
     """
 
-    if not isinstance(command, Command):
+    if not isinstance(
+        command,
+        Command,
+    ):
         raise TypeError(
             "CommandManager.execute requires a Command."
         )
@@ -441,7 +399,9 @@ def execute(
                 f"'{command.command_type}'."
             ),
             details={
-                "command_type": command.command_type,
+                "command_type": (
+                    command.command_type
+                ),
                 "command_id": str(
                     command.command_id
                 ),
@@ -462,12 +422,10 @@ def execute(
             transaction,
         )
 
-    except ApplicationError:
+    except ApplicationError as exc:
 
-        rollback_error = (
-            self._rollback(
-                transaction,
-            )
+        rollback_error = self._rollback(
+            transaction
         )
 
         if rollback_error is not None:
@@ -487,16 +445,14 @@ def execute(
                     ),
                 },
                 cause=rollback_error,
-            )
+            ) from exc
 
         raise
 
     except Exception as exc:
 
-        rollback_error = (
-            self._rollback(
-                transaction,
-            )
+        rollback_error = self._rollback(
+            transaction
         )
 
         if rollback_error is not None:
@@ -525,7 +481,9 @@ def execute(
                 "failed during execution."
             ),
             details={
-                "command_type": command.command_type,
+                "command_type": (
+                    command.command_type
+                ),
                 "command_id": str(
                     command.command_id
                 ),
@@ -542,10 +500,8 @@ def execute(
         ApplicationResult,
     ):
 
-        rollback_error = (
-            self._rollback(
-                transaction,
-            )
+        rollback_error = self._rollback(
+            transaction
         )
 
         if rollback_error is not None:
@@ -576,7 +532,9 @@ def execute(
                 "an ApplicationResult."
             ),
             details={
-                "command_type": command.command_type,
+                "command_type": (
+                    command.command_type
+                ),
                 "command_id": str(
                     command.command_id
                 ),
@@ -589,10 +547,8 @@ def execute(
 
     if not result.success:
 
-        rollback_error = (
-            self._rollback(
-                transaction,
-            )
+        rollback_error = self._rollback(
+            transaction
         )
 
         if rollback_error is not None:
@@ -629,31 +585,9 @@ def execute(
 
     except Exception as exc:
 
-        rollback_error = (
-            self._rollback(
-                transaction,
-            )
-        )
-
-        if rollback_error is not None:
-
-            raise ExecutionError(
-                code="TRANSACTION_COMMIT_FAILED",
-                message=(
-                    f"Command '{command.command_type}' "
-                    "could not commit and rollback "
-                    "also failed."
-                ),
-                details={
-                    "command_type": (
-                        command.command_type
-                    ),
-                    "command_id": str(
-                        command.command_id
-                    ),
-                },
-                cause=rollback_error,
-            ) from exc
+        # A Transaction whose commit raised may already
+        # have changed state. Do not pretend rollback is
+        # necessarily available.
 
         raise ExecutionError(
             code="TRANSACTION_COMMIT_FAILED",
@@ -667,6 +601,9 @@ def execute(
                 ),
                 "command_id": str(
                     command.command_id
+                ),
+                "transaction_state": (
+                    transaction.state.name
                 ),
             },
             cause=exc,
@@ -688,12 +625,11 @@ def execute(
 
     except Exception as exc:
 
-        # The transaction has already committed.
+        # Core mutation is already committed.
         #
-        # Core state must NOT be rolled back here.
-        #
-        # History recording failure is an Application
-        # infrastructure failure after successful mutation.
+        # Never rollback Core here. History persistence
+        # failure is a separate Application infrastructure
+        # failure.
 
         raise ExecutionError(
             code="COMMAND_HISTORY_RECORD_FAILED",
@@ -719,14 +655,14 @@ def execute(
 # UNDO
 # ========================================================
 
-def undo(self) -> ApplicationResult | None:
+def undo(
+    self,
+) -> ApplicationResult | None:
     """
-    Undo the most recent committed undoable command.
+    Undo the most recent committed command.
 
-    The history record is not removed until every inverse
-    operation succeeds.
-
-    Undo operations execute in reverse registration order.
+    The history record remains on the undo stack until every
+    inverse operation succeeds.
     """
 
     record = self._history.peek_undo()
@@ -735,6 +671,7 @@ def undo(self) -> ApplicationResult | None:
         return None
 
     if not record.reversible:
+
         raise ExecutionError(
             code="COMMAND_NOT_UNDOABLE",
             message=(
@@ -742,13 +679,19 @@ def undo(self) -> ApplicationResult | None:
                 "does not contain a committed undo journal."
             ),
             details={
-                "command_type": record.command_type,
-                "command_id": record.command_id,
+                "command_type": (
+                    record.command_type
+                ),
+                "command_id": (
+                    record.command_id
+                ),
             },
         )
 
     operations = tuple(
-        reversed(record.undo_operations)
+        reversed(
+            record.undo_operations
+        )
     )
 
     for operation in operations:
@@ -781,6 +724,7 @@ def undo(self) -> ApplicationResult | None:
     )
 
     if committed_record is None:
+
         raise ExecutionError(
             code="UNDO_HISTORY_STATE_ERROR",
             message=(
@@ -813,14 +757,18 @@ def undo(self) -> ApplicationResult | None:
 # REDO
 # ========================================================
 
-def redo(self) -> ApplicationResult | None:
+def redo(
+    self,
+) -> ApplicationResult | None:
     """
-    Re-execute the most recent undone command through the
-    normal Application command pipeline.
+    Re-execute the most recent undone command.
 
-    The original command is never mutated.
+    The redo record is retained until the replay succeeds.
 
-    A fresh Transaction is created by execute().
+    A successful replay enters execute(), which creates a
+    fresh Transaction and records a fresh history entry.
+
+    A failed replay restores the original redo record.
     """
 
     record = self._history.peek_redo()
@@ -828,28 +776,26 @@ def redo(self) -> ApplicationResult | None:
     if record is None:
         return None
 
-    redo_record = self._history.pop_redo()
-
-    if redo_record is None:
-        return None
-
     try:
 
-        return self.execute(
-            redo_record.command
+        result = self.execute(
+            record.command
         )
 
     except Exception:
 
-        # The command was not successfully replayed.
+        # execute() does not consume the redo record.
         #
-        # Restore the redo entry so the user can retry.
-
-        self._history.push_redo(
-            redo_record
-        )
+        # The original redo entry therefore remains intact.
 
         raise
+
+    # Successful execute() has recorded a new history
+    # record and cleared the redo stack.
+    #
+    # No additional history manipulation is required.
+
+    return result
 
 # ========================================================
 # ROLLBACK HELPER
@@ -862,7 +808,7 @@ def _rollback(
     """
     Roll back an active transaction.
 
-    Returns the rollback exception when rollback itself fails.
+    Returns the rollback exception if rollback fails.
     """
 
     if not transaction.active:
