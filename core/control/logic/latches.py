@@ -1,4 +1,3 @@
-```python
 """
 GridForge V2 - Logic Latches
 ============================
@@ -381,4 +380,3 @@ __all__ = [
     "SRLatch",
     "RSLatch",
 ]
-```
