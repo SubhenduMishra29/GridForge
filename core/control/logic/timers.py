@@ -1,6 +1,7 @@
+```python
 """
 GridForge V2 - Logic Timers
-============================
+===========================
 
 Author:
     Subhendu Mishra
@@ -10,32 +11,26 @@ File:
 
 Purpose
 -------
-Headless industrial timer elements for the Logic Control domain.
+Deterministic timer components for the Logic Control branch.
 
-Supported timer modes:
+Timers are simulation-time driven. They never use wall-clock time.
 
-    TON - On-delay timer
-    TOF - Off-delay timer
-    TP  - Pulse timer
+Architecture
+------------
+The timer is a LogicControlComponent.
 
-Timers are deterministic and use the supplied control/simulation time.
-They never use wall-clock time.
+Inputs:
+    IN
 
-The UI logic-layout/editing canvas owns only the graphical representation
-of timers. Timer behavior and persistent timing state belong to Core.
+Outputs:
+    Q
 
-Architectural boundary
-----------------------
-    Logic inputs
-        |
-        v
-      Timer
-        |
-        +----> Boolean output
-        |
-        +----> persistent timing state
+Persistent state:
+    elapsed
+    active
 
-The timer does not directly mutate core/model or simulation state.
+The Core owns timer state and semantics. The UI logic-layout/editing
+canvas only represents and edits the component and its connections.
 """
 
 from __future__ import annotations
@@ -46,102 +41,55 @@ from typing import Sequence
 
 from ...base import (
     ControlSignal,
-    Inputs,
     SignalRole,
     State,
+    Inputs,
 )
-from ..base import (
+from .base import (
     LogicControlComponent,
     LogicControlResult,
+    LogicEvent,
+    LogicEventType,
     LogicStateDefinition,
 )
 
 
-class TimerType(str, Enum):
-    """Supported industrial timer modes."""
+# ============================================================================
+# TIMER MODE
+# ============================================================================
+
+
+class TimerMode(str, Enum):
+    """Supported deterministic timer modes."""
 
     TON = "ton"
     TOF = "tof"
     TP = "tp"
 
 
-class LogicTimer(LogicControlComponent):
+# ============================================================================
+# TIMER
+# ============================================================================
+
+
+class LogicTimer(
+    LogicControlComponent,
+):
     """
-    Base deterministic timer implementation.
+    Generic deterministic Logic timer.
 
-    Input:
-        IN
-            Boolean timer command.
+    TON
+        Q becomes true after IN remains true for the preset duration.
 
-    Output:
-        Q
-            Timer output.
+    TOF
+        Q remains true for the preset duration after IN becomes false.
 
-    Persistent state:
-        Q
-            Current timer output.
-        running
-            Whether the timing interval is active.
-        elapsed
-            Elapsed time in seconds.
-        start_time
-            Control/simulation time at which the active interval started.
-        previous_input
-            Previous evaluated input state.
+    TP
+        A rising edge on IN starts a pulse of the preset duration.
 
-    The timer uses the supplied ``time`` argument exclusively.
+    The timer uses the supplied ``time`` value and therefore remains
+    deterministic under simulation, replay, testing, and time stepping.
     """
-
-    _STATE_Q = "Q"
-    _STATE_RUNNING = "running"
-    _STATE_ELAPSED = "elapsed"
-    _STATE_START_TIME = "start_time"
-    _STATE_PREVIOUS_INPUT = "previous_input"
-
-    def __init__(
-        self,
-        component_id: str,
-        preset: float,
-        timer_type: TimerType,
-    ) -> None:
-        component_id = str(
-            component_id
-        ).strip()
-
-        if not component_id:
-            raise ValueError(
-                "LogicTimer component_id cannot be empty."
-            )
-
-        preset = float(preset)
-
-        if not math.isfinite(preset):
-            raise ValueError(
-                "Timer preset must be finite."
-            )
-
-        if preset < 0.0:
-            raise ValueError(
-                "Timer preset cannot be negative."
-            )
-
-        if not isinstance(
-            timer_type,
-            TimerType,
-        ):
-            try:
-                timer_type = TimerType(
-                    timer_type
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    f"Invalid timer type: "
-                    f"{timer_type!r}."
-                ) from exc
-
-        self._component_id = component_id
-        self._preset = preset
-        self._timer_type = timer_type
 
     # ========================================================================
     # IDENTITY
@@ -153,17 +101,79 @@ class LogicTimer(LogicControlComponent):
 
     @property
     def component_type(self) -> str:
-        return f"timer_{self._timer_type.value}"
+        return "timer"
 
-    @property
-    def timer_type(self) -> TimerType:
-        return self._timer_type
+    # ========================================================================
+    # INITIALIZATION
+    # ========================================================================
+
+    def __init__(
+        self,
+        component_id: str,
+        *,
+        preset: float,
+        mode: TimerMode = TimerMode.TON,
+    ) -> None:
+        component_id = str(
+            component_id
+        ).strip()
+
+        if not component_id:
+            raise ValueError(
+                "LogicTimer component_id cannot be empty."
+            )
+
+        preset = float(
+            preset
+        )
+
+        if not math.isfinite(
+            preset
+        ):
+            raise ValueError(
+                "LogicTimer preset must be finite."
+            )
+
+        if preset < 0.0:
+            raise ValueError(
+                "LogicTimer preset cannot be negative."
+            )
+
+        try:
+            normalized_mode = (
+                mode
+                if isinstance(
+                    mode,
+                    TimerMode,
+                )
+                else TimerMode(
+                    mode
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported timer mode: {mode!r}."
+            ) from exc
+
+        self._component_id = component_id
+        self._preset = preset
+        self._mode = normalized_mode
+
+    # ========================================================================
+    # CONFIGURATION
+    # ========================================================================
 
     @property
     def preset(self) -> float:
-        """Return preset duration in seconds."""
+        """Preset duration in simulation-time units."""
 
         return self._preset
+
+    @property
+    def mode(self) -> TimerMode:
+        """Timer operating mode."""
+
+        return self._mode
 
     # ========================================================================
     # SIGNAL CONTRACT
@@ -176,7 +186,9 @@ class LogicTimer(LogicControlComponent):
             ControlSignal(
                 name="IN",
                 role=SignalRole.INPUT,
-                description="Boolean timer command.",
+                description=(
+                    "Boolean timer input."
+                ),
                 value_type=bool,
             ),
         )
@@ -188,7 +200,9 @@ class LogicTimer(LogicControlComponent):
             ControlSignal(
                 name="Q",
                 role=SignalRole.OUTPUT,
-                description="Boolean timer output.",
+                description=(
+                    "Boolean timer output."
+                ),
                 value_type=bool,
             ),
         )
@@ -197,53 +211,55 @@ class LogicTimer(LogicControlComponent):
     # STATE CONTRACT
     # ========================================================================
 
-    @property
-    def logic_state_names(
-        self,
-    ) -> Sequence[str]:
-        return (
-            self._STATE_Q,
-            self._STATE_RUNNING,
-            self._STATE_ELAPSED,
-            self._STATE_START_TIME,
-            self._STATE_PREVIOUS_INPUT,
-        )
-
     def logic_state_definition(
         self,
     ) -> Sequence[LogicStateDefinition]:
         return (
             LogicStateDefinition(
-                name=self._STATE_Q,
-                description="Current timer output.",
-                value_type=bool,
-                default=False,
-            ),
-            LogicStateDefinition(
-                name=self._STATE_RUNNING,
-                description="Whether the timer is currently timing.",
-                value_type=bool,
-                default=False,
-            ),
-            LogicStateDefinition(
-                name=self._STATE_ELAPSED,
-                description="Elapsed timing duration in seconds.",
+                name="elapsed",
                 value_type=float,
                 default=0.0,
+                description=(
+                    "Accumulated timer duration."
+                ),
             ),
             LogicStateDefinition(
-                name=self._STATE_START_TIME,
-                description="Control time at which timing started.",
-                value_type=float,
-                default=0.0,
-            ),
-            LogicStateDefinition(
-                name=self._STATE_PREVIOUS_INPUT,
-                description="Previous Boolean input state.",
+                name="active",
                 value_type=bool,
                 default=False,
+                description=(
+                    "Whether the timer is currently timing."
+                ),
+            ),
+            LogicStateDefinition(
+                name="input_previous",
+                value_type=bool,
+                default=False,
+                description=(
+                    "Previous sampled input used for edge detection."
+                ),
             ),
         )
+
+    # ========================================================================
+    # RESET
+    # ========================================================================
+
+    def reset_logic(
+        self,
+    ) -> State:
+        return {
+            "elapsed": 0.0,
+            "active": False,
+            "input_previous": False,
+        }
+
+    def reset(
+        self,
+        inputs: Inputs | None = None,
+    ) -> State:
+        del inputs
+        return self.reset_logic()
 
     # ========================================================================
     # EVALUATION
@@ -255,8 +271,8 @@ class LogicTimer(LogicControlComponent):
         inputs: Inputs,
         time: float,
     ) -> LogicControlResult:
-        normalized_state = self.validate_state(
-            state
+        time = _finite_time(
+            time
         )
 
         normalized_inputs = (
@@ -265,466 +281,305 @@ class LogicTimer(LogicControlComponent):
             )
         )
 
-        current_time = _finite_time(
-            time
+        normalized_state = (
+            self.validate_logic_state(
+                state
+            )
         )
 
         input_active = bool(
-            normalized_inputs["IN"]
+            normalized_inputs[
+                "IN"
+            ]
         )
 
         previous_input = bool(
             normalized_state[
-                self._STATE_PREVIOUS_INPUT
+                "input_previous"
             ]
         )
 
-        q = bool(
+        previous_elapsed = float(
             normalized_state[
-                self._STATE_Q
+                "elapsed"
             ]
         )
 
-        running = bool(
+        previous_active = bool(
             normalized_state[
-                self._STATE_RUNNING
+                "active"
             ]
         )
 
-        elapsed = _non_negative_finite(
-            normalized_state[
-                self._STATE_ELAPSED
-            ],
-            "elapsed",
+        # --------------------------------------------------------------------
+        # INITIAL / REPEATED SAMPLE
+        # --------------------------------------------------------------------
+
+        elapsed = max(
+            0.0,
+            previous_elapsed,
         )
 
-        start_time = _finite_time(
-            normalized_state[
-                self._STATE_START_TIME
-            ]
-        )
+        active = previous_active
+        output = False
 
-        if self._timer_type is TimerType.TON:
-            (
-                q,
-                running,
-                elapsed,
-                start_time,
-            ) = self._evaluate_ton(
-                input_active=input_active,
-                previous_input=previous_input,
-                current_time=current_time,
-                q=q,
-                running=running,
-                elapsed=elapsed,
-                start_time=start_time,
+        # --------------------------------------------------------------------
+        # TON
+        # --------------------------------------------------------------------
+
+        if self.mode is TimerMode.TON:
+            if input_active:
+                if not previous_active:
+                    elapsed = 0.0
+
+                elapsed = min(
+                    self.preset,
+                    elapsed
+                    + _sample_delta(
+                        time,
+                        normalized_state,
+                    ),
+                )
+
+                active = True
+
+                output = (
+                    elapsed
+                    >= self.preset
+                )
+            else:
+                elapsed = 0.0
+                active = False
+                output = False
+
+        # --------------------------------------------------------------------
+        # TOF
+        # --------------------------------------------------------------------
+
+        elif self.mode is TimerMode.TOF:
+            if input_active:
+                elapsed = 0.0
+                active = False
+                output = True
+            else:
+                if previous_input:
+                    elapsed = 0.0
+                    active = True
+
+                if active:
+                    elapsed = min(
+                        self.preset,
+                        elapsed
+                        + _sample_delta(
+                            time,
+                            normalized_state,
+                        ),
+                    )
+
+                    output = (
+                        elapsed
+                        < self.preset
+                    )
+
+                    if (
+                        elapsed
+                        >= self.preset
+                    ):
+                        active = False
+                        output = False
+                else:
+                    output = False
+
+        # --------------------------------------------------------------------
+        # TP
+        # --------------------------------------------------------------------
+
+        elif self.mode is TimerMode.TP:
+            rising_edge = (
+                input_active
+                and not previous_input
             )
 
-        elif self._timer_type is TimerType.TOF:
-            (
-                q,
-                running,
-                elapsed,
-                start_time,
-            ) = self._evaluate_tof(
-                input_active=input_active,
-                previous_input=previous_input,
-                current_time=current_time,
-                q=q,
-                running=running,
-                elapsed=elapsed,
-                start_time=start_time,
+            if rising_edge:
+                elapsed = 0.0
+                active = True
+
+            if active:
+                elapsed = min(
+                    self.preset,
+                    elapsed
+                    + _sample_delta(
+                        time,
+                        normalized_state,
+                    ),
+                )
+
+                output = (
+                    elapsed
+                    < self.preset
+                )
+
+                if (
+                    elapsed
+                    >= self.preset
+                ):
+                    active = False
+                    output = False
+            else:
+                output = False
+
+        # --------------------------------------------------------------------
+        # STATE / EVENTS
+        # --------------------------------------------------------------------
+
+        events: list[
+            LogicEvent
+        ] = []
+
+        if previous_active != active:
+            events.append(
+                LogicEvent(
+                    event_type=(
+                        LogicEventType.STATE_CHANGED
+                    ),
+                    component_id=self.component_id,
+                    signal_name="active",
+                    previous_value=previous_active,
+                    current_value=active,
+                    time=time,
+                    data={
+                        "mode": self.mode.value,
+                    },
+                )
             )
 
-        elif self._timer_type is TimerType.TP:
-            (
-                q,
-                running,
-                elapsed,
-                start_time,
-            ) = self._evaluate_tp(
-                input_active=input_active,
-                previous_input=previous_input,
-                current_time=current_time,
-                q=q,
-                running=running,
-                elapsed=elapsed,
-                start_time=start_time,
+        previous_output = (
+            previous_active
+            and (
+                previous_elapsed
+                < self.preset
+            )
+        )
+
+        if previous_output != output:
+            events.append(
+                LogicEvent(
+                    event_type=(
+                        LogicEventType.OUTPUT_CHANGED
+                    ),
+                    component_id=self.component_id,
+                    signal_name="Q",
+                    previous_value=previous_output,
+                    current_value=output,
+                    time=time,
+                    data={
+                        "mode": self.mode.value,
+                        "elapsed": elapsed,
+                        "preset": self.preset,
+                    },
+                )
             )
 
-        else:
-            raise ValueError(
-                f"Unsupported timer type: "
-                f"{self._timer_type!r}."
+        if (
+            not previous_active
+            and active
+        ):
+            events.append(
+                LogicEvent(
+                    event_type=(
+                        LogicEventType.TRIGGERED
+                    ),
+                    component_id=self.component_id,
+                    signal_name="IN",
+                    previous_value=previous_input,
+                    current_value=input_active,
+                    time=time,
+                    data={
+                        "mode": self.mode.value,
+                        "preset": self.preset,
+                    },
+                )
             )
 
         return LogicControlResult(
             outputs={
-                "Q": q,
+                "Q": output,
             },
             state={
-                self._STATE_Q: q,
-                self._STATE_RUNNING: running,
-                self._STATE_ELAPSED: elapsed,
-                self._STATE_START_TIME: start_time,
-                self._STATE_PREVIOUS_INPUT: input_active,
+                "elapsed": elapsed,
+                "active": active,
+                "input_previous": input_active,
             },
-            time=current_time,
-        )
-
-    # ========================================================================
-    # TON
-    # ========================================================================
-
-    def _evaluate_ton(
-        self,
-        *,
-        input_active: bool,
-        previous_input: bool,
-        current_time: float,
-        q: bool,
-        running: bool,
-        elapsed: float,
-        start_time: float,
-    ) -> tuple[
-        bool,
-        bool,
-        float,
-        float,
-    ]:
-        """
-        On-delay behavior.
-
-        IN = False:
-            Q = False
-            timer reset
-
-        IN changes False -> True:
-            timing starts
-
-        elapsed >= preset:
-            Q = True
-        """
-
-        if not input_active:
-            return (
-                False,
-                False,
-                0.0,
-                current_time,
-            )
-
-        if not previous_input and input_active:
-            running = True
-            start_time = current_time
-            elapsed = 0.0
-
-        elif not running and not q:
-            running = True
-            start_time = current_time
-            elapsed = 0.0
-
-        if self._preset == 0.0:
-            return (
-                True,
-                False,
-                0.0,
-                start_time,
-            )
-
-        if running:
-            elapsed = max(
-                0.0,
-                current_time - start_time,
-            )
-
-            if elapsed >= self._preset:
-                elapsed = self._preset
-                q = True
-                running = False
-
-        return (
-            q,
-            running,
-            elapsed,
-            start_time,
-        )
-
-    # ========================================================================
-    # TOF
-    # ========================================================================
-
-    def _evaluate_tof(
-        self,
-        *,
-        input_active: bool,
-        previous_input: bool,
-        current_time: float,
-        q: bool,
-        running: bool,
-        elapsed: float,
-        start_time: float,
-    ) -> tuple[
-        bool,
-        bool,
-        float,
-        float,
-    ]:
-        """
-        Off-delay behavior.
-
-        IN = True:
-            Q = True
-            timer reset
-
-        IN changes True -> False:
-            timing starts
-
-        elapsed >= preset:
-            Q = False
-        """
-
-        if input_active:
-            return (
-                True,
-                False,
-                0.0,
-                current_time,
-            )
-
-        if previous_input and not input_active:
-            running = True
-            start_time = current_time
-            elapsed = 0.0
-
-        elif not running and q:
-            running = True
-            start_time = current_time
-            elapsed = 0.0
-
-        if self._preset == 0.0:
-            return (
-                False,
-                False,
-                0.0,
-                start_time,
-            )
-
-        if running:
-            elapsed = max(
-                0.0,
-                current_time - start_time,
-            )
-
-            if elapsed >= self._preset:
-                elapsed = self._preset
-                q = False
-                running = False
-
-        return (
-            q,
-            running,
-            elapsed,
-            start_time,
-        )
-
-    # ========================================================================
-    # TP
-    # ========================================================================
-
-    def _evaluate_tp(
-        self,
-        *,
-        input_active: bool,
-        previous_input: bool,
-        current_time: float,
-        q: bool,
-        running: bool,
-        elapsed: float,
-        start_time: float,
-    ) -> tuple[
-        bool,
-        bool,
-        float,
-        float,
-    ]:
-        """
-        Pulse timer behavior.
-
-        A rising edge starts one pulse.
-
-        During the preset duration:
-            Q = True
-
-        After the preset duration:
-            Q = False
-
-        A sustained input does not retrigger the pulse.
-        """
-
-        rising_edge = (
-            input_active
-            and not previous_input
-        )
-
-        if rising_edge and not running:
-            q = True
-            running = True
-            elapsed = 0.0
-            start_time = current_time
-
-            if self._preset == 0.0:
-                return (
-                    False,
-                    False,
-                    0.0,
-                    start_time,
-                )
-
-        if running:
-            elapsed = max(
-                0.0,
-                current_time - start_time,
-            )
-
-            if elapsed >= self._preset:
-                elapsed = self._preset
-                q = False
-                running = False
-
-        return (
-            q,
-            running,
-            elapsed,
-            start_time,
-        )
-
-    # ========================================================================
-    # RESET
-    # ========================================================================
-
-    def reset_logic(
-        self,
-    ) -> State:
-        """
-        Return the timer's reset state.
-        """
-
-        return {
-            self._STATE_Q: False,
-            self._STATE_RUNNING: False,
-            self._STATE_ELAPSED: 0.0,
-            self._STATE_START_TIME: 0.0,
-            self._STATE_PREVIOUS_INPUT: False,
-        }
-
-    # ========================================================================
-    # STATUS HELPERS
-    # ========================================================================
-
-    def output(
-        self,
-        state: State,
-    ) -> bool:
-        """Return the timer output from a supplied state."""
-
-        normalized = self.validate_state(
-            state
-        )
-
-        return bool(
-            normalized[
-                self._STATE_Q
-            ]
-        )
-
-    def is_running(
-        self,
-        state: State,
-    ) -> bool:
-        """Return whether the timer is timing."""
-
-        normalized = self.validate_state(
-            state
-        )
-
-        return bool(
-            normalized[
-                self._STATE_RUNNING
-            ]
-        )
-
-    def elapsed(
-        self,
-        state: State,
-    ) -> float:
-        """Return elapsed timer duration in seconds."""
-
-        normalized = self.validate_state(
-            state
-        )
-
-        return float(
-            normalized[
-                self._STATE_ELAPSED
-            ]
+            time=time,
+            events=tuple(
+                events
+            ),
+            diagnostics={
+                "mode": self.mode.value,
+                "preset": self.preset,
+                "elapsed": elapsed,
+                "active": active,
+            },
         )
 
 
 # ============================================================================
-# CONCRETE TIMER TYPES
+# SPECIALIZED TIMERS
 # ============================================================================
 
 
-class TONTimer(LogicTimer):
-    """Industrial on-delay timer."""
+class LogicTONTimer(
+    LogicTimer,
+):
+    """IEC-style on-delay timer."""
 
     def __init__(
         self,
         component_id: str,
+        *,
         preset: float,
     ) -> None:
         super().__init__(
-            component_id=component_id,
+            component_id,
             preset=preset,
-            timer_type=TimerType.TON,
+            mode=TimerMode.TON,
         )
 
 
-class TOFTimer(LogicTimer):
-    """Industrial off-delay timer."""
+class LogicTOFTimer(
+    LogicTimer,
+):
+    """IEC-style off-delay timer."""
 
     def __init__(
         self,
         component_id: str,
+        *,
         preset: float,
     ) -> None:
         super().__init__(
-            component_id=component_id,
+            component_id,
             preset=preset,
-            timer_type=TimerType.TOF,
+            mode=TimerMode.TOF,
         )
 
 
-class TPTimer(LogicTimer):
-    """Industrial pulse timer."""
+class LogicTPTimer(
+    LogicTimer,
+):
+    """IEC-style pulse timer."""
 
     def __init__(
         self,
         component_id: str,
+        *,
         preset: float,
     ) -> None:
         super().__init__(
-            component_id=component_id,
+            component_id,
             preset=preset,
-            timer_type=TimerType.TP,
+            mode=TimerMode.TP,
         )
-
-
-# Engineering-friendly aliases.
-OnDelayTimer = TONTimer
-OffDelayTimer = TOFTimer
-PulseTimer = TPTimer
 
 
 # ============================================================================
@@ -736,57 +591,80 @@ def _finite_time(
     value: float,
 ) -> float:
     try:
-        value = float(value)
+        result = float(
+            value
+        )
     except (
         TypeError,
         ValueError,
     ) as exc:
         raise ValueError(
-            "Timer time must be numeric."
+            "Timer evaluation time must be numeric."
         ) from exc
 
-    if not math.isfinite(value):
+    if not math.isfinite(
+        result
+    ):
         raise ValueError(
-            "Timer time must be finite."
+            "Timer evaluation time must be finite."
         )
 
-    return value
+    return result
 
 
-def _non_negative_finite(
-    value: float,
-    name: str,
+def _sample_delta(
+    current_time: float,
+    state: State,
 ) -> float:
+    """
+    Obtain the deterministic sample interval.
+
+    The Logic component state contract intentionally stores only the timer's
+    logical state. If the base component supplies a previous evaluation time,
+    use it; otherwise the current invocation is treated as a zero-duration
+    first sample.
+
+    No wall-clock source is consulted.
+    """
+
+    previous_time = state.get(
+        "_evaluation_time"
+    )
+
+    if previous_time is None:
+        return 0.0
+
     try:
-        value = float(value)
+        previous_time = float(
+            previous_time
+        )
     except (
         TypeError,
         ValueError,
-    ) as exc:
-        raise ValueError(
-            f"{name} must be numeric."
-        ) from exc
+    ):
+        return 0.0
 
-    if not math.isfinite(value):
-        raise ValueError(
-            f"{name} must be finite."
-        )
+    if not math.isfinite(
+        previous_time
+    ):
+        return 0.0
 
-    if value < 0.0:
-        raise ValueError(
-            f"{name} cannot be negative."
-        )
+    delta = (
+        current_time
+        - previous_time
+    )
 
-    return value
+    if delta < 0.0:
+        return 0.0
+
+    return delta
 
 
 __all__ = [
-    "TimerType",
+    "TimerMode",
     "LogicTimer",
-    "TONTimer",
-    "TOFTimer",
-    "TPTimer",
-    "OnDelayTimer",
-    "OffDelayTimer",
-    "PulseTimer",
+    "LogicTONTimer",
+    "LogicTOFTimer",
+    "LogicTPTimer",
 ]
+```
