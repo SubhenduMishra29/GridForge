@@ -71,7 +71,7 @@ The current Application boundary resolves these identifiers against
 canonical Network Bus IDs inside the command handler.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from .model_commands import (
 CREATE_BUS,
