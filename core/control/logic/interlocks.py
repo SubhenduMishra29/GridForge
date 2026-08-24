@@ -10,44 +10,27 @@ File:
 
 Purpose
 -------
-Headless industrial interlock and permissive logic for the GridForge
-Control domain.
+Headless interlock logic for the GridForge Control domain.
 
-An interlock determines whether an operation is permitted based on
-Boolean permissive and blocking conditions.
+An interlock permits an action only when every required condition is
+satisfied.
 
-The component is deliberately independent of:
+The authoritative persistent state is Boolean:
 
-    - UI
-    - logic-layout graphics
-    - equipment graphics
-    - core/model mutation
-    - wall-clock time
+    blocked = True / False
 
-The UI logic-layout canvas may represent the interlock graphically, but
-the authoritative interlock semantics live here.
+The semantic InterlockState enum is retained as a public interpretation
+of that Boolean state. String values are deliberately not stored in the
+generic LogicStateDefinition because the frozen Logic state contract
+accepts Boolean, integer, and floating-point state values.
 
-Domain semantics
-----------------
-
-A command is permitted when:
-
-    command
-    AND
-    all permissive conditions
-    AND
-    NOT any blocking condition
-
-Trip conditions force the interlock into a blocked state.
-
-Fail-safe behavior is supported by treating missing/invalid required
-conditions as non-permissive rather than silently allowing operation.
+UI logic-layout/editing remains outside Core Control.
 """
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import Mapping, Sequence
+from typing import Sequence
 
 from ...base import (
     ControlSignal,
@@ -55,109 +38,62 @@ from ...base import (
     SignalRole,
     State,
 )
-from ..base import (
+from .base import (
     LogicControlComponent,
     LogicControlResult,
+    LogicEvent,
+    LogicEventType,
     LogicStateDefinition,
 )
 
 
+# ============================================================================
+# INTERLOCK STATE
+# ============================================================================
+
+
 class InterlockState(str, Enum):
-    """Authoritative interlock evaluation state."""
+    """Semantic interpretation of the interlock state."""
 
-    PERMISSIVE = "permissive"
+    CLEAR = "clear"
     BLOCKED = "blocked"
-    TRIPPED = "tripped"
 
 
-class LogicInterlock(LogicControlComponent):
+# ============================================================================
+# INTERLOCK
+# ============================================================================
+
+
+class LogicInterlock(
+    LogicControlComponent,
+):
     """
-    Headless industrial interlock.
+    Boolean interlock component.
 
     Inputs
     ------
-    COMMAND:
-        Requested operation.
+    ENABLE
+        Master permission condition.
 
-    PERMISSIVE_*:
-        Required permissive conditions.
-
-    BLOCK_*:
-        Blocking conditions.
-
-    TRIP_*:
-        Trip conditions.
+    CONDITIONS
+        Sequence of Boolean permissive conditions.
 
     Output
     ------
-    PERMIT:
-        True only when the command is permitted.
-
-    BLOCKED:
-        True when operation is blocked.
-
-    TRIPPED:
-        True when a trip condition is active.
+    ALLOW
+        True only when ENABLE and every condition are true.
 
     State
     -----
-    status:
-        Current InterlockState.
+    blocked
+        Persistent Boolean indication of the interlock state.
 
-    The component does not execute the commanded operation. It only
-    determines whether the operation is permitted.
+        True  -> BLOCKED
+        False -> CLEAR
+
+    The component intentionally uses one explicit Boolean output instead
+    of exposing the semantic enum as a Core state value.
     """
-
-    _STATE_STATUS = "status"
-
-    COMMAND = "COMMAND"
-    PERMIT = "PERMIT"
-    BLOCKED = "BLOCKED"
-    TRIPPED = "TRIPPED"
-
-    def __init__(
-        self,
-        component_id: str,
-        *,
-        permissive_inputs: Sequence[str] = (),
-        blocking_inputs: Sequence[str] = (),
-        trip_inputs: Sequence[str] = (),
-        fail_safe: bool = True,
-    ) -> None:
-        component_id = str(
-            component_id
-        ).strip()
-
-        if not component_id:
-            raise ValueError(
-                "LogicInterlock component_id cannot be empty."
-            )
-
-        self._component_id = component_id
-        self._fail_safe = bool(fail_safe)
-
-        self._permissive_inputs = (
-            self._normalize_names(
-                permissive_inputs,
-                "permissive",
-            )
-        )
-
-        self._blocking_inputs = (
-            self._normalize_names(
-                blocking_inputs,
-                "blocking",
-            )
-        )
-
-        self._trip_inputs = (
-            self._normalize_names(
-                trip_inputs,
-                "trip",
-            )
-        )
-
-        self._validate_unique_names()
 
     # ========================================================================
     # IDENTITY
@@ -171,126 +107,184 @@ class LogicInterlock(LogicControlComponent):
     def component_type(self) -> str:
         return "interlock"
 
-    @property
-    def fail_safe(self) -> bool:
-        return self._fail_safe
+    # ========================================================================
+    # INITIALIZATION
+    # ========================================================================
 
-    @property
-    def permissive_inputs(self) -> tuple[str, ...]:
-        return self._permissive_inputs
+    def __init__(
+        self,
+        component_id: str,
+        *,
+        condition_count: int = 1,
+    ) -> None:
+        component_id = str(
+            component_id
+        ).strip()
 
-    @property
-    def blocking_inputs(self) -> tuple[str, ...]:
-        return self._blocking_inputs
+        if not component_id:
+            raise ValueError(
+                "LogicInterlock component_id cannot be empty."
+            )
 
-    @property
-    def trip_inputs(self) -> tuple[str, ...]:
-        return self._trip_inputs
+        condition_count = int(
+            condition_count
+        )
+
+        if condition_count <= 0:
+            raise ValueError(
+                "LogicInterlock condition_count "
+                "must be greater than zero."
+            )
+
+        self._component_id = component_id
+        self._condition_count = condition_count
 
     # ========================================================================
-    # SIGNAL CONTRACT
+    # CONFIGURATION
+    # ========================================================================
+
+    @property
+    def condition_count(self) -> int:
+        """Number of permissive conditions."""
+
+        return self._condition_count
+
+    @property
+    def condition_names(self) -> tuple[str, ...]:
+        """Ordered condition input names."""
+
+        return tuple(
+            f"CONDITION_{index}"
+            for index in range(
+                1,
+                self._condition_count + 1,
+            )
+        )
+
+    # ========================================================================
+    # INPUTS
     # ========================================================================
 
     def input_definition(
         self,
     ) -> Sequence[ControlSignal]:
-        """
-        Define the complete interlock input interface.
-
-        ``COMMAND`` is always present.
-
-        Additional inputs are dynamically defined by the interlock
-        configuration.
-        """
-
         signals: list[ControlSignal] = [
             ControlSignal(
-                name=self.COMMAND,
+                name="ENABLE",
                 role=SignalRole.INPUT,
-                description="Requested controlled operation.",
+                description=(
+                    "Master interlock enable condition."
+                ),
                 value_type=bool,
             )
         ]
 
-        for name in self._permissive_inputs:
-            signals.append(
-                ControlSignal(
-                    name=name,
-                    role=SignalRole.INPUT,
-                    description="Required permissive condition.",
-                    value_type=bool,
-                )
+        signals.extend(
+            ControlSignal(
+                name=name,
+                role=SignalRole.INPUT,
+                description=(
+                    "Required Boolean permissive condition."
+                ),
+                value_type=bool,
             )
+            for name in self.condition_names
+        )
 
-        for name in self._blocking_inputs:
-            signals.append(
-                ControlSignal(
-                    name=name,
-                    role=SignalRole.INPUT,
-                    description="Blocking condition.",
-                    value_type=bool,
-                )
-            )
+        return tuple(
+            signals
+        )
 
-        for name in self._trip_inputs:
-            signals.append(
-                ControlSignal(
-                    name=name,
-                    role=SignalRole.INPUT,
-                    description="Trip condition.",
-                    value_type=bool,
-                )
-            )
-
-        return tuple(signals)
+    # ========================================================================
+    # OUTPUTS
+    # ========================================================================
 
     def output_definition(
         self,
     ) -> Sequence[ControlSignal]:
         return (
             ControlSignal(
-                name=self.PERMIT,
+                name="ALLOW",
                 role=SignalRole.OUTPUT,
-                description="Interlock permit output.",
-                value_type=bool,
-            ),
-            ControlSignal(
-                name=self.BLOCKED,
-                role=SignalRole.OUTPUT,
-                description="Interlock blocked indication.",
-                value_type=bool,
-            ),
-            ControlSignal(
-                name=self.TRIPPED,
-                role=SignalRole.OUTPUT,
-                description="Interlock trip indication.",
+                description=(
+                    "Interlock permission."
+                ),
                 value_type=bool,
             ),
         )
 
     # ========================================================================
-    # STATE CONTRACT
+    # STATE
     # ========================================================================
-
-    @property
-    def logic_state_names(
-        self,
-    ) -> Sequence[str]:
-        return (
-            self._STATE_STATUS,
-        )
 
     def logic_state_definition(
         self,
     ) -> Sequence[LogicStateDefinition]:
         return (
             LogicStateDefinition(
-                name=self._STATE_STATUS,
-                description="Current interlock evaluation state.",
-                value_type=str,
-                default=InterlockState.BLOCKED.value,
+                name="blocked",
+                value_type=bool,
+                default=True,
+                description=(
+                    "Persistent Boolean interlock status. "
+                    "True means blocked."
+                ),
             ),
         )
+
+    @property
+    def blocked(self) -> bool:
+        """
+        Semantic convenience property.
+
+        This property does not own state; the engine remains authoritative.
+        """
+
+        return bool(
+            self._last_blocked
+        )
+
+    @property
+    def interlock_state(self) -> InterlockState:
+        """Return the semantic interpretation of the latest state."""
+
+        return (
+            InterlockState.BLOCKED
+            if self.blocked
+            else InterlockState.CLEAR
+        )
+
+    # ========================================================================
+    # RESET
+    # ========================================================================
+
+    def reset_logic(
+        self,
+    ) -> State:
+        """
+        Return the safe initial interlock state.
+
+        An interlock starts blocked until all permissive conditions are
+        explicitly satisfied.
+        """
+
+        self._last_blocked = True
+
+        return {
+            "blocked": True,
+        }
+
+    def reset(
+        self,
+        inputs: Inputs | None = None,
+    ) -> State:
+        del inputs
+
+        self._last_blocked = True
+
+        return {
+            "blocked": True,
+        }
 
     # ========================================================================
     # EVALUATION
@@ -302,310 +296,124 @@ class LogicInterlock(LogicControlComponent):
         inputs: Inputs,
         time: float,
     ) -> LogicControlResult:
-        """
-        Evaluate the interlock.
-
-        Evaluation precedence:
-
-            1. Trip
-            2. Blocking condition
-            3. Missing required permissive
-            4. False permissive
-            5. Command inactive
-            6. Permit
-
-        Trip always has precedence over ordinary blocking.
-        """
-
-        normalized_state = self.validate_state(
-            state
-        )
-
         normalized_inputs = (
             self.validate_logic_inputs(
                 inputs
             )
         )
 
-        del normalized_state
-
-        trip_active = self._any_active(
-            normalized_inputs,
-            self._trip_inputs,
-        )
-
-        block_active = self._any_active(
-            normalized_inputs,
-            self._blocking_inputs,
-        )
-
-        missing_permissive = (
-            self._missing_inputs(
-                normalized_inputs,
-                self._permissive_inputs,
+        normalized_state = (
+            self.validate_logic_state(
+                state
             )
         )
 
-        false_permissive = (
-            self._any_false(
-                normalized_inputs,
-                self._permissive_inputs,
+        enable = normalized_inputs[
+            "ENABLE"
+        ]
+
+        conditions_ok = all(
+            bool(
+                normalized_inputs[
+                    name
+                ]
             )
+            for name in self.condition_names
         )
 
-        command_active = bool(
-            normalized_inputs[self.COMMAND]
+        allowed = (
+            bool(enable)
+            and conditions_ok
         )
 
-        if trip_active:
-            status = InterlockState.TRIPPED
-            permit = False
+        blocked = not allowed
 
-        elif block_active:
-            status = InterlockState.BLOCKED
-            permit = False
+        previous_blocked = bool(
+            normalized_state[
+                "blocked"
+            ]
+        )
 
-        elif (
-            self._fail_safe
-            and missing_permissive
-        ):
-            status = InterlockState.BLOCKED
-            permit = False
+        events: list[
+            LogicEvent
+        ] = []
 
-        elif false_permissive:
-            status = InterlockState.BLOCKED
-            permit = False
+        if previous_blocked != blocked:
+            events.append(
+                LogicEvent(
+                    event_type=(
+                        LogicEventType.STATE_CHANGED
+                    ),
+                    component_id=(
+                        self.component_id
+                    ),
+                    signal_name="blocked",
+                    previous_value=(
+                        previous_blocked
+                    ),
+                    current_value=blocked,
+                    time=time,
+                    data={
+                        "interlock_state": (
+                            InterlockState.BLOCKED.value
+                            if blocked
+                            else InterlockState.CLEAR.value
+                        ),
+                    },
+                )
+            )
 
-        elif not command_active:
-            status = InterlockState.BLOCKED
-            permit = False
+        if previous_blocked and not blocked:
+            events.append(
+                LogicEvent(
+                    event_type=(
+                        LogicEventType.TRIGGERED
+                    ),
+                    component_id=(
+                        self.component_id
+                    ),
+                    signal_name="ALLOW",
+                    previous_value=False,
+                    current_value=True,
+                    time=time,
+                    data={
+                        "interlock_state": (
+                            InterlockState.CLEAR.value
+                        ),
+                    },
+                )
+            )
 
-        else:
-            status = InterlockState.PERMISSIVE
-            permit = True
+        self._last_blocked = blocked
 
         return LogicControlResult(
             outputs={
-                self.PERMIT: permit,
-                self.BLOCKED: (
-                    status is InterlockState.BLOCKED
-                ),
-                self.TRIPPED: (
-                    status is InterlockState.TRIPPED
-                ),
+                "ALLOW": allowed,
             },
             state={
-                self._STATE_STATUS:
-                    status.value,
+                "blocked": blocked,
             },
             time=time,
+            events=tuple(
+                events
+            ),
+            diagnostics={
+                "interlock_state": (
+                    InterlockState.BLOCKED.value
+                    if blocked
+                    else InterlockState.CLEAR.value
+                ),
+                "conditions_satisfied": (
+                    conditions_ok
+                ),
+                "enable": bool(
+                    enable
+                ),
+            },
         )
-
-    # ========================================================================
-    # HELPERS
-    # ========================================================================
-
-    def status(
-        self,
-        state: State,
-    ) -> InterlockState:
-        """
-        Return the current interlock state.
-        """
-
-        normalized = self.validate_state(
-            state
-        )
-
-        raw_status = normalized[
-            self._STATE_STATUS
-        ]
-
-        try:
-            return InterlockState(
-                raw_status
-            )
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid interlock state: "
-                f"{raw_status!r}."
-            ) from exc
-
-    def is_permissive(
-        self,
-        state: State,
-    ) -> bool:
-        return (
-            self.status(state)
-            is InterlockState.PERMISSIVE
-        )
-
-    def is_blocked(
-        self,
-        state: State,
-    ) -> bool:
-        return (
-            self.status(state)
-            is InterlockState.BLOCKED
-        )
-
-    def is_tripped(
-        self,
-        state: State,
-    ) -> bool:
-        return (
-            self.status(state)
-            is InterlockState.TRIPPED
-        )
-
-    def reset_logic(
-        self,
-    ) -> State:
-        """
-        Return the deterministic safe/reset state.
-        """
-
-        return {
-            self._STATE_STATUS:
-                InterlockState.BLOCKED.value,
-        }
-
-    # ========================================================================
-    # CONFIGURATION VALIDATION
-    # ========================================================================
-
-    @staticmethod
-    def _normalize_names(
-        names: Sequence[str],
-        category: str,
-    ) -> tuple[str, ...]:
-        normalized: list[str] = []
-
-        for name in names:
-            value = str(name).strip()
-
-            if not value:
-                raise ValueError(
-                    f"{category.capitalize()} input "
-                    "names cannot be empty."
-                )
-
-            normalized.append(value)
-
-        return tuple(normalized)
-
-    def _validate_unique_names(
-        self,
-    ) -> None:
-        groups = {
-            "permissive": self._permissive_inputs,
-            "blocking": self._blocking_inputs,
-            "trip": self._trip_inputs,
-        }
-
-        seen: dict[str, str] = {}
-
-        reserved = {
-            self.COMMAND,
-        }
-
-        for category, names in groups.items():
-            for name in names:
-                if name in reserved:
-                    raise ValueError(
-                        f"Input name {name!r} is reserved."
-                    )
-
-                previous = seen.get(name)
-
-                if previous is not None:
-                    raise ValueError(
-                        f"Input {name!r} is defined as both "
-                        f"{previous} and {category}."
-                    )
-
-                seen[name] = category
-
-    # ========================================================================
-    # BOOLEAN EVALUATION HELPERS
-    # ========================================================================
-
-    @staticmethod
-    def _any_active(
-        inputs: Mapping[str, object],
-        names: Sequence[str],
-    ) -> bool:
-        return any(
-            bool(inputs[name])
-            for name in names
-            if name in inputs
-        )
-
-    @staticmethod
-    def _any_false(
-        inputs: Mapping[str, object],
-        names: Sequence[str],
-    ) -> bool:
-        return any(
-            not bool(inputs[name])
-            for name in names
-            if name in inputs
-        )
-
-    @staticmethod
-    def _missing_inputs(
-        inputs: Mapping[str, object],
-        names: Sequence[str],
-    ) -> bool:
-        return any(
-            name not in inputs
-            for name in names
-        )
-
-
-class PermissiveInterlock(LogicInterlock):
-    """
-    Convenience interlock emphasizing required permissive conditions.
-
-    Blocking and trip conditions remain supported.
-    """
-
-    @property
-    def component_type(self) -> str:
-        return "permissive_interlock"
-
-
-class SafetyInterlock(LogicInterlock):
-    """
-    Fail-safe interlock intended for safety/permissive logic.
-
-    Missing required inputs are treated as blocking.
-    """
-
-    def __init__(
-        self,
-        component_id: str,
-        *,
-        permissive_inputs: Sequence[str] = (),
-        blocking_inputs: Sequence[str] = (),
-        trip_inputs: Sequence[str] = (),
-    ) -> None:
-        super().__init__(
-            component_id=component_id,
-            permissive_inputs=permissive_inputs,
-            blocking_inputs=blocking_inputs,
-            trip_inputs=trip_inputs,
-            fail_safe=True,
-        )
-
-    @property
-    def component_type(self) -> str:
-        return "safety_interlock"
 
 
 __all__ = [
     "InterlockState",
     "LogicInterlock",
-    "PermissiveInterlock",
-    "SafetyInterlock",
 ]
