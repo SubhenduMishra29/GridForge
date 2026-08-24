@@ -1,4 +1,3 @@
-```python
 """
 GridForge V2 - Logic Timers
 ===========================
@@ -667,4 +666,3 @@ __all__ = [
     "LogicTOFTimer",
     "LogicTPTimer",
 ]
-```
