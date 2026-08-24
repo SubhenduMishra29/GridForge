@@ -1,377 +1,449 @@
 # ============================================================
+
 # File: core/application/results.py
+
 # GridForge V2 — Application Result Contract
+
 # Author: Subhendu Mishra
+
 # ============================================================
 
 """
-GridForge V2
-============
+GridForge V2 Application Result Contract.
 
-Module:
-    core.application.results
+ApplicationResult is the immutable value returned by the
+headless Application layer.
 
-Purpose
--------
-Defines the immutable result contract returned by the headless
-Application layer.
+## Execution path
 
-Application services and command handlers return ApplicationResult
-objects instead of exposing UI-specific state or implementation
-details.
+```
+Command
+   |
+   v
+Handler
+   |
+   v
+Application Service
+   |
+   v
+ApplicationResult
+   |
+   v
+Application Consumer
+```
 
-Architecture
-------------
+The result is an Application contract.
 
-    Application Command
-            |
-            v
-       Command Handler
-            |
-            v
-      Application Service
-            |
-            v
-      ApplicationResult
-            |
-            v
-      Application Consumer
+It must not contain:
 
+```
+* Qt objects;
+* widgets;
+* graphics items;
+* renderers;
+* canvas state;
+* UI controllers.
+```
 
-Result Categories
------------------
-The result contract supports:
+A canonical Core object may be returned as `value` when that
+object is the direct result of an Application operation.
 
-    * success
-    * validation failure
-    * domain failure
-    * resource failure
-    * execution failure
+## Result categories
 
-The result object is immutable.
+Success:
 
-Python Compatibility
---------------------
-GridForge V2 supports Python 3.10 and Python 3.11.
+```
+category = "success"
+```
 
-Therefore this module intentionally uses TypeVar and Generic
-rather than Python 3.12 PEP 695 generic class syntax.
+Failure categories may include:
+
+```
+validation
+domain
+resource
+execution
+```
+
+The Application layer may add further stable categories when
+required, but category names must remain machine-readable.
+
+## Immutability
+
+ApplicationResult is frozen.
+
+Metadata is recursively converted into immutable forms.
+
+## Python compatibility
+
+GridForge V2 targets Python 3.10 and Python 3.11.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Generic, Mapping, TypeVar
 
+# ============================================================
 
-# =====================================================================
 # TYPE VARIABLE
-# =====================================================================
+
+# ============================================================
 
 T = TypeVar("T")
 
+# ============================================================
 
-# =====================================================================
-# IMMUTABILITY HELPERS
-# =====================================================================
+# IMMUTABILITY
 
-def _freeze_value(value: Any) -> Any:
-    """
-    Recursively convert common mutable containers into immutable forms.
+# ============================================================
 
-    Mapping
-        -> MappingProxyType
+def _freeze_value(
+value: Any,
+) -> Any:
+"""
+Recursively convert common mutable containers to immutable
+Application values.
+"""
 
-    list / tuple
-        -> tuple
+```
+if isinstance(
+    value,
+    Mapping,
+):
+    return MappingProxyType(
+        {
+            key: _freeze_value(item)
+            for key, item in value.items()
+        }
+    )
 
-    set / frozenset
-        -> frozenset
+if isinstance(
+    value,
+    (list, tuple),
+):
+    return tuple(
+        _freeze_value(item)
+        for item in value
+    )
 
-    Other values
-        -> returned unchanged
+if isinstance(
+    value,
+    (set, frozenset),
+):
+    return frozenset(
+        _freeze_value(item)
+        for item in value
+    )
 
-    Notes
-    -----
-    This provides defensive immutability for Application metadata.
-
-    It does not attempt to clone arbitrary user-defined objects.
-    Such objects should not be placed in metadata unless their own
-    immutability is guaranteed.
-    """
-
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {
-                key: _freeze_value(item)
-                for key, item in value.items()
-            }
-        )
-
-    if isinstance(value, (list, tuple)):
-        return tuple(
-            _freeze_value(item)
-            for item in value
-        )
-
-    if isinstance(value, (set, frozenset)):
-        return frozenset(
-            _freeze_value(item)
-            for item in value
-        )
-
-    return value
-
+return value
+```
 
 def _freeze_mapping(
-    value: Mapping[str, Any] | None,
+value: Mapping[str, Any] | None,
 ) -> Mapping[str, Any] | None:
-    """
-    Return an immutable representation of a metadata mapping.
-    """
+"""
+Return an immutable metadata mapping.
+"""
 
-    if value is None:
-        return None
+```
+if value is None:
+    return None
 
-    frozen = _freeze_value(value)
+frozen = _freeze_value(value)
 
-    if not isinstance(frozen, Mapping):
-        raise TypeError(
-            "ApplicationResult metadata must be a mapping."
-        )
+if not isinstance(
+    frozen,
+    Mapping,
+):
+    raise TypeError(
+        "ApplicationResult metadata must be a mapping."
+    )
 
-    return frozen
+return frozen
+```
 
+# ============================================================
 
-# =====================================================================
 # APPLICATION RESULT
-# =====================================================================
+
+# ============================================================
 
 @dataclass(frozen=True)
 class ApplicationResult(Generic[T]):
+"""
+Immutable Application operation result.
+
+```
+Parameters
+----------
+success:
+    True when the operation completed successfully.
+
+value:
+    Optional value produced by the operation.
+
+message:
+    Human-readable result description.
+
+code:
+    Stable machine-readable result code.
+
+category:
+    Stable result classification.
+
+metadata:
+    Optional immutable structured metadata.
+"""
+
+success: bool
+
+value: T | None = None
+
+message: str = ""
+
+code: str = ""
+
+category: str = "success"
+
+metadata: Mapping[str, Any] | None = None
+
+# ========================================================
+# VALIDATION
+# ========================================================
+
+def __post_init__(self) -> None:
     """
-    Immutable result returned by the Application layer.
-
-    Parameters
-    ----------
-    success:
-        True when the requested Application operation completed
-        successfully.
-
-    value:
-        Optional result value produced by the operation.
-
-    message:
-        Human-readable description of the result.
-
-    code:
-        Stable machine-readable result code.
-
-    category:
-        Result classification.
-
-    metadata:
-        Optional immutable mapping containing structured result
-        information.
-
-    Notes
-    -----
-    The result object contains Application-level information only.
-
-    It must not contain:
-
-        * Qt objects;
-        * UI objects;
-        * QGraphicsItem instances;
-        * widgets;
-        * renderers;
-        * canvas state.
-
-    A canonical Core model object may be returned as ``value`` when
-    that object is the result of the requested Application operation.
+    Validate the result structure and freeze metadata.
     """
 
-    success: bool
-    value: T | None = None
-    message: str = ""
-    code: str = ""
-    category: str = "success"
-    metadata: Mapping[str, Any] | None = None
-
-    # =================================================================
-    # POST-INITIALIZATION
-    # =================================================================
-
-    def __post_init__(self) -> None:
-        """
-        Normalize metadata into an immutable representation.
-        """
-
-        frozen_metadata = _freeze_mapping(self.metadata)
-
-        object.__setattr__(
-            self,
-            "metadata",
-            frozen_metadata,
+    if not isinstance(
+        self.success,
+        bool,
+    ):
+        raise TypeError(
+            "ApplicationResult success must be bool."
         )
 
-    # =================================================================
-    # SUCCESS FACTORY
-    # =================================================================
-
-    @classmethod
-    def success_result(
-        cls,
-        *,
-        value: T | None = None,
-        message: str = "",
-        code: str = "OK",
-        metadata: Mapping[str, Any] | None = None,
-    ) -> "ApplicationResult[T]":
-        """
-        Construct a successful ApplicationResult.
-
-        Parameters
-        ----------
-        value:
-            Optional operation result.
-
-        message:
-            Human-readable success message.
-
-        code:
-            Stable machine-readable success code.
-
-        metadata:
-            Optional structured result metadata.
-        """
-
-        return cls(
-            success=True,
-            value=value,
-            message=message,
-            code=code,
-            category="success",
-            metadata=metadata,
+    if not isinstance(
+        self.message,
+        str,
+    ):
+        raise TypeError(
+            "ApplicationResult message must be str."
         )
 
-    # =================================================================
-    # FAILURE FACTORY
-    # =================================================================
+    if not isinstance(
+        self.code,
+        str,
+    ):
+        raise TypeError(
+            "ApplicationResult code must be str."
+        )
 
-    @classmethod
-    def failure(
-        cls,
-        *,
-        message: str,
-        code: str,
-        category: str,
-        value: T | None = None,
-        metadata: Mapping[str, Any] | None = None,
-    ) -> "ApplicationResult[T]":
-        """
-        Construct a failed ApplicationResult.
+    if not isinstance(
+        self.category,
+        str,
+    ):
+        raise TypeError(
+            "ApplicationResult category must be str."
+        )
 
-        Parameters
-        ----------
-        message:
-            Human-readable failure description.
+    normalized_category = (
+        self.category.strip()
+    )
 
-        code:
-            Stable machine-readable failure code.
+    if not normalized_category:
+        raise ValueError(
+            "ApplicationResult category "
+            "must not be empty."
+        )
 
-        category:
-            Failure category.
+    object.__setattr__(
+        self,
+        "category",
+        normalized_category,
+    )
 
-        value:
-            Optional partial/result value.
+    if self.success:
 
-        metadata:
-            Optional structured failure metadata.
-        """
-
-        if not message:
+        if (
+            self.code
+            and not self.code.strip()
+        ):
             raise ValueError(
-                "ApplicationResult failure message "
+                "Successful ApplicationResult code "
+                "must not contain only whitespace."
+            )
+
+    else:
+
+        if not self.message.strip():
+            raise ValueError(
+                "Failed ApplicationResult message "
                 "must not be empty."
             )
 
-        if not code:
+        if not self.code.strip():
             raise ValueError(
-                "ApplicationResult failure code "
+                "Failed ApplicationResult code "
                 "must not be empty."
             )
 
-        if not category:
-            raise ValueError(
-                "ApplicationResult failure category "
-                "must not be empty."
-            )
+    object.__setattr__(
+        self,
+        "metadata",
+        _freeze_mapping(
+            self.metadata
+        ),
+    )
 
-        return cls(
-            success=False,
-            value=value,
-            message=message,
-            code=code,
-            category=category,
-            metadata=metadata,
+# ========================================================
+# SUCCESS FACTORY
+# ========================================================
+
+@classmethod
+def success_result(
+    cls,
+    *,
+    value: T | None = None,
+    message: str = "",
+    code: str = "OK",
+    metadata: Mapping[str, Any] | None = None,
+) -> "ApplicationResult[T]":
+    """
+    Construct a successful ApplicationResult.
+    """
+
+    return cls(
+        success=True,
+        value=value,
+        message=message,
+        code=code,
+        category="success",
+        metadata=metadata,
+    )
+
+# ========================================================
+# FAILURE FACTORY
+# ========================================================
+
+@classmethod
+def failure(
+    cls,
+    *,
+    message: str,
+    code: str,
+    category: str,
+    value: T | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> "ApplicationResult[T]":
+    """
+    Construct a failed ApplicationResult.
+    """
+
+    if not isinstance(
+        message,
+        str,
+    ):
+        raise TypeError(
+            "ApplicationResult failure message "
+            "must be str."
         )
 
-    # =================================================================
-    # STATUS HELPERS
-    # =================================================================
+    if not isinstance(
+        code,
+        str,
+    ):
+        raise TypeError(
+            "ApplicationResult failure code "
+            "must be str."
+        )
 
-    @property
-    def failed(self) -> bool:
-        """
-        Return True when the operation failed.
-        """
+    if not isinstance(
+        category,
+        str,
+    ):
+        raise TypeError(
+            "ApplicationResult failure category "
+            "must be str."
+        )
 
-        return not self.success
+    if not message.strip():
+        raise ValueError(
+            "ApplicationResult failure message "
+            "must not be empty."
+        )
 
-    # -----------------------------------------------------------------
+    if not code.strip():
+        raise ValueError(
+            "ApplicationResult failure code "
+            "must not be empty."
+        )
 
-    @property
-    def is_success(self) -> bool:
-        """
-        Return True when the operation succeeded.
-        """
+    if not category.strip():
+        raise ValueError(
+            "ApplicationResult failure category "
+            "must not be empty."
+        )
 
-        return self.success
+    return cls(
+        success=False,
+        value=value,
+        message=message,
+        code=code,
+        category=category,
+        metadata=metadata,
+    )
 
-    # -----------------------------------------------------------------
+# ========================================================
+# STATUS
+# ========================================================
 
-    @property
-    def is_failure(self) -> bool:
-        """
-        Return True when the operation failed.
-        """
+@property
+def failed(self) -> bool:
+    """
+    True when the operation failed.
+    """
 
-        return not self.success
+    return not self.success
 
-    # =================================================================
-    # REPRESENTATION
-    # =================================================================
+@property
+def is_success(self) -> bool:
+    """
+    True when the operation succeeded.
+    """
 
-    def __bool__(self) -> bool:
-        """
-        Allow ApplicationResult to be evaluated as a boolean.
+    return self.success
 
-        True
-            Successful result.
+@property
+def is_failure(self) -> bool:
+    """
+    True when the operation failed.
+    """
 
-        False
-            Failed result.
-        """
+    return not self.success
 
-        return self.success
+# ========================================================
+# BOOLEAN
+# ========================================================
 
+def __bool__(self) -> bool:
+    """
+    Successful results evaluate to True.
+    Failed results evaluate to False.
+    """
 
-# =====================================================================
+    return self.success
+```
+
+# ============================================================
+
 # PUBLIC API
-# =====================================================================
 
-__all__ = [
-    "ApplicationResult",
+# ============================================================
+
+**all** = [
+"ApplicationResult",
 ]
