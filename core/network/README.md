@@ -1,1574 +1,1158 @@
-# GridForge V2 Network Layer
+core/network/README.md
+# ============================================================
+# File: core/network/README.md
+# GridForge V2 — Network Layer
+# Author: Subhendu Mishra
+# ============================================================
 
-## Overview
+# GridForge V2 — Network Layer
 
-The `core/network/` package provides the authoritative **electrical network representation and network-level numerical infrastructure** for GridForge V2.
+The `core/network` package is the **assembled electrical-network
+layer** of GridForge V2.
 
-The network layer bridges the physical/engineering model layer and the numerical solver layer.
-
-Its primary responsibilities are:
-
-* maintaining electrical topology;
-* representing network connectivity;
-* resolving buses, terminals, and branches;
-* constructing the electrical network representation;
-* maintaining the canonical per-unit network representation;
-* constructing the system admittance matrix;
-* providing network-level data required by analysis and solvers.
-
-The fundamental principle is:
+It sits between the canonical electrical model layer and the
+engineering analysis / numerical solver layers.
 
 ```text
-Physical Model
-      │
-      ▼
-  core.model
-      │
-      ▼
-  core.network
-      │
-      ├── Topology
-      ├── Per-Unit Representation
-      └── Y-bus
-      │
-      ▼
- Analysis / Solver
-```
+                        CORE MODEL
+                    canonical entities
+                           │
+                           │
+                           ▼
+                  ┌──────────────────┐
+                  │  core.network    │
+                  │                  │
+                  │     Network      │
+                  │       │          │
+                  │  ┌────┼────┐     │
+                  │  ▼    ▼    ▼     │
+                  │ Registry Index   │
+                  │       │ State    │
+                  │       │          │
+                  │   ┌───┴────┐     │
+                  │   ▼        ▼     │
+                  │Topology   Y-Bus  │
+                  └────┬────────┬────┘
+                       │        │
+                       ▼        ▼
+                 core.analysis
+                       │
+                       ▼
+                  core.solver
+1. Architectural Role
 
-The network layer describes **how physical equipment forms an electrical network**.
+The Network Layer assembles canonical electrical model objects into
+an operational electrical network representation.
 
-It does not become the owner of physical equipment, numerical study execution, protection logic, GUI state, or project persistence.
+It provides the infrastructure required by engineering studies.
 
----
+The Network Layer is not the electrical model layer.
 
-# 1. Architectural Position
+It is also not the application layer, SLD layer, analysis layer,
+or solver layer.
 
-The GridForge V2 network layer sits between the physical model and the numerical study/solver layers.
+Its central responsibility is:
 
-```text
-                    Physical Digital Twin
+Maintain an assembled network and expose authoritative derived
+representations of that network.
+
+2. Layer Boundaries
+
+GridForge V2 separates responsibilities as follows.
+
+┌─────────────────────────────────────────────────────────────┐
+│ UI / SLD                                                    │
+│ Engineering authoring and visualization                    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ commands / DTOs
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ APPLICATION                                                 │
+│ Commands / transactions / orchestration                     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ create / connect / register
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ MODEL                                                       │
+│ Canonical electrical entities                               │
+│ Bus, Line, Transformer, Generator, Load, Shunt, etc.       │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            │ references
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ NETWORK                                                     │
+│ Assembled network / topology / indexing / Y-bus / state     │
+└───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
-                       core.model
+┌─────────────────────────────────────────────────────────────┐
+│ ANALYSIS                                                    │
+│ Study orchestration                                         │
+└───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
-                       core.network
-                            │
-          ┌─────────────────┼─────────────────┐
-          │                 │                 │
-          ▼                 ▼                 ▼
-       Topology          Per-Unit            Y-bus
-          │                 │                 │
-          └─────────────────┼─────────────────┘
-                            ▼
-                    Analysis / Solver
-                            │
-             ┌──────────────┼──────────────┐
-             ▼              ▼              ▼
-         Power Flow    Short Circuit    Dynamics
-```
+┌─────────────────────────────────────────────────────────────┐
+│ SOLVER                                                      │
+│ Numerical algorithms                                        │
+└─────────────────────────────────────────────────────────────┘
+3. Canonical Model Ownership
 
-The network layer is therefore a **derived electrical representation of the authoritative physical model**.
+core.model is the single source of truth for electrical entities.
 
----
+The Network Layer stores references to those objects.
 
-# 2. Core Architectural Principle
+It does not create duplicate network-specific versions of model
+objects.
 
-The fundamental V2 relationship is:
+Examples include:
 
-```text
-Physical Equipment
-       │
-       ▼
-     Model
-       │
-       ▼
-   Electrical Network
-       │
-       ▼
- Numerical Representation
-       │
-       ▼
-      Solver
-```
+Bus
+Line
+Transformer
+Generator
+Load
+Shunt
+Breaker
+Disconnector
+Fuse
+CT
+PT
+CVT
+Relay
+Motor
+Cable
 
-The distinction is:
+The exact model inventory may expand through the GridForge plugin
+architecture, but the ownership rule does not change.
 
-```text
 core.model
-    = What physical equipment exists
+    │
+    └── owns electrical object definition
 
 core.network
-    = How that equipment forms an electrical network
+    │
+    └── assembles references to those objects
+4. Network Ownership
 
-core.solver
-    = How a mathematical problem is solved
-```
+The Network Layer owns the assembled-network representation.
 
-This separation is essential for maintaining a clean digital-twin architecture.
+It owns:
 
----
+canonical network membership;
+deterministic bus indexing;
+topology service;
+Y-bus construction service;
+network-derived state;
+network-level reconfiguration;
+network-level status invalidation;
+network-level study state required by the network boundary.
 
-# 3. Package Structure
+It does not own:
 
-The current GridForge V2 network foundation is:
+GUI state;
+SLD graphics;
+canvas state;
+engineering-study orchestration;
+numerical solver algorithms;
+electrical equipment definitions;
+plugin UI state.
+5. Package Structure
 
-```text
-core/
-└── network/
-    ├── __init__.py
-    ├── network.py
-    ├── topology.py
-    ├── per_unit.py
-    └── ybus.py
-```
+The current Network package is deliberately decomposed.
 
-These modules establish the core network-layer contracts.
+core/network/
+│
+├── __init__.py
+├── README.md
+│
+├── network.py
+├── registry.py
+├── indexing.py
+├── state.py
+├── endpoint.py
+├── topology.py
+└── ybus.py
 
----
+Each file has one principal responsibility.
 
-# 4. Module Responsibilities
+6. network.py
 
-## 4.1 `network.py`
+network.py contains the Network façade.
 
-Defines:
+The façade coordinates the Network Layer services.
 
-```text
+It does not implement all network functionality itself.
+
+Conceptually:
+
 Network
-```
+   │
+   ├── NetworkRegistry
+   ├── BusIndex
+   ├── NetworkState
+   ├── TopologyManager
+   └── YBusBuilder
 
-`Network` is the principal network-level container and orchestration object.
+The façade provides the stable entry point for callers that need to
+work with an assembled network.
 
-It provides access to the electrical network representation derived from the physical model.
+Typical usage:
 
-Its responsibilities include:
+from core.network import Network
 
-* network registration;
-* network-level entity access;
-* topology integration;
-* network state management;
-* per-unit representation access;
-* Y-bus access;
-* network-level validation;
-* coordination of network construction.
+network = Network(base_mva=100.0)
+7. registry.py
 
-It does not become a power-flow solver.
+registry.py contains NetworkRegistry.
 
-It does not own protection execution.
+The registry owns network membership.
 
-It does not own GUI state.
+It maintains collections of canonical model objects:
 
----
+buses
+lines
+transformers
+generators
+loads
+shunts
 
-# 5. `topology.py`
+The registry is responsible for:
 
-Defines the network topology infrastructure.
+registering objects;
+preventing duplicate identifiers within a collection;
+removing canonical registered objects;
+maintaining collection membership.
 
-Topology answers:
+The registry does not own:
 
-> Which electrical entities are connected to which other electrical entities?
+topology;
+Y-bus;
+bus indexing;
+solver calculations;
+engineering validation;
+GUI state.
 
-The fundamental relationship is:
+Therefore:
 
-```text
+Registry = membership
+
+not:
+
+Registry = network logic
+8. indexing.py
+
+indexing.py contains BusIndex.
+
+BusIndex owns the deterministic mapping between canonical bus
+identifiers and numerical matrix positions.
+
+Conceptually:
+
+BUS-001 ──► 0
+BUS-002 ──► 1
+BUS-003 ──► 2
+BUS-004 ──► 3
+
+This mapping is required by matrix-based calculations such as Y-bus.
+
+The index is derived state.
+
+It must therefore be invalidated whenever bus membership or bus
+ordering changes.
+
+The Network Layer does not allow Y-bus construction to operate on a
+stale bus index.
+
+9. state.py
+
+state.py contains NetworkState.
+
+NetworkState owns derived-network validity information.
+
+Examples include:
+
+topology_dirty
+ybus_dirty
+topology_revision
+ybus_revision
+
+The purpose is to make derived-state invalidation explicit.
+
+For example:
+
+network topology changes
+        │
+        ▼
+topology becomes invalid
+        │
+        ▼
+Y-bus becomes invalid
+
+A change that affects only Y-bus data may invalidate Y-bus without
+necessarily changing topology.
+
+This distinction prevents unnecessary rebuilding.
+
+10. endpoint.py
+
+endpoint.py contains the internal terminal-resolution utility.
+
+Its purpose is to resolve the bus associated with a canonical terminal
+relationship.
+
+Conceptually:
+
 Equipment
     │
     ▼
 Terminal
     │
     ▼
-Electrical Connection
+Endpoint
     │
     ▼
-Bus / Network Node
-```
-
-Topology is concerned with connectivity, not numerical solution.
-
----
-
-# 6. Terminal-Based Topology
-
-GridForge V2 uses terminal-based physical connectivity.
-
-The model layer provides physical terminals.
-
-The network layer interprets those terminals to construct the electrical topology.
-
-Conceptually:
-
-```text
-Equipment A
-    │
- Terminal A
-    │
-    ▼
-Network Topology
-    │
-    ▼
- Bus / Node
-    │
-    ▲
-    │
- Terminal B
-    │
-Equipment B
-```
-
-This avoids embedding independent topology rules into every solver.
-
----
-
-# 7. Topology vs Model
-
-The model layer owns physical equipment and terminal relationships.
-
-The network layer derives the electrical network topology from those relationships.
-
-```text
-core.model
-     │
-     ├── Bus
-     ├── Terminal
-     ├── Line
-     ├── Transformer
-     ├── Breaker
-     └── Other Equipment
-     │
-     ▼
-core.network.topology
-     │
-     ├── Nodes
-     ├── Connectivity
-     ├── Branch Relationships
-     └── Electrical Adjacency
-```
-
-The network topology must not become a second independent physical model.
-
----
-
-# 8. Topology and Switchgear
-
-Switchgear state can affect electrical topology.
-
-For example:
-
-```text
-Closed Breaker
-      │
-      ▼
-Electrical Connection Exists
-```
-
-while:
-
-```text
-Open Breaker
-      │
-      ▼
-Electrical Connection Interrupted
-```
-
-The important ownership boundary is:
-
-```text
-Breaker Model
-    │
-    └── Physical State
-
-Network Topology
-    │
-    └── Electrical Interpretation of That State
-```
-
-The network layer interprets physical switchgear state when constructing the active electrical network.
-
-It does not own the physical breaker.
-
----
-
-# 9. Network Nodes and Buses
-
-GridForge V2 uses buses as electrical network nodes.
-
-Conceptually:
-
-```text
 Bus
- │
- ├── Terminal / Connection
- ├── Terminal / Connection
- ├── Terminal / Connection
- └── ...
-```
 
-The network layer resolves physical connectivity into an electrical node representation.
+This utility exists because GridForge V2 uses terminal-based physical
+connectivity.
 
-This representation is consumed by:
+The terminal is therefore more authoritative than compatibility
+properties such as:
 
-* power-flow solvers;
-* short-circuit solvers;
-* contingency analysis;
-* dynamics;
-* other electrical studies.
+from_bus
+to_bus
+bus
 
----
+Those properties may remain useful model-level interfaces, but they
+are not the authoritative network connection representation.
 
-# 10. Network Identity
+endpoint.py is an internal network utility.
 
-Network-level identifiers must remain deterministic and stable within the applicable network context.
+It is not a primary package-level API.
 
-The network layer must preserve the distinction between:
+11. topology.py
 
-```text
-Physical Equipment ID
-        ≠
-Network Node ID
-        ≠
-Numerical Matrix Index
-```
+topology.py contains TopologyManager.
 
-For example:
+Topology is a derived representation of canonical model state.
 
-```text
-Physical Bus:
-    BUS-001
+The topology manager determines electrical connectivity from the
+current canonical network objects and their service state.
 
-Network Node:
-    NODE-001
+It provides functionality such as:
 
-Numerical Index:
-    0
-```
+build()
+find_islands()
+is_connected()
 
-The numerical index is an implementation detail.
+The topology manager does not own:
 
-It must not become the authoritative identity of the physical model.
+Bus objects;
+Line objects;
+Transformer objects;
+SLD objects;
+UI connections.
 
----
+The fundamental relationship is:
 
-# 11. Numerical Indexing
-
-Numerical solvers require compact integer indexing.
-
-The network layer may therefore provide deterministic mappings such as:
-
-```text
-Physical Bus ID
-      │
-      ▼
-Network Node
-      │
-      ▼
-Numerical Index
-```
-
-These mappings must be:
-
-* deterministic;
-* reproducible;
-* internally consistent;
-* independent of GUI ordering.
-
-The mapping must not overwrite physical identifiers.
-
----
-
-# 12. `per_unit.py`
-
-Defines the canonical network-level per-unit representation.
-
-GridForge V2 uses a multi-voltage per-unit architecture.
-
-The purpose of the per-unit layer is to provide consistent electrical normalization across:
-
-* buses;
-* lines;
-* transformers;
-* generators;
-* loads;
-* shunts;
-* fault calculations;
-* network equations.
-
-The per-unit system prevents individual solvers from implementing incompatible base-conversion logic.
-
----
-
-# 13. Per-Unit Architecture
-
-The conceptual flow is:
-
-```text
-Physical Equipment
+Canonical model
        │
        ▼
-Engineering Quantities
+TopologyManager
        │
        ▼
-Per-Unit Base System
-       │
-       ▼
-Canonical Per-Unit Values
-       │
-       ▼
-Network / Solver
-```
+Derived electrical graph
 
-Voltage-base propagation and impedance-base transformations must follow one authoritative per-unit implementation.
+The graph can then be consumed by engineering analysis.
 
----
+12. Topology and SLD Are Different
 
-# 14. Multi-Voltage Networks
+The SLD is not the electrical topology database.
 
-GridForge V2 explicitly supports networks containing multiple voltage levels.
+The SLD is a visual engineering representation.
 
-For example:
+The canonical relationship is:
 
-```text
-400 kV
-   │
-   ▼
-Transformer
-   │
-   ▼
-132 kV
-   │
-   ▼
-Transformer
-   │
-   ▼
-33 kV
-   │
-   ▼
-11 kV
-```
+Model
+  │
+  ├──────────────► Network topology
+  │
+  └──────────────► SLD representation
 
-The network layer must preserve correct electrical relationships across these voltage levels.
+Therefore:
 
-The per-unit system handles the appropriate base relationships.
+SLD connection
 
-Individual equipment models must not invent independent global voltage-base rules.
+does not become electrical truth merely because a graphical line was
+drawn.
 
----
+The application layer converts engineering authoring operations into
+commands.
 
-# 15. Per-Unit Ownership
+The Core validates and applies the resulting domain changes.
 
-The authoritative per-unit implementation belongs to the network/base numerical architecture.
+13. ybus.py
 
-The network layer should provide the canonical representation consumed by numerical solvers.
+ybus.py contains YBusBuilder.
 
-The following must be avoided:
+The Y-bus is a derived numerical representation of the assembled
+network.
 
-```text
-Power Flow
-    └── own per-unit conversion
+The builder consumes:
 
-Short Circuit
-    └── own per-unit conversion
+Network
+    │
+    ├── canonical buses
+    ├── canonical branches
+    ├── transformers
+    ├── shunts
+    └── deterministic BusIndex
 
-Dynamics
-    └── own per-unit conversion
-```
+and constructs:
 
-Instead:
-
-```text
-                Canonical Per-Unit System
-                         │
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-      Power Flow    Short Circuit    Dynamics
-```
-
-This ensures numerical consistency across studies.
-
----
-
-# 16. `ybus.py`
-
-Defines the system admittance matrix infrastructure.
-
-The Y-bus represents the electrical network in matrix form.
+Ybus
 
 Conceptually:
 
-```text
-Network Topology
+Canonical network
        │
        ▼
-Branch / Equipment Parameters
+   BusIndex
        │
        ▼
-Per-Unit Representation
+ YBusBuilder
        │
        ▼
-Y-bus Assembly
-       │
-       ▼
-Sparse Network Matrix
-```
+    Y-bus
 
-The Y-bus is a **network-level mathematical representation**.
+The Y-bus builder performs matrix construction and element stamping.
 
-It is not part of the physical equipment model.
+It does not perform:
 
----
+Newton-Raphson iterations;
+power-flow solution;
+short-circuit solution;
+protection calculations;
+transient simulation.
+14. Who Builds the Network?
 
-# 17. Y-bus Responsibilities
+The Network is not normally constructed by the UI directly.
 
-`ybus.py` is responsible for:
+The intended engineering workflow is:
 
-* admittance matrix construction;
-* branch contributions;
-* transformer contributions;
-* shunt contributions;
-* appropriate network-element stamping;
-* sparse representation;
-* deterministic matrix indexing;
-* matrix updates/reconstruction as required.
-
-It must not become responsible for:
-
-* Newton-Raphson iteration;
-* power-flow convergence;
-* protection execution;
-* GUI rendering;
-* project persistence.
-
----
-
-# 18. Sparse Y-bus
-
-GridForge V2 is designed for large power-system networks.
-
-The Y-bus architecture therefore favors sparse matrix representations.
-
-Conceptually:
-
-```text
-Electrical Network
-       │
-       ▼
-Y-bus Assembly
-       │
-       ▼
-Sparse Matrix
-       │
-       ▼
-Numerical Solver
-```
-
-The sparse representation is essential for scalable:
-
-* power-flow studies;
-* short-circuit studies;
-* contingency analysis;
-* dynamic simulations;
-* future large-scale studies.
-
----
-
-# 19. Y-bus and Solver Separation
-
-A critical architectural boundary is:
-
-```text
-Y-bus
-   ≠
-Power-Flow Solver
-```
-
-The network layer provides the electrical matrix representation.
-
-The solver consumes it.
-
-```text
-core.network.ybus
-        │
-        ▼
-Y-bus
-        │
-        ▼
-core.solver.power_flow
-        │
-        ▼
-Newton / Hybrid / Other Numerical Method
-```
-
-The Y-bus module must not contain the complete power-flow iteration algorithm.
-
----
-
-# 20. Network and Power Flow
-
-The power-flow solver consumes the network representation.
-
-The relationship is:
-
-```text
-Physical Model
-      │
-      ▼
-Network
-      │
-      ├── Topology
-      ├── Per-Unit
-      └── Y-bus
-      │
-      ▼
-Power-Flow Solver
-      │
-      ▼
-Power-Flow Result
-```
-
-The network layer does not determine whether the solver uses:
-
-* Newton-Raphson;
-* trust-region methods;
-* line search;
-* Levenberg-Marquardt;
-* continuation;
-* other numerical strategies.
-
-Those are solver concerns.
-
----
-
-# 21. Network and Short Circuit
-
-Short-circuit analysis also consumes the network representation.
-
-```text
-Network
-   │
-   ├── Topology
-   ├── Per-Unit
-   └── Electrical Parameters
+Engineer
    │
    ▼
-Short-Circuit Solver
+SLD / Application authoring
    │
    ▼
-Fault Result
-```
-
-The network layer provides the electrical representation.
-
-The short-circuit solver determines the fault solution.
-
----
-
-# 22. Network and Dynamics
-
-Dynamics studies consume network information together with dynamic equipment models.
-
-```text
-Network
+Command
    │
    ▼
-Electrical Network Equations
+Transaction
    │
-   ▼
-Dynamics Solver
-   │
-   ▼
-Time-Domain Solution
-```
+   ├── create canonical model
+   ├── validate
+   ├── connect
+   ├── register
+   └── commit
+          │
+          ▼
+       Network
 
-The network layer does not own:
+The Network Layer provides the APIs consumed by the Application
+Layer.
 
-* generator differential equations;
-* AVR integration;
-* governor integration;
-* PSS integration;
-* numerical time stepping.
+The Application Layer owns the workflow.
 
-Those belong to the dynamics solver.
+15. Command Boundary
 
----
+The Core is headless.
 
-# 23. Network and Contingency
+Therefore commands do not depend on Qt, graphics scenes, widgets, or
+SLD items.
 
-Contingency studies may require temporary network modifications.
-
-The architectural distinction is:
-
-```text
-Authoritative Network
-        │
-        ▼
-Study / Contingency Case
-        │
-        ▼
-Derived Network Condition
-        │
-        ▼
-Solver
-```
-
-A contingency must not permanently corrupt the authoritative physical model simply because a study requires an outage.
-
-Temporary study state should be represented through the appropriate study/network mechanism.
-
----
-
-# 24. Network State
-
-Network state must be distinguished from physical model state.
-
-Examples of network-level state include:
-
-* active topology;
-* node mapping;
-* branch connectivity;
-* numerical indexing;
-* Y-bus state;
-* network-level derived quantities.
-
-These are derived or network-specific representations.
-
-They do not replace the authoritative physical model.
-
----
-
-# 25. Network Caching
-
-The network layer may cache derived numerical structures where beneficial.
+A command represents an engineering operation.
 
 Examples include:
 
-* node mappings;
-* branch mappings;
-* Y-bus;
-* sparse index structures;
-* topology lookup tables.
+CreateBus
+CreateLine
+CreateTransformer
+CreateGenerator
+CreateLoad
+CreateShunt
 
-However:
+ConnectTerminal
+DisconnectTerminal
 
-```text
-Cache
-   ≠
-Authoritative Model State
-```
+RegisterElement
+RemoveElement
 
-Caches must be invalidated or rebuilt when their source network information changes.
+SetElementStatus
+ReconnectElement
 
-Stale numerical caches must never silently override authoritative physical state.
+CreateNetwork
+DeleteNetwork
 
----
+The exact command inventory is maintained by the Application command
+architecture.
 
-# 26. Topology Changes
+The Network Layer should not become a command dispatcher.
 
-When topology-affecting equipment state changes, dependent network representations must be updated.
+16. Transaction Boundary
+
+Network modifications should occur through application-level
+transactions.
+
+The intended conceptual workflow is:
+
+Command
+   │
+   ▼
+Begin transaction
+   │
+   ├── create model
+   ├── validate
+   ├── connect
+   ├── register
+   ├── update derived state
+   │
+   ▼
+Commit
+
+If a required operation fails:
+
+failure
+   │
+   ▼
+rollback
+
+The important ownership rule is:
+
+Application
+    owns transaction orchestration
+
+Model
+    owns canonical object state
+
+Network
+    owns assembled membership and derived network state
+17. Creation Ownership
+
+The following ownership model is mandatory.
+
+Responsibility	Owner
+Create canonical electrical object	Model/Application boundary
+Define electrical object	core.model
+Engineering command	Application
+Transaction	Application
+Network membership	NetworkRegistry
+Bus indexing	BusIndex
+Connectivity graph	TopologyManager
+Y-bus	YBusBuilder
+Derived-state validity	NetworkState
+Numerical power-flow solution	Solver
+Engineering study orchestration	Analysis
+SLD rendering	UI
+SLD interaction	UI/Application
+Electrical truth	Core Model + Network
+GUI truth	UI
+18. Validation Boundary
+
+Validation occurs at multiple architectural levels.
+
+The Network Layer must not absorb all validation.
 
 Conceptually:
 
-```text
-Breaker State Change
-        │
-        ▼
-Topology Update
-        │
-        ▼
-Network Representation Update
-        │
-        ▼
-Y-bus / Derived Structures
-        │
-        ▼
-Next Study / Solver Evaluation
-```
+Command validation
+       │
+       ▼
+Domain/model validity
+       │
+       ▼
+Network structural validity
+       │
+       ▼
+Engineering validation
+       │
+       ▼
+Study-specific validation
 
-The network layer is responsible for maintaining consistency among its derived representations.
+The Network Layer can enforce structural requirements necessary for
+its own operation.
 
-It does not own the physical switchgear state.
+Examples:
 
----
+duplicate bus ID
+missing object ID
+unregistered bus reference
+invalid network membership
+invalid bus index
 
-# 27. Network Validation
+Engineering rules remain outside the Network Layer.
 
-The network layer performs network-level validation.
+19. Network Consumption
 
-Examples include:
+The Network is consumed by higher-level engineering layers.
 
-* invalid terminal connectivity;
-* unresolved network nodes;
-* invalid branch endpoints;
-* inconsistent topology;
-* invalid electrical connectivity;
-* duplicate network identifiers;
-* invalid network indexing;
-* incompatible network structures.
+Typical dependency flow:
 
-Validation of physical equipment-specific parameters remains the responsibility of the model/domain layer.
+                    Network
+                       │
+          ┌────────────┼────────────┐
+          │            │            │
+          ▼            ▼            ▼
+       topology       Ybus       injections
+          │            │            │
+          └────────────┼────────────┘
+                       ▼
+                    Analysis
+                       │
+                       ▼
+                     Solver
 
-Numerical preconditions remain the responsibility of the solver.
+For example, a power-flow study may consume:
 
----
+Network buses
+Network injections
+Network topology
+Network Y-bus
 
-# 28. Model / Network / Solver Boundary
+The solver then consumes numerical representations prepared by the
+analysis layer.
 
-The three layers have deliberately different responsibilities:
+20. Y-Bus Consumer Boundary
 
-| Layer          | Responsibility                                 |
-| -------------- | ---------------------------------------------- |
-| `core.model`   | Physical and engineering entities              |
-| `core.network` | Electrical topology and network representation |
-| `core.solver`  | Numerical solution                             |
+The Y-bus is not a final engineering result.
+
+It is an intermediate network representation.
 
 The intended flow is:
 
-```text
 Model
   │
   ▼
 Network
   │
   ▼
+YBusBuilder
+  │
+  ▼
+Ybus
+  │
+  ▼
+Analysis Study
+  │
+  ▼
 Solver
-```
-
-Never collapse these into one layer.
-
----
-
-# 29. Network and Protection
-
-Protection consumes authoritative electrical information but does not belong inside the network layer.
-
-The relationship is:
-
-```text
-core.model
-     │
-     ▼
-core.network
-     │
-     ▼
-Electrical State
-     │
-     ▼
-Measurement Infrastructure
-     │
-     ▼
-core.protection
-```
-
-The network layer must not implement:
-
-* relay pickup;
-* relay operating time;
-* relay trip logic;
-* protection coordination;
-* protection decisions.
-
----
-
-# 30. Network and GUI
-
-The network layer is completely independent of the GUI.
-
-It must not depend on:
-
-* PySide6;
-* graphics scenes;
-* views;
-* renderers;
-* GUI controllers;
-* selection state;
-* canvas state.
-
-The intended relationship is:
-
-```text
-GUI
- │
- ▼
-Controller / Application Layer
- │
- ▼
-Network / Model
-```
-
-Never:
-
-```text
-Network
-   │
-   ▼
-GUI
-```
-
----
-
-# 31. Network and Persistence
-
-The network layer does not own project-file persistence.
-
-It must not contain:
-
-* file dialogs;
-* filesystem paths;
-* JSON project I/O;
-* save/load workflows.
-
-Persistence belongs to the dedicated serialization/project layer.
-
-The persistence layer may serialize the authoritative model and required network configuration/state.
-
----
-
-# 32. Deterministic Network Construction
-
-Network construction must be deterministic.
-
-Given identical authoritative model state and network configuration, the network layer should produce:
-
-* identical node mappings;
-* identical branch mappings;
-* identical topology relationships;
-* identical matrix indexing;
-* equivalent Y-bus representation.
-
-Deterministic ordering is especially important because numerical solvers rely on stable matrix indexing.
-
----
-
-# 33. Network Identity vs Numerical Identity
-
-GridForge V2 maintains strict identity separation:
-
-```text
-Asset ID
-   ≠
-Equipment ID
-   ≠
-Terminal ID
-   ≠
-Network Node ID
-   ≠
-Numerical Matrix Index
-```
-
-Each identifier has a distinct role.
-
-A numerical index may change when a study representation is rebuilt.
-
-The physical identity must not change as a consequence.
-
----
-
-# 34. Network Construction Flow
-
-A typical network construction process is:
-
-```text
-1. Read authoritative model
-             │
-             ▼
-2. Resolve physical terminals
-             │
-             ▼
-3. Resolve electrical nodes
-             │
-             ▼
-4. Determine active topology
-             │
-             ▼
-5. Establish deterministic indices
-             │
-             ▼
-6. Apply canonical per-unit representation
-             │
-             ▼
-7. Assemble Y-bus
-             │
-             ▼
-8. Validate network representation
-             │
-             ▼
-9. Publish network representation
-```
-
-This network representation is then consumed by the appropriate analysis and solver subsystems.
-
----
-
-# 35. Network Update Flow
-
-For topology-affecting changes:
-
-```text
-Physical / Control State Change
-             │
-             ▼
-      Network Invalidation
-             │
-             ▼
-       Topology Rebuild
-             │
-             ▼
-       Index Resolution
-             │
-             ▼
-       Y-bus Rebuild
-             │
-             ▼
-      Updated Network State
-```
-
-The implementation may optimize this process through incremental updates where safe.
-
-Optimization must not compromise correctness.
-
----
-
-# 36. Numerical Consistency
-
-The network layer is a major numerical consistency boundary.
-
-The same network should produce consistent representations for:
-
-* power flow;
-* short circuit;
-* contingency;
-* dynamics;
-* future electrical studies.
-
-This requires consistent:
-
-* topology;
-* voltage bases;
-* per-unit conversion;
-* equipment interpretation;
-* branch orientation;
-* transformer representation;
-* shunt representation;
-* matrix indexing.
-
----
-
-# 37. Transformer Representation
-
-Transformers require special attention because they connect different voltage levels and may include:
-
-* turns ratios;
-* phase shifts;
-* impedance;
-* tap settings;
-* winding configuration.
-
-The model provides transformer engineering information.
-
-The network layer converts that information into the appropriate network representation.
-
-The Y-bus layer performs the corresponding matrix stamping.
-
-The solver then consumes the resulting matrix.
-
-```text
-Transformer Model
-       │
-       ▼
-Network Transformer Representation
-       │
-       ▼
-Y-bus Stamp
-       │
-       ▼
-Solver
-```
-
----
-
-# 38. Branch Orientation
-
-Network branch representation should maintain deterministic endpoint ordering.
+  │
+  ▼
+Engineering Result
 
 For example:
 
-```text
-Branch
-  ├── from_node
-  └── to_node
-```
+Power Flow Analysis
+        │
+        ├── Network state
+        ├── Bus specifications
+        ├── Y-bus
+        └── solver configuration
+                 │
+                 ▼
+             Power Flow Solver
 
-The orientation is a network representation convention.
+The solver must not independently reconstruct the complete network
+from model objects when the Network Layer already provides the
+assembled representation required by the study.
 
-It must not alter the physical identity or imply that the underlying equipment is physically directional unless the equipment model explicitly has such semantics.
+21. Network Reconfiguration
 
----
-
-# 39. Network-Level Electrical Quantities
-
-The network layer may expose derived electrical quantities required by downstream studies.
+Network reconfiguration occurs when network topology-affecting
+information changes.
 
 Examples include:
 
-* node connectivity;
-* branch connectivity;
-* network admittance;
-* network impedance relationships;
-* electrical islands;
-* active/inactive branches;
-* node mappings.
+add bus
+remove bus
+add line
+remove line
+add transformer
+remove transformer
+change service state
+connect branch
+disconnect branch
 
-Study-specific quantities such as final power-flow voltages or fault currents should remain solver/analysis results.
+The derived-state relationship is:
 
----
+network mutation
+       │
+       ▼
+topology invalid
+       │
+       ▼
+Y-bus invalid
 
-# 40. Electrical Islands
+The Network does not necessarily rebuild everything immediately.
 
-Network topology may result in electrically disconnected islands.
+Derived structures may be rebuilt lazily when requested.
 
-The network layer should be capable of identifying relevant connectivity conditions.
+22. Service State
+
+Topology-affecting equipment may have an in_service state.
+
+Changing the state of such an element must invalidate the derived
+network representation.
 
 Conceptually:
 
-```text
-Grid
+Line.in_service = True
+        │
+        │ change
+        ▼
+Line.in_service = False
+        │
+        ▼
+Topology invalid
+        │
+        ▼
+Y-bus invalid
+
+The Network Layer performs the state/invalidation boundary.
+
+Engineering consequences of the state change are handled by the
+appropriate analysis/validation layers.
+
+23. Bus Indexing and Y-Bus
+
+Bus indexing is deterministic.
+
+The Y-bus matrix position must always correspond to the Network's
+current bus index.
+
+BusIndex
+    │
+    ├── BUS-001 → 0
+    ├── BUS-002 → 1
+    ├── BUS-003 → 2
+    └── BUS-004 → 3
+             │
+             ▼
+          Y-bus
+
+A stale index must never be used to construct a Y-bus.
+
+Therefore Y-bus construction ensures that the bus index is current
+before matrix construction.
+
+24. Network State Is Derived State
+
+The following are derived:
+
+bus index
+topology graph
+Y-bus
+island information
+
+The canonical model objects remain authoritative.
+
+Therefore:
+
+Model
+   │
+   ├── authoritative state
+   │
+   ▼
+Network
+   │
+   ├── derived index
+   ├── derived topology
+   └── derived Y-bus
+
+Derived data may be discarded and rebuilt.
+
+Canonical model state must not be reconstructed from derived data.
+
+25. No GUI Dependency
+
+core/network must remain completely headless.
+
+It must not import:
+
+PySide6
+PyQt
+QGraphicsScene
+QGraphicsItem
+MainWindow
+SLD canvas
+UI plugin
+renderer
+
+The Network Layer must be usable from:
+
+CLI
+unit tests
+batch processing
+server processes
+automation
+engineering studies
+headless simulation
+
+without starting a GUI.
+
+26. No Solver Dependency
+
+The Network Layer must not contain numerical study algorithms.
+
+It provides network representations.
+
+It does not solve them.
+
+Incorrect:
+
+Network.solve_power_flow()
+Network.solve_short_circuit()
+Network.run_transient()
+
+Correct boundary:
+
+Network
+   │
+   ▼
+Analysis
+   │
+   ▼
+Solver
+27. Per-Unit Boundary
+
+The canonical per-unit implementation belongs to:
+
+core.base.per_unit.PerUnitSystem
+
+There must not be a duplicate:
+
+core/network/per_unit.py
+
+The Network constructs a system-wide instance:
+
+network.per_unit
+
+using the Network MVA base.
+
+PerUnitSystem may also be imported through:
+
+from core.network import PerUnitSystem
+
+but its implementation remains owned by the Base Layer.
+
+28. Public API
+
+The package-level API is intentionally narrow.
+
+from core.network import (
+    Network,
+    NetworkRegistry,
+    BusIndex,
+    NetworkState,
+    TopologyManager,
+    YBusBuilder,
+    PerUnitSystem,
+)
+
+The principal entry point is:
+
+Network
+
+Most application code should interact with the Network façade rather
+than importing implementation details from individual modules.
+
+29. Example
+
+A minimal assembled network conceptually looks like:
+
+from core.network import Network
+
+network = Network(base_mva=100.0)
+
+network.add_bus(bus_1)
+network.add_bus(bus_2)
+
+network.add_line(line_1)
+
+network.rebuild_topology()
+
+Ybus = network.get_ybus()
+
+The objects passed to the Network are canonical model objects.
+
+They are not Network-specific duplicates.
+
+30. Engineering Workflow Example
+
+A typical SLD authoring operation is conceptually:
+
+Engineer selects "Bus"
+        │
+        ▼
+SLD preview
+        │
+        ▼
+Engineer clicks canvas
+        │
+        ▼
+Application creates CreateBus command
+        │
+        ▼
+Transaction
+        │
+        ├── create canonical Bus
+        ├── validate
+        ├── register Bus with Network
+        └── commit
+        │
+        ▼
+Network
+        │
+        ├── membership updated
+        ├── bus index invalidated
+        ├── topology invalidated
+        └── Y-bus invalidated
+        │
+        ▼
+SLD receives updated state/projection
+
+The SLD never becomes the owner of the electrical Bus.
+
+31. Terminal-Based Connectivity
+
+GridForge V2 uses terminals as the authoritative physical connection
+representation.
+
+Conceptually:
+
+Equipment
+    │
+    ▼
+Terminal
+    │
+    ▼
+Endpoint
+    │
+    ▼
+Bus / Terminal
+
+This allows the Network architecture to support:
+
+Terminal ↔ Bus
+Terminal ↔ Terminal
+
+and more advanced equipment topologies without forcing every
+connection into a simple from_bus / to_bus representation.
+
+Compatibility properties may exist on model objects, but they do not
+replace terminal relationships as the authoritative connection model.
+
+32. Bus-to-Bus SLD Connectivity
+
+A graphical bus-to-bus connection is an engineering authoring
+operation.
+
+It is not implemented by directly manipulating the Network graph
+from the SLD.
+
+The intended path is:
+
+SLD
  │
- ├── Island A
+ ▼
+Application command
  │
- ├── Island B
+ ▼
+connection validation
  │
- └── Island C
-```
+ ▼
+canonical model connection
+ │
+ ▼
+Network registration/update
+ │
+ ▼
+Topology rebuild/invalidation
+ │
+ ▼
+Y-bus invalidation
 
-Island detection is a network/topology concern.
+The exact electrical interpretation depends on the canonical model
+and connection contract.
 
-The numerical solver determines whether and how each island can be solved.
+The Network Layer enforces the resulting assembled-network
+representation; the Application Layer owns the authoring workflow.
 
----
+33. Removal Semantics
 
-# 41. Network Caches and Invalidations
-
-Derived structures must have explicit dependency relationships.
+Removing a network element changes Network membership.
 
 For example:
 
-```text
-Physical Topology
-      │
-      ▼
-Node Mapping
-      │
-      ▼
-Branch Mapping
-      │
-      ▼
-Y-bus
-```
+Network.remove_line(line)
+
+means:
+
+remove Line from Network membership
+
+It does not automatically mean:
+
+delete Line model object
+disconnect unrelated equipment
+delete buses
+modify SLD graphics
+
+Those operations belong to their respective ownership boundaries.
+
+34. Bus Removal
+
+Bus removal is deliberately strict.
+
+A Bus cannot be removed if a registered element still references it.
+
+References may arise through:
+
+Line terminals
+Transformer terminals
+Generator bus
+Load bus
+Shunt terminal
+
+The Network therefore prevents dangling assembled-network references.
+
+The application layer may first issue the necessary disconnect/remove
+commands and then remove the Bus.
+
+35. Important Invariants
+
+The following invariants apply to the Network Layer.
+
+Invariant 1 — Canonical model ownership
+core.model owns electrical entities.
+Invariant 2 — Network references models
+Network does not duplicate model classes.
+Invariant 3 — Registry owns membership
+Registry owns collection membership.
+Invariant 4 — Index owns matrix indexing
+BusIndex owns deterministic bus indexing.
+Invariant 5 — Topology is derived
+TopologyManager derives connectivity.
+Invariant 6 — Y-bus is derived
+YBusBuilder derives Y-bus.
+Invariant 7 — State owns invalidation
+NetworkState owns derived-state validity.
+Invariant 8 — Core remains headless
+No GUI dependency.
+Invariant 9 — Network does not solve
+No numerical engineering solver algorithms.
+Invariant 10 — Application owns commands
+Commands do not belong in core/network.
+36. Responsibility Matrix
+Operation	Primary Owner
+Define Bus	core.model
+Define Line	core.model
+Define Transformer	core.model
+Define Generator	core.model
+Define Load	core.model
+Create command	Application
+Execute transaction	Application
+Engineering authoring workflow	Application / SLD
+Register model in Network	Network / Registry
+Remove membership	Network / Registry
+Bus index	BusIndex
+Terminal-to-bus resolution	endpoint.py
+Electrical connectivity	TopologyManager
+Island detection	TopologyManager
+Y-bus construction	YBusBuilder
+Derived-state validity	NetworkState
+Power-flow orchestration	Analysis
+Power-flow numerical solution	Solver
+Short-circuit orchestration	Analysis
+Short-circuit numerical solution	Solver
+Protection study	Analysis / Protection
+SLD rendering	UI
+SLD graphical interaction	UI
+Electrical truth	Model + Network
+Visual truth	SLD/UI
+37. What the Network Layer Must Not Become
+
+The following are explicitly outside this package:
+
+CommandManager
+Command objects
+Undo/redo policy
+Qt widgets
+SLD graphics
+Canvas interaction
+Equipment palette
+Property editor
+Power-flow solver
+Newton-Raphson implementation
+Jacobian implementation
+Short-circuit solver
+Protection coordination
+Transient integration
+Plugin UI implementation
 
-If topology changes:
+If functionality requires one of these responsibilities, it belongs
+elsewhere.
 
-```text
-Topology Changed
-      │
-      ├── invalidate node mapping
-      ├── invalidate branch mapping
-      └── invalidate Y-bus
-```
+38. Design Goal
 
-If only a parameter affecting Y-bus changes, the implementation may invalidate only the dependent structures where safe.
+The final Network Layer should remain small enough that an engineer
+can understand its architecture without reading every electrical
+model or numerical solver.
 
-The architecture must always favor correctness over premature optimization.
+The desired relationship is:
 
----
-
-# 42. Architectural Invariants
-
-The following invariants must be preserved throughout GridForge V2.
-
-## 42.1 Model Is the Physical Authority
-
-```text
-core.model
-    =
-Physical / Engineering Authority
-```
-
-The network layer must not become a second physical equipment database.
-
----
-
-## 42.2 Network Is the Electrical Representation
-
-```text
-core.network
-    =
-Electrical Network Representation
-```
-
-It translates physical model relationships into network-level electrical structures.
-
----
-
-## 42.3 Solver Is the Numerical Executor
-
-```text
-core.solver
-    =
-Numerical Execution
-```
-
-The network layer does not perform complete numerical study algorithms.
-
----
-
-## 42.4 Topology Is Explicit
-
-Electrical connectivity must be represented explicitly through terminals, nodes, branches, and network relationships.
-
----
-
-## 42.5 Per-Unit Representation Is Canonical
-
-Individual solvers must not independently redefine the network's per-unit base system.
-
----
-
-## 42.6 Y-bus Is a Network Representation
-
-```text
-Y-bus
-   ≠
-Power-Flow Solver
-```
-
-The matrix is supplied to numerical consumers.
-
----
-
-## 42.7 Numerical Indices Are Not Physical IDs
-
-Numerical indexing is derived implementation state.
-
----
-
-## 42.8 Derived Caches Are Not Authoritative
-
-Topology caches, node maps, and Y-bus matrices must never silently override source model state.
-
----
-
-## 42.9 Topology Changes Must Propagate
-
-Any topology-affecting state change must invalidate or update dependent network representations.
-
----
-
-## 42.10 GUI Is Outside the Network Core
-
-No network object may depend on GUI state or services.
-
----
-
-## 42.11 Persistence Is Outside the Network Core
-
-Network objects do not perform project-file I/O.
-
----
-
-## 42.12 Protection Is Outside the Network Core
-
-Network representation provides electrical information.
-
-Protection execution remains in `core.protection`.
-
----
-
-# 43. Dependency Direction
-
-The intended dependency direction is:
-
-```text
-core.model
-     │
-     ▼
-core.network
-     │
-     ├── topology
-     ├── per_unit
-     └── ybus
-     │
-     ▼
-core.analysis / core.solver
-     │
-     ├── power_flow
-     ├── short_circuit
-     ├── dynamics
-     └── contingency
-```
-
-The network layer must remain below the numerical solver layer and above the physical model layer.
-
----
-
-# 44. Public Network API
-
-The package should expose stable network contracts through:
-
-```python
-from core.network import ...
-```
-
-The public API should contain canonical network abstractions such as:
-
-* `Network`;
-* topology interfaces;
-* per-unit interfaces;
-* Y-bus interfaces;
-* stable network-level data structures.
-
-Implementation-specific internals should not automatically become public API.
-
----
-
-# 45. Network Reusability
-
-A single authoritative network representation should support multiple study types.
-
-Conceptually:
-
-```text
-                  Network
+                APPLICATION
                      │
-        ┌────────────┼────────────┐
-        ▼            ▼            ▼
-   Power Flow   Short Circuit   Dynamics
-        │            │            │
-        ▼            ▼            ▼
-      Result       Result       Result
-```
+                  Commands
+                     │
+                     ▼
+                   MODEL
+                     │
+              canonical objects
+                     │
+                     ▼
+                  NETWORK
+          ┌──────────┼──────────┐
+          │          │          │
+       Registry    Topology    Y-Bus
+          │          │          │
+          └──────────┼──────────┘
+                     ▼
+                  ANALYSIS
+                     │
+                     ▼
+                   SOLVER
 
-This prevents each study from creating an incompatible interpretation of the same physical network.
+The Network Layer is therefore an assembly and derived-state
+boundary, not a general-purpose engineering computation layer.
 
----
+39. Version
+GridForge V2
+Network Layer
+Architecture baseline: 2.0
+Author: Subhendu Mishra
+Copyright © 2026
+40. Final Architectural Rule
 
-# 46. Performance Architecture
+The most important rule of the Network Layer is:
 
-GridForge V2 is intended for large-scale power-system analysis.
+The model is authoritative; the Network assembles it; topology and
+Y-bus are derived; Application commands perform engineering
+workflows; Analysis orchestrates studies; Solver performs numerical
+computation.
 
-The network layer should therefore support efficient:
-
-* topology lookup;
-* node indexing;
-* branch lookup;
-* sparse Y-bus construction;
-* incremental invalidation;
-* vectorized numerical preparation;
-* repeated study execution.
-
-Performance optimizations must preserve the authoritative ownership model.
-
----
-
-# 47. Future Expansion
-
-The network architecture is intentionally prepared for future capabilities including:
-
-* multi-island analysis;
-* topology reduction;
-* network equivalents;
-* Kron reduction;
-* dynamic network reduction;
-* adaptive network partitioning;
-* large-scale sparse matrix optimization;
-* parallel network assembly;
-* GPU-compatible matrix preparation;
-* real-time network updates;
-* contingency-specific network snapshots.
-
-These capabilities should extend the network representation without moving solver responsibilities into the network layer.
-
----
-
-# 48. Design Philosophy
-
-GridForge V2 treats `core/network/` as the **electrical interpretation layer of the digital twin**.
-
-The network layer answers:
-
-> Given the authoritative physical model, what electrical network exists, how is it connected, what are its electrical parameters, and what mathematical network representation should downstream studies consume?
-
-It does not answer:
-
-> What equipment physically exists?
-
-That belongs to `core/model`.
-
-It does not answer:
-
-> How should the nonlinear equations be solved?
-
-That belongs to `core/solver`.
-
-It does not answer:
-
-> What protection function should operate?
-
-That belongs to `core/protection`.
-
-It does not answer:
-
-> How should the network be displayed?
-
-That belongs to the GUI/application layer.
-
-The resulting architecture is:
-
-```text
-                 Physical Digital Twin
-                         │
-                         ▼
-                    core.model
-                         │
-                         ▼
-                   core.network
-                         │
-          ┌──────────────┼──────────────┐
-          │              │              │
-          ▼              ▼              ▼
-       Topology       Per-Unit         Y-bus
-          │              │              │
-          └──────────────┼──────────────┘
-                         ▼
-                  Analysis / Solver
-                         │
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-      Power Flow    Short Circuit    Dynamics
-```
-
----
-
-# 49. Current Foundation Status
-
-The GridForge V2 Network Layer is a **frozen foundational subsystem**.
-
-The current canonical network foundation is:
-
-```text
-core/network/
-├── __init__.py
-├── network.py
-├── topology.py
-├── per_unit.py
-└── ybus.py
-```
-
-The Network Layer V1.0 baseline establishes:
-
-* terminal-aware electrical topology;
-* deterministic network representation;
-* canonical per-unit infrastructure;
-* multi-voltage network support;
-* Y-bus construction;
-* sparse matrix representation;
-* network-to-solver separation;
-* explicit physical-model/network boundaries.
-
-The network layer is considered a stable foundation for the higher-level GridForge analysis and solver architecture.
-
----
-
-# 50. Freeze Status
-
-**`core/network/README.md` → FINALIZE / FREEZE**
-
-This document is the package-level architectural reference for the GridForge V2 Network Layer.
-
-Future network changes should:
-
-1. preserve the model/network/solver separation;
-2. preserve terminal-based connectivity;
-3. preserve deterministic node and branch indexing;
-4. preserve the canonical per-unit architecture;
-5. preserve the Y-bus contract;
-6. preserve sparse numerical representation;
-7. preserve explicit topology invalidation/update behavior;
-8. prevent derived network caches from becoming authoritative physical state;
-9. keep GUI and persistence outside the network layer;
-10. keep protection execution outside the network layer.
-
-The guiding rule is:
-
-```text
-Preserve the electrical network architecture.
-Improve representation and performance without changing ownership boundaries.
-```
-
----
-
-# 51. Final Architectural Summary
-
-The GridForge V2 Network Layer is based on five fundamental separations:
-
-```text
-Physical Model
-       ≠
-Electrical Network
-```
-
-```text
-Electrical Network
-       ≠
-Numerical Solver
-```
-
-```text
-Physical Identity
-       ≠
-Numerical Index
-```
-
-```text
-Network Representation
-       ≠
-Study Result
-```
-
-```text
-Network Topology
-       ≠
-Protection Logic
-```
-
-The final architectural flow is:
-
-```text
-                     Physical Model
-                           │
-                           ▼
-                    Terminal Relationships
-                           │
-                           ▼
-                      Network Topology
-                           │
-               ┌───────────┴───────────┐
-               ▼                       ▼
-          Per-Unit System             Nodes
-               │                       │
-               └───────────┬───────────┘
-                           ▼
-                         Y-bus
-                           │
-                           ▼
-                  Numerical Solvers
-                           │
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-      Power Flow      Short Circuit      Dynamics
-          │                │                │
-          └────────────────┼────────────────┘
-                           ▼
-                     Study Results
-```
-
-The network layer therefore provides the stable electrical foundation between the physical GridForge digital twin and its numerical analysis engines.
-
-**`core/network/README.md` → FINALIZE / FREEZE**
+No component in core/network should violate that boundary without
+an explicit architectural decision.
