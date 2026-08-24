@@ -1,477 +1,242 @@
 # ============================================================
+
 # File: core/application/history.py
+
 # GridForge V2 — Headless Application Command History
+
 # Author: Subhendu Mishra
+
 # ============================================================
 
-"""
-GridForge V2
-============
+"""Committed Application command history.
 
-Module:
-    core.application.history
-
-Purpose
--------
-Owns committed Application command history.
-
-CommandHistory is a state container only.
-
-It does not:
-    * execute commands
-    * execute undo operations
-    * mutate Core
-    * resolve domain objects
-    * access Network
-    * access Application Services
-
-Undo execution is owned by CommandManager.
-
-Transaction and History have distinct responsibilities:
-
-    Transaction
-        temporary execution / rollback scope
-
-    CommandHistory
-        persistent post-commit undo / redo journal
-
-A command is undoable only when its committed execution contains
-an executable undo journal.
-
-Command-level ``inverse()`` support is optional metadata and is
-NOT used as the authoritative test for executed undoability.
-
-Headless Requirement
---------------------
-No dependency on:
-
-    * Qt
-    * PySide6
-    * UI
-    * SLD
-    * Canvas
-    * Renderers
-    * Controllers
-
-Python Compatibility
---------------------
-Python 3.10 / 3.11.
+CommandHistory stores committed command records and never executes
+commands or undo operations. CommandManager owns execution.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 from .command import Command
 
-
-# ============================================================
-# TYPE ALIASES
-# ============================================================
-
 UndoOperation = Callable[[], None]
+UndoJournal = tuple[UndoOperation, ...]
 
-UndoJournal = Tuple[UndoOperation, ...]
-
-
-# ============================================================
-# COMMAND RECORD
-# ============================================================
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CommandRecord:
-    """
-    Immutable record of a successfully committed Application
-    command.
+"""Immutable record of a successfully committed command."""
 
-    ``undo_operations`` contains the committed inverse journal
-    produced by the Transaction used during command execution.
+```
+command: Command
+executed_at: datetime
+description: Optional[str] = None
+undo_operations: UndoJournal = ()
 
-    The record does not execute these operations.
+@property
+def command_type(self) -> str:
+    return self.command.command_type
 
-    CommandManager owns execution.
-    """
+@property
+def command_id(self) -> str:
+    return str(self.command.command_id)
 
-    command: Command
+@property
+def reversible(self) -> bool:
+    return bool(self.undo_operations)
 
-    executed_at: datetime
-
-    description: Optional[str] = None
-
-    undo_operations: UndoJournal = ()
-
-    @property
-    def command_type(self) -> str:
-        """Return the command's semantic type."""
-
-        return self.command.command_type
-
-    @property
-    def command_id(self) -> str:
-        """Return the command instance identifier."""
-
-        return str(self.command.command_id)
-
-    @property
-    def reversible(self) -> bool:
-        """
-        Return whether this committed command has an executable
-        undo journal.
-
-        This is the authoritative Application-level definition
-        of post-execution undoability.
-        """
-
-        return bool(self.undo_operations)
-
-    @property
-    def undo_operation_count(self) -> int:
-        """Return the number of committed undo operations."""
-
-        return len(self.undo_operations)
-
-
-# ============================================================
-# COMMAND HISTORY
-# ============================================================
+@property
+def undo_operation_count(self) -> int:
+    return len(self.undo_operations)
+```
 
 class CommandHistory:
+"""State-only undo/redo history owned by the Application layer."""
+
+```
+def __init__(self) -> None:
+    self._undo_stack: list[CommandRecord] = []
+    self._redo_stack: list[CommandRecord] = []
+
+def record(
+    self,
+    command: Command,
+    *,
+    description: Optional[str] = None,
+    undo_operations: UndoJournal = (),
+    clear_redo: bool = True,
+) -> CommandRecord:
+    """Record a committed command.
+
+    New commands use ``clear_redo=True``.
+    Redo replay uses ``clear_redo=False``.
     """
-    Application-owned command history.
+    if not isinstance(command, Command):
+        raise TypeError(
+            "CommandHistory.record requires a Command."
+        )
 
-    CommandHistory stores committed command records.
+    if description is not None and not isinstance(
+        description,
+        str,
+    ):
+        raise TypeError(
+            "description must be a string or None."
+        )
 
-    It does not execute commands or mutate Core.
-
-    Undo and redo execution are coordinated by CommandManager.
-    """
-
-    def __init__(self) -> None:
-
-        self._undo_stack: list[CommandRecord] = []
-
-        self._redo_stack: list[CommandRecord] = []
-
-    # ========================================================
-    # RECORDING
-    # ========================================================
-
-    def record(
-        self,
-        command: Command,
-        *,
-        description: Optional[str] = None,
-        undo_operations: UndoJournal = (),
-    ) -> CommandRecord:
-        """
-        Record a successfully committed Application command.
-
-        A new successful command invalidates the redo stack.
-
-        Parameters
-        ----------
-        command:
-            Successfully executed Application command.
-
-        description:
-            Optional human-readable description.
-
-        undo_operations:
-            Immutable committed undo journal produced by the
-            command's Transaction.
-
-        Returns
-        -------
-        CommandRecord
-            The newly created history record.
-        """
-
-        if not isinstance(command, Command):
-            raise TypeError(
-                "CommandHistory.record requires a Command."
-            )
-
-        if description is not None and not isinstance(
-            description,
-            str,
-        ):
-            raise TypeError(
-                "description must be a string or None."
-            )
-
-        normalized_operations = self._normalize_undo_operations(
+    record = CommandRecord(
+        command=command,
+        executed_at=datetime.now(timezone.utc),
+        description=description,
+        undo_operations=self._normalize_undo_operations(
             undo_operations
-        )
+        ),
+    )
 
-        record = CommandRecord(
-            command=command,
-            executed_at=datetime.now(timezone.utc),
-            description=description,
-            undo_operations=normalized_operations,
-        )
+    self._undo_stack.append(record)
 
-        self._undo_stack.append(record)
-
+    if clear_redo:
         self._redo_stack.clear()
 
-        return record
+    return record
 
-    # ========================================================
-    # UNDO CAPABILITY
-    # ========================================================
+def has_history(self) -> bool:
+    return bool(self._undo_stack)
 
-    def has_history(self) -> bool:
-        """
-        Return whether any successful command has been recorded.
-        """
+def can_undo(self) -> bool:
+    record = self.peek_undo()
+    return record is not None and record.reversible
 
-        return bool(self._undo_stack)
+def undo_count(self) -> int:
+    return len(self._undo_stack)
 
-    def can_undo(self) -> bool:
-        """
-        Return whether the next history entry has an executable
-        committed undo journal.
-        """
+def reversible_undo_count(self) -> int:
+    return sum(
+        1
+        for record in self._undo_stack
+        if record.reversible
+    )
 
-        record = self.peek_undo()
+def peek_undo(self) -> Optional[CommandRecord]:
+    return (
+        self._undo_stack[-1]
+        if self._undo_stack
+        else None
+    )
 
-        if record is None:
-            return False
+def pop_undo(self) -> Optional[CommandRecord]:
+    return (
+        self._undo_stack.pop()
+        if self._undo_stack
+        else None
+    )
 
-        return record.reversible
+def push_undo(
+    self,
+    record: CommandRecord,
+) -> None:
+    """Restore a record to the undo stack."""
+    self._validate_record(record)
+    self._undo_stack.append(record)
 
-    def undo_count(self) -> int:
-        """
-        Return the total number of records on the undo stack.
-        """
+def can_redo(self) -> bool:
+    return self.peek_redo() is not None
 
-        return len(self._undo_stack)
+def redo_count(self) -> int:
+    return len(self._redo_stack)
 
-    def reversible_undo_count(self) -> int:
-        """
-        Return the number of undo-stack records containing an
-        executable undo journal.
+def peek_redo(self) -> Optional[CommandRecord]:
+    return (
+        self._redo_stack[-1]
+        if self._redo_stack
+        else None
+    )
 
-        This does not imply that arbitrary earlier records may be
-        independently undone out of stack order.
-        """
+def pop_redo(self) -> Optional[CommandRecord]:
+    return (
+        self._redo_stack.pop()
+        if self._redo_stack
+        else None
+    )
 
-        return sum(
-            1
-            for record in self._undo_stack
-            if record.reversible
+def push_redo(
+    self,
+    record: CommandRecord,
+) -> None:
+    self._validate_record(record)
+    self._redo_stack.append(record)
+
+def undo_commands(self) -> tuple[CommandRecord, ...]:
+    return tuple(self._undo_stack)
+
+def redo_commands(self) -> tuple[CommandRecord, ...]:
+    return tuple(self._redo_stack)
+
+def undo_name(self) -> Optional[str]:
+    record = self.peek_undo()
+
+    if record is None:
+        return None
+
+    return record.description or record.command_type
+
+def redo_name(self) -> Optional[str]:
+    record = self.peek_redo()
+
+    if record is None:
+        return None
+
+    return record.description or record.command_type
+
+def clear(self) -> None:
+    self._undo_stack.clear()
+    self._redo_stack.clear()
+
+def clear_redo(self) -> None:
+    self._redo_stack.clear()
+
+def reset(self) -> None:
+    self.clear()
+
+@staticmethod
+def _validate_record(
+    record: CommandRecord,
+) -> None:
+    if not isinstance(record, CommandRecord):
+        raise TypeError(
+            "Expected CommandRecord."
         )
 
-    def peek_undo(self) -> Optional[CommandRecord]:
-        """
-        Return the most recent undo record without removing it.
-        """
+@staticmethod
+def _normalize_undo_operations(
+    undo_operations: UndoJournal,
+) -> UndoJournal:
+    if undo_operations is None:
+        return ()
 
-        if not self._undo_stack:
-            return None
+    try:
+        operations = tuple(undo_operations)
+    except TypeError as exc:
+        raise TypeError(
+            "undo_operations must be iterable."
+        ) from exc
 
-        return self._undo_stack[-1]
+    if not all(
+        callable(operation)
+        for operation in operations
+    ):
+        raise TypeError(
+            "Every undo operation must be callable."
+        )
 
-    def pop_undo(self) -> Optional[CommandRecord]:
-        """
-        Remove and return the most recent undo record.
+    return operations
+```
 
-        This only changes history.
-
-        It does NOT execute the undo journal.
-        """
-
-        if not self._undo_stack:
-            return None
-
-        return self._undo_stack.pop()
-
-    # ========================================================
-    # REDO CAPABILITY
-    # ========================================================
-
-    def can_redo(self) -> bool:
-        """
-        Return whether the next redo record is executable through
-        the Application command pipeline.
-
-        A redo record is considered executable when it contains
-        a command.
-
-        CommandManager is responsible for replaying that command.
-        """
-
-        return self.peek_redo() is not None
-
-    def redo_count(self) -> int:
-        """
-        Return the number of records on the redo stack.
-        """
-
-        return len(self._redo_stack)
-
-    def peek_redo(self) -> Optional[CommandRecord]:
-        """
-        Return the most recent redo record without removing it.
-        """
-
-        if not self._redo_stack:
-            return None
-
-        return self._redo_stack[-1]
-
-    def pop_redo(self) -> Optional[CommandRecord]:
-        """
-        Remove and return the most recent redo record.
-
-        This only changes history.
-
-        It does NOT execute the command.
-        """
-
-        if not self._redo_stack:
-            return None
-
-        return self._redo_stack.pop()
-
-    def push_redo(
-        self,
-        record: CommandRecord,
-    ) -> None:
-        """
-        Add a committed command record to the redo stack.
-
-        The record must retain its committed undo journal so that
-        a subsequent redo execution can establish a fresh
-        transaction/history state.
-        """
-
-        if not isinstance(record, CommandRecord):
-            raise TypeError(
-                "push_redo requires a CommandRecord."
-            )
-
-        self._redo_stack.append(record)
-
-    # ========================================================
-    # HISTORY INSPECTION
-    # ========================================================
-
-    def undo_commands(
-        self,
-    ) -> tuple[CommandRecord, ...]:
-        """
-        Return an immutable snapshot of the undo history.
-        """
-
-        return tuple(self._undo_stack)
-
-    def redo_commands(
-        self,
-    ) -> tuple[CommandRecord, ...]:
-        """
-        Return an immutable snapshot of the redo history.
-        """
-
-        return tuple(self._redo_stack)
-
-    def undo_name(self) -> Optional[str]:
-        """
-        Return the next undo command description or type.
-        """
-
-        record = self.peek_undo()
-
-        if record is None:
-            return None
-
-        return record.description or record.command_type
-
-    def redo_name(self) -> Optional[str]:
-        """
-        Return the next redo command description or type.
-        """
-
-        record = self.peek_redo()
-
-        if record is None:
-            return None
-
-        return record.description or record.command_type
-
-    # ========================================================
-    # CLEARING
-    # ========================================================
-
-    def clear(self) -> None:
-        """
-        Clear both undo and redo history.
-        """
-
-        self._undo_stack.clear()
-
-        self._redo_stack.clear()
-
-    def clear_redo(self) -> None:
-        """
-        Clear only redo history.
-        """
-
-        self._redo_stack.clear()
-
-    def reset(self) -> None:
-        """
-        Reset the complete Application history.
-        """
-
-        self.clear()
-
-    # ========================================================
-    # INTERNAL VALIDATION
-    # ========================================================
-
-    @staticmethod
-    def _normalize_undo_operations(
-        undo_operations: UndoJournal,
-    ) -> UndoJournal:
-        """
-        Validate and normalize an undo journal.
-
-        History stores the journal but never executes it.
-        """
-
-        if undo_operations is None:
-            return ()
-
-        try:
-            operations = tuple(undo_operations)
-
-        except TypeError as exc:
-
-            raise TypeError(
-                "undo_operations must be an iterable of callables."
-            ) from exc
-
-        for operation in operations:
-
-            if not callable(operation):
-
-                raise TypeError(
-                    "Every undo operation must be callable."
-                )
-
-        return operations
-
-
-# ============================================================
-# PUBLIC API
-# ============================================================
-
-__all__ = [
-    "UndoOperation",
-    "UndoJournal",
-    "CommandRecord",
-    "CommandHistory",
+**all** = [
+"UndoOperation",
+"UndoJournal",
+"CommandRecord",
+"CommandHistory",
 ]
