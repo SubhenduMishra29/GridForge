@@ -1,10 +1,3 @@
-core/network/README.md
-# ============================================================
-# File: core/network/README.md
-# GridForge V2 — Network Layer
-# Author: Subhendu Mishra
-# ============================================================
-
 # GridForge V2 — Network Layer
 
 The `core/network` package is the **assembled electrical-network
