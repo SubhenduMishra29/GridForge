@@ -1,89 +1,122 @@
 # ============================================================
 # File: core/network/indexing.py
-# GridForge V2 — Network Layer
+# GridForge V2 — Network Bus Indexing
+# Author: Subhendu Mishra
 # ============================================================
+
 """
-Deterministic Network Bus Index
-===============================
+Deterministic bus indexing for GridForge Network.
 
-Provides the numerical bus-index representation required by
-matrix-based network calculations.
+The BusIndex is the single owner of:
 
-Responsibilities
-----------------
-- Derive deterministic bus indices from Network membership.
-- Maintain bus.id -> numerical matrix index.
-- Rebuild the index after bus membership changes.
+    bus.id -> matrix index
 
-Does NOT
---------
-- Own Bus objects.
-- Register/remove buses.
-- Build Y-bus.
-- Perform topology analysis.
-- Perform numerical calculations.
-- Define electrical meaning.
+It does not own Bus objects and does not perform topology or
+electrical validation.
 
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+The index is derived state and therefore becomes invalid whenever
+network bus membership changes.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, Iterable
 
 
 class BusIndex:
     """
-    Deterministic mapping from canonical Bus IDs to matrix indices.
-
-    The Network remains the owner of canonical bus membership.
+    Canonical deterministic bus-ID to matrix-index mapping.
     """
 
-    def __init__(
+    def __init__(self) -> None:
+        self._mapping: Dict[Any, int] = {}
+        self._valid = False
+
+    # ============================================================
+    # STATE
+    # ============================================================
+
+    @property
+    def valid(self) -> bool:
+        """
+        Return True when the mapping corresponds to the current
+        network bus collection.
+        """
+        return self._valid
+
+    # ------------------------------------------------------------
+
+    @property
+    def mapping(self) -> Dict[Any, int]:
+        """
+        Return a defensive copy of the current mapping.
+
+        An invalid mapping is returned as an empty mapping.
+        """
+        if not self._valid:
+            return {}
+
+        return dict(self._mapping)
+
+    # ============================================================
+    # INVALIDATION
+    # ============================================================
+
+    def invalidate(self) -> None:
+        """
+        Invalidate the current derived index.
+        """
+        self._mapping.clear()
+        self._valid = False
+
+    # ============================================================
+    # BUILD
+    # ============================================================
+
+    def rebuild(
         self,
-        network: Any,
-    ) -> None:
-        if network is None:
-            raise ValueError(
-                "BusIndex requires a Network."
-            )
-
-        self._network = network
-        self.mapping: dict[Any, int] = {}
-
-    # ============================================================
-    # REBUILD
-    # ============================================================
-
-    def rebuild(self) -> dict[Any, int]:
+        buses: Iterable[Any],
+    ) -> Dict[Any, int]:
         """
-        Rebuild the complete deterministic bus index.
-
-        Index order is the current order of Network.buses.
+        Rebuild the index from the authoritative Network bus
+        collection.
         """
 
-        index: dict[Any, int] = {}
+        mapping: Dict[Any, int] = {}
 
-        for position, bus in enumerate(
-            self._network.buses
-        ):
+        for position, bus in enumerate(buses):
 
             if not hasattr(bus, "id"):
                 raise TypeError(
                     "Every bus must provide an 'id' attribute."
                 )
 
-            if bus.id in index:
+            if bus.id in mapping:
                 raise ValueError(
                     f"Duplicate bus ID: {bus.id}"
                 )
 
-            index[bus.id] = position
+            mapping[bus.id] = position
 
-        self.mapping = index
+        self._mapping = mapping
+        self._valid = True
 
-        return self.mapping
+        return dict(self._mapping)
+
+    # ------------------------------------------------------------
+
+    def ensure(
+        self,
+        buses: Iterable[Any],
+    ) -> Dict[Any, int]:
+        """
+        Return a valid index, rebuilding it when necessary.
+        """
+
+        if not self._valid:
+            return self.rebuild(buses)
+
+        return dict(self._mapping)
 
     # ============================================================
     # LOOKUP
@@ -91,59 +124,45 @@ class BusIndex:
 
     def get(
         self,
-        bus_or_id: Any,
+        bus_id: Any,
     ) -> int:
         """
-        Return the numerical matrix index for a Bus or Bus ID.
+        Return the matrix index for a bus ID.
         """
 
-        if not self.mapping:
-            self.rebuild()
-
-        bus_id = (
-            bus_or_id.id
-            if hasattr(bus_or_id, "id")
-            else bus_or_id
-        )
+        if not self._valid:
+            raise RuntimeError(
+                "Bus index is invalid; rebuild it first."
+            )
 
         try:
-            return self.mapping[bus_id]
+            return self._mapping[bus_id]
 
         except KeyError as exc:
             raise KeyError(
-                f"Unknown network bus: {bus_id}"
+                f"Unknown bus ID: {bus_id}"
             ) from exc
 
     # ------------------------------------------------------------
 
-    def contains(
+    def __contains__(
         self,
-        bus_or_id: Any,
+        bus_id: Any,
     ) -> bool:
         """
-        Return whether a Bus or Bus ID exists in the current index.
+        Return whether a bus ID exists in the valid index.
         """
 
-        if not self.mapping:
-            self.rebuild()
-
-        bus_id = (
-            bus_or_id.id
-            if hasattr(bus_or_id, "id")
-            else bus_or_id
+        return (
+            self._valid
+            and bus_id in self._mapping
         )
 
-        return bus_id in self.mapping
+    # ------------------------------------------------------------
 
-    # ============================================================
-    # INVALIDATION
-    # ============================================================
-
-    def clear(self) -> None:
+    def __len__(self) -> int:
         """
-        Clear the derived mapping.
-
-        This does not modify Network membership.
+        Return the number of indexed buses.
         """
 
-        self.mapping.clear()
+        return len(self._mapping) if self._valid else 0
