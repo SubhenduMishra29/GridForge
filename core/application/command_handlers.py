@@ -9,93 +9,86 @@
 # ============================================================
 
 """
-GridForge V2
-============
+GridForge V2 headless Application command handlers.
 
-Module:
-core.application.command_handlers
+Handlers are the translation boundary between immutable
+Application commands and Application services.
 
-## Purpose
-
-Connect immutable Application Commands to Application Services.
-
-## Frozen execution contract
+## Execution boundary
 
 ```
 CommandManager
       |
       v
-handler(command, context, transaction)
+Command Handler
       |
       v
-  ModelService
+ModelService
       |
       v
-     Core
+Core Network / Core Model
 ```
 
-Handlers perform Application-level orchestration only.
+Handlers may:
 
-They do NOT:
+```
+* validate command payload structure;
+* resolve stable endpoint identifiers;
+* call Application services;
+* register inverse Network operations with Transaction.
+```
+
+Handlers must NOT:
 
 ```
 * mutate Core directly;
-* manipulate Network collections directly;
-* manipulate topology;
-* build Y-bus;
-* invalidate derived state manually;
-* access Qt;
-* create graphics objects;
-* render SLD objects;
+* construct Application services repeatedly;
 * commit transactions;
 * rollback transactions;
-* manipulate command history.
+* modify history;
+* access Qt;
+* access UI;
+* access SLD/canvas;
+* manipulate graphics objects.
 ```
 
-## Transaction responsibility
-
-Handlers register inverse operations through:
+## Canonical model commands
 
 ```
-transaction.record_undo(...)
+CREATE_BUS
+DELETE_BUS
+CREATE_LINE
+DELETE_LINE
+CREATE_TRANSFORMER
+DELETE_TRANSFORMER
 ```
 
-CommandManager owns:
+## Endpoint rule
 
-```
-* transaction creation;
-* commit;
-* rollback;
-* history recording.
-```
+Line and Transformer commands carry endpoint Bus identifiers.
 
-## Endpoint resolution
+The handler resolves those identifiers against the canonical
+ApplicationContext Network and passes the canonical Bus objects
+to ModelService.
 
-The current Terminal model does not expose a stable independent
-Terminal ID.
-
-Therefore:
-
-```
-endpoint_from_id
-endpoint_to_id
-```
-
-are resolved against canonical Network Bus IDs.
-
-The handler passes the canonical Bus objects to ModelService.
-
-This rule is intentionally conservative and remains frozen until
-a stable Terminal identity contract is introduced.
+The handler does not manipulate physical terminals directly.
 """
 
 from **future** import annotations
 
 from typing import Any
 
-from core.model import Bus
-
 from .command import Command
+from .command_manager import CommandManager
+from .context import ApplicationContext
+from .errors import (
+ExecutionError,
+ResourceError,
+ValidationError,
+)
+from .results import ApplicationResult
+from .transaction import Transaction
+
 from .commands.model_commands import (
 CREATE_BUS,
 DELETE_BUS,
@@ -103,28 +96,32 @@ CREATE_LINE,
 DELETE_LINE,
 CREATE_TRANSFORMER,
 DELETE_TRANSFORMER,
+CreateBusCommand,
+DeleteBusCommand,
+CreateLineCommand,
+DeleteLineCommand,
+CreateTransformerCommand,
+DeleteTransformerCommand,
 )
-from .context import ApplicationContext
-from .errors import ExecutionError, ResourceError
-from .results import ApplicationResult
+
 from .services.model_service import ModelService
-from .transaction import Transaction
 
 # ============================================================
 
-# INTERNAL SERVICE FACTORY
+# SERVICE RESOLUTION
 
 # ============================================================
 
-def _service(
+def _model_service(
 context: ApplicationContext,
 ) -> ModelService:
 """
-Construct the Application ModelService.
+Construct the Application model service for this execution.
 
 ```
-ModelService remains stateless with respect to the canonical
-Network and receives the Application context explicitly.
+ModelService itself is lightweight and does not own the
+Network. The canonical Network remains owned by the
+ApplicationContext/Core composition boundary.
 """
 
 if not isinstance(
@@ -132,137 +129,258 @@ if not isinstance(
     ApplicationContext,
 ):
     raise TypeError(
-        "Command handler requires an ApplicationContext."
+        "Handler context must be an ApplicationContext."
     )
 
-return ModelService(context)
-```
-
-# ============================================================
-
-# PAYLOAD ACCESS
-
-# ============================================================
-
-def _payload_value(
-command: Command,
-key: str,
-) -> Any:
-"""
-Read a required command payload value.
-"""
-
-```
 try:
-    return command.payload[key]
+    return ModelService(
+        context,
+    )
 
-except KeyError as exc:
-
+except Exception as exc:
     raise ExecutionError(
-        code="COMMAND_PAYLOAD_FIELD_MISSING",
+        code="MODEL_SERVICE_INITIALIZATION_FAILED",
         message=(
-            f"Command '{command.command_type}' is missing "
-            f"required payload field '{key}'."
+            "Failed to initialize the Application "
+            "ModelService."
         ),
-        details={
-            "command_type": command.command_type,
-            "command_id": str(
-                command.command_id
-            ),
-            "field": key,
-        },
         cause=exc,
     ) from exc
 ```
 
 # ============================================================
 
-# COMMAND TYPE VALIDATION
+# PAYLOAD HELPERS
 
 # ============================================================
 
-def _require_command_type(
-command: Command,
-expected: str,
-) -> None:
+def _require_string(
+payload: Any,
+field: str,
+) -> str:
 """
-Ensure a handler receives its registered command type.
+Extract a required non-empty string from a command payload.
 """
 
 ```
-if command.command_type != expected:
+if not isinstance(
+    payload,
+    dict,
+):
+    try:
+        value = payload[field]
+    except Exception as exc:
+        raise ValidationError(
+            code="INVALID_COMMAND_PAYLOAD",
+            message=(
+                "Command payload must provide "
+                f"'{field}'."
+            ),
+            details={
+                "field": field,
+            },
+        ) from exc
+else:
+    value = payload.get(field)
 
-    raise ExecutionError(
-        code="COMMAND_TYPE_MISMATCH",
+if not isinstance(
+    value,
+    str,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_FIELD",
         message=(
-            f"Handler expected command type '{expected}' "
-            f"but received '{command.command_type}'."
+            f"Command field '{field}' "
+            "must be a string."
         ),
         details={
-            "expected": expected,
-            "received": command.command_type,
-            "command_id": str(
-                command.command_id
-            ),
+            "field": field,
         },
     )
+
+value = value.strip()
+
+if not value:
+    raise ValidationError(
+        code="EMPTY_COMMAND_FIELD",
+        message=(
+            f"Command field '{field}' "
+            "must not be empty."
+        ),
+        details={
+            "field": field,
+        },
+    )
+
+return value
+```
+
+def _optional_string(
+payload: Any,
+field: str,
+default: str = "",
+) -> str:
+"""
+Extract an optional string command field.
+"""
+
+```
+value = payload.get(
+    field,
+    default,
+)
+
+if value is None:
+    return default
+
+if not isinstance(
+    value,
+    str,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_FIELD",
+        message=(
+            f"Command field '{field}' "
+            "must be a string."
+        ),
+        details={
+            "field": field,
+        },
+    )
+
+return value.strip()
+```
+
+def _number(
+payload: Any,
+field: str,
+*,
+default: float | None = None,
+) -> float:
+"""
+Extract a numeric command field.
+
+```
+bool is explicitly rejected because bool is a subclass of int.
+"""
+
+if field not in payload:
+
+    if default is not None:
+        return default
+
+    raise ValidationError(
+        code="MISSING_COMMAND_FIELD",
+        message=(
+            f"Command field '{field}' "
+            "is required."
+        ),
+        details={
+            "field": field,
+        },
+    )
+
+value = payload[field]
+
+if isinstance(
+    value,
+    bool,
+) or not isinstance(
+    value,
+    (int, float),
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_FIELD",
+        message=(
+            f"Command field '{field}' "
+            "must be numeric."
+        ),
+        details={
+            "field": field,
+        },
+    )
+
+return float(value)
+```
+
+def _object_from_result(
+result: ApplicationResult,
+*,
+command_type: str,
+) -> Any:
+"""
+Require a canonical Core object in ApplicationResult.value.
+"""
+
+```
+if not isinstance(
+    result,
+    ApplicationResult,
+):
+    raise ExecutionError(
+        code="INVALID_SERVICE_RESULT",
+        message=(
+            f"Service for '{command_type}' "
+            "did not return an ApplicationResult."
+        ),
+        details={
+            "command_type": command_type,
+        },
+    )
+
+if not result.success:
+    return None
+
+if result.value is None:
+    raise ExecutionError(
+        code="MISSING_SERVICE_RESULT_VALUE",
+        message=(
+            f"Service for '{command_type}' "
+            "returned success without a value."
+        ),
+        details={
+            "command_type": command_type,
+        },
+    )
+
+return result.value
 ```
 
 # ============================================================
 
-# BUS RESOLUTION
+# NETWORK RESOLUTION
 
 # ============================================================
 
 def _find_bus(
 context: ApplicationContext,
 bus_id: str,
-) -> Bus:
+) -> Any:
 """
-Resolve a canonical Bus by Network identifier.
+Resolve a canonical Core Bus by stable identifier.
+"""
 
 ```
-Lookup only.
+network = context.network
 
-This function never mutates Network.
-"""
-
-if not isinstance(
-    bus_id,
-    str,
-) or not bus_id.strip():
-
-    raise ExecutionError(
-        code="INVALID_ENDPOINT_ID",
-        message=(
-            "Endpoint identifier must be "
-            "a non-empty string."
-        ),
-        details={
-            "endpoint_id": bus_id,
-        },
-    )
-
-normalized_id = bus_id.strip()
-
-for bus in context.network.buses:
+for bus in network.buses:
 
     if getattr(
         bus,
         "id",
         None,
-    ) == normalized_id:
+    ) == bus_id:
 
         return bus
 
 raise ResourceError(
-    code="LINE_ENDPOINT_BUS_NOT_FOUND",
+    code="BUS_NOT_FOUND",
     message=(
-        f"Endpoint Bus '{normalized_id}' "
-        "is not registered on the Core Network."
+        f"Bus '{bus_id}' is not registered "
+        "on the Core Network."
     ),
     details={
-        "bus_id": normalized_id,
+        "bus_id": bus_id,
     },
 )
 ```
@@ -279,70 +397,133 @@ context: ApplicationContext,
 transaction: Transaction,
 ) -> ApplicationResult:
 """
-Execute CreateBusCommand.
-
-```
-ModelService performs the actual Core mutation.
-
-The newly created Bus is registered for inverse removal.
+Handle CreateBusCommand.
 """
 
-_require_command_type(
+```
+if not isinstance(
     command,
-    CREATE_BUS,
+    CreateBusCommand,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_TYPE",
+        message=(
+            "CREATE_BUS handler received an "
+            "incompatible command."
+        ),
+    )
+
+payload = command.payload
+
+bus_id = _require_string(
+    payload,
+    "bus_id",
 )
 
-service = _service(context)
+name = _optional_string(
+    payload,
+    "name",
+)
+
+bus_type = payload.get(
+    "bus_type",
+)
+
+if bus_type is None:
+    from core.model.bus import BusType
+
+    bus_type = BusType.PQ
+
+voltage = _number(
+    payload,
+    "voltage",
+    default=1.0,
+)
+
+angle = _number(
+    payload,
+    "angle",
+    default=0.0,
+)
+
+p_spec = _number(
+    payload,
+    "p_spec",
+    default=0.0,
+)
+
+q_spec = _number(
+    payload,
+    "q_spec",
+    default=0.0,
+)
+
+v_setpoint = None
+
+if "v_setpoint" in payload:
+    value = payload["v_setpoint"]
+
+    if value is not None:
+        if isinstance(
+            value,
+            bool,
+        ) or not isinstance(
+            value,
+            (int, float),
+        ):
+            raise ValidationError(
+                code="INVALID_COMMAND_FIELD",
+                message=(
+                    "Command field 'v_setpoint' "
+                    "must be numeric or None."
+                ),
+                details={
+                    "field": "v_setpoint",
+                },
+            )
+
+        v_setpoint = float(value)
+
+q_min = _number(
+    payload,
+    "q_min",
+    default=float("-inf"),
+)
+
+q_max = _number(
+    payload,
+    "q_max",
+    default=float("inf"),
+)
+
+service = _model_service(
+    context,
+)
 
 result = service.create_bus(
-    bus_id=_payload_value(
-        command,
-        "bus_id",
-    ),
-    name=_payload_value(
-        command,
-        "name",
-    ),
-    bus_type=_payload_value(
-        command,
-        "bus_type",
-    ),
-    voltage=_payload_value(
-        command,
-        "voltage",
-    ),
-    angle=_payload_value(
-        command,
-        "angle",
-    ),
-    p_spec=_payload_value(
-        command,
-        "p_spec",
-    ),
-    q_spec=_payload_value(
-        command,
-        "q_spec",
-    ),
-    v_setpoint=_payload_value(
-        command,
-        "v_setpoint",
-    ),
-    q_min=_payload_value(
-        command,
-        "q_min",
-    ),
-    q_max=_payload_value(
-        command,
-        "q_max",
-    ),
+    bus_id=bus_id,
+    name=name,
+    bus_type=bus_type,
+    voltage=voltage,
+    angle=angle,
+    p_spec=p_spec,
+    q_spec=q_spec,
+    v_setpoint=v_setpoint,
+    q_min=q_min,
+    q_max=q_max,
 )
 
-bus = result.value
-
-transaction.record_undo(
-    lambda bus=bus:
-        context.network.remove_bus(bus)
+bus = _object_from_result(
+    result,
+    command_type=CREATE_BUS,
 )
+
+if bus is not None:
+    transaction.record_undo(
+        lambda bus=bus: context.network.remove_bus(
+            bus
+        )
+    )
 
 return result
 ```
@@ -359,35 +540,46 @@ context: ApplicationContext,
 transaction: Transaction,
 ) -> ApplicationResult:
 """
-Execute DeleteBusCommand.
-
-```
-The removed canonical Bus is registered for inverse
-restoration.
-
-Network.add_bus() owns restoration of Network membership.
+Handle DeleteBusCommand.
 """
 
-_require_command_type(
+```
+if not isinstance(
     command,
-    DELETE_BUS,
+    DeleteBusCommand,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_TYPE",
+        message=(
+            "DELETE_BUS handler received an "
+            "incompatible command."
+        ),
+    )
+
+bus_id = _require_string(
+    command.payload,
+    "bus_id",
 )
 
-service = _service(context)
+service = _model_service(
+    context,
+)
 
 result = service.delete_bus(
-    bus_id=_payload_value(
-        command,
-        "bus_id",
-    ),
+    bus_id=bus_id,
 )
 
-bus = result.value
-
-transaction.record_undo(
-    lambda bus=bus:
-        context.network.add_bus(bus)
+bus = _object_from_result(
+    result,
+    command_type=DELETE_BUS,
 )
+
+if bus is not None:
+    transaction.record_undo(
+        lambda bus=bus: context.network.add_bus(
+            bus
+        )
+    )
 
 return result
 ```
@@ -404,73 +596,115 @@ context: ApplicationContext,
 transaction: Transaction,
 ) -> ApplicationResult:
 """
-Execute CreateLineCommand.
-
-```
-endpoint_from_id and endpoint_to_id are resolved as canonical
-Network Bus IDs.
-
-ModelService owns Line construction and Network mutation.
+Handle CreateLineCommand.
 """
 
-_require_command_type(
+```
+if not isinstance(
     command,
-    CREATE_LINE,
+    CreateLineCommand,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_TYPE",
+        message=(
+            "CREATE_LINE handler received an "
+            "incompatible command."
+        ),
+    )
+
+payload = command.payload
+
+line_id = _require_string(
+    payload,
+    "line_id",
 )
+
+from_bus_id = _require_string(
+    payload,
+    "endpoint_from",
+)
+
+to_bus_id = _require_string(
+    payload,
+    "endpoint_to",
+)
+
+if from_bus_id == to_bus_id:
+    raise ValidationError(
+        code="IDENTICAL_LINE_ENDPOINTS",
+        message=(
+            "Line endpoints must reference "
+            "different buses."
+        ),
+        details={
+            "endpoint_from": from_bus_id,
+            "endpoint_to": to_bus_id,
+        },
+    )
 
 endpoint_from = _find_bus(
     context,
-    _payload_value(
-        command,
-        "endpoint_from_id",
-    ),
+    from_bus_id,
 )
 
 endpoint_to = _find_bus(
     context,
-    _payload_value(
-        command,
-        "endpoint_to_id",
-    ),
+    to_bus_id,
 )
 
-service = _service(context)
+r = _number(
+    payload,
+    "r",
+)
+
+x = _number(
+    payload,
+    "x",
+)
+
+b = _number(
+    payload,
+    "b",
+    default=0.0,
+)
+
+name = _optional_string(
+    payload,
+    "name",
+)
+
+rate_mva = _number(
+    payload,
+    "rate_mva",
+    default=100.0,
+)
+
+service = _model_service(
+    context,
+)
 
 result = service.create_line(
-    line_id=_payload_value(
-        command,
-        "line_id",
-    ),
+    line_id=line_id,
     endpoint_from=endpoint_from,
     endpoint_to=endpoint_to,
-    r=_payload_value(
-        command,
-        "r",
-    ),
-    x=_payload_value(
-        command,
-        "x",
-    ),
-    b=_payload_value(
-        command,
-        "b",
-    ),
-    name=_payload_value(
-        command,
-        "name",
-    ),
-    rate_mva=_payload_value(
-        command,
-        "rate_mva",
-    ),
+    r=r,
+    x=x,
+    b=b,
+    name=name,
+    rate_mva=rate_mva,
 )
 
-line = result.value
-
-transaction.record_undo(
-    lambda line=line:
-        context.network.remove_line(line)
+line = _object_from_result(
+    result,
+    command_type=CREATE_LINE,
 )
+
+if line is not None:
+    transaction.record_undo(
+        lambda line=line: context.network.remove_line(
+            line
+        )
+    )
 
 return result
 ```
@@ -487,36 +721,46 @@ context: ApplicationContext,
 transaction: Transaction,
 ) -> ApplicationResult:
 """
-Execute DeleteLineCommand.
-
-```
-The exact canonical Line object returned by the service is
-registered for inverse restoration.
-
-Terminal manipulation is intentionally absent here.
-Network owns membership and topology consequences.
+Handle DeleteLineCommand.
 """
 
-_require_command_type(
+```
+if not isinstance(
     command,
-    DELETE_LINE,
+    DeleteLineCommand,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_TYPE",
+        message=(
+            "DELETE_LINE handler received an "
+            "incompatible command."
+        ),
+    )
+
+line_id = _require_string(
+    command.payload,
+    "line_id",
 )
 
-service = _service(context)
+service = _model_service(
+    context,
+)
 
 result = service.delete_line(
-    line_id=_payload_value(
-        command,
-        "line_id",
-    ),
+    line_id=line_id,
 )
 
-line = result.value
-
-transaction.record_undo(
-    lambda line=line:
-        context.network.add_line(line)
+line = _object_from_result(
+    result,
+    command_type=DELETE_LINE,
 )
+
+if line is not None:
+    transaction.record_undo(
+        lambda line=line: context.network.add_line(
+            line
+        )
+    )
 
 return result
 ```
@@ -533,79 +777,123 @@ context: ApplicationContext,
 transaction: Transaction,
 ) -> ApplicationResult:
 """
-Execute CreateTransformerCommand.
-
-```
-Endpoint identifiers are resolved as canonical Network Bus IDs.
-
-ModelService owns Transformer construction and Network
-membership.
+Handle CreateTransformerCommand.
 """
 
-_require_command_type(
+```
+if not isinstance(
     command,
-    CREATE_TRANSFORMER,
+    CreateTransformerCommand,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_TYPE",
+        message=(
+            "CREATE_TRANSFORMER handler received "
+            "an incompatible command."
+        ),
+    )
+
+payload = command.payload
+
+transformer_id = _require_string(
+    payload,
+    "transformer_id",
 )
+
+from_bus_id = _require_string(
+    payload,
+    "endpoint_from",
+)
+
+to_bus_id = _require_string(
+    payload,
+    "endpoint_to",
+)
+
+if from_bus_id == to_bus_id:
+    raise ValidationError(
+        code="IDENTICAL_TRANSFORMER_ENDPOINTS",
+        message=(
+            "Transformer endpoints must reference "
+            "different buses."
+        ),
+        details={
+            "endpoint_from": from_bus_id,
+            "endpoint_to": to_bus_id,
+        },
+    )
 
 endpoint_from = _find_bus(
     context,
-    _payload_value(
-        command,
-        "endpoint_from_id",
-    ),
+    from_bus_id,
 )
 
 endpoint_to = _find_bus(
     context,
-    _payload_value(
-        command,
-        "endpoint_to_id",
-    ),
+    to_bus_id,
 )
 
-service = _service(context)
+r = _number(
+    payload,
+    "r",
+)
+
+x = _number(
+    payload,
+    "x",
+)
+
+tap = _number(
+    payload,
+    "tap",
+    default=1.0,
+)
+
+shift = _number(
+    payload,
+    "shift",
+    default=0.0,
+)
+
+name = _optional_string(
+    payload,
+    "name",
+)
+
+rate_mva = _number(
+    payload,
+    "rate_mva",
+    default=100.0,
+)
+
+service = _model_service(
+    context,
+)
 
 result = service.create_transformer(
-    transformer_id=_payload_value(
-        command,
-        "transformer_id",
-    ),
+    transformer_id=transformer_id,
     endpoint_from=endpoint_from,
     endpoint_to=endpoint_to,
-    r=_payload_value(
-        command,
-        "r",
-    ),
-    x=_payload_value(
-        command,
-        "x",
-    ),
-    tap=_payload_value(
-        command,
-        "tap",
-    ),
-    shift=_payload_value(
-        command,
-        "shift",
-    ),
-    name=_payload_value(
-        command,
-        "name",
-    ),
-    rate_mva=_payload_value(
-        command,
-        "rate_mva",
-    ),
+    r=r,
+    x=x,
+    tap=tap,
+    shift=shift,
+    name=name,
+    rate_mva=rate_mva,
 )
 
-transformer = result.value
+transformer = _object_from_result(
+    result,
+    command_type=CREATE_TRANSFORMER,
+)
 
-transaction.record_undo(
-    lambda transformer=transformer:
+if transformer is not None:
+    transaction.record_undo(
+        lambda transformer=transformer:
         context.network.remove_transformer(
             transformer
         )
-)
+    )
 
 return result
 ```
@@ -622,91 +910,111 @@ context: ApplicationContext,
 transaction: Transaction,
 ) -> ApplicationResult:
 """
-Execute DeleteTransformerCommand.
-
-```
-The exact canonical Transformer object returned by the
-service is registered for inverse restoration.
+Handle DeleteTransformerCommand.
 """
 
-_require_command_type(
+```
+if not isinstance(
     command,
-    DELETE_TRANSFORMER,
+    DeleteTransformerCommand,
+):
+    raise ValidationError(
+        code="INVALID_COMMAND_TYPE",
+        message=(
+            "DELETE_TRANSFORMER handler received "
+            "an incompatible command."
+        ),
+    )
+
+transformer_id = _require_string(
+    command.payload,
+    "transformer_id",
 )
 
-service = _service(context)
+service = _model_service(
+    context,
+)
 
 result = service.delete_transformer(
-    transformer_id=_payload_value(
-        command,
-        "transformer_id",
-    ),
+    transformer_id=transformer_id,
 )
 
-transformer = result.value
+transformer = _object_from_result(
+    result,
+    command_type=DELETE_TRANSFORMER,
+)
 
-transaction.record_undo(
-    lambda transformer=transformer:
+if transformer is not None:
+    transaction.record_undo(
+        lambda transformer=transformer:
         context.network.add_transformer(
             transformer
         )
-)
+    )
 
 return result
 ```
 
 # ============================================================
 
-# MODEL HANDLER REGISTRATION
+# REGISTRATION
 
 # ============================================================
 
 def register_model_handlers(
-command_manager,
+command_manager: CommandManager,
 ) -> None:
 """
-Register all six canonical model commands.
+Register the six canonical model command handlers.
 
 ```
-Registration is composition only.
-
-No command is executed here.
+Registration is deterministic and idempotence is deliberately
+NOT provided by this function. Duplicate registration is a
+configuration error and is surfaced by CommandManager.
 """
 
-if command_manager is None:
-    raise ValueError(
-        "command_manager must not be None."
+if not isinstance(
+    command_manager,
+    CommandManager,
+):
+    raise TypeError(
+        "register_model_handlers requires "
+        "a CommandManager."
     )
 
-command_manager.register(
-    CREATE_BUS,
-    handle_create_bus,
+registrations = (
+    (
+        CREATE_BUS,
+        handle_create_bus,
+    ),
+    (
+        DELETE_BUS,
+        handle_delete_bus,
+    ),
+    (
+        CREATE_LINE,
+        handle_create_line,
+    ),
+    (
+        DELETE_LINE,
+        handle_delete_line,
+    ),
+    (
+        CREATE_TRANSFORMER,
+        handle_create_transformer,
+    ),
+    (
+        DELETE_TRANSFORMER,
+        handle_delete_transformer,
+    ),
 )
 
-command_manager.register(
-    DELETE_BUS,
-    handle_delete_bus,
-)
+for command_type, handler in registrations:
 
-command_manager.register(
-    CREATE_LINE,
-    handle_create_line,
-)
-
-command_manager.register(
-    DELETE_LINE,
-    handle_delete_line,
-)
-
-command_manager.register(
-    CREATE_TRANSFORMER,
-    handle_create_transformer,
-)
-
-command_manager.register(
-    DELETE_TRANSFORMER,
-    handle_delete_transformer,
-)
+    command_manager.register(
+        command_type,
+        handler,
+    )
 ```
 
 # ============================================================
