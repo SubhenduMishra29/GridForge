@@ -1,6 +1,7 @@
+```python
 """
 GridForge V2 - Logic Latches
-=============================
+============================
 
 Author:
     Subhendu Mishra
@@ -10,32 +11,22 @@ File:
 
 Purpose
 -------
-Headless stateful latch elements for the Logic Control domain.
+Headless latch components for the Logic Control branch.
 
-Supported latch types:
+Supported latch forms:
 
-    SR - Set-dominant latch
-    RS - Reset-dominant latch
+    SR
+        SET has priority over RESET.
 
-A latch retains its Boolean output until an explicit set/reset command
-changes it.
+    RS
+        RESET has priority over SET.
 
-The latch is a Core Control component. Its graphical representation,
-placement, wiring and editing behavior belong exclusively to the UI
-logic-layout/editing canvas.
+The latch stores only Boolean persistent state:
 
-Domain boundary
----------------
-    Set / Reset inputs
-            |
-            v
-          Latch
-            |
-            +----> Boolean output
-            |
-            +----> persistent state
+    Q
 
-The latch does not directly mutate core/model or simulation state.
+The UI logic-layout/editing canvas represents the latch and its
+connections but does not own the latch state or semantics.
 """
 
 from __future__ import annotations
@@ -49,52 +40,66 @@ from ...base import (
     SignalRole,
     State,
 )
-from ..base import (
+from .base import (
     LogicControlComponent,
     LogicControlResult,
+    LogicEvent,
+    LogicEventType,
     LogicStateDefinition,
 )
 
 
-class LatchType(str, Enum):
-    """Supported industrial latch precedence modes."""
+# ============================================================================
+# LATCH MODE
+# ============================================================================
+
+
+class LatchMode(str, Enum):
+    """Priority rule used when SET and RESET are asserted together."""
 
     SR = "sr"
     RS = "rs"
 
 
-class LogicLatch(LogicControlComponent):
+# ============================================================================
+# BASE LATCH
+# ============================================================================
+
+
+class LogicLatch(
+    LogicControlComponent,
+):
     """
-    Base deterministic Boolean latch.
+    Generic Boolean set/reset latch.
 
     Inputs:
         SET
-            Set command.
-
         RESET
-            Reset command.
 
     Output:
         Q
-            Current retained latch state.
 
-    Persistent state:
-        Q
-            Current Boolean latch state.
+    State:
+        q
 
-    Precedence:
-        SR -> SET dominates when SET and RESET are simultaneously active.
-        RS -> RESET dominates when SET and RESET are simultaneously active.
-
-    When neither input is active, the previous state is retained.
+    Priority:
+        SR -> SET dominates simultaneous SET + RESET.
+        RS -> RESET dominates simultaneous SET + RESET.
     """
 
-    _STATE_Q = "Q"
+    @property
+    def component_id(self) -> str:
+        return self._component_id
+
+    @property
+    def component_type(self) -> str:
+        return "latch"
 
     def __init__(
         self,
         component_id: str,
-        latch_type: LatchType,
+        *,
+        mode: LatchMode = LatchMode.SR,
     ) -> None:
         component_id = str(
             component_id
@@ -105,56 +110,30 @@ class LogicLatch(LogicControlComponent):
                 "LogicLatch component_id cannot be empty."
             )
 
-        if not isinstance(
-            latch_type,
-            LatchType,
-        ):
-            try:
-                latch_type = LatchType(
-                    latch_type
+        try:
+            normalized_mode = (
+                mode
+                if isinstance(
+                    mode,
+                    LatchMode,
                 )
-            except ValueError as exc:
-                raise ValueError(
-                    f"Invalid latch type: "
-                    f"{latch_type!r}."
-                ) from exc
+                else LatchMode(
+                    mode
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported latch mode: {mode!r}."
+            ) from exc
 
         self._component_id = component_id
-        self._latch_type = latch_type
-
-    # ========================================================================
-    # IDENTITY
-    # ========================================================================
+        self._mode = normalized_mode
 
     @property
-    def component_id(self) -> str:
-        """Return the unique logic-component identifier."""
+    def mode(self) -> LatchMode:
+        """Latch priority mode."""
 
-        return self._component_id
-
-    @property
-    def component_type(self) -> str:
-        """Return the domain component type."""
-
-        return f"{self._latch_type.value}_latch"
-
-    @property
-    def latch_type(self) -> LatchType:
-        """Return the latch precedence mode."""
-
-        return self._latch_type
-
-    @property
-    def set_dominant(self) -> bool:
-        """Return True for an SR latch."""
-
-        return self._latch_type is LatchType.SR
-
-    @property
-    def reset_dominant(self) -> bool:
-        """Return True for an RS latch."""
-
-        return self._latch_type is LatchType.RS
+        return self._mode
 
     # ========================================================================
     # SIGNAL CONTRACT
@@ -163,21 +142,21 @@ class LogicLatch(LogicControlComponent):
     def input_definition(
         self,
     ) -> Sequence[ControlSignal]:
-        """
-        Define SET and RESET Boolean inputs.
-        """
-
         return (
             ControlSignal(
                 name="SET",
                 role=SignalRole.INPUT,
-                description="Boolean set command.",
+                description=(
+                    "Boolean set command."
+                ),
                 value_type=bool,
             ),
             ControlSignal(
                 name="RESET",
                 role=SignalRole.INPUT,
-                description="Boolean reset command.",
+                description=(
+                    "Boolean reset command."
+                ),
                 value_type=bool,
             ),
         )
@@ -185,15 +164,13 @@ class LogicLatch(LogicControlComponent):
     def output_definition(
         self,
     ) -> Sequence[ControlSignal]:
-        """
-        Define the retained Boolean output.
-        """
-
         return (
             ControlSignal(
                 name="Q",
                 role=SignalRole.OUTPUT,
-                description="Current retained latch state.",
+                description=(
+                    "Latched Boolean output."
+                ),
                 value_type=bool,
             ),
         )
@@ -202,25 +179,37 @@ class LogicLatch(LogicControlComponent):
     # STATE CONTRACT
     # ========================================================================
 
-    @property
-    def logic_state_names(
-        self,
-    ) -> Sequence[str]:
-        return (
-            self._STATE_Q,
-        )
-
     def logic_state_definition(
         self,
     ) -> Sequence[LogicStateDefinition]:
         return (
             LogicStateDefinition(
-                name=self._STATE_Q,
-                description="Current retained latch state.",
+                name="q",
                 value_type=bool,
                 default=False,
+                description=(
+                    "Persistent Boolean latch state."
+                ),
             ),
         )
+
+    # ========================================================================
+    # RESET
+    # ========================================================================
+
+    def reset_logic(
+        self,
+    ) -> State:
+        return {
+            "q": False,
+        }
+
+    def reset(
+        self,
+        inputs: Inputs | None = None,
+    ) -> State:
+        del inputs
+        return self.reset_logic()
 
     # ========================================================================
     # EVALUATION
@@ -232,26 +221,10 @@ class LogicLatch(LogicControlComponent):
         inputs: Inputs,
         time: float,
     ) -> LogicControlResult:
-        """
-        Evaluate the latch.
-
-        SR semantics:
-
-            SET=1, RESET=0 -> Q=1
-            SET=0, RESET=1 -> Q=0
-            SET=0, RESET=0 -> retain
-            SET=1, RESET=1 -> Q=1
-
-        RS semantics:
-
-            SET=1, RESET=0 -> Q=1
-            SET=0, RESET=1 -> Q=0
-            SET=0, RESET=0 -> retain
-            SET=1, RESET=1 -> Q=0
-        """
-
-        normalized_state = self.validate_state(
-            state
+        normalized_state = (
+            self.validate_logic_state(
+                state
+            )
         )
 
         normalized_inputs = (
@@ -260,97 +233,104 @@ class LogicLatch(LogicControlComponent):
             )
         )
 
-        current_q = bool(
+        previous_q = bool(
             normalized_state[
-                self._STATE_Q
+                "q"
             ]
         )
 
         set_active = bool(
-            normalized_inputs["SET"]
-        )
-
-        reset_active = bool(
-            normalized_inputs["RESET"]
-        )
-
-        if set_active and reset_active:
-            if self._latch_type is LatchType.SR:
-                current_q = True
-            else:
-                current_q = False
-
-        elif set_active:
-            current_q = True
-
-        elif reset_active:
-            current_q = False
-
-        return LogicControlResult(
-            outputs={
-                "Q": current_q,
-            },
-            state={
-                self._STATE_Q: current_q,
-            },
-            time=time,
-        )
-
-    # ========================================================================
-    # STATE HELPERS
-    # ========================================================================
-
-    def output(
-        self,
-        state: State,
-    ) -> bool:
-        """
-        Return the current latch output from a supplied state.
-        """
-
-        normalized_state = self.validate_state(
-            state
-        )
-
-        return bool(
-            normalized_state[
-                self._STATE_Q
+            normalized_inputs[
+                "SET"
             ]
         )
 
-    def is_set(
-        self,
-        state: State,
-    ) -> bool:
-        """Return True when the latch output is set."""
+        reset_active = bool(
+            normalized_inputs[
+                "RESET"
+            ]
+        )
 
-        return self.output(state)
+        # --------------------------------------------------------------------
+        # PRIORITY LOGIC
+        # --------------------------------------------------------------------
 
-    def is_reset(
-        self,
-        state: State,
-    ) -> bool:
-        """Return True when the latch output is reset."""
+        if self.mode is LatchMode.SR:
+            if set_active:
+                q = True
+            elif reset_active:
+                q = False
+            else:
+                q = previous_q
 
-        return not self.output(state)
+        else:
+            # RS mode: RESET dominates simultaneous commands.
+            if reset_active:
+                q = False
+            elif set_active:
+                q = True
+            else:
+                q = previous_q
 
-    def reset_logic(
-        self,
-    ) -> State:
-        """
-        Return the deterministic reset state.
-        """
+        # --------------------------------------------------------------------
+        # EVENTS
+        # --------------------------------------------------------------------
 
-        return {
-            self._STATE_Q: False,
-        }
+        events: list[
+            LogicEvent
+        ] = []
+
+        if q != previous_q:
+            events.append(
+                LogicEvent(
+                    event_type=(
+                        LogicEventType.OUTPUT_CHANGED
+                    ),
+                    component_id=self.component_id,
+                    signal_name="Q",
+                    previous_value=previous_q,
+                    current_value=q,
+                    time=time,
+                    data={
+                        "mode": self.mode.value,
+                        "set": set_active,
+                        "reset": reset_active,
+                    },
+                )
+            )
+
+        return LogicControlResult(
+            outputs={
+                "Q": q,
+            },
+            state={
+                "q": q,
+            },
+            time=time,
+            events=tuple(
+                events
+            ),
+            diagnostics={
+                "mode": self.mode.value,
+                "set": set_active,
+                "reset": reset_active,
+                "latched": q,
+            },
+        )
 
 
-class SRLatch(LogicLatch):
+# ============================================================================
+# SPECIALIZED LATCHES
+# ============================================================================
+
+
+class LogicSRLatch(
+    LogicLatch,
+):
     """
-    Set-dominant SR latch.
+    SR latch.
 
-    If SET and RESET are simultaneously active, SET wins.
+    SET has priority when SET and RESET are simultaneously asserted.
     """
 
     def __init__(
@@ -358,16 +338,18 @@ class SRLatch(LogicLatch):
         component_id: str,
     ) -> None:
         super().__init__(
-            component_id=component_id,
-            latch_type=LatchType.SR,
+            component_id,
+            mode=LatchMode.SR,
         )
 
 
-class RSLatch(LogicLatch):
+class LogicRSLatch(
+    LogicLatch,
+):
     """
-    Reset-dominant RS latch.
+    RS latch.
 
-    If SET and RESET are simultaneously active, RESET wins.
+    RESET has priority when SET and RESET are simultaneously asserted.
     """
 
     def __init__(
@@ -375,21 +357,28 @@ class RSLatch(LogicLatch):
         component_id: str,
     ) -> None:
         super().__init__(
-            component_id=component_id,
-            latch_type=LatchType.RS,
+            component_id,
+            mode=LatchMode.RS,
         )
 
 
-# Engineering-friendly aliases.
-SetResetLatch = SRLatch
-ResetSetLatch = RSLatch
+# ============================================================================
+# COMPATIBILITY ALIASES
+# ============================================================================
+
+# Preserve concise public names for existing consumers without introducing
+# another implementation hierarchy.
+
+SRLatch = LogicSRLatch
+RSLatch = LogicRSLatch
 
 
 __all__ = [
-    "LatchType",
+    "LatchMode",
     "LogicLatch",
+    "LogicSRLatch",
+    "LogicRSLatch",
     "SRLatch",
     "RSLatch",
-    "SetResetLatch",
-    "ResetSetLatch",
 ]
+```
