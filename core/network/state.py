@@ -1,31 +1,21 @@
 # ============================================================
 # File: core/network/state.py
-# GridForge V2 — Network Layer
+# GridForge V2 — Network Derived State
+# Author: Subhendu Mishra
 # ============================================================
+
 """
-Network Derived-State Lifecycle
-================================
+Network-derived state management.
 
-Tracks validity and revisions of derived Network representations.
+NetworkState owns:
 
-Responsibilities
-----------------
-- Track topology revision.
-- Track Y-bus revision.
-- Track topology dirty state.
-- Track Y-bus dirty state.
-- Mark derived representations current after successful builds.
+    topology revision
+    Y-bus revision
+    topology dirty state
+    Y-bus dirty state
 
-Does NOT
---------
-- Build topology.
-- Build Y-bus.
-- Mutate model objects.
-- Register network elements.
-- Perform engineering calculations.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+It does not own model objects, topology graphs, or Y-bus
+mathematics.
 """
 
 from __future__ import annotations
@@ -33,20 +23,15 @@ from __future__ import annotations
 
 class NetworkState:
     """
-    Lifecycle state for Network-derived representations.
-
-    A topology mutation invalidates both topology and Y-bus.
-
-    A Y-bus-only mutation invalidates Y-bus without changing the
-    topology revision.
+    Own revision and invalidation state for an assembled Network.
     """
 
     def __init__(self) -> None:
-        self.topology_revision: int = 0
-        self.ybus_revision: int = -1
+        self.topology_revision = 0
+        self.ybus_revision = -1
 
-        self.topology_dirty: bool = True
-        self.ybus_dirty: bool = True
+        self.topology_dirty = True
+        self.ybus_dirty = True
 
     # ============================================================
     # INVALIDATION
@@ -54,14 +39,13 @@ class NetworkState:
 
     def invalidate_topology(self) -> None:
         """
-        Invalidate topology and everything depending on topology.
+        Invalidate topology and everything derived from topology.
         """
 
         self.topology_revision += 1
 
         self.topology_dirty = True
         self.ybus_dirty = True
-
         self.ybus_revision = -1
 
     # ------------------------------------------------------------
@@ -75,42 +59,39 @@ class NetworkState:
         self.ybus_revision = -1
 
     # ============================================================
-    # BUILD COMPLETION
+    # MARK VALID
     # ============================================================
 
-    def mark_topology_built(self) -> None:
+    def topology_rebuilt(self) -> None:
         """
-        Mark topology representation as current.
+        Mark topology as synchronized with the current revision.
         """
 
         self.topology_dirty = False
 
     # ------------------------------------------------------------
 
-    def mark_ybus_built(self) -> None:
+    def ybus_rebuilt(self) -> None:
         """
-        Mark Y-bus representation as current for the current
-        topology revision.
+        Mark Y-bus as synchronized with the current topology
+        revision.
         """
 
         self.ybus_dirty = False
         self.ybus_revision = self.topology_revision
 
     # ============================================================
-    # VALIDITY
+    # QUERIES
     # ============================================================
 
-    def ybus_is_current(
-        self,
-        ybus: object,
-    ) -> bool:
+    @property
+    def ybus_valid(self) -> bool:
         """
-        Determine whether the supplied Y-bus is current.
+        Return whether the current Y-bus is valid for the current
+        topology revision.
         """
 
         return (
-            ybus is not None
-            and not self.ybus_dirty
-            and self.ybus_revision
-            == self.topology_revision
+            not self.ybus_dirty
+            and self.ybus_revision == self.topology_revision
         )
