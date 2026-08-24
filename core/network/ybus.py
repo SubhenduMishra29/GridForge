@@ -1,1182 +1,971 @@
 # ============================================================
 # File: core/network/ybus.py
-# GridForge V2 — Network Layer
+# GridForge V2 — Y-Bus Builder
+# Author: Subhendu Mishra
 # ============================================================
+
 """
-GridForge Network Layer V2
-==========================
+GridForge V2 Y-Bus Builder.
 
-Y-Bus Builder
--------------
-
-Builds the network bus-admittance matrix from canonical electrical
-model objects assembled in ``core.network.Network``.
-
-Responsibilities
-----------------
-- Build deterministic bus indexing.
-- Assemble the network Y-bus.
-- Stamp in-service transmission/distribution lines.
-- Stamp in-service transformers.
-- Stamp bus shunts.
-- Stamp supported canonical shunt elements.
-- Produce a sparse CSR admittance matrix.
-- Perform structural matrix validation.
-- Provide lightweight diagnostic information.
-
-Does NOT
---------
-- Define electrical equipment models.
-- Modify canonical model objects.
-- Perform power-flow calculations.
-- Perform Newton-Raphson iterations.
-- Calculate short-circuit currents.
-- Perform contingency analysis.
-- Perform protection calculations.
-- Perform dynamic simulation.
-- Decide PV/PQ/Slack classification.
-- Perform engineering validation.
-- Manage GUI state.
+The YBusBuilder constructs the network nodal-admittance matrix from
+the canonical electrical model objects registered on a Network.
 
 Architecture
 ------------
 
-    core/model/
-        Canonical electrical entities
-                |
-                v
-    core/network/
+    core.model
+        canonical electrical models
+              |
+              v
         Network
-        YBusBuilder
-                |
-                v
-    core/analysis/
-        Study orchestration
-                |
-                v
-    core/solver/
-        Numerical algorithms
+              |
+              +---- NetworkRegistry
+              |
+              +---- BusIndex
+              |
+              +---- YBusBuilder
+                         |
+                         v
+                       Ybus
 
-Y-Bus Convention
+Responsibilities
 ----------------
+YBusBuilder:
 
-For a conventional passive network:
+- Builds the nodal admittance matrix.
+- Uses Network's canonical BusIndex.
+- Resolves Line and Transformer terminals through the shared
+  endpoint resolver.
+- Stamps supported branch and shunt models.
+- Produces a scipy sparse CSR matrix.
+- Performs structural checks required to construct the matrix.
 
-    I = Ybus V
+Does NOT
+--------
+YBusBuilder does not:
 
-The matrix is assembled using complex nodal admittances.
+- Register network elements.
+- Remove network elements.
+- Build topology.
+- Detect islands.
+- Assign bus indices.
+- Modify canonical model objects.
+- Perform power-flow calculations.
+- Perform short-circuit calculations.
+- Perform engineering validation.
+- Manage Network dirty/revision state.
+- Implement command/application behavior.
+- Perform GUI operations.
 
-Line Model
-----------
+Ownership
+---------
 
-Lines use the nominal-pi model:
+    NetworkRegistry
+        owns membership
 
-    y = 1 / (r + jx)
+    BusIndex
+        owns bus.id -> matrix index
 
-with total charging susceptance ``b_pu``:
+    TopologyManager
+        owns connectivity
 
-    Yii += y + j*b/2
-    Yjj += y + j*b/2
-    Yij -= y
-    Yji -= y
+    YBusBuilder
+        owns Y-bus construction
 
-Transformer Model
------------------
+    NetworkState
+        owns derived-state validity
 
-Transformers use a complex off-nominal tap:
-
-    a = tap_ratio * exp(j * phase_shift)
-
-with:
-
-    y = 1 / (r + jx)
-
-The standard complex-tap formulation is:
-
-    Yii += y / |a|²
-    Yij -= y / conj(a)
-    Yji -= y / a
-    Yjj += y
-
-Optional transformer shunt susceptance is divided equally between
-the two sides.
-
-A transformer with non-zero phase shift can produce a non-symmetric
-Y-bus.
-
-Shunts
-------
-
-Bus shunt quantities are added directly to the diagonal:
-
-    Yii += g_shunt + j*b_shunt
-
-Canonical Shunt objects may additionally contribute directly at
-their associated bus.
-
-Sparse Representation
+Terminal Architecture
 ---------------------
 
-Assembly uses ``scipy.sparse.lil_matrix`` and converts the result
-to ``scipy.sparse.csr_matrix`` for downstream numerical use.
+For branch elements:
 
-Validation
-----------
+    Line
+        from_terminal -> endpoint -> Bus
+        to_terminal   -> endpoint -> Bus
 
-The builder validates:
+    Transformer
+        from_terminal -> endpoint -> Bus
+        to_terminal   -> endpoint -> Bus
 
-- deterministic bus indexing,
-- registered bus references,
-- matrix dimensions,
-- finite matrix values.
+For shunts:
 
-Y-bus symmetry is deliberately NOT enforced because phase-shifting
-transformers can legitimately produce a non-symmetric matrix.
+    Shunt
+        terminal -> endpoint -> Bus
 
-Terminal Endpoint Resolution
-----------------------------
+The shared endpoint resolver is used instead of duplicating
+terminal-resolution logic.
 
-The model layer uses Terminal objects as the authoritative physical
-connection representation.
+Electrical Sign Convention
+---------------------------
 
-For two-terminal branch equipment:
+For a branch with series admittance y:
 
-    element.from_terminal.endpoint
-    element.to_terminal.endpoint
+                 y
+        i ------------------ j
 
-are therefore the authoritative physical references.
+the standard nodal contribution is:
 
-The Y-bus remains bus-centric because numerical admittance matrices
-are assembled between electrical buses.
+        Yii += y
+        Yjj += y
+        Yij -= y
+        Yji -= y
 
-Accordingly, this builder resolves:
+Transformer stamping supports the conventional complex off-nominal
+tap formulation when the model exposes a tap ratio and phase shift.
 
-    terminal
-        -> endpoint
-        -> bus compatibility resolution
-        -> canonical Network bus
-        -> bus matrix index
-
-The compatibility ``terminal.bus`` accessor is used only after the
-authoritative terminal endpoint has been established.
-
-The builder does not modify terminals or endpoint relationships.
-
-GridForge V2 Status
--------------------
-
-This module is part of the GridForge Network Layer V2 freeze
-baseline.
-
-Changes require evidence of a genuinely fundamental network
-representation requirement that cannot be satisfied by the existing
-model, network, solver, or analysis layers.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+GridForge V2
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional, Tuple
 
 import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix
 
+from .endpoint import resolve_terminal_bus
 
-# =====================================================================
-# Y-BUS BUILDER
-# =====================================================================
 
 class YBusBuilder:
     """
-    Assemble the sparse network bus-admittance matrix.
+    Construct the network nodal-admittance matrix.
 
-    Parameters
-    ----------
-    network :
-        GridForge ``Network`` instance.
-
-    Notes
-    -----
-    The builder reads canonical model objects from the Network.
-
-    It does not take ownership of those objects and does not modify
-    their state.
+    The builder is intentionally stateless with respect to the
+    resulting matrix. The Network owns the resulting Ybus object.
     """
 
-    # =================================================================
+    # ============================================================
     # INITIALIZATION
-    # =================================================================
+    # ============================================================
 
     def __init__(
         self,
         network: Any,
     ) -> None:
-        """
-        Initialize the Y-bus builder.
-        """
 
         if network is None:
             raise ValueError(
-                "YBusBuilder requires a Network instance."
+                "YBusBuilder requires a Network."
             )
 
         self.network = network
 
-        self.bus_index: dict[Any, int] = {}
-        self.Ybus: csr_matrix | None = None
-
-    # =================================================================
-    # BUS INDEX
-    # =================================================================
-
-    def build_bus_index(self) -> dict[Any, int]:
-        """
-        Build the deterministic bus-ID to matrix-index mapping.
-
-        Returns
-        -------
-        dict
-            Mapping ``bus.id -> matrix index``.
-
-        Notes
-        -----
-        The ordering is exactly the ordering of
-        ``network.buses``.
-        """
-
-        index: dict[Any, int] = {}
-
-        for position, bus in enumerate(
-            self.network.buses
-        ):
-            if not hasattr(
-                bus,
-                "id",
-            ):
-                raise TypeError(
-                    "Every network bus must provide "
-                    "an 'id' attribute."
-                )
-
-            if bus.id in index:
-                raise ValueError(
-                    f"Duplicate bus ID: {bus.id}"
-                )
-
-            index[bus.id] = position
-
-        self.bus_index = index
-
-        return self.bus_index
-
-    # =================================================================
-    # MAIN BUILD
-    # =================================================================
+    # ============================================================
+    # PUBLIC BUILD API
+    # ============================================================
 
     def build(self) -> csr_matrix:
         """
-        Build and return the network Y-bus.
+        Construct and return the Network Y-bus matrix.
 
         Returns
         -------
         scipy.sparse.csr_matrix
-            Complex sparse bus-admittance matrix.
+            Complex nodal-admittance matrix.
 
         Notes
         -----
-        The returned matrix follows:
-
-            I = Ybus V
-
-        No network equations are solved by this method.
+        The Network must already contain the canonical model
+        objects. Bus indexing is ensured before stamping.
         """
 
-        self.build_bus_index()
+        buses = self.network.buses
 
-        n = len(
-            self.network.buses
+        if not buses:
+            raise ValueError(
+                "Cannot build Y-bus for a Network with no buses."
+            )
+
+        self.network.index.ensure(
+            buses,
         )
+
+        n = len(buses)
 
         Y = lil_matrix(
             (n, n),
-            dtype=complex,
+            dtype=np.complex128,
         )
 
-        # -------------------------------------------------------------
-        # Lines
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
+        # LINES
+        # --------------------------------------------------------
 
-        for line in getattr(
-            self.network,
-            "lines",
-            [],
-        ):
-            self.stamp_line(
+        for line in self.network.lines:
+
+            if not self._is_in_service(line):
+                continue
+
+            self._stamp_line(
                 Y,
                 line,
             )
 
-        # -------------------------------------------------------------
-        # Transformers
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
+        # TRANSFORMERS
+        # --------------------------------------------------------
 
-        for transformer in getattr(
-            self.network,
-            "transformers",
-            [],
-        ):
-            self.stamp_transformer(
+        for transformer in self.network.transformers:
+
+            if not self._is_in_service(transformer):
+                continue
+
+            self._stamp_transformer(
                 Y,
                 transformer,
             )
 
-        # -------------------------------------------------------------
-        # Bus-level shunts and canonical Shunt elements.
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
+        # SHUNTS
+        # --------------------------------------------------------
 
-        self.stamp_bus_shunts(Y)
+        for shunt in self.network.shunts:
 
-        # -------------------------------------------------------------
-        # Convert to downstream-friendly CSR representation.
-        # -------------------------------------------------------------
+            if not self._is_in_service(shunt):
+                continue
 
-        self.Ybus = Y.tocsr()
-
-        # -------------------------------------------------------------
-        # Structural validation.
-        #
-        # Do NOT enforce symmetry:
-        #
-        # phase-shifting transformers can legitimately produce
-        #
-        #     Yij != Yji
-        # -------------------------------------------------------------
-
-        self._validate_dimensions()
-        self._validate_finite()
-
-        # -------------------------------------------------------------
-        # Store derived representation on Network.
-        # -------------------------------------------------------------
-
-        self.network.Ybus = self.Ybus
-
-        return self.Ybus
-
-    # =================================================================
-    # TERMINAL / BUS RESOLUTION
-    # =================================================================
-
-    @staticmethod
-    def _resolve_terminal_bus(
-        terminal: Any,
-        element: Any,
-        terminal_name: str,
-        element_type: str,
-    ) -> Any:
-        """
-        Resolve a branch Terminal to its canonical electrical Bus.
-
-        Parameters
-        ----------
-        terminal :
-            Authoritative Terminal object.
-
-        element :
-            Canonical branch model.
-
-        terminal_name : str
-            Diagnostic terminal name.
-
-        element_type : str
-            Logical element type.
-
-        Returns
-        -------
-        object
-            Canonical Bus-like object.
-
-        Raises
-        ------
-        AttributeError
-            If the terminal contract is missing.
-
-        ValueError
-            If the terminal is disconnected or cannot resolve to a
-            Bus.
-
-        Notes
-        -----
-        ``terminal.endpoint`` is authoritative.
-
-        ``terminal.bus`` is used only as the model-layer compatibility
-        resolution after the endpoint has been established.
-
-        The concrete Bus class is deliberately not imported here.
-        """
-
-        if terminal is None:
-            raise AttributeError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"must provide a '{terminal_name}' Terminal."
+            self._stamp_shunt(
+                Y,
+                shunt,
             )
 
-        if not hasattr(
-            terminal,
-            "endpoint",
-        ):
-            raise AttributeError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"has an invalid '{terminal_name}' Terminal: "
-                "missing endpoint."
-            )
+        return Y.tocsr()
 
-        endpoint = getattr(
-            terminal,
-            "endpoint",
-            None,
-        )
+    # ============================================================
+    # LINE STAMPING
+    # ============================================================
 
-        if endpoint is None:
-            raise ValueError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"has a disconnected '{terminal_name}' Terminal."
-            )
-
-        # -------------------------------------------------------------
-        # Establish that the authoritative endpoint exists before
-        # using the compatibility bus accessor.
-        # -------------------------------------------------------------
-
-        bus = getattr(
-            terminal,
-            "bus",
-            None,
-        )
-
-        if bus is None:
-            raise ValueError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"'{terminal_name}' Terminal endpoint "
-                "does not resolve to a Bus."
-            )
-
-        if not hasattr(
-            bus,
-            "id",
-        ):
-            raise AttributeError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"'{terminal_name}' Terminal resolved to an "
-                "endpoint without an 'id' attribute."
-            )
-
-        return bus
-
-    # =================================================================
-    # LINE STAMP
-    # =================================================================
-
-    def stamp_line(
+    def _stamp_line(
         self,
         Y: lil_matrix,
         line: Any,
     ) -> None:
         """
-        Stamp an in-service line using the nominal-pi model.
+        Stamp a Line into the Y-bus.
 
-        Parameters
-        ----------
-        Y :
-            Mutable sparse matrix being assembled.
+        The Line model must expose either:
 
-        line :
-            Canonical GridForge Line model.
+            - series impedance ``z``, or
+            - ``r`` and ``x``
 
-        Raises
-        ------
-        ValueError
-            If the line has effectively zero series impedance.
+        Optional shunt charging may be supplied through:
+
+            - ``b``
+            - ``b_shunt``
+            - ``b_total``
+
+        The builder intentionally does not create or modify the
+        Line model.
         """
 
-        if not getattr(
-            line,
-            "in_service",
-            True,
-        ):
-            return
-
-        # -------------------------------------------------------------
-        # AUTHORITATIVE TERMINAL CONNECTION
-        # -------------------------------------------------------------
-
-        from_terminal = getattr(
-            line,
-            "from_terminal",
-            None,
-        )
-
-        to_terminal = getattr(
-            line,
-            "to_terminal",
-            None,
-        )
-
         from_bus = self._resolve_terminal_bus(
-            from_terminal,
             line,
             "from_terminal",
-            "line",
         )
 
         to_bus = self._resolve_terminal_bus(
-            to_terminal,
             line,
             "to_terminal",
-            "line",
         )
 
         i = self._bus_index(
             from_bus,
-            line,
         )
 
         j = self._bus_index(
             to_bus,
+        )
+
+        z = self._line_impedance(
             line,
         )
 
-        r = float(
-            line.r_pu
-        )
-
-        x = float(
-            line.x_pu
-        )
-
-        if not np.isfinite(r) or not np.isfinite(x):
+        if z == 0:
             raise ValueError(
                 f"Line '{getattr(line, 'id', line)}' "
-                "has non-finite impedance parameters."
+                "has zero series impedance."
             )
 
-        z = complex(
-            r,
-            x,
+        y_series = 1.0 / z
+
+        # --------------------------------------------------------
+        # Standard pi-model shunt susceptance.
+        #
+        # If total B is supplied, half goes to each terminal.
+        # --------------------------------------------------------
+
+        b_total = self._first_numeric_attribute(
+            line,
+            (
+                "b_total",
+                "b_shunt",
+                "b",
+            ),
+            default=0.0,
         )
 
-        if abs(z) <= 1e-12:
-            raise ValueError(
-                f"Zero impedance line detected: {line}"
-            )
+        y_shunt_half = 1j * complex(
+            b_total,
+        ) / 2.0
 
-        y = 1.0 / z
+        Y[i, i] += y_series + y_shunt_half
+        Y[j, j] += y_series + y_shunt_half
+        Y[i, j] -= y_series
+        Y[j, i] -= y_series
 
-        b_total = float(
-            getattr(
-                line,
-                "b_pu",
-                0.0,
-            )
-        )
+    # ============================================================
+    # TRANSFORMER STAMPING
+    # ============================================================
 
-        if not np.isfinite(b_total):
-            raise ValueError(
-                f"Line '{getattr(line, 'id', line)}' "
-                "has non-finite b_pu."
-            )
-
-        y_shunt = 1j * b_total / 2.0
-
-        # -------------------------------------------------------------
-        # Nominal-pi line stamp.
-        # -------------------------------------------------------------
-
-        Y[i, i] += y + y_shunt
-        Y[j, j] += y + y_shunt
-
-        Y[i, j] -= y
-        Y[j, i] -= y
-
-    # =================================================================
-    # TRANSFORMER STAMP
-    # =================================================================
-
-    def stamp_transformer(
+    def _stamp_transformer(
         self,
         Y: lil_matrix,
         transformer: Any,
     ) -> None:
         """
-        Stamp an in-service transformer.
+        Stamp a two-winding transformer.
 
-        Parameters
-        ----------
-        Y :
-            Mutable sparse matrix being assembled.
+        The transformer series impedance is obtained from:
 
-        transformer :
-            Canonical GridForge Transformer model.
+            z
 
-        Notes
-        -----
-        The transformer uses:
+        or:
 
-            a = tap * exp(j*shift)
+            r + j*x
 
-        and:
+        Optional complex tap information is supported.
 
-            Yii += y / |a|²
-            Yij -= y / conj(a)
-            Yji -= y / a
-            Yjj += y
+        Accepted tap representations:
+
+            tap
+            turns_ratio
+            tap_ratio
+
+        Optional phase shift:
+
+            phase_shift
+            phase_shift_deg
+            angle_deg
+
+        If no tap is supplied, the transformer is stamped as a
+        unity-ratio branch.
         """
 
-        if not getattr(
-            transformer,
-            "in_service",
-            True,
-        ):
-            return
-
-        # -------------------------------------------------------------
-        # AUTHORITATIVE TERMINAL CONNECTION
-        # -------------------------------------------------------------
-
-        from_terminal = getattr(
-            transformer,
-            "from_terminal",
-            None,
-        )
-
-        to_terminal = getattr(
-            transformer,
-            "to_terminal",
-            None,
-        )
-
         from_bus = self._resolve_terminal_bus(
-            from_terminal,
             transformer,
             "from_terminal",
-            "transformer",
         )
 
         to_bus = self._resolve_terminal_bus(
-            to_terminal,
             transformer,
             "to_terminal",
-            "transformer",
         )
 
         i = self._bus_index(
             from_bus,
-            transformer,
         )
 
         j = self._bus_index(
             to_bus,
+        )
+
+        z = self._transformer_impedance(
             transformer,
         )
 
-        r = float(
-            transformer.r_pu
-        )
-
-        x = float(
-            transformer.x_pu
-        )
-
-        if not np.isfinite(r) or not np.isfinite(x):
+        if z == 0:
             raise ValueError(
                 f"Transformer "
                 f"'{getattr(transformer, 'id', transformer)}' "
-                "has non-finite impedance parameters."
+                "has zero series impedance."
             )
 
-        z = complex(
-            r,
-            x,
+        y_series = 1.0 / z
+
+        tap = self._transformer_tap(
+            transformer,
         )
 
-        if abs(z) <= 1e-12:
+        if tap == 0:
             raise ValueError(
-                f"Zero impedance transformer detected: "
-                f"{transformer}"
+                f"Transformer "
+                f"'{getattr(transformer, 'id', transformer)}' "
+                "has zero tap ratio."
             )
 
-        y = 1.0 / z
+        # --------------------------------------------------------
+        # Complex off-nominal tap:
+        #
+        # a = |tap| * exp(j*theta)
+        #
+        # Standard branch stamping:
+        #
+        # Yii += y / |a|²
+        # Yij -= y / conj(a)
+        # Yji -= y / a
+        # Yjj += y
+        # --------------------------------------------------------
 
-        # -------------------------------------------------------------
-        # Tap ratio
-        # -------------------------------------------------------------
-
-        tap = float(
-            getattr(
-                transformer,
-                "tap_ratio",
-                1.0,
-            )
+        Y[i, i] += y_series / (
+            abs(tap) ** 2
         )
 
-        if not np.isfinite(tap):
-            raise ValueError(
-                f"Transformer tap ratio must be finite: "
-                f"{transformer}"
-            )
-
-        if abs(tap) <= 1e-12:
-            raise ValueError(
-                f"Transformer tap ratio cannot be zero: "
-                f"{transformer}"
-            )
-
-        # -------------------------------------------------------------
-        # Phase shift
-        # -------------------------------------------------------------
-
-        shift_deg = float(
-            getattr(
-                transformer,
-                "phase_shift_deg",
-                0.0,
-            )
+        Y[i, j] -= y_series / np.conj(
+            tap,
         )
 
-        if not np.isfinite(shift_deg):
-            raise ValueError(
-                f"Transformer phase shift must be finite: "
-                f"{transformer}"
-            )
+        Y[j, i] -= y_series / tap
 
-        shift = np.deg2rad(
-            shift_deg
+        Y[j, j] += y_series
+
+        # --------------------------------------------------------
+        # Optional transformer shunt/admittance contribution.
+        # --------------------------------------------------------
+
+        b_total = self._first_numeric_attribute(
+            transformer,
+            (
+                "b_total",
+                "b_shunt",
+                "b",
+            ),
+            default=0.0,
         )
 
-        a = (
-            tap
-            * np.exp(1j * shift)
-        )
+        if b_total != 0.0:
 
-        # -------------------------------------------------------------
-        # Optional transformer shunt susceptance.
-        # -------------------------------------------------------------
+            y_shunt_half = 1j * complex(
+                b_total,
+            ) / 2.0
 
-        b_shunt = float(
-            getattr(
-                transformer,
-                "b_shunt_pu",
-                0.0,
-            )
-        )
+            Y[i, i] += y_shunt_half
+            Y[j, j] += y_shunt_half
 
-        if not np.isfinite(b_shunt):
-            raise ValueError(
-                f"Transformer shunt susceptance must be finite: "
-                f"{transformer}"
-            )
+    # ============================================================
+    # SHUNT STAMPING
+    # ============================================================
 
-        y_shunt = 1j * b_shunt / 2.0
-
-        # -------------------------------------------------------------
-        # Transformer stamp.
-        # -------------------------------------------------------------
-
-        Y[i, i] += (
-            y / (a * np.conj(a))
-            + y_shunt
-        )
-
-        Y[j, j] += (
-            y
-            + y_shunt
-        )
-
-        Y[i, j] -= (
-            y / np.conj(a)
-        )
-
-        Y[j, i] -= (
-            y / a
-        )
-
-    # =================================================================
-    # BUS SHUNTS
-    # =================================================================
-
-    def stamp_bus_shunts(
+    def _stamp_shunt(
         self,
         Y: lil_matrix,
+        shunt: Any,
     ) -> None:
         """
-        Stamp bus-level shunt quantities and canonical Shunt objects.
+        Stamp a single-terminal shunt.
 
-        Bus attributes:
+        Supported representations include:
 
-            g_shunt
-            b_shunt
+            y
+            admittance
+            b
+            susceptance
 
-        contribute:
+        If ``y`` or ``admittance`` is supplied it is used directly.
 
-            Yii += g_shunt + j*b_shunt
+        If only ``b`` or ``susceptance`` is supplied, the shunt is
+        interpreted as:
 
-        Canonical Shunt objects are supported when they expose:
-
-            bus
-            g_pu
-            b_pu
-
-        Missing bus-level shunt attributes are treated as zero.
+            Y = jB
         """
 
-        # -------------------------------------------------------------
-        # Bus-level shunts
-        # -------------------------------------------------------------
+        bus = self._resolve_shunt_bus(
+            shunt,
+        )
 
-        for bus in self.network.buses:
+        index = self._bus_index(
+            bus,
+        )
 
-            idx = self._bus_index(
-                bus,
-                bus,
+        admittance = self._shunt_admittance(
+            shunt,
+        )
+
+        Y[index, index] += admittance
+
+    # ============================================================
+    # ENDPOINT RESOLUTION
+    # ============================================================
+
+    def _resolve_terminal_bus(
+        self,
+        element: Any,
+        terminal_name: str,
+    ) -> Any:
+        """
+        Resolve an element terminal to its canonical Bus.
+
+        Endpoint resolution belongs to the shared network endpoint
+        contract and is not duplicated here.
+        """
+
+        terminal = getattr(
+            element,
+            terminal_name,
+            None,
+        )
+
+        if terminal is None:
+            raise ValueError(
+                f"{type(element).__name__} "
+                f"'{getattr(element, 'id', element)}' "
+                f"does not provide '{terminal_name}'."
             )
 
-            g = float(
-                getattr(
-                    bus,
-                    "g_shunt",
-                    0.0,
-                )
+        bus = resolve_terminal_bus(
+            terminal,
+        )
+
+        if bus is None:
+            raise ValueError(
+                f"{type(element).__name__} "
+                f"'{getattr(element, 'id', element)}' "
+                f"terminal '{terminal_name}' does not resolve "
+                "to a Bus."
             )
 
-            b = float(
-                getattr(
-                    bus,
-                    "b_shunt",
-                    0.0,
-                )
+        if bus not in self.network.buses:
+            raise ValueError(
+                f"{type(element).__name__} "
+                f"'{getattr(element, 'id', element)}' "
+                f"terminal '{terminal_name}' resolves to Bus "
+                f"'{getattr(bus, 'id', bus)}', which is not "
+                "registered on this Network."
             )
 
-            if not np.isfinite(g):
-                raise ValueError(
-                    f"Bus '{bus.id}' has non-finite g_shunt."
-                )
+        return bus
 
-            if not np.isfinite(b):
-                raise ValueError(
-                    f"Bus '{bus.id}' has non-finite b_shunt."
-                )
+    # ------------------------------------------------------------
 
-            if g != 0.0 or b != 0.0:
-                Y[idx, idx] += complex(
-                    g,
-                    b,
-                )
+    def _resolve_shunt_bus(
+        self,
+        shunt: Any,
+    ) -> Any:
+        """
+        Resolve a single-terminal shunt to its Bus.
+        """
 
-        # -------------------------------------------------------------
-        # Canonical Shunt model collection
-        # -------------------------------------------------------------
+        terminal = getattr(
+            shunt,
+            "terminal",
+            None,
+        )
 
-        for shunt in getattr(
-            self.network,
-            "shunts",
-            [],
-        ):
-
-            if not getattr(
-                shunt,
-                "in_service",
-                True,
-            ):
-                continue
-
-            # ---------------------------------------------------------
-            # Shunt is terminal-first in the model layer.
-            # ---------------------------------------------------------
-
-            terminal = getattr(
-                shunt,
-                "terminal",
-                None,
+        if terminal is None:
+            raise ValueError(
+                f"Shunt "
+                f"'{getattr(shunt, 'id', shunt)}' "
+                "does not provide a terminal."
             )
 
-            if terminal is None:
-                raise ValueError(
-                    f"Shunt "
-                    f"'{getattr(shunt, 'id', shunt)}' "
-                    "must provide a terminal reference."
-                )
+        bus = resolve_terminal_bus(
+            terminal,
+        )
 
-            if not hasattr(
-                terminal,
-                "endpoint",
-            ):
-                raise AttributeError(
-                    f"Shunt "
-                    f"'{getattr(shunt, 'id', shunt)}' "
-                    "terminal is missing endpoint."
-                )
-
-            endpoint = getattr(
-                terminal,
-                "endpoint",
-                None,
+        if bus is None:
+            raise ValueError(
+                f"Shunt "
+                f"'{getattr(shunt, 'id', shunt)}' "
+                "terminal does not resolve to a Bus."
             )
 
-            if endpoint is None:
-                raise ValueError(
-                    f"Shunt "
-                    f"'{getattr(shunt, 'id', shunt)}' "
-                    "has a disconnected terminal."
-                )
-
-            bus = getattr(
-                terminal,
-                "bus",
-                None,
+        if bus not in self.network.buses:
+            raise ValueError(
+                f"Shunt "
+                f"'{getattr(shunt, 'id', shunt)}' "
+                f"resolves to Bus "
+                f"'{getattr(bus, 'id', bus)}', which is not "
+                "registered on this Network."
             )
 
-            if bus is None:
-                raise ValueError(
-                    f"Shunt "
-                    f"'{getattr(shunt, 'id', shunt)}' "
-                    "terminal endpoint does not resolve to a bus."
-                )
+        return bus
 
-            idx = self._bus_index(
-                bus,
-                shunt,
-            )
-
-            g = float(
-                getattr(
-                    shunt,
-                    "g_pu",
-                    0.0,
-                )
-            )
-
-            b = float(
-                getattr(
-                    shunt,
-                    "b_pu",
-                    0.0,
-                )
-            )
-
-            if not np.isfinite(g):
-                raise ValueError(
-                    f"Shunt "
-                    f"'{getattr(shunt, 'id', shunt)}' "
-                    "has non-finite conductance."
-                )
-
-            if not np.isfinite(b):
-                raise ValueError(
-                    f"Shunt "
-                    f"'{getattr(shunt, 'id', shunt)}' "
-                    "has non-finite susceptance."
-                )
-
-            if g != 0.0 or b != 0.0:
-                Y[idx, idx] += complex(
-                    g,
-                    b,
-                )
-
-    # =================================================================
-    # BUS INDEX RESOLUTION
-    # =================================================================
+    # ============================================================
+    # BUS INDEX
+    # ============================================================
 
     def _bus_index(
         self,
         bus: Any,
-        element: Any,
     ) -> int:
         """
-        Resolve a canonical bus object to its matrix index.
+        Obtain the matrix index of a canonical Bus.
+
+        BusIndex remains the sole owner of bus-to-matrix indexing.
         """
 
-        if not hasattr(
-            bus,
-            "id",
-        ):
-            raise TypeError(
-                f"Element "
-                f"'{getattr(element, 'id', element)}' "
-                "references a bus without an 'id'."
+        try:
+            return self.network.index.get(
+                bus.id,
             )
 
-        bus_id = bus.id
+        except (KeyError, AttributeError) as exc:
 
-        if bus_id not in self.bus_index:
             raise ValueError(
-                f"Element "
-                f"'{getattr(element, 'id', element)}' "
-                f"references unregistered bus '{bus_id}'."
+                f"Bus "
+                f"'{getattr(bus, 'id', bus)}' "
+                "does not have a valid Y-bus index."
+            ) from exc
+
+    # ============================================================
+    # LINE IMPEDANCE
+    # ============================================================
+
+    @staticmethod
+    def _line_impedance(
+        line: Any,
+    ) -> complex:
+        """
+        Extract the series impedance from a Line model.
+        """
+
+        if hasattr(line, "z"):
+
+            z = getattr(
+                line,
+                "z",
             )
 
-        return self.bus_index[bus_id]
+            if z is not None:
+                return complex(z)
 
-    # =================================================================
-    # VALIDATION
-    # =================================================================
+        if hasattr(line, "impedance"):
 
-    def _validate_dimensions(
-        self,
-    ) -> None:
-        """
-        Verify that Y-bus dimensions match the network bus count.
-        """
-
-        if self.Ybus is None:
-            raise RuntimeError(
-                "Ybus has not been built."
+            z = getattr(
+                line,
+                "impedance",
             )
 
-        n = len(
-            self.network.buses
+            if z is not None:
+                return complex(z)
+
+        if hasattr(line, "r") and hasattr(line, "x"):
+
+            return complex(
+                getattr(line, "r"),
+                getattr(line, "x"),
+            )
+
+        raise AttributeError(
+            f"Line "
+            f"'{getattr(line, 'id', line)}' "
+            "must provide 'z'/'impedance' or 'r' and 'x'."
         )
 
-        if self.Ybus.shape != (
-            n,
-            n,
-        ):
-            raise ValueError(
-                "Invalid Ybus dimensions: "
-                f"expected {(n, n)}, "
-                f"got {self.Ybus.shape}."
+    # ============================================================
+    # TRANSFORMER IMPEDANCE
+    # ============================================================
+
+    @staticmethod
+    def _transformer_impedance(
+        transformer: Any,
+    ) -> complex:
+        """
+        Extract transformer series impedance.
+        """
+
+        if hasattr(transformer, "z"):
+
+            z = getattr(
+                transformer,
+                "z",
             )
 
-    # -----------------------------------------------------------------
+            if z is not None:
+                return complex(z)
 
-    def _validate_finite(
-        self,
+        if hasattr(transformer, "impedance"):
+
+            z = getattr(
+                transformer,
+                "impedance",
+            )
+
+            if z is not None:
+                return complex(z)
+
+        if (
+            hasattr(transformer, "r")
+            and hasattr(transformer, "x")
+        ):
+
+            return complex(
+                getattr(transformer, "r"),
+                getattr(transformer, "x"),
+            )
+
+        raise AttributeError(
+            f"Transformer "
+            f"'{getattr(transformer, 'id', transformer)}' "
+            "must provide 'z'/'impedance' or 'r' and 'x'."
+        )
+
+    # ============================================================
+    # TRANSFORMER TAP
+    # ============================================================
+
+    @staticmethod
+    def _transformer_tap(
+        transformer: Any,
+    ) -> complex:
+        """
+        Resolve the transformer's complex off-nominal tap ratio.
+
+        Default:
+
+            a = 1 + j0
+
+        Accepted magnitude attributes:
+
+            tap
+            tap_ratio
+            turns_ratio
+
+        Accepted phase-angle attributes:
+
+            phase_shift
+            phase_shift_deg
+            angle_deg
+
+        A numeric ``tap`` is treated as the magnitude unless it is
+        already complex.
+        """
+
+        tap_value: Optional[Any] = None
+
+        for name in (
+            "tap",
+            "tap_ratio",
+            "turns_ratio",
+        ):
+
+            if hasattr(transformer, name):
+
+                value = getattr(
+                    transformer,
+                    name,
+                )
+
+                if value is not None:
+                    tap_value = value
+                    break
+
+        if tap_value is None:
+            magnitude = 1.0
+
+        else:
+            magnitude = float(
+                tap_value,
+            )
+
+        phase_deg = 0.0
+
+        for name in (
+            "phase_shift_deg",
+            "angle_deg",
+        ):
+
+            if hasattr(transformer, name):
+
+                value = getattr(
+                    transformer,
+                    name,
+                )
+
+                if value is not None:
+                    phase_deg = float(
+                        value,
+                    )
+                    break
+
+        # ``phase_shift`` may be explicitly stored in degrees in
+        # many model implementations. Only use it when the explicit
+        # degree fields are absent.
+
+        if phase_deg == 0.0 and hasattr(
+            transformer,
+            "phase_shift",
+        ):
+
+            value = getattr(
+                transformer,
+                "phase_shift",
+            )
+
+            if value is not None:
+                phase_deg = float(
+                    value,
+                )
+
+        return (
+            magnitude
+            * np.exp(
+                1j * np.deg2rad(
+                    phase_deg,
+                )
+            )
+        )
+
+    # ============================================================
+    # SHUNT ADMITTANCE
+    # ============================================================
+
+    @staticmethod
+    def _shunt_admittance(
+        shunt: Any,
+    ) -> complex:
+        """
+        Extract the shunt admittance.
+
+        Direct admittance has priority over susceptance.
+        """
+
+        for name in (
+            "y",
+            "admittance",
+        ):
+
+            if hasattr(shunt, name):
+
+                value = getattr(
+                    shunt,
+                    name,
+                )
+
+                if value is not None:
+                    return complex(value)
+
+        for name in (
+            "b",
+            "susceptance",
+        ):
+
+            if hasattr(shunt, name):
+
+                value = getattr(
+                    shunt,
+                    name,
+                )
+
+                if value is not None:
+                    return 1j * complex(
+                        value,
+                    )
+
+        raise AttributeError(
+            f"Shunt "
+            f"'{getattr(shunt, 'id', shunt)}' "
+            "must provide 'y'/'admittance' or "
+            "'b'/'susceptance'."
+        )
+
+    # ============================================================
+    # GENERIC NUMERIC ATTRIBUTE
+    # ============================================================
+
+    @staticmethod
+    def _first_numeric_attribute(
+        element: Any,
+        names: Tuple[str, ...],
+        default: float = 0.0,
+    ) -> float:
+        """
+        Return the first available numeric attribute.
+        """
+
+        for name in names:
+
+            if hasattr(element, name):
+
+                value = getattr(
+                    element,
+                    name,
+                )
+
+                if value is not None:
+                    return float(value)
+
+        return float(default)
+
+    # ============================================================
+    # SERVICE STATE
+    # ============================================================
+
+    @staticmethod
+    def _is_in_service(
+        element: Any,
+    ) -> bool:
+        """
+        Return whether an element contributes to Y-bus.
+
+        Elements without an explicit ``in_service`` property are
+        treated as active for compatibility.
+        """
+
+        return bool(
+            getattr(
+                element,
+                "in_service",
+                True,
+            )
+        )
+
+    # ============================================================
+    # VALIDATION OF RESULT
+    # ============================================================
+
+    @staticmethod
+    def validate_matrix(
+        Ybus: Any,
     ) -> None:
         """
-        Verify that all Y-bus entries are finite.
+        Perform structural checks on a generated Y-bus.
+
+        This is not engineering validation. It only verifies that
+        the produced matrix is suitable as a nodal-admittance
+        matrix object.
         """
 
-        if self.Ybus is None:
-            raise RuntimeError(
-                "Ybus has not been built."
-            )
-
-        data = self.Ybus.data
-
-        if not (
-            np.all(
-                np.isfinite(
-                    data.real
-                )
-            )
-            and np.all(
-                np.isfinite(
-                    data.imag
-                )
-            )
-        ):
+        if Ybus is None:
             raise ValueError(
-                "Ybus contains non-finite values."
+                "Y-bus cannot be None."
             )
 
-    # =================================================================
-    # ACCESS
-    # =================================================================
-
-    def get_ybus(
-        self,
-    ) -> csr_matrix:
-        """
-        Return the most recently built Y-bus.
-
-        Raises
-        ------
-        RuntimeError
-            If Y-bus has not yet been built.
-        """
-
-        if self.Ybus is None:
-            raise RuntimeError(
-                "Ybus has not been built. "
-                "Call build() first."
+        if getattr(Ybus, "ndim", None) != 2:
+            raise ValueError(
+                "Y-bus must be a two-dimensional matrix."
             )
 
-        return self.Ybus
+        rows, columns = Ybus.shape
 
-    # =================================================================
-    # SUMMARY
-    # =================================================================
+        if rows != columns:
+            raise ValueError(
+                "Y-bus must be square."
+            )
 
-    def summary(
-        self,
-    ) -> dict[str, Any]:
-        """
-        Return concise Y-bus assembly diagnostics.
-        """
+        if not np.iscomplexobj(
+            Ybus.data
+            if hasattr(Ybus, "data")
+            else Ybus
+        ):
+            raise TypeError(
+                "Y-bus must use a complex numerical representation."
+            )
 
-        return {
-            "buses": len(
-                self.network.buses
-            ),
-            "lines": len(
-                getattr(
-                    self.network,
-                    "lines",
-                    [],
-                )
-            ),
-            "transformers": len(
-                getattr(
-                    self.network,
-                    "transformers",
-                    [],
-                )
-            ),
-            "shunts": len(
-                getattr(
-                    self.network,
-                    "shunts",
-                    [],
-                )
-            ),
-            "matrix_size": (
-                None
-                if self.Ybus is None
-                else self.Ybus.shape
-            ),
-            "nnz": (
-                None
-                if self.Ybus is None
-                else self.Ybus.nnz
-            ),
-        }
-
-    # =================================================================
+    # ============================================================
     # REPRESENTATION
-    # =================================================================
+    # ============================================================
 
-    def __repr__(
-        self,
-    ) -> str:
+    def __repr__(self) -> str:
         """
         Return a concise developer-facing representation.
         """
 
-        matrix_size = (
-            None
-            if self.Ybus is None
-            else self.Ybus.shape
-        )
-
         return (
-            f"<YBusBuilder "
+            f"YBusBuilder("
             f"buses={len(self.network.buses)}, "
-            f"matrix_size={matrix_size}>"
+            f"lines={len(self.network.lines)}, "
+            f"transformers={len(self.network.transformers)}, "
+            f"shunts={len(self.network.shunts)}"
+            f")"
         )
