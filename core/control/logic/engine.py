@@ -16,6 +16,8 @@ The engine owns:
 
     - Logic component registration
     - explicit logical signal connections
+    - explicit execution dependencies
+    - connection-derived execution dependencies
     - deterministic evaluation ordering
     - discrete component state
     - signal snapshots
@@ -27,7 +29,7 @@ Architectural boundary
 The Logic Engine is a Core Control service.
 
 The UI logic-layout/editing canvas may create and edit logical
-connections, but it never owns their electrical/control semantics.
+connections, but it never owns their control semantics.
 
 A logical connection is explicitly:
 
@@ -38,6 +40,31 @@ A logical connection is explicitly:
 
 A dependency is an execution-order relationship and is NOT itself
 a signal connection.
+
+Important contract
+------------------
+A logical connection automatically contributes an execution dependency.
+
+That derived dependency is NOT the same object as an explicit dependency.
+
+Therefore:
+
+    connect(A.OUT, B.IN)
+
+creates:
+
+    connection dependency: A -> B
+
+while:
+
+    add_dependency(A, B)
+
+creates:
+
+    explicit dependency: A -> B
+
+Disconnecting A.OUT -> B.IN must remove only the connection-derived
+dependency. An independently registered explicit dependency must remain.
 
 The engine does not:
 
@@ -170,7 +197,7 @@ class LogicDependency:
 
     It means only:
 
-        source_component evaluates before target_component.
+        source -> target
     """
 
     source_component: str
@@ -230,8 +257,6 @@ class LogicConnection:
             target_component="COIL1",
             target_input="IN",
         )
-
-    This is the authoritative Core representation of a logical wire.
     """
 
     source_component: str
@@ -363,7 +388,6 @@ class LogicEngineResult:
     events: tuple[
         LogicEvent,
         ...
-
     ]
 
     stable: bool
@@ -454,18 +478,13 @@ class LogicEngine:
     """
     Headless deterministic Logic Control execution engine.
 
-    Important distinction
-    ---------------------
     A LogicConnection transfers a signal.
 
     A LogicDependency constrains evaluation order.
 
-    A connection automatically creates the corresponding execution
-    dependency:
-
-        source -> target
-
-    but the two contracts remain separate.
+    Every LogicConnection contributes a derived dependency, but explicit
+    dependencies are stored independently so that disconnecting a signal
+    cannot accidentally delete an explicit execution-order relationship.
     """
 
     def __init__(
@@ -517,7 +536,27 @@ class LogicEngine:
             LogicConnection
         ] = []
 
-        self._dependencies: list[
+        # --------------------------------------------------------------------
+        # IMPORTANT:
+        #
+        # These are deliberately separate collections.
+        #
+        # _explicit_dependencies:
+        #     Dependencies explicitly requested through add_dependency().
+        #
+        # _connection_dependencies:
+        #     Dependencies derived exclusively from active LogicConnection
+        #     objects.
+        #
+        # The old implementation stored both in _dependencies. That made
+        # disconnect() unable to distinguish the two contracts.
+        # --------------------------------------------------------------------
+
+        self._explicit_dependencies: list[
+            LogicDependency
+        ] = []
+
+        self._connection_dependencies: list[
             LogicDependency
         ] = []
 
@@ -538,6 +577,59 @@ class LogicEngine:
                 self.register(
                     component
                 )
+
+    # ========================================================================
+    # DEPENDENCY VIEW
+    # ========================================================================
+
+    @property
+    def _dependencies(
+        self,
+    ) -> tuple[
+        LogicDependency,
+        ...,
+    ]:
+        """
+        Return the effective dependency graph.
+
+        This compatibility view keeps the rest of the engine operating on
+        one dependency graph while preserving the distinction between
+        explicit and connection-derived dependencies internally.
+        """
+
+        combined: list[
+            LogicDependency
+        ] = []
+
+        seen: set[
+            LogicDependency
+        ] = set()
+
+        for dependency in (
+            self._explicit_dependencies
+        ):
+            if dependency not in seen:
+                combined.append(
+                    dependency
+                )
+                seen.add(
+                    dependency
+                )
+
+        for dependency in (
+            self._connection_dependencies
+        ):
+            if dependency not in seen:
+                combined.append(
+                    dependency
+                )
+                seen.add(
+                    dependency
+                )
+
+        return tuple(
+            combined
+        )
 
     # ========================================================================
     # PROPERTIES
@@ -703,10 +795,22 @@ class LogicEngine:
             )
         ]
 
-        self._dependencies = [
+        self._explicit_dependencies = [
             dependency
             for dependency
-            in self._dependencies
+            in self._explicit_dependencies
+            if (
+                dependency.source_component
+                != component_id
+                and dependency.target_component
+                != component_id
+            )
+        ]
+
+        self._connection_dependencies = [
+            dependency
+            for dependency
+            in self._connection_dependencies
             if (
                 dependency.source_component
                 != component_id
@@ -724,7 +828,8 @@ class LogicEngine:
 
         self._records.clear()
         self._connections.clear()
-        self._dependencies.clear()
+        self._explicit_dependencies.clear()
+        self._connection_dependencies.clear()
         self._states.clear()
         self._signals.clear()
         self._order_counter = 0
@@ -825,16 +930,9 @@ class LogicEngine:
         """
         Create an explicit source-output -> target-input connection.
 
-        Example:
-
-            engine.connect(
-                "AND1",
-                "OUT",
-                "COIL1",
-                "IN",
-            )
-
         The target input may have only one upstream source.
+
+        A connection also creates a connection-derived execution dependency.
         """
 
         connection = LogicConnection(
@@ -865,10 +963,6 @@ class LogicEngine:
                     "already has a source connection."
                 )
 
-        self._connections.append(
-            connection
-        )
-
         dependency = LogicDependency(
             source_component=(
                 connection.source_component
@@ -878,8 +972,14 @@ class LogicEngine:
             ),
         )
 
-        if dependency not in self._dependencies:
-            self._dependencies.append(
+        self._connections.append(
+            connection
+        )
+
+        if dependency not in (
+            self._connection_dependencies
+        ):
+            self._connection_dependencies.append(
                 dependency
             )
 
@@ -890,8 +990,10 @@ class LogicEngine:
                 connection
             )
 
-            if dependency in self._dependencies:
-                self._dependencies.remove(
+            if dependency in (
+                self._connection_dependencies
+            ):
+                self._connection_dependencies.remove(
                     dependency
                 )
 
@@ -906,7 +1008,13 @@ class LogicEngine:
         target_component: str,
         target_input: str,
     ) -> bool:
-        """Remove one explicit logical connection."""
+        """
+        Remove one logical connection.
+
+        Only the dependency derived from this connection is removed.
+
+        An explicit dependency with the same source/target pair is retained.
+        """
 
         connection = LogicConnection(
             source_component=source_component,
@@ -923,6 +1031,8 @@ class LogicEngine:
         )
 
         self._rebuild_connection_dependencies()
+
+        self._validate_all_graph_contracts()
 
         return True
 
@@ -974,9 +1084,9 @@ class LogicEngine:
         target_component: str,
     ) -> LogicDependency:
         """
-        Add an execution-order dependency.
+        Add an explicit execution-order dependency.
 
-        This is intentionally separate from ``connect()``.
+        This dependency is independent of signal connections.
         """
 
         dependency = LogicDependency(
@@ -992,17 +1102,22 @@ class LogicEngine:
             dependency.target_component
         )
 
-        if dependency not in self._dependencies:
-            self._dependencies.append(
+        if dependency not in (
+            self._explicit_dependencies
+        ):
+            self._explicit_dependencies.append(
                 dependency
             )
 
         try:
             self._validate_dependencies()
         except Exception:
-            self._dependencies.remove(
-                dependency
-            )
+            if dependency in (
+                self._explicit_dependencies
+            ):
+                self._explicit_dependencies.remove(
+                    dependency
+                )
             raise
 
         return dependency
@@ -1012,15 +1127,24 @@ class LogicEngine:
         source_component: str,
         target_component: str,
     ) -> bool:
+        """
+        Remove an explicit dependency.
+
+        Connection-derived dependencies are never removed through this
+        method. They are owned by their LogicConnection.
+        """
+
         dependency = LogicDependency(
             source_component=source_component,
             target_component=target_component,
         )
 
-        if dependency not in self._dependencies:
+        if dependency not in (
+            self._explicit_dependencies
+        ):
             return False
 
-        self._dependencies.remove(
+        self._explicit_dependencies.remove(
             dependency
         )
 
@@ -1032,8 +1156,32 @@ class LogicEngine:
         LogicDependency,
         ...,
     ]:
+        """Return the effective dependency graph."""
+
+        return self._dependencies
+
+    def explicit_dependencies(
+        self,
+    ) -> tuple[
+        LogicDependency,
+        ...,
+    ]:
+        """Return dependencies explicitly registered by the caller."""
+
         return tuple(
-            self._dependencies
+            self._explicit_dependencies
+        )
+
+    def connection_dependencies(
+        self,
+    ) -> tuple[
+        LogicDependency,
+        ...,
+    ]:
+        """Return dependencies derived from active signal connections."""
+
+        return tuple(
+            self._connection_dependencies
         )
 
     # ========================================================================
@@ -1151,20 +1299,6 @@ class LogicEngine:
     ) -> LogicEngineResult:
         """
         Evaluate the complete Logic network.
-
-        ``external_inputs`` contains only inputs supplied from outside
-        the registered Logic network.
-
-        Example:
-
-            {
-                "START": {
-                    "IN": True,
-                }
-            }
-
-        Connected inputs are resolved automatically from upstream
-        component outputs.
         """
 
         time = _finite_float(
@@ -1399,8 +1533,8 @@ class LogicEngine:
             3. component-defined default, if non-required
             4. otherwise validation failure
 
-        An explicit connection always has authority over an externally
-        supplied value for the same target input.
+        An explicit connection has authority over an externally supplied
+        value for the same target input.
         """
 
         component_id = str(
@@ -1482,10 +1616,10 @@ class LogicEngine:
         """
         Return deterministic topological evaluation order.
 
-        Explicit dependencies and logical connections both participate
-        in ordering.
+        Explicit dependencies and connection-derived dependencies both
+        participate in ordering.
 
-        Registration order is used to break otherwise independent ties.
+        Registration order breaks otherwise independent ties.
         """
 
         component_ids = set(
@@ -1599,11 +1733,7 @@ class LogicEngine:
         time: float,
     ) -> LogicControlResult:
         """
-        Recover the LogicControlResult contract from the common
-        ControlResult adapter.
-
-        LogicControlComponent.evaluate() stores authoritative Logic
-        state/events in ControlResult.diagnostics.
+        Recover LogicControlResult from the common ControlResult adapter.
         """
 
         diagnostics = dict(
@@ -1798,50 +1928,40 @@ class LogicEngine:
         self,
     ) -> None:
         """
-        Rebuild only the dependency edges automatically generated by
-        logical connections.
+        Rebuild only dependencies derived from active connections.
 
-        Explicit dependencies are retained.
+        Explicit dependencies are intentionally untouched.
         """
 
-        connection_edges = {
-            (
-                connection.source_component,
-                connection.target_component,
-            )
-            for connection
-            in self._connections
-        }
+        derived: list[
+            LogicDependency
+        ] = []
 
-        explicit = [
-            dependency
-            for dependency
-            in self._dependencies
-            if (
-                dependency.source_component,
-                dependency.target_component,
-            )
-            not in {
-                (
-                    connection.source_component,
-                    connection.target_component,
-                )
-                for connection
-                in self._connections
-            }
-        ]
+        seen: set[
+            LogicDependency
+        ] = set()
 
-        self._dependencies = explicit
-
-        for source, target in sorted(
-            connection_edges
-        ):
-            self._dependencies.append(
-                LogicDependency(
-                    source_component=source,
-                    target_component=target,
-                )
+        for connection in self._connections:
+            dependency = LogicDependency(
+                source_component=(
+                    connection.source_component
+                ),
+                target_component=(
+                    connection.target_component
+                ),
             )
+
+            if dependency in seen:
+                continue
+
+            seen.add(
+                dependency
+            )
+            derived.append(
+                dependency
+            )
+
+        self._connection_dependencies = derived
 
     def _topological_ids(
         self,
