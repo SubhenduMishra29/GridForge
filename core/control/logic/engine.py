@@ -12,43 +12,47 @@ Purpose
 -------
 Headless execution engine for the Logic Control branch.
 
-The engine evaluates a collection of LogicControlComponent instances,
-propagates discrete signals, manages discrete state, detects dependency
-cycles, and collects logic events.
+The engine owns:
 
-Architectural Boundary
-----------------------
-    UI Logic Layout / Editing Canvas
-                    |
-                    | commands / DTOs
-                    v
-             Application Layer
-                    |
-                    v
-               LogicEngine
-                    |
-             Logic Components
-                    |
-                    v
-             Control Domain
+    - Logic component registration
+    - explicit logical signal connections
+    - deterministic evaluation ordering
+    - discrete component state
+    - signal snapshots
+    - event collection
+    - propagation/stability evaluation
 
-This module does NOT:
+Architectural boundary
+-----------------------
+The Logic Engine is a Core Control service.
 
-    - provide a UI
-    - know about graphics/layout
-    - own canvas connections
+The UI logic-layout/editing canvas may create and edit logical
+connections, but it never owns their electrical/control semantics.
+
+A logical connection is explicitly:
+
+    source_component.source_output
+                    |
+                    v
+             target_component.target_input
+
+A dependency is an execution-order relationship and is NOT itself
+a signal connection.
+
+The engine does not:
+
+    - import UI code
+    - import plugins
     - mutate core/model
+    - own graphics/layout
     - perform numerical integration
-    - solve DAEs
-    - import concrete plugins
-    - contain AVR/PSS/Governor behavior
-
-The engine is concerned only with discrete Logic Control execution.
+    - solve electrical equations
+    - infer UI wires from graphics
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 import math
@@ -59,7 +63,6 @@ from .base import (
     LogicControlError,
     LogicControlResult,
     LogicEvent,
-    LogicEventType,
 )
 
 
@@ -75,37 +78,49 @@ class LogicEngineError(LogicControlError):
 class LogicEngineConfigurationError(
     LogicEngineError,
 ):
-    """Invalid engine configuration."""
+    """Invalid LogicEngine configuration."""
 
 
 class DuplicateLogicComponentError(
     LogicEngineConfigurationError,
 ):
-    """A component with the same ID is already registered."""
+    """A component ID is already registered."""
 
 
 class UnknownLogicComponentError(
     LogicEngineError,
 ):
-    """Requested logic component does not exist."""
+    """A referenced component does not exist."""
 
 
 class LogicDependencyError(
     LogicEngineConfigurationError,
 ):
-    """Invalid logic dependency."""
+    """Invalid execution dependency."""
 
 
 class LogicCycleError(
     LogicDependencyError,
 ):
-    """A combinational dependency cycle was detected."""
+    """A cyclic dependency graph was detected."""
+
+
+class LogicConnectionError(
+    LogicEngineConfigurationError,
+):
+    """Invalid logical signal connection."""
+
+
+class DuplicateLogicConnectionError(
+    LogicConnectionError,
+):
+    """A target input already has a source connection."""
 
 
 class LogicEvaluationError(
     LogicEngineError,
 ):
-    """Logic evaluation failed."""
+    """Logic component evaluation failed."""
 
 
 class LogicSignalError(
@@ -127,14 +142,14 @@ class LogicStateUpdateError(
 
 class LogicEvaluationMode(str, Enum):
     """
-    Logic evaluation modes.
+    Logic evaluation mode.
 
     SINGLE_PASS
-        Evaluate the configured dependency order once.
+        Evaluate each component once in deterministic topological order.
 
     PROPAGATE
-        Re-evaluate dependency levels until the network reaches a stable
-        discrete state, subject to the configured iteration limit.
+        Re-evaluate the network until the observable signal/state snapshot
+        stabilizes or max_iterations is reached.
     """
 
     SINGLE_PASS = "single_pass"
@@ -149,13 +164,13 @@ class LogicEvaluationMode(str, Enum):
 @dataclass(frozen=True)
 class LogicDependency:
     """
-    Explicit dependency declaration.
+    Explicit execution-order dependency.
 
-    ``source_component`` produces the signal consumed by
-    ``target_component``.
+    This does NOT transfer a signal.
 
-    The engine treats dependencies as execution constraints. The actual
-    engineering meaning of the signal remains owned by the components.
+    It means only:
+
+        source_component evaluates before target_component.
     """
 
     source_component: str
@@ -199,10 +214,72 @@ class LogicDependency:
 
 
 @dataclass(frozen=True)
+class LogicConnection:
+    """
+    Explicit logical signal connection.
+
+    Example:
+
+        AND1.OUT -> COIL1.IN
+
+    is represented as:
+
+        LogicConnection(
+            source_component="AND1",
+            source_output="OUT",
+            target_component="COIL1",
+            target_input="IN",
+        )
+
+    This is the authoritative Core representation of a logical wire.
+    """
+
+    source_component: str
+    source_output: str
+    target_component: str
+    target_input: str
+
+    def __post_init__(self) -> None:
+        values = {
+            "source_component": self.source_component,
+            "source_output": self.source_output,
+            "target_component": self.target_component,
+            "target_input": self.target_input,
+        }
+
+        normalized: dict[str, str] = {}
+
+        for key, value in values.items():
+            value = str(value).strip()
+
+            if not value:
+                raise LogicConnectionError(
+                    f"{key} cannot be empty."
+                )
+
+            normalized[key] = value
+
+        if (
+            normalized["source_component"]
+            == normalized["target_component"]
+            and normalized["source_output"]
+            == normalized["target_input"]
+        ):
+            raise LogicConnectionError(
+                "A logical connection cannot connect a signal to itself."
+            )
+
+        for key, value in normalized.items():
+            object.__setattr__(
+                self,
+                key,
+                value,
+            )
+
+
+@dataclass(frozen=True)
 class LogicComponentRecord:
-    """
-    Immutable registration record.
-    """
+    """Immutable component registration record."""
 
     component: LogicControlComponent
     order: int
@@ -236,23 +313,27 @@ class LogicComponentRecord:
 
 @dataclass(frozen=True)
 class LogicComponentEvaluation:
-    """
-    Immutable evaluation record for one logic component.
-    """
+    """Immutable evaluation record for one component."""
 
     component_id: str
     result: LogicControlResult
 
     @property
-    def outputs(self) -> Mapping[str, Any]:
+    def outputs(
+        self,
+    ) -> Mapping[str, Any]:
         return self.result.outputs
 
     @property
-    def state(self) -> Mapping[str, Any]:
+    def state(
+        self,
+    ) -> Mapping[str, Any]:
         return self.result.state
 
     @property
-    def events(self) -> tuple[LogicEvent, ...]:
+    def events(
+        self,
+    ) -> tuple[LogicEvent, ...]:
         return tuple(
             self.result.events
         )
@@ -260,27 +341,38 @@ class LogicComponentEvaluation:
 
 @dataclass(frozen=True)
 class LogicEngineResult:
-    """
-    Complete result of one LogicEngine evaluation.
-    """
+    """Complete result of one LogicEngine evaluation."""
 
     time: float
+
     evaluations: Mapping[
         str,
         LogicComponentEvaluation,
     ]
+
     signals: Mapping[
         str,
         Mapping[str, Any],
     ]
+
     states: Mapping[
         str,
         Mapping[str, Any],
     ]
-    events: tuple[LogicEvent, ...]
+
+    events: tuple[
+        LogicEvent,
+        ...
+
+    ]
+
     stable: bool
     iterations: int
-    diagnostics: Mapping[str, Any] = field(
+
+    diagnostics: Mapping[
+        str,
+        Any,
+    ] = field(
         default_factory=dict
     )
 
@@ -354,31 +446,26 @@ class LogicEngineResult:
 
 
 # ============================================================================
-# LOGIC ENGINE
+# ENGINE
 # ============================================================================
 
 
 class LogicEngine:
     """
-    Headless discrete Logic Control execution engine.
+    Headless deterministic Logic Control execution engine.
 
-    The engine owns:
+    Important distinction
+    ---------------------
+    A LogicConnection transfers a signal.
 
-        - component registration
-        - explicit dependency metadata
-        - local discrete state
-        - signal snapshots
-        - deterministic execution order
+    A LogicDependency constrains evaluation order.
 
-    The engine does not own:
+    A connection automatically creates the corresponding execution
+    dependency:
 
-        - graphical topology
-        - SLD/logic canvas layout
-        - electrical model state
-        - numerical solver state
+        source -> target
 
-    Dependencies must be explicitly declared. The engine does not infer
-    graph topology from arbitrary component internals.
+    but the two contracts remain separate.
     """
 
     def __init__(
@@ -405,15 +492,19 @@ class LogicEngine:
             )
         except ValueError as exc:
             raise LogicEngineConfigurationError(
-                f"Invalid evaluation mode: {mode!r}"
+                f"Invalid evaluation mode: {mode!r}."
             ) from exc
 
-        if int(max_iterations) <= 0:
+        max_iterations = int(
+            max_iterations
+        )
+
+        if max_iterations <= 0:
             raise LogicEngineConfigurationError(
                 "max_iterations must be greater than zero."
             )
 
-        self._max_iterations = int(
+        self._max_iterations = (
             max_iterations
         )
 
@@ -421,6 +512,10 @@ class LogicEngine:
             str,
             LogicComponentRecord,
         ] = {}
+
+        self._connections: list[
+            LogicConnection
+        ] = []
 
         self._dependencies: list[
             LogicDependency
@@ -445,42 +540,20 @@ class LogicEngine:
                 )
 
     # ========================================================================
-    # CONFIGURATION
+    # PROPERTIES
     # ========================================================================
 
     @property
-    def mode(self) -> LogicEvaluationMode:
-        """Return the current evaluation mode."""
-
+    def mode(
+        self,
+    ) -> LogicEvaluationMode:
         return self._mode
 
     @property
-    def max_iterations(self) -> int:
-        """Return the propagation iteration limit."""
-
-        return self._max_iterations
-
-    def set_mode(
+    def max_iterations(
         self,
-        mode: LogicEvaluationMode,
-    ) -> None:
-        """Change evaluation mode."""
-
-        try:
-            self._mode = (
-                mode
-                if isinstance(
-                    mode,
-                    LogicEvaluationMode,
-                )
-                else LogicEvaluationMode(
-                    mode
-                )
-            )
-        except ValueError as exc:
-            raise LogicEngineConfigurationError(
-                f"Invalid evaluation mode: {mode!r}"
-            ) from exc
+    ) -> int:
+        return self._max_iterations
 
     # ========================================================================
     # COMPONENT REGISTRATION
@@ -496,11 +569,7 @@ class LogicEngine:
             Any,
         ] | None = None,
     ) -> None:
-        """
-        Register a logic component.
-
-        Registration does not imply any graphical placement.
-        """
+        """Register one Logic Control component."""
 
         if not isinstance(
             component,
@@ -529,9 +598,7 @@ class LogicEngine:
         if order is None:
             order = self._order_counter
 
-        order = int(
-            order
-        )
+        order = int(order)
 
         if order < 0:
             raise LogicEngineConfigurationError(
@@ -556,10 +623,17 @@ class LogicEngine:
                 initial_state
             )
 
-        normalized_state = self._validate_state(
-            component,
-            state,
-        )
+        try:
+            normalized_state = (
+                component.validate_state(
+                    state
+                )
+            )
+        except Exception as exc:
+            raise LogicStateUpdateError(
+                f"Invalid initial state for "
+                f"'{component_id}'."
+            ) from exc
 
         self._records[
             component_id
@@ -570,7 +644,9 @@ class LogicEngine:
 
         self._states[
             component_id
-        ] = normalized_state
+        ] = dict(
+            normalized_state
+        )
 
         self._signals.setdefault(
             component_id,
@@ -582,21 +658,17 @@ class LogicEngine:
             order + 1,
         )
 
-        self._validate_dependencies()
+        self._validate_all_graph_contracts()
 
     def unregister(
         self,
         component_id: str,
     ) -> LogicControlComponent:
-        """
-        Unregister a component.
-
-        Dependencies referring to the component are also removed.
-        """
+        """Unregister a component and its graph references."""
 
         component_id = str(
             component_id
-        )
+        ).strip()
 
         record = self._records.pop(
             component_id,
@@ -619,38 +691,56 @@ class LogicEngine:
             None,
         )
 
+        self._connections = [
+            connection
+            for connection
+            in self._connections
+            if (
+                connection.source_component
+                != component_id
+                and connection.target_component
+                != component_id
+            )
+        ]
+
         self._dependencies = [
             dependency
             for dependency
             in self._dependencies
-            if dependency.source_component
-            != component_id
-            and dependency.target_component
-            != component_id
+            if (
+                dependency.source_component
+                != component_id
+                and dependency.target_component
+                != component_id
+            )
         ]
 
         return record.component
 
-    def clear(self) -> None:
-        """Remove all components, dependencies, state and signals."""
+    def clear(
+        self,
+    ) -> None:
+        """Clear all components and graph/state information."""
 
         self._records.clear()
+        self._connections.clear()
         self._dependencies.clear()
         self._states.clear()
         self._signals.clear()
         self._order_counter = 0
 
     # ========================================================================
-    # ACCESS
+    # COMPONENT ACCESS
     # ========================================================================
 
     def contains(
         self,
         component_id: str,
     ) -> bool:
-        return str(
-            component_id
-        ) in self._records
+        return (
+            str(component_id).strip()
+            in self._records
+        )
 
     def get(
         self,
@@ -658,7 +748,7 @@ class LogicEngine:
     ) -> LogicControlComponent:
         component_id = str(
             component_id
-        )
+        ).strip()
 
         try:
             return self._records[
@@ -676,8 +766,6 @@ class LogicEngine:
         LogicControlComponent,
         ...,
     ]:
-        """Return components in deterministic order."""
-
         records = sorted(
             self._records.values(),
             key=lambda record: (
@@ -697,8 +785,6 @@ class LogicEngine:
         LogicComponentRecord,
         ...,
     ]:
-        """Return registration records."""
-
         return tuple(
             sorted(
                 self._records.values(),
@@ -709,20 +795,177 @@ class LogicEngine:
             )
         )
 
-    def __iter__(self) -> Iterator[
+    def __iter__(
+        self,
+    ) -> Iterator[
         LogicControlComponent
     ]:
         return iter(
             self.components()
         )
 
-    def __len__(self) -> int:
+    def __len__(
+        self,
+    ) -> int:
         return len(
             self._records
         )
 
     # ========================================================================
-    # DEPENDENCIES
+    # LOGICAL CONNECTIONS
+    # ========================================================================
+
+    def connect(
+        self,
+        source_component: str,
+        source_output: str,
+        target_component: str,
+        target_input: str,
+    ) -> LogicConnection:
+        """
+        Create an explicit source-output -> target-input connection.
+
+        Example:
+
+            engine.connect(
+                "AND1",
+                "OUT",
+                "COIL1",
+                "IN",
+            )
+
+        The target input may have only one upstream source.
+        """
+
+        connection = LogicConnection(
+            source_component=source_component,
+            source_output=source_output,
+            target_component=target_component,
+            target_input=target_input,
+        )
+
+        self._validate_connection_endpoints(
+            connection
+        )
+
+        if connection in self._connections:
+            return connection
+
+        for existing in self._connections:
+            if (
+                existing.target_component
+                == connection.target_component
+                and existing.target_input
+                == connection.target_input
+            ):
+                raise DuplicateLogicConnectionError(
+                    f"Input "
+                    f"'{connection.target_component}."
+                    f"{connection.target_input}' "
+                    "already has a source connection."
+                )
+
+        self._connections.append(
+            connection
+        )
+
+        dependency = LogicDependency(
+            source_component=(
+                connection.source_component
+            ),
+            target_component=(
+                connection.target_component
+            ),
+        )
+
+        if dependency not in self._dependencies:
+            self._dependencies.append(
+                dependency
+            )
+
+        try:
+            self._validate_all_graph_contracts()
+        except Exception:
+            self._connections.remove(
+                connection
+            )
+
+            if dependency in self._dependencies:
+                self._dependencies.remove(
+                    dependency
+                )
+
+            raise
+
+        return connection
+
+    def disconnect(
+        self,
+        source_component: str,
+        source_output: str,
+        target_component: str,
+        target_input: str,
+    ) -> bool:
+        """Remove one explicit logical connection."""
+
+        connection = LogicConnection(
+            source_component=source_component,
+            source_output=source_output,
+            target_component=target_component,
+            target_input=target_input,
+        )
+
+        if connection not in self._connections:
+            return False
+
+        self._connections.remove(
+            connection
+        )
+
+        self._rebuild_connection_dependencies()
+
+        return True
+
+    def connections(
+        self,
+    ) -> tuple[
+        LogicConnection,
+        ...,
+    ]:
+        """Return all logical signal connections."""
+
+        return tuple(
+            self._connections
+        )
+
+    def connection_for_input(
+        self,
+        target_component: str,
+        target_input: str,
+    ) -> LogicConnection | None:
+        """Return the source connection feeding a target input."""
+
+        target_component = str(
+            target_component
+        ).strip()
+
+        target_input = str(
+            target_input
+        ).strip()
+
+        for connection in self._connections:
+            if (
+                connection.target_component
+                == target_component
+                and connection.target_input
+                == target_input
+            ):
+                return connection
+
+        return None
+
+    # ========================================================================
+    # EXECUTION DEPENDENCIES
     # ========================================================================
 
     def add_dependency(
@@ -731,9 +974,9 @@ class LogicEngine:
         target_component: str,
     ) -> LogicDependency:
         """
-        Add an explicit component dependency.
+        Add an execution-order dependency.
 
-        The source is evaluated before the target.
+        This is intentionally separate from ``connect()``.
         """
 
         dependency = LogicDependency(
@@ -741,28 +984,18 @@ class LogicEngine:
             target_component=target_component,
         )
 
-        if not self.contains(
+        self._validate_component_exists(
             dependency.source_component
-        ):
-            raise UnknownLogicComponentError(
-                f"Unknown source component "
-                f"'{dependency.source_component}'."
-            )
-
-        if not self.contains(
-            dependency.target_component
-        ):
-            raise UnknownLogicComponentError(
-                f"Unknown target component "
-                f"'{dependency.target_component}'."
-            )
-
-        if dependency in self._dependencies:
-            return dependency
-
-        self._dependencies.append(
-            dependency
         )
+
+        self._validate_component_exists(
+            dependency.target_component
+        )
+
+        if dependency not in self._dependencies:
+            self._dependencies.append(
+                dependency
+            )
 
         try:
             self._validate_dependencies()
@@ -778,153 +1011,29 @@ class LogicEngine:
         self,
         source_component: str,
         target_component: str,
-    ) -> None:
-        """
-        Remove an explicit dependency.
-        """
-
-        source = str(
-            source_component
+    ) -> bool:
+        dependency = LogicDependency(
+            source_component=source_component,
+            target_component=target_component,
         )
 
-        target = str(
-            target_component
-        )
+        if dependency not in self._dependencies:
+            return False
 
-        self._dependencies = [
+        self._dependencies.remove(
             dependency
-            for dependency
-            in self._dependencies
-            if not (
-                dependency.source_component == source
-                and dependency.target_component == target
-            )
-        ]
+        )
+
+        return True
 
     def dependencies(
         self,
-    ) -> tuple[LogicDependency, ...]:
-        """Return immutable dependency snapshot."""
-
-        return tuple(
-            self._dependencies
-        )
-
-    def execution_order(
-        self,
     ) -> tuple[
-        LogicControlComponent,
+        LogicDependency,
         ...,
     ]:
-        """
-        Return a deterministic topological execution order.
-
-        Explicit dependencies take precedence over registration order.
-        Registration order breaks ties.
-        """
-
-        self._validate_dependencies()
-
-        component_ids = [
-            record.component_id
-            for record in self.records()
-        ]
-
-        position = {
-            component_id: index
-            for index, component_id
-            in enumerate(
-                component_ids
-            )
-        }
-
-        adjacency: dict[
-            str,
-            set[str],
-        ] = {
-            component_id: set()
-            for component_id
-            in component_ids
-        }
-
-        indegree: dict[
-            str,
-            int,
-        ] = {
-            component_id: 0
-            for component_id
-            in component_ids
-        }
-
-        for dependency in self._dependencies:
-            source = (
-                dependency.source_component
-            )
-            target = (
-                dependency.target_component
-            )
-
-            if target not in adjacency:
-                raise UnknownLogicComponentError(
-                    f"Unknown target component "
-                    f"'{target}'."
-                )
-
-            if target not in adjacency[source]:
-                adjacency[source].add(
-                    target
-                )
-                indegree[target] += 1
-
-        ready = sorted(
-            (
-                component_id
-                for component_id, degree
-                in indegree.items()
-                if degree == 0
-            ),
-            key=position.__getitem__,
-        )
-
-        result: list[str] = []
-
-        while ready:
-            current = ready.pop(
-                0
-            )
-
-            result.append(
-                current
-            )
-
-            for target in sorted(
-                adjacency[current],
-                key=position.__getitem__,
-            ):
-                indegree[target] -= 1
-
-                if indegree[target] == 0:
-                    ready.append(
-                        target
-                    )
-
-            ready.sort(
-                key=position.__getitem__
-            )
-
-        if len(result) != len(
-            component_ids
-        ):
-            raise LogicCycleError(
-                "Logic dependency graph contains "
-                "a cycle."
-            )
-
         return tuple(
-            self.get(
-                component_id
-            )
-            for component_id in result
+            self._dependencies
         )
 
     # ========================================================================
@@ -935,15 +1044,15 @@ class LogicEngine:
         self,
         component_id: str,
     ) -> Mapping[str, Any]:
+        """Return a copy of one component's current state."""
+
         component_id = str(
             component_id
-        )
+        ).strip()
 
-        if component_id not in self._states:
-            raise UnknownLogicComponentError(
-                f"Unknown logic component "
-                f"'{component_id}'."
-            )
+        self._validate_component_exists(
+            component_id
+        )
 
         return dict(
             self._states[
@@ -957,6 +1066,8 @@ class LogicEngine:
         str,
         Mapping[str, Any],
     ]:
+        """Return a copy of all component states."""
+
         return {
             component_id: dict(
                 state
@@ -970,79 +1081,859 @@ class LogicEngine:
         component_id: str,
         state: Mapping[str, Any],
     ) -> None:
+        """Replace one component's persistent logic state."""
+
         component = self.get(
             component_id
         )
 
+        try:
+            normalized = (
+                component.validate_state(
+                    state
+                )
+            )
+        except Exception as exc:
+            raise LogicStateUpdateError(
+                f"Invalid state for "
+                f"'{component_id}'."
+            ) from exc
+
         self._states[
-            str(component_id)
-        ] = self._validate_state(
-            component,
-            dict(state),
+            component_id
+        ] = dict(
+            normalized
         )
 
     def reset(
         self,
-        *,
-        component_id: str | None = None,
-    ) -> Mapping[
-        str,
-        Mapping[str, Any],
-    ]:
-        """
-        Reset one or all logic components.
-        """
+    ) -> None:
+        """Reset every registered component to its initial logic state."""
 
-        if component_id is not None:
-            component_id = str(
-                component_id
-            )
+        for record in self.records():
+            component = record.component
+            component_id = record.component_id
 
-            component = self.get(
-                component_id
-            )
+            try:
+                state = component.reset()
+                normalized = (
+                    component.validate_state(
+                        state
+                    )
+                )
+            except Exception as exc:
+                raise LogicStateUpdateError(
+                    f"Failed to reset "
+                    f"'{component_id}'."
+                ) from exc
 
             self._states[
                 component_id
-            ] = self._validate_state(
-                component,
-                dict(
-                    component.reset_logic()
-                ),
+            ] = dict(
+                normalized
             )
 
-            return {
-                component_id: dict(
-                    self._states[
-                        component_id
-                    ]
-                )
+            self._signals[
+                component_id
+            ] = {}
+
+    # ========================================================================
+    # EVALUATION
+    # ========================================================================
+
+    def evaluate(
+        self,
+        time: float,
+        external_inputs: Mapping[
+            str,
+            Mapping[str, Any],
+        ] | None = None,
+    ) -> LogicEngineResult:
+        """
+        Evaluate the complete Logic network.
+
+        ``external_inputs`` contains only inputs supplied from outside
+        the registered Logic network.
+
+        Example:
+
+            {
+                "START": {
+                    "IN": True,
+                }
             }
 
-        for component in self.components():
+        Connected inputs are resolved automatically from upstream
+        component outputs.
+        """
+
+        time = _finite_float(
+            time,
+            "time",
+        )
+
+        external = self._normalize_external_inputs(
+            external_inputs
+        )
+
+        self._validate_all_graph_contracts()
+
+        if self._mode is LogicEvaluationMode.SINGLE_PASS:
+            return self._evaluate_pass(
+                time=time,
+                external_inputs=external,
+                iteration=1,
+            )
+
+        return self._evaluate_propagated(
+            time=time,
+            external_inputs=external,
+        )
+
+    def evaluate_once(
+        self,
+        time: float,
+        external_inputs: Mapping[
+            str,
+            Mapping[str, Any],
+        ] | None = None,
+    ) -> LogicEngineResult:
+        """Force exactly one deterministic evaluation pass."""
+
+        time = _finite_float(
+            time,
+            "time",
+        )
+
+        external = self._normalize_external_inputs(
+            external_inputs
+        )
+
+        self._validate_all_graph_contracts()
+
+        return self._evaluate_pass(
+            time=time,
+            external_inputs=external,
+            iteration=1,
+        )
+
+    # ========================================================================
+    # SINGLE PASS
+    # ========================================================================
+
+    def _evaluate_pass(
+        self,
+        *,
+        time: float,
+        external_inputs: Mapping[
+            str,
+            Mapping[str, Any],
+        ],
+        iteration: int,
+    ) -> LogicEngineResult:
+        previous_states = self.states()
+        previous_signals = self._signal_snapshot()
+
+        evaluations: dict[
+            str,
+            LogicComponentEvaluation,
+        ] = {}
+
+        events: list[
+            LogicEvent
+        ] = []
+
+        for component in self._evaluation_order():
             component_id = str(
                 component.component_id
             )
 
+            inputs = self._resolve_component_inputs(
+                component,
+                external_inputs,
+                evaluations,
+            )
+
+            try:
+                control_result = component.evaluate(
+                    self._states[
+                        component_id
+                    ],
+                    inputs,
+                    time,
+                )
+            except Exception as exc:
+                raise LogicEvaluationError(
+                    f"Logic evaluation failed for "
+                    f"'{component_id}'."
+                ) from exc
+
+            logic_result = (
+                self._logic_result_from_control_result(
+                    component,
+                    control_result,
+                    time,
+                )
+            )
+
+            evaluations[
+                component_id
+            ] = LogicComponentEvaluation(
+                component_id=component_id,
+                result=logic_result,
+            )
+
             self._states[
                 component_id
-            ] = self._validate_state(
-                component,
-                dict(
-                    component.reset_logic()
+            ] = dict(
+                logic_result.state
+            )
+
+            self._signals[
+                component_id
+            ] = dict(
+                logic_result.outputs
+            )
+
+            events.extend(
+                logic_result.events
+            )
+
+        stable = (
+            previous_states
+            == self.states()
+            and previous_signals
+            == self._signal_snapshot()
+        )
+
+        return LogicEngineResult(
+            time=time,
+            evaluations=evaluations,
+            signals=self._signal_snapshot(),
+            states=self.states(),
+            events=tuple(events),
+            stable=stable,
+            iterations=iteration,
+            diagnostics={
+                "mode": self._mode.value,
+            },
+        )
+
+    # ========================================================================
+    # PROPAGATION
+    # ========================================================================
+
+    def _evaluate_propagated(
+        self,
+        *,
+        time: float,
+        external_inputs: Mapping[
+            str,
+            Mapping[str, Any],
+        ],
+    ) -> LogicEngineResult:
+        last_result: LogicEngineResult | None = None
+
+        for iteration in range(
+            1,
+            self._max_iterations + 1,
+        ):
+            result = self._evaluate_pass(
+                time=time,
+                external_inputs=external_inputs,
+                iteration=iteration,
+            )
+
+            last_result = result
+
+            if result.stable:
+                return result
+
+        if last_result is None:
+            raise LogicEvaluationError(
+                "Logic propagation produced no result."
+            )
+
+        return LogicEngineResult(
+            time=last_result.time,
+            evaluations=last_result.evaluations,
+            signals=last_result.signals,
+            states=last_result.states,
+            events=last_result.events,
+            stable=False,
+            iterations=self._max_iterations,
+            diagnostics={
+                **dict(
+                    last_result.diagnostics
+                ),
+                "warning": (
+                    "Logic network did not stabilize "
+                    "within max_iterations."
+                ),
+            },
+        )
+
+    # ========================================================================
+    # INPUT RESOLUTION
+    # ========================================================================
+
+    def _resolve_component_inputs(
+        self,
+        component: LogicControlComponent,
+        external_inputs: Mapping[
+            str,
+            Mapping[str, Any],
+        ],
+        evaluations: Mapping[
+            str,
+            LogicComponentEvaluation,
+        ],
+    ) -> dict[str, Any]:
+        """
+        Resolve one component's inputs.
+
+        Resolution order:
+
+            1. externally supplied input
+            2. explicit logical connection
+            3. component-defined default, if non-required
+            4. otherwise validation failure
+
+        An explicit connection always has authority over an externally
+        supplied value for the same target input.
+        """
+
+        component_id = str(
+            component.component_id
+        )
+
+        supplied = dict(
+            external_inputs.get(
+                component_id,
+                {},
+            )
+        )
+
+        result = dict(
+            supplied
+        )
+
+        for connection in self._connections:
+            if (
+                connection.target_component
+                != component_id
+            ):
+                continue
+
+            source_id = (
+                connection.source_component
+            )
+
+            source_evaluation = evaluations.get(
+                source_id
+            )
+
+            if source_evaluation is None:
+                raise LogicSignalError(
+                    f"Source component "
+                    f"'{source_id}' has not been evaluated "
+                    f"before target '{component_id}'."
+                )
+
+            outputs = source_evaluation.outputs
+
+            if (
+                connection.source_output
+                not in outputs
+            ):
+                raise LogicSignalError(
+                    f"Source output "
+                    f"'{source_id}."
+                    f"{connection.source_output}' "
+                    "does not exist in the evaluation result."
+                )
+
+            result[
+                connection.target_input
+            ] = outputs[
+                connection.source_output
+            ]
+
+        try:
+            return component.validate_inputs(
+                result
+            )
+        except Exception as exc:
+            raise LogicSignalError(
+                f"Unable to resolve inputs for "
+                f"'{component_id}'."
+            ) from exc
+
+    # ========================================================================
+    # EVALUATION ORDER
+    # ========================================================================
+
+    def _evaluation_order(
+        self,
+    ) -> tuple[
+        LogicControlComponent,
+        ...,
+    ]:
+        """
+        Return deterministic topological evaluation order.
+
+        Explicit dependencies and logical connections both participate
+        in ordering.
+
+        Registration order is used to break otherwise independent ties.
+        """
+
+        component_ids = set(
+            self._records
+        )
+
+        indegree = {
+            component_id: 0
+            for component_id
+            in component_ids
+        }
+
+        outgoing = {
+            component_id: set()
+            for component_id
+            in component_ids
+        }
+
+        for dependency in self._dependencies:
+            source = (
+                dependency.source_component
+            )
+            target = (
+                dependency.target_component
+            )
+
+            if target not in outgoing[source]:
+                outgoing[source].add(
+                    target
+                )
+                indegree[target] += 1
+
+        records_by_id = self._records
+
+        ready = sorted(
+            (
+                component_id
+                for component_id, degree
+                in indegree.items()
+                if degree == 0
+            ),
+            key=lambda component_id: (
+                records_by_id[
+                    component_id
+                ].order,
+                component_id,
+            ),
+        )
+
+        ordered_ids: list[str] = []
+
+        while ready:
+            current = ready.pop(0)
+
+            ordered_ids.append(
+                current
+            )
+
+            next_nodes = sorted(
+                outgoing[current],
+                key=lambda component_id: (
+                    records_by_id[
+                        component_id
+                    ].order,
+                    component_id,
                 ),
             )
 
-        self._signals = {
-            component_id: {}
-            for component_id
-            in self._records
-        }
+            for target in next_nodes:
+                indegree[target] -= 1
 
-        return self.states()
+                if indegree[target] == 0:
+                    ready.append(
+                        target
+                    )
+
+            ready.sort(
+                key=lambda component_id: (
+                    records_by_id[
+                        component_id
+                    ].order,
+                    component_id,
+                )
+            )
+
+        if len(
+            ordered_ids
+        ) != len(
+            component_ids
+        ):
+            raise LogicCycleError(
+                "Logic dependency graph contains a cycle."
+            )
+
+        return tuple(
+            self._records[
+                component_id
+            ].component
+            for component_id
+            in ordered_ids
+        )
 
     # ========================================================================
-    # SIGNAL SNAPSHOT
+    # RESULT ADAPTATION
+    # ========================================================================
+
+    @staticmethod
+    def _logic_result_from_control_result(
+        component: LogicControlComponent,
+        control_result: Any,
+        time: float,
+    ) -> LogicControlResult:
+        """
+        Recover the LogicControlResult contract from the common
+        ControlResult adapter.
+
+        LogicControlComponent.evaluate() stores authoritative Logic
+        state/events in ControlResult.diagnostics.
+        """
+
+        diagnostics = dict(
+            getattr(
+                control_result,
+                "diagnostics",
+                {},
+            )
+            or {}
+        )
+
+        if "logic_state" not in diagnostics:
+            raise LogicEvaluationError(
+                f"'{component.component_id}' "
+                "did not provide logic_state "
+                "in its ControlResult diagnostics."
+            )
+
+        state = dict(
+            diagnostics[
+                "logic_state"
+            ]
+        )
+
+        raw_events = diagnostics.get(
+            "logic_events",
+            (),
+        )
+
+        events = tuple(
+            raw_events
+        )
+
+        for event in events:
+            if not isinstance(
+                event,
+                LogicEvent,
+            ):
+                raise LogicEvaluationError(
+                    f"'{component.component_id}' "
+                    "returned an invalid LogicEvent."
+                )
+
+        return LogicControlResult(
+            outputs=dict(
+                control_result.outputs
+            ),
+            state=state,
+            time=float(
+                getattr(
+                    control_result,
+                    "time",
+                    time,
+                )
+            ),
+            events=events,
+            diagnostics={
+                key: value
+                for key, value
+                in diagnostics.items()
+                if key
+                not in {
+                    "logic_state",
+                    "logic_events",
+                }
+            },
+        )
+
+    # ========================================================================
+    # GRAPH VALIDATION
+    # ========================================================================
+
+    def _validate_all_graph_contracts(
+        self,
+    ) -> None:
+        self._validate_dependencies()
+
+        for connection in self._connections:
+            self._validate_connection_endpoints(
+                connection
+            )
+
+    def _validate_dependencies(
+        self,
+    ) -> None:
+        component_ids = set(
+            self._records
+        )
+
+        for dependency in self._dependencies:
+            if (
+                dependency.source_component
+                not in component_ids
+            ):
+                raise UnknownLogicComponentError(
+                    f"Unknown dependency source "
+                    f"'{dependency.source_component}'."
+                )
+
+            if (
+                dependency.target_component
+                not in component_ids
+            ):
+                raise UnknownLogicComponentError(
+                    f"Unknown dependency target "
+                    f"'{dependency.target_component}'."
+                )
+
+        self._topological_ids()
+
+    def _validate_connection_endpoints(
+        self,
+        connection: LogicConnection,
+    ) -> None:
+        source = self.get(
+            connection.source_component
+        )
+
+        target = self.get(
+            connection.target_component
+        )
+
+        if (
+            connection.source_output
+            not in source.output_names
+        ):
+            raise LogicConnectionError(
+                f"Unknown source output "
+                f"'{connection.source_component}."
+                f"{connection.source_output}'."
+            )
+
+        if (
+            connection.target_input
+            not in target.input_names
+        ):
+            raise LogicConnectionError(
+                f"Unknown target input "
+                f"'{connection.target_component}."
+                f"{connection.target_input}'."
+            )
+
+        source_signal = next(
+            signal
+            for signal
+            in source.output_definition()
+            if signal.name
+            == connection.source_output
+        )
+
+        target_signal = next(
+            signal
+            for signal
+            in target.input_definition()
+            if signal.name
+            == connection.target_input
+        )
+
+        if not _compatible_signal_types(
+            source_signal.value_type,
+            target_signal.value_type,
+        ):
+            raise LogicConnectionError(
+                f"Incompatible connection "
+                f"'{connection.source_component}."
+                f"{connection.source_output}' -> "
+                f"'{connection.target_component}."
+                f"{connection.target_input}': "
+                f"{source_signal.value_type.__name__} "
+                f"cannot feed "
+                f"{target_signal.value_type.__name__}."
+            )
+
+        for existing in self._connections:
+            if existing == connection:
+                continue
+
+            if (
+                existing.target_component
+                == connection.target_component
+                and existing.target_input
+                == connection.target_input
+            ):
+                raise DuplicateLogicConnectionError(
+                    f"Target input "
+                    f"'{connection.target_component}."
+                    f"{connection.target_input}' "
+                    "already has a source."
+                )
+
+    def _rebuild_connection_dependencies(
+        self,
+    ) -> None:
+        """
+        Rebuild only the dependency edges automatically generated by
+        logical connections.
+
+        Explicit dependencies are retained.
+        """
+
+        connection_edges = {
+            (
+                connection.source_component,
+                connection.target_component,
+            )
+            for connection
+            in self._connections
+        }
+
+        explicit = [
+            dependency
+            for dependency
+            in self._dependencies
+            if (
+                dependency.source_component,
+                dependency.target_component,
+            )
+            not in {
+                (
+                    connection.source_component,
+                    connection.target_component,
+                )
+                for connection
+                in self._connections
+            }
+        ]
+
+        self._dependencies = explicit
+
+        for source, target in sorted(
+            connection_edges
+        ):
+            self._dependencies.append(
+                LogicDependency(
+                    source_component=source,
+                    target_component=target,
+                )
+            )
+
+    def _topological_ids(
+        self,
+    ) -> tuple[str, ...]:
+        """Validate dependency acyclicity."""
+
+        component_ids = set(
+            self._records
+        )
+
+        indegree = {
+            component_id: 0
+            for component_id
+            in component_ids
+        }
+
+        outgoing = {
+            component_id: set()
+            for component_id
+            in component_ids
+        }
+
+        for dependency in self._dependencies:
+            source = (
+                dependency.source_component
+            )
+            target = (
+                dependency.target_component
+            )
+
+            if target not in outgoing[source]:
+                outgoing[source].add(
+                    target
+                )
+                indegree[target] += 1
+
+        ready = sorted(
+            (
+                component_id
+                for component_id, degree
+                in indegree.items()
+                if degree == 0
+            ),
+            key=lambda component_id: (
+                self._records[
+                    component_id
+                ].order,
+                component_id,
+            ),
+        )
+
+        result: list[str] = []
+
+        while ready:
+            current = ready.pop(0)
+
+            result.append(
+                current
+            )
+
+            for target in sorted(
+                outgoing[current]
+            ):
+                indegree[target] -= 1
+
+                if indegree[target] == 0:
+                    ready.append(
+                        target
+                    )
+
+            ready.sort(
+                key=lambda component_id: (
+                    self._records[
+                        component_id
+                    ].order,
+                    component_id,
+                )
+            )
+
+        if len(result) != len(
+            component_ids
+        ):
+            raise LogicCycleError(
+                "Logic dependency graph contains a cycle."
+            )
+
+        return tuple(
+            result
+        )
+
+    # ========================================================================
+    # SNAPSHOTS
     # ========================================================================
 
     def signals(
@@ -1051,581 +1942,88 @@ class LogicEngine:
         str,
         Mapping[str, Any],
     ]:
-        """
-        Return detached component output signals.
-        """
+        """Return the latest output snapshot."""
 
+        return self._signal_snapshot()
+
+    def _signal_snapshot(
+        self,
+    ) -> dict[
+        str,
+        dict[str, Any],
+    ]:
         return {
             component_id: dict(
-                values
+                outputs
             )
-            for component_id, values
+            for component_id, outputs
             in self._signals.items()
         }
 
-    def set_external_signals(
-        self,
-        signals: Mapping[
-            str,
-            Mapping[str, Any],
-        ],
-    ) -> None:
-        """
-        Set external input snapshots.
-
-        This does not mutate component state.
-        """
-
-        self._signals = {
-            str(component_id): dict(
-                values
-            )
-            for component_id, values
-            in signals.items()
-        }
-
     # ========================================================================
-    # EVALUATION
+    # EXTERNAL INPUTS
     # ========================================================================
 
-    def evaluate(
+    def _normalize_external_inputs(
         self,
-        *,
-        time: float,
-        inputs: Mapping[
+        external_inputs: Mapping[
             str,
             Mapping[str, Any],
-        ] | None = None,
-        mode: LogicEvaluationMode | None = None,
-        commit_state: bool = True,
-    ) -> LogicEngineResult:
-        """
-        Evaluate the complete logic network.
-
-        ``inputs`` contains explicit external inputs per component.
-
-        Component-to-component propagation uses the current output
-        snapshot. The engine deliberately does not invent a signal
-        mapping between arbitrary output and input names; explicit
-        dependencies establish ordering, while external/application
-        orchestration supplies signal mappings.
-
-        In PROPAGATE mode the network is evaluated repeatedly until the
-        output/state snapshot stabilizes or ``max_iterations`` is reached.
-        """
-
-        time = _finite_float(
-            time,
-            "time",
-        )
-
-        evaluation_mode = (
-            self._mode
-            if mode is None
-            else (
-                mode
-                if isinstance(
-                    mode,
-                    LogicEvaluationMode,
-                )
-                else LogicEvaluationMode(
-                    mode
-                )
-            )
-        )
-
-        external_inputs = {
-            str(component_id): dict(
-                values
-            )
-            for component_id, values
-            in (inputs or {}).items()
-        }
-
-        if evaluation_mode is (
-            LogicEvaluationMode.SINGLE_PASS
-        ):
-            return self._evaluate_once(
-                time=time,
-                inputs=external_inputs,
-                commit_state=commit_state,
-            )
-
-        return self._evaluate_until_stable(
-            time=time,
-            inputs=external_inputs,
-            commit_state=commit_state,
-        )
-
-    def _evaluate_once(
-        self,
-        *,
-        time: float,
-        inputs: Mapping[
-            str,
-            Mapping[str, Any],
-        ],
-        commit_state: bool,
-    ) -> LogicEngineResult:
-        evaluations: dict[
-            str,
-            LogicComponentEvaluation,
-        ] = {}
-
-        next_states = {
-            component_id: dict(
-                state
-            )
-            for component_id, state
-            in self._states.items()
-        }
-
-        next_signals = {
-            component_id: dict(
-                values
-            )
-            for component_id, values
-            in self._signals.items()
-        }
-
-        events: list[
-            LogicEvent
-        ] = []
-
-        for component in self.execution_order():
-            component_id = str(
-                component.component_id
-            )
-
-            component_inputs = dict(
-                inputs.get(
-                    component_id,
-                    {},
-                )
-            )
-
-            # Outputs from dependencies are exposed under a dedicated
-            # namespace. This avoids accidental collision with external
-            # inputs and keeps routing deterministic.
-            dependency_inputs = (
-                self._dependency_signals(
-                    component_id,
-                    next_signals,
-                )
-            )
-
-            component_inputs = self._merge_inputs(
-                dependency_inputs,
-                component_inputs,
-            )
-
-            current_state = dict(
-                next_states[
-                    component_id
-                ]
-            )
-
-            try:
-                result = component.evaluate_logic(
-                    current_state,
-                    component_inputs,
-                    time,
-                )
-            except Exception as exc:
-                raise LogicEvaluationError(
-                    f"Evaluation failed for "
-                    f"logic component "
-                    f"'{component_id}'."
-                ) from exc
-
-            if not isinstance(
-                result,
-                LogicControlResult,
-            ):
-                raise LogicEvaluationError(
-                    f"Logic component "
-                    f"'{component_id}' returned "
-                    "an invalid LogicControlResult."
-                )
-
-            try:
-                component.validate_logic_result(
-                    result
-                )
-            except Exception as exc:
-                raise LogicEvaluationError(
-                    f"Invalid result from "
-                    f"logic component "
-                    f"'{component_id}'."
-                ) from exc
-
-            evaluations[
-                component_id
-            ] = LogicComponentEvaluation(
-                component_id=component_id,
-                result=result,
-            )
-
-            next_states[
-                component_id
-            ] = dict(
-                result.state
-            )
-
-            next_signals[
-                component_id
-            ] = dict(
-                result.outputs
-            )
-
-            events.extend(
-                result.events
-            )
-
-        if commit_state:
-            self._states = {
-                component_id: dict(
-                    state
-                )
-                for component_id, state
-                in next_states.items()
-            }
-
-            self._signals = {
-                component_id: dict(
-                    values
-                )
-                for component_id, values
-                in next_signals.items()
-            }
-
-        return LogicEngineResult(
-            time=time,
-            evaluations=evaluations,
-            signals=next_signals,
-            states=next_states,
-            events=tuple(events),
-            stable=True,
-            iterations=1,
-            diagnostics={
-                "mode":
-                    LogicEvaluationMode.SINGLE_PASS.value,
-                "component_count":
-                    len(evaluations),
-            },
-        )
-
-    def _evaluate_until_stable(
-        self,
-        *,
-        time: float,
-        inputs: Mapping[
-            str,
-            Mapping[str, Any],
-        ],
-        commit_state: bool,
-    ) -> LogicEngineResult:
-        previous_signals = {
-            component_id: dict(
-                values
-            )
-            for component_id, values
-            in self._signals.items()
-        }
-
-        previous_states = {
-            component_id: dict(
-                state
-            )
-            for component_id, state
-            in self._states.items()
-        }
-
-        final_result: LogicEngineResult | None = None
-
-        for iteration in range(
-            1,
-            self._max_iterations + 1,
-        ):
-            result = self._evaluate_once(
-                time=time,
-                inputs=inputs,
-                commit_state=False,
-            )
-
-            signals_changed = (
-                result.signals
-                != previous_signals
-            )
-
-            states_changed = (
-                result.states
-                != previous_states
-            )
-
-            final_result = LogicEngineResult(
-                time=result.time,
-                evaluations=result.evaluations,
-                signals=result.signals,
-                states=result.states,
-                events=result.events,
-                stable=not (
-                    signals_changed
-                    or states_changed
-                ),
-                iterations=iteration,
-                diagnostics={
-                    **dict(
-                        result.diagnostics
-                    ),
-                    "mode":
-                        LogicEvaluationMode.PROPAGATE.value,
-                    "stable":
-                        not (
-                            signals_changed
-                            or states_changed
-                        ),
-                },
-            )
-
-            if not (
-                signals_changed
-                or states_changed
-            ):
-                if commit_state:
-                    self._states = {
-                        component_id: dict(
-                            state
-                        )
-                        for component_id, state
-                        in result.states.items()
-                    }
-
-                    self._signals = {
-                        component_id: dict(
-                            values
-                        )
-                        for component_id, values
-                        in result.signals.items()
-                    }
-
-                return final_result
-
-            previous_signals = {
-                component_id: dict(
-                    values
-                )
-                for component_id, values
-                in result.signals.items()
-            }
-
-            previous_states = {
-                component_id: dict(
-                    state
-                )
-                for component_id, state
-                in result.states.items()
-            }
-
-        raise LogicEvaluationError(
-            "Logic network did not reach a stable "
-            f"state within {self._max_iterations} "
-            "iterations."
-        )
-
-    # ========================================================================
-    # DEPENDENCY SIGNALS
-    # ========================================================================
-
-    def _dependency_signals(
-        self,
-        target_component: str,
-        signals: Mapping[
-            str,
-            Mapping[str, Any],
-        ],
-    ) -> dict[str, Any]:
-        """
-        Collect output snapshots from dependencies.
-
-        Names are namespaced as:
-
-            '<source_component>.<output_name>'
-
-        This avoids assuming that an output name is globally unique.
-        """
+        ] | None,
+    ) -> dict[
+        str,
+        dict[str, Any],
+    ]:
+        if external_inputs is None:
+            return {}
 
         result: dict[
             str,
-            Any,
+            dict[str, Any],
         ] = {}
 
-        for dependency in self._dependencies:
-            if (
-                dependency.target_component
-                != target_component
-            ):
-                continue
+        for component_id, inputs in (
+            external_inputs.items()
+        ):
+            component_id = str(
+                component_id
+            ).strip()
 
-            source = dependency.source_component
+            self._validate_component_exists(
+                component_id
+            )
 
-            for name, value in signals.get(
-                source,
-                {},
-            ).items():
-                key = (
-                    f"{source}.{name}"
+            if inputs is None:
+                raise LogicSignalError(
+                    f"External inputs for "
+                    f"'{component_id}' cannot be None."
                 )
 
-                if key in result:
-                    raise LogicSignalError(
-                        f"Duplicate routed signal "
-                        f"'{key}' for target "
-                        f"'{target_component}'."
-                    )
-
-                result[key] = value
+            result[
+                component_id
+            ] = dict(
+                inputs
+            )
 
         return result
 
-    @staticmethod
-    def _merge_inputs(
-        dependency_inputs: Mapping[
-            str,
-            Any,
-        ],
-        external_inputs: Mapping[
-            str,
-            Any,
-        ],
-    ) -> dict[str, Any]:
-        """
-        Merge dependency and explicit external inputs.
-
-        Explicit external inputs take precedence only when the names do
-        not collide with dependency namespace keys.
-        """
-
-        merged = dict(
-            dependency_inputs
-        )
-
-        for name, value in external_inputs.items():
-            if name in merged:
-                raise LogicSignalError(
-                    f"Input '{name}' conflicts with "
-                    "a dependency-routed signal."
-                )
-
-            merged[name] = value
-
-        return merged
-
     # ========================================================================
-    # VALIDATION
+    # VALIDATION HELPERS
     # ========================================================================
 
-    def _validate_dependencies(
+    def _validate_component_exists(
         self,
+        component_id: str,
     ) -> None:
-        for dependency in self._dependencies:
-            if not self.contains(
-                dependency.source_component
-            ):
-                raise UnknownLogicComponentError(
-                    f"Unknown dependency source "
-                    f"'{dependency.source_component}'."
-                )
+        component_id = str(
+            component_id
+        ).strip()
 
-            if not self.contains(
-                dependency.target_component
-            ):
-                raise UnknownLogicComponentError(
-                    f"Unknown dependency target "
-                    f"'{dependency.target_component}'."
-                )
-
-        self.execution_order()
-
-    @staticmethod
-    def _validate_state(
-        component: LogicControlComponent,
-        state: Mapping[
-            str,
-            Any,
-        ],
-    ) -> dict[str, Any]:
-        try:
-            normalized = component.validate_state(
-                state
+        if component_id not in self._records:
+            raise UnknownLogicComponentError(
+                f"Unknown logic component "
+                f"'{component_id}'."
             )
-        except Exception as exc:
-            raise LogicStateUpdateError(
-                f"Invalid state for logic component "
-                f"'{component.component_id}'."
-            ) from exc
-
-        return dict(
-            normalized
-        )
-
-    # ========================================================================
-    # DIAGNOSTICS
-    # ========================================================================
-
-    def diagnostics(
-        self,
-    ) -> Mapping[str, Any]:
-        """
-        Return serializable engine diagnostics.
-        """
-
-        return {
-            "component_count":
-                len(self),
-            "dependency_count":
-                len(self._dependencies),
-            "evaluation_mode":
-                self.mode.value,
-            "max_iterations":
-                self.max_iterations,
-            "execution_order": [
-                component.component_id
-                for component
-                in self.execution_order()
-            ],
-            "components": [
-                {
-                    "component_id":
-                        record.component_id,
-                    "component_type":
-                        record.component_type,
-                    "order":
-                        record.order,
-                    "state_size":
-                        record.component.logic_state_size,
-                }
-                for record
-                in self.records()
-            ],
-            "dependencies": [
-                {
-                    "source":
-                        dependency.source_component,
-                    "target":
-                        dependency.target_component,
-                }
-                for dependency
-                in self._dependencies
-            ],
-        }
-
-    def summary(
-        self,
-    ) -> Mapping[str, Any]:
-        """Return the engine diagnostic summary."""
-
-        return self.diagnostics()
 
 
 # ============================================================================
@@ -1638,9 +2036,7 @@ def _finite_float(
     name: str,
 ) -> float:
     try:
-        result = float(
-            value
-        )
+        result = float(value)
     except (
         TypeError,
         ValueError,
@@ -1649,9 +2045,7 @@ def _finite_float(
             f"{name} must be numeric."
         ) from exc
 
-    if not math.isfinite(
-        result
-    ):
+    if not math.isfinite(result):
         raise LogicEngineConfigurationError(
             f"{name} must be finite."
         )
@@ -1659,23 +2053,54 @@ def _finite_float(
     return result
 
 
-# ============================================================================
-# PUBLIC EXPORTS
-# ============================================================================
+def _compatible_signal_types(
+    source_type: type,
+    target_type: type,
+) -> bool:
+    """
+    Validate domain-level signal compatibility.
+
+    Boolean logic must remain Boolean.
+
+    Numeric signals may feed numeric inputs.
+
+    No implicit Boolean/numeric conversion is performed.
+    """
+
+    if source_type is bool:
+        return target_type is bool
+
+    if target_type is bool:
+        return False
+
+    if source_type in (
+        int,
+        float,
+    ) and target_type in (
+        int,
+        float,
+    ):
+        return True
+
+    return source_type is target_type
+
 
 __all__ = [
+    "LogicEngine",
     "LogicEvaluationMode",
     "LogicDependency",
+    "LogicConnection",
     "LogicComponentRecord",
     "LogicComponentEvaluation",
     "LogicEngineResult",
-    "LogicEngine",
     "LogicEngineError",
     "LogicEngineConfigurationError",
     "DuplicateLogicComponentError",
     "UnknownLogicComponentError",
     "LogicDependencyError",
     "LogicCycleError",
+    "LogicConnectionError",
+    "DuplicateLogicConnectionError",
     "LogicEvaluationError",
     "LogicSignalError",
     "LogicStateUpdateError",
