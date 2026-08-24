@@ -37,7 +37,7 @@ The handler resolves those identifiers against canonical Network
 state before invoking ModelService.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from types import MappingProxyType
 from typing import Any
@@ -349,7 +349,7 @@ def __init__(
 
 # ============================================================
 
-**all** = [
+__all__ = [
 "CREATE_BUS",
 "DELETE_BUS",
 "CREATE_LINE",
