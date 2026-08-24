@@ -1,7 +1,9 @@
 # ============================================================
 # File: core/application/results.py
 # GridForge V2 — Application Result Contract
+# Author: Subhendu Mishra
 # ============================================================
+
 """
 GridForge V2
 ============
@@ -52,22 +54,14 @@ Python Compatibility
 --------------------
 GridForge V2 supports Python 3.10 and Python 3.11.
 
-Therefore this module intentionally does NOT use Python 3.12's
-PEP 695 generic class syntax:
-
-    class ApplicationResult[T]:
-
-Instead it uses:
-
-    TypeVar
-    Generic
-
-which is compatible with Python 3.10/3.11.
+Therefore this module intentionally uses TypeVar and Generic
+rather than Python 3.12 PEP 695 generic class syntax.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Generic, Mapping, TypeVar
 
 
@@ -76,6 +70,78 @@ from typing import Any, Generic, Mapping, TypeVar
 # =====================================================================
 
 T = TypeVar("T")
+
+
+# =====================================================================
+# IMMUTABILITY HELPERS
+# =====================================================================
+
+def _freeze_value(value: Any) -> Any:
+    """
+    Recursively convert common mutable containers into immutable forms.
+
+    Mapping
+        -> MappingProxyType
+
+    list / tuple
+        -> tuple
+
+    set / frozenset
+        -> frozenset
+
+    Other values
+        -> returned unchanged
+
+    Notes
+    -----
+    This provides defensive immutability for Application metadata.
+
+    It does not attempt to clone arbitrary user-defined objects.
+    Such objects should not be placed in metadata unless their own
+    immutability is guaranteed.
+    """
+
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {
+                key: _freeze_value(item)
+                for key, item in value.items()
+            }
+        )
+
+    if isinstance(value, (list, tuple)):
+        return tuple(
+            _freeze_value(item)
+            for item in value
+        )
+
+    if isinstance(value, (set, frozenset)):
+        return frozenset(
+            _freeze_value(item)
+            for item in value
+        )
+
+    return value
+
+
+def _freeze_mapping(
+    value: Mapping[str, Any] | None,
+) -> Mapping[str, Any] | None:
+    """
+    Return an immutable representation of a metadata mapping.
+    """
+
+    if value is None:
+        return None
+
+    frozen = _freeze_value(value)
+
+    if not isinstance(frozen, Mapping):
+        raise TypeError(
+            "ApplicationResult metadata must be a mapping."
+        )
+
+    return frozen
 
 
 # =====================================================================
@@ -122,8 +188,8 @@ class ApplicationResult(Generic[T]):
         * renderers;
         * canvas state.
 
-    A Core model object may be returned as ``value`` when that object
-    is the canonical result of the requested operation.
+    A canonical Core model object may be returned as ``value`` when
+    that object is the result of the requested Application operation.
     """
 
     success: bool
@@ -132,6 +198,23 @@ class ApplicationResult(Generic[T]):
     code: str = ""
     category: str = "success"
     metadata: Mapping[str, Any] | None = None
+
+    # =================================================================
+    # POST-INITIALIZATION
+    # =================================================================
+
+    def __post_init__(self) -> None:
+        """
+        Normalize metadata into an immutable representation.
+        """
+
+        frozen_metadata = _freeze_mapping(self.metadata)
+
+        object.__setattr__(
+            self,
+            "metadata",
+            frozen_metadata,
+        )
 
     # =================================================================
     # SUCCESS FACTORY
@@ -158,7 +241,7 @@ class ApplicationResult(Generic[T]):
             Human-readable success message.
 
         code:
-            Stable success code.
+            Stable machine-readable success code.
 
         metadata:
             Optional structured result metadata.
@@ -170,46 +253,6 @@ class ApplicationResult(Generic[T]):
             message=message,
             code=code,
             category="success",
-            metadata=metadata,
-        )
-
-    # =================================================================
-    # COMPATIBILITY SUCCESS FACTORY
-    # =================================================================
-
-    @classmethod
-    def success(
-        cls,
-        *,
-        value: T | None = None,
-        message: str = "",
-        code: str = "OK",
-        metadata: Mapping[str, Any] | None = None,
-    ) -> "ApplicationResult[T]":
-        """
-        Construct a successful ApplicationResult.
-
-        This is the canonical convenience API used by Application
-        services.
-
-        Example
-        -------
-        ::
-
-            return ApplicationResult.success(
-                value=bus,
-                message="Bus created successfully.",
-                metadata={
-                    "operation": "create_bus",
-                    "element_id": bus.id,
-                },
-            )
-        """
-
-        return cls.success_result(
-            value=value,
-            message=message,
-            code=code,
             metadata=metadata,
         )
 
@@ -315,8 +358,11 @@ class ApplicationResult(Generic[T]):
         """
         Allow ApplicationResult to be evaluated as a boolean.
 
-        True  -> successful result
-        False -> failed result
+        True
+            Successful result.
+
+        False
+            Failed result.
         """
 
         return self.success
