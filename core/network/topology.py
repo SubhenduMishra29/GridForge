@@ -1,557 +1,486 @@
 # ============================================================
 # File: core/network/topology.py
-# GridForge V2 — Network Layer
+# GridForge V2 — Network Topology
+# Author: Subhendu Mishra
 # ============================================================
+
 """
-GridForge Network Layer V2
-==========================
+GridForge V2 Network Topology Manager.
 
-Topology Manager
-----------------
-
-Maintains the electrical connectivity graph of an assembled
-GridForge Network.
+The TopologyManager owns only the assembled-network topology view.
 
 Responsibilities
 ----------------
-- Build the network connectivity graph.
-- Represent buses as graph nodes.
-- Represent topology-forming branches as graph edges.
+- Build the electrical connectivity graph.
+- Resolve branch terminal endpoints to buses.
 - Respect element in-service state.
 - Determine electrical connectivity.
 - Detect electrical islands.
-- Support element open/close operations.
-- Support non-persistent outage simulation.
-- Provide topology diagnostics.
 
 Does NOT
 --------
-- Define electrical equipment models.
-- Perform power-flow calculations.
-- Build Y-bus numerical stamps.
-- Perform short-circuit calculations.
-- Perform protection calculations.
-- Perform dynamic simulation.
+- Own canonical model objects.
+- Register/remove network elements.
+- Own bus indexing.
+- Build Y-bus.
+- Perform electrical calculations.
+- Modify model objects.
 - Perform engineering validation.
-- Own canonical electrical objects.
+- Implement command/application workflows.
 
-Architecture
-------------
-
-    core/model/
-        Canonical electrical entities
-                |
-                v
-    core/network/
-        Network
-        TopologyManager
-        PerUnitSystem
-        YBusBuilder
-                |
-                v
-    core/analysis/
-        Study orchestration
-                |
-                v
-    core/solver/
-        Numerical algorithms
-
-
-Topology Principle
+Ownership boundary
 ------------------
-The topology manager operates on canonical objects already owned
-by the Network.
 
-It does not create replacement Bus, Line, Transformer, Breaker, or
-other electrical model objects.
+    Network
+        |
+        +-- NetworkRegistry
+        |       canonical membership
+        |
+        +-- BusIndex
+        |       bus.id -> matrix index
+        |
+        +-- NetworkState
+        |       derived-state validity
+        |
+        +-- TopologyManager
+        |       connectivity graph
+        |
+        +-- YBusBuilder
+                admittance matrix
 
+Terminal architecture
+---------------------
 
-Terminal Principle
-------------------
-The physical connection architecture is terminal-first.
+For branch equipment, terminal endpoints are authoritative.
 
-For topology-forming equipment, the authoritative endpoint is:
+    Line
+        from_terminal -> endpoint -> Bus
+        to_terminal   -> endpoint -> Bus
 
-    element.from_terminal.endpoint
-    element.to_terminal.endpoint
+    Transformer
+        from_terminal -> endpoint -> Bus
+        to_terminal   -> endpoint -> Bus
 
-The topology layer may use:
+The shared endpoint resolver is therefore used instead of
+duplicating terminal-resolution logic here.
 
-    terminal.bus
-
-only as a compatibility accessor after resolving the authoritative
-terminal endpoint.
-
-A Terminal endpoint may itself be another Terminal. In that case
-the Terminal compatibility accessor resolves the connected endpoint
-through the terminal chain.
-
-The topology manager therefore resolves the terminal endpoint first
-and only then determines the corresponding Network bus.
-
-This preserves the separation:
-
-    core/model
-        physical connection state
-
-    core/network
-        global electrical topology
-
-
-Graph Representation
---------------------
-A NetworkX MultiGraph is used because multiple physical electrical
-connections may exist between the same pair of buses.
-
-Nodes:
-
-    bus.id
-
-Edges:
-
-    Physical topology-forming network elements.
-
-Each edge stores:
-
-    element
-        Reference to the canonical model object.
-
-    type
-        Logical element type.
-
-
-Current V2 topology-forming branch classes are:
-
-    - Line
-    - Transformer
-
-Switching-device topology can be extended when the Network exposes
-those canonical switching elements to the topology layer.
-
-
-Service State
--------------
-Elements with:
-
-    in_service == False
-
-are excluded from the active topology graph.
-
-Network-level invalidation remains owned by Network. The topology
-manager maintains only the dirty state of its own derived graph.
-
-
-GridForge V2 Status
--------------------
-This module is part of the GridForge Network Layer V2
-audit/freeze baseline.
-
-Changes require evidence of a fundamental topology requirement
-that cannot be satisfied by the existing model, network, or
-analysis architecture.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+GridForge V2
 """
 
 from __future__ import annotations
 
-from typing import Any
+from collections import deque
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-import networkx as nx
+from .endpoint import resolve_terminal_bus
 
-
-# =====================================================================
-# TOPOLOGY MANAGER
-# =====================================================================
 
 class TopologyManager:
     """
-    Manage electrical connectivity for an assembled GridForge Network.
+    Build and query the electrical topology of a Network.
 
-    Parameters
-    ----------
-    network :
-        Owning GridForge Network instance.
-
-    Notes
-    -----
-    The manager maintains a derived graph.
-
-    The graph is never the source of truth for electrical equipment.
-
-    Canonical model objects remain owned by the Network/model layers.
-
-    Network-level state invalidation is owned by ``Network``.
+    The manager does not own the network elements. It creates a
+    derived connectivity graph from the canonical elements currently
+    registered on the Network.
     """
 
-    # =================================================================
+    # ============================================================
     # INITIALIZATION
-    # =================================================================
+    # ============================================================
 
-    def __init__(
-        self,
-        network: Any,
-    ) -> None:
-        """
-        Initialize the topology manager.
-        """
-
+    def __init__(self, network: Any) -> None:
         if network is None:
             raise ValueError(
-                "TopologyManager requires a Network instance."
+                "TopologyManager requires a Network."
             )
 
         self.network = network
 
-        # -------------------------------------------------------------
-        # MultiGraph is intentional.
+        # --------------------------------------------------------
+        # DERIVED GRAPH
         #
-        # Parallel lines/transformers between the same buses are
-        # electrically valid and must remain independently represented.
-        # -------------------------------------------------------------
+        # bus -> set of electrically connected buses
+        # --------------------------------------------------------
 
-        self.graph = nx.MultiGraph()
+        self._graph: Dict[Any, Set[Any]] = {}
 
-        # The graph is a derived representation.
-        self._dirty = True
+        # --------------------------------------------------------
+        # DERIVED BRANCH MAP
+        #
+        # (bus_a, bus_b) -> registered branch elements
+        #
+        # This is supplementary information and is not the
+        # authoritative network membership.
+        # --------------------------------------------------------
 
-    # =================================================================
-    # INTERNAL INVALIDATION
-    # =================================================================
-
-    def _invalidate(self) -> None:
-        """
-        Mark the derived topology graph as dirty.
-
-        Network-level invalidation is intentionally NOT performed here.
-
-        The Network owns network-wide invalidation because topology
-        changes can invalidate other derived representations such as
-        Y-bus.
-        """
+        self._edges: Dict[
+            Tuple[Any, Any],
+            List[Any],
+        ] = {}
 
         self._dirty = True
 
-    # =================================================================
-    # GRAPH BUILD
-    # =================================================================
+    # ============================================================
+    # PROPERTIES
+    # ============================================================
 
-    def build(self) -> nx.MultiGraph:
+    @property
+    def graph(self) -> Dict[Any, Set[Any]]:
         """
-        Build and return the current electrical topology graph.
+        Return the currently built topology graph.
+
+        The returned graph is the manager's derived representation.
+        Call ``build()`` when the topology is dirty.
+        """
+
+        return self._graph
+
+    # ------------------------------------------------------------
+
+    @property
+    def edges(self) -> Dict[Tuple[Any, Any], List[Any]]:
+        """
+        Return the derived branch-edge mapping.
+        """
+
+        return self._edges
+
+    # ------------------------------------------------------------
+
+    @property
+    def dirty(self) -> bool:
+        """
+        Whether the topology graph requires rebuilding.
+        """
+
+        return self._dirty
+
+    # ============================================================
+    # INVALIDATION
+    # ============================================================
+
+    def invalidate(self) -> None:
+        """
+        Mark the topology graph as stale.
+
+        TopologyManager owns the validity of its own derived graph.
+
+        NetworkState separately tracks Network-level derived-state
+        validity.
+        """
+
+        self._dirty = True
+
+    # ============================================================
+    # BUILD
+    # ============================================================
+
+    def build(
+        self,
+    ) -> Dict[Any, Set[Any]]:
+        """
+        Build the electrical connectivity graph.
 
         Returns
         -------
-        networkx.MultiGraph
-            Derived electrical connectivity graph.
+        dict
+            Mapping:
+
+                Bus -> set(Bus)
 
         Notes
         -----
-        Only in-service topology-forming elements are included.
+        Only in-service topology-affecting branch elements are
+        included.
 
-        The method is idempotent while topology remains unchanged.
+        Currently supported branch families are:
+
+            - Line
+            - Transformer
+
+        Shunts, generators, and loads do not create bus-to-bus
+        connectivity edges.
         """
 
-        if not self._dirty:
-            return self.graph
+        graph: Dict[Any, Set[Any]] = {
+            bus: set()
+            for bus in self.network.buses
+        }
 
-        self.graph.clear()
+        edges: Dict[
+            Tuple[Any, Any],
+            List[Any],
+        ] = {}
 
-        # -------------------------------------------------------------
-        # BUS NODES
-        # -------------------------------------------------------------
-
-        for bus in self.network.buses:
-
-            if not hasattr(bus, "id"):
-                raise TypeError(
-                    "Every network bus must provide an 'id' attribute."
-                )
-
-            self.graph.add_node(
-                bus.id,
-                element=bus,
-                type="bus",
-            )
-
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
         # LINES
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
 
-        for line in getattr(
-            self.network,
-            "lines",
-            [],
-        ):
-            self._add_branch_edge(
+        for line in self.network.lines:
+
+            if not self._is_in_service(line):
+                continue
+
+            from_bus = self._resolve_branch_terminal(
                 line,
-                "line",
+                "from_terminal",
             )
 
-        # -------------------------------------------------------------
+            to_bus = self._resolve_branch_terminal(
+                line,
+                "to_terminal",
+            )
+
+            self._validate_registered_bus(
+                from_bus,
+                line,
+                "from_terminal",
+            )
+
+            self._validate_registered_bus(
+                to_bus,
+                line,
+                "to_terminal",
+            )
+
+            self._add_edge(
+                graph,
+                edges,
+                from_bus,
+                to_bus,
+                line,
+            )
+
+        # --------------------------------------------------------
         # TRANSFORMERS
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
 
-        for transformer in getattr(
-            self.network,
-            "transformers",
-            [],
-        ):
-            self._add_branch_edge(
+        for transformer in self.network.transformers:
+
+            if not self._is_in_service(transformer):
+                continue
+
+            from_bus = self._resolve_branch_terminal(
                 transformer,
-                "transformer",
+                "from_terminal",
             )
 
+            to_bus = self._resolve_branch_terminal(
+                transformer,
+                "to_terminal",
+            )
+
+            self._validate_registered_bus(
+                from_bus,
+                transformer,
+                "from_terminal",
+            )
+
+            self._validate_registered_bus(
+                to_bus,
+                transformer,
+                "to_terminal",
+            )
+
+            self._add_edge(
+                graph,
+                edges,
+                from_bus,
+                to_bus,
+                transformer,
+            )
+
+        self._graph = graph
+        self._edges = edges
         self._dirty = False
 
-        return self.graph
+        return self._graph
 
-    # =================================================================
-    # BRANCH ENDPOINT RESOLUTION
-    # =================================================================
+    # ============================================================
+    # BRANCH RESOLUTION
+    # ============================================================
 
-    @staticmethod
-    def _resolve_terminal_bus(
-        terminal: Any,
+    def _resolve_branch_terminal(
+        self,
         element: Any,
         terminal_name: str,
-        element_type: str,
     ) -> Any:
         """
-        Resolve the canonical Bus associated with a branch Terminal.
+        Resolve one branch terminal to its Bus.
 
-        Parameters
-        ----------
-        terminal :
-            Authoritative Terminal object.
-
-        element :
-            Owning branch model object.
-
-        terminal_name : str
-            Diagnostic terminal name, normally ``from_terminal`` or
-            ``to_terminal``.
-
-        element_type : str
-            Logical branch type.
-
-        Returns
-        -------
-        object
-            Bus-like endpoint.
+        Terminal resolution is delegated to the canonical endpoint
+        resolver.
 
         Raises
         ------
-        AttributeError
-            If the branch does not expose the required Terminal or
-            if the terminal has no connected endpoint.
-
         ValueError
-            If the terminal endpoint cannot be resolved to a Bus-like
-            object.
-
-        Notes
-        -----
-        ``terminal.endpoint`` is the authoritative physical
-        connection reference.
-
-        ``terminal.bus`` is used only after validating that the
-        terminal exists and is connected.
-
-        This method deliberately does not import the concrete Bus
-        class. The Network/Topology layer operates against the
-        existing Bus-like contract.
+            If the terminal is absent or cannot resolve to a Bus.
         """
 
+        terminal = getattr(
+            element,
+            terminal_name,
+            None,
+        )
+
         if terminal is None:
-            raise AttributeError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"must provide a '{terminal_name}' Terminal."
-            )
-
-        if not hasattr(
-            terminal,
-            "endpoint",
-        ):
-            raise AttributeError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"has an invalid '{terminal_name}' Terminal: "
-                "missing endpoint."
-            )
-
-        endpoint = getattr(
-            terminal,
-            "endpoint",
-            None,
-        )
-
-        if endpoint is None:
             raise ValueError(
-                f"{element_type.capitalize()} "
+                f"{type(element).__name__} "
                 f"'{getattr(element, 'id', element)}' "
-                f"has a disconnected '{terminal_name}' Terminal."
+                f"does not provide '{terminal_name}'."
             )
 
-        # -------------------------------------------------------------
-        # Authoritative terminal endpoint has been established.
-        #
-        # The Terminal model already provides the compatibility
-        # resolution through terminal.bus, including the case where
-        # endpoint is another Terminal.
-        # -------------------------------------------------------------
-
-        bus = getattr(
-            terminal,
-            "bus",
-            None,
-        )
+        bus = resolve_terminal_bus(terminal)
 
         if bus is None:
             raise ValueError(
-                f"{element_type.capitalize()} "
+                f"{type(element).__name__} "
                 f"'{getattr(element, 'id', element)}' "
-                f"'{terminal_name}' Terminal endpoint "
-                "does not resolve to a Bus."
-            )
-
-        if not hasattr(
-            bus,
-            "id",
-        ):
-            raise AttributeError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"'{terminal_name}' Terminal resolved to an "
-                "endpoint without an 'id' attribute."
+                f"terminal '{terminal_name}' does not resolve "
+                "to a Bus."
             )
 
         return bus
 
-    # =================================================================
-    # BRANCH GRAPH SUPPORT
-    # =================================================================
+    # ============================================================
+    # EDGE CONSTRUCTION
+    # ============================================================
 
-    def _add_branch_edge(
-        self,
+    @staticmethod
+    def _add_edge(
+        graph: Dict[Any, Set[Any]],
+        edges: Dict[Tuple[Any, Any], List[Any]],
+        bus_a: Any,
+        bus_b: Any,
         element: Any,
-        element_type: str,
     ) -> None:
         """
-        Add a topology-forming branch to the graph.
+        Add an undirected electrical branch edge.
 
-        Parameters
-        ----------
-        element :
-            Canonical branch-like model object.
+        Topology is treated as an undirected connectivity graph.
 
-        element_type : str
-            Logical topology element type.
-
-        Notes
-        -----
-        Elements that are out of service are ignored.
-
-        Branch endpoints are resolved from the authoritative
-        Terminal objects:
-
-            element.from_terminal.endpoint
-            element.to_terminal.endpoint
-
-        The topology graph remains bus-centric.
-
-        A branch whose endpoints are identical is ignored because it
-        does not provide inter-bus connectivity.
-
-        Missing or unresolved endpoints are structural errors because
-        topology cannot be constructed safely without them.
+        A branch connecting a bus to itself is retained as an
+        element edge but does not create a second graph node.
         """
 
-        if not getattr(
-            element,
-            "in_service",
-            True,
-        ):
-            return
+        graph.setdefault(bus_a, set())
+        graph.setdefault(bus_b, set())
 
-        # -------------------------------------------------------------
-        # AUTHORITATIVE TERMINAL ENDPOINTS
-        # -------------------------------------------------------------
+        graph[bus_a].add(bus_b)
+        graph[bus_b].add(bus_a)
 
-        from_terminal = getattr(
-            element,
-            "from_terminal",
-            None,
+        key = TopologyManager._edge_key(
+            bus_a,
+            bus_b,
         )
 
-        to_terminal = getattr(
-            element,
-            "to_terminal",
-            None,
-        )
+        edges.setdefault(
+            key,
+            [],
+        ).append(element)
 
-        from_bus = self._resolve_terminal_bus(
-            from_terminal,
-            element,
-            "from_terminal",
-            element_type,
-        )
+    # ------------------------------------------------------------
 
-        to_bus = self._resolve_terminal_bus(
-            to_terminal,
-            element,
-            "to_terminal",
-            element_type,
-        )
+    @staticmethod
+    def _edge_key(
+        bus_a: Any,
+        bus_b: Any,
+    ) -> Tuple[Any, Any]:
+        """
+        Produce a deterministic undirected edge key.
 
-        # -------------------------------------------------------------
-        # BUS IDENTIFIERS
-        # -------------------------------------------------------------
+        Bus IDs are used only for deterministic ordering of the
+        derived edge dictionary. Bus object identity remains the
+        graph node identity.
+        """
 
-        u = from_bus.id
-        v = to_bus.id
+        id_a = getattr(bus_a, "id", None)
+        id_b = getattr(bus_b, "id", None)
 
-        # -------------------------------------------------------------
-        # Ignore self-connections.
-        # -------------------------------------------------------------
+        try:
+            if id_a <= id_b:
+                return bus_a, bus_b
+            return bus_b, bus_a
 
-        if u == v:
-            return
+        except TypeError:
+            # Mixed/non-orderable ID types are legal at the topology
+            # layer. Fall back to stable string representations.
+            if str(id_a) <= str(id_b):
+                return bus_a, bus_b
 
-        # -------------------------------------------------------------
-        # Ensure endpoints actually exist in the network graph.
-        # -------------------------------------------------------------
+            return bus_b, bus_a
 
-        if u not in self.graph:
+    # ============================================================
+    # BUS VALIDATION
+    # ============================================================
+
+    def _validate_registered_bus(
+        self,
+        bus: Any,
+        element: Any,
+        terminal_name: str,
+    ) -> None:
+        """
+        Ensure a resolved endpoint belongs to this Network.
+
+        This is a structural topology check, not engineering
+        validation.
+        """
+
+        if bus not in self.network.buses:
             raise ValueError(
-                f"{element_type.capitalize()} "
+                f"{type(element).__name__} "
                 f"'{getattr(element, 'id', element)}' "
-                f"references unregistered from_bus '{u}'."
+                f"terminal '{terminal_name}' resolves to Bus "
+                f"'{getattr(bus, 'id', bus)}', which is not "
+                "registered on this Network."
             )
 
-        if v not in self.graph:
-            raise ValueError(
-                f"{element_type.capitalize()} "
-                f"'{getattr(element, 'id', element)}' "
-                f"references unregistered to_bus '{v}'."
+    # ============================================================
+    # SERVICE STATE
+    # ============================================================
+
+    @staticmethod
+    def _is_in_service(
+        element: Any,
+    ) -> bool:
+        """
+        Return whether an element participates in topology.
+
+        Missing ``in_service`` is treated as active for compatibility
+        with model objects that do not expose an explicit service
+        state.
+
+        This method does not modify the element.
+        """
+
+        return bool(
+            getattr(
+                element,
+                "in_service",
+                True,
             )
-
-        # -------------------------------------------------------------
-        # MultiGraph preserves parallel physical connections.
-        # -------------------------------------------------------------
-
-        self.graph.add_edge(
-            u,
-            v,
-            element=element,
-            type=element_type,
         )
 
-    # =================================================================
+    # ============================================================
+    # ENSURE
+    # ============================================================
+
+    def ensure_built(
+        self,
+    ) -> Dict[Any, Set[Any]]:
+        """
+        Return a valid topology graph, rebuilding when necessary.
+        """
+
+        if self._dirty:
+            return self.build()
+
+        return self._graph
+
+    # ============================================================
     # CONNECTIVITY
-    # =================================================================
+    # ============================================================
 
     def is_connected(
         self,
@@ -559,331 +488,333 @@ class TopologyManager:
         bus_b: Any,
     ) -> bool:
         """
-        Determine whether two buses are electrically connected.
+        Determine whether two buses belong to the same electrical
+        connectivity component.
 
         Parameters
         ----------
-        bus_a :
-            Bus object or bus ID.
-
-        bus_b :
-            Bus object or bus ID.
+        bus_a, bus_b
+            Canonical Bus objects registered on the Network.
 
         Returns
         -------
         bool
             True when a path exists between the two buses.
 
-        Raises
-        ------
-        KeyError
-            If either bus is not present in the topology graph.
+        Notes
+        -----
+        Connectivity is topological only. It does not determine
+        electrical operating conditions, power flow, voltage, or
+        stability.
         """
 
-        self.build()
-
-        a = (
-            bus_a.id
-            if hasattr(
-                bus_a,
-                "id",
-            )
-            else bus_a
+        self._require_registered_bus(
+            bus_a,
+            "bus_a",
         )
 
-        b = (
-            bus_b.id
-            if hasattr(
-                bus_b,
-                "id",
-            )
-            else bus_b
+        self._require_registered_bus(
+            bus_b,
+            "bus_b",
         )
 
-        if a not in self.graph:
-            raise KeyError(
-                f"Unknown topology bus: {a}"
-            )
+        if bus_a is bus_b:
+            return True
 
-        if b not in self.graph:
-            raise KeyError(
-                f"Unknown topology bus: {b}"
-            )
+        graph = self.ensure_built()
 
-        return nx.has_path(
-            self.graph,
-            a,
-            b,
-        )
+        visited: Set[Any] = set()
+        queue = deque([bus_a])
 
-    # =================================================================
+        visited.add(bus_a)
+
+        while queue:
+
+            current = queue.popleft()
+
+            for neighbour in graph.get(
+                current,
+                set(),
+            ):
+
+                if neighbour is bus_b:
+                    return True
+
+                if neighbour not in visited:
+
+                    visited.add(neighbour)
+                    queue.append(neighbour)
+
+        return False
+
+    # ============================================================
     # ISLAND DETECTION
-    # =================================================================
+    # ============================================================
 
     def find_islands(
         self,
-    ) -> list[list[Any]]:
+    ) -> List[Set[Any]]:
         """
-        Return the electrical islands in the current topology.
+        Return the electrical connectivity islands.
 
-        Returns
-        -------
-        list[list]
-            Each inner list contains bus IDs belonging to one
-            connected electrical island.
+        Each island is represented as a set of canonical Bus objects.
 
-        Notes
-        -----
-        Isolated buses are valid islands consisting of one bus.
+        Isolated buses are valid one-bus islands.
         """
 
-        self.build()
+        graph = self.ensure_built()
 
-        return [
-            list(component)
-            for component in nx.connected_components(
-                self.graph
-            )
-        ]
+        islands: List[Set[Any]] = []
+        visited: Set[Any] = set()
 
-    # =================================================================
-    # ISLANDING CHECK
-    # =================================================================
+        # --------------------------------------------------------
+        # Preserve Network bus ordering when discovering islands.
+        # --------------------------------------------------------
 
-    def has_islanding(
-        self,
-    ) -> bool:
+        for bus in self.network.buses:
+
+            if bus in visited:
+                continue
+
+            island: Set[Any] = set()
+
+            queue = deque([bus])
+            visited.add(bus)
+
+            while queue:
+
+                current = queue.popleft()
+
+                island.add(current)
+
+                for neighbour in graph.get(
+                    current,
+                    set(),
+                ):
+
+                    if neighbour not in visited:
+
+                        visited.add(neighbour)
+                        queue.append(neighbour)
+
+            islands.append(island)
+
+        return islands
+
+    # ============================================================
+    # ISLAND COUNT
+    # ============================================================
+
+    def island_count(self) -> int:
         """
-        Return True when the network contains more than one island.
+        Return the number of electrical islands.
         """
 
         return len(
             self.find_islands()
-        ) > 1
-
-    # =================================================================
-    # ELEMENT STATUS
-    # =================================================================
-
-    def open_element(
-        self,
-        element: Any,
-    ) -> None:
-        """
-        Open a topology-forming element.
-
-        Parameters
-        ----------
-        element :
-            Canonical network element.
-
-        Notes
-        -----
-        This changes the element's service state and invalidates the
-        topology graph.
-
-        For network-wide derived-state invalidation, callers should
-        prefer ``Network.set_element_status()`` when operating through
-        the Network API.
-        """
-
-        self._validate_service_state_element(
-            element
         )
 
-        element.in_service = False
+    # ============================================================
+    # CONNECTED COMPONENT
+    # ============================================================
 
-        self._invalidate()
-
-    # -----------------------------------------------------------------
-
-    def close_element(
+    def connected_component(
         self,
-        element: Any,
-    ) -> None:
+        bus: Any,
+    ) -> Set[Any]:
         """
-        Close a topology-forming element.
-
-        Parameters
-        ----------
-        element :
-            Canonical network element.
-
-        Notes
-        -----
-        This changes the element's service state and invalidates the
-        topology graph.
-
-        For network-wide derived-state invalidation, callers should
-        prefer ``Network.set_element_status()`` when operating through
-        the Network API.
+        Return the complete electrical island containing ``bus``.
         """
 
-        self._validate_service_state_element(
-            element
+        self._require_registered_bus(
+            bus,
+            "bus",
         )
 
-        element.in_service = True
+        graph = self.ensure_built()
 
-        self._invalidate()
+        component: Set[Any] = set()
+        queue = deque([bus])
 
-    # -----------------------------------------------------------------
+        component.add(bus)
 
-    @staticmethod
-    def _validate_service_state_element(
-        element: Any,
+        while queue:
+
+            current = queue.popleft()
+
+            for neighbour in graph.get(
+                current,
+                set(),
+            ):
+
+                if neighbour not in component:
+
+                    component.add(neighbour)
+                    queue.append(neighbour)
+
+        return component
+
+    # ============================================================
+    # BRANCH QUERY
+    # ============================================================
+
+    def branches_between(
+        self,
+        bus_a: Any,
+        bus_b: Any,
+    ) -> List[Any]:
+        """
+        Return registered in-service branch elements connecting
+        ``bus_a`` and ``bus_b``.
+
+        The returned list is a copy and does not expose internal
+        topology state for mutation.
+        """
+
+        self._require_registered_bus(
+            bus_a,
+            "bus_a",
+        )
+
+        self._require_registered_bus(
+            bus_b,
+            "bus_b",
+        )
+
+        self.ensure_built()
+
+        key = self._edge_key(
+            bus_a,
+            bus_b,
+        )
+
+        return list(
+            self._edges.get(
+                key,
+                [],
+            )
+        )
+
+    # ============================================================
+    # NEIGHBOURS
+    # ============================================================
+
+    def neighbours(
+        self,
+        bus: Any,
+    ) -> Set[Any]:
+        """
+        Return the buses directly connected to ``bus``.
+        """
+
+        self._require_registered_bus(
+            bus,
+            "bus",
+        )
+
+        graph = self.ensure_built()
+
+        return set(
+            graph.get(
+                bus,
+                set(),
+            )
+        )
+
+    # ============================================================
+    # DEGREE
+    # ============================================================
+
+    def degree(
+        self,
+        bus: Any,
+    ) -> int:
+        """
+        Return the topological degree of a bus.
+        """
+
+        return len(
+            self.neighbours(bus)
+        )
+
+    # ============================================================
+    # REGISTERED BUS CHECK
+    # ============================================================
+
+    def _require_registered_bus(
+        self,
+        bus: Any,
+        argument_name: str,
     ) -> None:
         """
-        Validate that an element exposes an in-service state.
+        Ensure a supplied Bus belongs to the Network.
         """
 
-        if element is None:
+        if bus is None:
             raise ValueError(
-                "Element cannot be None."
+                f"{argument_name} cannot be None."
             )
 
-        if not hasattr(
-            element,
-            "in_service",
-        ):
-            raise AttributeError(
-                "Element does not provide an "
-                "'in_service' state."
+        if bus not in self.network.buses:
+            raise ValueError(
+                f"{argument_name} "
+                f"'{getattr(bus, 'id', bus)}' "
+                "is not registered on this Network."
             )
 
-    # =================================================================
-    # CONTINGENCY SUPPORT
-    # =================================================================
+    # ============================================================
+    # CLEAR
+    # ============================================================
 
-    def simulate_outage(
+    def clear(
         self,
-        element: Any,
-    ) -> dict[str, Any]:
+    ) -> None:
         """
-        Simulate a temporary element outage.
+        Discard the derived topology graph.
 
-        Parameters
-        ----------
-        element :
-            Canonical network element.
-
-        Returns
-        -------
-        dict
-            Outage diagnostic information containing:
-
-                element
-                islanded
-                islands
-
-        Notes
-        -----
-        The original element service state is always restored.
-
-        This method does not permanently modify network topology.
-
-        Numerical contingency studies should normally use the
-        appropriate analysis layer rather than relying on this
-        convenience method for complete study execution.
+        Network membership is untouched.
         """
 
-        self._validate_service_state_element(
-            element
-        )
+        self._graph = {}
+        self._edges = {}
+        self._dirty = True
 
-        original_state = bool(
-            element.in_service
-        )
-
-        try:
-            element.in_service = False
-
-            self._invalidate()
-
-            islands = self.find_islands()
-
-            return {
-                "element": getattr(
-                    element,
-                    "name",
-                    getattr(
-                        element,
-                        "id",
-                        str(element),
-                    ),
-                ),
-                "islanded": len(islands) > 1,
-                "islands": islands,
-            }
-
-        finally:
-            # ---------------------------------------------------------
-            # Always restore the original canonical model state.
-            # ---------------------------------------------------------
-
-            element.in_service = original_state
-
-            self._invalidate()
-
-            # Rebuild immediately so the manager does not retain
-            # a temporary outage graph after returning.
-            self.build()
-
-    # =================================================================
-    # GRAPH ACCESS
-    # =================================================================
-
-    def get_graph(
-        self,
-    ) -> nx.MultiGraph:
-        """
-        Return the current derived topology graph.
-
-        The graph is rebuilt automatically when topology is dirty.
-        """
-
-        return self.build()
-
-    # =================================================================
+    # ============================================================
     # SUMMARY
-    # =================================================================
+    # ============================================================
 
-    def summary(
-        self,
-    ) -> dict[str, Any]:
+    def summary(self) -> Dict[str, Any]:
         """
-        Return concise topology diagnostics.
+        Return a concise topology summary.
         """
 
-        self.build()
+        graph = self.ensure_built()
+
+        edge_count = sum(
+            len(neighbours)
+            for neighbours in graph.values()
+        ) // 2
 
         return {
-            "buses": self.graph.number_of_nodes(),
-            "connections": self.graph.number_of_edges(),
-            "islands": nx.number_connected_components(
-                self.graph
-            ),
+            "buses": len(graph),
+            "edges": edge_count,
+            "islands": self.island_count(),
             "dirty": self._dirty,
         }
 
-    # =================================================================
+    # ============================================================
     # REPRESENTATION
-    # =================================================================
+    # ============================================================
 
-    def __repr__(
-        self,
-    ) -> str:
+    def __repr__(self) -> str:
         """
         Return a concise developer-facing representation.
         """
 
-        self.build()
-
         return (
-            f"<TopologyManager "
-            f"buses={self.graph.number_of_nodes()}, "
-            f"connections={self.graph.number_of_edges()}, "
-            f"islands="
-            f"{nx.number_connected_components(self.graph)}, "
-            f"dirty={self._dirty}>"
+            f"TopologyManager("
+            f"buses={len(self._graph)}, "
+            f"edges={sum(len(v) for v in self._graph.values()) // 2}, "
+            f"dirty={self._dirty}"
+            f")"
         )
