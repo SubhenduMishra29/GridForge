@@ -1,70 +1,83 @@
 # ============================================================
+
 # File: core/application/bootstrap.py
+
 # GridForge V2 — Headless Application Composition Root
+
 # Author: Subhendu Mishra
+
 # ============================================================
 
 """
-GridForge V2
-============
+GridForge V2 Application Composition Root.
 
-Module:
-    core.application.bootstrap
+This module constructs the complete headless Application runtime.
 
-Purpose
--------
-Constructs the headless Application runtime around the canonical
-Core Network.
+## Composition
 
-Composition
------------
+```
+Core Network
+     |
+     v
+ApplicationContext
+     |
+     v
+CommandManager
+     |
+     +----------------------+
+     |                      |
+     v                      v
+Model Handlers          CommandHistory
+     |
+     v
+ModelService
+     |
+     v
+    Core
+```
 
-    Core Network
-         |
-         v
-    ApplicationContext
-         |
-         v
-    CommandManager
-         |
-         +--------------------+
-         |                    |
-         v                    v
-    Model Handlers       Command History
-         |
-         v
-    ModelService
-         |
-         v
-        Core
+## Responsibilities
 
-Architectural Responsibility
-----------------------------
-This module is the Composition Root for the headless Application.
-
-It is responsible only for wiring already-defined components.
+The Composition Root owns wiring only.
 
 It does NOT:
 
-    * construct domain models;
-    * construct the Core Network;
-    * mutate Network;
-    * execute domain logic;
-    * manipulate topology;
-    * access Qt;
-    * access UI state;
-    * manage plugins;
-    * define the Application façade.
+```
+* construct domain models;
+* mutate Network;
+* execute commands;
+* implement business logic;
+* manipulate topology;
+* build Y-bus;
+* access Qt;
+* access UI;
+* manage plugins.
+```
 
-The canonical Application façade is defined in
-``core.application.application``.
+## Application ownership
 
-Python Compatibility
---------------------
-Python 3.10 / 3.11.
+The Application façade owns the configured CommandManager.
+
+The Core Network remains externally supplied.
+
+Therefore:
+
+```
+Application
+    owns
+        CommandManager
+            owns
+                ApplicationContext reference
+                CommandHistory
+                command registrations
+
+Core Network
+    remains canonical Core state
+```
+
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 from typing import Any
 
@@ -73,88 +86,86 @@ from .command_handlers import register_model_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
 
+# ============================================================
 
-# =====================================================================
 # APPLICATION FACTORY
-# =====================================================================
+
+# ============================================================
 
 def create_application(
-    network: Any,
+network: Any,
 ) -> Application:
-    """
-    Construct the canonical headless GridForge Application.
+"""
+Construct the canonical headless GridForge Application.
 
-    Parameters
-    ----------
-    network:
-        Already-created canonical Core Network.
+```
+Parameters
+----------
+network:
+    Already-created canonical Core Network.
 
-        The Application layer does not construct the Network.
-        Ownership of the Network remains outside the Composition Root.
+Returns
+-------
+Application
+    Fully composed headless Application façade.
 
-    Returns
-    -------
-    Application
-        Fully composed headless Application runtime.
+Composition order
+-----------------
 
-    Composition order
-    -----------------
-    1. Construct ApplicationContext around the canonical Network.
-    2. Construct CommandManager with that context.
-    3. Register canonical model handlers.
-    4. Return the canonical Application façade.
+1. Validate the supplied Network.
+2. Construct ApplicationContext.
+3. Construct CommandManager.
+4. Register all canonical model handlers.
+5. Construct Application façade.
 
-    Notes
-    -----
-    The returned object is the single Application façade defined by
-    ``core.application.application``.
+The Application façade receives only CommandManager because
+CommandManager already owns the Application execution context.
+"""
 
-    No duplicate Application implementation exists in this module.
-    """
-
-    if network is None:
-        raise ValueError(
-            "network must not be None."
-        )
-
-    # ---------------------------------------------------------------
-    # 1. Application Context
-    # ---------------------------------------------------------------
-
-    context = ApplicationContext(
-        network=network,
+if network is None:
+    raise ValueError(
+        "network must not be None."
     )
 
-    # ---------------------------------------------------------------
-    # 2. Command Manager
-    # ---------------------------------------------------------------
+# --------------------------------------------------------
+# Application Context
+# --------------------------------------------------------
 
-    command_manager = CommandManager(
-        context,
-    )
+context = ApplicationContext(
+    network=network,
+)
 
-    # ---------------------------------------------------------------
-    # 3. Register canonical model handlers
-    # ---------------------------------------------------------------
+# --------------------------------------------------------
+# Command Manager
+# --------------------------------------------------------
 
-    register_model_handlers(
-        command_manager,
-    )
+command_manager = CommandManager(
+    context=context,
+)
 
-    # ---------------------------------------------------------------
-    # 4. Construct the canonical Application façade
-    # ---------------------------------------------------------------
+# --------------------------------------------------------
+# Canonical model handlers
+# --------------------------------------------------------
 
-    return Application(
-        context=context,
-        command_manager=command_manager,
-    )
+register_model_handlers(
+    command_manager,
+)
 
+# --------------------------------------------------------
+# Public Application façade
+# --------------------------------------------------------
 
-# =====================================================================
+return Application(
+    command_manager=command_manager,
+)
+```
+
+# ============================================================
+
 # PUBLIC API
-# =====================================================================
 
-__all__ = [
-    "create_application",
+# ============================================================
+
+**all** = [
+"create_application",
 ]
