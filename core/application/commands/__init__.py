@@ -1,96 +1,110 @@
 # ============================================================
-# File: core/application/commands/__init__.py
+
+# File: core/application/commands/**init**.py
+
 # GridForge V2 — Headless Application Commands
+
+# Author: Subhendu Mishra
+
 # ============================================================
+
 """
-GridForge V2
-============
+GridForge V2 Headless Application Commands.
 
-Package:
-    core.application.commands
+This package contains immutable Application command contracts.
 
-Purpose
--------
-Public Application command boundary.
+Commands represent requested intent only.
 
-Concrete commands represent explicit Application intent.
+They do NOT:
 
-Commands:
+```
+* mutate Core;
+* mutate Network;
+* manipulate topology;
+* manipulate terminals;
+* execute Application Services;
+* access Qt;
+* access UI;
+* access graphics objects.
+```
 
-    CreateBusCommand
-    DeleteBusCommand
-    CreateLineCommand
-    DeleteLineCommand
+## Execution path
 
-Architectural flow
-------------------
+```
+External Consumer
+      |
+      v
+   Command
+      |
+      v
+CommandManager
+      |
+      v
+   Handler
+      |
+      v
+Application Service
+      |
+      v
+  Core Public API
+```
 
-    UI / Plugin / Automation
-              |
-              v
-       Application Command
-              |
-              v
-       CommandManager
-              |
-              v
-       Application Handler
-              |
-              v
-       Application Service
-              |
-              v
-             Core
+## Current canonical model commands
 
-Commands do NOT:
+```
+model.create_bus
+model.delete_bus
 
-    * mutate Core;
-    * mutate Network;
-    * manipulate topology;
-    * access Qt;
-    * access graphics objects;
-    * execute services.
+model.create_line
+model.delete_line
 
-The command package is therefore a transportable Application
-intent boundary.
+model.create_transformer
+model.delete_transformer
+```
 
-Current model commands
-----------------------
+## Endpoint rule
 
-    model.create_bus
-    model.delete_bus
-    model.create_line
-    model.delete_line
+Line and Transformer creation commands carry endpoint identifiers,
+not Core endpoint objects.
 
-The corresponding handlers are registered through the
-Application composition boundary.
+The current Application boundary resolves these identifiers against
+canonical Network Bus IDs inside the command handler.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 from .model_commands import (
-    CREATE_BUS,
-    CREATE_LINE,
-    DELETE_BUS,
-    DELETE_LINE,
-    CreateBusCommand,
-    CreateLineCommand,
-    DeleteBusCommand,
-    DeleteLineCommand,
+CREATE_BUS,
+DELETE_BUS,
+CREATE_LINE,
+DELETE_LINE,
+CREATE_TRANSFORMER,
+DELETE_TRANSFORMER,
+CreateBusCommand,
+DeleteBusCommand,
+CreateLineCommand,
+DeleteLineCommand,
+CreateTransformerCommand,
+DeleteTransformerCommand,
 )
 
+# ============================================================
 
-# =====================================================================
 # PUBLIC API
-# =====================================================================
 
-__all__ = [
-    "CREATE_BUS",
-    "DELETE_BUS",
-    "CREATE_LINE",
-    "DELETE_LINE",
-    "CreateBusCommand",
-    "DeleteBusCommand",
-    "CreateLineCommand",
-    "DeleteLineCommand",
+# ============================================================
+
+**all** = [
+"CREATE_BUS",
+"DELETE_BUS",
+"CREATE_LINE",
+"DELETE_LINE",
+"CREATE_TRANSFORMER",
+"DELETE_TRANSFORMER",
+"CreateBusCommand",
+"DeleteBusCommand",
+"CreateLineCommand",
+"DeleteLineCommand",
+"CreateTransformerCommand",
+"DeleteTransformerCommand",
 ]
