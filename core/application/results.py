@@ -1,196 +1,161 @@
 # ============================================================
 
-# File: core/application/errors.py
+# File: core/application/results.py
 
-# GridForge V2 — Headless Application Errors
+# GridForge V2 — Application Result Contract
 
 # Author: Subhendu Mishra
 
 # ============================================================
 
 """
-GridForge V2 Headless Application Error Contract.
+GridForge V2 Application Result Contract.
 
-Application errors are structured exceptions crossing the
-headless Application boundary.
+ApplicationResult is the successful-result value object exchanged
+between Application Services, Command Handlers, CommandManager,
+and the public Application façade.
 
-## Hierarchy
+The failure contract is exception-based.
+
+## Successful operation
 
 ```
+Application Service
+      |
+      v
+ApplicationResult[T]
+      |
+      +-- success
+      +-- value
+      +-- message
+      +-- metadata
+      |
+      v
+Command Handler
+      |
+      v
+Transaction / History
+```
+
+## Expected Application failure
+
+```
+Application Service
+      |
+      v
 ApplicationError
-    |
-    +-- ValidationError
-    +-- DomainError
-    +-- ResourceError
-    +-- ExecutionError
+      |
+      +-- ValidationError
+      +-- ResourceError
+      +-- DomainError
+      +-- ExecutionError
 ```
 
-Application errors provide:
-
-```
-* stable machine-readable error codes;
-* human-readable diagnostics;
-* semantic categories;
-* immutable diagnostic details;
-* optional underlying causes.
-```
-
-Consumers must use `code` and `category` rather than parsing
-`message`.
-
-## Expected failures
-
-Expected validation, domain, resource, and execution failures may
-cross the Application boundary as ApplicationError subclasses.
-
-Unexpected programming errors must not be silently converted into
-ApplicationError.
+ApplicationResult therefore does not need to represent ordinary
+Application failures.
 
 ## Headless boundary
 
-This module must never depend on:
+This module must not depend on:
 
 ```
 * Qt;
 * PySide6;
-* PyQt5;
-* PyQt6;
+* PyQt;
 * UI;
 * SLD;
 * canvas;
-* rendering;
-* plugins.
+* renderers;
+* Core implementation details.
 ```
 
-## Immutability
+## Generic contract
 
-Error instances are immutable after construction.
+ApplicationResult[T] carries the canonical object returned by an
+Application Service.
 
-`details` is recursively converted to immutable Application
-values.
+Examples:
 
-`cause` is retained only for diagnostic exception chaining.
+```
+ApplicationResult[Bus]
+ApplicationResult[Line]
+ApplicationResult[Transformer]
+```
+
+The result value is intentionally not copied or transformed.
+The Application Service remains responsible for returning the
+canonical Core object.
+
+## Metadata
+
+Service metadata is exposed as an immutable mapping.
+
+Typical metadata includes:
+
+```
+operation
+element_id
+element_type
+```
+
+ApplicationResult does not interpret these values.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Generic, Mapping, TypeVar
+
+T = TypeVar("T")
 
 # ============================================================
 
-# IMMUTABILITY HELPERS
+# APPLICATION RESULT
 
 # ============================================================
 
-def _freeze_value(
-value: Any,
-) -> Any:
+@dataclass(frozen=True, slots=True)
+class ApplicationResult(Generic[T]):
 """
-Recursively freeze common mutable containers.
-"""
+Immutable successful Application operation result.
 
 ```
-if isinstance(
-    value,
-    Mapping,
-):
-    return MappingProxyType(
-        {
-            key: _freeze_value(item)
-            for key, item in value.items()
-        }
-    )
+Parameters
+----------
+success:
+    Indicates whether the Application operation succeeded.
 
-if isinstance(
-    value,
-    (list, tuple),
-):
-    return tuple(
-        _freeze_value(item)
-        for item in value
-    )
+    Application services currently construct successful results
+    only, while expected failures are represented by
+    ApplicationError subclasses.
 
-if isinstance(
-    value,
-    (set, frozenset),
-):
-    return frozenset(
-        _freeze_value(item)
-        for item in value
-    )
+value:
+    Canonical Core object returned by the service.
 
-return value
-```
+message:
+    Human-readable description of the successful operation.
 
-def _freeze_mapping(
-value: Mapping[str, Any] | None,
-) -> Mapping[str, Any] | None:
-"""
-Freeze an optional diagnostic mapping.
+metadata:
+    Immutable auxiliary operation information.
 """
 
-```
-if value is None:
-    return None
-
-if not isinstance(
-    value,
-    Mapping,
-):
-    raise TypeError(
-        "ApplicationError details must be a mapping."
-    )
-
-return _freeze_value(value)
-```
-
-# ============================================================
-
-# BASE APPLICATION ERROR
-
-# ============================================================
-
-@dataclass(frozen=True)
-class ApplicationError(Exception):
-"""
-Base immutable Application-layer exception.
-"""
-
-```
-code: str
-
+success: bool
+value: T | None
 message: str
-
-category: str = "application"
-
-severity: str = "error"
-
-details: Mapping[str, Any] | None = None
-
-cause: BaseException | None = field(
-    default=None,
-    repr=False,
-    compare=False,
-)
+metadata: Mapping[str, Any]
 
 def __post_init__(self) -> None:
     """
-    Validate and freeze the error contract.
+    Normalize and defensively freeze result metadata.
     """
 
     if not isinstance(
-        self.code,
-        str,
+        self.success,
+        bool,
     ):
         raise TypeError(
-            "ApplicationError code must be a string."
-        )
-
-    if not self.code.strip():
-        raise ValueError(
-            "ApplicationError code must not be empty."
+            "ApplicationResult.success must be bool."
         )
 
     if not isinstance(
@@ -198,195 +163,118 @@ def __post_init__(self) -> None:
         str,
     ):
         raise TypeError(
-            "ApplicationError message must be a string."
+            "ApplicationResult.message must be str."
         )
 
-    if not self.message.strip():
-        raise ValueError(
-            "ApplicationError message must not be empty."
-        )
+    metadata = self.metadata
+
+    if metadata is None:
+        metadata = {}
 
     if not isinstance(
-        self.category,
-        str,
+        metadata,
+        Mapping,
     ):
         raise TypeError(
-            "ApplicationError category must be a string."
-        )
-
-    if not self.category.strip():
-        raise ValueError(
-            "ApplicationError category must not be empty."
-        )
-
-    if not isinstance(
-        self.severity,
-        str,
-    ):
-        raise TypeError(
-            "ApplicationError severity must be a string."
-        )
-
-    if not self.severity.strip():
-        raise ValueError(
-            "ApplicationError severity must not be empty."
+            "ApplicationResult.metadata must be a mapping."
         )
 
     object.__setattr__(
         self,
-        "code",
-        self.code.strip(),
-    )
-
-    object.__setattr__(
-        self,
-        "category",
-        self.category.strip(),
-    )
-
-    object.__setattr__(
-        self,
-        "severity",
-        self.severity.strip(),
-    )
-
-    object.__setattr__(
-        self,
-        "details",
-        _freeze_mapping(
-            self.details
+        "metadata",
+        MappingProxyType(
+            dict(metadata)
         ),
     )
 
-    # Exception.args is required for normal Python exception
-    # behaviour and traceback rendering.
-    Exception.__init__(
-        self,
-        self.message,
-    )
-```
+# ========================================================
+# SUCCESS FACTORY
+# ========================================================
 
-# ============================================================
-
-# VALIDATION ERROR
-
-# ============================================================
-
-class ValidationError(
-ApplicationError,
-):
-"""
-Invalid Application-level input.
-"""
-
-```
-def __init__(
-    self,
-    code: str,
-    message: str,
+@classmethod
+def success_result(
+    cls,
     *,
-    details: Mapping[str, Any] | None = None,
-) -> None:
+    value: T | None = None,
+    message: str = "",
+    metadata: Mapping[str, Any] | None = None,
+) -> ApplicationResult[T]:
+    """
+    Construct a successful ApplicationResult.
 
-    super().__init__(
-        code=code,
+    This is the canonical constructor used by Application
+    Services.
+
+    Parameters
+    ----------
+    value:
+        Canonical Core object produced by the operation.
+
+    message:
+        Human-readable operation description.
+
+    metadata:
+        Optional operation metadata.
+    """
+
+    if metadata is None:
+        metadata = {}
+
+    return cls(
+        success=True,
+        value=value,
         message=message,
-        category="validation",
-        details=details,
+        metadata=metadata,
     )
-```
 
-# ============================================================
+# ========================================================
+# SERVICE-COMPATIBLE FACTORY
+# ========================================================
 
-# DOMAIN ERROR
-
-# ============================================================
-
-class DomainError(
-ApplicationError,
-):
-"""
-Failure caused by a Core/domain engineering rule.
-"""
-
-```
-def __init__(
-    self,
-    code: str,
-    message: str,
+@classmethod
+def success(
+    cls,
     *,
-    details: Mapping[str, Any] | None = None,
-) -> None:
+    value: T | None = None,
+    message: str = "",
+    metadata: Mapping[str, Any] | None = None,
+) -> ApplicationResult[T]:
+    """
+    Canonical Application Service success factory.
 
-    super().__init__(
-        code=code,
+    ModelService uses this API when returning successful
+    operations.
+    """
+
+    return cls.success_result(
+        value=value,
         message=message,
-        category="domain",
-        details=details,
+        metadata=metadata,
     )
-```
 
-# ============================================================
+# ========================================================
+# CONVENIENCE ACCESS
+# ========================================================
 
-# RESOURCE ERROR
+def has_value(self) -> bool:
+    """
+    Return True when the result contains a value.
+    """
 
-# ============================================================
+    return self.value is not None
 
-class ResourceError(
-ApplicationError,
-):
-"""
-Failure caused by an unavailable or missing resource.
-"""
-
-```
-def __init__(
+def get_metadata(
     self,
-    code: str,
-    message: str,
-    *,
-    details: Mapping[str, Any] | None = None,
-) -> None:
+    key: str,
+    default: Any = None,
+) -> Any:
+    """
+    Read one metadata value without exposing a mutable mapping.
+    """
 
-    super().__init__(
-        code=code,
-        message=message,
-        category="resource",
-        details=details,
-    )
-```
-
-# ============================================================
-
-# EXECUTION ERROR
-
-# ============================================================
-
-class ExecutionError(
-ApplicationError,
-):
-"""
-Failure occurring while executing an Application operation.
-
-```
-``cause`` preserves the underlying exception for diagnostics.
-"""
-
-def __init__(
-    self,
-    code: str,
-    message: str,
-    *,
-    details: Mapping[str, Any] | None = None,
-    cause: BaseException | None = None,
-) -> None:
-
-    super().__init__(
-        code=code,
-        message=message,
-        category="execution",
-        details=details,
-        cause=cause,
+    return self.metadata.get(
+        key,
+        default,
     )
 ```
 
@@ -396,10 +284,6 @@ def __init__(
 
 # ============================================================
 
-**all** = [
-"ApplicationError",
-"ValidationError",
-"DomainError",
-"ResourceError",
-"ExecutionError",
+__all__ = [
+"ApplicationResult",
 ]
