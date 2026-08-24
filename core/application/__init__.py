@@ -24,7 +24,7 @@ External consumers include:
 * future headless integrations.
 ```
 
-The mutation path is:
+Canonical mutation path:
 
 ```
 External Consumer
@@ -58,7 +58,9 @@ The Application layer does not own:
 * numerical infrastructure.
 ```
 
-The package is completely headless and must not depend on:
+## Headless boundary
+
+The package must not depend on:
 
 ```
 * PySide6;
@@ -79,7 +81,9 @@ Only stable, intentionally public Application contracts are
 exported from this package root.
 
 Implementation and composition infrastructure must be imported
-from its concrete module:
+from its concrete module.
+
+The following remain intentionally internal at package-root level:
 
 ```
 CommandManager
@@ -111,7 +115,7 @@ This prevents the package root from becoming an implementation
 namespace and keeps the public Application contract stable.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from .application import Application
 from .command import Command
@@ -124,7 +128,7 @@ ExecutionError,
 )
 from .results import ApplicationResult
 
-**all** = [
+__all__ = [
 "Application",
 "Command",
 "ApplicationResult",
