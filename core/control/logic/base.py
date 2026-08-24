@@ -13,53 +13,45 @@ Purpose
 Defines the headless Core Control contract for discrete / logic-control
 components.
 
-The Logic Control branch supports:
+The Logic branch supports:
 
-    - AND / OR / NOT / XOR
+    - Boolean gates
     - contacts
     - coils
     - timers
     - latches
     - interlocks
-    - comparators
-    - sequences
     - future PLC / relay-style logic elements
 
-The visual logic-layout/editing canvas is a UI concern. This module
-contains no canvas, scene, node, port, graphics, or layout concepts.
+The UI logic-layout/editing canvas is deliberately outside this module.
 
-Architectural Boundary
-----------------------
-
-    UI Logic Canvas
-          |
-          | commands / DTOs
-          v
-    Application / Control orchestration
-          |
-          v
-    LogicControlComponent
-          |
-          +---- LogicState
-          |
-          +---- LogicInput / LogicOutput
-          |
-          v
-       ControlResult
-
-Rules
------
-1. Logic components are headless domain contracts.
+Architectural rules
+-------------------
+1. Logic components are headless domain components.
 2. Logic components do not access core/model directly.
 3. Logic components do not access the electrical network directly.
 4. Logic components do not import UI modules.
 5. Logic components do not import plugins.
 6. Logic evaluation is deterministic.
-7. Boolean signal truth remains Boolean.
+7. Boolean truth remains Boolean.
 8. Persistent logic state is explicit.
-9. State transitions are discrete; no numerical integration occurs.
-10. Components may report events, but event dispatch belongs outside
-    this module.
+9. Logic does not perform numerical integration.
+10. Events are reported as data; dispatch belongs outside Core Control.
+
+Common Control boundary
+-----------------------
+ControlComponent requires:
+
+    output(state, inputs, time) -> Outputs
+
+Logic components additionally expose:
+
+    evaluate_logic(state, inputs, time) -> LogicControlResult
+
+The adapter below satisfies the common ControlComponent contract without
+introducing UI or plugin dependencies.
+
+Authoritative logic evaluation remains ``evaluate_logic()``.
 """
 
 from __future__ import annotations
@@ -73,15 +65,13 @@ from typing import Any, Mapping, Sequence
 from ..base import (
     ControlComponent,
     ControlKind,
+    ControlSignal,
     ControlResult,
     Inputs,
     Outputs,
+    SignalRole,
     SignalValue,
     State,
-)
-from ..state import (
-    ControlState,
-    StateVariable,
 )
 
 
@@ -94,34 +84,24 @@ class LogicControlError(RuntimeError):
     """Base exception for Logic Control."""
 
 
-class LogicConfigurationError(
-    LogicControlError,
-):
-    """Invalid logic component configuration."""
+class LogicConfigurationError(LogicControlError):
+    """Invalid Logic Control configuration."""
 
 
-class LogicInputError(
-    LogicControlError,
-):
-    """Invalid logic input."""
+class LogicInputError(LogicControlError):
+    """Invalid Logic Control input."""
 
 
-class LogicOutputError(
-    LogicControlError,
-):
-    """Invalid logic output."""
+class LogicOutputError(LogicControlError):
+    """Invalid Logic Control output."""
 
 
-class LogicStateError(
-    LogicControlError,
-):
-    """Invalid logic state."""
+class LogicStateError(LogicControlError):
+    """Invalid Logic Control state."""
 
 
-class LogicEvaluationError(
-    LogicControlError,
-):
-    """Failure during logic evaluation."""
+class LogicEvaluationError(LogicControlError):
+    """Failure during Logic Control evaluation."""
 
 
 # ============================================================================
@@ -130,9 +110,7 @@ class LogicEvaluationError(
 
 
 class LogicEdge(str, Enum):
-    """
-    Edge semantics used by event-sensitive logic components.
-    """
+    """Discrete edge classification."""
 
     NONE = "none"
     RISING = "rising"
@@ -140,11 +118,7 @@ class LogicEdge(str, Enum):
 
 
 class LogicEventType(str, Enum):
-    """
-    Generic discrete event categories.
-
-    These are descriptors only. Event dispatch is outside this module.
-    """
+    """Discrete logic-event categories."""
 
     NONE = "none"
     RISING_EDGE = "rising_edge"
@@ -162,17 +136,16 @@ class LogicEventType(str, Enum):
 @dataclass(frozen=True)
 class LogicStateDefinition:
     """
-    Definition of one persistent logic state variable.
+    Definition of one persistent discrete logic state variable.
 
-    Logic state is intentionally separate from numerical dynamic state.
+    Examples:
 
-    Typical examples:
-
-        latched
-        previous_input
-        timer_active
+        energized
+        Q
+        running
         elapsed
-        counter
+        start_time
+        status
     """
 
     name: str
@@ -181,9 +154,7 @@ class LogicStateDefinition:
     description: str = ""
 
     def __post_init__(self) -> None:
-        name = str(
-            self.name
-        ).strip()
+        name = str(self.name).strip()
 
         if not name:
             raise LogicConfigurationError(
@@ -200,10 +171,11 @@ class LogicStateDefinition:
                 "bool, int, or float."
             )
 
-        _validate_logic_value(
+        _validate_value(
             name,
             self.default,
             self.value_type,
+            LogicStateError,
         )
 
         object.__setattr__(
@@ -223,7 +195,7 @@ class LogicEvent:
     """
     Immutable description of a discrete logic event.
 
-    The event is data only. The Control layer does not dispatch it.
+    Event dispatch is outside this module.
     """
 
     event_type: LogicEventType
@@ -258,50 +230,33 @@ class LogicEvent:
         except ValueError as exc:
             raise LogicConfigurationError(
                 f"Invalid logic event type: "
-                f"{self.event_type!r}"
+                f"{self.event_type!r}."
             ) from exc
 
-        try:
-            time = float(
-                self.time
-            )
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
-            raise LogicConfigurationError(
-                "Logic event time must be numeric."
-            ) from exc
-
-        if not math.isfinite(time):
-            raise LogicConfigurationError(
-                "Logic event time must be finite."
-            )
+        time = _finite_float(
+            self.time,
+            "Logic event time",
+        )
 
         object.__setattr__(
             self,
             "component_id",
             component_id,
         )
-
         object.__setattr__(
             self,
             "event_type",
             event_type,
         )
-
         object.__setattr__(
             self,
             "time",
             time,
         )
-
         object.__setattr__(
             self,
             "data",
-            dict(
-                self.data or {}
-            ),
+            dict(self.data or {}),
         )
 
 
@@ -313,15 +268,19 @@ class LogicEvent:
 @dataclass(frozen=True)
 class LogicControlResult:
     """
-    Result of evaluating one Logic Control component.
+    Result of one discrete Logic Control evaluation.
 
-    ``outputs`` contain the component's current output values.
+    ``outputs``
+        Current component outputs.
 
-    ``state`` contains the resulting persistent discrete state.
+    ``state``
+        Complete resulting persistent logic state.
 
-    ``events`` describe discrete transitions.
+    ``events``
+        Discrete event descriptions.
 
-    No numerical derivatives are produced.
+    ``diagnostics``
+        Optional non-authoritative evaluation metadata.
     """
 
     outputs: Mapping[str, SignalValue]
@@ -333,20 +292,22 @@ class LogicControlResult:
     def __post_init__(self) -> None:
         time = _finite_float(
             self.time,
-            "time",
+            "Logic result time",
         )
 
-        outputs = dict(
-            self.outputs
+        object.__setattr__(
+            self,
+            "outputs",
+            dict(self.outputs),
         )
 
-        state = dict(
-            self.state
+        object.__setattr__(
+            self,
+            "state",
+            dict(self.state),
         )
 
-        events = tuple(
-            self.events
-        )
+        events = tuple(self.events)
 
         for event in events:
             if not isinstance(
@@ -354,32 +315,19 @@ class LogicControlResult:
                 LogicEvent,
             ):
                 raise LogicEvaluationError(
-                    "All logic events must be "
-                    "LogicEvent instances."
+                    "Logic events must be LogicEvent instances."
                 )
 
         object.__setattr__(
             self,
-            "outputs",
-            outputs,
-        )
-
-        object.__setattr__(
-            self,
-            "state",
-            state,
+            "events",
+            events,
         )
 
         object.__setattr__(
             self,
             "time",
             time,
-        )
-
-        object.__setattr__(
-            self,
-            "events",
-            events,
         )
 
         object.__setattr__(
@@ -394,34 +342,28 @@ class LogicControlResult:
         self,
     ) -> ControlResult:
         """
-        Convert the logic result to the common ControlResult contract.
+        Adapt this Logic result to the common ControlResult contract.
 
-        Persistent logic state remains in diagnostics because the common
-        ControlResult represents component outputs and optional
-        derivative data, while discrete state ownership remains explicit
-        to LogicControlComponent.
+        Logic state and events are preserved in diagnostics because
+        numerical derivatives do not belong to Logic Control.
         """
 
         diagnostics = dict(
             self.diagnostics or {}
         )
 
-        diagnostics[
-            "logic_state"
-        ] = dict(
+        diagnostics["logic_state"] = dict(
             self.state
         )
 
-        diagnostics[
-            "logic_events"
-        ] = tuple(
+        diagnostics["logic_events"] = tuple(
             self.events
         )
 
         return ControlResult(
             outputs=self.outputs,
-            derivatives=None,
             time=self.time,
+            derivatives=None,
             diagnostics=diagnostics,
         )
 
@@ -435,25 +377,25 @@ class LogicControlComponent(
     ControlComponent,
 ):
     """
-    Base contract for discrete Logic Control components.
+    Common contract for all headless Logic Control components.
 
-    Concrete elements implement the domain behavior while this class
-    provides common lifecycle, validation, and deterministic evaluation
-    semantics.
+    Concrete implementations provide:
 
-    Examples
-    --------
+        input_definition()
+        output_definition()
+        evaluate_logic()
 
-        AND gate
-        OR gate
-        NOT gate
-        Contact
-        Coil
-        Timer
-        Latch
-        Interlock
+    The class provides:
 
-    The class is intentionally independent of the UI logic canvas.
+        - common ControlKind classification
+        - logic-state definition
+        - initial/reset state
+        - input validation
+        - output validation
+        - common evaluate() adapter
+        - required ControlComponent.output() adapter
+        - state transition detection
+        - edge detection
     """
 
     # ========================================================================
@@ -464,25 +406,21 @@ class LogicControlComponent(
     def control_kind(
         self,
     ) -> ControlKind:
-        """
-        Logic components always belong to the Logic branch.
-        """
+        """All subclasses belong to the Logic Control branch."""
 
         return ControlKind.LOGIC
 
     # ========================================================================
-    # STATE
+    # LOGIC STATE
     # ========================================================================
 
     def logic_state_definition(
         self,
-    ) -> Sequence[
-        LogicStateDefinition
-    ]:
+    ) -> Sequence[LogicStateDefinition]:
         """
         Return persistent logic-state definitions.
 
-        Stateless logic elements should return an empty sequence.
+        Stateless components return ``()``.
         """
 
         return ()
@@ -491,7 +429,7 @@ class LogicControlComponent(
     def logic_state_names(
         self,
     ) -> tuple[str, ...]:
-        """Return persistent state names in deterministic order."""
+        """Return ordered persistent logic-state names."""
 
         return tuple(
             definition.name
@@ -503,39 +441,68 @@ class LogicControlComponent(
     def logic_state_size(
         self,
     ) -> int:
-        """Return the number of persistent logic states."""
+        """Return number of persistent logic states."""
 
         return len(
             self.logic_state_names
         )
 
+    # ------------------------------------------------------------------------
+    # Compatibility with the common Control state contract
+    # ------------------------------------------------------------------------
+
     def state_definition(
         self,
-    ) -> Sequence[StateVariable]:
+    ) -> Sequence[ControlSignal]:
         """
-        Adapt LogicStateDefinition objects to the generic Control
-        state contract.
+        Adapt LogicStateDefinition objects to ControlSignal definitions.
+
+        This preserves the frozen common ControlComponent contract while
+        retaining the richer LogicStateDefinition API.
         """
 
         return tuple(
-            StateVariable(
+            ControlSignal(
                 name=definition.name,
-                unit="",
+                role=SignalRole.INTERNAL,
                 description=definition.description,
+                required=True,
                 value_type=definition.value_type,
-                default=definition.default,
             )
             for definition
             in self.logic_state_definition()
         )
+
+    @property
+    def state_names(
+        self,
+    ) -> tuple[str, ...]:
+        """
+        Return the authoritative Logic state names.
+
+        This explicitly mirrors ``logic_state_names`` so the inherited
+        ControlComponent validation operates on the same state contract.
+        """
+
+        return self.logic_state_names
+
+    @property
+    def state_size(
+        self,
+    ) -> int:
+        return self.logic_state_size
 
     def initial_state(
         self,
         inputs: Inputs | None = None,
     ) -> Mapping[str, SignalValue]:
         """
-        Return initial persistent logic state.
+        Return a fresh initial logic state.
+
+        ``inputs`` is accepted for compatibility with the common contract.
         """
+
+        del inputs
 
         return {
             definition.name:
@@ -544,21 +511,8 @@ class LogicControlComponent(
             in self.logic_state_definition()
         }
 
-    def control_state(
-        self,
-        state: State,
-    ) -> ControlState:
-        """
-        Convert a generic state mapping into ControlState.
-        """
-
-        return ControlState(
-            definitions=self.state_definition(),
-            values=state,
-        )
-
     # ========================================================================
-    # INPUTS
+    # INPUT VALIDATION
     # ========================================================================
 
     def validate_logic_inputs(
@@ -566,20 +520,108 @@ class LogicControlComponent(
         inputs: Inputs,
     ) -> dict[str, SignalValue]:
         """
-        Validate logic inputs.
-
-        Boolean inputs are expected for ordinary logic elements.
-
-        Numeric inputs remain permitted because threshold/comparator
-        elements are part of the Logic Control branch.
+        Validate Logic inputs using the common Control signal contract.
         """
 
-        normalized = self.validate_inputs(
-            inputs
-        )
+        try:
+            return dict(
+                self.validate_inputs(
+                    inputs
+                )
+            )
+        except Exception as exc:
+            if isinstance(
+                exc,
+                LogicControlError,
+            ):
+                raise
 
-        return dict(
-            normalized
+            raise LogicInputError(
+                f"{self.component_id}: "
+                "invalid logic inputs."
+            ) from exc
+
+    # ========================================================================
+    # STATE VALIDATION
+    # ========================================================================
+
+    def validate_logic_state(
+        self,
+        state: State,
+    ) -> dict[str, SignalValue]:
+        """
+        Validate persistent Logic state against LogicStateDefinition.
+        """
+
+        if state is None:
+            raise LogicStateError(
+                f"{self.component_id}: "
+                "logic state cannot be None."
+            )
+
+        expected = set(
+            self.logic_state_names
+        )
+        actual = {
+            str(name)
+            for name in state
+        }
+
+        missing = expected - actual
+        unknown = actual - expected
+
+        if missing:
+            raise LogicStateError(
+                f"{self.component_id}: "
+                f"missing logic states: "
+                f"{sorted(missing)}"
+            )
+
+        if unknown:
+            raise LogicStateError(
+                f"{self.component_id}: "
+                f"unknown logic states: "
+                f"{sorted(unknown)}"
+            )
+
+        definitions = {
+            definition.name: definition
+            for definition
+            in self.logic_state_definition()
+        }
+
+        normalized: dict[
+            str,
+            SignalValue,
+        ] = {}
+
+        for name in self.logic_state_names:
+            value = state[name]
+            definition = definitions[name]
+
+            _validate_value(
+                name,
+                value,
+                definition.value_type,
+                LogicStateError,
+            )
+
+            normalized[name] = value
+
+        return normalized
+
+    def validate_state(
+        self,
+        state: State,
+    ) -> dict[str, SignalValue]:
+        """
+        Override the common state adapter so Logic state is validated
+        against LogicStateDefinition rather than being treated as a
+        generic numerical state.
+        """
+
+        return self.validate_logic_state(
+            state
         )
 
     # ========================================================================
@@ -594,38 +636,45 @@ class LogicControlComponent(
         time: float,
     ) -> LogicControlResult:
         """
-        Evaluate the discrete logic behavior.
+        Evaluate the discrete Logic Control behavior.
 
-        Implementations must not:
-
-            - integrate numerical states
-            - access UI
-            - mutate network/model truth
-            - dispatch external events
-
-        Persistent state changes must be explicitly returned in
-        LogicControlResult.state.
+        Implementations must return the complete resulting logic state.
         """
 
         raise NotImplementedError
 
-    def evaluate(
+    # ========================================================================
+    # COMMON CONTROL OUTPUT ADAPTER
+    # ========================================================================
+
+    def output(
         self,
         state: State,
         inputs: Inputs,
         time: float,
-    ) -> ControlResult:
+    ) -> Outputs:
         """
-        Execute the common ControlComponent contract.
+        Satisfy the common ControlComponent.output() contract.
+
+        This is a compatibility adapter only.
+
+        ``evaluate_logic()`` remains the authoritative Logic execution
+        method. The adapter evaluates the component and returns only its
+        outputs.
+
+        The normal Logic execution path is ``evaluate()`` below, which
+        evaluates exactly once and preserves Logic state/events.
         """
 
         time = _finite_float(
             time,
-            "time",
+            "Logic output time",
         )
 
-        normalized_state = self.validate_state(
-            state
+        normalized_state = (
+            self.validate_logic_state(
+                state
+            )
         )
 
         normalized_inputs = (
@@ -634,18 +683,94 @@ class LogicControlComponent(
             )
         )
 
+        result = self._evaluate_logic_safe(
+            normalized_state,
+            normalized_inputs,
+            time,
+        )
+
+        self.validate_logic_result(
+            result
+        )
+
+        return dict(
+            result.outputs
+        )
+
+    # ========================================================================
+    # COMMON CONTROL EVALUATION
+    # ========================================================================
+
+    def evaluate(
+        self,
+        state: State,
+        inputs: Inputs,
+        time: float,
+    ) -> ControlResult:
+        """
+        Execute the authoritative Logic Control lifecycle.
+
+        Unlike the previous implementation, this is the single normal
+        Logic execution path:
+
+            validate
+                ↓
+            evaluate_logic
+                ↓
+            validate result
+                ↓
+            ControlResult
+        """
+
+        time = _finite_float(
+            time,
+            "Logic evaluation time",
+        )
+
+        normalized_state = (
+            self.validate_logic_state(
+                state
+            )
+        )
+
+        normalized_inputs = (
+            self.validate_logic_inputs(
+                inputs
+            )
+        )
+
+        result = self._evaluate_logic_safe(
+            normalized_state,
+            normalized_inputs,
+            time,
+        )
+
+        self.validate_logic_result(
+            result
+        )
+
+        return result.as_control_result()
+
+    def _evaluate_logic_safe(
+        self,
+        state: State,
+        inputs: Inputs,
+        time: float,
+    ) -> LogicControlResult:
+        """Wrap implementation errors in the Logic error hierarchy."""
+
         try:
             result = self.evaluate_logic(
-                normalized_state,
-                normalized_inputs,
+                state,
+                inputs,
                 time,
             )
         except LogicControlError:
             raise
         except Exception as exc:
             raise LogicEvaluationError(
-                f"Logic evaluation failed for "
-                f"component '{self.component_id}'."
+                f"{self.component_id}: "
+                "logic evaluation failed."
             ) from exc
 
         if not isinstance(
@@ -653,15 +778,12 @@ class LogicControlComponent(
             LogicControlResult,
         ):
             raise LogicEvaluationError(
-                f"Logic component '{self.component_id}' "
-                "must return LogicControlResult."
+                f"{self.component_id}: "
+                "evaluate_logic() must return "
+                "LogicControlResult."
             )
 
-        self.validate_logic_result(
-            result
-        )
-
-        return result.as_control_result()
+        return result
 
     # ========================================================================
     # RESULT VALIDATION
@@ -672,8 +794,25 @@ class LogicControlComponent(
         result: LogicControlResult,
     ) -> None:
         """
-        Validate output and persistent-state contracts.
+        Validate a complete LogicControlResult.
         """
+
+        if not isinstance(
+            result,
+            LogicControlResult,
+        ):
+            raise LogicEvaluationError(
+                f"{self.component_id}: "
+                "invalid LogicControlResult."
+            )
+
+        if result.time != float(
+            result.time
+        ):
+            raise LogicEvaluationError(
+                f"{self.component_id}: "
+                "invalid result time."
+            )
 
         expected_states = set(
             self.logic_state_names
@@ -683,26 +822,26 @@ class LogicControlComponent(
             result.state
         )
 
-        missing_states = (
+        missing = (
             expected_states - actual_states
         )
 
-        if missing_states:
-            raise LogicStateError(
-                f"{self.component_id}: "
-                f"missing logic states: "
-                f"{sorted(missing_states)}"
-            )
-
-        unknown_states = (
+        unknown = (
             actual_states - expected_states
         )
 
-        if unknown_states:
+        if missing:
             raise LogicStateError(
                 f"{self.component_id}: "
-                f"unknown logic states: "
-                f"{sorted(unknown_states)}"
+                f"result missing logic states: "
+                f"{sorted(missing)}"
+            )
+
+        if unknown:
+            raise LogicStateError(
+                f"{self.component_id}: "
+                f"result contains unknown logic states: "
+                f"{sorted(unknown)}"
             )
 
         definitions = {
@@ -714,23 +853,57 @@ class LogicControlComponent(
         for name, value in result.state.items():
             definition = definitions[name]
 
-            _validate_logic_value(
+            _validate_value(
                 name,
                 value,
                 definition.value_type,
+                LogicStateError,
             )
 
-        outputs = self.validate_outputs(
-            result.outputs
-        )
+        try:
+            self.validate_outputs(
+                result.outputs
+            )
+        except Exception as exc:
+            if isinstance(
+                exc,
+                LogicOutputError,
+            ):
+                raise
 
-        if dict(outputs) != dict(
-            result.outputs
-        ):
             raise LogicOutputError(
                 f"{self.component_id}: "
-                "logic output validation changed the output mapping."
+                "invalid logic outputs."
+            ) from exc
+
+    # ========================================================================
+    # RESET
+    # ========================================================================
+
+    def reset_logic(
+        self,
+    ) -> State:
+        """
+        Return a deterministic initial Logic state.
+        """
+
+        return dict(
+            self.initial_state()
+        )
+
+    def reset(
+        self,
+        inputs: Inputs | None = None,
+    ) -> Mapping[str, SignalValue]:
+        """
+        Common Control lifecycle reset.
+        """
+
+        return dict(
+            self.initial_state(
+                inputs
             )
+        )
 
     # ========================================================================
     # STATE TRANSITIONS
@@ -740,50 +913,50 @@ class LogicControlComponent(
         self,
         previous: State,
         current: State,
-    ) -> Mapping[str, tuple[
-        SignalValue,
-        SignalValue,
-    ]]:
+    ) -> Mapping[
+        str,
+        tuple[
+            SignalValue,
+            SignalValue,
+        ],
+    ]:
         """
-        Return state values that changed.
+        Return persistent Logic state values that changed.
 
-        The method does not mutate either mapping.
+        No mutation occurs.
         """
 
-        previous = dict(
-            previous
+        previous_state = (
+            self.validate_logic_state(
+                previous
+            )
         )
 
-        current = dict(
-            current
+        current_state = (
+            self.validate_logic_state(
+                current
+            )
         )
 
-        expected = set(
-            self.logic_state_names
-        )
+        changes: dict[
+            str,
+            tuple[
+                SignalValue,
+                SignalValue,
+            ],
+        ] = {}
 
-        if set(previous) != expected:
-            raise LogicStateError(
-                f"{self.component_id}: "
-                "previous state does not match "
-                "logic-state definition."
-            )
+        for name in self.logic_state_names:
+            old = previous_state[name]
+            new = current_state[name]
 
-        if set(current) != expected:
-            raise LogicStateError(
-                f"{self.component_id}: "
-                "current state does not match "
-                "logic-state definition."
-            )
+            if old != new:
+                changes[name] = (
+                    old,
+                    new,
+                )
 
-        return {
-            name: (
-                previous[name],
-                current[name],
-            )
-            for name in self.logic_state_names
-            if previous[name] != current[name]
-        }
+        return changes
 
     # ========================================================================
     # EDGE DETECTION
@@ -803,7 +976,7 @@ class LogicControlComponent(
             bool,
         ):
             raise LogicInputError(
-                "previous must be Boolean."
+                "Previous edge value must be Boolean."
             )
 
         if not isinstance(
@@ -811,146 +984,67 @@ class LogicControlComponent(
             bool,
         ):
             raise LogicInputError(
-                "current must be Boolean."
+                "Current edge value must be Boolean."
             )
 
-        if (
-            not previous
-            and current
-        ):
+        if not previous and current:
             return LogicEdge.RISING
 
-        if (
-            previous
-            and not current
-        ):
+        if previous and not current:
             return LogicEdge.FALLING
 
         return LogicEdge.NONE
 
     # ========================================================================
-    # RESET
+    # EVENT HELPERS
     # ========================================================================
 
-    def reset_logic(
+    def state_change_events(
         self,
-        inputs: Inputs | None = None,
-    ) -> Mapping[str, SignalValue]:
+        previous: State,
+        current: State,
+        time: float,
+    ) -> tuple[LogicEvent, ...]:
         """
-        Return reset state.
+        Create state-change event descriptions.
 
-        Default behavior restores configured defaults.
+        Dispatch remains outside Core Control.
         """
 
-        return self.initial_state(
-            inputs
+        changes = self.transition(
+            previous,
+            current,
         )
 
-    # ========================================================================
-    # DIAGNOSTICS
-    # ========================================================================
-
-    def logic_diagnostics(
-        self,
-    ) -> Mapping[str, Any]:
-        """
-        Return serializable Logic Control metadata.
-        """
-
-        return {
-            "component_id":
-                self.component_id,
-            "component_type":
-                self.component_type,
-            "control_kind":
-                self.control_kind.value,
-            "version":
-                self.version,
-            "logic_state_names":
-                self.logic_state_names,
-            "logic_state_size":
-                self.logic_state_size,
-            "input_names":
-                self.input_names,
-            "output_names":
-                self.output_names,
-        }
+        return tuple(
+            LogicEvent(
+                event_type=(
+                    LogicEventType.STATE_CHANGED
+                ),
+                component_id=self.component_id,
+                signal_name=name,
+                previous_value=old,
+                current_value=new,
+                time=time,
+            )
+            for name, (
+                old,
+                new,
+            ) in changes.items()
+        )
 
 
 # ============================================================================
-# VALUE VALIDATION
+# MODULE HELPERS
 # ============================================================================
-
-
-def _validate_logic_value(
-    name: str,
-    value: SignalValue,
-    expected_type: type,
-) -> None:
-    """
-    Validate a logic-state value.
-    """
-
-    if expected_type is bool:
-        if not isinstance(
-            value,
-            bool,
-        ):
-            raise LogicStateError(
-                f"Logic state '{name}' must be Boolean."
-            )
-
-        return
-
-    if expected_type is int:
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, int)
-        ):
-            raise LogicStateError(
-                f"Logic state '{name}' must be integer."
-            )
-
-        return
-
-    if expected_type is float:
-        if (
-            isinstance(value, bool)
-            or not isinstance(
-                value,
-                (int, float),
-            )
-        ):
-            raise LogicStateError(
-                f"Logic state '{name}' must be numeric."
-            )
-
-        if not math.isfinite(
-            float(value)
-        ):
-            raise LogicStateError(
-                f"Logic state '{name}' must be finite."
-            )
-
-        return
-
-    raise LogicConfigurationError(
-        f"Unsupported logic-state type for '{name}'."
-    )
 
 
 def _finite_float(
     value: float,
     name: str,
 ) -> float:
-    """
-    Convert value to finite float.
-    """
-
     try:
-        result = float(
-            value
-        )
+        result = float(value)
     except (
         TypeError,
         ValueError,
@@ -959,9 +1053,7 @@ def _finite_float(
             f"{name} must be numeric."
         ) from exc
 
-    if not math.isfinite(
-        result
-    ):
+    if not math.isfinite(result):
         raise LogicConfigurationError(
             f"{name} must be finite."
         )
@@ -969,21 +1061,81 @@ def _finite_float(
     return result
 
 
-# ============================================================================
-# PUBLIC EXPORTS
-# ============================================================================
+def _validate_value(
+    name: str,
+    value: SignalValue,
+    expected_type: type,
+    error_type: type[LogicControlError],
+) -> None:
+    """
+    Validate a Logic value while preserving Boolean type semantics.
+
+    In particular, ``bool`` is not accepted as an ``int``/``float`` value
+    merely because Python's bool subclasses int.
+    """
+
+    if expected_type is bool:
+        valid = isinstance(
+            value,
+            bool,
+        )
+
+    elif expected_type is int:
+        valid = (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+        )
+
+    elif expected_type is float:
+        valid = (
+            isinstance(
+                value,
+                (int, float),
+            )
+            and not isinstance(
+                value,
+                bool,
+            )
+        )
+
+    else:
+        valid = False
+
+    if not valid:
+        raise error_type(
+            f"Logic value '{name}' must be "
+            f"{expected_type.__name__}."
+        )
+
+    if (
+        isinstance(
+            value,
+            (int, float),
+        )
+        and not isinstance(
+            value,
+            bool,
+        )
+        and not math.isfinite(
+            float(value)
+        )
+    ):
+        raise error_type(
+            f"Logic value '{name}' must be finite."
+        )
+
 
 __all__ = [
-    "LogicEdge",
-    "LogicEventType",
-    "LogicStateDefinition",
-    "LogicEvent",
-    "LogicControlResult",
-    "LogicControlComponent",
     "LogicControlError",
     "LogicConfigurationError",
     "LogicInputError",
     "LogicOutputError",
     "LogicStateError",
     "LogicEvaluationError",
+    "LogicEdge",
+    "LogicEventType",
+    "LogicStateDefinition",
+    "LogicEvent",
+    "LogicControlResult",
+    "LogicControlComponent",
 ]
