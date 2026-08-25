@@ -99,6 +99,7 @@ from .commands.model_commands import (
     CREATE_TRANSFORMER,
     DELETE_TRANSFORMER,
     CREATE_LOAD,
+    UPDATE_LOAD,
     DELETE_LOAD,
 )
 
@@ -167,6 +168,7 @@ class ModelCommandHandlers:
             ),
 
             CREATE_LOAD: self.create_load,
+            UPDATE_LOAD: self.update_load,
             DELETE_LOAD: self.delete_load,
         }
 
@@ -359,6 +361,31 @@ class ModelCommandHandlers:
             p=payload["p"],
             q=payload["q"],
             name=payload["name"],
+            in_service=payload["in_service"],
+            transaction=transaction,
+        )
+
+    def update_load(
+        self,
+        command: Command,
+        context: Any,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """
+        Update a Load through ModelService.
+
+        This is an equipment-state mutation only.
+
+        No endpoint resolution or topology mutation is performed.
+        """
+
+        payload = command.payload
+
+        return self._model_service.update_load(
+            load_id=payload["load_id"],
+            name=payload["name"],
+            p=payload["p"],
+            q=payload["q"],
             in_service=payload["in_service"],
             transaction=transaction,
         )
