@@ -1,109 +1,46 @@
 # ============================================================
-# File: core/application/commands/__init__.py
-# GridForge V2 — Headless Application Commands
+# File: core/application/__init__.py
+# GridForge V2 — Headless Application Layer
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-GridForge V2 — Headless Application Commands.
+GridForge V2 — Headless Application Layer.
 
-This package contains immutable Application command contracts.
+This package contains the headless Application infrastructure
+that sits between external consumers and the GridForge Core.
 
-Commands represent requested intent only.
+The Application layer is responsible for:
 
-They do NOT:
+    * command contracts;
+    * command dispatch;
+    * application services;
+    * transactions;
+    * undo/redo history;
+    * endpoint-reference resolution;
+    * application composition.
 
-* mutate Core;
-* mutate Network;
-* manipulate topology;
-* manipulate terminals;
-* execute Application Services;
-* access Qt;
-* access UI;
-* access graphics objects.
+The Application layer does NOT own:
 
-Execution path
---------------
+    * Core electrical state;
+    * SLD state;
+    * UI state;
+    * Qt objects;
+    * canvas objects;
+    * renderers.
 
-    External Consumer
-          |
-          v
-       Command
-          |
-          v
-    CommandManager
-          |
-          v
-       Handler
-          |
-          v
-    Application Service
-          |
-          v
-      Core Public API
+The canonical external mutation path is:
 
+    Application.execute(command)
 
-Current canonical model commands
---------------------------------
-
-    model.create_bus
-    model.delete_bus
-
-    model.create_line
-    model.delete_line
-
-    model.create_transformer
-    model.delete_transformer
-
-
-Endpoint rule
--------------
-
-Line and Transformer creation commands carry EndpointReference
-values, not Core endpoint objects.
-
-An EndpointReference may identify:
-
-* a Bus by its Bus ID; or
-* a Terminal by equipment type, equipment ID, and terminal role.
-
-Endpoint resolution is performed by EndpointResolver during
-command-handler execution.
+The public Application facade is intentionally thin.
 """
 
 from __future__ import annotations
 
-from .model_commands import (
-    CREATE_BUS,
-    DELETE_BUS,
-    CREATE_LINE,
-    DELETE_LINE,
-    CREATE_TRANSFORMER,
-    DELETE_TRANSFORMER,
-    CreateBusCommand,
-    DeleteBusCommand,
-    CreateLineCommand,
-    DeleteLineCommand,
-    CreateTransformerCommand,
-    DeleteTransformerCommand,
-)
+from .application import Application
 
-
-# ============================================================
-# PUBLIC API
-# ============================================================
 
 __all__ = [
-    "CREATE_BUS",
-    "DELETE_BUS",
-    "CREATE_LINE",
-    "DELETE_LINE",
-    "CREATE_TRANSFORMER",
-    "DELETE_TRANSFORMER",
-    "CreateBusCommand",
-    "DeleteBusCommand",
-    "CreateLineCommand",
-    "DeleteLineCommand",
-    "CreateTransformerCommand",
-    "DeleteTransformerCommand",
+    "Application",
 ]
