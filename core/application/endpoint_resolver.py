@@ -8,66 +8,36 @@
 GridForge V2 — Application Endpoint Resolver
 =============================================
 
-Resolves immutable Application EndpointReference values into
-canonical Core Bus / Terminal objects.
+Resolves immutable EndpointReference values into canonical
+Core Bus / Terminal objects.
 
-Architecture
-------------
+The resolver is read-only.
 
-    EndpointReference
-            |
-            v
-    EndpointResolver
-            |
-            +----------------------+
-            |                      |
-            v                      v
-    Network.get_by_id()     Network.get_by_id()
-            |                      |
-            v                      v
-           Bus                  Equipment
-                                   |
-                                   v
-                           equipment.terminals
-                                   |
-                                   v
-                              Terminal
-
-The resolver:
-
-    * resolves Application references;
-    * returns canonical Core objects;
-    * uses Network.get_by_id() as the canonical lookup boundary;
-    * validates terminal ownership;
-    * rejects ambiguous terminal roles.
-
-The resolver does NOT:
+It does not:
 
     * create Core objects;
     * mutate Core objects;
     * modify topology;
-    * connect terminals;
     * access NetworkRegistry internals;
     * access SLD/UI state;
-    * invoke ModelService;
-    * perform engineering calculations.
+    * invoke ModelService.
 
-Identity Contract
+Identity contract
 -----------------
 
-Bus identity:
+Bus:
 
     bus_id
 
-Terminal identity:
+Terminal:
 
-    owning equipment type
-    owning equipment id
-    terminal role
+    equipment_type
+    equipment_id
+    terminal_role
 
-A Terminal does not have a globally unique ID.
+A Terminal has no globally unique ID.
 
-Terminal ownership remains with the owning Core equipment object.
+Its identity is the owning equipment plus terminal role.
 """
 
 from __future__ import annotations
@@ -78,24 +48,17 @@ from .endpoint_reference import (
     EndpointReference,
     EndpointReferenceKind,
 )
-from .errors import (
-    ResourceError,
-    ValidationError,
-)
+from .errors import ResourceError, ValidationError
 
 
 # ============================================================
 # NETWORK ACCESS
 # ============================================================
 
-def _get_network(
-    context: Any,
-) -> Any:
+def _get_network(context: Any) -> Any:
     """
     Return the canonical Core Network from the Application
     context.
-
-    The resolver does not construct or cache a Network.
     """
 
     network = getattr(
@@ -118,7 +81,7 @@ def _get_network(
 
 
 # ============================================================
-# CANONICAL EQUIPMENT LOOKUP
+# EQUIPMENT RESOLUTION
 # ============================================================
 
 def _resolve_equipment_by_id(
@@ -128,10 +91,8 @@ def _resolve_equipment_by_id(
     object_id: str,
 ) -> Any:
     """
-    Resolve canonical equipment through Network.get_by_id().
-
-    The Application layer intentionally does not know how the
-    NetworkRegistry stores equipment.
+    Resolve canonical equipment exclusively through the
+    Network public lookup boundary.
     """
 
     if equipment_type is None:
@@ -152,10 +113,7 @@ def _resolve_equipment_by_id(
         None,
     )
 
-    if not isinstance(
-        value,
-        str,
-    ) or not value:
+    if not isinstance(value, str) or not value:
         raise ValidationError(
             code="INVALID_EQUIPMENT_TYPE",
             message=(
@@ -163,23 +121,18 @@ def _resolve_equipment_by_id(
                 "invalid EquipmentType."
             ),
             details={
-                "equipment_type": str(
-                    equipment_type
-                ),
+                "equipment_type": str(equipment_type),
                 "equipment_id": object_id,
             },
         )
 
-    network = _get_network(
-        context
-    )
+    network = _get_network(context)
 
     try:
         return network.get_by_id(
             value,
             object_id,
         )
-
     except KeyError as exc:
         raise ResourceError(
             code="EQUIPMENT_NOT_FOUND",
@@ -203,34 +156,16 @@ def _resolve_bus(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve a Bus EndpointReference through the canonical
-    Network lookup boundary.
+    Resolve a Bus EndpointReference to the canonical Bus.
     """
 
-    if (
-        reference.kind
-        is not EndpointReferenceKind.BUS
-    ):
-        raise ValidationError(
-            code="INVALID_BUS_REFERENCE",
-            message=(
-                "A Bus EndpointReference is required."
-            ),
-            details={
-                "kind": reference.kind.value,
-            },
-        )
-
-    network = _get_network(
-        context
-    )
+    network = _get_network(context)
 
     try:
         return network.get_by_id(
             "bus",
             reference.object_id,
         )
-
     except KeyError as exc:
         raise ResourceError(
             code="BUS_NOT_FOUND",
@@ -253,31 +188,14 @@ def _resolve_terminal(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve a Terminal EndpointReference.
+    Resolve a Terminal EndpointReference to the canonical
+    Terminal owned by the referenced equipment.
 
-    Equipment lookup is delegated to Network.get_by_id().
+    Exactly one terminal must satisfy both:
 
-    Terminal ownership remains with the equipment object.
-
-    Exactly one terminal must satisfy:
-
-        terminal.role == requested_role
+        terminal.role == reference.terminal_role
         terminal.owner is equipment
     """
-
-    if (
-        reference.kind
-        is not EndpointReferenceKind.TERMINAL
-    ):
-        raise ValidationError(
-            code="INVALID_TERMINAL_REFERENCE",
-            message=(
-                "A Terminal EndpointReference is required."
-            ),
-            details={
-                "kind": reference.kind.value,
-            },
-        )
 
     equipment = _resolve_equipment_by_id(
         context,
@@ -295,10 +213,8 @@ def _resolve_terminal(
         raise ResourceError(
             code="EQUIPMENT_TERMINALS_UNAVAILABLE",
             message=(
-                f"Equipment "
-                f"'{reference.object_id}' does not "
-                "expose the canonical terminals "
-                "collection."
+                f"Equipment '{reference.object_id}' "
+                "does not expose its terminals."
             ),
             details={
                 "equipment_type": (
@@ -312,69 +228,22 @@ def _resolve_terminal(
 
     requested_role = reference.terminal_role
 
-    if not isinstance(
-        requested_role,
-        str,
-    ) or not requested_role:
-        raise ValidationError(
-            code="INVALID_TERMINAL_ROLE",
-            message=(
-                "Terminal reference requires a "
-                "non-empty terminal role."
-            ),
-            details={
-                "equipment_id": reference.object_id,
-            },
+    matches = [
+        terminal
+        for terminal in terminals
+        if (
+            terminal.role == requested_role
+            and terminal.owner is equipment
         )
-
-    # --------------------------------------------------------
-    # Collect all valid matches.
-    #
-    # Do not return the first match. Terminal roles are only
-    # unique within the owning equipment and malformed model
-    # state must not be silently accepted.
-    # --------------------------------------------------------
-
-    matches = []
-
-    for terminal in terminals:
-
-        if getattr(
-            terminal,
-            "role",
-            None,
-        ) != requested_role:
-            continue
-
-        # ----------------------------------------------------
-        # Frozen ownership invariant:
-        #
-        # The terminal returned for an equipment reference
-        # must actually belong to that equipment.
-        # ----------------------------------------------------
-
-        if getattr(
-            terminal,
-            "owner",
-            None,
-        ) is not equipment:
-            continue
-
-        matches.append(
-            terminal
-        )
-
-    equipment_type = (
-        reference.equipment_type.value
-        if reference.equipment_type is not None
-        else "equipment"
-    )
-
-    # --------------------------------------------------------
-    # No match
-    # --------------------------------------------------------
+    ]
 
     if not matches:
+        equipment_type = (
+            reference.equipment_type.value
+            if reference.equipment_type is not None
+            else "equipment"
+        )
+
         raise ResourceError(
             code="TERMINAL_NOT_FOUND",
             message=(
@@ -389,11 +258,13 @@ def _resolve_terminal(
             },
         )
 
-    # --------------------------------------------------------
-    # Multiple matches
-    # --------------------------------------------------------
-
     if len(matches) > 1:
+        equipment_type = (
+            reference.equipment_type.value
+            if reference.equipment_type is not None
+            else "equipment"
+        )
+
         raise ResourceError(
             code="AMBIGUOUS_TERMINAL",
             message=(
@@ -409,15 +280,11 @@ def _resolve_terminal(
             },
         )
 
-    # --------------------------------------------------------
-    # Exactly one canonical terminal
-    # --------------------------------------------------------
-
     return matches[0]
 
 
 # ============================================================
-# ENDPOINT RESOLUTION
+# PUBLIC RESOLUTION FUNCTION
 # ============================================================
 
 def resolve_endpoint(
@@ -425,23 +292,10 @@ def resolve_endpoint(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve an immutable Application EndpointReference into
-    the corresponding canonical Core endpoint.
+    Resolve an EndpointReference into the canonical Core
+    Bus or Terminal.
 
-    Returns
-    -------
-    Bus | Terminal
-        The canonical Core endpoint represented by the
-        reference.
-
-    Raises
-    ------
-    ValidationError
-        If the reference is malformed or unsupported.
-
-    ResourceError
-        If the referenced canonical Core object cannot be
-        resolved.
+    No Core mutation occurs.
     """
 
     if not isinstance(
@@ -455,25 +309,17 @@ def resolve_endpoint(
                 "EndpointReference."
             ),
             details={
-                "received_type": type(
-                    reference
-                ).__name__,
+                "received_type": type(reference).__name__,
             },
         )
 
-    if (
-        reference.kind
-        is EndpointReferenceKind.BUS
-    ):
+    if reference.kind is EndpointReferenceKind.BUS:
         return _resolve_bus(
             context,
             reference,
         )
 
-    if (
-        reference.kind
-        is EndpointReferenceKind.TERMINAL
-    ):
+    if reference.kind is EndpointReferenceKind.TERMINAL:
         return _resolve_terminal(
             context,
             reference,
@@ -492,25 +338,15 @@ def resolve_endpoint(
 
 
 # ============================================================
-# RESOLVER FACADE
+# STATELESS RESOLVER FACADE
 # ============================================================
 
 class EndpointResolver:
     """
-    Application-layer endpoint resolver.
+    Stateless Application endpoint resolver.
 
-    This is a thin façade over the canonical resolution
-    functions.
-
-    The resolver is intentionally stateless.
-
-    It does not retain:
-
-        * Network
-        * Core objects
-        * terminals
-        * topology state
-        * command state
+    The resolver intentionally does not retain Network,
+    Core objects, topology, or command state.
     """
 
     @staticmethod
@@ -519,8 +355,7 @@ class EndpointResolver:
         reference: EndpointReference,
     ) -> Any:
         """
-        Resolve an EndpointReference to its canonical Core
-        Bus or Terminal.
+        Resolve an immutable endpoint reference.
         """
 
         return resolve_endpoint(
