@@ -9,86 +9,39 @@
 # ============================================================
 
 """
-GridForge V2 headless Application command handlers.
+Command handlers form the translation boundary between immutable
+Application commands and Application Services.
 
-Handlers are the translation boundary between immutable
-Application commands and Application services.
-
-## Execution boundary
+Handlers:
 
 ```
-CommandManager
-      |
-      v
-Command Handler
-      |
-      v
-ModelService
-      |
-      v
-Core Network / Core Model
+* validate command payloads;
+* resolve canonical Core endpoints;
+* invoke Application Services;
+* register inverse operations with Transaction.
 ```
 
-Handlers may:
+Handlers do not:
 
 ```
-* validate command payload structure;
-* resolve stable endpoint identifiers;
-* call Application services;
-* register inverse Network operations with Transaction.
+* commit or rollback transactions;
+* modify CommandHistory;
+* mutate Core implementation details directly;
+* access UI, Qt, SLD, canvas, or renderers.
 ```
 
-Handlers must NOT:
-
-```
-* mutate Core directly;
-* construct Application services repeatedly;
-* commit transactions;
-* rollback transactions;
-* modify history;
-* access Qt;
-* access UI;
-* access SLD/canvas;
-* manipulate graphics objects.
-```
-
-## Canonical model commands
-
-```
-CREATE_BUS
-DELETE_BUS
-CREATE_LINE
-DELETE_LINE
-CREATE_TRANSFORMER
-DELETE_TRANSFORMER
-```
-
-## Endpoint rule
-
-Line and Transformer commands carry endpoint Bus identifiers.
-
-The handler resolves those identifiers against the canonical
-ApplicationContext Network and passes the canonical Bus objects
-to ModelService.
-
-The handler does not manipulate physical terminals directly.
 """
 
 from **future** import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from .command import Command
-from .command_manager import CommandManager
 from .context import ApplicationContext
-from .errors import (
-ExecutionError,
-ResourceError,
-ValidationError,
-)
+from .errors import ExecutionError, ResourceError, ValidationError
 from .results import ApplicationResult
 from .transaction import Transaction
-
 from .commands.model_commands import (
 CREATE_BUS,
 DELETE_BUS,
@@ -103,7 +56,6 @@ DeleteLineCommand,
 CreateTransformerCommand,
 DeleteTransformerCommand,
 )
-
 from .services.model_service import ModelService
 
 # ============================================================
@@ -115,86 +67,73 @@ from .services.model_service import ModelService
 def _model_service(
 context: ApplicationContext,
 ) -> ModelService:
-"""
-Construct the Application model service for this execution.
+"""Resolve the Application ModelService."""
 
 ```
-ModelService itself is lightweight and does not own the
-Network. The canonical Network remains owned by the
-ApplicationContext/Core composition boundary.
-"""
-
-if not isinstance(
-    context,
-    ApplicationContext,
-):
+if not isinstance(context, ApplicationContext):
     raise TypeError(
         "Handler context must be an ApplicationContext."
     )
 
 try:
-    return ModelService(
-        context,
-    )
-
+    return ModelService(context)
 except Exception as exc:
     raise ExecutionError(
         code="MODEL_SERVICE_INITIALIZATION_FAILED",
-        message=(
-            "Failed to initialize the Application "
-            "ModelService."
-        ),
+        message="Failed to initialize the Application ModelService.",
         cause=exc,
     ) from exc
 ```
 
 # ============================================================
 
-# PAYLOAD HELPERS
+# PAYLOAD VALIDATION
 
 # ============================================================
 
-def _require_string(
-payload: Any,
-field: str,
-) -> str:
-"""
-Extract a required non-empty string from a command payload.
-"""
+def _payload_mapping(
+command: Command,
+) -> Mapping[str, Any]:
+"""Return a validated command payload mapping."""
 
 ```
-if not isinstance(
-    payload,
-    dict,
-):
-    try:
-        value = payload[field]
-    except Exception as exc:
-        raise ValidationError(
-            code="INVALID_COMMAND_PAYLOAD",
-            message=(
-                "Command payload must provide "
-                f"'{field}'."
-            ),
-            details={
-                "field": field,
-            },
-        ) from exc
-else:
-    value = payload.get(field)
+payload = command.payload
 
-if not isinstance(
-    value,
-    str,
-):
+if not isinstance(payload, Mapping):
+    raise ValidationError(
+        code="INVALID_COMMAND_PAYLOAD",
+        message="Command payload must be a mapping.",
+        details={
+            "command_type": command.command_type,
+        },
+    )
+
+return payload
+```
+
+def _require_string(
+payload: Mapping[str, Any],
+field: str,
+) -> str:
+"""Return a required non-empty string field."""
+
+```
+if field not in payload:
+    raise ValidationError(
+        code="MISSING_COMMAND_FIELD",
+        message=f"Command field '{field}' is required.",
+        details={"field": field},
+    )
+
+value = payload[field]
+
+if not isinstance(value, str):
     raise ValidationError(
         code="INVALID_COMMAND_FIELD",
-        message=(
-            f"Command field '{field}' "
-            "must be a string."
-        ),
+        message=f"Command field '{field}' must be a string.",
         details={
             "field": field,
+            "actual_type": type(value).__name__,
         },
     )
 
@@ -203,48 +142,33 @@ value = value.strip()
 if not value:
     raise ValidationError(
         code="EMPTY_COMMAND_FIELD",
-        message=(
-            f"Command field '{field}' "
-            "must not be empty."
-        ),
-        details={
-            "field": field,
-        },
+        message=f"Command field '{field}' must not be empty.",
+        details={"field": field},
     )
 
 return value
 ```
 
 def _optional_string(
-payload: Any,
+payload: Mapping[str, Any],
 field: str,
 default: str = "",
 ) -> str:
-"""
-Extract an optional string command field.
-"""
+"""Return an optional string field."""
 
 ```
-value = payload.get(
-    field,
-    default,
-)
-
-if value is None:
+if field not in payload or payload[field] is None:
     return default
 
-if not isinstance(
-    value,
-    str,
-):
+value = payload[field]
+
+if not isinstance(value, str):
     raise ValidationError(
         code="INVALID_COMMAND_FIELD",
-        message=(
-            f"Command field '{field}' "
-            "must be a string."
-        ),
+        message=f"Command field '{field}' must be a string.",
         details={
             "field": field,
+            "actual_type": type(value).__name__,
         },
     )
 
@@ -252,91 +176,125 @@ return value.strip()
 ```
 
 def _number(
-payload: Any,
+payload: Mapping[str, Any],
 field: str,
 *,
 default: float | None = None,
 ) -> float:
-"""
-Extract a numeric command field.
+"""Return a numeric field as float."""
 
 ```
-bool is explicitly rejected because bool is a subclass of int.
-"""
-
 if field not in payload:
-
     if default is not None:
-        return default
+        return float(default)
 
     raise ValidationError(
         code="MISSING_COMMAND_FIELD",
-        message=(
-            f"Command field '{field}' "
-            "is required."
-        ),
-        details={
-            "field": field,
-        },
+        message=f"Command field '{field}' is required.",
+        details={"field": field},
     )
 
 value = payload[field]
 
-if isinstance(
-    value,
-    bool,
-) or not isinstance(
+if isinstance(value, bool) or not isinstance(
     value,
     (int, float),
 ):
     raise ValidationError(
         code="INVALID_COMMAND_FIELD",
-        message=(
-            f"Command field '{field}' "
-            "must be numeric."
-        ),
+        message=f"Command field '{field}' must be numeric.",
         details={
             "field": field,
+            "actual_type": type(value).__name__,
         },
     )
 
 return float(value)
 ```
 
-def _object_from_result(
-result: ApplicationResult,
-*,
-command_type: str,
-) -> Any:
-"""
-Require a canonical Core object in ApplicationResult.value.
-"""
+def _optional_number(
+payload: Mapping[str, Any],
+field: str,
+) -> float | None:
+"""Return an optional numeric field."""
 
 ```
-if not isinstance(
-    result,
-    ApplicationResult,
+if field not in payload or payload[field] is None:
+    return None
+
+value = payload[field]
+
+if isinstance(value, bool) or not isinstance(
+    value,
+    (int, float),
 ):
+    raise ValidationError(
+        code="INVALID_COMMAND_FIELD",
+        message=(
+            f"Command field '{field}' must be numeric "
+            "or None."
+        ),
+        details={"field": field},
+    )
+
+return float(value)
+```
+
+def _service_result(
+result: ApplicationResult[Any],
+*,
+command_type: str,
+) -> ApplicationResult[Any]:
+"""Validate an Application Service result."""
+
+```
+if not isinstance(result, ApplicationResult):
     raise ExecutionError(
         code="INVALID_SERVICE_RESULT",
         message=(
-            f"Service for '{command_type}' "
-            "did not return an ApplicationResult."
+            f"Service for '{command_type}' did not return "
+            "an ApplicationResult."
+        ),
+        details={
+            "command_type": command_type,
+            "result_type": type(result).__name__,
+        },
+    )
+
+if not result.is_success:
+    raise ExecutionError(
+        code="UNSUCCESSFUL_SERVICE_RESULT",
+        message=(
+            f"Service for '{command_type}' returned "
+            "an unsuccessful result."
         ),
         details={
             "command_type": command_type,
         },
     )
 
-if not result.success:
-    return None
+return result
+```
+
+def _result_value(
+result: ApplicationResult[Any],
+*,
+command_type: str,
+) -> Any:
+"""Require a canonical object in a successful result."""
+
+```
+result = _service_result(
+    result,
+    command_type=command_type,
+)
 
 if result.value is None:
     raise ExecutionError(
         code="MISSING_SERVICE_RESULT_VALUE",
         message=(
-            f"Service for '{command_type}' "
-            "returned success without a value."
+            f"Service for '{command_type}' returned "
+            "no value."
         ),
         details={
             "command_type": command_type,
@@ -356,21 +314,21 @@ def _find_bus(
 context: ApplicationContext,
 bus_id: str,
 ) -> Any:
-"""
-Resolve a canonical Core Bus by stable identifier.
-"""
+"""Resolve a canonical Bus from the Application Network."""
 
 ```
 network = context.network
 
-for bus in network.buses:
+buses = getattr(network, "buses", None)
 
-    if getattr(
-        bus,
-        "id",
-        None,
-    ) == bus_id:
+if buses is None:
+    raise ExecutionError(
+        code="NETWORK_BUS_COLLECTION_UNAVAILABLE",
+        message="Core Network does not expose its bus collection.",
+    )
 
+for bus in buses:
+    if getattr(bus, "id", None) == bus_id:
         return bus
 
 raise ResourceError(
@@ -395,16 +353,11 @@ def handle_create_bus(
 command: Command,
 context: ApplicationContext,
 transaction: Transaction,
-) -> ApplicationResult:
-"""
-Handle CreateBusCommand.
-"""
+) -> ApplicationResult[Any]:
+"""Handle CREATE_BUS."""
 
 ```
-if not isinstance(
-    command,
-    CreateBusCommand,
-):
+if not isinstance(command, CreateBusCommand):
     raise ValidationError(
         code="INVALID_COMMAND_TYPE",
         message=(
@@ -413,26 +366,12 @@ if not isinstance(
         ),
     )
 
-payload = command.payload
+payload = _payload_mapping(command)
 
-bus_id = _require_string(
-    payload,
-    "bus_id",
-)
+bus_id = _require_string(payload, "bus_id")
+name = _optional_string(payload, "name")
 
-name = _optional_string(
-    payload,
-    "name",
-)
-
-bus_type = payload.get(
-    "bus_type",
-)
-
-if bus_type is None:
-    from core.model.bus import BusType
-
-    bus_type = BusType.PQ
+bus_type = payload.get("bus_type")
 
 voltage = _number(
     payload,
@@ -458,31 +397,10 @@ q_spec = _number(
     default=0.0,
 )
 
-v_setpoint = None
-
-if "v_setpoint" in payload:
-    value = payload["v_setpoint"]
-
-    if value is not None:
-        if isinstance(
-            value,
-            bool,
-        ) or not isinstance(
-            value,
-            (int, float),
-        ):
-            raise ValidationError(
-                code="INVALID_COMMAND_FIELD",
-                message=(
-                    "Command field 'v_setpoint' "
-                    "must be numeric or None."
-                ),
-                details={
-                    "field": "v_setpoint",
-                },
-            )
-
-        v_setpoint = float(value)
+v_setpoint = _optional_number(
+    payload,
+    "v_setpoint",
+)
 
 q_min = _number(
     payload,
@@ -496,9 +414,7 @@ q_max = _number(
     default=float("inf"),
 )
 
-service = _model_service(
-    context,
-)
+service = _model_service(context)
 
 result = service.create_bus(
     bus_id=bus_id,
@@ -513,17 +429,14 @@ result = service.create_bus(
     q_max=q_max,
 )
 
-bus = _object_from_result(
+bus = _result_value(
     result,
     command_type=CREATE_BUS,
 )
 
-if bus is not None:
-    transaction.record_undo(
-        lambda bus=bus: context.network.remove_bus(
-            bus
-        )
-    )
+transaction.record_undo(
+    lambda bus=bus: context.network.remove_bus(bus)
+)
 
 return result
 ```
@@ -538,16 +451,11 @@ def handle_delete_bus(
 command: Command,
 context: ApplicationContext,
 transaction: Transaction,
-) -> ApplicationResult:
-"""
-Handle DeleteBusCommand.
-"""
+) -> ApplicationResult[Any]:
+"""Handle DELETE_BUS."""
 
 ```
-if not isinstance(
-    command,
-    DeleteBusCommand,
-):
+if not isinstance(command, DeleteBusCommand):
     raise ValidationError(
         code="INVALID_COMMAND_TYPE",
         message=(
@@ -556,30 +464,27 @@ if not isinstance(
         ),
     )
 
+payload = _payload_mapping(command)
+
 bus_id = _require_string(
-    command.payload,
+    payload,
     "bus_id",
 )
 
-service = _model_service(
-    context,
-)
+service = _model_service(context)
 
 result = service.delete_bus(
     bus_id=bus_id,
 )
 
-bus = _object_from_result(
+bus = _result_value(
     result,
     command_type=DELETE_BUS,
 )
 
-if bus is not None:
-    transaction.record_undo(
-        lambda bus=bus: context.network.add_bus(
-            bus
-        )
-    )
+transaction.record_undo(
+    lambda bus=bus: context.network.add_bus(bus)
+)
 
 return result
 ```
@@ -594,16 +499,11 @@ def handle_create_line(
 command: Command,
 context: ApplicationContext,
 transaction: Transaction,
-) -> ApplicationResult:
-"""
-Handle CreateLineCommand.
-"""
+) -> ApplicationResult[Any]:
+"""Handle CREATE_LINE."""
 
 ```
-if not isinstance(
-    command,
-    CreateLineCommand,
-):
+if not isinstance(command, CreateLineCommand):
     raise ValidationError(
         code="INVALID_COMMAND_TYPE",
         message=(
@@ -612,24 +512,24 @@ if not isinstance(
         ),
     )
 
-payload = command.payload
+payload = _payload_mapping(command)
 
 line_id = _require_string(
     payload,
     "line_id",
 )
 
-from_bus_id = _require_string(
+endpoint_from_id = _require_string(
     payload,
     "endpoint_from",
 )
 
-to_bus_id = _require_string(
+endpoint_to_id = _require_string(
     payload,
     "endpoint_to",
 )
 
-if from_bus_id == to_bus_id:
+if endpoint_from_id == endpoint_to_id:
     raise ValidationError(
         code="IDENTICAL_LINE_ENDPOINTS",
         message=(
@@ -637,19 +537,19 @@ if from_bus_id == to_bus_id:
             "different buses."
         ),
         details={
-            "endpoint_from": from_bus_id,
-            "endpoint_to": to_bus_id,
+            "endpoint_from": endpoint_from_id,
+            "endpoint_to": endpoint_to_id,
         },
     )
 
 endpoint_from = _find_bus(
     context,
-    from_bus_id,
+    endpoint_from_id,
 )
 
 endpoint_to = _find_bus(
     context,
-    to_bus_id,
+    endpoint_to_id,
 )
 
 r = _number(
@@ -679,9 +579,7 @@ rate_mva = _number(
     default=100.0,
 )
 
-service = _model_service(
-    context,
-)
+service = _model_service(context)
 
 result = service.create_line(
     line_id=line_id,
@@ -694,17 +592,14 @@ result = service.create_line(
     rate_mva=rate_mva,
 )
 
-line = _object_from_result(
+line = _result_value(
     result,
     command_type=CREATE_LINE,
 )
 
-if line is not None:
-    transaction.record_undo(
-        lambda line=line: context.network.remove_line(
-            line
-        )
-    )
+transaction.record_undo(
+    lambda line=line: context.network.remove_line(line)
+)
 
 return result
 ```
@@ -719,16 +614,11 @@ def handle_delete_line(
 command: Command,
 context: ApplicationContext,
 transaction: Transaction,
-) -> ApplicationResult:
-"""
-Handle DeleteLineCommand.
-"""
+) -> ApplicationResult[Any]:
+"""Handle DELETE_LINE."""
 
 ```
-if not isinstance(
-    command,
-    DeleteLineCommand,
-):
+if not isinstance(command, DeleteLineCommand):
     raise ValidationError(
         code="INVALID_COMMAND_TYPE",
         message=(
@@ -737,30 +627,27 @@ if not isinstance(
         ),
     )
 
+payload = _payload_mapping(command)
+
 line_id = _require_string(
-    command.payload,
+    payload,
     "line_id",
 )
 
-service = _model_service(
-    context,
-)
+service = _model_service(context)
 
 result = service.delete_line(
     line_id=line_id,
 )
 
-line = _object_from_result(
+line = _result_value(
     result,
     command_type=DELETE_LINE,
 )
 
-if line is not None:
-    transaction.record_undo(
-        lambda line=line: context.network.add_line(
-            line
-        )
-    )
+transaction.record_undo(
+    lambda line=line: context.network.add_line(line)
+)
 
 return result
 ```
@@ -775,42 +662,37 @@ def handle_create_transformer(
 command: Command,
 context: ApplicationContext,
 transaction: Transaction,
-) -> ApplicationResult:
-"""
-Handle CreateTransformerCommand.
-"""
+) -> ApplicationResult[Any]:
+"""Handle CREATE_TRANSFORMER."""
 
 ```
-if not isinstance(
-    command,
-    CreateTransformerCommand,
-):
+if not isinstance(command, CreateTransformerCommand):
     raise ValidationError(
         code="INVALID_COMMAND_TYPE",
         message=(
-            "CREATE_TRANSFORMER handler received "
-            "an incompatible command."
+            "CREATE_TRANSFORMER handler received an "
+            "incompatible command."
         ),
     )
 
-payload = command.payload
+payload = _payload_mapping(command)
 
 transformer_id = _require_string(
     payload,
     "transformer_id",
 )
 
-from_bus_id = _require_string(
+endpoint_from_id = _require_string(
     payload,
     "endpoint_from",
 )
 
-to_bus_id = _require_string(
+endpoint_to_id = _require_string(
     payload,
     "endpoint_to",
 )
 
-if from_bus_id == to_bus_id:
+if endpoint_from_id == endpoint_to_id:
     raise ValidationError(
         code="IDENTICAL_TRANSFORMER_ENDPOINTS",
         message=(
@@ -818,19 +700,19 @@ if from_bus_id == to_bus_id:
             "different buses."
         ),
         details={
-            "endpoint_from": from_bus_id,
-            "endpoint_to": to_bus_id,
+            "endpoint_from": endpoint_from_id,
+            "endpoint_to": endpoint_to_id,
         },
     )
 
 endpoint_from = _find_bus(
     context,
-    from_bus_id,
+    endpoint_from_id,
 )
 
 endpoint_to = _find_bus(
     context,
-    to_bus_id,
+    endpoint_to_id,
 )
 
 r = _number(
@@ -866,9 +748,7 @@ rate_mva = _number(
     default=100.0,
 )
 
-service = _model_service(
-    context,
-)
+service = _model_service(context)
 
 result = service.create_transformer(
     transformer_id=transformer_id,
@@ -882,18 +762,15 @@ result = service.create_transformer(
     rate_mva=rate_mva,
 )
 
-transformer = _object_from_result(
+transformer = _result_value(
     result,
     command_type=CREATE_TRANSFORMER,
 )
 
-if transformer is not None:
-    transaction.record_undo(
-        lambda transformer=transformer:
-        context.network.remove_transformer(
-            transformer
-        )
-    )
+transaction.record_undo(
+    lambda transformer=transformer:
+        context.network.remove_transformer(transformer)
+)
 
 return result
 ```
@@ -908,127 +785,80 @@ def handle_delete_transformer(
 command: Command,
 context: ApplicationContext,
 transaction: Transaction,
-) -> ApplicationResult:
-"""
-Handle DeleteTransformerCommand.
-"""
+) -> ApplicationResult[Any]:
+"""Handle DELETE_TRANSFORMER."""
 
 ```
-if not isinstance(
-    command,
-    DeleteTransformerCommand,
-):
+if not isinstance(command, DeleteTransformerCommand):
     raise ValidationError(
         code="INVALID_COMMAND_TYPE",
         message=(
-            "DELETE_TRANSFORMER handler received "
-            "an incompatible command."
+            "DELETE_TRANSFORMER handler received an "
+            "incompatible command."
         ),
     )
 
+payload = _payload_mapping(command)
+
 transformer_id = _require_string(
-    command.payload,
+    payload,
     "transformer_id",
 )
 
-service = _model_service(
-    context,
-)
+service = _model_service(context)
 
 result = service.delete_transformer(
     transformer_id=transformer_id,
 )
 
-transformer = _object_from_result(
+transformer = _result_value(
     result,
     command_type=DELETE_TRANSFORMER,
 )
 
-if transformer is not None:
-    transaction.record_undo(
-        lambda transformer=transformer:
-        context.network.add_transformer(
-            transformer
-        )
-    )
+transaction.record_undo(
+    lambda transformer=transformer:
+        context.network.add_transformer(transformer)
+)
 
 return result
 ```
 
 # ============================================================
 
-# REGISTRATION
+# HANDLER REGISTRY
 
 # ============================================================
 
+COMMAND_HANDLERS: dict[str, Any] = {
+CREATE_BUS: handle_create_bus,
+DELETE_BUS: handle_delete_bus,
+CREATE_LINE: handle_create_line,
+DELETE_LINE: handle_delete_line,
+CREATE_TRANSFORMER: handle_create_transformer,
+DELETE_TRANSFORMER: handle_delete_transformer,
+}
+
 def register_model_handlers(
-command_manager: CommandManager,
+command_manager: Any,
 ) -> None:
-"""
-Register the six canonical model command handlers.
+"""Register all model handlers with a CommandManager."""
 
 ```
-Registration is deterministic and idempotence is deliberately
-NOT provided by this function. Duplicate registration is a
-configuration error and is surfaced by CommandManager.
-"""
-
-if not isinstance(
-    command_manager,
-    CommandManager,
-):
-    raise TypeError(
-        "register_model_handlers requires "
-        "a CommandManager."
-    )
-
-registrations = (
-    (
-        CREATE_BUS,
-        handle_create_bus,
-    ),
-    (
-        DELETE_BUS,
-        handle_delete_bus,
-    ),
-    (
-        CREATE_LINE,
-        handle_create_line,
-    ),
-    (
-        DELETE_LINE,
-        handle_delete_line,
-    ),
-    (
-        CREATE_TRANSFORMER,
-        handle_create_transformer,
-    ),
-    (
-        DELETE_TRANSFORMER,
-        handle_delete_transformer,
-    ),
-)
-
-for command_type, handler in registrations:
-
-    command_manager.register(
+for command_type, handler in COMMAND_HANDLERS.items():
+    command_manager.register_handler(
         command_type,
         handler,
     )
 ```
 
-# ============================================================
-
-# PUBLIC API
-
-# ============================================================
-
-**all** = [
+__all__ = [
 "handle_create_bus",
 "handle_delete_bus",
 "handle_create_line",
 "handle_delete_line",
 "handle_create_transformer",
 "handle_delete_transformer",
+"COMMAND_HANDLERS",
 "register_model_handlers",
 ]
