@@ -14,13 +14,21 @@ Commands:
 
     CreateBusCommand
     DeleteBusCommand
+
     CreateLineCommand
     DeleteLineCommand
+
     CreateTransformerCommand
     DeleteTransformerCommand
+
     CreateLoadCommand
     DeleteLoadCommand
     UpdateLoadCommand
+
+    CreateGridCommand
+    DeleteGridCommand
+    UpdateGridCommand
+
 
 Architectural rules
 -------------------
@@ -34,6 +42,7 @@ Commands:
     * do not mutate Core;
     * do not perform engineering calculations;
     * do not access UI state.
+
 
 Endpoint references
 -------------------
@@ -54,6 +63,7 @@ or:
 
 The complete endpoint identity remains inside the immutable
 EndpointReference.
+
 
 Load commands
 -------------
@@ -87,6 +97,67 @@ The commands deliberately do not contain:
 Load connectivity is handled separately through the
 application/topology command workflow.
 
+
+Grid commands
+-------------
+
+A Grid is a first-class electrical source element.
+
+Grid is NOT:
+
+    * a Network container;
+    * a collection of buses;
+    * a collection of loads;
+    * a collection of generators;
+    * a topology manager;
+    * a graph;
+    * a Y-bus builder;
+    * a solver;
+    * an SLD container;
+    * a GUI object.
+
+Grid electrical state includes:
+
+    grid_id
+    name
+    nominal_voltage_kv
+    frequency_hz
+    voltage_pu
+    angle_deg
+    p_mw
+    q_mvar
+    short_circuit_mva
+    x_over_r
+    z1_pu
+    z2_pu
+    z0_pu
+    in_service
+    grounded
+
+Power convention:
+
+    Positive P/Q = injection into the electrical network.
+
+The Grid commands deliberately do not contain:
+
+    * a Core Grid object;
+    * a Core Terminal object;
+    * a Core Bus object;
+    * resolved topology;
+    * UI state.
+
+Grid connectivity is handled separately through the
+application/topology command workflow.
+
+Power quantities use:
+
+    p_mw              -> MW
+    q_mvar            -> MVAr
+    short_circuit_mva -> MVA
+
+Grid source impedance values are represented as optional
+complex per-unit values.
+
 Author:
     Subhendu Mishra
 """
@@ -116,6 +187,10 @@ DELETE_TRANSFORMER = "model.delete_transformer"
 CREATE_LOAD = "model.create_load"
 DELETE_LOAD = "model.delete_load"
 UPDATE_LOAD = "model.update_load"
+
+CREATE_GRID = "model.create_grid"
+DELETE_GRID = "model.delete_grid"
+UPDATE_GRID = "model.update_grid"
 
 
 # ============================================================
@@ -571,6 +646,246 @@ class UpdateLoadCommand(Command):
 
 
 # ============================================================
+# CREATE GRID
+# ============================================================
+
+class CreateGridCommand(Command):
+    """
+    Request creation of a canonical Core Grid.
+
+    Grid is a first-class electrical network element and an
+    external utility/source model.
+
+    The command contains Grid-local model state only.
+
+    It deliberately does not contain:
+
+        * a Core Grid object;
+        * a Core Terminal object;
+        * a Core Bus object;
+        * resolved topology;
+        * UI state.
+
+    Grid connectivity is established separately through the
+    application/topology workflow.
+
+    Electrical quantities:
+
+        p_mw              -> MW
+        q_mvar            -> MVAr
+        short_circuit_mva -> MVA
+    """
+
+    def __init__(
+        self,
+        *,
+        grid_id: str,
+        name: str = "",
+        nominal_voltage_kv: float = 0.0,
+        frequency_hz: float = 50.0,
+        voltage_pu: float = 1.0,
+        angle_deg: float = 0.0,
+        p_mw: float = 0.0,
+        q_mvar: float = 0.0,
+        short_circuit_mva: float | None = None,
+        x_over_r: float | None = None,
+        z1_pu: complex | None = None,
+        z2_pu: complex | None = None,
+        z0_pu: complex | None = None,
+        in_service: bool = True,
+        grounded: bool = True,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+
+        super().__init__(
+            command_type=CREATE_GRID,
+            payload={
+                "grid_id": grid_id,
+                "name": name,
+                "nominal_voltage_kv": nominal_voltage_kv,
+                "frequency_hz": frequency_hz,
+                "voltage_pu": voltage_pu,
+                "angle_deg": angle_deg,
+                "p_mw": p_mw,
+                "q_mvar": q_mvar,
+                "short_circuit_mva": short_circuit_mva,
+                "x_over_r": x_over_r,
+                "z1_pu": z1_pu,
+                "z2_pu": z2_pu,
+                "z0_pu": z0_pu,
+                "in_service": in_service,
+                "grounded": grounded,
+            },
+            command_id=(
+                command_id
+                if command_id is not None
+                else uuid4()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# DELETE GRID
+# ============================================================
+
+class DeleteGridCommand(Command):
+    """
+    Request deletion of a canonical Core Grid.
+
+    The command identifies the Grid by canonical ID only.
+
+    Existing topology/connectivity is handled by the
+    application command workflow and is not embedded in this
+    command.
+    """
+
+    def __init__(
+        self,
+        *,
+        grid_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+
+        super().__init__(
+            command_type=DELETE_GRID,
+            payload={
+                "grid_id": grid_id,
+            },
+            command_id=(
+                command_id
+                if command_id is not None
+                else uuid4()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# UPDATE GRID
+# ============================================================
+
+class UpdateGridCommand(Command):
+    """
+    Request mutation of an existing canonical Core Grid.
+
+    Mutable Grid state:
+
+        name
+        nominal_voltage_kv
+        frequency_hz
+        voltage_pu
+        angle_deg
+        p_mw
+        q_mvar
+        short_circuit_mva
+        x_over_r
+        z1_pu
+        z2_pu
+        z0_pu
+        in_service
+        grounded
+
+    ``None`` means that the corresponding field is not part
+    of this update request.
+
+    At least one mutable field must be supplied.
+
+    This command does not:
+
+        * contain a Core Grid object;
+        * contain a Core Terminal object;
+        * contain a Core Bus object;
+        * resolve topology;
+        * connect or disconnect terminals;
+        * perform engineering calculations;
+        * mutate Core directly;
+        * access UI state.
+
+    Connectivity changes belong to the topology command
+    workflow.
+    """
+
+    def __init__(
+        self,
+        *,
+        grid_id: str,
+        name: str | None = None,
+        nominal_voltage_kv: float | None = None,
+        frequency_hz: float | None = None,
+        voltage_pu: float | None = None,
+        angle_deg: float | None = None,
+        p_mw: float | None = None,
+        q_mvar: float | None = None,
+        short_circuit_mva: float | None = None,
+        x_over_r: float | None = None,
+        z1_pu: complex | None = None,
+        z2_pu: complex | None = None,
+        z0_pu: complex | None = None,
+        in_service: bool | None = None,
+        grounded: bool | None = None,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+
+        if (
+            name is None
+            and nominal_voltage_kv is None
+            and frequency_hz is None
+            and voltage_pu is None
+            and angle_deg is None
+            and p_mw is None
+            and q_mvar is None
+            and short_circuit_mva is None
+            and x_over_r is None
+            and z1_pu is None
+            and z2_pu is None
+            and z0_pu is None
+            and in_service is None
+            and grounded is None
+        ):
+            raise ValueError(
+                "UpdateGridCommand requires at least one "
+                "mutable Grid field."
+            )
+
+        super().__init__(
+            command_type=UPDATE_GRID,
+            payload={
+                "grid_id": grid_id,
+                "name": name,
+                "nominal_voltage_kv": nominal_voltage_kv,
+                "frequency_hz": frequency_hz,
+                "voltage_pu": voltage_pu,
+                "angle_deg": angle_deg,
+                "p_mw": p_mw,
+                "q_mvar": q_mvar,
+                "short_circuit_mva": short_circuit_mva,
+                "x_over_r": x_over_r,
+                "z1_pu": z1_pu,
+                "z2_pu": z2_pu,
+                "z0_pu": z0_pu,
+                "in_service": in_service,
+                "grounded": grounded,
+            },
+            command_id=(
+                command_id
+                if command_id is not None
+                else uuid4()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
 # PUBLIC API
 # ============================================================
 
@@ -584,6 +899,9 @@ __all__ = [
     "CREATE_LOAD",
     "DELETE_LOAD",
     "UPDATE_LOAD",
+    "CREATE_GRID",
+    "DELETE_GRID",
+    "UPDATE_GRID",
     "CreateBusCommand",
     "DeleteBusCommand",
     "CreateLineCommand",
@@ -593,4 +911,7 @@ __all__ = [
     "CreateLoadCommand",
     "DeleteLoadCommand",
     "UpdateLoadCommand",
+    "CreateGridCommand",
+    "DeleteGridCommand",
+    "UpdateGridCommand",
 ]
