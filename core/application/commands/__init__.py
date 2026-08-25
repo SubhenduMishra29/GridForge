@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # File: core/application/commands/__init__.py
 # GridForge V2 — Headless Application Commands
@@ -206,4 +205,3 @@ __all__ = [
 
     "UpdateGridCommand",
 ]
-```
