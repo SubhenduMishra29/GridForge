@@ -1,163 +1,78 @@
 # ============================================================
 # File: core/application/services/model_service.py
-# GridForge V2
+# GridForge V2 — Application Model Service
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-Headless Application Model Service.
+GridForge V2 — Application Model Service
+========================================
 
-ModelService is the Application-layer service responsible for
-creating, updating, and deleting Core model objects.
+Application-layer service responsible for authoritative model
+mutation.
 
-Responsibilities
-----------------
-- Validate Application-level model input.
-- Construct Core model objects.
-- Add objects through the public Network API.
-- Resolve canonical objects through Network.get_by_id().
-- Remove canonical Core objects through the public Network API.
-- Mutate Core model objects through their existing domain APIs.
-- Register inverse operations with the active Transaction.
-- Return ApplicationResult objects.
+ModelService never owns authoritative state. It delegates
+canonical membership to Network and records inverse operations
+with the active Transaction.
 
-ModelService does NOT:
-- resolve EndpointReference objects;
-- access UI/Qt/SLD state;
-- access Network internal collections;
-- access NetworkRegistry directly;
-- perform direct registry manipulation;
-- own transactions;
-- commit or rollback transactions.
+Grid
+----
 
-Endpoint resolution is performed by EndpointResolver in the
-Application command-handler layer before create_line() or
-create_transformer() is called.
+Grid is a first-class electrical network element.
 
-Load creation
--------------
+It is not a Network container.
 
-A Load is a single-terminal injection model.
+Existing Grid electrical quantities:
 
-CreateLoadCommand carries the Load's model/value data:
+    p_mw               -> MW
+    q_mvar             -> MVAr
+    short_circuit_mva  -> MVA
 
-    load_id
-    p
-    q
-    name
-    in_service
-
-The Load is initially created without a resolved topology
-endpoint. Connectivity is handled separately by the
-appropriate Application topology workflow.
-
-The service therefore does not resolve or construct a Terminal
-from an Application command.
-
-Load update
------------
-
-UpdateLoadCommand mutates only the Load's mutable equipment
-state:
-
-    load_id
-    name
-    p
-    q
-    in_service
-
-Topology is deliberately outside this operation.
-
-Each requested mutation is routed through the Load's existing
-domain mutation contract:
-
-    name
-        -> load.name = value
-
-    p
-        -> load.p = value
-
-    q
-        -> load.q = value
-
-    in_service
-        -> load.set_in_service(value)
-
-The service never performs generic attribute assignment.
-
-The complete pre-update state is captured before mutation and
-restored through one transaction undo operation.
+No additional Grid power-rating field is introduced here.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from ..errors import DomainError, ResourceError
-from ..results import ApplicationResult
-from ..transaction import Transaction
-
-from ...model.bus import Bus, BusType
-from ...model.line import Line
-from ...model.load import Load
-from ...model.terminal import Terminal
-from ...model.transformer import Transformer
+from core.application.results import ApplicationResult
+from core.application.transaction import Transaction
+from core.errors import DomainError, ResourceError
+from core.model.bus import Bus
+from core.model.grid import Grid
+from core.model.line import Line
+from core.model.load import Load
+from core.model.terminal import Terminal
+from core.model.transformer import Transformer
+from core.network.network import Network
 
 
 class ModelService:
     """
-    Application service for Core model mutation.
-
-    Network remains the authoritative owner of model objects.
-
-    The service accepts already-resolved Core endpoints for
-    branch-based equipment. It never resolves EndpointReference
-    values itself.
+    Application-layer service for authoritative model mutation.
     """
 
-    def __init__(self, network: Any) -> None:
-        if network is None:
-            raise ValueError("network is required.")
+    def __init__(
+        self,
+        network: Network,
+    ) -> None:
+        if not isinstance(network, Network):
+            raise TypeError(
+                "network must be a Network."
+            )
 
         self._network = network
 
-    # ============================================================
+    # ========================================================
     # BUS
-    # ============================================================
+    # ========================================================
 
     def create_bus(
         self,
         *,
         bus_id: str,
         name: str | None = None,
-        bus_type: str | BusType = "PQ",
-        voltage: float = 1.0,
-        angle: float = 0.0,
-        p_spec: float = 0.0,
-        q_spec: float = 0.0,
-        v_setpoint: float | None = None,
-        q_min: float | None = float("-inf"),
-        q_max: float | None = float("inf"),
+        nominal_voltage_kv: float = 0.0,
         transaction: Transaction,
     ) -> ApplicationResult[Bus]:
-        """
-        Create and register a Bus.
-
-        Application command terminology is translated here to the
-        actual Core Bus constructor terminology:
-
-            bus_id      -> id
-            voltage     -> voltage_magnitude
-            angle       -> voltage_angle
-            p_spec      -> p
-            q_spec      -> q
-            v_setpoint  -> voltage_setpoint
-
-        The Application command represents unbounded reactive-power
-        limits using +/- infinity. The Core Bus represents an
-        unspecified/unbounded limit using None.
-        """
-
         self._require_transaction(transaction)
         self._require_id(bus_id, "bus_id")
 
@@ -167,41 +82,17 @@ class ModelService:
             "Bus",
         )
 
-        core_voltage_setpoint = (
-            1.0
-            if v_setpoint is None
-            else v_setpoint
-        )
-
-        core_q_min = (
-            None
-            if q_min is None or q_min == float("-inf")
-            else q_min
-        )
-
-        core_q_max = (
-            None
-            if q_max is None or q_max == float("inf")
-            else q_max
-        )
-
         bus = Bus(
             id=bus_id,
             name="" if name is None else name,
-            bus_type=bus_type,
-            voltage_magnitude=voltage,
-            voltage_angle=angle,
-            p=p_spec,
-            q=q_spec,
-            voltage_setpoint=core_voltage_setpoint,
-            q_min=core_q_min,
-            q_max=core_q_max,
+            nominal_voltage_kv=nominal_voltage_kv,
         )
 
         self._network.add_bus(bus)
 
         transaction.record_undo(
-            lambda bus=bus: self._network.remove_bus(bus)
+            lambda bus=bus:
+                self._network.remove_bus(bus)
         )
 
         return ApplicationResult.success_result(
@@ -219,10 +110,6 @@ class ModelService:
         bus_id: str,
         transaction: Transaction,
     ) -> ApplicationResult[Bus]:
-        """
-        Delete the canonical Bus identified by bus_id.
-        """
-
         self._require_transaction(transaction)
         self._require_id(bus_id, "bus_id")
 
@@ -245,7 +132,8 @@ class ModelService:
         self._network.remove_bus(bus)
 
         transaction.record_undo(
-            lambda bus=bus: self._network.add_bus(bus)
+            lambda bus=bus:
+                self._network.add_bus(bus)
         )
 
         return ApplicationResult.success_result(
@@ -257,9 +145,9 @@ class ModelService:
             },
         )
 
-    # ============================================================
+    # ========================================================
     # LINE
-    # ============================================================
+    # ========================================================
 
     def create_line(
         self,
@@ -271,17 +159,9 @@ class ModelService:
         x: float = 0.0,
         b: float = 0.0,
         name: str | None = None,
-        rate_mva: float = 100.0,
+        rate_mva: float | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Line]:
-        """
-        Create and register a Line between resolved Core endpoints.
-
-        EndpointReference resolution belongs to EndpointResolver.
-        This method accepts only already-resolved Bus/Terminal
-        objects.
-        """
-
         self._require_transaction(transaction)
         self._require_id(line_id, "line_id")
 
@@ -323,7 +203,8 @@ class ModelService:
         self._network.add_line(line)
 
         transaction.record_undo(
-            lambda line=line: self._network.remove_line(line)
+            lambda line=line:
+                self._network.remove_line(line)
         )
 
         return ApplicationResult.success_result(
@@ -341,10 +222,6 @@ class ModelService:
         line_id: str,
         transaction: Transaction,
     ) -> ApplicationResult[Line]:
-        """
-        Delete the canonical Line identified by line_id.
-        """
-
         self._require_transaction(transaction)
         self._require_id(line_id, "line_id")
 
@@ -367,7 +244,8 @@ class ModelService:
         self._network.remove_line(line)
 
         transaction.record_undo(
-            lambda line=line: self._network.add_line(line)
+            lambda line=line:
+                self._network.add_line(line)
         )
 
         return ApplicationResult.success_result(
@@ -379,9 +257,9 @@ class ModelService:
             },
         )
 
-    # ============================================================
+    # ========================================================
     # TRANSFORMER
-    # ============================================================
+    # ========================================================
 
     def create_transformer(
         self,
@@ -394,16 +272,9 @@ class ModelService:
         tap: float = 1.0,
         shift: float = 0.0,
         name: str | None = None,
-        rate_mva: float = 100.0,
+        rate_mva: float | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
-        """
-        Create and register a Transformer between resolved
-        Core endpoints.
-
-        EndpointReference resolution belongs to EndpointResolver.
-        """
-
         self._require_transaction(transaction)
         self._require_id(
             transformer_id,
@@ -422,7 +293,9 @@ class ModelService:
         if endpoint_from is endpoint_to:
             raise DomainError(
                 code="INVALID_TRANSFORMER_ENDPOINTS",
-                message="Transformer endpoints must be different.",
+                message=(
+                    "Transformer endpoints must be different."
+                ),
                 details={
                     "transformer_id": transformer_id,
                 },
@@ -450,12 +323,16 @@ class ModelService:
 
         transaction.record_undo(
             lambda transformer=transformer:
-                self._network.remove_transformer(transformer)
+                self._network.remove_transformer(
+                    transformer
+                )
         )
 
         return ApplicationResult.success_result(
             value=transformer,
-            message=f"Transformer created: {transformer_id}",
+            message=(
+                f"Transformer created: {transformer_id}"
+            ),
             metadata={
                 "object_type": "transformer",
                 "object_id": transformer_id,
@@ -468,11 +345,6 @@ class ModelService:
         transformer_id: str,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
-        """
-        Delete the canonical Transformer identified by
-        transformer_id.
-        """
-
         self._require_transaction(transaction)
         self._require_id(
             transformer_id,
@@ -498,25 +370,31 @@ class ModelService:
                 },
             )
 
-        self._network.remove_transformer(transformer)
+        self._network.remove_transformer(
+            transformer
+        )
 
         transaction.record_undo(
             lambda transformer=transformer:
-                self._network.add_transformer(transformer)
+                self._network.add_transformer(
+                    transformer
+                )
         )
 
         return ApplicationResult.success_result(
             value=transformer,
-            message=f"Transformer deleted: {transformer_id}",
+            message=(
+                f"Transformer deleted: {transformer_id}"
+            ),
             metadata={
                 "object_type": "transformer",
                 "object_id": transformer_id,
             },
         )
 
-    # ============================================================
+    # ========================================================
     # LOAD
-    # ============================================================
+    # ========================================================
 
     def create_load(
         self,
@@ -528,17 +406,6 @@ class ModelService:
         in_service: bool = True,
         transaction: Transaction,
     ) -> ApplicationResult[Load]:
-        """
-        Create and register a Load.
-
-        Load creation is intentionally independent of topology.
-
-        The Load model owns one Terminal, but the command/service
-        creation path does not resolve or attach that Terminal to
-        a Bus. Topology attachment is a separate Application
-        concern.
-        """
-
         self._require_transaction(transaction)
         self._require_id(load_id, "load_id")
 
@@ -559,7 +426,8 @@ class ModelService:
         self._network.add_load(load)
 
         transaction.record_undo(
-            lambda load=load: self._network.remove_load(load)
+            lambda load=load:
+                self._network.remove_load(load)
         )
 
         return ApplicationResult.success_result(
@@ -581,24 +449,6 @@ class ModelService:
         in_service: bool | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Load]:
-        """
-        Update mutable Load properties.
-
-        This operation changes equipment state only.
-
-        It does not:
-        - resolve endpoints;
-        - attach or detach terminals;
-        - modify topology;
-        - modify SLD state.
-
-        Each requested property is mutated through the Load's
-        existing domain API.
-
-        Undo restores the complete pre-update state through one
-        inverse transaction operation.
-        """
-
         self._require_transaction(transaction)
         self._require_id(load_id, "load_id")
 
@@ -635,23 +485,10 @@ class ModelService:
                 },
             )
 
-        # --------------------------------------------------------
-        # Capture complete pre-update state.
-        # --------------------------------------------------------
-
         old_name = load.name
         old_p = load.p
         old_q = load.q
         old_in_service = load.in_service
-
-        # --------------------------------------------------------
-        # Perform only requested domain mutations.
-        #
-        # P/Q use the Load setters, preserving the Load's existing
-        # validation.
-        #
-        # Operational state uses the explicit domain mutation API.
-        # --------------------------------------------------------
 
         if name is not None:
             load.name = name
@@ -666,14 +503,6 @@ class ModelService:
             load.set_in_service(
                 in_service
             )
-
-        # --------------------------------------------------------
-        # Register one complete inverse operation.
-        #
-        # The closure captures the pre-update state, not the
-        # command values, so undo restores exactly the state that
-        # existed immediately before this execution.
-        # --------------------------------------------------------
 
         def restore_previous_state() -> None:
             load.name = old_name
@@ -702,10 +531,6 @@ class ModelService:
         load_id: str,
         transaction: Transaction,
     ) -> ApplicationResult[Load]:
-        """
-        Delete the canonical Load identified by load_id.
-        """
-
         self._require_transaction(transaction)
         self._require_id(load_id, "load_id")
 
@@ -728,7 +553,8 @@ class ModelService:
         self._network.remove_load(load)
 
         transaction.record_undo(
-            lambda load=load: self._network.add_load(load)
+            lambda load=load:
+                self._network.add_load(load)
         )
 
         return ApplicationResult.success_result(
@@ -740,22 +566,365 @@ class ModelService:
             },
         )
 
-    # ============================================================
-    # CANONICAL NETWORK LOOKUP
-    # ============================================================
+    # ========================================================
+    # GRID
+    # ========================================================
+
+    def create_grid(
+        self,
+        *,
+        grid_id: str,
+        endpoint: Bus | Terminal | None = None,
+        name: str | None = None,
+        nominal_voltage_kv: float = 0.0,
+        frequency_hz: float = 50.0,
+        voltage_pu: float = 1.0,
+        angle_deg: float = 0.0,
+        p_mw: float = 0.0,
+        q_mvar: float = 0.0,
+        short_circuit_mva: float = 0.0,
+        x_over_r: float = 0.0,
+        z1_pu: complex = 0j,
+        z2_pu: complex = 0j,
+        z0_pu: complex = 0j,
+        in_service: bool = True,
+        grounded: bool = True,
+        transaction: Transaction,
+    ) -> ApplicationResult[Grid]:
+        """
+        Create and register a Grid.
+
+        Grid is a first-class network element.
+
+        p_mw:
+            Active power in MW.
+
+        q_mvar:
+            Reactive power in MVAr.
+
+        short_circuit_mva:
+            Short-circuit strength in MVA.
+
+        Endpoint resolution is deliberately outside this service.
+        If supplied, endpoint must already be a Core Bus or
+        Terminal.
+        """
+
+        self._require_transaction(transaction)
+        self._require_id(grid_id, "grid_id")
+
+        if endpoint is not None:
+            self._validate_endpoint(
+                endpoint,
+                "endpoint",
+            )
+
+        self._ensure_not_exists(
+            "grid",
+            grid_id,
+            "Grid",
+        )
+
+        grid = Grid(
+            id=grid_id,
+            name="" if name is None else name,
+            endpoint=endpoint,
+            nominal_voltage_kv=nominal_voltage_kv,
+            frequency_hz=frequency_hz,
+            voltage_pu=voltage_pu,
+            angle_deg=angle_deg,
+            p_mw=p_mw,
+            q_mvar=q_mvar,
+            short_circuit_mva=short_circuit_mva,
+            x_over_r=x_over_r,
+            z1_pu=z1_pu,
+            z2_pu=z2_pu,
+            z0_pu=z0_pu,
+            in_service=in_service,
+            grounded=grounded,
+        )
+
+        self._network.add_grid(grid)
+
+        transaction.record_undo(
+            lambda grid=grid:
+                self._network.remove_grid(grid)
+        )
+
+        return ApplicationResult.success_result(
+            value=grid,
+            message=f"Grid created: {grid_id}",
+            metadata={
+                "object_type": "grid",
+                "object_id": grid_id,
+            },
+        )
+
+    def update_grid(
+        self,
+        *,
+        grid_id: str,
+        name: str | None = None,
+        nominal_voltage_kv: float | None = None,
+        frequency_hz: float | None = None,
+        voltage_pu: float | None = None,
+        angle_deg: float | None = None,
+        p_mw: float | None = None,
+        q_mvar: float | None = None,
+        short_circuit_mva: float | None = None,
+        x_over_r: float | None = None,
+        z1_pu: complex | None = None,
+        z2_pu: complex | None = None,
+        z0_pu: complex | None = None,
+        in_service: bool | None = None,
+        grounded: bool | None = None,
+        transaction: Transaction,
+    ) -> ApplicationResult[Grid]:
+        """
+        Update mutable Grid state.
+
+        Endpoint connectivity is intentionally not modified by
+        this method. Connectivity changes belong to topology
+        commands/services.
+        """
+
+        self._require_transaction(transaction)
+        self._require_id(grid_id, "grid_id")
+
+        grid = self._get_required(
+            "grid",
+            grid_id,
+            "Grid",
+        )
+
+        if not isinstance(grid, Grid):
+            raise DomainError(
+                code="INVALID_GRID_REFERENCE",
+                message=f"Object {grid_id!r} is not a Grid.",
+                details={
+                    "grid_id": grid_id,
+                    "object_type": type(grid).__name__,
+                },
+            )
+
+        if (
+            name is None
+            and nominal_voltage_kv is None
+            and frequency_hz is None
+            and voltage_pu is None
+            and angle_deg is None
+            and p_mw is None
+            and q_mvar is None
+            and short_circuit_mva is None
+            and x_over_r is None
+            and z1_pu is None
+            and z2_pu is None
+            and z0_pu is None
+            and in_service is None
+            and grounded is None
+        ):
+            raise DomainError(
+                code="NO_GRID_UPDATE",
+                message=(
+                    "At least one mutable Grid property "
+                    "must be specified."
+                ),
+                details={
+                    "grid_id": grid_id,
+                },
+            )
+
+        old_name = grid.name
+        old_nominal_voltage_kv = (
+            grid.nominal_voltage_kv
+        )
+        old_frequency_hz = grid.frequency_hz
+        old_voltage_pu = grid.voltage_pu
+        old_angle_deg = grid.angle_deg
+        old_p_mw = grid.p_mw
+        old_q_mvar = grid.q_mvar
+        old_short_circuit_mva = (
+            grid.short_circuit_mva
+        )
+        old_x_over_r = grid.x_over_r
+        old_z1_pu = grid.z1_pu
+        old_z2_pu = grid.z2_pu
+        old_z0_pu = grid.z0_pu
+        old_in_service = grid.in_service
+        old_grounded = grid.grounded
+
+        if name is not None:
+            grid.name = name
+
+        if nominal_voltage_kv is not None:
+            grid.nominal_voltage_kv = (
+                nominal_voltage_kv
+            )
+
+        if frequency_hz is not None:
+            grid.frequency_hz = frequency_hz
+
+        if short_circuit_mva is not None:
+            grid.short_circuit_mva = (
+                short_circuit_mva
+            )
+
+        if x_over_r is not None:
+            grid.x_over_r = x_over_r
+
+        if grounded is not None:
+            grid.grounded = grounded
+
+        if (
+            voltage_pu is not None
+            or angle_deg is not None
+        ):
+            grid.set_voltage(
+                grid.voltage_pu
+                if voltage_pu is None
+                else voltage_pu,
+                grid.angle_deg
+                if angle_deg is None
+                else angle_deg,
+            )
+
+        if (
+            p_mw is not None
+            or q_mvar is not None
+        ):
+            grid.set_power(
+                grid.p_mw
+                if p_mw is None
+                else p_mw,
+                grid.q_mvar
+                if q_mvar is None
+                else q_mvar,
+            )
+
+        if (
+            z1_pu is not None
+            or z2_pu is not None
+            or z0_pu is not None
+        ):
+            grid.set_sequence_impedances(
+                grid.z1_pu
+                if z1_pu is None
+                else z1_pu,
+                grid.z2_pu
+                if z2_pu is None
+                else z2_pu,
+                grid.z0_pu
+                if z0_pu is None
+                else z0_pu,
+            )
+
+        if in_service is not None:
+            if in_service:
+                grid.put_in_service()
+            else:
+                grid.take_out_of_service()
+
+        def restore_previous_state() -> None:
+            grid.name = old_name
+            grid.nominal_voltage_kv = (
+                old_nominal_voltage_kv
+            )
+            grid.frequency_hz = old_frequency_hz
+            grid.short_circuit_mva = (
+                old_short_circuit_mva
+            )
+            grid.x_over_r = old_x_over_r
+            grid.grounded = old_grounded
+
+            grid.set_voltage(
+                old_voltage_pu,
+                old_angle_deg,
+            )
+
+            grid.set_power(
+                old_p_mw,
+                old_q_mvar,
+            )
+
+            grid.set_sequence_impedances(
+                old_z1_pu,
+                old_z2_pu,
+                old_z0_pu,
+            )
+
+            if old_in_service:
+                grid.put_in_service()
+            else:
+                grid.take_out_of_service()
+
+        transaction.record_undo(
+            restore_previous_state
+        )
+
+        return ApplicationResult.success_result(
+            value=grid,
+            message=f"Grid updated: {grid_id}",
+            metadata={
+                "object_type": "grid",
+                "object_id": grid_id,
+            },
+        )
+
+    def delete_grid(
+        self,
+        *,
+        grid_id: str,
+        transaction: Transaction,
+    ) -> ApplicationResult[Grid]:
+        """
+        Delete the canonical Grid identified by grid_id.
+        """
+
+        self._require_transaction(transaction)
+        self._require_id(grid_id, "grid_id")
+
+        grid = self._get_required(
+            "grid",
+            grid_id,
+            "Grid",
+        )
+
+        if not isinstance(grid, Grid):
+            raise DomainError(
+                code="INVALID_GRID_REFERENCE",
+                message=f"Object {grid_id!r} is not a Grid.",
+                details={
+                    "grid_id": grid_id,
+                    "object_type": type(grid).__name__,
+                },
+            )
+
+        self._network.remove_grid(grid)
+
+        transaction.record_undo(
+            lambda grid=grid:
+                self._network.add_grid(grid)
+        )
+
+        return ApplicationResult.success_result(
+            value=grid,
+            message=f"Grid deleted: {grid_id}",
+            metadata={
+                "object_type": "grid",
+                "object_id": grid_id,
+            },
+        )
+
+    # ========================================================
+    # LOOKUP
+    # ========================================================
 
     def _get_required(
         self,
         element_type: str,
         object_id: str,
         display_type: str,
-    ) -> Any:
-        """
-        Resolve a canonical Core object through Network.get_by_id().
-
-        Network remains the only Application-visible lookup façade.
-        """
-
+    ) -> object:
         try:
             return self._network.get_by_id(
                 element_type,
@@ -780,13 +949,6 @@ class ModelService:
         object_id: str,
         display_type: str,
     ) -> None:
-        """
-        Ensure an object ID is not already registered.
-
-        Lookup goes through Network.get_by_id(); the registry
-        remains completely hidden from this service.
-        """
-
         try:
             self._network.get_by_id(
                 element_type,
@@ -807,21 +969,15 @@ class ModelService:
             },
         )
 
-    # ============================================================
+    # ========================================================
     # ENDPOINT VALIDATION
-    # ============================================================
+    # ========================================================
 
     @staticmethod
     def _validate_endpoint(
         endpoint: object,
         parameter_name: str,
     ) -> None:
-        """
-        Validate an already-resolved Core endpoint.
-
-        This deliberately does not perform endpoint resolution.
-        """
-
         if not isinstance(
             endpoint,
             (Bus, Terminal),
@@ -838,21 +994,14 @@ class ModelService:
                 },
             )
 
-    # ============================================================
+    # ========================================================
     # TRANSACTION VALIDATION
-    # ============================================================
+    # ========================================================
 
     @staticmethod
     def _require_transaction(
         transaction: Transaction,
     ) -> None:
-        """
-        Ensure an active Application Transaction is supplied.
-
-        ModelService never creates, commits, or rolls back the
-        transaction.
-        """
-
         if not isinstance(
             transaction,
             Transaction,
@@ -866,20 +1015,19 @@ class ModelService:
                 "Transaction must be active."
             )
 
-    # ============================================================
+    # ========================================================
     # ID VALIDATION
-    # ============================================================
+    # ========================================================
 
     @staticmethod
     def _require_id(
         value: str,
         parameter_name: str,
     ) -> None:
-        """
-        Validate a GridForge object identifier.
-        """
-
-        if not isinstance(value, str):
+        if not isinstance(
+            value,
+            str,
+        ):
             raise TypeError(
                 f"{parameter_name} must be str."
             )
