@@ -79,6 +79,38 @@ Load creation.
 
 Load connectivity is handled by the appropriate separate
 Application topology workflow.
+
+Grid commands
+-------------
+
+Grid is a first-class electrical network element.
+
+Grid creation, update, and deletion are model-state operations.
+They do not resolve or mutate topology.
+
+Grid commands carry:
+
+    grid_id
+    name
+    nominal_voltage_kv
+    frequency_hz
+    voltage_pu
+    angle_deg
+    p_mw
+    q_mvar
+    short_circuit_mva
+    x_over_r
+    z1_pu
+    z2_pu
+    z0_pu
+    in_service
+    grounded
+
+Power quantities use:
+
+    p_mw              -> MW
+    q_mvar            -> MVAr
+    short_circuit_mva -> MVA
 """
 
 from __future__ import annotations
@@ -94,13 +126,20 @@ from .transaction import Transaction
 from .commands.model_commands import (
     CREATE_BUS,
     DELETE_BUS,
+
     CREATE_LINE,
     DELETE_LINE,
+
     CREATE_TRANSFORMER,
     DELETE_TRANSFORMER,
+
     CREATE_LOAD,
     UPDATE_LOAD,
     DELETE_LOAD,
+
+    CREATE_GRID,
+    UPDATE_GRID,
+    DELETE_GRID,
 )
 
 
@@ -170,6 +209,10 @@ class ModelCommandHandlers:
             CREATE_LOAD: self.create_load,
             UPDATE_LOAD: self.update_load,
             DELETE_LOAD: self.delete_load,
+
+            CREATE_GRID: self.create_grid,
+            UPDATE_GRID: self.update_grid,
+            DELETE_GRID: self.delete_grid,
         }
 
     # ========================================================
@@ -184,8 +227,6 @@ class ModelCommandHandlers:
     ) -> ApplicationResult[Any]:
         """
         Create a Bus through ModelService.
-
-        No Core mutation is performed directly by the handler.
         """
 
         payload = command.payload
@@ -402,6 +443,108 @@ class ModelCommandHandlers:
 
         return self._model_service.delete_load(
             load_id=command.payload["load_id"],
+            transaction=transaction,
+        )
+
+    # ========================================================
+    # GRID
+    # ========================================================
+
+    def create_grid(
+        self,
+        command: Command,
+        context: Any,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """
+        Create a Grid through ModelService.
+
+        Grid is a first-class electrical network element.
+
+        Grid creation is deliberately independent of topology.
+        No endpoint is resolved by this handler.
+
+        The resulting Grid is created as a canonical Core model
+        object. Connectivity is handled separately by the
+        Application topology workflow.
+        """
+
+        payload = command.payload
+
+        return self._model_service.create_grid(
+            grid_id=payload["grid_id"],
+            name=payload["name"],
+            nominal_voltage_kv=payload[
+                "nominal_voltage_kv"
+            ],
+            frequency_hz=payload["frequency_hz"],
+            voltage_pu=payload["voltage_pu"],
+            angle_deg=payload["angle_deg"],
+            p_mw=payload["p_mw"],
+            q_mvar=payload["q_mvar"],
+            short_circuit_mva=payload[
+                "short_circuit_mva"
+            ],
+            x_over_r=payload["x_over_r"],
+            z1_pu=payload["z1_pu"],
+            z2_pu=payload["z2_pu"],
+            z0_pu=payload["z0_pu"],
+            in_service=payload["in_service"],
+            grounded=payload["grounded"],
+            transaction=transaction,
+        )
+
+    def update_grid(
+        self,
+        command: Command,
+        context: Any,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """
+        Update Grid model state through ModelService.
+
+        This is an equipment-state mutation only.
+
+        No endpoint resolution or topology mutation is performed.
+        """
+
+        payload = command.payload
+
+        return self._model_service.update_grid(
+            grid_id=payload["grid_id"],
+            name=payload["name"],
+            nominal_voltage_kv=payload[
+                "nominal_voltage_kv"
+            ],
+            frequency_hz=payload["frequency_hz"],
+            voltage_pu=payload["voltage_pu"],
+            angle_deg=payload["angle_deg"],
+            p_mw=payload["p_mw"],
+            q_mvar=payload["q_mvar"],
+            short_circuit_mva=payload[
+                "short_circuit_mva"
+            ],
+            x_over_r=payload["x_over_r"],
+            z1_pu=payload["z1_pu"],
+            z2_pu=payload["z2_pu"],
+            z0_pu=payload["z0_pu"],
+            in_service=payload["in_service"],
+            grounded=payload["grounded"],
+            transaction=transaction,
+        )
+
+    def delete_grid(
+        self,
+        command: Command,
+        context: Any,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """
+        Delete a Grid through ModelService.
+        """
+
+        return self._model_service.delete_grid(
+            grid_id=command.payload["grid_id"],
             transaction=transaction,
         )
 
