@@ -1,155 +1,121 @@
 # ============================================================
 # File: core/application/endpoint_reference.py
-# GridForge V2 — Application Endpoint Reference
+# GridForge V2 — Application Endpoint References
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-GridForge V2
-============
+GridForge V2 — Application Endpoint References
+================================================
 
-Module:
-    core.application.endpoint_reference
+Defines immutable references used by Application Commands to
+identify canonical Core electrical endpoints.
 
-Purpose
--------
-Defines the immutable Application-layer reference used by
-commands to identify an electrical endpoint without embedding
-Core model objects inside Application commands.
+This module contains references only.
 
-Architectural Boundary
-----------------------
+It does NOT contain:
+
+    * Core model objects
+    * topology state
+    * electrical calculations
+    * UI state
+    * SLD state
+    * endpoint mutation
+    * network membership
+
+Architecture
+------------
 
     UI / Plugin
-         |
-         | EndpointReference
-         v
+        |
+        | EndpointReference
+        v
     Application Command
-         |
-         v
+        |
+        v
     Command Handler
-         |
-         | resolve
-         v
-    Canonical Core Endpoint
-         |
-         v
-    Application Service
-         |
-         v
-    Core Network / Model
+        |
+        | resolve
+        v
+    Canonical Core Bus / Terminal
+        |
+        v
+    ModelService
+        |
+        v
+    Core Model / Network
 
-EndpointReference is an Application value object.
+Endpoint identity
+-----------------
 
-It is NOT:
+A Bus endpoint is identified by:
 
-    * a Core model;
-    * a Terminal;
-    * a Bus;
-    * an electrical topology object;
-    * a UI object;
-    * a persistent Core entity.
+    bus_id
 
-The Core remains authoritative for actual endpoint objects.
+A Terminal endpoint is identified by:
 
-Supported Endpoint Kinds
--------------------------
-
-BUS
-    Identifies a Bus directly.
-
-TERMINAL
-    Identifies a terminal belonging to a Core equipment object.
-
-Terminal identity is represented by:
-
+    equipment_type
     equipment_id
     terminal_role
 
-This deliberately does not introduce a globally unique
-Terminal.id into Core.
+This is required because the current NetworkRegistry guarantees
+identifier uniqueness within an equipment family, not globally
+across all equipment families.
 
-Why terminal_role?
-------------------
-Core Terminal currently derives its identity from its owning
-equipment and role. Terminal roles include values such as:
+A Terminal does not receive a globally unique Terminal ID.
 
-    from
-    to
-    P1
-    P2
-    H1
-    H2
-    ...
+Its identity remains:
 
-The Application reference therefore mirrors the existing Core
-identity model instead of inventing another identity system.
+    owning equipment + terminal role
 
-Immutability
-------------
-EndpointReference is immutable.
-
-Commands may safely contain EndpointReference instances without
-acquiring mutable Core state.
-
-Core Resolution
----------------
-EndpointReference does not resolve itself.
-
-Resolution belongs to the Application handler/service boundary,
-because resolving the reference requires access to canonical
-Core Network state.
-
-Validation
-----------
-This module validates reference structure.
-
-It does not perform engineering/domain validation.
-
-Examples
---------
-
-Bus:
-
-    EndpointReference.bus(
-        "BUS-001"
-    )
-
-Terminal:
-
-    EndpointReference.terminal(
-        equipment_id="TR-001",
-        terminal_role="HV",
-    )
-
-No Core object is stored in either reference.
+The reference therefore mirrors the existing Core identity
+contract rather than introducing a second identity system.
 
 Author:
     Subhendu Mishra
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
 # ============================================================
-# ENDPOINT KIND
+# ENDPOINT REFERENCE KIND
 # ============================================================
 
 class EndpointReferenceKind(str, Enum):
     """
-    Identifies the type of endpoint represented by an
-    EndpointReference.
+    Type of electrical endpoint referenced by an Application
+    command.
     """
 
     BUS = "bus"
     TERMINAL = "terminal"
+
+
+# ============================================================
+# EQUIPMENT TYPE
+# ============================================================
+
+class EquipmentType(str, Enum):
+    """
+    Canonical Network equipment families that may own terminals.
+
+    These values correspond to NetworkRegistry collections.
+
+    The enum is intentionally Application-facing. It does not
+    replace the Core model classes.
+    """
+
+    LINE = "line"
+    TRANSFORMER = "transformer"
+    GENERATOR = "generator"
+    LOAD = "load"
+    SHUNT = "shunt"
 
 
 # ============================================================
@@ -159,39 +125,33 @@ class EndpointReferenceKind(str, Enum):
 @dataclass(frozen=True, slots=True)
 class EndpointReference:
     """
-    Immutable Application-layer reference to a Core electrical
+    Immutable Application reference to a canonical electrical
     endpoint.
 
-    Parameters
-    ----------
-    kind:
-        EndpointReferenceKind.BUS or
-        EndpointReferenceKind.TERMINAL.
+    BUS
+    ---
+    For a Bus:
 
-    object_id:
-        Canonical Core object identifier.
+        kind = BUS
+        object_id = Bus.id
+        equipment_type = None
+        terminal_role = None
 
-        For BUS:
-            this is the Bus id.
+    TERMINAL
+    --------
+    For a Terminal:
 
-        For TERMINAL:
-            this is the owning equipment id.
+        kind = TERMINAL
+        object_id = owning equipment.id
+        equipment_type = owning equipment family
+        terminal_role = terminal.role
 
-    terminal_role:
-        Terminal role when kind is TERMINAL.
-
-        Must be None for BUS.
-
-    Notes
-    -----
-    No Core object is stored here.
-
-    This class therefore remains safe to use inside immutable
-    Application Commands.
+    No Core object is stored.
     """
 
     kind: EndpointReferenceKind
     object_id: str
+    equipment_type: EquipmentType | None = None
     terminal_role: str | None = None
 
     # ========================================================
@@ -200,7 +160,7 @@ class EndpointReference:
 
     def __post_init__(self) -> None:
         """
-        Validate the structural integrity of the reference.
+        Validate and normalize the immutable reference.
         """
 
         if not isinstance(
@@ -219,24 +179,48 @@ class EndpointReference:
                 "object_id must be a non-empty string."
             )
 
-        object_id = self.object_id.strip()
-
         object.__setattr__(
             self,
             "object_id",
-            object_id,
+            self.object_id.strip(),
         )
 
+        # ----------------------------------------------------
+        # BUS
+        # ----------------------------------------------------
+
         if self.kind is EndpointReferenceKind.BUS:
+
+            if self.equipment_type is not None:
+                raise ValueError(
+                    "equipment_type must be None "
+                    "for a Bus endpoint."
+                )
+
             if self.terminal_role is not None:
                 raise ValueError(
-                    "terminal_role must be None for "
-                    "a bus endpoint reference."
+                    "terminal_role must be None "
+                    "for a Bus endpoint."
                 )
 
             return
 
+        # ----------------------------------------------------
+        # TERMINAL
+        # ----------------------------------------------------
+
         if self.kind is EndpointReferenceKind.TERMINAL:
+
+            if not isinstance(
+                self.equipment_type,
+                EquipmentType,
+            ):
+                raise TypeError(
+                    "equipment_type must be an "
+                    "EquipmentType for a terminal "
+                    "endpoint."
+                )
+
             if (
                 not isinstance(
                     self.terminal_role,
@@ -245,8 +229,9 @@ class EndpointReference:
                 or not self.terminal_role.strip()
             ):
                 raise ValueError(
-                    "terminal_role must be a non-empty "
-                    "string for a terminal endpoint reference."
+                    "terminal_role must be a "
+                    "non-empty string for a terminal "
+                    "endpoint."
                 )
 
             object.__setattr__(
@@ -284,6 +269,7 @@ class EndpointReference:
     def terminal(
         cls,
         *,
+        equipment_type: EquipmentType,
         equipment_id: str,
         terminal_role: str,
     ) -> "EndpointReference":
@@ -292,21 +278,25 @@ class EndpointReference:
 
         Parameters
         ----------
+        equipment_type:
+            Canonical Network equipment family.
+
         equipment_id:
-            Canonical Core id of the owning equipment.
+            Canonical identifier within that family.
 
         terminal_role:
-            Role identifying the terminal on that equipment.
+            Role of the terminal on the equipment.
         """
 
         return cls(
             kind=EndpointReferenceKind.TERMINAL,
             object_id=equipment_id,
+            equipment_type=equipment_type,
             terminal_role=terminal_role,
         )
 
     # ========================================================
-    # KIND HELPERS
+    # TYPE HELPERS
     # ========================================================
 
     @property
@@ -325,10 +315,14 @@ class EndpointReference:
 
         return self.kind is EndpointReferenceKind.TERMINAL
 
+    # ========================================================
+    # ID HELPERS
+    # ========================================================
+
     @property
     def bus_id(self) -> str | None:
         """
-        Return the Bus id when this is a Bus reference.
+        Return the Bus ID when this is a Bus reference.
         """
 
         if not self.is_bus:
@@ -339,7 +333,7 @@ class EndpointReference:
     @property
     def equipment_id(self) -> str | None:
         """
-        Return the owning equipment id when this is a Terminal
+        Return the owning equipment ID when this is a Terminal
         reference.
         """
 
@@ -354,21 +348,30 @@ class EndpointReference:
 
     def to_mapping(self) -> Mapping[str, Any]:
         """
-        Return a plain immutable mapping suitable for inclusion
-        in Application command payloads.
+        Return an immutable mapping suitable for diagnostics,
+        command transport, or persistence adapters.
         """
 
         if self.is_bus:
-            return {
+            return MappingProxyType(
+                {
+                    "kind": self.kind.value,
+                    "object_id": self.object_id,
+                }
+            )
+
+        return MappingProxyType(
+            {
                 "kind": self.kind.value,
                 "object_id": self.object_id,
+                "equipment_type": (
+                    self.equipment_type.value
+                    if self.equipment_type is not None
+                    else None
+                ),
+                "terminal_role": self.terminal_role,
             }
-
-        return {
-            "kind": self.kind.value,
-            "object_id": self.object_id,
-            "terminal_role": self.terminal_role,
-        }
+        )
 
     # ========================================================
     # REPRESENTATION
@@ -381,13 +384,14 @@ class EndpointReference:
 
         if self.is_bus:
             return (
-                f"EndpointReference("
+                "EndpointReference("
                 f"bus={self.object_id})"
             )
 
         return (
             "EndpointReference("
-            f"terminal={self.object_id}:"
+            f"{self.equipment_type.value}:"
+            f"{self.object_id}:"
             f"{self.terminal_role})"
         )
 
@@ -399,4 +403,5 @@ class EndpointReference:
 __all__ = [
     "EndpointReference",
     "EndpointReferenceKind",
+    "EquipmentType",
 ]
