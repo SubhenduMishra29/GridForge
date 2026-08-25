@@ -1,49 +1,51 @@
 # ============================================================
-
-# File: core/application/commands/**init**.py
-
-# GridForge V2 — Headless Application Commands
-
+# File: core/application/commands/__init__.py
+# GridForge V2 — Application Command Definitions
 # Author: Subhendu Mishra
-
 # ============================================================
 
-"""GridForge V2 headless Application command contracts.
+"""
+GridForge V2 — Application Commands
+====================================
 
-Commands represent requested intent only.
+Public command definitions for the headless Application layer.
 
-They do not mutate Core, execute services, manipulate topology,
-access Qt/UI objects, or contain presentation state.
+Commands represent immutable application intent.
+
+They do not:
+    * mutate Core state;
+    * execute services;
+    * resolve endpoints;
+    * access UI or Qt;
+    * contain Core model objects.
+
+Endpoint-bearing commands use ``EndpointReference`` values.
+
+An endpoint reference may identify either:
+
+    * a Bus directly by its Bus ID; or
+    * a Terminal by equipment type, equipment ID,
+      and terminal role.
+
+Endpoint resolution is performed by ``EndpointResolver`` at
+command-handler execution time.
 """
 
-from __future__ import annotations
-
 from .model_commands import (
-CREATE_BUS,
-DELETE_BUS,
-CREATE_LINE,
-DELETE_LINE,
-CREATE_TRANSFORMER,
-DELETE_TRANSFORMER,
-CreateBusCommand,
-DeleteBusCommand,
-CreateLineCommand,
-DeleteLineCommand,
-CreateTransformerCommand,
-DeleteTransformerCommand,
+    CreateBusCommand,
+    CreateLineCommand,
+    CreateTransformerCommand,
+    DeleteBusCommand,
+    DeleteLineCommand,
+    DeleteTransformerCommand,
 )
 
+
 __all__ = [
-"CREATE_BUS",
-"DELETE_BUS",
-"CREATE_LINE",
-"DELETE_LINE",
-"CREATE_TRANSFORMER",
-"DELETE_TRANSFORMER",
-"CreateBusCommand",
-"DeleteBusCommand",
-"CreateLineCommand",
-"DeleteLineCommand",
-"CreateTransformerCommand",
-"DeleteTransformerCommand",
+    "CreateBusCommand",
+    "CreateLineCommand",
+    "CreateTransformerCommand",
+    "DeleteBusCommand",
+    "DeleteLineCommand",
+    "DeleteTransformerCommand",
 ]
