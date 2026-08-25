@@ -43,6 +43,7 @@ Supported equipment families
     generator
     load
     shunt
+    grid
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ class NetworkRegistry:
         self._generators: list[Any] = []
         self._loads: list[Any] = []
         self._shunts: list[Any] = []
+        self._grids: list[Any] = []
 
     # ========================================================
     # READ-ONLY COLLECTIONS
@@ -90,6 +92,10 @@ class NetworkRegistry:
     @property
     def shunts(self) -> tuple[Any, ...]:
         return tuple(self._shunts)
+
+    @property
+    def grids(self) -> tuple[Any, ...]:
+        return tuple(self._grids)
 
     # ========================================================
     # INTERNAL HELPERS
@@ -171,43 +177,8 @@ class NetworkRegistry:
         """
         Return the canonical registered equipment object.
 
-        Parameters
-        ----------
-        element_type:
-            Canonical equipment family:
-
-                bus
-                line
-                transformer
-                generator
-                load
-                shunt
-
-        object_id:
-            Canonical equipment identifier.
-
-        Returns
-        -------
-        Any
-            The exact registered object instance.
-
-        Raises
-        ------
-        KeyError
-            If the equipment family is unsupported or the object
-            is not registered.
-
-        Notes
-        -----
-        This is lookup only.
-
-        It does not:
-
-            * create;
-            * clone;
-            * connect;
-            * mutate;
-            * resolve terminals.
+        Lookup is identity-preserving and does not mutate the
+        network.
         """
 
         element_type = self._validate_element_type(
@@ -225,6 +196,7 @@ class NetworkRegistry:
             "generator": self._generators,
             "load": self._loads,
             "shunt": self._shunts,
+            "grid": self._grids,
         }
 
         collection = collections.get(
@@ -381,8 +353,7 @@ class NetworkRegistry:
                 object_id,
             ) is not None:
                 raise ValueError(
-                    f"Transformer ID "
-                    f"{object_id!r} is already "
+                    f"Transformer ID {object_id!r} is already "
                     "registered."
                 )
 
@@ -433,8 +404,7 @@ class NetworkRegistry:
                 object_id,
             ) is not None:
                 raise ValueError(
-                    f"Generator ID "
-                    f"{object_id!r} is already "
+                    f"Generator ID {object_id!r} is already "
                     "registered."
                 )
 
@@ -548,6 +518,55 @@ class NetworkRegistry:
             self._shunts,
             shunt,
             "Shunt",
+        )
+
+    # ========================================================
+    # GRID
+    # ========================================================
+
+    def add_grid(
+        self,
+        grid: Any,
+    ) -> None:
+        if grid is None:
+            raise ValueError(
+                "grid must not be None."
+            )
+
+        if self._contains_identity(
+            self._grids,
+            grid,
+        ):
+            raise ValueError(
+                "Grid is already registered."
+            )
+
+        object_id = getattr(
+            grid,
+            "id",
+            None,
+        )
+
+        if object_id is not None:
+            if self._find_identity(
+                self._grids,
+                object_id,
+            ) is not None:
+                raise ValueError(
+                    f"Grid ID {object_id!r} is already "
+                    "registered."
+                )
+
+        self._grids.append(grid)
+
+    def remove_grid(
+        self,
+        grid: Any,
+    ) -> None:
+        self._remove_identity(
+            self._grids,
+            grid,
+            "Grid",
         )
 
     # ========================================================
