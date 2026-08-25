@@ -1,66 +1,53 @@
 # ============================================================
-
 # File: core/application/bootstrap.py
-
-# GridForge V2 — Headless Application Composition Root
-
+# GridForge V2 — Application Composition Root
 # Author: Subhendu Mishra
-
 # ============================================================
 
 """
-GridForge V2 Application Composition Root.
+GridForge V2 — Application Bootstrap
+=====================================
 
-This module constructs the complete headless Application runtime.
+Composition root for the headless Application layer.
 
-## Composition
+Responsibilities
+----------------
 
-```
-Core Network
-     |
-     v
-ApplicationContext
-     |
-     v
-CommandManager
-     |
-     +----------------------+
-     |                      |
-     v                      v
-Model Handlers         CommandHistory
-     |
-     v
-ModelService
-     |
-     v
-    Core
-```
+This module is responsible only for constructing and wiring the
+Application-layer components.
 
-## Responsibilities
+Composition:
 
-The Composition Root owns wiring only.
+    Core Network
+        |
+        v
+    ApplicationContext
+        |
+        v
+    CommandManager
+        |
+        v
+    Model Command Handlers
+        |
+        v
+    Application facade
 
-It does NOT:
+This module does NOT:
 
-```
-* construct domain models;
-* mutate Network;
-* execute commands;
-* implement business logic;
-* manipulate topology;
-* build Y-bus;
-* access Qt;
-* access UI;
-* manage plugins.
-```
+    * implement domain logic;
+    * mutate the Core directly;
+    * resolve endpoint references;
+    * execute commands;
+    * create Transactions;
+    * perform undo/redo;
+    * contain UI or Qt code;
+    * contain SLD logic.
 
-The canonical Core Network is supplied externally.
-
-The Application façade receives only the configured
-CommandManager.
+The Core Network is supplied by the caller and remains the
+authoritative domain object.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -69,85 +56,57 @@ from .command_handlers import register_model_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
 
+
 # ============================================================
-
 # APPLICATION FACTORY
-
 # ============================================================
 
 def create_application(
-network: Any,
+    network: Any,
 ) -> Application:
-"""
-Construct the canonical headless GridForge Application.
+    """
+    Construct the fully wired headless Application.
 
-```
-Parameters
-----------
-network:
-    Already-created canonical Core Network.
+    Parameters
+    ----------
+    network:
+        The authoritative Core Network instance.
 
-Returns
--------
-Application
-    Fully configured headless Application façade.
+    Returns
+    -------
+    Application
+        Fully configured Application facade.
 
-Composition order
------------------
+    Notes
+    -----
+    Bootstrap owns composition only.
 
-1. Validate the supplied Network.
-2. Construct ApplicationContext.
-3. Construct CommandManager.
-4. Register canonical model handlers.
-5. Construct Application façade.
+    The supplied Network is not replaced, copied, or recreated.
+    """
 
-The Composition Root does not execute commands.
-"""
+    if network is None:
+        raise ValueError(
+            "network is required."
+        )
 
-if network is None:
-    raise ValueError(
-        "network must not be None."
+    context = ApplicationContext(
+        network=network,
     )
 
-# --------------------------------------------------------
-# Application Context
-# --------------------------------------------------------
+    command_manager = CommandManager(
+        context=context,
+    )
 
-context = ApplicationContext(
-    network=network,
-)
+    register_model_handlers(
+        command_manager,
+        context,
+    )
 
-# --------------------------------------------------------
-# Command Manager
-# --------------------------------------------------------
+    return Application(
+        command_manager=command_manager,
+    )
 
-command_manager = CommandManager(
-    context=context,
-)
 
-# --------------------------------------------------------
-# Canonical model handlers
-# --------------------------------------------------------
-
-register_model_handlers(
-    command_manager,
-)
-
-# --------------------------------------------------------
-# Public Application façade
-# --------------------------------------------------------
-
-return Application(
-    command_manager=command_manager,
-)
-```
-
-# ============================================================
-
-# PUBLIC API
-
-# ============================================================
-
-**all** = [
-"create_application",
+__all__ = [
+    "create_application",
 ]
