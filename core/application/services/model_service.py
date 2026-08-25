@@ -32,6 +32,26 @@ ModelService does NOT:
 Endpoint resolution is performed by EndpointResolver in the
 Application command-handler layer before create_line() or
 create_transformer() is called.
+
+Load creation
+-------------
+
+A Load is a single-terminal injection model.
+
+CreateLoadCommand carries the Load's model/value data:
+
+    load_id
+    p
+    q
+    name
+    in_service
+
+The Load is initially created without a resolved topology
+endpoint. Connectivity is handled separately by the
+appropriate Application topology workflow.
+
+The service therefore does not resolve or construct a Terminal
+from an Application command.
 """
 
 from __future__ import annotations
@@ -44,6 +64,7 @@ from ..transaction import Transaction
 
 from ...model.bus import Bus, BusType
 from ...model.line import Line
+from ...model.load import Load
 from ...model.terminal import Terminal
 from ...model.transformer import Transformer
 
@@ -99,8 +120,7 @@ class ModelService:
 
         The Application command represents unbounded reactive-power
         limits using +/- infinity. The Core Bus represents an
-        unspecified/unbounded limit using None, because Core Bus
-        requires finite values when limits are present.
+        unspecified/unbounded limit using None.
         """
 
         self._require_transaction(transaction)
@@ -346,10 +366,7 @@ class ModelService:
         Create and register a Transformer between resolved
         Core endpoints.
 
-        The current Application command contract does not expose
-        transformer b. The Core Transformer constructor supplies
-        its own default for b, so this service intentionally does
-        not manufacture a second Application-level b parameter.
+        EndpointReference resolution belongs to EndpointResolver.
         """
 
         self._require_transaction(transaction)
@@ -459,6 +476,107 @@ class ModelService:
             metadata={
                 "object_type": "transformer",
                 "object_id": transformer_id,
+            },
+        )
+
+    # ============================================================
+    # LOAD
+    # ============================================================
+
+    def create_load(
+        self,
+        *,
+        load_id: str,
+        p: float = 0.0,
+        q: float = 0.0,
+        name: str | None = None,
+        in_service: bool = True,
+        transaction: Transaction,
+    ) -> ApplicationResult[Load]:
+        """
+        Create and register a Load.
+
+        Load creation is intentionally independent of topology.
+
+        The Load model owns one Terminal, but the command/service
+        creation path does not resolve or attach that Terminal to
+        a Bus. Topology attachment is a separate Application
+        concern.
+        """
+
+        self._require_transaction(transaction)
+        self._require_id(load_id, "load_id")
+
+        self._ensure_not_exists(
+            "load",
+            load_id,
+            "Load",
+        )
+
+        load = Load(
+            id=load_id,
+            p=p,
+            q=q,
+            name="" if name is None else name,
+            in_service=in_service,
+        )
+
+        self._network.add_load(load)
+
+        transaction.record_undo(
+            lambda load=load: self._network.remove_load(load)
+        )
+
+        return ApplicationResult.success_result(
+            value=load,
+            message=f"Load created: {load_id}",
+            metadata={
+                "object_type": "load",
+                "object_id": load_id,
+            },
+        )
+
+    def delete_load(
+        self,
+        *,
+        load_id: str,
+        transaction: Transaction,
+    ) -> ApplicationResult[Load]:
+        """
+        Delete the canonical Load identified by load_id.
+        """
+
+        self._require_transaction(transaction)
+        self._require_id(load_id, "load_id")
+
+        load = self._get_required(
+            "load",
+            load_id,
+            "Load",
+        )
+
+        if not isinstance(load, Load):
+            raise DomainError(
+                code="INVALID_LOAD_REFERENCE",
+                message=f"Object {load_id!r} is not a Load.",
+                details={
+                    "load_id": load_id,
+                    "object_type": type(load).__name__,
+                },
+            )
+
+        self._network.remove_load(load)
+
+        transaction.record_undo(
+            lambda load=load: self._network.add_load(load)
+        )
+
+        return ApplicationResult.success_result(
+            value=load,
+            message=f"Load deleted: {load_id}",
+            metadata={
+                "object_type": "load",
+                "object_id": load_id,
             },
         )
 
