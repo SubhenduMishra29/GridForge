@@ -120,23 +120,26 @@ class Load(ElectricalObject, Injection):
             name=name,
         )
 
+        # Terminal is authoritative connection state.
+        #
+        # A Load has exactly one terminal.  The actual Terminal
+        # contract accepts endpoint, owner and role; it does not
+        # have an independent terminal id or name.
         self._terminal = (
             terminal
             if terminal is not None
             else Terminal(
-                id=f"{id}:T1",
                 owner=self,
-                name=f"{name or id}:T1",
             )
         )
 
+        # If an externally supplied Terminal has no owner, adopt it.
         if self._terminal.owner is None:
             self._terminal.owner = self
 
         elif self._terminal.owner is not self:
             raise ValueError(
-                f"Terminal '{self._terminal.id}' is already "
-                "owned by another object."
+                "Terminal is already owned by another object."
             )
 
         self._p = self._validate_power(
@@ -438,7 +441,7 @@ class Load(ElectricalObject, Injection):
             "name": self.name,
             "type": self.TYPE,
 
-            "terminal": self._terminal.id,
+            "terminal": self._terminal.role,
 
             "endpoint": (
                 self._terminal.endpoint.id
