@@ -1,40 +1,109 @@
 # ============================================================
 # File: core/application/command.py
-# GridForge V2 — Headless Application Command Contract
+# GridForge V2 — Application Command
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-Immutable Application command contract.
+GridForge V2 — Application Command
+===================================
+
+Immutable application command envelope.
+
+Architectural responsibilities
+-------------------------------
 
 A Command represents application intent.
 
-Commands:
-    * do not mutate Core state;
-    * do not execute services;
-    * do not access UI or Qt;
-    * do not contain Core model objects;
-    * carry only immutable command data.
+A Command:
 
-Execution is performed by CommandManager through registered
-command handlers.
+    * is immutable;
+    * identifies the requested application operation;
+    * carries immutable value data;
+    * carries command identity metadata;
+    * carries optional correlation metadata;
+    * carries optional causation metadata.
+
+A Command does NOT:
+
+    * mutate Core;
+    * resolve domain objects;
+    * perform topology operations;
+    * perform engineering calculations;
+    * access UI state;
+    * execute handlers.
+
+Command execution belongs to CommandManager and the
+registered command handler.
+
+Metadata
+--------
+
+command_id
+    Unique identity of this command instance.
+
+correlation_id
+    Identifies the larger application workflow/correlation.
+
+causation_id
+    Identifies the command/event that caused this command,
+    when applicable.
+
+Lifecycle
+---------
+
+CommandManager does not clone or rewrite commands during
+normal execution or redo.
+
+Correlation and causation metadata are supplied when the
+command is constructed.
+
+There is intentionally no generic command-cloning or
+``with_causation()`` API.
+
+A generic reconstruction mechanism is incompatible with
+GridForge's typed command constructors unless a separate,
+explicit typed command factory/cloning contract is introduced.
+
+Author:
+    Subhendu Mishra
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
-from uuid import UUID, uuid4
+from uuid import UUID
 
 
 # ============================================================
-# IMMUTABILITY
+# IMMUTABILITY HELPERS
 # ============================================================
 
 def _freeze_value(value: Any) -> Any:
     """
-    Recursively freeze common mutable container values.
+    Recursively convert supported mutable container values
+    into immutable equivalents.
+
+    Supported conversions:
+
+        Mapping
+            -> MappingProxyType
+
+        list
+            -> tuple
+
+        tuple
+            -> tuple with recursively frozen members
+
+        set
+            -> frozenset
+
+        frozenset
+            -> frozenset with recursively frozen members
+
+    Other values are retained as-is.
     """
 
     if isinstance(value, Mapping):
@@ -79,105 +148,54 @@ def _freeze_value(value: Any) -> Any:
 @dataclass(frozen=True, slots=True)
 class Command:
     """
-    Base immutable Application command.
+    Immutable application command envelope.
 
-    ``payload`` contains only command data.
+    Specialized application commands inherit from this class
+    and provide their own typed constructors.
 
-    It must never contain:
-        * Core model instances;
-        * services;
-        * handlers;
-        * UI objects;
-        * Qt objects;
-        * mutable application state.
+    The base Command contains only the common command envelope.
+    Domain meaning remains in the specialized command and Core
+    application handler/service layers.
     """
 
     command_type: str
+    payload: Mapping[str, Any]
 
-    payload: Mapping[str, Any] = field(
-        default_factory=dict
-    )
-
-    command_id: UUID = field(
-        default_factory=uuid4
-    )
-
+    command_id: UUID
     correlation_id: UUID | None = None
-
     causation_id: UUID | None = None
 
     # ========================================================
-    # VALIDATION / FREEZING
+    # POST INITIALIZATION
     # ========================================================
 
     def __post_init__(self) -> None:
         """
-        Validate and freeze command state.
+        Validate and freeze command data.
+
+        The payload is recursively converted into immutable
+        container structures so callers cannot mutate the
+        command through mutable nested containers.
         """
 
-        if not isinstance(
-            self.command_type,
-            str,
-        ):
+        if not isinstance(self.command_type, str):
             raise TypeError(
                 "command_type must be a string."
             )
 
-        command_type = self.command_type.strip()
-
-        if not command_type:
+        if not self.command_type:
             raise ValueError(
                 "command_type must not be empty."
             )
 
-        object.__setattr__(
-            self,
-            "command_type",
-            command_type,
-        )
-
-        if not isinstance(
-            self.payload,
-            Mapping,
-        ):
-            raise TypeError(
-                "payload must be a mapping."
-            )
-
-        frozen_payload = _freeze_value(
-            self.payload
-        )
-
-        if not isinstance(
-            frozen_payload,
-            Mapping,
-        ):
-            raise TypeError(
-                "Failed to freeze command payload."
-            )
-
-        object.__setattr__(
-            self,
-            "payload",
-            MappingProxyType(
-                dict(frozen_payload)
-            ),
-        )
-
-        if not isinstance(
-            self.command_id,
-            UUID,
-        ):
+        if not isinstance(self.command_id, UUID):
             raise TypeError(
                 "command_id must be a UUID."
             )
 
         if (
             self.correlation_id is not None
-            and not isinstance(
-                self.correlation_id,
-                UUID,
-            )
+            and not isinstance(self.correlation_id, UUID)
         ):
             raise TypeError(
                 "correlation_id must be a UUID or None."
@@ -185,43 +203,21 @@ class Command:
 
         if (
             self.causation_id is not None
-            and not isinstance(
-                self.causation_id,
-                UUID,
-            )
+            and not isinstance(self.causation_id, UUID)
         ):
             raise TypeError(
                 "causation_id must be a UUID or None."
             )
 
-    # ========================================================
-    # CAUSATION
-    # ========================================================
-
-    def with_causation(
-        self,
-        causation_id: UUID,
-    ) -> Command:
-        """
-        Return a new command with the supplied causation ID.
-
-        The original command remains unchanged.
-        """
-
-        if not isinstance(
-            causation_id,
-            UUID,
-        ):
+        if not isinstance(self.payload, Mapping):
             raise TypeError(
-                "causation_id must be a UUID."
+                "payload must be a mapping."
             )
 
-        return type(self)(
-            command_type=self.command_type,
-            payload=dict(self.payload),
-            command_id=self.command_id,
-            correlation_id=self.correlation_id,
-            causation_id=causation_id,
+        object.__setattr__(
+            self,
+            "payload",
+            _freeze_value(self.payload),
         )
 
 
