@@ -20,6 +20,7 @@ Commands:
     DeleteTransformerCommand
     CreateLoadCommand
     DeleteLoadCommand
+    UpdateLoadCommand
 
 Architectural rules
 -------------------
@@ -67,7 +68,15 @@ Creation therefore carries only the Load's model/value data:
     name
     in_service
 
-The command deliberately does not contain:
+Update carries only mutable Load state:
+
+    load_id
+    name
+    p
+    q
+    in_service
+
+The commands deliberately do not contain:
 
     * a Core Load object;
     * a Core Terminal object;
@@ -106,6 +115,7 @@ DELETE_TRANSFORMER = "model.delete_transformer"
 
 CREATE_LOAD = "model.create_load"
 DELETE_LOAD = "model.delete_load"
+UPDATE_LOAD = "model.update_load"
 
 
 # ============================================================
@@ -410,7 +420,7 @@ class CreateLoadCommand(Command):
     """
     Request creation of a canonical Core Load.
 
-    A Load is initially created as a model object.  The command
+    A Load is initially created as a model object. The command
     does not embed a Core Terminal or Core Bus.
 
     Connectivity/topology is resolved by the appropriate
@@ -483,6 +493,84 @@ class DeleteLoadCommand(Command):
 
 
 # ============================================================
+# UPDATE LOAD
+# ============================================================
+
+class UpdateLoadCommand(Command):
+    """
+    Request mutation of an existing canonical Core Load.
+
+    Supported mutable Load state:
+
+        name
+        p
+        q
+        in_service
+
+    ``None`` means that the corresponding field is not part
+    of this update request.
+
+    At least one mutable field must be supplied.
+
+    This command does not:
+
+        * contain a Core Load object;
+        * contain a Core Terminal object;
+        * contain a Core Bus object;
+        * resolve topology;
+        * connect or disconnect terminals;
+        * perform engineering calculations;
+        * mutate Core directly;
+        * access UI state.
+
+    Connectivity and topology changes belong to the topology
+    command family.
+    """
+
+    def __init__(
+        self,
+        *,
+        load_id: str,
+        name: str | None = None,
+        p: float | None = None,
+        q: float | None = None,
+        in_service: bool | None = None,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+
+        if (
+            name is None
+            and p is None
+            and q is None
+            and in_service is None
+        ):
+            raise ValueError(
+                "UpdateLoadCommand requires at least one "
+                "mutable Load field."
+            )
+
+        super().__init__(
+            command_type=UPDATE_LOAD,
+            payload={
+                "load_id": load_id,
+                "name": name,
+                "p": p,
+                "q": q,
+                "in_service": in_service,
+            },
+            command_id=(
+                command_id
+                if command_id is not None
+                else uuid4()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
 # PUBLIC API
 # ============================================================
 
@@ -495,6 +583,7 @@ __all__ = [
     "DELETE_TRANSFORMER",
     "CREATE_LOAD",
     "DELETE_LOAD",
+    "UPDATE_LOAD",
     "CreateBusCommand",
     "DeleteBusCommand",
     "CreateLineCommand",
@@ -503,4 +592,5 @@ __all__ = [
     "DeleteTransformerCommand",
     "CreateLoadCommand",
     "DeleteLoadCommand",
+    "UpdateLoadCommand",
 ]
