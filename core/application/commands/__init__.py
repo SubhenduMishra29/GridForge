@@ -6,7 +6,7 @@
 
 """
 GridForge V2 — Headless Application Commands.
-
+ 
 This package contains immutable Application command contracts.
 
 Commands represent requested intent only.
@@ -55,6 +55,9 @@ Current canonical model commands
     model.create_transformer
     model.delete_transformer
 
+    model.create_load
+    model.delete_load
+
 
 Endpoint rule
 -------------
@@ -69,6 +72,16 @@ An EndpointReference may identify:
 
 Endpoint resolution is performed by EndpointResolver during
 command-handler execution.
+
+Load rule
+---------
+
+Load creation does not carry a Core Bus or Core Terminal.
+
+A Load is initially created as a disconnected Core model object.
+
+Topology attachment is handled separately by the appropriate
+Application topology workflow.
 """
 
 from __future__ import annotations
@@ -76,16 +89,27 @@ from __future__ import annotations
 from .model_commands import (
     CREATE_BUS,
     DELETE_BUS,
+
     CREATE_LINE,
     DELETE_LINE,
+
     CREATE_TRANSFORMER,
     DELETE_TRANSFORMER,
+
+    CREATE_LOAD,
+    DELETE_LOAD,
+
     CreateBusCommand,
     DeleteBusCommand,
+
     CreateLineCommand,
     DeleteLineCommand,
+
     CreateTransformerCommand,
     DeleteTransformerCommand,
+
+    CreateLoadCommand,
+    DeleteLoadCommand,
 )
 
 
@@ -96,14 +120,25 @@ from .model_commands import (
 __all__ = [
     "CREATE_BUS",
     "DELETE_BUS",
+
     "CREATE_LINE",
     "DELETE_LINE",
+
     "CREATE_TRANSFORMER",
     "DELETE_TRANSFORMER",
+
+    "CREATE_LOAD",
+    "DELETE_LOAD",
+
     "CreateBusCommand",
     "DeleteBusCommand",
+
     "CreateLineCommand",
     "DeleteLineCommand",
+
     "CreateTransformerCommand",
     "DeleteTransformerCommand",
+
+    "CreateLoadCommand",
+    "DeleteLoadCommand",
 ]
