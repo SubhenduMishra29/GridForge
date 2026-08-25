@@ -14,7 +14,7 @@ into calls to Application Services.
 Handlers:
 
     * validate command-level references;
-    * resolve EndpointReference values;
+    * delegate EndpointReference resolution;
     * invoke Application Services;
     * return ApplicationResult.
 
@@ -30,61 +30,36 @@ Handlers do NOT:
 Endpoint resolution
 -------------------
 
-Bus:
+EndpointReference resolution is delegated to the dedicated
+Application EndpointResolver.
 
-    EndpointReference.bus("BUS-001")
+    EndpointReference
             |
             v
-    context.network.get_by_id("bus", "BUS-001")
+    EndpointResolver
             |
-            v
-          Bus
-
-Terminal:
-
-    EndpointReference.terminal(
-        equipment_type=...,
-        equipment_id=...,
-        terminal_role=...
-    )
-            |
-            v
-    context.network.get_by_id(...)
-            |
-            v
-    canonical equipment
-            |
-            v
-    equipment.terminals
-            |
-            v
-    Terminal.role
-
-The handler resolves references but delegates all mutation
-to ModelService.
+            +----------------------+
+            |                      |
+            v                      v
+    canonical Bus          canonical Terminal
+            |                      |
+            +----------+-----------+
+                       |
+                       v
+                  ModelService
 
 Canonical lookup boundary
 -------------------------
 
-The handler MUST NOT inspect:
-
-    network.buses
-    network.lines
-    network.transformers
-    network.generators
-    network.loads
-    network.shunts
-
-for ID resolution.
-
-All canonical equipment lookup goes through:
+EndpointResolver performs canonical Core lookup through:
 
     Network.get_by_id()
 
-Network delegates the lookup to NetworkRegistry.
+Neither this handler nor the resolver accesses NetworkRegistry
+internals or individual Network collections directly.
 
-This prevents Application-layer duplication of Core registry
-knowledge.
+The handler remains an orchestration boundary and delegates all
+Core mutation to ModelService.
 """
 
 from __future__ import annotations
@@ -93,11 +68,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .command import Command
-from .endpoint_reference import (
-    EndpointReference,
-    EndpointReferenceKind,
-)
-from .errors import ResourceError, ValidationError
+from .endpoint_resolver import EndpointResolver
 from .results import ApplicationResult
 from .transaction import Transaction
 
@@ -122,332 +93,6 @@ Handler = Callable[
 
 
 # ============================================================
-# NETWORK ACCESS
-# ============================================================
-
-def _get_network(
-    context: Any,
-) -> Any:
-    """
-    Return the canonical Core Network from the Application
-    context.
-
-    The handler does not construct or cache a Network.
-    """
-
-    network = getattr(
-        context,
-        "network",
-        None,
-    )
-
-    if network is None:
-        raise ResourceError(
-            code="NETWORK_CONTEXT_MISSING",
-            message=(
-                "Application context does not expose "
-                "the canonical Core Network."
-            ),
-            details={},
-        )
-
-    return network
-
-
-# ============================================================
-# CANONICAL EQUIPMENT LOOKUP
-# ============================================================
-
-def _resolve_equipment_by_id(
-    context: Any,
-    *,
-    equipment_type: Any,
-    object_id: str,
-) -> Any:
-    """
-    Resolve canonical equipment through the Network façade.
-
-    The Application layer intentionally does not know how
-    NetworkRegistry stores equipment.
-    """
-
-    if equipment_type is None:
-        raise ValidationError(
-            code="MISSING_EQUIPMENT_TYPE",
-            message=(
-                "Terminal references require an "
-                "EquipmentType."
-            ),
-            details={
-                "equipment_id": object_id,
-            },
-        )
-
-    value = getattr(
-        equipment_type,
-        "value",
-        None,
-    )
-
-    if not isinstance(
-        value,
-        str,
-    ) or not value:
-        raise ValidationError(
-            code="INVALID_EQUIPMENT_TYPE",
-            message=(
-                "Terminal reference contains an "
-                "invalid EquipmentType."
-            ),
-            details={
-                "equipment_type": str(
-                    equipment_type
-                ),
-                "equipment_id": object_id,
-            },
-        )
-
-    network = _get_network(
-        context
-    )
-
-    try:
-        return network.get_by_id(
-            value,
-            object_id,
-        )
-
-    except KeyError as exc:
-        raise ResourceError(
-            code="EQUIPMENT_NOT_FOUND",
-            message=(
-                f"{value} '{object_id}' could not "
-                "be resolved."
-            ),
-            details={
-                "equipment_type": value,
-                "equipment_id": object_id,
-            },
-        ) from exc
-
-
-# ============================================================
-# BUS RESOLUTION
-# ============================================================
-
-def _resolve_bus(
-    context: Any,
-    reference: EndpointReference,
-) -> Any:
-    """
-    Resolve a Bus EndpointReference through the canonical
-    Network lookup boundary.
-    """
-
-    if (
-        reference.kind
-        is not EndpointReferenceKind.BUS
-    ):
-        raise ValidationError(
-            code="INVALID_BUS_REFERENCE",
-            message=(
-                "A Bus EndpointReference is required."
-            ),
-            details={
-                "kind": reference.kind.value,
-            },
-        )
-
-    network = _get_network(
-        context
-    )
-
-    try:
-        return network.get_by_id(
-            "bus",
-            reference.object_id,
-        )
-
-    except KeyError as exc:
-        raise ResourceError(
-            code="BUS_NOT_FOUND",
-            message=(
-                f"Bus '{reference.object_id}' "
-                "could not be resolved."
-            ),
-            details={
-                "bus_id": reference.object_id,
-            },
-        ) from exc
-
-
-# ============================================================
-# TERMINAL RESOLUTION
-# ============================================================
-
-def _resolve_terminal(
-    context: Any,
-    reference: EndpointReference,
-) -> Any:
-    """
-    Resolve a Terminal EndpointReference.
-
-    Equipment lookup is delegated to Network.get_by_id().
-    Terminal ownership remains with the equipment object.
-    """
-
-    if (
-        reference.kind
-        is not EndpointReferenceKind.TERMINAL
-    ):
-        raise ValidationError(
-            code="INVALID_TERMINAL_REFERENCE",
-            message=(
-                "A Terminal EndpointReference is required."
-            ),
-            details={
-                "kind": reference.kind.value,
-            },
-        )
-
-    equipment = _resolve_equipment_by_id(
-        context,
-        equipment_type=reference.equipment_type,
-        object_id=reference.object_id,
-    )
-
-    terminals = getattr(
-        equipment,
-        "terminals",
-        None,
-    )
-
-    if terminals is None:
-        raise ResourceError(
-            code="EQUIPMENT_TERMINALS_UNAVAILABLE",
-            message=(
-                f"Equipment "
-                f"'{reference.object_id}' does not "
-                "expose the canonical terminals "
-                "collection."
-            ),
-            details={
-                "equipment_type": (
-                    reference.equipment_type.value
-                    if reference.equipment_type is not None
-                    else None
-                ),
-                "equipment_id": reference.object_id,
-            },
-        )
-
-    requested_role = reference.terminal_role
-
-    if not isinstance(
-        requested_role,
-        str,
-    ) or not requested_role:
-        raise ValidationError(
-            code="INVALID_TERMINAL_ROLE",
-            message=(
-                "Terminal reference requires a "
-                "non-empty terminal role."
-            ),
-            details={
-                "equipment_id": reference.object_id,
-            },
-        )
-
-    for terminal in terminals:
-        if getattr(
-            terminal,
-            "role",
-            None,
-        ) == requested_role:
-            return terminal
-
-    equipment_type = (
-        reference.equipment_type.value
-        if reference.equipment_type is not None
-        else "equipment"
-    )
-
-    raise ResourceError(
-        code="TERMINAL_NOT_FOUND",
-        message=(
-            f"Terminal '{requested_role}' was not "
-            f"found on {equipment_type} "
-            f"'{reference.object_id}'."
-        ),
-        details={
-            "equipment_type": equipment_type,
-            "equipment_id": reference.object_id,
-            "terminal_role": requested_role,
-        },
-    )
-
-
-# ============================================================
-# ENDPOINT RESOLUTION
-# ============================================================
-
-def _resolve_endpoint(
-    context: Any,
-    reference: EndpointReference,
-) -> Any:
-    """
-    Resolve an immutable Application EndpointReference into
-    the corresponding canonical Core endpoint.
-    """
-
-    if not isinstance(
-        reference,
-        EndpointReference,
-    ):
-        raise ValidationError(
-            code="INVALID_ENDPOINT_REFERENCE",
-            message=(
-                "Command endpoint must be an "
-                "EndpointReference."
-            ),
-            details={
-                "received_type": type(
-                    reference
-                ).__name__,
-            },
-        )
-
-    if (
-        reference.kind
-        is EndpointReferenceKind.BUS
-    ):
-        return _resolve_bus(
-            context,
-            reference,
-        )
-
-    if (
-        reference.kind
-        is EndpointReferenceKind.TERMINAL
-    ):
-        return _resolve_terminal(
-            context,
-            reference,
-        )
-
-    raise ValidationError(
-        code="UNSUPPORTED_ENDPOINT_KIND",
-        message=(
-            f"Unsupported endpoint kind "
-            f"'{reference.kind.value}'."
-        ),
-        details={
-            "kind": reference.kind.value,
-        },
-    )
-
-
-# ============================================================
 # MODEL COMMAND HANDLERS
 # ============================================================
 
@@ -458,6 +103,9 @@ class ModelCommandHandlers:
     Handlers translate Commands into ModelService operations.
 
     Core mutation is never performed directly here.
+
+    EndpointReference values are resolved exclusively through
+    EndpointResolver.
     """
 
     def __init__(
@@ -506,6 +154,11 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
+        """
+        Create a Bus through ModelService.
+
+        No Core mutation is performed directly by the handler.
+        """
 
         payload = command.payload
 
@@ -529,6 +182,9 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
+        """
+        Delete a Bus through ModelService.
+        """
 
         return self._model_service.delete_bus(
             bus_id=command.payload["bus_id"],
@@ -545,15 +201,21 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
+        """
+        Create a Line.
+
+        EndpointReference values are resolved to canonical
+        Bus / Terminal objects before ModelService is invoked.
+        """
 
         payload = command.payload
 
-        endpoint_from = _resolve_endpoint(
+        endpoint_from = EndpointResolver.resolve(
             context,
             payload["endpoint_from"],
         )
 
-        endpoint_to = _resolve_endpoint(
+        endpoint_to = EndpointResolver.resolve(
             context,
             payload["endpoint_to"],
         )
@@ -576,6 +238,9 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
+        """
+        Delete a Line through ModelService.
+        """
 
         return self._model_service.delete_line(
             line_id=command.payload["line_id"],
@@ -592,15 +257,21 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
+        """
+        Create a Transformer.
+
+        EndpointReference values are resolved to canonical
+        Bus / Terminal objects before ModelService is invoked.
+        """
 
         payload = command.payload
 
-        endpoint_from = _resolve_endpoint(
+        endpoint_from = EndpointResolver.resolve(
             context,
             payload["endpoint_from"],
         )
 
-        endpoint_to = _resolve_endpoint(
+        endpoint_to = EndpointResolver.resolve(
             context,
             payload["endpoint_to"],
         )
@@ -624,6 +295,9 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
+        """
+        Delete a Transformer through ModelService.
+        """
 
         return self._model_service.delete_transformer(
             transformer_id=command.payload[
