@@ -5,17 +5,19 @@
 # ============================================================
 
 """
-GridForge V2 Headless Application Command Manager.
+GridForge V2 — Headless Application Command Manager
+====================================================
 
 CommandManager is the Application-layer orchestration boundary
 for command execution, transactions, undo, and redo.
 
 Responsibilities
 ----------------
+
 CommandManager:
 
     * accepts Application Commands;
-    * resolves command handlers;
+    * resolves registered command handlers;
     * creates Transactions;
     * invokes handlers;
     * commits successful Transactions;
@@ -51,13 +53,25 @@ Execution boundary
         v
     Core
 
-Redo rule
----------
+Undo
+----
 
-Redo re-executes the original immutable Command through the normal
-handler/service/transaction path.
+Transaction.commit() returns an immutable UndoJournal.
 
-Redo never executes the old UndoJournal.
+CommandManager owns execution of that journal.
+
+CommandHistory stores the journal but never executes it.
+
+Redo
+----
+
+Redo never executes an old UndoJournal.
+
+Redo re-executes the original immutable Command through the
+normal CommandManager -> Handler -> Service -> Core path.
+
+Author:
+    Subhendu Mishra
 """
 
 from __future__ import annotations
@@ -93,14 +107,27 @@ CommandHandler = Callable[
 class CommandManager:
     """
     Headless Application command execution coordinator.
+
+    CommandManager owns orchestration only.
+
+    It does not own Core state.
     """
 
     def __init__(
         self,
         context: Any,
-        handlers: Mapping[str, CommandHandler] | None = None,
+        handlers: Mapping[
+            str,
+            CommandHandler,
+        ] | None = None,
         history: CommandHistory | None = None,
     ) -> None:
+
+        if context is None:
+            raise ValueError(
+                "context is required."
+            )
+
         self._context = context
 
         self._handlers: dict[
@@ -123,10 +150,20 @@ class CommandManager:
     @property
     def history(self) -> CommandHistory:
         """
-        Return the CommandHistory owned by this manager.
+        Return the Application command history.
         """
 
         return self._history
+
+    @property
+    def registered_commands(self) -> tuple[str, ...]:
+        """
+        Return all currently registered command types.
+        """
+
+        return tuple(
+            self._handlers.keys()
+        )
 
     # ========================================================
     # HANDLER REGISTRATION
@@ -138,23 +175,14 @@ class CommandManager:
         handler: CommandHandler,
     ) -> None:
         """
-        Register one handler for one command type.
+        Register a command handler.
 
-        Duplicate registrations are rejected.
+        Duplicate command registrations are rejected.
         """
 
-        if not isinstance(
-            command_type,
-            str,
-        ):
-            raise TypeError(
-                "command_type must be str."
-            )
-
-        if not command_type:
-            raise ValueError(
-                "command_type must not be empty."
-            )
+        self._validate_command_type(
+            command_type
+        )
 
         if not callable(handler):
             raise TypeError(
@@ -174,7 +202,7 @@ class CommandManager:
         command_type: str,
     ) -> None:
         """
-        Remove a registered handler.
+        Remove a registered command handler.
 
         Missing handlers are ignored.
         """
@@ -199,8 +227,6 @@ class CommandManager:
         command_type: str,
     ) -> bool:
         """
-        Return whether a command type is registered.
-
         Public Application-facing registration query.
         """
 
@@ -208,19 +234,8 @@ class CommandManager:
             command_type
         )
 
-    def registered_commands(
-        self,
-    ) -> tuple[str, ...]:
-        """
-        Return all registered command types.
-        """
-
-        return tuple(
-            self._handlers.keys()
-        )
-
     # ========================================================
-    # NORMAL EXECUTION
+    # EXECUTION
     # ========================================================
 
     def execute(
@@ -230,27 +245,24 @@ class CommandManager:
         """
         Execute a new Application command.
 
-        Successful execution:
+        A successful new command:
 
-            * commits the Transaction;
-            * records its UndoJournal;
-            * clears redo history.
+            1. executes through its handler;
+            2. commits its Transaction;
+            3. records the resulting UndoJournal;
+            4. clears existing redo history.
 
-        Failed execution:
+        A failed command:
 
-            * rolls back the Transaction;
-            * leaves history unchanged;
-            * raises an ApplicationError.
+            1. rolls back its active Transaction;
+            2. leaves command history unchanged;
+            3. propagates an ApplicationError.
         """
 
         return self._execute_command(
             command,
             clear_redo=True,
         )
-
-    # ========================================================
-    # INTERNAL EXECUTION
-    # ========================================================
 
     def _execute_command(
         self,
@@ -262,9 +274,12 @@ class CommandManager:
         Execute one command through the complete Application
         transaction boundary.
 
-        ``clear_redo=True`` is used for new commands.
+        Parameters
+        ----------
+        clear_redo:
+            True for a newly issued command.
 
-        ``clear_redo=False`` is used for redo.
+            False for redo execution.
         """
 
         self._validate_command(
@@ -284,25 +299,10 @@ class CommandManager:
                 transaction,
             )
 
-            if not isinstance(
+            self._validate_handler_result(
+                command,
                 result,
-                ApplicationResult,
-            ):
-                raise ExecutionError(
-                    code="INVALID_HANDLER_RESULT",
-                    message=(
-                        "Command handler returned an "
-                        "invalid ApplicationResult."
-                    ),
-                    details={
-                        "command_type": (
-                            command.command_type
-                        ),
-                        "result_type": (
-                            type(result).__name__
-                        ),
-                    },
-                )
+            )
 
             if not result.success:
                 self._rollback_safely(
@@ -331,14 +331,8 @@ class CommandManager:
                     },
                 )
 
-            # ------------------------------------------------
-            # CRITICAL CONTRACT:
-            #
-            # Transaction.commit() returns the immutable
-            # UndoJournal. Transaction does not retain it
-            # after commit.
-            # ------------------------------------------------
-
+            # Transaction.commit() is the sole boundary at
+            # which the immutable UndoJournal is produced.
             undo_journal = transaction.commit()
 
             self._record_execution(
@@ -389,26 +383,17 @@ class CommandManager:
         result: ApplicationResult[Any],
         undo_journal: UndoJournal,
         clear_redo: bool,
-    ) -> None:
+    ) -> CommandRecord:
         """
-        Record a successful committed command.
-
-        ``clear_redo=True``:
-            normal new command.
-
-        ``clear_redo=False``:
-            successful redo execution.
-
-        The latter preserves the remaining redo stack.
+        Record one successfully committed command.
         """
 
         description = (
             result.message
-            if result.message
-            else command.command_type
+            or command.command_type
         )
 
-        self._history.record(
+        return self._history.record(
             command,
             description=description,
             undo_operations=undo_journal,
@@ -423,10 +408,12 @@ class CommandManager:
         self,
     ) -> ApplicationResult[Any] | None:
         """
-        Undo the most recent reversible command.
+        Undo the latest reversible command.
 
-        CommandHistory never executes the journal.
-        CommandManager executes it here.
+        The stored UndoJournal is executed in reverse order.
+
+        CommandHistory remains state-only; CommandManager owns
+        actual undo execution.
         """
 
         record = self._history.peek_undo()
@@ -451,9 +438,9 @@ class CommandManager:
                 },
             )
 
-        popped_record = self._history.pop_undo()
+        record = self._history.pop_undo()
 
-        if popped_record is None:
+        if record is None:
             raise ExecutionError(
                 code="UNDO_HISTORY_STATE_ERROR",
                 message=(
@@ -465,68 +452,67 @@ class CommandManager:
 
         try:
             self._execute_undo_journal(
-                popped_record
-            )
-
-            self._history.push_redo(
-                popped_record
-            )
-
-            return ApplicationResult.success_result(
-                value=None,
-                message=(
-                    "Undid command: "
-                    f"{popped_record.command_type}"
-                ),
-                metadata={
-                    "operation": "undo",
-                    "command_type": (
-                        popped_record.command_type
-                    ),
-                    "command_id": str(
-                        popped_record.command_id
-                    ),
-                },
+                record
             )
 
         except ApplicationError:
             self._history.push_undo(
-                popped_record
+                record
             )
             raise
 
         except Exception as exc:
             self._history.push_undo(
-                popped_record
+                record
             )
 
             raise ExecutionError(
                 code="UNDO_FAILED",
                 message=(
                     "Undo failed for command: "
-                    f"{popped_record.command_type}"
+                    f"{record.command_type}"
                 ),
                 details={
                     "command_type": (
-                        popped_record.command_type
+                        record.command_type
                     ),
                     "command_id": str(
-                        popped_record.command_id
+                        record.command_id
                     ),
                 },
                 cause=exc,
             ) from exc
 
+        self._history.push_redo(
+            record
+        )
+
+        return ApplicationResult.success_result(
+            value=None,
+            message=(
+                "Undid command: "
+                f"{record.command_type}"
+            ),
+            metadata={
+                "operation": "undo",
+                "command_type": (
+                    record.command_type
+                ),
+                "command_id": str(
+                    record.command_id
+                ),
+            },
+        )
+
+    @staticmethod
     def _execute_undo_journal(
-        self,
         record: CommandRecord,
     ) -> None:
         """
-        Execute the immutable inverse journal.
+        Execute the inverse operations in reverse order.
 
-        Operations are executed in reverse order.
-
-        CommandHistory itself never executes them.
+        Transaction.commit() preserves registration order.
+        Therefore undo must reverse that order.
         """
 
         for operation in reversed(
@@ -542,12 +528,18 @@ class CommandManager:
         self,
     ) -> ApplicationResult[Any] | None:
         """
-        Re-execute the latest command from redo history.
+        Redo the latest command.
 
-        Redo executes the original Command through the normal
-        command pipeline and creates a fresh UndoJournal.
+        Redo:
 
-        The remaining redo stack is preserved.
+            1. removes the latest redo record temporarily;
+            2. re-executes its original immutable Command;
+            3. creates a fresh Transaction;
+            4. creates a fresh UndoJournal;
+            5. records the new execution.
+
+        The existing redo stack is preserved while executing the
+        command.
         """
 
         record = self._history.pop_redo()
@@ -586,7 +578,7 @@ class CommandManager:
 
     def can_redo(self) -> bool:
         """
-        Return whether a command is available for redo.
+        Return whether a redo command exists.
         """
 
         return self._history.can_redo()
@@ -607,17 +599,57 @@ class CommandManager:
 
     def clear_history(self) -> None:
         """
-        Clear all command history.
+        Clear both undo and redo history.
         """
 
         self._history.clear()
+
+    def undo_commands(
+        self,
+    ) -> tuple[CommandRecord, ...]:
+        """
+        Return an immutable snapshot of undo history.
+        """
+
+        return self._history.undo_commands()
+
+    def redo_commands(
+        self,
+    ) -> tuple[CommandRecord, ...]:
+        """
+        Return an immutable snapshot of redo history.
+        """
+
+        return self._history.redo_commands()
 
     # ========================================================
     # VALIDATION
     # ========================================================
 
     @staticmethod
+    def _validate_command_type(
+        command_type: str,
+    ) -> None:
+        """
+        Validate a command type identifier.
+        """
+
+        if not isinstance(
+            command_type,
+            str,
+        ):
+            raise TypeError(
+                "command_type must be str."
+            )
+
+        if not command_type.strip():
+            raise ValueError(
+                "command_type must not be empty."
+            )
+
+    @classmethod
     def _validate_command(
+        cls,
         command: Command,
     ) -> None:
         """
@@ -633,9 +665,37 @@ class CommandManager:
                 "a Command instance."
             )
 
-        if not command.command_type:
-            raise ValueError(
-                "Command command_type must not be empty."
+        cls._validate_command_type(
+            command.command_type
+        )
+
+    @staticmethod
+    def _validate_handler_result(
+        command: Command,
+        result: Any,
+    ) -> None:
+        """
+        Ensure handlers return the canonical ApplicationResult.
+        """
+
+        if not isinstance(
+            result,
+            ApplicationResult,
+        ):
+            raise ExecutionError(
+                code="INVALID_HANDLER_RESULT",
+                message=(
+                    "Command handler returned an "
+                    "invalid ApplicationResult."
+                ),
+                details={
+                    "command_type": (
+                        command.command_type
+                    ),
+                    "result_type": (
+                        type(result).__name__
+                    ),
+                },
             )
 
     def _resolve_handler(
@@ -676,12 +736,10 @@ class CommandManager:
         transaction: Transaction,
     ) -> None:
         """
-        Roll back an active transaction without masking the
-        original Application exception.
+        Roll back an active transaction.
 
-        Transaction itself reports rollback failures.
-        CommandManager deliberately preserves the original
-        execution exception here.
+        If rollback itself fails, the original command exception
+        is intentionally preserved by this orchestration layer.
         """
 
         if not transaction.active:
