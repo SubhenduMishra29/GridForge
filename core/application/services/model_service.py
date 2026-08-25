@@ -17,7 +17,7 @@ Responsibilities
     * construct Core model objects;
     * delegate registration/removal to the canonical Core
       Network API;
-    * register inverse operations with the active transaction;
+    * register inverse operations with the active Transaction;
     * return ApplicationResult for successful operations.
 
 This service does NOT:
@@ -26,15 +26,15 @@ This service does NOT:
     * know about SLD/canvas state;
     * manipulate UI state;
     * perform power-system calculations;
-    * mutate Network private collections;
+    * manipulate Network private collections;
     * maintain a second model registry;
     * resolve EndpointReference values.
 
 Endpoint resolution is performed by command handlers before
 the service is called.
 
-Architectural flow
-------------------
+Architecture
+------------
 
     Application Command
             |
@@ -56,6 +56,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.model.bus import Bus
+from core.model.line import Line
+from core.model.terminal import Terminal
+from core.model.transformer import Transformer
+
 from ..errors import (
     DomainError,
     ExecutionError,
@@ -65,24 +70,9 @@ from ..errors import (
 from ..results import ApplicationResult
 
 
-# Core model imports.
-#
-# These imports intentionally refer to the domain model rather
-# than UI or plugin implementations.
-from core.model.bus import Bus
-from core.model.line import Line
-from core.model.transformer import Transformer
-from core.model.terminal import Terminal
-
-
 class ModelService:
     """
     Application service for Core model mutations.
-
-    Parameters
-    ----------
-    network:
-        Canonical Core Network instance.
 
     The service owns no model state of its own.
     """
@@ -99,7 +89,7 @@ class ModelService:
         self._network = network
 
     # ========================================================
-    # INTERNAL HELPERS
+    # INTERNAL VALIDATION
     # ========================================================
 
     @staticmethod
@@ -108,7 +98,7 @@ class ModelService:
         field_name: str,
     ) -> str:
         """
-        Validate a model identifier.
+        Validate and normalize a model identifier.
         """
 
         if not isinstance(value, str):
@@ -146,13 +136,9 @@ class ModelService:
         """
         Validate a resolved Core electrical endpoint.
 
-        Valid endpoint objects at this Application boundary are:
-
-            Bus
-            Terminal
-
-        EndpointReference resolution itself belongs to the
-        command-handler layer.
+        EndpointReference resolution belongs to the command
+        handler. By the time an endpoint reaches ModelService,
+        it must be a canonical Core Bus or Terminal.
         """
 
         if not isinstance(
@@ -198,7 +184,7 @@ class ModelService:
         field_name: str,
     ) -> None:
         """
-        Validate a numeric Application input.
+        Validate a scalar numeric Application input.
         """
 
         if isinstance(value, bool) or not isinstance(
@@ -215,6 +201,25 @@ class ModelService:
                     "value_type": type(value).__name__,
                 },
             )
+
+    @staticmethod
+    def _validate_name(
+        name: str,
+    ) -> str:
+        """
+        Validate a model display name.
+        """
+
+        if not isinstance(name, str):
+            raise ValidationError(
+                code="INVALID_NAME",
+                message="name must be a string.",
+                details={
+                    "field": "name",
+                },
+            )
+
+        return name
 
     @classmethod
     def _validate_line_input(
@@ -263,14 +268,7 @@ class ModelService:
                 "rate_mva",
             )
 
-        if not isinstance(name, str):
-            raise ValidationError(
-                code="INVALID_NAME",
-                message="name must be a string.",
-                details={
-                    "field": "name",
-                },
-            )
+        cls._validate_name(name)
 
         return line_id
 
@@ -323,14 +321,7 @@ class ModelService:
                 "rate_mva",
             )
 
-        if not isinstance(name, str):
-            raise ValidationError(
-                code="INVALID_NAME",
-                message="name must be a string.",
-                details={
-                    "field": "name",
-                },
-            )
+        cls._validate_name(name)
 
         return transformer_id
 
@@ -362,6 +353,8 @@ class ModelService:
             "bus_id",
         )
 
+        self._validate_name(name)
+
         self._validate_numeric(
             voltage,
             "voltage",
@@ -391,15 +384,6 @@ class ModelService:
             self._validate_numeric(
                 v_setpoint,
                 "v_setpoint",
-            )
-
-        if not isinstance(name, str):
-            raise ValidationError(
-                code="INVALID_NAME",
-                message="name must be a string.",
-                details={
-                    "field": "name",
-                },
             )
 
         try:
@@ -438,7 +422,7 @@ class ModelService:
             ) from exc
 
         if transaction is not None:
-            transaction.add_undo(
+            transaction.record_undo(
                 lambda: self.delete_bus(
                     bus_id=bus_id,
                     transaction=None,
@@ -486,7 +470,11 @@ class ModelService:
         bus = None
 
         for candidate in buses:
-            if getattr(candidate, "id", None) == bus_id:
+            if getattr(
+                candidate,
+                "id",
+                None,
+            ) == bus_id:
                 bus = candidate
                 break
 
@@ -505,6 +493,9 @@ class ModelService:
             self._network.remove_bus(
                 bus_id
             )
+
+        except DomainError:
+            raise
 
         except Exception as exc:
             raise ExecutionError(
@@ -592,7 +583,7 @@ class ModelService:
             ) from exc
 
         if transaction is not None:
-            transaction.add_undo(
+            transaction.record_undo(
                 lambda: self.delete_line(
                     line_id=line_id,
                     transaction=None,
@@ -640,7 +631,11 @@ class ModelService:
         line = None
 
         for candidate in lines:
-            if getattr(candidate, "id", None) == line_id:
+            if getattr(
+                candidate,
+                "id",
+                None,
+            ) == line_id:
                 line = candidate
                 break
 
@@ -659,6 +654,9 @@ class ModelService:
             self._network.remove_line(
                 line_id
             )
+
+        except DomainError:
+            raise
 
         except Exception as exc:
             raise ExecutionError(
@@ -753,7 +751,7 @@ class ModelService:
             ) from exc
 
         if transaction is not None:
-            transaction.add_undo(
+            transaction.record_undo(
                 lambda: self.delete_transformer(
                     transformer_id=transformer_id,
                     transaction=None,
@@ -803,10 +801,11 @@ class ModelService:
         transformer = None
 
         for candidate in transformers:
-            if (
-                getattr(candidate, "id", None)
-                == transformer_id
-            ):
+            if getattr(
+                candidate,
+                "id",
+                None,
+            ) == transformer_id:
                 transformer = candidate
                 break
 
@@ -826,6 +825,9 @@ class ModelService:
             self._network.remove_transformer(
                 transformer_id
             )
+
+        except DomainError:
+            raise
 
         except Exception as exc:
             raise ExecutionError(
