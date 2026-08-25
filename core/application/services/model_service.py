@@ -79,9 +79,9 @@ class ModelService:
         angle: float = 0.0,
         p_spec: float = 0.0,
         q_spec: float = 0.0,
-        v_setpoint: float = 1.0,
-        q_min: float | None = None,
-        q_max: float | None = None,
+        v_setpoint: float | None = None,
+        q_min: float | None = float("-inf"),
+        q_max: float | None = float("inf"),
         transaction: Transaction,
     ) -> ApplicationResult[Bus]:
         """
@@ -90,11 +90,17 @@ class ModelService:
         Application command terminology is translated here to the
         actual Core Bus constructor terminology:
 
-            voltage    -> voltage_magnitude
-            angle      -> voltage_angle
-            p_spec     -> p
-            q_spec     -> q
-            v_setpoint -> voltage_setpoint
+            bus_id      -> id
+            voltage     -> voltage_magnitude
+            angle       -> voltage_angle
+            p_spec      -> p
+            q_spec      -> q
+            v_setpoint  -> voltage_setpoint
+
+        The Application command represents unbounded reactive-power
+        limits using +/- infinity. The Core Bus represents an
+        unspecified/unbounded limit using None, because Core Bus
+        requires finite values when limits are present.
         """
 
         self._require_transaction(transaction)
@@ -106,6 +112,24 @@ class ModelService:
             "Bus",
         )
 
+        core_voltage_setpoint = (
+            1.0
+            if v_setpoint is None
+            else v_setpoint
+        )
+
+        core_q_min = (
+            None
+            if q_min is None or q_min == float("-inf")
+            else q_min
+        )
+
+        core_q_max = (
+            None
+            if q_max is None or q_max == float("inf")
+            else q_max
+        )
+
         bus = Bus(
             id=bus_id,
             name="" if name is None else name,
@@ -114,9 +138,9 @@ class ModelService:
             voltage_angle=angle,
             p=p_spec,
             q=q_spec,
-            voltage_setpoint=v_setpoint,
-            q_min=q_min,
-            q_max=q_max,
+            voltage_setpoint=core_voltage_setpoint,
+            q_min=core_q_min,
+            q_max=core_q_max,
         )
 
         self._network.add_bus(bus)
@@ -199,7 +223,8 @@ class ModelService:
         Create and register a Line between resolved Core endpoints.
 
         EndpointReference resolution belongs to EndpointResolver.
-        This method accepts only canonical Bus/Terminal objects.
+        This method accepts only already-resolved Bus/Terminal
+        objects.
         """
 
         self._require_transaction(transaction)
@@ -321,9 +346,10 @@ class ModelService:
         Create and register a Transformer between resolved
         Core endpoints.
 
-        The Application command contract does not expose
-        transformer b. The Core Transformer constructor provides
-        b with a default of 0.0, which is intentionally retained.
+        The current Application command contract does not expose
+        transformer b. The Core Transformer constructor supplies
+        its own default for b, so this service intentionally does
+        not manufacture a second Application-level b parameter.
         """
 
         self._require_transaction(transaction)
@@ -544,6 +570,9 @@ class ModelService:
     ) -> None:
         """
         Ensure an active Application Transaction is supplied.
+
+        ModelService never creates, commits, or rolls back the
+        transaction.
         """
 
         if not isinstance(
