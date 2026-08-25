@@ -1,15 +1,11 @@
 # ============================================================
-
-# File: core/application/commands/**init**.py
-
+# File: core/application/commands/__init__.py
 # GridForge V2 — Headless Application Commands
-
 # Author: Subhendu Mishra
-
 # ============================================================
 
 """
-GridForge V2 Headless Application Commands.
+GridForge V2 — Headless Application Commands.
 
 This package contains immutable Application command contracts.
 
@@ -17,7 +13,6 @@ Commands represent requested intent only.
 
 They do NOT:
 
-```
 * mutate Core;
 * mutate Network;
 * manipulate topology;
@@ -26,85 +21,89 @@ They do NOT:
 * access Qt;
 * access UI;
 * access graphics objects.
-```
 
-## Execution path
+Execution path
+--------------
 
-```
-External Consumer
-      |
-      v
-   Command
-      |
-      v
-CommandManager
-      |
-      v
-   Handler
-      |
-      v
-Application Service
-      |
-      v
-  Core Public API
-```
+    External Consumer
+          |
+          v
+       Command
+          |
+          v
+    CommandManager
+          |
+          v
+       Handler
+          |
+          v
+    Application Service
+          |
+          v
+      Core Public API
 
-## Current canonical model commands
 
-```
-model.create_bus
-model.delete_bus
+Current canonical model commands
+--------------------------------
 
-model.create_line
-model.delete_line
+    model.create_bus
+    model.delete_bus
 
-model.create_transformer
-model.delete_transformer
-```
+    model.create_line
+    model.delete_line
 
-## Endpoint rule
+    model.create_transformer
+    model.delete_transformer
 
-Line and Transformer creation commands carry endpoint identifiers,
-not Core endpoint objects.
 
-The current Application boundary resolves these identifiers against
-canonical Network Bus IDs inside the command handler.
+Endpoint rule
+-------------
+
+Line and Transformer creation commands carry EndpointReference
+values, not Core endpoint objects.
+
+An EndpointReference may identify:
+
+* a Bus by its Bus ID; or
+* a Terminal by equipment type, equipment ID, and terminal role.
+
+Endpoint resolution is performed by EndpointResolver during
+command-handler execution.
 """
 
 from __future__ import annotations
 
 from .model_commands import (
-CREATE_BUS,
-DELETE_BUS,
-CREATE_LINE,
-DELETE_LINE,
-CREATE_TRANSFORMER,
-DELETE_TRANSFORMER,
-CreateBusCommand,
-DeleteBusCommand,
-CreateLineCommand,
-DeleteLineCommand,
-CreateTransformerCommand,
-DeleteTransformerCommand,
+    CREATE_BUS,
+    DELETE_BUS,
+    CREATE_LINE,
+    DELETE_LINE,
+    CREATE_TRANSFORMER,
+    DELETE_TRANSFORMER,
+    CreateBusCommand,
+    DeleteBusCommand,
+    CreateLineCommand,
+    DeleteLineCommand,
+    CreateTransformerCommand,
+    DeleteTransformerCommand,
 )
 
-# ============================================================
 
+# ============================================================
 # PUBLIC API
-
 # ============================================================
 
-**all** = [
-"CREATE_BUS",
-"DELETE_BUS",
-"CREATE_LINE",
-"DELETE_LINE",
-"CREATE_TRANSFORMER",
-"DELETE_TRANSFORMER",
-"CreateBusCommand",
-"DeleteBusCommand",
-"CreateLineCommand",
-"DeleteLineCommand",
-"CreateTransformerCommand",
-"DeleteTransformerCommand",
+__all__ = [
+    "CREATE_BUS",
+    "DELETE_BUS",
+    "CREATE_LINE",
+    "DELETE_LINE",
+    "CREATE_TRANSFORMER",
+    "DELETE_TRANSFORMER",
+    "CreateBusCommand",
+    "DeleteBusCommand",
+    "CreateLineCommand",
+    "DeleteLineCommand",
+    "CreateTransformerCommand",
+    "DeleteTransformerCommand",
 ]
