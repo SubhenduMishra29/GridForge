@@ -5,54 +5,45 @@
 # ============================================================
 
 """
-GridForge V2 Application command handlers.
+GridForge V2 Application Command Handlers.
 
-Handlers are the translation boundary between immutable
-Application Commands and Application Services.
+Handlers are the Application translation boundary between
+immutable Commands and Application Services.
 
 Responsibilities
 ----------------
 Handlers:
 
-    * read immutable Command payloads;
-    * validate required payload fields;
-    * resolve Core references from immutable IDs;
+    * inspect immutable command payloads;
+    * resolve Application references against canonical Core state;
     * invoke Application Services;
-    * return ApplicationResult.
+    * return ApplicationResult objects.
 
 Handlers do NOT:
 
     * mutate Core directly;
-    * perform topology logic;
+    * perform topology mutation;
     * perform engineering calculations;
     * manipulate SLD/UI objects;
     * access Qt;
-    * maintain application state.
+    * maintain independent application state.
 
-The Application Service remains responsible for Core mutation.
+Endpoint resolution
+-------------------
+EndpointReference supports:
 
-Command flow
-------------
+    BUS
+        object_id = Bus.id
 
-    Command
-       |
-       v
-    Handler
-       |
-       +---- resolve IDs
-       |
-       v
-    ModelService
-       |
-       v
-    Core Network / Model
+    TERMINAL
+        object_id = owning equipment.id
+        terminal_role = terminal role
 
-The command payload contains identifiers.
-
-The handler resolves those identifiers into canonical Core
+The handler resolves these references against canonical Core
 objects before invoking ModelService.
 
-Author: Subhendu Mishra
+Author:
+    Subhendu Mishra
 """
 
 from __future__ import annotations
@@ -61,6 +52,10 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .command import Command
+from .endpoint_reference import (
+    EndpointReference,
+    EndpointReferenceKind,
+)
 from .errors import ResourceError, ValidationError
 from .results import ApplicationResult
 from .transaction import Transaction
@@ -76,7 +71,7 @@ from .commands.model_commands import (
 
 
 # ============================================================
-# TYPE DEFINITIONS
+# TYPES
 # ============================================================
 
 Handler = Callable[
@@ -90,58 +85,7 @@ Handler = Callable[
 
 
 # ============================================================
-# PAYLOAD HELPERS
-# ============================================================
-
-def _require_payload(
-    command: Command,
-    key: str,
-) -> Any:
-    """
-    Return a required command payload value.
-    """
-
-    if key not in command.payload:
-        raise ValidationError(
-            code="MISSING_COMMAND_PAYLOAD",
-            message=(
-                f"Command '{command.command_type}' "
-                f"is missing required payload field "
-                f"'{key}'."
-            ),
-            details={
-                "command_type": command.command_type,
-                "command_id": str(
-                    command.command_id
-                ),
-                "field": key,
-            },
-        )
-
-    value = command.payload[key]
-
-    if value is None:
-        raise ValidationError(
-            code="NULL_COMMAND_PAYLOAD",
-            message=(
-                f"Command '{command.command_type}' "
-                f"contains null value for required "
-                f"payload field '{key}'."
-            ),
-            details={
-                "command_type": command.command_type,
-                "command_id": str(
-                    command.command_id
-                ),
-                "field": key,
-            },
-        )
-
-    return value
-
-
-# ============================================================
-# CORE OBJECT RESOLUTION
+# GENERIC COLLECTION RESOLUTION
 # ============================================================
 
 def _find_by_id(
@@ -149,7 +93,10 @@ def _find_by_id(
     object_id: str,
 ) -> Any | None:
     """
-    Resolve a canonical Core object by its public id.
+    Find an object by its canonical public id.
+
+    The handler deliberately uses public collection contents
+    rather than private Core indexes.
     """
 
     for item in collection:
@@ -159,86 +106,333 @@ def _find_by_id(
     return None
 
 
-def _resolve_endpoint(
+# ============================================================
+# EQUIPMENT RESOLUTION
+# ============================================================
+
+def _resolve_equipment(
     context: Any,
-    endpoint_id: str,
+    equipment_id: str,
 ) -> Any:
     """
-    Resolve an endpoint identifier against canonical Core state.
+    Resolve a canonical Core equipment object.
 
-    Endpoint resolution belongs to the Application boundary.
+    Equipment collections are discovered from the canonical
+    Network object exposed by ApplicationContext.
 
-    The command carries only the identifier.
-    The Core object is resolved immediately before service
-    invocation and is never stored in the command.
-
-    Current GridForge Core endpoint ownership is Network-centric:
-    endpoints are resolved through the canonical Network model.
+    No UI or Application-side object registry is consulted.
     """
 
+    network = context.network
+
     if not isinstance(
-        endpoint_id,
+        equipment_id,
         str,
-    ) or not endpoint_id.strip():
+    ) or not equipment_id.strip():
         raise ValidationError(
-            code="INVALID_ENDPOINT_ID",
+            code="INVALID_EQUIPMENT_ID",
             message=(
-                "Endpoint id must be a non-empty string."
+                "Equipment id must be a non-empty string."
             ),
             details={
-                "field": "endpoint_id",
+                "equipment_id": equipment_id,
             },
         )
 
-    endpoint_id = endpoint_id.strip()
-    network = context.network
+    equipment_id = equipment_id.strip()
 
     # --------------------------------------------------------
-    # Bus endpoints
+    # Known canonical network collections
     # --------------------------------------------------------
 
-    bus = _find_by_id(
-        network.buses,
-        endpoint_id,
-    )
-
-    if bus is not None:
-        return bus
-
-    # --------------------------------------------------------
-    # Existing network elements
-    #
-    # These checks intentionally use public collections.
-    # No Network private indexes are accessed.
-    # --------------------------------------------------------
-
-    for collection_name in (
+    collection_names = (
         "lines",
         "transformers",
-    ):
+        "generators",
+        "loads",
+        "motors",
+        "breakers",
+        "switches",
+        "shunts",
+        "capacitors",
+        "reactors",
+    )
+
+    for collection_name in collection_names:
         collection = getattr(
             network,
             collection_name,
-            (),
+            None,
         )
 
-        element = _find_by_id(
+        if collection is None:
+            continue
+
+        equipment = _find_by_id(
             collection,
-            endpoint_id,
+            equipment_id,
         )
 
-        if element is not None:
-            return element
+        if equipment is not None:
+            return equipment
 
     raise ResourceError(
-        code="ENDPOINT_NOT_FOUND",
+        code="EQUIPMENT_NOT_FOUND",
         message=(
-            f"Endpoint '{endpoint_id}' could not be "
+            f"Equipment '{equipment_id}' could not be "
             "resolved in the canonical Core Network."
         ),
         details={
-            "endpoint_id": endpoint_id,
-            "operation": "resolve_endpoint",
+            "equipment_id": equipment_id,
+        },
+    )
+
+
+# ============================================================
+# TERMINAL RESOLUTION
+# ============================================================
+
+def _resolve_terminal(
+    context: Any,
+    reference: EndpointReference,
+) -> Any:
+    """
+    Resolve an EndpointReference of kind TERMINAL.
+
+    Terminal identity is:
+
+        owning equipment id
+        +
+        terminal role
+
+    The returned object is the actual Core Terminal instance.
+
+    This function does not create terminals.
+    """
+
+    if not reference.is_terminal:
+        raise ValidationError(
+            code="INVALID_TERMINAL_REFERENCE",
+            message=(
+                "A terminal endpoint reference is required."
+            ),
+            details={
+                "kind": reference.kind.value,
+            },
+        )
+
+    equipment = _resolve_equipment(
+        context,
+        reference.object_id,
+    )
+
+    terminal_role = reference.terminal_role
+
+    if terminal_role is None:
+        raise ValidationError(
+            code="MISSING_TERMINAL_ROLE",
+            message=(
+                "Terminal endpoint reference requires "
+                "a terminal role."
+            ),
+            details={
+                "equipment_id": reference.object_id,
+            },
+        )
+
+    # --------------------------------------------------------
+    # Preferred public terminal access
+    # --------------------------------------------------------
+
+    terminals = getattr(
+        equipment,
+        "terminals",
+        None,
+    )
+
+    if terminals is not None:
+        terminal = _find_terminal_by_role(
+            terminals,
+            terminal_role,
+        )
+
+        if terminal is not None:
+            return terminal
+
+    # --------------------------------------------------------
+    # Branch-style equipment
+    #
+    # Core Branch explicitly exposes:
+    #
+    #     from_terminal
+    #     to_terminal
+    #
+    # Handle those canonical attributes directly.
+    # --------------------------------------------------------
+
+    for attribute_name in (
+        "from_terminal",
+        "to_terminal",
+    ):
+        terminal = getattr(
+            equipment,
+            attribute_name,
+            None,
+        )
+
+        if terminal is None:
+            continue
+
+        role = getattr(
+            terminal,
+            "role",
+            None,
+        )
+
+        if role == terminal_role:
+            return terminal
+
+    # --------------------------------------------------------
+    # Generic terminal attributes
+    #
+    # This supports equipment such as transformers that expose
+    # named terminals without requiring the handler to know
+    # every equipment-specific topology implementation.
+    # --------------------------------------------------------
+
+    for attribute_name in (
+        "hv_terminal",
+        "lv_terminal",
+        "primary_terminal",
+        "secondary_terminal",
+    ):
+        terminal = getattr(
+            equipment,
+            attribute_name,
+            None,
+        )
+
+        if terminal is None:
+            continue
+
+        role = getattr(
+            terminal,
+            "role",
+            None,
+        )
+
+        if role == terminal_role:
+            return terminal
+
+    raise ResourceError(
+        code="TERMINAL_NOT_FOUND",
+        message=(
+            f"Terminal '{terminal_role}' was not found "
+            f"on equipment '{reference.object_id}'."
+        ),
+        details={
+            "equipment_id": reference.object_id,
+            "terminal_role": terminal_role,
+        },
+    )
+
+
+def _find_terminal_by_role(
+    terminals: Any,
+    terminal_role: str,
+) -> Any | None:
+    """
+    Find a terminal by its role from a public terminal
+    collection or mapping.
+    """
+
+    if isinstance(terminals, Mapping):
+        terminal = terminals.get(
+            terminal_role
+        )
+
+        if terminal is not None:
+            return terminal
+
+    for terminal in terminals:
+        if getattr(
+            terminal,
+            "role",
+            None,
+        ) == terminal_role:
+            return terminal
+
+    return None
+
+
+# ============================================================
+# ENDPOINT RESOLUTION
+# ============================================================
+
+def _resolve_endpoint(
+    context: Any,
+    reference: EndpointReference,
+) -> Any:
+    """
+    Resolve an Application EndpointReference to a canonical
+    Core endpoint object.
+    """
+
+    if not isinstance(
+        reference,
+        EndpointReference,
+    ):
+        raise ValidationError(
+            code="INVALID_ENDPOINT_REFERENCE",
+            message=(
+                "Endpoint must be represented by "
+                "EndpointReference."
+            ),
+            details={
+                "received_type": type(reference).__name__,
+            },
+        )
+
+    if (
+        reference.kind
+        is EndpointReferenceKind.BUS
+    ):
+        bus = _find_by_id(
+            context.network.buses,
+            reference.object_id,
+        )
+
+        if bus is None:
+            raise ResourceError(
+                code="BUS_NOT_FOUND",
+                message=(
+                    f"Bus '{reference.object_id}' "
+                    "could not be resolved."
+                ),
+                details={
+                    "bus_id": reference.object_id,
+                },
+            )
+
+        return bus
+
+    if (
+        reference.kind
+        is EndpointReferenceKind.TERMINAL
+    ):
+        return _resolve_terminal(
+            context,
+            reference,
+        )
+
+    raise ValidationError(
+        code="UNSUPPORTED_ENDPOINT_REFERENCE",
+        message=(
+            f"Unsupported endpoint reference kind "
+            f"'{reference.kind}'."
+        ),
+        details={
+            "kind": reference.kind.value,
         },
     )
 
@@ -249,21 +443,7 @@ def _resolve_endpoint(
 
 class ModelCommandHandlers:
     """
-    Application handlers for canonical model commands.
-
-    The handler set exactly mirrors model_commands.py.
-
-    Supported commands
-    ------------------
-
-        model.create_bus
-        model.delete_bus
-
-        model.create_line
-        model.delete_line
-
-        model.create_transformer
-        model.delete_transformer
+    Handler registry for canonical model commands.
     """
 
     def __init__(
@@ -278,23 +458,21 @@ class ModelCommandHandlers:
         self._model_service = model_service
 
     # ========================================================
-    # REGISTRATION
+    # REGISTRY
     # ========================================================
 
     def handlers(
         self,
     ) -> Mapping[str, Handler]:
         """
-        Return the canonical command-handler registry.
+        Return the complete canonical model-handler registry.
         """
 
         return {
             CREATE_BUS: self.create_bus,
             DELETE_BUS: self.delete_bus,
-
             CREATE_LINE: self.create_line,
             DELETE_LINE: self.delete_line,
-
             CREATE_TRANSFORMER: (
                 self.create_transformer
             ),
@@ -313,50 +491,20 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
-        """
-        Handle model.create_bus.
-        """
+
+        payload = command.payload
 
         return self._model_service.create_bus(
-            bus_id=_require_payload(
-                command,
-                "bus_id",
-            ),
-            name=_require_payload(
-                command,
-                "name",
-            ),
-            bus_type=_require_payload(
-                command,
-                "bus_type",
-            ),
-            voltage=_require_payload(
-                command,
-                "voltage",
-            ),
-            angle=_require_payload(
-                command,
-                "angle",
-            ),
-            p_spec=_require_payload(
-                command,
-                "p_spec",
-            ),
-            q_spec=_require_payload(
-                command,
-                "q_spec",
-            ),
-            v_setpoint=command.payload.get(
-                "v_setpoint"
-            ),
-            q_min=_require_payload(
-                command,
-                "q_min",
-            ),
-            q_max=_require_payload(
-                command,
-                "q_max",
-            ),
+            bus_id=payload["bus_id"],
+            name=payload["name"],
+            bus_type=payload["bus_type"],
+            voltage=payload["voltage"],
+            angle=payload["angle"],
+            p_spec=payload["p_spec"],
+            q_spec=payload["q_spec"],
+            v_setpoint=payload["v_setpoint"],
+            q_min=payload["q_min"],
+            q_max=payload["q_max"],
             transaction=transaction,
         )
 
@@ -366,15 +514,9 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
-        """
-        Handle model.delete_bus.
-        """
 
         return self._model_service.delete_bus(
-            bus_id=_require_payload(
-                command,
-                "bus_id",
-            ),
+            bus_id=command.payload["bus_id"],
             transaction=transaction,
         )
 
@@ -388,65 +530,28 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
-        """
-        Handle model.create_line.
 
-        Converts:
-
-            endpoint_from_id
-            endpoint_to_id
-
-        into canonical Core endpoint objects before invoking
-        ModelService.
-        """
-
-        endpoint_from_id = _require_payload(
-            command,
-            "endpoint_from_id",
-        )
-
-        endpoint_to_id = _require_payload(
-            command,
-            "endpoint_to_id",
-        )
+        payload = command.payload
 
         endpoint_from = _resolve_endpoint(
             context,
-            endpoint_from_id,
+            payload["endpoint_from"],
         )
 
         endpoint_to = _resolve_endpoint(
             context,
-            endpoint_to_id,
+            payload["endpoint_to"],
         )
 
         return self._model_service.create_line(
-            line_id=_require_payload(
-                command,
-                "line_id",
-            ),
+            line_id=payload["line_id"],
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
-            r=_require_payload(
-                command,
-                "r",
-            ),
-            x=_require_payload(
-                command,
-                "x",
-            ),
-            b=_require_payload(
-                command,
-                "b",
-            ),
-            name=_require_payload(
-                command,
-                "name",
-            ),
-            rate_mva=_require_payload(
-                command,
-                "rate_mva",
-            ),
+            r=payload["r"],
+            x=payload["x"],
+            b=payload["b"],
+            name=payload["name"],
+            rate_mva=payload["rate_mva"],
             transaction=transaction,
         )
 
@@ -456,15 +561,9 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
-        """
-        Handle model.delete_line.
-        """
 
         return self._model_service.delete_line(
-            line_id=_require_payload(
-                command,
-                "line_id",
-            ),
+            line_id=command.payload["line_id"],
             transaction=transaction,
         )
 
@@ -478,63 +577,29 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
-        """
-        Handle model.create_transformer.
 
-        Endpoint IDs are resolved against canonical Core state.
-        """
-
-        endpoint_from_id = _require_payload(
-            command,
-            "endpoint_from_id",
-        )
-
-        endpoint_to_id = _require_payload(
-            command,
-            "endpoint_to_id",
-        )
+        payload = command.payload
 
         endpoint_from = _resolve_endpoint(
             context,
-            endpoint_from_id,
+            payload["endpoint_from"],
         )
 
         endpoint_to = _resolve_endpoint(
             context,
-            endpoint_to_id,
+            payload["endpoint_to"],
         )
 
         return self._model_service.create_transformer(
-            transformer_id=_require_payload(
-                command,
-                "transformer_id",
-            ),
+            transformer_id=payload["transformer_id"],
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
-            r=_require_payload(
-                command,
-                "r",
-            ),
-            x=_require_payload(
-                command,
-                "x",
-            ),
-            tap=_require_payload(
-                command,
-                "tap",
-            ),
-            shift=_require_payload(
-                command,
-                "shift",
-            ),
-            name=_require_payload(
-                command,
-                "name",
-            ),
-            rate_mva=_require_payload(
-                command,
-                "rate_mva",
-            ),
+            r=payload["r"],
+            x=payload["x"],
+            tap=payload["tap"],
+            shift=payload["shift"],
+            name=payload["name"],
+            rate_mva=payload["rate_mva"],
             transaction=transaction,
         )
 
@@ -544,28 +609,24 @@ class ModelCommandHandlers:
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
-        """
-        Handle model.delete_transformer.
-        """
 
         return self._model_service.delete_transformer(
-            transformer_id=_require_payload(
-                command,
-                "transformer_id",
-            ),
+            transformer_id=command.payload[
+                "transformer_id"
+            ],
             transaction=transaction,
         )
 
 
 # ============================================================
-# FUNCTIONAL REGISTRATION API
+# REGISTRATION FACTORY
 # ============================================================
 
 def build_model_command_handlers(
     model_service: Any,
 ) -> Mapping[str, Handler]:
     """
-    Build the canonical model command-handler registry.
+    Construct the canonical model command registry.
     """
 
     return ModelCommandHandlers(
