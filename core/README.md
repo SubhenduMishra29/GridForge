@@ -1,4 +1,3 @@
-````markdown
 # GridForge V2 — Core
 
 **Author:** Subhendu Mishra
