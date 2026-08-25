@@ -35,10 +35,10 @@ Bus:
     EndpointReference.bus("BUS-001")
             |
             v
-    context.network.buses
+    context.network.get_by_id("bus", "BUS-001")
             |
             v
-    Bus
+          Bus
 
 Terminal:
 
@@ -49,10 +49,10 @@ Terminal:
     )
             |
             v
-    canonical Network collection
+    context.network.get_by_id(...)
             |
             v
-    Branch / equipment
+    canonical equipment
             |
             v
     equipment.terminals
@@ -62,6 +62,29 @@ Terminal:
 
 The handler resolves references but delegates all mutation
 to ModelService.
+
+Canonical lookup boundary
+-------------------------
+
+The handler MUST NOT inspect:
+
+    network.buses
+    network.lines
+    network.transformers
+    network.generators
+    network.loads
+    network.shunts
+
+for ID resolution.
+
+All canonical equipment lookup goes through:
+
+    Network.get_by_id()
+
+Network delegates the lookup to NetworkRegistry.
+
+This prevents Application-layer duplication of Core registry
+knowledge.
 """
 
 from __future__ import annotations
@@ -73,7 +96,6 @@ from .command import Command
 from .endpoint_reference import (
     EndpointReference,
     EndpointReferenceKind,
-    EquipmentType,
 )
 from .errors import ResourceError, ValidationError
 from .results import ApplicationResult
@@ -100,69 +122,18 @@ Handler = Callable[
 
 
 # ============================================================
-# NETWORK COLLECTION RESOLUTION
+# NETWORK ACCESS
 # ============================================================
 
-_EQUIPMENT_COLLECTIONS: Mapping[
-    EquipmentType,
-    str,
-] = {
-    EquipmentType.LINE: "lines",
-    EquipmentType.TRANSFORMER: "transformers",
-    EquipmentType.GENERATOR: "generators",
-    EquipmentType.LOAD: "loads",
-    EquipmentType.SHUNT: "shunts",
-}
-
-
-def _get_collection(
+def _get_network(
     context: Any,
-    equipment_type: EquipmentType,
 ) -> Any:
     """
-    Return the canonical Network collection for an
-    EquipmentType.
+    Return the canonical Core Network from the Application
+    context.
 
-    The mapping is kept in the Application boundary so the
-    command handler can translate an Application reference
-    into a canonical Core collection without importing
-    concrete Core equipment classes.
+    The handler does not construct or cache a Network.
     """
-
-    if not isinstance(
-        equipment_type,
-        EquipmentType,
-    ):
-        raise ValidationError(
-            code="INVALID_EQUIPMENT_TYPE",
-            message=(
-                "A valid EquipmentType is required."
-            ),
-            details={
-                "equipment_type": str(
-                    equipment_type
-                ),
-            },
-        )
-
-    collection_name = _EQUIPMENT_COLLECTIONS.get(
-        equipment_type
-    )
-
-    if collection_name is None:
-        raise ValidationError(
-            code="UNSUPPORTED_EQUIPMENT_TYPE",
-            message=(
-                f"Equipment type "
-                f"'{equipment_type.value}' is not "
-                "supported by the Application resolver."
-            ),
-            details={
-                "equipment_type": (
-                    equipment_type.value
-                ),
-            },
-        )
 
     network = getattr(
         context,
@@ -180,49 +151,84 @@ def _get_collection(
             details={},
         )
 
-    collection = getattr(
-        network,
-        collection_name,
-        None,
-    )
+    return network
 
-    if collection is None:
-        raise ResourceError(
-            code="NETWORK_COLLECTION_MISSING",
+
+# ============================================================
+# CANONICAL EQUIPMENT LOOKUP
+# ============================================================
+
+def _resolve_equipment_by_id(
+    context: Any,
+    *,
+    equipment_type: Any,
+    object_id: str,
+) -> Any:
+    """
+    Resolve canonical equipment through the Network façade.
+
+    The Application layer intentionally does not know how
+    NetworkRegistry stores equipment.
+    """
+
+    if equipment_type is None:
+        raise ValidationError(
+            code="MISSING_EQUIPMENT_TYPE",
             message=(
-                f"Canonical Network collection "
-                f"'{collection_name}' is unavailable."
+                "Terminal references require an "
+                "EquipmentType."
             ),
             details={
-                "equipment_type": (
-                    equipment_type.value
-                ),
-                "collection": collection_name,
+                "equipment_id": object_id,
             },
         )
 
-    return collection
+    value = getattr(
+        equipment_type,
+        "value",
+        None,
+    )
 
+    if not isinstance(
+        value,
+        str,
+    ) or not value:
+        raise ValidationError(
+            code="INVALID_EQUIPMENT_TYPE",
+            message=(
+                "Terminal reference contains an "
+                "invalid EquipmentType."
+            ),
+            details={
+                "equipment_type": str(
+                    equipment_type
+                ),
+                "equipment_id": object_id,
+            },
+        )
 
-# ============================================================
-# OBJECT LOOKUP
-# ============================================================
+    network = _get_network(
+        context
+    )
 
-def _find_by_id(
-    collection: Any,
-    object_id: str,
-) -> Any | None:
-    """
-    Resolve an object from a canonical Core collection.
+    try:
+        return network.get_by_id(
+            value,
+            object_id,
+        )
 
-    No Application-side cache is maintained.
-    """
-
-    for item in collection:
-        if getattr(item, "id", None) == object_id:
-            return item
-
-    return None
+    except KeyError as exc:
+        raise ResourceError(
+            code="EQUIPMENT_NOT_FOUND",
+            message=(
+                f"{value} '{object_id}' could not "
+                "be resolved."
+            ),
+            details={
+                "equipment_type": value,
+                "equipment_id": object_id,
+            },
+        ) from exc
 
 
 # ============================================================
@@ -234,7 +240,8 @@ def _resolve_bus(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve a Bus EndpointReference.
+    Resolve a Bus EndpointReference through the canonical
+    Network lookup boundary.
     """
 
     if (
@@ -251,44 +258,17 @@ def _resolve_bus(
             },
         )
 
-    network = getattr(
-        context,
-        "network",
-        None,
+    network = _get_network(
+        context
     )
 
-    if network is None:
-        raise ResourceError(
-            code="NETWORK_CONTEXT_MISSING",
-            message=(
-                "Application context does not expose "
-                "the canonical Core Network."
-            ),
-            details={},
+    try:
+        return network.get_by_id(
+            "bus",
+            reference.object_id,
         )
 
-    buses = getattr(
-        network,
-        "buses",
-        None,
-    )
-
-    if buses is None:
-        raise ResourceError(
-            code="BUS_COLLECTION_MISSING",
-            message=(
-                "Canonical Network does not expose "
-                "its Bus collection."
-            ),
-            details={},
-        )
-
-    bus = _find_by_id(
-        buses,
-        reference.object_id,
-    )
-
-    if bus is None:
+    except KeyError as exc:
         raise ResourceError(
             code="BUS_NOT_FOUND",
             message=(
@@ -298,21 +278,22 @@ def _resolve_bus(
             details={
                 "bus_id": reference.object_id,
             },
-        )
-
-    return bus
+        ) from exc
 
 
 # ============================================================
-# EQUIPMENT RESOLUTION
+# TERMINAL RESOLUTION
 # ============================================================
 
-def _resolve_equipment(
+def _resolve_terminal(
     context: Any,
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve the owning equipment of a Terminal reference.
+    Resolve a Terminal EndpointReference.
+
+    Equipment lookup is delegated to Network.get_by_id().
+    Terminal ownership remains with the equipment object.
     """
 
     if (
@@ -329,72 +310,10 @@ def _resolve_equipment(
             },
         )
 
-    if reference.equipment_type is None:
-        raise ValidationError(
-            code="MISSING_EQUIPMENT_TYPE",
-            message=(
-                "Terminal references require an "
-                "EquipmentType."
-            ),
-            details={
-                "equipment_id": reference.object_id,
-            },
-        )
-
-    collection = _get_collection(
+    equipment = _resolve_equipment_by_id(
         context,
-        reference.equipment_type,
-    )
-
-    equipment = _find_by_id(
-        collection,
-        reference.object_id,
-    )
-
-    if equipment is None:
-        raise ResourceError(
-            code="EQUIPMENT_NOT_FOUND",
-            message=(
-                f"{reference.equipment_type.value} "
-                f"'{reference.object_id}' could not "
-                "be resolved."
-            ),
-            details={
-                "equipment_type": (
-                    reference.equipment_type.value
-                ),
-                "equipment_id": reference.object_id,
-            },
-        )
-
-    return equipment
-
-
-# ============================================================
-# TERMINAL RESOLUTION
-# ============================================================
-
-def _resolve_terminal(
-    context: Any,
-    reference: EndpointReference,
-) -> Any:
-    """
-    Resolve a Terminal EndpointReference.
-
-    The audited Core Branch contract exposes:
-
-        equipment.terminals
-
-    and each Terminal exposes:
-
-        terminal.role
-
-    Exact role matching is used.
-    """
-
-    equipment = _resolve_equipment(
-        context,
-        reference,
+        equipment_type=reference.equipment_type,
+        object_id=reference.object_id,
     )
 
     terminals = getattr(
@@ -415,7 +334,7 @@ def _resolve_terminal(
             details={
                 "equipment_type": (
                     reference.equipment_type.value
-                    if reference.equipment_type
+                    if reference.equipment_type is not None
                     else None
                 ),
                 "equipment_id": reference.object_id,
@@ -447,18 +366,21 @@ def _resolve_terminal(
         ) == requested_role:
             return terminal
 
+    equipment_type = (
+        reference.equipment_type.value
+        if reference.equipment_type is not None
+        else "equipment"
+    )
+
     raise ResourceError(
         code="TERMINAL_NOT_FOUND",
         message=(
             f"Terminal '{requested_role}' was not "
-            f"found on "
-            f"{reference.equipment_type.value} "
+            f"found on {equipment_type} "
             f"'{reference.object_id}'."
         ),
         details={
-            "equipment_type": (
-                reference.equipment_type.value
-            ),
+            "equipment_type": equipment_type,
             "equipment_id": reference.object_id,
             "terminal_role": requested_role,
         },
@@ -495,7 +417,10 @@ def _resolve_endpoint(
             },
         )
 
-    if reference.kind is EndpointReferenceKind.BUS:
+    if (
+        reference.kind
+        is EndpointReferenceKind.BUS
+    ):
         return _resolve_bus(
             context,
             reference,
@@ -529,6 +454,10 @@ def _resolve_endpoint(
 class ModelCommandHandlers:
     """
     Canonical Application handlers for model commands.
+
+    Handlers translate Commands into ModelService operations.
+
+    Core mutation is never performed directly here.
     """
 
     def __init__(
@@ -551,7 +480,7 @@ class ModelCommandHandlers:
         self,
     ) -> Mapping[str, Handler]:
         """
-        Return the canonical model command registry.
+        Return the canonical model command handler registry.
         """
 
         return {
