@@ -8,7 +8,7 @@
 Headless Application Model Service.
 
 ModelService is the Application-layer service responsible for
-creating and deleting Core model objects.
+creating, updating, and deleting Core model objects.
 
 Responsibilities
 ----------------
@@ -17,6 +17,7 @@ Responsibilities
 - Add objects through the public Network API.
 - Resolve canonical objects through Network.get_by_id().
 - Remove canonical Core objects through the public Network API.
+- Mutate Core model objects through their existing domain APIs.
 - Register inverse operations with the active Transaction.
 - Return ApplicationResult objects.
 
@@ -52,6 +53,40 @@ appropriate Application topology workflow.
 
 The service therefore does not resolve or construct a Terminal
 from an Application command.
+
+Load update
+-----------
+
+UpdateLoadCommand mutates only the Load's mutable equipment
+state:
+
+    load_id
+    name
+    p
+    q
+    in_service
+
+Topology is deliberately outside this operation.
+
+Each requested mutation is routed through the Load's existing
+domain mutation contract:
+
+    name
+        -> load.name = value
+
+    p
+        -> load.p = value
+
+    q
+        -> load.q = value
+
+    in_service
+        -> load.set_in_service(value)
+
+The service never performs generic attribute assignment.
+
+The complete pre-update state is captured before mutation and
+restored through one transaction undo operation.
 """
 
 from __future__ import annotations
@@ -530,6 +565,131 @@ class ModelService:
         return ApplicationResult.success_result(
             value=load,
             message=f"Load created: {load_id}",
+            metadata={
+                "object_type": "load",
+                "object_id": load_id,
+            },
+        )
+
+    def update_load(
+        self,
+        *,
+        load_id: str,
+        name: str | None = None,
+        p: float | None = None,
+        q: float | None = None,
+        in_service: bool | None = None,
+        transaction: Transaction,
+    ) -> ApplicationResult[Load]:
+        """
+        Update mutable Load properties.
+
+        This operation changes equipment state only.
+
+        It does not:
+        - resolve endpoints;
+        - attach or detach terminals;
+        - modify topology;
+        - modify SLD state.
+
+        Each requested property is mutated through the Load's
+        existing domain API.
+
+        Undo restores the complete pre-update state through one
+        inverse transaction operation.
+        """
+
+        self._require_transaction(transaction)
+        self._require_id(load_id, "load_id")
+
+        load = self._get_required(
+            "load",
+            load_id,
+            "Load",
+        )
+
+        if not isinstance(load, Load):
+            raise DomainError(
+                code="INVALID_LOAD_REFERENCE",
+                message=f"Object {load_id!r} is not a Load.",
+                details={
+                    "load_id": load_id,
+                    "object_type": type(load).__name__,
+                },
+            )
+
+        if (
+            name is None
+            and p is None
+            and q is None
+            and in_service is None
+        ):
+            raise DomainError(
+                code="NO_LOAD_UPDATE",
+                message=(
+                    "At least one mutable Load property "
+                    "must be specified."
+                ),
+                details={
+                    "load_id": load_id,
+                },
+            )
+
+        # --------------------------------------------------------
+        # Capture complete pre-update state.
+        # --------------------------------------------------------
+
+        old_name = load.name
+        old_p = load.p
+        old_q = load.q
+        old_in_service = load.in_service
+
+        # --------------------------------------------------------
+        # Perform only requested domain mutations.
+        #
+        # P/Q use the Load setters, preserving the Load's existing
+        # validation.
+        #
+        # Operational state uses the explicit domain mutation API.
+        # --------------------------------------------------------
+
+        if name is not None:
+            load.name = name
+
+        if p is not None:
+            load.p = p
+
+        if q is not None:
+            load.q = q
+
+        if in_service is not None:
+            load.set_in_service(
+                in_service
+            )
+
+        # --------------------------------------------------------
+        # Register one complete inverse operation.
+        #
+        # The closure captures the pre-update state, not the
+        # command values, so undo restores exactly the state that
+        # existed immediately before this execution.
+        # --------------------------------------------------------
+
+        def restore_previous_state() -> None:
+            load.name = old_name
+            load.p = old_p
+            load.q = old_q
+            load.set_in_service(
+                old_in_service
+            )
+
+        transaction.record_undo(
+            restore_previous_state
+        )
+
+        return ApplicationResult.success_result(
+            value=load,
+            message=f"Load updated: {load_id}",
             metadata={
                 "object_type": "load",
                 "object_id": load_id,
