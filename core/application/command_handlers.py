@@ -10,23 +10,49 @@ GridForge V2 Application command handlers.
 Handlers are the translation boundary between immutable
 Application Commands and Application Services.
 
+Responsibilities
+----------------
 Handlers:
 
-    * read Command payloads;
+    * read immutable Command payloads;
     * validate required payload fields;
+    * resolve Core references from immutable IDs;
     * invoke Application Services;
     * return ApplicationResult.
 
 Handlers do NOT:
 
     * mutate Core directly;
-    * contain electrical topology logic;
+    * perform topology logic;
     * perform engineering calculations;
     * manipulate SLD/UI objects;
     * access Qt;
     * maintain application state.
 
-Domain meaning belongs to Application Services/Core.
+The Application Service remains responsible for Core mutation.
+
+Command flow
+------------
+
+    Command
+       |
+       v
+    Handler
+       |
+       +---- resolve IDs
+       |
+       v
+    ModelService
+       |
+       v
+    Core Network / Model
+
+The command payload contains identifiers.
+
+The handler resolves those identifiers into canonical Core
+objects before invoking ModelService.
+
+Author: Subhendu Mishra
 """
 
 from __future__ import annotations
@@ -35,18 +61,31 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .command import Command
-from .errors import ValidationError
+from .errors import ResourceError, ValidationError
 from .results import ApplicationResult
 from .transaction import Transaction
+
+from .commands.model_commands import (
+    CREATE_BUS,
+    DELETE_BUS,
+    CREATE_LINE,
+    DELETE_LINE,
+    CREATE_TRANSFORMER,
+    DELETE_TRANSFORMER,
+)
 
 
 # ============================================================
 # TYPE DEFINITIONS
 # ============================================================
 
-ServiceResolver = Callable[
-    [str],
-    Any,
+Handler = Callable[
+    [
+        Command,
+        Any,
+        Transaction,
+    ],
+    ApplicationResult[Any],
 ]
 
 
@@ -60,8 +99,6 @@ def _require_payload(
 ) -> Any:
     """
     Return a required command payload value.
-
-    Raises ValidationError when the field is absent.
     """
 
     if key not in command.payload:
@@ -103,31 +140,130 @@ def _require_payload(
     return value
 
 
-def _optional_payload(
-    command: Command,
-    key: str,
-    default: Any = None,
-) -> Any:
+# ============================================================
+# CORE OBJECT RESOLUTION
+# ============================================================
+
+def _find_by_id(
+    collection: Any,
+    object_id: str,
+) -> Any | None:
     """
-    Return an optional payload value.
+    Resolve a canonical Core object by its public id.
     """
 
-    return command.payload.get(
-        key,
-        default,
+    for item in collection:
+        if getattr(item, "id", None) == object_id:
+            return item
+
+    return None
+
+
+def _resolve_endpoint(
+    context: Any,
+    endpoint_id: str,
+) -> Any:
+    """
+    Resolve an endpoint identifier against canonical Core state.
+
+    Endpoint resolution belongs to the Application boundary.
+
+    The command carries only the identifier.
+    The Core object is resolved immediately before service
+    invocation and is never stored in the command.
+
+    Current GridForge Core endpoint ownership is Network-centric:
+    endpoints are resolved through the canonical Network model.
+    """
+
+    if not isinstance(
+        endpoint_id,
+        str,
+    ) or not endpoint_id.strip():
+        raise ValidationError(
+            code="INVALID_ENDPOINT_ID",
+            message=(
+                "Endpoint id must be a non-empty string."
+            ),
+            details={
+                "field": "endpoint_id",
+            },
+        )
+
+    endpoint_id = endpoint_id.strip()
+    network = context.network
+
+    # --------------------------------------------------------
+    # Bus endpoints
+    # --------------------------------------------------------
+
+    bus = _find_by_id(
+        network.buses,
+        endpoint_id,
+    )
+
+    if bus is not None:
+        return bus
+
+    # --------------------------------------------------------
+    # Existing network elements
+    #
+    # These checks intentionally use public collections.
+    # No Network private indexes are accessed.
+    # --------------------------------------------------------
+
+    for collection_name in (
+        "lines",
+        "transformers",
+    ):
+        collection = getattr(
+            network,
+            collection_name,
+            (),
+        )
+
+        element = _find_by_id(
+            collection,
+            endpoint_id,
+        )
+
+        if element is not None:
+            return element
+
+    raise ResourceError(
+        code="ENDPOINT_NOT_FOUND",
+        message=(
+            f"Endpoint '{endpoint_id}' could not be "
+            "resolved in the canonical Core Network."
+        ),
+        details={
+            "endpoint_id": endpoint_id,
+            "operation": "resolve_endpoint",
+        },
     )
 
 
 # ============================================================
-# MODEL COMMAND HANDLER FACTORY
+# MODEL COMMAND HANDLERS
 # ============================================================
 
 class ModelCommandHandlers:
     """
-    Factory/registry for Core model command handlers.
+    Application handlers for canonical model commands.
 
-    The object receives Application Services and exposes pure
-    Application-layer handlers to CommandManager.
+    The handler set exactly mirrors model_commands.py.
+
+    Supported commands
+    ------------------
+
+        model.create_bus
+        model.delete_bus
+
+        model.create_line
+        model.delete_line
+
+        model.create_transformer
+        model.delete_transformer
     """
 
     def __init__(
@@ -147,121 +283,121 @@ class ModelCommandHandlers:
 
     def handlers(
         self,
-    ) -> Mapping[str, Callable]:
+    ) -> Mapping[str, Handler]:
         """
-        Return command-type → handler mapping.
+        Return the canonical command-handler registry.
         """
 
         return {
-            "model.create": self.create_model,
-            "model.update": self.update_model,
-            "model.delete": self.delete_model,
+            CREATE_BUS: self.create_bus,
+            DELETE_BUS: self.delete_bus,
 
-            "network.connect": self.connect,
-            "network.disconnect": self.disconnect,
+            CREATE_LINE: self.create_line,
+            DELETE_LINE: self.delete_line,
 
-            "network.create_connection": (
-                self.create_connection
+            CREATE_TRANSFORMER: (
+                self.create_transformer
             ),
-            "network.delete_connection": (
-                self.delete_connection
+            DELETE_TRANSFORMER: (
+                self.delete_transformer
             ),
         }
 
     # ========================================================
-    # MODEL
+    # BUS
     # ========================================================
 
-    def create_model(
+    def create_bus(
         self,
         command: Command,
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
         """
-        Create a Core model object through ModelService.
+        Handle model.create_bus.
         """
 
-        model_type = _require_payload(
-            command,
-            "model_type",
-        )
-
-        properties = _optional_payload(
-            command,
-            "properties",
-            {},
-        )
-
-        return self._model_service.create_model(
-            model_type=model_type,
-            properties=properties,
+        return self._model_service.create_bus(
+            bus_id=_require_payload(
+                command,
+                "bus_id",
+            ),
+            name=_require_payload(
+                command,
+                "name",
+            ),
+            bus_type=_require_payload(
+                command,
+                "bus_type",
+            ),
+            voltage=_require_payload(
+                command,
+                "voltage",
+            ),
+            angle=_require_payload(
+                command,
+                "angle",
+            ),
+            p_spec=_require_payload(
+                command,
+                "p_spec",
+            ),
+            q_spec=_require_payload(
+                command,
+                "q_spec",
+            ),
+            v_setpoint=command.payload.get(
+                "v_setpoint"
+            ),
+            q_min=_require_payload(
+                command,
+                "q_min",
+            ),
+            q_max=_require_payload(
+                command,
+                "q_max",
+            ),
             transaction=transaction,
         )
 
-    def update_model(
+    def delete_bus(
         self,
         command: Command,
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
         """
-        Update a Core model object through ModelService.
+        Handle model.delete_bus.
         """
 
-        model_id = _require_payload(
-            command,
-            "model_id",
-        )
-
-        changes = _require_payload(
-            command,
-            "changes",
-        )
-
-        return self._model_service.update_model(
-            model_id=model_id,
-            changes=changes,
-            transaction=transaction,
-        )
-
-    def delete_model(
-        self,
-        command: Command,
-        context: Any,
-        transaction: Transaction,
-    ) -> ApplicationResult[Any]:
-        """
-        Delete a Core model object through ModelService.
-        """
-
-        model_id = _require_payload(
-            command,
-            "model_id",
-        )
-
-        return self._model_service.delete_model(
-            model_id=model_id,
+        return self._model_service.delete_bus(
+            bus_id=_require_payload(
+                command,
+                "bus_id",
+            ),
             transaction=transaction,
         )
 
     # ========================================================
-    # CONNECTION
+    # LINE
     # ========================================================
 
-    def connect(
+    def create_line(
         self,
         command: Command,
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
         """
-        Create an electrical connection.
+        Handle model.create_line.
 
-        Canonical payload:
+        Converts:
 
             endpoint_from_id
             endpoint_to_id
+
+        into canonical Core endpoint objects before invoking
+        ModelService.
         """
 
         endpoint_from_id = _require_payload(
@@ -274,57 +410,78 @@ class ModelCommandHandlers:
             "endpoint_to_id",
         )
 
-        return self._model_service.connect(
-            endpoint_from_id=endpoint_from_id,
-            endpoint_to_id=endpoint_to_id,
+        endpoint_from = _resolve_endpoint(
+            context,
+            endpoint_from_id,
+        )
+
+        endpoint_to = _resolve_endpoint(
+            context,
+            endpoint_to_id,
+        )
+
+        return self._model_service.create_line(
+            line_id=_require_payload(
+                command,
+                "line_id",
+            ),
+            endpoint_from=endpoint_from,
+            endpoint_to=endpoint_to,
+            r=_require_payload(
+                command,
+                "r",
+            ),
+            x=_require_payload(
+                command,
+                "x",
+            ),
+            b=_require_payload(
+                command,
+                "b",
+            ),
+            name=_require_payload(
+                command,
+                "name",
+            ),
+            rate_mva=_require_payload(
+                command,
+                "rate_mva",
+            ),
             transaction=transaction,
         )
 
-    def disconnect(
+    def delete_line(
         self,
         command: Command,
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
         """
-        Remove an electrical connection.
-
-        Canonical payload:
-
-            endpoint_from_id
-            endpoint_to_id
+        Handle model.delete_line.
         """
 
-        endpoint_from_id = _require_payload(
-            command,
-            "endpoint_from_id",
-        )
-
-        endpoint_to_id = _require_payload(
-            command,
-            "endpoint_to_id",
-        )
-
-        return self._model_service.disconnect(
-            endpoint_from_id=endpoint_from_id,
-            endpoint_to_id=endpoint_to_id,
+        return self._model_service.delete_line(
+            line_id=_require_payload(
+                command,
+                "line_id",
+            ),
             transaction=transaction,
         )
 
     # ========================================================
-    # EXPLICIT CONNECTION COMMANDS
+    # TRANSFORMER
     # ========================================================
 
-    def create_connection(
+    def create_transformer(
         self,
         command: Command,
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
         """
-        Create a network connection.
+        Handle model.create_transformer.
 
-        This delegates completely to ModelService.
+        Endpoint IDs are resolved against canonical Core state.
         """
 
         endpoint_from_id = _require_payload(
@@ -337,35 +494,65 @@ class ModelCommandHandlers:
             "endpoint_to_id",
         )
 
-        connection_type = _optional_payload(
-            command,
-            "connection_type",
+        endpoint_from = _resolve_endpoint(
+            context,
+            endpoint_from_id,
         )
 
-        return self._model_service.create_connection(
-            endpoint_from_id=endpoint_from_id,
-            endpoint_to_id=endpoint_to_id,
-            connection_type=connection_type,
+        endpoint_to = _resolve_endpoint(
+            context,
+            endpoint_to_id,
+        )
+
+        return self._model_service.create_transformer(
+            transformer_id=_require_payload(
+                command,
+                "transformer_id",
+            ),
+            endpoint_from=endpoint_from,
+            endpoint_to=endpoint_to,
+            r=_require_payload(
+                command,
+                "r",
+            ),
+            x=_require_payload(
+                command,
+                "x",
+            ),
+            tap=_require_payload(
+                command,
+                "tap",
+            ),
+            shift=_require_payload(
+                command,
+                "shift",
+            ),
+            name=_require_payload(
+                command,
+                "name",
+            ),
+            rate_mva=_require_payload(
+                command,
+                "rate_mva",
+            ),
             transaction=transaction,
         )
 
-    def delete_connection(
+    def delete_transformer(
         self,
         command: Command,
         context: Any,
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
         """
-        Delete a network connection.
+        Handle model.delete_transformer.
         """
 
-        connection_id = _require_payload(
-            command,
-            "connection_id",
-        )
-
-        return self._model_service.delete_connection(
-            connection_id=connection_id,
+        return self._model_service.delete_transformer(
+            transformer_id=_require_payload(
+                command,
+                "transformer_id",
+            ),
             transaction=transaction,
         )
 
@@ -376,16 +563,14 @@ class ModelCommandHandlers:
 
 def build_model_command_handlers(
     model_service: Any,
-) -> Mapping[str, Callable]:
+) -> Mapping[str, Handler]:
     """
-    Build the standard model command handler registry.
+    Build the canonical model command-handler registry.
     """
 
-    factory = ModelCommandHandlers(
+    return ModelCommandHandlers(
         model_service
-    )
-
-    return factory.handlers()
+    ).handlers()
 
 
 # ============================================================
