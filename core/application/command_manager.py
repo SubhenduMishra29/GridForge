@@ -53,8 +53,26 @@ Execution boundary
         v
        Core
 
-Undo
-----
+Transaction boundary
+--------------------
+
+A Transaction belongs to exactly one command execution.
+
+Before commit:
+
+    handler failure
+        |
+        v
+    rollback
+        |
+        v
+    propagate failure
+
+After commit:
+
+    Transaction is closed.
+
+    No rollback is attempted.
 
 Transaction.commit() returns an immutable UndoJournal.
 
@@ -280,6 +298,14 @@ class CommandManager:
             True for a newly issued command.
 
             False for redo execution.
+
+        Transaction lifecycle
+        ---------------------
+
+        A transaction is rolled back only while it is active.
+
+        Once commit() succeeds, the transaction is closed and
+        no exception path may attempt to roll it back.
         """
 
         self._validate_command(
@@ -292,6 +318,14 @@ class CommandManager:
 
         transaction = Transaction()
 
+        # ----------------------------------------------------
+        # PRE-COMMIT PHASE
+        # ----------------------------------------------------
+        #
+        # All handler execution and result validation happen
+        # before commit. Any exception in this phase owns the
+        # rollback responsibility.
+        #
         try:
             result = handler(
                 command,
@@ -305,10 +339,6 @@ class CommandManager:
             )
 
             if not result.success:
-                self._rollback_safely(
-                    transaction
-                )
-
                 raise ExecutionError(
                     code="COMMAND_FAILED",
                     message=(
@@ -330,19 +360,6 @@ class CommandManager:
                         ),
                     },
                 )
-
-            # Transaction.commit() is the sole boundary at
-            # which the immutable UndoJournal is produced.
-            undo_journal = transaction.commit()
-
-            self._record_execution(
-                command=command,
-                result=result,
-                undo_journal=undo_journal,
-                clear_redo=clear_redo,
-            )
-
-            return result
 
         except ApplicationError:
             self._rollback_safely(
@@ -372,6 +389,95 @@ class CommandManager:
                 cause=exc,
             ) from exc
 
+        # ----------------------------------------------------
+        # COMMIT PHASE
+        # ----------------------------------------------------
+        #
+        # commit() is intentionally outside the rollback
+        # exception boundary above.
+        #
+        # Once commit succeeds, the transaction is closed.
+        # No rollback is possible or appropriate afterwards.
+        #
+        try:
+            undo_journal = transaction.commit()
+
+        except ApplicationError:
+            # commit() failed before producing a committed
+            # journal. If the Transaction implementation still
+            # considers it active, rollback is safe.
+            self._rollback_safely(
+                transaction
+            )
+            raise
+
+        except Exception as exc:
+            self._rollback_safely(
+                transaction
+            )
+
+            raise ExecutionError(
+                code="COMMAND_COMMIT_FAILED",
+                message=(
+                    "Command transaction commit failed: "
+                    f"{command.command_type}"
+                ),
+                details={
+                    "command_type": (
+                        command.command_type
+                    ),
+                    "command_id": str(
+                        command.command_id
+                    ),
+                },
+                cause=exc,
+            ) from exc
+
+        # ----------------------------------------------------
+        # POST-COMMIT PHASE
+        # ----------------------------------------------------
+        #
+        # The transaction is now closed.
+        #
+        # IMPORTANT:
+        # _record_execution() is deliberately outside any
+        # rollback boundary. If history recording fails, the
+        # Core mutation has already committed and must NOT be
+        # rolled back using the closed Transaction.
+        #
+        try:
+            self._record_execution(
+                command=command,
+                result=result,
+                undo_journal=undo_journal,
+                clear_redo=clear_redo,
+            )
+
+        except ApplicationError:
+            raise
+
+        except Exception as exc:
+            raise ExecutionError(
+                code="COMMAND_HISTORY_RECORD_FAILED",
+                message=(
+                    "Command committed successfully, "
+                    "but its history record could not be "
+                    "stored: "
+                    f"{command.command_type}"
+                ),
+                details={
+                    "command_type": (
+                        command.command_type
+                    ),
+                    "command_id": str(
+                        command.command_id
+                    ),
+                },
+                cause=exc,
+            ) from exc
+
+        return result
+
     # ========================================================
     # HISTORY RECORDING
     # ========================================================
@@ -389,7 +495,7 @@ class CommandManager:
 
         The transaction has already committed at this point.
 
-        CommandHistory owns only the immutable history state;
+        CommandHistory owns only immutable history state;
         it does not execute the journal.
         """
 
@@ -752,8 +858,10 @@ class CommandManager:
 
         Rollback is attempted only while the transaction is active.
 
-        A rollback exception is intentionally not allowed to replace
-        the original command exception at this orchestration layer.
+        If the transaction is already closed, this method is a
+        no-op. This makes the rollback helper safe at exceptional
+        boundaries without attempting to undo a committed
+        transaction.
         """
 
         if not transaction.active:
@@ -761,13 +869,20 @@ class CommandManager:
 
         try:
             transaction.rollback()
-        except Exception:
-            pass
 
+        except ApplicationError:
+            raise
 
-# ============================================================
-# PUBLIC API
-# ============================================================
+        except Exception as exc:
+            raise ExecutionError(
+                code="TRANSACTION_ROLLBACK_FAILED",
+                message=(
+                    "Transaction rollback failed."
+                ),
+                details={},
+                cause=exc,
+            ) from exc
+
 
 __all__ = [
     "CommandManager",
