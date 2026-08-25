@@ -13,7 +13,7 @@ creating and deleting Core model objects.
 Responsibilities
 ----------------
 - Validate Application-level model input.
-- Create Core model objects.
+- Construct Core model objects.
 - Add objects through the public Network API.
 - Resolve canonical objects through Network.get_by_id().
 - Remove canonical Core objects through the public Network API.
@@ -28,6 +28,10 @@ ModelService does NOT:
 - perform direct registry manipulation;
 - own transactions;
 - commit or rollback transactions.
+
+Endpoint resolution is performed by EndpointResolver in the
+Application command-handler layer before create_line() or
+create_transformer() is called.
 """
 
 from __future__ import annotations
@@ -38,10 +42,11 @@ from ..errors import DomainError, ResourceError
 from ..results import ApplicationResult
 from ..transaction import Transaction
 
-from ...model.bus import Bus
+from ...model.base import ElectricalObject
+from ...model.bus import Bus, BusType
 from ...model.line import Line
-from ...model.transformer import Transformer
 from ...model.terminal import Terminal
+from ...model.transformer import Transformer
 
 
 class ModelService:
@@ -49,6 +54,10 @@ class ModelService:
     Application service for Core model mutation.
 
     Network remains the authoritative owner of model objects.
+
+    The service accepts already-resolved Core endpoints for
+    branch-based equipment. It never resolves EndpointReference
+    values itself.
     """
 
     def __init__(self, network: Any) -> None:
@@ -57,16 +66,16 @@ class ModelService:
 
         self._network = network
 
-    # ========================================================
+    # ============================================================
     # BUS
-    # ========================================================
+    # ============================================================
 
     def create_bus(
         self,
         *,
         bus_id: str,
         name: str | None = None,
-        bus_type: str = "PQ",
+        bus_type: str | BusType = "PQ",
         voltage: float = 1.0,
         angle: float = 0.0,
         p_spec: float = 0.0,
@@ -76,34 +85,37 @@ class ModelService:
         q_max: float | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Bus]:
-        """Create and register a Bus."""
+        """
+        Create and register a Bus.
+
+        Application command terminology is translated here to the
+        actual Core Bus constructor terminology:
+
+            voltage   -> voltage_magnitude
+            angle     -> voltage_angle
+            p_spec    -> p
+            q_spec    -> q
+            v_setpoint -> voltage_setpoint
+        """
 
         self._require_transaction(transaction)
         self._require_id(bus_id, "bus_id")
 
-        try:
-            self._network.get_by_id(
-                "bus",
-                bus_id,
-            )
-        except KeyError:
-            pass
-        else:
-            raise DomainError(
-                code="BUS_ALREADY_EXISTS",
-                message=f"Bus already exists: {bus_id}",
-                details={"bus_id": bus_id},
-            )
+        self._ensure_not_exists(
+            "bus",
+            bus_id,
+            "Bus",
+        )
 
         bus = Bus(
-            bus_id=bus_id,
-            name=name,
+            id=bus_id,
+            name="" if name is None else name,
             bus_type=bus_type,
-            voltage=voltage,
-            angle=angle,
-            p_spec=p_spec,
-            q_spec=q_spec,
-            v_setpoint=v_setpoint,
+            voltage_magnitude=voltage,
+            voltage_angle=angle,
+            p=p_spec,
+            q=q_spec,
+            voltage_setpoint=v_setpoint,
             q_min=q_min,
             q_max=q_max,
         )
@@ -145,9 +157,7 @@ class ModelService:
         if not isinstance(bus, Bus):
             raise DomainError(
                 code="INVALID_BUS_REFERENCE",
-                message=(
-                    f"Object {bus_id!r} is not a Bus."
-                ),
+                message=f"Object {bus_id!r} is not a Bus.",
                 details={
                     "bus_id": bus_id,
                     "object_type": type(bus).__name__,
@@ -169,13 +179,14 @@ class ModelService:
             },
         )
 
-    # ========================================================
+    # ============================================================
     # LINE
-    # ========================================================
+    # ============================================================
 
     def create_line(
         self,
         *,
+        line_id: str,
         endpoint_from: Bus | Terminal,
         endpoint_to: Bus | Terminal,
         r: float = 0.0,
@@ -187,9 +198,13 @@ class ModelService:
     ) -> ApplicationResult[Line]:
         """
         Create and register a Line between resolved Core endpoints.
+
+        EndpointReference resolution belongs to EndpointResolver.
+        This method accepts only canonical Bus/Terminal objects.
         """
 
         self._require_transaction(transaction)
+        self._require_id(line_id, "line_id")
 
         self._validate_endpoint(
             endpoint_from,
@@ -204,16 +219,25 @@ class ModelService:
             raise DomainError(
                 code="INVALID_LINE_ENDPOINTS",
                 message="Line endpoints must be different.",
-                details={},
+                details={
+                    "line_id": line_id,
+                },
             )
 
+        self._ensure_not_exists(
+            "line",
+            line_id,
+            "Line",
+        )
+
         line = Line(
+            id=line_id,
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
             r=r,
             x=x,
             b=b,
-            name=name,
+            name="" if name is None else name,
             rate_mva=rate_mva,
         )
 
@@ -225,10 +249,10 @@ class ModelService:
 
         return ApplicationResult.success_result(
             value=line,
-            message="Line created.",
+            message=f"Line created: {line_id}",
             metadata={
                 "object_type": "line",
-                "object_id": str(line.id),
+                "object_id": line_id,
             },
         )
 
@@ -254,9 +278,7 @@ class ModelService:
         if not isinstance(line, Line):
             raise DomainError(
                 code="INVALID_LINE_REFERENCE",
-                message=(
-                    f"Object {line_id!r} is not a Line."
-                ),
+                message=f"Object {line_id!r} is not a Line.",
                 details={
                     "line_id": line_id,
                     "object_type": type(line).__name__,
@@ -278,13 +300,14 @@ class ModelService:
             },
         )
 
-    # ========================================================
+    # ============================================================
     # TRANSFORMER
-    # ========================================================
+    # ============================================================
 
     def create_transformer(
         self,
         *,
+        transformer_id: str,
         endpoint_from: Bus | Terminal,
         endpoint_to: Bus | Terminal,
         r: float = 0.0,
@@ -298,9 +321,18 @@ class ModelService:
         """
         Create and register a Transformer between resolved
         Core endpoints.
+
+        The current Application command contract does not expose
+        transformer b, while the Core Transformer constructor
+        provides b with a default of 0.0. Therefore the Core
+        default is intentionally retained.
         """
 
         self._require_transaction(transaction)
+        self._require_id(
+            transformer_id,
+            "transformer_id",
+        )
 
         self._validate_endpoint(
             endpoint_from,
@@ -314,20 +346,27 @@ class ModelService:
         if endpoint_from is endpoint_to:
             raise DomainError(
                 code="INVALID_TRANSFORMER_ENDPOINTS",
-                message=(
-                    "Transformer endpoints must be different."
-                ),
-                details={},
+                message="Transformer endpoints must be different.",
+                details={
+                    "transformer_id": transformer_id,
+                },
             )
 
+        self._ensure_not_exists(
+            "transformer",
+            transformer_id,
+            "Transformer",
+        )
+
         transformer = Transformer(
+            id=transformer_id,
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
             r=r,
             x=x,
             tap=tap,
             shift=shift,
-            name=name,
+            name="" if name is None else name,
             rate_mva=rate_mva,
         )
 
@@ -335,17 +374,15 @@ class ModelService:
 
         transaction.record_undo(
             lambda transformer=transformer:
-                self._network.remove_transformer(
-                    transformer
-                )
+                self._network.remove_transformer(transformer)
         )
 
         return ApplicationResult.success_result(
             value=transformer,
-            message="Transformer created.",
+            message=f"Transformer created: {transformer_id}",
             metadata={
                 "object_type": "transformer",
-                "object_id": str(transformer.id),
+                "object_id": transformer_id,
             },
         )
 
@@ -372,10 +409,7 @@ class ModelService:
             "Transformer",
         )
 
-        if not isinstance(
-            transformer,
-            Transformer,
-        ):
+        if not isinstance(transformer, Transformer):
             raise DomainError(
                 code="INVALID_TRANSFORMER_REFERENCE",
                 message=(
@@ -388,32 +422,25 @@ class ModelService:
                 },
             )
 
-        self._network.remove_transformer(
-            transformer
-        )
+        self._network.remove_transformer(transformer)
 
         transaction.record_undo(
             lambda transformer=transformer:
-                self._network.add_transformer(
-                    transformer
-                )
+                self._network.add_transformer(transformer)
         )
 
         return ApplicationResult.success_result(
             value=transformer,
-            message=(
-                "Transformer deleted: "
-                f"{transformer_id}"
-            ),
+            message=f"Transformer deleted: {transformer_id}",
             metadata={
                 "object_type": "transformer",
                 "object_id": transformer_id,
             },
         )
 
-    # ========================================================
+    # ============================================================
     # CANONICAL NETWORK LOOKUP
-    # ========================================================
+    # ============================================================
 
     def _get_required(
         self,
@@ -422,12 +449,9 @@ class ModelService:
         display_type: str,
     ) -> Any:
         """
-        Resolve a canonical Core object through the public
-        Network lookup API.
+        Resolve a canonical Core object through Network.get_by_id().
 
-        Network.get_by_id() raises KeyError when the requested
-        object does not exist. That KeyError is translated into
-        the Application-layer ResourceError contract.
+        Network remains the only Application-visible lookup façade.
         """
 
         try:
@@ -448,9 +472,42 @@ class ModelService:
                 },
             ) from exc
 
-    # ========================================================
+    def _ensure_not_exists(
+        self,
+        element_type: str,
+        object_id: str,
+        display_type: str,
+    ) -> None:
+        """
+        Ensure an object ID is not already registered.
+
+        Lookup goes through Network.get_by_id(); the registry
+        remains completely hidden from this service.
+        """
+
+        try:
+            self._network.get_by_id(
+                element_type,
+                object_id,
+            )
+        except KeyError:
+            return
+
+        raise DomainError(
+            code=f"{element_type.upper()}_ALREADY_EXISTS",
+            message=(
+                f"{display_type} already exists: "
+                f"{object_id}"
+            ),
+            details={
+                "object_type": element_type,
+                "object_id": object_id,
+            },
+        )
+
+    # ============================================================
     # ENDPOINT VALIDATION
-    # ========================================================
+    # ============================================================
 
     @staticmethod
     def _validate_endpoint(
@@ -460,8 +517,7 @@ class ModelService:
         """
         Validate an already-resolved Core endpoint.
 
-        EndpointReference resolution belongs to the command
-        handler, not this service.
+        This deliberately does not perform endpoint resolution.
         """
 
         if not isinstance(
@@ -480,15 +536,17 @@ class ModelService:
                 },
             )
 
-    # ========================================================
-    # VALIDATION HELPERS
-    # ========================================================
+    # ============================================================
+    # TRANSACTION VALIDATION
+    # ============================================================
 
     @staticmethod
     def _require_transaction(
         transaction: Transaction,
     ) -> None:
-        """Ensure a live Transaction is supplied."""
+        """
+        Ensure an active Application Transaction is supplied.
+        """
 
         if not isinstance(
             transaction,
@@ -503,12 +561,18 @@ class ModelService:
                 "Transaction must be active."
             )
 
+    # ============================================================
+    # ID VALIDATION
+    # ============================================================
+
     @staticmethod
     def _require_id(
         value: str,
         parameter_name: str,
     ) -> None:
-        """Validate a model identifier."""
+        """
+        Validate a GridForge object identifier.
+        """
 
         if not isinstance(value, str):
             raise TypeError(
