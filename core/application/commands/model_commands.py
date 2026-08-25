@@ -5,45 +5,59 @@
 # ============================================================
 
 """
-GridForge V2 Application model commands.
+GridForge V2 — Application Model Commands
+==========================================
 
-Commands carry immutable Application intent.
+Immutable commands representing model-level application intent.
 
-Commands do not:
+Commands:
 
-    * contain Core model objects;
-    * mutate Core;
-    * mutate Network;
-    * resolve endpoints;
-    * manipulate terminals;
-    * access Qt/UI;
-    * perform engineering calculations.
+    CreateBusCommand
+    DeleteBusCommand
+    CreateLineCommand
+    DeleteLineCommand
+    CreateTransformerCommand
+    DeleteTransformerCommand
+
+Architectural rules
+-------------------
+
+Commands:
+
+    * contain Application intent only;
+    * may contain immutable value objects;
+    * do not contain Core model objects;
+    * do not resolve endpoints;
+    * do not mutate Core;
+    * do not perform engineering calculations;
+    * do not access UI state.
 
 Endpoint references
 -------------------
-Line and Transformer commands use EndpointReference.
 
-EndpointReference is an Application value object identifying
-either:
+Line and Transformer commands use:
 
-    * a canonical Bus; or
-    * a terminal belonging to canonical equipment.
+    EndpointReference
 
-The command therefore transports endpoint identity without
-embedding mutable Core state.
+An endpoint can therefore be:
 
-Resolution is performed by command handlers.
+    Bus
+        EndpointReference.bus(...)
+
+or:
+
+    Terminal
+        EndpointReference.terminal(...)
+
+The complete endpoint identity remains inside the immutable
+EndpointReference.
 
 Author:
     Subhendu Mishra
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
 """
 
 from __future__ import annotations
 
-from types import MappingProxyType
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -63,23 +77,6 @@ DELETE_LINE = "model.delete_line"
 
 CREATE_TRANSFORMER = "model.create_transformer"
 DELETE_TRANSFORMER = "model.delete_transformer"
-
-
-# ============================================================
-# PAYLOAD HELPER
-# ============================================================
-
-def _payload(
-    **values: Any,
-) -> MappingProxyType:
-    """
-    Build the immutable top-level command payload.
-
-    Command is responsible for recursively freezing payload
-    values.
-    """
-
-    return MappingProxyType(values)
 
 
 # ============================================================
@@ -111,18 +108,18 @@ class CreateBusCommand(Command):
 
         super().__init__(
             command_type=CREATE_BUS,
-            payload=_payload(
-                bus_id=bus_id,
-                name=name,
-                bus_type=bus_type,
-                voltage=voltage,
-                angle=angle,
-                p_spec=p_spec,
-                q_spec=q_spec,
-                v_setpoint=v_setpoint,
-                q_min=q_min,
-                q_max=q_max,
-            ),
+            payload={
+                "bus_id": bus_id,
+                "name": name,
+                "bus_type": bus_type,
+                "voltage": voltage,
+                "angle": angle,
+                "p_spec": p_spec,
+                "q_spec": q_spec,
+                "v_setpoint": v_setpoint,
+                "q_min": q_min,
+                "q_max": q_max,
+            },
             command_id=(
                 command_id
                 if command_id is not None
@@ -153,9 +150,9 @@ class DeleteBusCommand(Command):
 
         super().__init__(
             command_type=DELETE_BUS,
-            payload=_payload(
-                bus_id=bus_id,
-            ),
+            payload={
+                "bus_id": bus_id,
+            },
             command_id=(
                 command_id
                 if command_id is not None
@@ -174,10 +171,14 @@ class CreateLineCommand(Command):
     """
     Request creation of a canonical Core Line.
 
-    Endpoint references remain Application-layer immutable
-    references.
+    endpoint_from and endpoint_to are complete immutable
+    EndpointReference objects.
 
-    No Core endpoint object is stored in the command.
+    They are intentionally not named *_id because an endpoint
+    may be either:
+
+        * a Bus; or
+        * a Terminal.
     """
 
     def __init__(
@@ -216,16 +217,16 @@ class CreateLineCommand(Command):
 
         super().__init__(
             command_type=CREATE_LINE,
-            payload=_payload(
-                line_id=line_id,
-                endpoint_from=endpoint_from,
-                endpoint_to=endpoint_to,
-                r=r,
-                x=x,
-                b=b,
-                name=name,
-                rate_mva=rate_mva,
-            ),
+            payload={
+                "line_id": line_id,
+                "endpoint_from": endpoint_from,
+                "endpoint_to": endpoint_to,
+                "r": r,
+                "x": x,
+                "b": b,
+                "name": name,
+                "rate_mva": rate_mva,
+            },
             command_id=(
                 command_id
                 if command_id is not None
@@ -256,9 +257,9 @@ class DeleteLineCommand(Command):
 
         super().__init__(
             command_type=DELETE_LINE,
-            payload=_payload(
-                line_id=line_id,
-            ),
+            payload={
+                "line_id": line_id,
+            },
             command_id=(
                 command_id
                 if command_id is not None
@@ -277,8 +278,8 @@ class CreateTransformerCommand(Command):
     """
     Request creation of a canonical Core Transformer.
 
-    Endpoint references remain Application-layer immutable
-    references.
+    Endpoint references identify the actual connection
+    endpoints without embedding Core objects.
     """
 
     def __init__(
@@ -318,17 +319,17 @@ class CreateTransformerCommand(Command):
 
         super().__init__(
             command_type=CREATE_TRANSFORMER,
-            payload=_payload(
-                transformer_id=transformer_id,
-                endpoint_from=endpoint_from,
-                endpoint_to=endpoint_to,
-                r=r,
-                x=x,
-                tap=tap,
-                shift=shift,
-                name=name,
-                rate_mva=rate_mva,
-            ),
+            payload={
+                "transformer_id": transformer_id,
+                "endpoint_from": endpoint_from,
+                "endpoint_to": endpoint_to,
+                "r": r,
+                "x": x,
+                "tap": tap,
+                "shift": shift,
+                "name": name,
+                "rate_mva": rate_mva,
+            },
             command_id=(
                 command_id
                 if command_id is not None
@@ -359,9 +360,9 @@ class DeleteTransformerCommand(Command):
 
         super().__init__(
             command_type=DELETE_TRANSFORMER,
-            payload=_payload(
-                transformer_id=transformer_id,
-            ),
+            payload={
+                "transformer_id": transformer_id,
+            },
             command_id=(
                 command_id
                 if command_id is not None
