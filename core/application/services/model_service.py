@@ -1,222 +1,61 @@
 # ============================================================
 # File: core/application/services/model_service.py
-# GridForge V2 — Headless Model Application Service
+# GridForge V2 — Model Application Service
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-GridForge V2
-============
+GridForge V2 — Model Application Service
+=========================================
 
-Module:
-    core.application.services.model_service
+Application service responsible for model-level mutations.
 
-Purpose
--------
-Provides Application-level orchestration for creation and removal
-of canonical Core model objects.
+Responsibilities
+----------------
 
-Architectural Position
-----------------------
+    * validate Application-level model input;
+    * construct Core model objects;
+    * delegate registration/removal to the canonical Core
+      Network API;
+    * register inverse operations with the active transaction;
+    * return ApplicationResult for successful operations.
+
+This service does NOT:
+
+    * know about Qt;
+    * know about SLD/canvas state;
+    * manipulate UI state;
+    * perform power-system calculations;
+    * mutate Network private collections;
+    * maintain a second model registry;
+    * resolve EndpointReference values.
+
+Endpoint resolution is performed by command handlers before
+the service is called.
+
+Architectural flow
+------------------
 
     Application Command
             |
             v
-       ModelService
+    Command Handler
             |
-            +----> Core Model
-            |
-            +----> Core Network
+            | EndpointReference resolution
+            v
+    ModelService
             |
             v
-       ApplicationResult
-
-The service coordinates Application operations.
-
-The Core model and Network remain authoritative.
-
-Responsibilities
-----------------
-ModelService is responsible for:
-
-    * validating Application-level input;
-    * resolving canonical Core model objects;
-    * constructing canonical Core model objects;
-    * registering objects through public Network APIs;
-    * removing objects through public Network APIs;
-    * registering inverse operations in Transaction;
-    * returning ApplicationResult objects;
-    * translating expected Core failures into Application errors.
-
-ModelService does NOT:
-
-    * maintain a second collection of model objects;
-    * manipulate Network internals;
-    * maintain topology indexes;
-    * maintain topology revisions;
-    * maintain Y-bus revisions;
-    * directly mutate Network private state;
-    * perform engineering calculations;
-    * own UI state;
-    * create SLD graphics objects;
-    * depend on Qt.
-
-Network Ownership
------------------
-Once a model object is created, the Network becomes responsible
-for incorporating that object into the assembled network.
-
-Removal follows the same ownership boundary.
-
-For example:
-
-    network.add_bus(bus)
-    network.remove_bus(bus)
-
-and:
-
-    network.add_line(line)
-    network.remove_line(line)
-
-and:
-
-    network.add_transformer(transformer)
-    network.remove_transformer(transformer)
-
-The service MUST NOT directly manipulate:
-
-    network.buses
-    network.lines
-    network.transformers
-    network.bus_index
-    network._invalidate_topology()
-    network._invalidate_ybus()
-
-Transaction Ownership
----------------------
-Transaction belongs to the Application layer.
-
-The service performs the Core mutation and registers the exact
-inverse operation with the supplied Transaction only after the
-Core mutation succeeds.
-
-Creation:
-
-    network.add_line(line)
-    transaction.record_undo(
-        lambda: network.remove_line(line)
-    )
-
-Deletion:
-
-    network.remove_line(line)
-    transaction.record_undo(
-        lambda: network.add_line(line)
-    )
-
-The Transaction does not know about Core or Network. It only owns
-callable inverse operations.
-
-Bus Deletion
-------------
-Bus deletion is intentionally strict.
-
-The Application service resolves the canonical Bus from the
-Network and delegates the actual removal to:
-
-    Network.remove_bus()
-
-Network.remove_bus() owns:
-
-    * reference checking;
-    * canonical collection mutation;
-    * bus-index rebuilding;
-    * topology invalidation;
-    * Y-bus invalidation.
-
-Line Lifecycle
---------------
-Line physical connectivity is owned by the Line model through:
-
-    line.from_terminal
-    line.to_terminal
-
-The Application service does not manipulate those terminals
-during network membership operations.
-
-Creation:
-
-    Line(...)
-        |
-        v
-    network.add_line(line)
-
-Deletion:
-
-    network.remove_line(line)
-
-Network.remove_line() removes Network membership and invalidates
-derived topology/Y-bus state.
-
-It does not disconnect either Line terminal.
-
-Transformer Lifecycle
----------------------
-Transformer physical connectivity is owned by the Transformer
-model through:
-
-    transformer.from_terminal
-    transformer.to_terminal
-
-The Application service does not manipulate those terminals
-during network membership operations.
-
-Creation:
-
-    Transformer(...)
-        |
-        v
-    network.add_transformer(transformer)
-
-Deletion:
-
-    network.remove_transformer(transformer)
-
-Network removal owns Network membership and derived-state
-invalidation.
-
-It does not disconnect either Transformer terminal.
-
-This keeps three concepts separate:
-
-    Terminal connectivity
-        model responsibility
-
-    Network membership
-        network responsibility
-
-    Derived topology/Y-bus
-        network responsibility
-
-Python Compatibility
---------------------
-GridForge V2 targets Python 3.10/3.11.
-
-No Python 3.12-only syntax is used.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+    Core Network public API
+            |
+            v
+    Core Model
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
 
-from core.model import Bus, BusType
-from core.model.line import Line
-from core.model.transformer import Transformer
-
-from ..context import ApplicationContext
 from ..errors import (
     DomainError,
     ExecutionError,
@@ -224,64 +63,279 @@ from ..errors import (
     ValidationError,
 )
 from ..results import ApplicationResult
-from ..transaction import Transaction
 
 
-# ============================================================
-# MODEL SERVICE
-# ============================================================
+# Core model imports.
+#
+# These imports intentionally refer to the domain model rather
+# than UI or plugin implementations.
+from core.model.bus import Bus
+from core.model.line import Line
+from core.model.transformer import Transformer
+from core.model.terminal import Terminal
+
 
 class ModelService:
     """
-    Headless Application service for canonical Core model
-    creation and removal.
+    Application service for Core model mutations.
 
     Parameters
     ----------
-    context:
-        ApplicationContext containing the canonical Core Network.
+    network:
+        Canonical Core Network instance.
 
-    Notes
-    -----
-    The service does not own the Network.
-
-    The Network is supplied by ApplicationContext and remains
-    owned by the Core/Application composition boundary.
+    The service owns no model state of its own.
     """
-
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
 
     def __init__(
         self,
-        context: ApplicationContext,
+        network: Any,
     ) -> None:
-        """
-        Initialize the ModelService.
-        """
-
-        if context is None:
+        if network is None:
             raise ValueError(
-                "ModelService context must not be None."
+                "network is required."
             )
 
-        self._context = context
+        self._network = network
 
     # ========================================================
-    # CONTEXT
+    # INTERNAL HELPERS
     # ========================================================
 
-    @property
-    def context(self) -> ApplicationContext:
+    @staticmethod
+    def _validate_id(
+        value: str,
+        field_name: str,
+    ) -> str:
         """
-        Return the Application dependency context.
+        Validate a model identifier.
         """
 
-        return self._context
+        if not isinstance(value, str):
+            raise ValidationError(
+                code="INVALID_IDENTIFIER",
+                message=(
+                    f"{field_name} must be a string."
+                ),
+                details={
+                    "field": field_name,
+                    "value_type": type(value).__name__,
+                },
+            )
+
+        value = value.strip()
+
+        if not value:
+            raise ValidationError(
+                code="EMPTY_IDENTIFIER",
+                message=(
+                    f"{field_name} must not be empty."
+                ),
+                details={
+                    "field": field_name,
+                },
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_endpoint(
+        endpoint: Any,
+        field_name: str,
+    ) -> None:
+        """
+        Validate a resolved Core electrical endpoint.
+
+        Valid endpoint objects at this Application boundary are:
+
+            Bus
+            Terminal
+
+        EndpointReference resolution itself belongs to the
+        command-handler layer.
+        """
+
+        if not isinstance(
+            endpoint,
+            (Bus, Terminal),
+        ):
+            raise ValidationError(
+                code="INVALID_ENDPOINT",
+                message=(
+                    f"{field_name} must resolve to a "
+                    "Core Bus or Terminal."
+                ),
+                details={
+                    "field": field_name,
+                    "received_type": type(
+                        endpoint
+                    ).__name__,
+                },
+            )
+
+    @staticmethod
+    def _validate_distinct_endpoints(
+        endpoint_from: Any,
+        endpoint_to: Any,
+    ) -> None:
+        """
+        Reject identical canonical endpoint objects.
+        """
+
+        if endpoint_from is endpoint_to:
+            raise ValidationError(
+                code="IDENTICAL_ENDPOINTS",
+                message=(
+                    "Source and destination endpoints "
+                    "must be different."
+                ),
+                details={},
+            )
+
+    @staticmethod
+    def _validate_numeric(
+        value: Any,
+        field_name: str,
+    ) -> None:
+        """
+        Validate a numeric Application input.
+        """
+
+        if isinstance(value, bool) or not isinstance(
+            value,
+            (int, float),
+        ):
+            raise ValidationError(
+                code="INVALID_NUMERIC_VALUE",
+                message=(
+                    f"{field_name} must be numeric."
+                ),
+                details={
+                    "field": field_name,
+                    "value_type": type(value).__name__,
+                },
+            )
+
+    @classmethod
+    def _validate_line_input(
+        cls,
+        *,
+        line_id: str,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        r: float,
+        x: float,
+        b: float,
+        name: str,
+        rate_mva: float | None,
+    ) -> str:
+        """
+        Validate Line creation input.
+        """
+
+        line_id = cls._validate_id(
+            line_id,
+            "line_id",
+        )
+
+        cls._validate_endpoint(
+            endpoint_from,
+            "endpoint_from",
+        )
+
+        cls._validate_endpoint(
+            endpoint_to,
+            "endpoint_to",
+        )
+
+        cls._validate_distinct_endpoints(
+            endpoint_from,
+            endpoint_to,
+        )
+
+        cls._validate_numeric(r, "r")
+        cls._validate_numeric(x, "x")
+        cls._validate_numeric(b, "b")
+
+        if rate_mva is not None:
+            cls._validate_numeric(
+                rate_mva,
+                "rate_mva",
+            )
+
+        if not isinstance(name, str):
+            raise ValidationError(
+                code="INVALID_NAME",
+                message="name must be a string.",
+                details={
+                    "field": "name",
+                },
+            )
+
+        return line_id
+
+    @classmethod
+    def _validate_transformer_input(
+        cls,
+        *,
+        transformer_id: str,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        r: float,
+        x: float,
+        tap: float,
+        shift: float,
+        name: str,
+        rate_mva: float | None,
+    ) -> str:
+        """
+        Validate Transformer creation input.
+        """
+
+        transformer_id = cls._validate_id(
+            transformer_id,
+            "transformer_id",
+        )
+
+        cls._validate_endpoint(
+            endpoint_from,
+            "endpoint_from",
+        )
+
+        cls._validate_endpoint(
+            endpoint_to,
+            "endpoint_to",
+        )
+
+        cls._validate_distinct_endpoints(
+            endpoint_from,
+            endpoint_to,
+        )
+
+        cls._validate_numeric(r, "r")
+        cls._validate_numeric(x, "x")
+        cls._validate_numeric(tap, "tap")
+        cls._validate_numeric(shift, "shift")
+
+        if rate_mva is not None:
+            cls._validate_numeric(
+                rate_mva,
+                "rate_mva",
+            )
+
+        if not isinstance(name, str):
+            raise ValidationError(
+                code="INVALID_NAME",
+                message="name must be a string.",
+                details={
+                    "field": "name",
+                },
+            )
+
+        return transformer_id
 
     # ========================================================
-    # BUS CREATION
+    # BUS
     # ========================================================
 
     def create_bus(
@@ -289,7 +343,7 @@ class ModelService:
         *,
         bus_id: str,
         name: str = "",
-        bus_type: BusType = BusType.PQ,
+        bus_type: Any = None,
         voltage: float = 1.0,
         angle: float = 0.0,
         p_spec: float = 0.0,
@@ -297,217 +351,183 @@ class ModelService:
         v_setpoint: float | None = None,
         q_min: float = float("-inf"),
         q_max: float = float("inf"),
-        transaction: Transaction,
-    ) -> ApplicationResult[Bus]:
+        transaction: Any = None,
+    ) -> ApplicationResult[Any]:
         """
-        Create and register a canonical Core Bus.
-
-        The inverse Network operation is registered with the
-        supplied Application Transaction after successful
-        registration.
+        Create and register a Core Bus.
         """
 
-        self._validate_transaction(
-            transaction
+        bus_id = self._validate_id(
+            bus_id,
+            "bus_id",
         )
 
-        self._validate_bus_input(
-            bus_id=bus_id,
-            name=name,
-            bus_type=bus_type,
-            voltage=voltage,
-            angle=angle,
-            p_spec=p_spec,
-            q_spec=q_spec,
-            v_setpoint=v_setpoint,
-            q_min=q_min,
-            q_max=q_max,
+        self._validate_numeric(
+            voltage,
+            "voltage",
+        )
+        self._validate_numeric(
+            angle,
+            "angle",
+        )
+        self._validate_numeric(
+            p_spec,
+            "p_spec",
+        )
+        self._validate_numeric(
+            q_spec,
+            "q_spec",
+        )
+        self._validate_numeric(
+            q_min,
+            "q_min",
+        )
+        self._validate_numeric(
+            q_max,
+            "q_max",
         )
 
-        bus_id = bus_id.strip()
+        if v_setpoint is not None:
+            self._validate_numeric(
+                v_setpoint,
+                "v_setpoint",
+            )
+
+        if not isinstance(name, str):
+            raise ValidationError(
+                code="INVALID_NAME",
+                message="name must be a string.",
+                details={
+                    "field": "name",
+                },
+            )
 
         try:
             bus = Bus(
                 id=bus_id,
                 name=name,
-                type=bus_type,
-                V=voltage,
-                theta=angle,
-                P_spec=p_spec,
-                Q_spec=q_spec,
-                V_setpoint=v_setpoint,
-                Q_min=q_min,
-                Q_max=q_max,
+                bus_type=bus_type,
+                voltage=voltage,
+                angle=angle,
+                p_spec=p_spec,
+                q_spec=q_spec,
+                v_setpoint=v_setpoint,
+                q_min=q_min,
+                q_max=q_max,
             )
+
+            self._network.add_bus(bus)
+
+        except ValidationError:
+            raise
+
+        except DomainError:
+            raise
 
         except Exception as exc:
             raise ExecutionError(
                 code="BUS_CREATION_FAILED",
                 message=(
-                    f"Failed to construct Core Bus "
+                    f"Failed to create Bus "
                     f"'{bus_id}'."
                 ),
                 details={
                     "bus_id": bus_id,
-                    "operation": "create_bus",
                 },
                 cause=exc,
             ) from exc
 
-        network = self._context.network
-
-        try:
-            network.add_bus(bus)
-
-        except ValueError as exc:
-            raise DomainError(
-                code="BUS_REGISTRATION_FAILED",
-                message=(
-                    f"Failed to register Bus '{bus_id}' "
-                    "with the Core Network."
-                ),
-                details={
-                    "bus_id": bus_id,
-                    "operation": "register_bus",
-                    "reason": str(exc),
-                },
-            ) from exc
-
-        except Exception as exc:
-            raise ExecutionError(
-                code="BUS_REGISTRATION_EXECUTION_FAILED",
-                message=(
-                    f"Unexpected failure while registering "
-                    f"Bus '{bus_id}'."
-                ),
-                details={
-                    "bus_id": bus_id,
-                    "operation": "register_bus",
-                },
-                cause=exc,
-            ) from exc
-
-        transaction.record_undo(
-            lambda bus=bus: network.remove_bus(bus)
-        )
+        if transaction is not None:
+            transaction.add_undo(
+                lambda: self.delete_bus(
+                    bus_id=bus_id,
+                    transaction=None,
+                )
+            )
 
         return ApplicationResult.success_result(
             value=bus,
             message=(
                 f"Bus '{bus_id}' created successfully."
             ),
-            metadata={
-                "operation": "create_bus",
-                "element_id": bus_id,
-                "element_type": "bus",
-            },
         )
-
-    # ========================================================
-    # BUS DELETION
-    # ========================================================
 
     def delete_bus(
         self,
         *,
         bus_id: str,
-        transaction: Transaction,
-    ) -> ApplicationResult[Bus]:
+        transaction: Any = None,
+    ) -> ApplicationResult[Any]:
         """
-        Remove a canonical Core Bus from the Network.
-
-        The inverse operation restores the same canonical Bus
-        object to the Network.
+        Remove a Core Bus through the canonical Network API.
         """
 
-        self._validate_transaction(
-            transaction
+        bus_id = self._validate_id(
+            bus_id,
+            "bus_id",
         )
 
-        if (
-            not isinstance(bus_id, str)
-            or not bus_id.strip()
-        ):
-            raise ValidationError(
-                code="INVALID_BUS_ID",
+        buses = getattr(
+            self._network,
+            "buses",
+            None,
+        )
+
+        if buses is None:
+            raise ResourceError(
+                code="BUS_COLLECTION_MISSING",
                 message=(
-                    "Bus id must be a non-empty string."
+                    "Canonical Network does not "
+                    "expose its Bus collection."
                 ),
-                details={
-                    "field": "bus_id",
-                },
+                details={},
             )
 
-        bus_id = bus_id.strip()
+        bus = None
 
-        network = self._context.network
-
-        bus = self._find_by_id(
-            network.buses,
-            bus_id,
-        )
+        for candidate in buses:
+            if getattr(candidate, "id", None) == bus_id:
+                bus = candidate
+                break
 
         if bus is None:
             raise ResourceError(
                 code="BUS_NOT_FOUND",
                 message=(
-                    f"Bus '{bus_id}' is not registered "
-                    "on the Core Network."
+                    f"Bus '{bus_id}' was not found."
                 ),
                 details={
                     "bus_id": bus_id,
-                    "operation": "delete_bus",
                 },
             )
 
         try:
-            network.remove_bus(bus)
-
-        except ValueError as exc:
-            raise DomainError(
-                code="BUS_DELETION_REJECTED",
-                message=(
-                    f"Bus '{bus_id}' could not be removed."
-                ),
-                details={
-                    "bus_id": bus_id,
-                    "operation": "delete_bus",
-                    "reason": str(exc),
-                },
-            ) from exc
+            self._network.remove_bus(
+                bus_id
+            )
 
         except Exception as exc:
             raise ExecutionError(
                 code="BUS_DELETION_FAILED",
                 message=(
-                    f"Unexpected failure while deleting "
-                    f"Bus '{bus_id}'."
+                    f"Failed to delete Bus "
+                    f"'{bus_id}'."
                 ),
                 details={
                     "bus_id": bus_id,
-                    "operation": "delete_bus",
                 },
                 cause=exc,
             ) from exc
-
-        transaction.record_undo(
-            lambda bus=bus: network.add_bus(bus)
-        )
 
         return ApplicationResult.success_result(
             value=bus,
             message=(
                 f"Bus '{bus_id}' deleted successfully."
             ),
-            metadata={
-                "operation": "delete_bus",
-                "element_id": bus_id,
-                "element_type": "bus",
-            },
         )
 
     # ========================================================
-    # LINE CREATION
+    # LINE
     # ========================================================
 
     def create_line(
@@ -520,32 +540,14 @@ class ModelService:
         x: float,
         b: float = 0.0,
         name: str = "",
-        rate_mva: float = 100.0,
-        transaction: Transaction,
-    ) -> ApplicationResult[Line]:
+        rate_mva: float | None = None,
+        transaction: Any = None,
+    ) -> ApplicationResult[Any]:
         """
-        Create and register a canonical Core Line.
-
-        endpoint_from and endpoint_to are already-resolved Core
-        endpoint objects. Command payload ID resolution belongs
-        to the command-handler boundary.
-
-        The Line constructor owns creation of the Line's physical
-        terminals.
-
-        The service therefore does NOT call:
-
-            line.connect_from(...)
-            line.connect_to(...)
-
-        after construction.
+        Create and register a Core Line.
         """
 
-        self._validate_transaction(
-            transaction
-        )
-
-        self._validate_line_input(
+        line_id = self._validate_line_input(
             line_id=line_id,
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
@@ -555,8 +557,6 @@ class ModelService:
             name=name,
             rate_mva=rate_mva,
         )
-
-        line_id = line_id.strip()
 
         try:
             line = Line(
@@ -570,192 +570,118 @@ class ModelService:
                 rate_mva=rate_mva,
             )
 
-        except ValueError as exc:
-            raise DomainError(
-                code="LINE_CREATION_REJECTED",
-                message=(
-                    f"Line '{line_id}' could not be created."
-                ),
-                details={
-                    "line_id": line_id,
-                    "operation": "create_line",
-                    "reason": str(exc),
-                },
-            ) from exc
+            self._network.add_line(line)
+
+        except ValidationError:
+            raise
+
+        except DomainError:
+            raise
 
         except Exception as exc:
             raise ExecutionError(
                 code="LINE_CREATION_FAILED",
                 message=(
-                    f"Unexpected failure while constructing "
-                    f"Line '{line_id}'."
+                    f"Failed to create Line "
+                    f"'{line_id}'."
                 ),
                 details={
                     "line_id": line_id,
-                    "operation": "create_line",
                 },
                 cause=exc,
             ) from exc
 
-        network = self._context.network
-
-        try:
-            network.add_line(line)
-
-        except ValueError as exc:
-            raise DomainError(
-                code="LINE_REGISTRATION_FAILED",
-                message=(
-                    f"Failed to register Line '{line_id}' "
-                    "with the Core Network."
-                ),
-                details={
-                    "line_id": line_id,
-                    "operation": "register_line",
-                    "reason": str(exc),
-                },
-            ) from exc
-
-        except Exception as exc:
-            raise ExecutionError(
-                code="LINE_REGISTRATION_EXECUTION_FAILED",
-                message=(
-                    f"Unexpected failure while registering "
-                    f"Line '{line_id}'."
-                ),
-                details={
-                    "line_id": line_id,
-                    "operation": "register_line",
-                },
-                cause=exc,
-            ) from exc
-
-        transaction.record_undo(
-            lambda line=line: network.remove_line(line)
-        )
+        if transaction is not None:
+            transaction.add_undo(
+                lambda: self.delete_line(
+                    line_id=line_id,
+                    transaction=None,
+                )
+            )
 
         return ApplicationResult.success_result(
             value=line,
             message=(
                 f"Line '{line_id}' created successfully."
             ),
-            metadata={
-                "operation": "create_line",
-                "element_id": line_id,
-                "element_type": "line",
-            },
         )
-
-    # ========================================================
-    # LINE DELETION
-    # ========================================================
 
     def delete_line(
         self,
         *,
         line_id: str,
-        transaction: Transaction,
-    ) -> ApplicationResult[Line]:
+        transaction: Any = None,
+    ) -> ApplicationResult[Any]:
         """
-        Remove a canonical Core Line from the Network.
-
-        Network.remove_line() owns actual Network membership
-        mutation and derived-state invalidation.
-
-        This service does not disconnect Line terminals.
-
-        The inverse operation restores the same Line object to
-        Network membership.
+        Remove a Core Line through the canonical Network API.
         """
 
-        self._validate_transaction(
-            transaction
+        line_id = self._validate_id(
+            line_id,
+            "line_id",
         )
 
-        if (
-            not isinstance(line_id, str)
-            or not line_id.strip()
-        ):
-            raise ValidationError(
-                code="INVALID_LINE_ID",
+        lines = getattr(
+            self._network,
+            "lines",
+            None,
+        )
+
+        if lines is None:
+            raise ResourceError(
+                code="LINE_COLLECTION_MISSING",
                 message=(
-                    "Line id must be a non-empty string."
+                    "Canonical Network does not "
+                    "expose its Line collection."
                 ),
-                details={
-                    "field": "line_id",
-                },
+                details={},
             )
 
-        line_id = line_id.strip()
+        line = None
 
-        network = self._context.network
-
-        line = self._find_by_id(
-            network.lines,
-            line_id,
-        )
+        for candidate in lines:
+            if getattr(candidate, "id", None) == line_id:
+                line = candidate
+                break
 
         if line is None:
             raise ResourceError(
                 code="LINE_NOT_FOUND",
                 message=(
-                    f"Line '{line_id}' is not registered "
-                    "on the Core Network."
+                    f"Line '{line_id}' was not found."
                 ),
                 details={
                     "line_id": line_id,
-                    "operation": "delete_line",
                 },
             )
 
         try:
-            network.remove_line(line)
-
-        except ValueError as exc:
-            raise DomainError(
-                code="LINE_DELETION_REJECTED",
-                message=(
-                    f"Line '{line_id}' could not be removed."
-                ),
-                details={
-                    "line_id": line_id,
-                    "operation": "delete_line",
-                    "reason": str(exc),
-                },
-            ) from exc
+            self._network.remove_line(
+                line_id
+            )
 
         except Exception as exc:
             raise ExecutionError(
                 code="LINE_DELETION_FAILED",
                 message=(
-                    f"Unexpected failure while deleting "
-                    f"Line '{line_id}'."
+                    f"Failed to delete Line "
+                    f"'{line_id}'."
                 ),
                 details={
                     "line_id": line_id,
-                    "operation": "delete_line",
                 },
                 cause=exc,
             ) from exc
-
-        transaction.record_undo(
-            lambda line=line: network.add_line(line)
-        )
 
         return ApplicationResult.success_result(
             value=line,
             message=(
                 f"Line '{line_id}' deleted successfully."
             ),
-            metadata={
-                "operation": "delete_line",
-                "element_id": line_id,
-                "element_type": "line",
-            },
         )
 
     # ========================================================
-    # TRANSFORMER CREATION
+    # TRANSFORMER
     # ========================================================
 
     def create_transformer(
@@ -769,38 +695,26 @@ class ModelService:
         tap: float = 1.0,
         shift: float = 0.0,
         name: str = "",
-        rate_mva: float = 100.0,
-        transaction: Transaction,
-    ) -> ApplicationResult[Transformer]:
+        rate_mva: float | None = None,
+        transaction: Any = None,
+    ) -> ApplicationResult[Any]:
         """
-        Create and register a canonical Core Transformer.
-
-        endpoint_from and endpoint_to are already-resolved Core
-        endpoint objects.
-
-        Transformer owns its physical terminal objects.
-
-        The service does not subsequently manipulate Transformer
-        terminals.
+        Create and register a Core Transformer.
         """
 
-        self._validate_transaction(
-            transaction
+        transformer_id = (
+            self._validate_transformer_input(
+                transformer_id=transformer_id,
+                endpoint_from=endpoint_from,
+                endpoint_to=endpoint_to,
+                r=r,
+                x=x,
+                tap=tap,
+                shift=shift,
+                name=name,
+                rate_mva=rate_mva,
+            )
         )
-
-        self._validate_transformer_input(
-            transformer_id=transformer_id,
-            endpoint_from=endpoint_from,
-            endpoint_to=endpoint_to,
-            r=r,
-            x=x,
-            tap=tap,
-            shift=shift,
-            name=name,
-            rate_mva=rate_mva,
-        )
-
-        transformer_id = transformer_id.strip()
 
         try:
             transformer = Transformer(
@@ -815,589 +729,125 @@ class ModelService:
                 rate_mva=rate_mva,
             )
 
-        except ValueError as exc:
-            raise DomainError(
-                code="TRANSFORMER_CREATION_REJECTED",
-                message=(
-                    f"Transformer '{transformer_id}' "
-                    "could not be created."
-                ),
-                details={
-                    "transformer_id": transformer_id,
-                    "operation": "create_transformer",
-                    "reason": str(exc),
-                },
-            ) from exc
+            self._network.add_transformer(
+                transformer
+            )
+
+        except ValidationError:
+            raise
+
+        except DomainError:
+            raise
 
         except Exception as exc:
             raise ExecutionError(
                 code="TRANSFORMER_CREATION_FAILED",
                 message=(
-                    f"Unexpected failure while constructing "
-                    f"Transformer '{transformer_id}'."
+                    f"Failed to create Transformer "
+                    f"'{transformer_id}'."
                 ),
                 details={
                     "transformer_id": transformer_id,
-                    "operation": "create_transformer",
                 },
                 cause=exc,
             ) from exc
 
-        network = self._context.network
-
-        try:
-            network.add_transformer(
-                transformer
-            )
-
-        except ValueError as exc:
-            raise DomainError(
-                code="TRANSFORMER_REGISTRATION_FAILED",
-                message=(
-                    f"Failed to register Transformer "
-                    f"'{transformer_id}' with the Core Network."
-                ),
-                details={
-                    "transformer_id": transformer_id,
-                    "operation": "register_transformer",
-                    "reason": str(exc),
-                },
-            ) from exc
-
-        except Exception as exc:
-            raise ExecutionError(
-                code="TRANSFORMER_REGISTRATION_EXECUTION_FAILED",
-                message=(
-                    f"Unexpected failure while registering "
-                    f"Transformer '{transformer_id}'."
-                ),
-                details={
-                    "transformer_id": transformer_id,
-                    "operation": "register_transformer",
-                },
-                cause=exc,
-            ) from exc
-
-        transaction.record_undo(
-            lambda transformer=transformer:
-                network.remove_transformer(
-                    transformer
+        if transaction is not None:
+            transaction.add_undo(
+                lambda: self.delete_transformer(
+                    transformer_id=transformer_id,
+                    transaction=None,
                 )
-        )
+            )
 
         return ApplicationResult.success_result(
             value=transformer,
             message=(
-                f"Transformer '{transformer_id}' "
-                "created successfully."
+                "Transformer "
+                f"'{transformer_id}' created successfully."
             ),
-            metadata={
-                "operation": "create_transformer",
-                "element_id": transformer_id,
-                "element_type": "transformer",
-            },
         )
-
-    # ========================================================
-    # TRANSFORMER DELETION
-    # ========================================================
 
     def delete_transformer(
         self,
         *,
         transformer_id: str,
-        transaction: Transaction,
-    ) -> ApplicationResult[Transformer]:
+        transaction: Any = None,
+    ) -> ApplicationResult[Any]:
         """
-        Remove a canonical Core Transformer from the Network.
-
-        Transformer terminals are not disconnected here.
+        Remove a Core Transformer through the canonical
+        Network API.
         """
 
-        self._validate_transaction(
-            transaction
+        transformer_id = self._validate_id(
+            transformer_id,
+            "transformer_id",
         )
 
-        if (
-            not isinstance(transformer_id, str)
-            or not transformer_id.strip()
-        ):
-            raise ValidationError(
-                code="INVALID_TRANSFORMER_ID",
+        transformers = getattr(
+            self._network,
+            "transformers",
+            None,
+        )
+
+        if transformers is None:
+            raise ResourceError(
+                code="TRANSFORMER_COLLECTION_MISSING",
                 message=(
-                    "Transformer id must be a non-empty string."
+                    "Canonical Network does not "
+                    "expose its Transformer collection."
                 ),
-                details={
-                    "field": "transformer_id",
-                },
+                details={},
             )
 
-        transformer_id = transformer_id.strip()
+        transformer = None
 
-        network = self._context.network
-
-        transformer = self._find_by_id(
-            network.transformers,
-            transformer_id,
-        )
+        for candidate in transformers:
+            if (
+                getattr(candidate, "id", None)
+                == transformer_id
+            ):
+                transformer = candidate
+                break
 
         if transformer is None:
             raise ResourceError(
                 code="TRANSFORMER_NOT_FOUND",
                 message=(
-                    f"Transformer '{transformer_id}' "
-                    "is not registered on the Core Network."
+                    f"Transformer "
+                    f"'{transformer_id}' was not found."
                 ),
                 details={
                     "transformer_id": transformer_id,
-                    "operation": "delete_transformer",
                 },
             )
 
         try:
-            network.remove_transformer(
-                transformer
+            self._network.remove_transformer(
+                transformer_id
             )
-
-        except ValueError as exc:
-            raise DomainError(
-                code="TRANSFORMER_DELETION_REJECTED",
-                message=(
-                    f"Transformer '{transformer_id}' "
-                    "could not be removed."
-                ),
-                details={
-                    "transformer_id": transformer_id,
-                    "operation": "delete_transformer",
-                    "reason": str(exc),
-                },
-            ) from exc
 
         except Exception as exc:
             raise ExecutionError(
                 code="TRANSFORMER_DELETION_FAILED",
                 message=(
-                    f"Unexpected failure while deleting "
-                    f"Transformer '{transformer_id}'."
+                    f"Failed to delete Transformer "
+                    f"'{transformer_id}'."
                 ),
                 details={
                     "transformer_id": transformer_id,
-                    "operation": "delete_transformer",
                 },
                 cause=exc,
             ) from exc
 
-        transaction.record_undo(
-            lambda transformer=transformer:
-                network.add_transformer(
-                    transformer
-                )
-        )
-
         return ApplicationResult.success_result(
             value=transformer,
             message=(
-                f"Transformer '{transformer_id}' "
-                "deleted successfully."
+                "Transformer "
+                f"'{transformer_id}' deleted successfully."
             ),
-            metadata={
-                "operation": "delete_transformer",
-                "element_id": transformer_id,
-                "element_type": "transformer",
-            },
         )
 
-    # ========================================================
-    # COMMON HELPERS
-    # ========================================================
-
-    @staticmethod
-    def _validate_transaction(
-        transaction: Transaction,
-    ) -> None:
-        """
-        Validate the Application transaction boundary.
-        """
-
-        if not isinstance(
-            transaction,
-            Transaction,
-        ):
-            raise TypeError(
-                "transaction must be a Transaction."
-            )
-
-        if not transaction.active:
-            raise ExecutionError(
-                code="TRANSACTION_NOT_ACTIVE",
-                message=(
-                    "Model mutation requires an active "
-                    "Application Transaction."
-                ),
-                details={
-                    "transaction_state": (
-                        transaction.state.name
-                    ),
-                },
-            )
-
-    @staticmethod
-    def _find_by_id(
-        collection: Any,
-        object_id: str,
-    ) -> Any | None:
-        """
-        Resolve a canonical Core object by its public id.
-        """
-
-        for candidate in collection:
-            if (
-                getattr(candidate, "id", None)
-                == object_id
-            ):
-                return candidate
-
-        return None
-
-    # ========================================================
-    # BUS INPUT VALIDATION
-    # ========================================================
-
-    @staticmethod
-    def _validate_bus_input(
-        *,
-        bus_id: str,
-        name: str,
-        bus_type: BusType,
-        voltage: float,
-        angle: float,
-        p_spec: float,
-        q_spec: float,
-        v_setpoint: float | None,
-        q_min: float,
-        q_max: float,
-    ) -> None:
-        """
-        Validate Application-level Bus input.
-
-        Engineering/domain validation remains owned by the
-        canonical Core model.
-        """
-
-        if (
-            not isinstance(bus_id, str)
-            or not bus_id.strip()
-        ):
-            raise ValidationError(
-                code="INVALID_BUS_ID",
-                message=(
-                    "Bus id must be a non-empty string."
-                ),
-                details={
-                    "field": "bus_id",
-                },
-            )
-
-        if not isinstance(name, str):
-            raise ValidationError(
-                code="INVALID_BUS_NAME",
-                message=(
-                    "Bus name must be a string."
-                ),
-                details={
-                    "field": "name",
-                },
-            )
-
-        if not isinstance(
-            bus_type,
-            BusType,
-        ):
-            raise ValidationError(
-                code="INVALID_BUS_TYPE",
-                message=(
-                    "bus_type must be a BusType."
-                ),
-                details={
-                    "field": "bus_type",
-                },
-            )
-
-        numeric_fields: Mapping[str, Any] = {
-            "voltage": voltage,
-            "angle": angle,
-            "p_spec": p_spec,
-            "q_spec": q_spec,
-            "q_min": q_min,
-            "q_max": q_max,
-        }
-
-        for field_name, value in numeric_fields.items():
-            if not isinstance(
-                value,
-                (int, float),
-            ):
-                raise ValidationError(
-                    code="INVALID_BUS_PARAMETER",
-                    message=(
-                        f"Bus parameter '{field_name}' "
-                        "must be numeric."
-                    ),
-                    details={
-                        "field": field_name,
-                    },
-                )
-
-        if (
-            v_setpoint is not None
-            and not isinstance(
-                v_setpoint,
-                (int, float),
-            )
-        ):
-            raise ValidationError(
-                code="INVALID_BUS_SETPOINT",
-                message=(
-                    "v_setpoint must be numeric or None."
-                ),
-                details={
-                    "field": "v_setpoint",
-                },
-            )
-
-        if q_min > q_max:
-            raise ValidationError(
-                code="INVALID_REACTIVE_LIMITS",
-                message=(
-                    "q_min must not be greater than q_max."
-                ),
-                details={
-                    "q_min": q_min,
-                    "q_max": q_max,
-                },
-            )
-
-    # ========================================================
-    # LINE INPUT VALIDATION
-    # ========================================================
-
-    @staticmethod
-    def _validate_line_input(
-        *,
-        line_id: str,
-        endpoint_from: Any,
-        endpoint_to: Any,
-        r: float,
-        x: float,
-        b: float,
-        name: str,
-        rate_mva: float,
-    ) -> None:
-        """
-        Validate Application-level Line request integrity.
-
-        Detailed engineering validation remains owned by the
-        canonical Line model.
-        """
-
-        if (
-            not isinstance(line_id, str)
-            or not line_id.strip()
-        ):
-            raise ValidationError(
-                code="INVALID_LINE_ID",
-                message=(
-                    "Line id must be a non-empty string."
-                ),
-                details={
-                    "field": "line_id",
-                },
-            )
-
-        if endpoint_from is None:
-            raise ValidationError(
-                code="INVALID_LINE_FROM_ENDPOINT",
-                message=(
-                    "Line from endpoint must not be None."
-                ),
-                details={
-                    "field": "endpoint_from",
-                },
-            )
-
-        if endpoint_to is None:
-            raise ValidationError(
-                code="INVALID_LINE_TO_ENDPOINT",
-                message=(
-                    "Line to endpoint must not be None."
-                ),
-                details={
-                    "field": "endpoint_to",
-                },
-            )
-
-        if endpoint_from is endpoint_to:
-            raise ValidationError(
-                code="INVALID_LINE_ENDPOINTS",
-                message=(
-                    "Line from and to endpoints "
-                    "must be distinct."
-                ),
-                details={
-                    "field": "endpoint_from/endpoint_to",
-                },
-            )
-
-        numeric_fields: Mapping[str, Any] = {
-            "r": r,
-            "x": x,
-            "b": b,
-            "rate_mva": rate_mva,
-        }
-
-        for field_name, value in numeric_fields.items():
-            if not isinstance(
-                value,
-                (int, float),
-            ):
-                raise ValidationError(
-                    code="INVALID_LINE_PARAMETER",
-                    message=(
-                        f"Line parameter '{field_name}' "
-                        "must be numeric."
-                    ),
-                    details={
-                        "field": field_name,
-                    },
-                )
-
-        if not isinstance(name, str):
-            raise ValidationError(
-                code="INVALID_LINE_NAME",
-                message=(
-                    "Line name must be a string."
-                ),
-                details={
-                    "field": "name",
-                },
-            )
-
-    # ========================================================
-    # TRANSFORMER INPUT VALIDATION
-    # ========================================================
-
-    @staticmethod
-    def _validate_transformer_input(
-        *,
-        transformer_id: str,
-        endpoint_from: Any,
-        endpoint_to: Any,
-        r: float,
-        x: float,
-        tap: float,
-        shift: float,
-        name: str,
-        rate_mva: float,
-    ) -> None:
-        """
-        Validate Application-level Transformer request integrity.
-
-        Detailed engineering/domain validation remains owned by
-        the canonical Transformer model.
-
-        shift is expressed in radians, matching the canonical
-        Transformer model contract.
-        """
-
-        if (
-            not isinstance(transformer_id, str)
-            or not transformer_id.strip()
-        ):
-            raise ValidationError(
-                code="INVALID_TRANSFORMER_ID",
-                message=(
-                    "Transformer id must be a non-empty string."
-                ),
-                details={
-                    "field": "transformer_id",
-                },
-            )
-
-        if endpoint_from is None:
-            raise ValidationError(
-                code="INVALID_TRANSFORMER_FROM_ENDPOINT",
-                message=(
-                    "Transformer from endpoint "
-                    "must not be None."
-                ),
-                details={
-                    "field": "endpoint_from",
-                },
-            )
-
-        if endpoint_to is None:
-            raise ValidationError(
-                code="INVALID_TRANSFORMER_TO_ENDPOINT",
-                message=(
-                    "Transformer to endpoint "
-                    "must not be None."
-                ),
-                details={
-                    "field": "endpoint_to",
-                },
-            )
-
-        if endpoint_from is endpoint_to:
-            raise ValidationError(
-                code="INVALID_TRANSFORMER_ENDPOINTS",
-                message=(
-                    "Transformer from and to endpoints "
-                    "must be distinct."
-                ),
-                details={
-                    "field": "endpoint_from/endpoint_to",
-                },
-            )
-
-        numeric_fields: Mapping[str, Any] = {
-            "r": r,
-            "x": x,
-            "tap": tap,
-            "shift": shift,
-            "rate_mva": rate_mva,
-        }
-
-        for field_name, value in numeric_fields.items():
-            if not isinstance(
-                value,
-                (int, float),
-            ):
-                raise ValidationError(
-                    code="INVALID_TRANSFORMER_PARAMETER",
-                    message=(
-                        f"Transformer parameter "
-                        f"'{field_name}' must be numeric."
-                    ),
-                    details={
-                        "field": field_name,
-                    },
-                )
-
-        if not isinstance(name, str):
-            raise ValidationError(
-                code="INVALID_TRANSFORMER_NAME",
-                message=(
-                    "Transformer name must be a string."
-                ),
-                details={
-                    "field": "name",
-                },
-            )
-
-
-# ============================================================
-# PUBLIC API
-# ============================================================
 
 __all__ = [
     "ModelService",
