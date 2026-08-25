@@ -7,28 +7,38 @@
 """
 GridForge V2 Application model commands.
 
-These classes represent immutable Application intent.
+Commands carry immutable Application intent.
 
 Commands do not:
 
+    * contain Core model objects;
     * mutate Core;
     * mutate Network;
+    * resolve endpoints;
     * manipulate terminals;
-    * manipulate topology;
-    * build Y-bus;
-    * access Qt;
-    * access UI;
-    * execute services.
-
-CommandManager dispatches commands to Application handlers.
+    * access Qt/UI;
+    * perform engineering calculations.
 
 Endpoint references
 -------------------
-Line and Transformer creation commands carry endpoint identifiers,
-never Core endpoint objects.
+Line and Transformer commands use EndpointReference.
 
-The handler/Application Service resolves those identifiers against
-canonical Core Network state.
+EndpointReference is an Application value object identifying
+either:
+
+    * a canonical Bus; or
+    * a terminal belonging to canonical equipment.
+
+The command therefore transports endpoint identity without
+embedding mutable Core state.
+
+Resolution is performed by command handlers.
+
+Author:
+    Subhendu Mishra
+
+Copyright © 2026 Subhendu Mishra
+All Rights Reserved.
 """
 
 from __future__ import annotations
@@ -38,6 +48,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from ..command import Command
+from ..endpoint_reference import EndpointReference
 
 
 # ============================================================
@@ -55,17 +66,17 @@ DELETE_TRANSFORMER = "model.delete_transformer"
 
 
 # ============================================================
-# PAYLOAD
+# PAYLOAD HELPER
 # ============================================================
 
 def _payload(
     **values: Any,
 ) -> MappingProxyType:
     """
-    Build an immutable command payload.
+    Build the immutable top-level command payload.
 
-    Command itself performs recursive freezing, so this helper
-    only establishes the immutable top-level mapping.
+    Command is responsible for recursively freezing payload
+    values.
     """
 
     return MappingProxyType(values)
@@ -128,7 +139,7 @@ class CreateBusCommand(Command):
 
 class DeleteBusCommand(Command):
     """
-    Request removal of a canonical Core Bus.
+    Request deletion of a canonical Core Bus.
     """
 
     def __init__(
@@ -163,15 +174,18 @@ class CreateLineCommand(Command):
     """
     Request creation of a canonical Core Line.
 
-    Endpoint references are identifiers, not Core objects.
+    Endpoint references remain Application-layer immutable
+    references.
+
+    No Core endpoint object is stored in the command.
     """
 
     def __init__(
         self,
         *,
         line_id: str,
-        endpoint_from_id: str,
-        endpoint_to_id: str,
+        endpoint_from: EndpointReference,
+        endpoint_to: EndpointReference,
         r: float,
         x: float,
         b: float = 0.0,
@@ -182,12 +196,30 @@ class CreateLineCommand(Command):
         causation_id: UUID | None = None,
     ) -> None:
 
+        if not isinstance(
+            endpoint_from,
+            EndpointReference,
+        ):
+            raise TypeError(
+                "endpoint_from must be an "
+                "EndpointReference."
+            )
+
+        if not isinstance(
+            endpoint_to,
+            EndpointReference,
+        ):
+            raise TypeError(
+                "endpoint_to must be an "
+                "EndpointReference."
+            )
+
         super().__init__(
             command_type=CREATE_LINE,
             payload=_payload(
                 line_id=line_id,
-                endpoint_from_id=endpoint_from_id,
-                endpoint_to_id=endpoint_to_id,
+                endpoint_from=endpoint_from,
+                endpoint_to=endpoint_to,
                 r=r,
                 x=x,
                 b=b,
@@ -210,7 +242,7 @@ class CreateLineCommand(Command):
 
 class DeleteLineCommand(Command):
     """
-    Request removal of a canonical Core Line.
+    Request deletion of a canonical Core Line.
     """
 
     def __init__(
@@ -245,15 +277,16 @@ class CreateTransformerCommand(Command):
     """
     Request creation of a canonical Core Transformer.
 
-    Endpoint references are identifiers, not Core objects.
+    Endpoint references remain Application-layer immutable
+    references.
     """
 
     def __init__(
         self,
         *,
         transformer_id: str,
-        endpoint_from_id: str,
-        endpoint_to_id: str,
+        endpoint_from: EndpointReference,
+        endpoint_to: EndpointReference,
         r: float,
         x: float,
         tap: float = 1.0,
@@ -265,12 +298,30 @@ class CreateTransformerCommand(Command):
         causation_id: UUID | None = None,
     ) -> None:
 
+        if not isinstance(
+            endpoint_from,
+            EndpointReference,
+        ):
+            raise TypeError(
+                "endpoint_from must be an "
+                "EndpointReference."
+            )
+
+        if not isinstance(
+            endpoint_to,
+            EndpointReference,
+        ):
+            raise TypeError(
+                "endpoint_to must be an "
+                "EndpointReference."
+            )
+
         super().__init__(
             command_type=CREATE_TRANSFORMER,
             payload=_payload(
                 transformer_id=transformer_id,
-                endpoint_from_id=endpoint_from_id,
-                endpoint_to_id=endpoint_to_id,
+                endpoint_from=endpoint_from,
+                endpoint_to=endpoint_to,
                 r=r,
                 x=x,
                 tap=tap,
@@ -294,7 +345,7 @@ class CreateTransformerCommand(Command):
 
 class DeleteTransformerCommand(Command):
     """
-    Request removal of a canonical Core Transformer.
+    Request deletion of a canonical Core Transformer.
     """
 
     def __init__(
