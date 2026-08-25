@@ -58,6 +58,8 @@ Current canonical model commands
     model.create_load
     model.delete_load
 
+    model.update_load
+
 
 Endpoint rule
 -------------
@@ -73,12 +75,15 @@ An EndpointReference may identify:
 Endpoint resolution is performed by EndpointResolver during
 command-handler execution.
 
+
 Load rule
 ---------
 
 Load creation does not carry a Core Bus or Core Terminal.
 
 A Load is initially created as a disconnected Core model object.
+
+Load mutation is represented by UpdateLoadCommand.
 
 Topology attachment is handled separately by the appropriate
 Application topology workflow.
@@ -99,6 +104,8 @@ from .model_commands import (
     CREATE_LOAD,
     DELETE_LOAD,
 
+    UPDATE_LOAD,
+
     CreateBusCommand,
     DeleteBusCommand,
 
@@ -110,6 +117,8 @@ from .model_commands import (
 
     CreateLoadCommand,
     DeleteLoadCommand,
+
+    UpdateLoadCommand,
 )
 
 
@@ -130,6 +139,8 @@ __all__ = [
     "CREATE_LOAD",
     "DELETE_LOAD",
 
+    "UPDATE_LOAD",
+
     "CreateBusCommand",
     "DeleteBusCommand",
 
@@ -141,4 +152,6 @@ __all__ = [
 
     "CreateLoadCommand",
     "DeleteLoadCommand",
+
+    "UpdateLoadCommand",
 ]
