@@ -51,7 +51,7 @@ Execution boundary
     Application Service
         |
         v
-    Core
+       Core
 
 Undo
 ----
@@ -386,6 +386,11 @@ class CommandManager:
     ) -> CommandRecord:
         """
         Record one successfully committed command.
+
+        The transaction has already committed at this point.
+
+        CommandHistory owns only the immutable history state;
+        it does not execute the journal.
         """
 
         description = (
@@ -414,6 +419,14 @@ class CommandManager:
 
         CommandHistory remains state-only; CommandManager owns
         actual undo execution.
+
+        If an inverse operation fails, the history record is
+        restored to the undo stack and the failure is surfaced.
+
+        The method deliberately does not pretend that an already
+        partially executed UndoJournal is transactional. The
+        forward Transaction contract does not provide compensating
+        operations for arbitrary undo callbacks.
         """
 
         record = self._history.peek_undo()
@@ -509,7 +522,7 @@ class CommandManager:
         record: CommandRecord,
     ) -> None:
         """
-        Execute the inverse operations in reverse order.
+        Execute inverse operations in reverse order.
 
         Transaction.commit() preserves registration order.
         Therefore undo must reverse that order.
@@ -538,8 +551,7 @@ class CommandManager:
             4. creates a fresh UndoJournal;
             5. records the new execution.
 
-        The existing redo stack is preserved while executing the
-        command.
+        The original redo record is restored if execution fails.
         """
 
         record = self._history.pop_redo()
@@ -738,8 +750,10 @@ class CommandManager:
         """
         Roll back an active transaction.
 
-        If rollback itself fails, the original command exception
-        is intentionally preserved by this orchestration layer.
+        Rollback is attempted only while the transaction is active.
+
+        A rollback exception is intentionally not allowed to replace
+        the original command exception at this orchestration layer.
         """
 
         if not transaction.active:
