@@ -1,7 +1,9 @@
 # ============================================================
 # File: core/application/services/model_service.py
 # GridForge V2 — Headless Model Application Service
+# Author: Subhendu Mishra
 # ============================================================
+
 """
 GridForge V2
 ============
@@ -42,6 +44,7 @@ ModelService is responsible for:
     * constructing canonical Core model objects;
     * registering objects through public Network APIs;
     * removing objects through public Network APIs;
+    * registering inverse operations in Transaction;
     * returning ApplicationResult objects;
     * translating expected Core failures into Application errors.
 
@@ -88,6 +91,31 @@ The service MUST NOT directly manipulate:
     network.bus_index
     network._invalidate_topology()
     network._invalidate_ybus()
+
+Transaction Ownership
+---------------------
+Transaction belongs to the Application layer.
+
+The service performs the Core mutation and registers the exact
+inverse operation with the supplied Transaction only after the
+Core mutation succeeds.
+
+Creation:
+
+    network.add_line(line)
+    transaction.record_undo(
+        lambda: network.remove_line(line)
+    )
+
+Deletion:
+
+    network.remove_line(line)
+    transaction.record_undo(
+        lambda: network.add_line(line)
+    )
+
+The Transaction does not know about Core or Network. It only owns
+callable inverse operations.
 
 Bus Deletion
 ------------
@@ -196,7 +224,12 @@ from ..errors import (
     ValidationError,
 )
 from ..results import ApplicationResult
+from ..transaction import Transaction
 
+
+# ============================================================
+# MODEL SERVICE
+# ============================================================
 
 class ModelService:
     """
@@ -216,9 +249,9 @@ class ModelService:
     owned by the Core/Application composition boundary.
     """
 
-    # ================================================================
+    # ========================================================
     # INITIALIZATION
-    # ================================================================
+    # ========================================================
 
     def __init__(
         self,
@@ -235,9 +268,9 @@ class ModelService:
 
         self._context = context
 
-    # ================================================================
+    # ========================================================
     # CONTEXT
-    # ================================================================
+    # ========================================================
 
     @property
     def context(self) -> ApplicationContext:
@@ -247,9 +280,9 @@ class ModelService:
 
         return self._context
 
-    # ================================================================
+    # ========================================================
     # BUS CREATION
-    # ================================================================
+    # ========================================================
 
     def create_bus(
         self,
@@ -264,10 +297,19 @@ class ModelService:
         v_setpoint: float | None = None,
         q_min: float = float("-inf"),
         q_max: float = float("inf"),
+        transaction: Transaction,
     ) -> ApplicationResult[Bus]:
         """
         Create and register a canonical Core Bus.
+
+        The inverse Network operation is registered with the
+        supplied Application Transaction after successful
+        registration.
         """
+
+        self._validate_transaction(
+            transaction
+        )
 
         self._validate_bus_input(
             bus_id=bus_id,
@@ -281,6 +323,8 @@ class ModelService:
             q_min=q_min,
             q_max=q_max,
         )
+
+        bus_id = bus_id.strip()
 
         try:
             bus = Bus(
@@ -300,7 +344,8 @@ class ModelService:
             raise ExecutionError(
                 code="BUS_CREATION_FAILED",
                 message=(
-                    f"Failed to construct Core Bus '{bus_id}'."
+                    f"Failed to construct Core Bus "
+                    f"'{bus_id}'."
                 ),
                 details={
                     "bus_id": bus_id,
@@ -309,8 +354,10 @@ class ModelService:
                 cause=exc,
             ) from exc
 
+        network = self._context.network
+
         try:
-            self._context.network.add_bus(bus)
+            network.add_bus(bus)
 
         except ValueError as exc:
             raise DomainError(
@@ -340,7 +387,11 @@ class ModelService:
                 cause=exc,
             ) from exc
 
-        return ApplicationResult.success(
+        transaction.record_undo(
+            lambda bus=bus: network.remove_bus(bus)
+        )
+
+        return ApplicationResult.success_result(
             value=bus,
             message=(
                 f"Bus '{bus_id}' created successfully."
@@ -352,20 +403,31 @@ class ModelService:
             },
         )
 
-    # ================================================================
+    # ========================================================
     # BUS DELETION
-    # ================================================================
+    # ========================================================
 
     def delete_bus(
         self,
         *,
         bus_id: str,
+        transaction: Transaction,
     ) -> ApplicationResult[Bus]:
         """
         Remove a canonical Core Bus from the Network.
+
+        The inverse operation restores the same canonical Bus
+        object to the Network.
         """
 
-        if not isinstance(bus_id, str) or not bus_id.strip():
+        self._validate_transaction(
+            transaction
+        )
+
+        if (
+            not isinstance(bus_id, str)
+            or not bus_id.strip()
+        ):
             raise ValidationError(
                 code="INVALID_BUS_ID",
                 message=(
@@ -380,12 +442,10 @@ class ModelService:
 
         network = self._context.network
 
-        bus = None
-
-        for candidate in network.buses:
-            if getattr(candidate, "id", None) == bus_id:
-                bus = candidate
-                break
+        bus = self._find_by_id(
+            network.buses,
+            bus_id,
+        )
 
         if bus is None:
             raise ResourceError(
@@ -430,7 +490,11 @@ class ModelService:
                 cause=exc,
             ) from exc
 
-        return ApplicationResult.success(
+        transaction.record_undo(
+            lambda bus=bus: network.add_bus(bus)
+        )
+
+        return ApplicationResult.success_result(
             value=bus,
             message=(
                 f"Bus '{bus_id}' deleted successfully."
@@ -442,9 +506,9 @@ class ModelService:
             },
         )
 
-    # ================================================================
+    # ========================================================
     # LINE CREATION
-    # ================================================================
+    # ========================================================
 
     def create_line(
         self,
@@ -457,53 +521,29 @@ class ModelService:
         b: float = 0.0,
         name: str = "",
         rate_mva: float = 100.0,
+        transaction: Transaction,
     ) -> ApplicationResult[Line]:
         """
         Create and register a canonical Core Line.
 
-        Parameters
-        ----------
-        line_id:
-            Persistent GridForge Line identifier.
+        endpoint_from and endpoint_to are already-resolved Core
+        endpoint objects. Command payload ID resolution belongs
+        to the command-handler boundary.
 
-        endpoint_from:
-            Initial from-side physical endpoint.
-
-        endpoint_to:
-            Initial to-side physical endpoint.
-
-        r:
-            Series resistance in per-unit.
-
-        x:
-            Series reactance in per-unit.
-
-        b:
-            Total line shunt susceptance in per-unit.
-
-        name:
-            Human-readable engineering name.
-
-        rate_mva:
-            Thermal/equipment rating in MVA.
-
-        Returns
-        -------
-        ApplicationResult[Line]
-            Result containing the canonical Line.
-
-        Notes
-        -----
         The Line constructor owns creation of the Line's physical
         terminals.
 
-        The Application service therefore does NOT call:
+        The service therefore does NOT call:
 
             line.connect_from(...)
             line.connect_to(...)
 
         after construction.
         """
+
+        self._validate_transaction(
+            transaction
+        )
 
         self._validate_line_input(
             line_id=line_id,
@@ -515,6 +555,8 @@ class ModelService:
             name=name,
             rate_mva=rate_mva,
         )
+
+        line_id = line_id.strip()
 
         try:
             line = Line(
@@ -555,8 +597,10 @@ class ModelService:
                 cause=exc,
             ) from exc
 
+        network = self._context.network
+
         try:
-            self._context.network.add_line(line)
+            network.add_line(line)
 
         except ValueError as exc:
             raise DomainError(
@@ -586,7 +630,11 @@ class ModelService:
                 cause=exc,
             ) from exc
 
-        return ApplicationResult.success(
+        transaction.record_undo(
+            lambda line=line: network.remove_line(line)
+        )
+
+        return ApplicationResult.success_result(
             value=line,
             message=(
                 f"Line '{line_id}' created successfully."
@@ -598,14 +646,15 @@ class ModelService:
             },
         )
 
-    # ================================================================
+    # ========================================================
     # LINE DELETION
-    # ================================================================
+    # ========================================================
 
     def delete_line(
         self,
         *,
         line_id: str,
+        transaction: Transaction,
     ) -> ApplicationResult[Line]:
         """
         Remove a canonical Core Line from the Network.
@@ -614,9 +663,19 @@ class ModelService:
         mutation and derived-state invalidation.
 
         This service does not disconnect Line terminals.
+
+        The inverse operation restores the same Line object to
+        Network membership.
         """
 
-        if not isinstance(line_id, str) or not line_id.strip():
+        self._validate_transaction(
+            transaction
+        )
+
+        if (
+            not isinstance(line_id, str)
+            or not line_id.strip()
+        ):
             raise ValidationError(
                 code="INVALID_LINE_ID",
                 message=(
@@ -631,12 +690,10 @@ class ModelService:
 
         network = self._context.network
 
-        line = None
-
-        for candidate in network.lines:
-            if getattr(candidate, "id", None) == line_id:
-                line = candidate
-                break
+        line = self._find_by_id(
+            network.lines,
+            line_id,
+        )
 
         if line is None:
             raise ResourceError(
@@ -681,7 +738,11 @@ class ModelService:
                 cause=exc,
             ) from exc
 
-        return ApplicationResult.success(
+        transaction.record_undo(
+            lambda line=line: network.add_line(line)
+        )
+
+        return ApplicationResult.success_result(
             value=line,
             message=(
                 f"Line '{line_id}' deleted successfully."
@@ -693,9 +754,9 @@ class ModelService:
             },
         )
 
-    # ================================================================
+    # ========================================================
     # TRANSFORMER CREATION
-    # ================================================================
+    # ========================================================
 
     def create_transformer(
         self,
@@ -709,55 +770,23 @@ class ModelService:
         shift: float = 0.0,
         name: str = "",
         rate_mva: float = 100.0,
+        transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         """
         Create and register a canonical Core Transformer.
 
-        Parameters
-        ----------
-        transformer_id:
-            Persistent GridForge Transformer identifier.
+        endpoint_from and endpoint_to are already-resolved Core
+        endpoint objects.
 
-        endpoint_from:
-            Initial high-side/from-side physical endpoint.
-
-        endpoint_to:
-            Initial low-side/to-side physical endpoint.
-
-        r:
-            Series resistance in per-unit.
-
-        x:
-            Series reactance in per-unit.
-
-        tap:
-            Off-nominal transformer tap ratio.
-
-        shift:
-            Phase-shift angle in radians.
-
-        name:
-            Human-readable engineering name.
-
-        rate_mva:
-            Transformer MVA rating.
-
-        Returns
-        -------
-        ApplicationResult[Transformer]
-            Result containing the canonical Transformer.
-
-        Notes
-        -----
         Transformer owns its physical terminal objects.
 
-        The service therefore does not subsequently manipulate
-        Transformer terminals.
-
-        Network ownership is established exclusively through:
-
-            network.add_transformer(transformer)
+        The service does not subsequently manipulate Transformer
+        terminals.
         """
+
+        self._validate_transaction(
+            transaction
+        )
 
         self._validate_transformer_input(
             transformer_id=transformer_id,
@@ -770,6 +799,8 @@ class ModelService:
             name=name,
             rate_mva=rate_mva,
         )
+
+        transformer_id = transformer_id.strip()
 
         try:
             transformer = Transformer(
@@ -812,8 +843,10 @@ class ModelService:
                 cause=exc,
             ) from exc
 
+        network = self._context.network
+
         try:
-            self._context.network.add_transformer(
+            network.add_transformer(
                 transformer
             )
 
@@ -845,7 +878,14 @@ class ModelService:
                 cause=exc,
             ) from exc
 
-        return ApplicationResult.success(
+        transaction.record_undo(
+            lambda transformer=transformer:
+                network.remove_transformer(
+                    transformer
+                )
+        )
+
+        return ApplicationResult.success_result(
             value=transformer,
             message=(
                 f"Transformer '{transformer_id}' "
@@ -858,31 +898,28 @@ class ModelService:
             },
         )
 
-    # ================================================================
+    # ========================================================
     # TRANSFORMER DELETION
-    # ================================================================
+    # ========================================================
 
     def delete_transformer(
         self,
         *,
         transformer_id: str,
+        transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         """
         Remove a canonical Core Transformer from the Network.
 
-        The service resolves the canonical registered Transformer
-        and delegates Network membership removal to:
-
-            Network.remove_transformer()
-
-        The Transformer terminals are not disconnected here.
+        Transformer terminals are not disconnected here.
         """
 
+        self._validate_transaction(
+            transaction
+        )
+
         if (
-            not isinstance(
-                transformer_id,
-                str,
-            )
+            not isinstance(transformer_id, str)
             or not transformer_id.strip()
         ):
             raise ValidationError(
@@ -899,15 +936,10 @@ class ModelService:
 
         network = self._context.network
 
-        transformer = None
-
-        for candidate in network.transformers:
-            if (
-                getattr(candidate, "id", None)
-                == transformer_id
-            ):
-                transformer = candidate
-                break
+        transformer = self._find_by_id(
+            network.transformers,
+            transformer_id,
+        )
 
         if transformer is None:
             raise ResourceError(
@@ -955,7 +987,14 @@ class ModelService:
                 cause=exc,
             ) from exc
 
-        return ApplicationResult.success(
+        transaction.record_undo(
+            lambda transformer=transformer:
+                network.add_transformer(
+                    transformer
+                )
+        )
+
+        return ApplicationResult.success_result(
             value=transformer,
             message=(
                 f"Transformer '{transformer_id}' "
@@ -968,9 +1007,61 @@ class ModelService:
             },
         )
 
-    # ================================================================
+    # ========================================================
+    # COMMON HELPERS
+    # ========================================================
+
+    @staticmethod
+    def _validate_transaction(
+        transaction: Transaction,
+    ) -> None:
+        """
+        Validate the Application transaction boundary.
+        """
+
+        if not isinstance(
+            transaction,
+            Transaction,
+        ):
+            raise TypeError(
+                "transaction must be a Transaction."
+            )
+
+        if not transaction.active:
+            raise ExecutionError(
+                code="TRANSACTION_NOT_ACTIVE",
+                message=(
+                    "Model mutation requires an active "
+                    "Application Transaction."
+                ),
+                details={
+                    "transaction_state": (
+                        transaction.state.name
+                    ),
+                },
+            )
+
+    @staticmethod
+    def _find_by_id(
+        collection: Any,
+        object_id: str,
+    ) -> Any | None:
+        """
+        Resolve a canonical Core object by its public id.
+        """
+
+        for candidate in collection:
+            if (
+                getattr(candidate, "id", None)
+                == object_id
+            ):
+                return candidate
+
+        return None
+
+    # ========================================================
     # BUS INPUT VALIDATION
-    # ================================================================
+    # ========================================================
 
     @staticmethod
     def _validate_bus_input(
@@ -993,10 +1084,10 @@ class ModelService:
         canonical Core model.
         """
 
-        if not isinstance(
-            bus_id,
-            str,
-        ) or not bus_id.strip():
+        if (
+            not isinstance(bus_id, str)
+            or not bus_id.strip()
+        ):
             raise ValidationError(
                 code="INVALID_BUS_ID",
                 message=(
@@ -1018,7 +1109,10 @@ class ModelService:
                 },
             )
 
-        if not isinstance(bus_type, BusType):
+        if not isinstance(
+            bus_type,
+            BusType,
+        ):
             raise ValidationError(
                 code="INVALID_BUS_TYPE",
                 message=(
@@ -1083,9 +1177,9 @@ class ModelService:
                 },
             )
 
-    # ================================================================
+    # ========================================================
     # LINE INPUT VALIDATION
-    # ================================================================
+    # ========================================================
 
     @staticmethod
     def _validate_line_input(
@@ -1106,10 +1200,10 @@ class ModelService:
         canonical Line model.
         """
 
-        if not isinstance(
-            line_id,
-            str,
-        ) or not line_id.strip():
+        if (
+            not isinstance(line_id, str)
+            or not line_id.strip()
+        ):
             raise ValidationError(
                 code="INVALID_LINE_ID",
                 message=(
@@ -1146,45 +1240,36 @@ class ModelService:
             raise ValidationError(
                 code="INVALID_LINE_ENDPOINTS",
                 message=(
-                    "Line from and to endpoints must be distinct."
+                    "Line from and to endpoints "
+                    "must be distinct."
                 ),
                 details={
                     "field": "endpoint_from/endpoint_to",
                 },
             )
 
-        if not isinstance(r, (int, float)):
-            raise ValidationError(
-                code="INVALID_LINE_RESISTANCE",
-                message=(
-                    "Line resistance r must be numeric."
-                ),
-                details={
-                    "field": "r",
-                },
-            )
+        numeric_fields: Mapping[str, Any] = {
+            "r": r,
+            "x": x,
+            "b": b,
+            "rate_mva": rate_mva,
+        }
 
-        if not isinstance(x, (int, float)):
-            raise ValidationError(
-                code="INVALID_LINE_REACTANCE",
-                message=(
-                    "Line reactance x must be numeric."
-                ),
-                details={
-                    "field": "x",
-                },
-            )
-
-        if not isinstance(b, (int, float)):
-            raise ValidationError(
-                code="INVALID_LINE_SUSCEPTANCE",
-                message=(
-                    "Line shunt susceptance b must be numeric."
-                ),
-                details={
-                    "field": "b",
-                },
-            )
+        for field_name, value in numeric_fields.items():
+            if not isinstance(
+                value,
+                (int, float),
+            ):
+                raise ValidationError(
+                    code="INVALID_LINE_PARAMETER",
+                    message=(
+                        f"Line parameter '{field_name}' "
+                        "must be numeric."
+                    ),
+                    details={
+                        "field": field_name,
+                    },
+                )
 
         if not isinstance(name, str):
             raise ValidationError(
@@ -1197,23 +1282,9 @@ class ModelService:
                 },
             )
 
-        if not isinstance(
-            rate_mva,
-            (int, float),
-        ):
-            raise ValidationError(
-                code="INVALID_LINE_RATING",
-                message=(
-                    "Line rate_mva must be numeric."
-                ),
-                details={
-                    "field": "rate_mva",
-                },
-            )
-
-    # ================================================================
+    # ========================================================
     # TRANSFORMER INPUT VALIDATION
-    # ================================================================
+    # ========================================================
 
     @staticmethod
     def _validate_transformer_input(
@@ -1234,14 +1305,14 @@ class ModelService:
         Detailed engineering/domain validation remains owned by
         the canonical Transformer model.
 
-        ``shift`` is expressed in radians, matching the canonical
+        shift is expressed in radians, matching the canonical
         Transformer model contract.
         """
 
-        if not isinstance(
-            transformer_id,
-            str,
-        ) or not transformer_id.strip():
+        if (
+            not isinstance(transformer_id, str)
+            or not transformer_id.strip()
+        ):
             raise ValidationError(
                 code="INVALID_TRANSFORMER_ID",
                 message=(
@@ -1256,7 +1327,8 @@ class ModelService:
             raise ValidationError(
                 code="INVALID_TRANSFORMER_FROM_ENDPOINT",
                 message=(
-                    "Transformer from endpoint must not be None."
+                    "Transformer from endpoint "
+                    "must not be None."
                 ),
                 details={
                     "field": "endpoint_from",
@@ -1267,7 +1339,8 @@ class ModelService:
             raise ValidationError(
                 code="INVALID_TRANSFORMER_TO_ENDPOINT",
                 message=(
-                    "Transformer to endpoint must not be None."
+                    "Transformer to endpoint "
+                    "must not be None."
                 ),
                 details={
                     "field": "endpoint_to",
@@ -1321,6 +1394,10 @@ class ModelService:
                 },
             )
 
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 __all__ = [
     "ModelService",
