@@ -42,7 +42,6 @@ from ..errors import DomainError, ResourceError
 from ..results import ApplicationResult
 from ..transaction import Transaction
 
-from ...model.base import ElectricalObject
 from ...model.bus import Bus, BusType
 from ...model.line import Line
 from ...model.terminal import Terminal
@@ -91,10 +90,10 @@ class ModelService:
         Application command terminology is translated here to the
         actual Core Bus constructor terminology:
 
-            voltage   -> voltage_magnitude
-            angle     -> voltage_angle
-            p_spec    -> p
-            q_spec    -> q
+            voltage    -> voltage_magnitude
+            angle      -> voltage_angle
+            p_spec     -> p
+            q_spec     -> q
             v_setpoint -> voltage_setpoint
         """
 
@@ -322,10 +321,9 @@ class ModelService:
         Create and register a Transformer between resolved
         Core endpoints.
 
-        The current Application command contract does not expose
-        transformer b, while the Core Transformer constructor
-        provides b with a default of 0.0. Therefore the Core
-        default is intentionally retained.
+        The Application command contract does not expose
+        transformer b. The Core Transformer constructor provides
+        b with a default of 0.0, which is intentionally retained.
         """
 
         self._require_transaction(transaction)
