@@ -5,45 +5,63 @@
 # ============================================================
 
 """
-GridForge V2 Application Command Handlers.
+GridForge V2 — Application Command Handlers
+============================================
 
-Handlers are the Application translation boundary between
-immutable Commands and Application Services.
+Application handlers translate immutable Application Commands
+into calls to Application Services.
 
-Responsibilities
-----------------
 Handlers:
 
-    * inspect immutable command payloads;
-    * resolve Application references against canonical Core state;
+    * validate command-level references;
+    * resolve EndpointReference values;
     * invoke Application Services;
-    * return ApplicationResult objects.
+    * return ApplicationResult.
 
 Handlers do NOT:
 
     * mutate Core directly;
-    * perform topology mutation;
+    * manipulate SLD state;
+    * access Qt/UI;
     * perform engineering calculations;
-    * manipulate SLD/UI objects;
-    * access Qt;
-    * maintain independent application state.
+    * maintain electrical state;
+    * implement topology mutation.
 
 Endpoint resolution
 -------------------
-EndpointReference supports:
 
-    BUS
-        object_id = Bus.id
+Bus:
 
-    TERMINAL
-        object_id = owning equipment.id
-        terminal_role = terminal role
+    EndpointReference.bus("BUS-001")
+            |
+            v
+    context.network.buses
+            |
+            v
+    Bus
 
-The handler resolves these references against canonical Core
-objects before invoking ModelService.
+Terminal:
 
-Author:
-    Subhendu Mishra
+    EndpointReference.terminal(
+        equipment_type=...,
+        equipment_id=...,
+        terminal_role=...
+    )
+            |
+            v
+    canonical Network collection
+            |
+            v
+    Branch / equipment
+            |
+            v
+    equipment.terminals
+            |
+            v
+    Terminal.role
+
+The handler resolves references but delegates all mutation
+to ModelService.
 """
 
 from __future__ import annotations
@@ -55,6 +73,7 @@ from .command import Command
 from .endpoint_reference import (
     EndpointReference,
     EndpointReferenceKind,
+    EquipmentType,
 )
 from .errors import ResourceError, ValidationError
 from .results import ApplicationResult
@@ -75,17 +94,118 @@ from .commands.model_commands import (
 # ============================================================
 
 Handler = Callable[
-    [
-        Command,
-        Any,
-        Transaction,
-    ],
+    [Command, Any, Transaction],
     ApplicationResult[Any],
 ]
 
 
 # ============================================================
-# GENERIC COLLECTION RESOLUTION
+# NETWORK COLLECTION RESOLUTION
+# ============================================================
+
+_EQUIPMENT_COLLECTIONS: Mapping[
+    EquipmentType,
+    str,
+] = {
+    EquipmentType.LINE: "lines",
+    EquipmentType.TRANSFORMER: "transformers",
+    EquipmentType.GENERATOR: "generators",
+    EquipmentType.LOAD: "loads",
+    EquipmentType.SHUNT: "shunts",
+}
+
+
+def _get_collection(
+    context: Any,
+    equipment_type: EquipmentType,
+) -> Any:
+    """
+    Return the canonical Network collection for an
+    EquipmentType.
+
+    The mapping is kept in the Application boundary so the
+    command handler can translate an Application reference
+    into a canonical Core collection without importing
+    concrete Core equipment classes.
+    """
+
+    if not isinstance(
+        equipment_type,
+        EquipmentType,
+    ):
+        raise ValidationError(
+            code="INVALID_EQUIPMENT_TYPE",
+            message=(
+                "A valid EquipmentType is required."
+            ),
+            details={
+                "equipment_type": str(
+                    equipment_type
+                ),
+            },
+        )
+
+    collection_name = _EQUIPMENT_COLLECTIONS.get(
+        equipment_type
+    )
+
+    if collection_name is None:
+        raise ValidationError(
+            code="UNSUPPORTED_EQUIPMENT_TYPE",
+            message=(
+                f"Equipment type "
+                f"'{equipment_type.value}' is not "
+                "supported by the Application resolver."
+            ),
+            details={
+                "equipment_type": (
+                    equipment_type.value
+                ),
+            },
+        )
+
+    network = getattr(
+        context,
+        "network",
+        None,
+    )
+
+    if network is None:
+        raise ResourceError(
+            code="NETWORK_CONTEXT_MISSING",
+            message=(
+                "Application context does not expose "
+                "the canonical Core Network."
+            ),
+            details={},
+        )
+
+    collection = getattr(
+        network,
+        collection_name,
+        None,
+    )
+
+    if collection is None:
+        raise ResourceError(
+            code="NETWORK_COLLECTION_MISSING",
+            message=(
+                f"Canonical Network collection "
+                f"'{collection_name}' is unavailable."
+            ),
+            details={
+                "equipment_type": (
+                    equipment_type.value
+                ),
+                "collection": collection_name,
+            },
+        )
+
+    return collection
+
+
+# ============================================================
+# OBJECT LOOKUP
 # ============================================================
 
 def _find_by_id(
@@ -93,10 +213,9 @@ def _find_by_id(
     object_id: str,
 ) -> Any | None:
     """
-    Find an object by its canonical public id.
+    Resolve an object from a canonical Core collection.
 
-    The handler deliberately uses public collection contents
-    rather than private Core indexes.
+    No Application-side cache is maintained.
     """
 
     for item in collection:
@@ -107,85 +226,148 @@ def _find_by_id(
 
 
 # ============================================================
+# BUS RESOLUTION
+# ============================================================
+
+def _resolve_bus(
+    context: Any,
+    reference: EndpointReference,
+) -> Any:
+    """
+    Resolve a Bus EndpointReference.
+    """
+
+    if (
+        reference.kind
+        is not EndpointReferenceKind.BUS
+    ):
+        raise ValidationError(
+            code="INVALID_BUS_REFERENCE",
+            message=(
+                "A Bus EndpointReference is required."
+            ),
+            details={
+                "kind": reference.kind.value,
+            },
+        )
+
+    network = getattr(
+        context,
+        "network",
+        None,
+    )
+
+    if network is None:
+        raise ResourceError(
+            code="NETWORK_CONTEXT_MISSING",
+            message=(
+                "Application context does not expose "
+                "the canonical Core Network."
+            ),
+            details={},
+        )
+
+    buses = getattr(
+        network,
+        "buses",
+        None,
+    )
+
+    if buses is None:
+        raise ResourceError(
+            code="BUS_COLLECTION_MISSING",
+            message=(
+                "Canonical Network does not expose "
+                "its Bus collection."
+            ),
+            details={},
+        )
+
+    bus = _find_by_id(
+        buses,
+        reference.object_id,
+    )
+
+    if bus is None:
+        raise ResourceError(
+            code="BUS_NOT_FOUND",
+            message=(
+                f"Bus '{reference.object_id}' "
+                "could not be resolved."
+            ),
+            details={
+                "bus_id": reference.object_id,
+            },
+        )
+
+    return bus
+
+
+# ============================================================
 # EQUIPMENT RESOLUTION
 # ============================================================
 
 def _resolve_equipment(
     context: Any,
-    equipment_id: str,
+    reference: EndpointReference,
 ) -> Any:
     """
-    Resolve a canonical Core equipment object.
-
-    Equipment collections are discovered from the canonical
-    Network object exposed by ApplicationContext.
-
-    No UI or Application-side object registry is consulted.
+    Resolve the owning equipment of a Terminal reference.
     """
 
-    network = context.network
-
-    if not isinstance(
-        equipment_id,
-        str,
-    ) or not equipment_id.strip():
+    if (
+        reference.kind
+        is not EndpointReferenceKind.TERMINAL
+    ):
         raise ValidationError(
-            code="INVALID_EQUIPMENT_ID",
+            code="INVALID_TERMINAL_REFERENCE",
             message=(
-                "Equipment id must be a non-empty string."
+                "A Terminal EndpointReference is required."
             ),
             details={
-                "equipment_id": equipment_id,
+                "kind": reference.kind.value,
             },
         )
 
-    equipment_id = equipment_id.strip()
-
-    # --------------------------------------------------------
-    # Known canonical network collections
-    # --------------------------------------------------------
-
-    collection_names = (
-        "lines",
-        "transformers",
-        "generators",
-        "loads",
-        "motors",
-        "breakers",
-        "switches",
-        "shunts",
-        "capacitors",
-        "reactors",
-    )
-
-    for collection_name in collection_names:
-        collection = getattr(
-            network,
-            collection_name,
-            None,
+    if reference.equipment_type is None:
+        raise ValidationError(
+            code="MISSING_EQUIPMENT_TYPE",
+            message=(
+                "Terminal references require an "
+                "EquipmentType."
+            ),
+            details={
+                "equipment_id": reference.object_id,
+            },
         )
 
-        if collection is None:
-            continue
+    collection = _get_collection(
+        context,
+        reference.equipment_type,
+    )
 
-        equipment = _find_by_id(
-            collection,
-            equipment_id,
+    equipment = _find_by_id(
+        collection,
+        reference.object_id,
+    )
+
+    if equipment is None:
+        raise ResourceError(
+            code="EQUIPMENT_NOT_FOUND",
+            message=(
+                f"{reference.equipment_type.value} "
+                f"'{reference.object_id}' could not "
+                "be resolved."
+            ),
+            details={
+                "equipment_type": (
+                    reference.equipment_type.value
+                ),
+                "equipment_id": reference.object_id,
+            },
         )
 
-        if equipment is not None:
-            return equipment
-
-    raise ResourceError(
-        code="EQUIPMENT_NOT_FOUND",
-        message=(
-            f"Equipment '{equipment_id}' could not be "
-            "resolved in the canonical Core Network."
-        ),
-        details={
-            "equipment_id": equipment_id,
-        },
-    )
+    return equipment
 
 
 # ============================================================
@@ -197,52 +379,23 @@ def _resolve_terminal(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve an EndpointReference of kind TERMINAL.
+    Resolve a Terminal EndpointReference.
 
-    Terminal identity is:
+    The audited Core Branch contract exposes:
 
-        owning equipment id
-        +
-        terminal role
+        equipment.terminals
 
-    The returned object is the actual Core Terminal instance.
+    and each Terminal exposes:
 
-    This function does not create terminals.
+        terminal.role
+
+    Exact role matching is used.
     """
-
-    if not reference.is_terminal:
-        raise ValidationError(
-            code="INVALID_TERMINAL_REFERENCE",
-            message=(
-                "A terminal endpoint reference is required."
-            ),
-            details={
-                "kind": reference.kind.value,
-            },
-        )
 
     equipment = _resolve_equipment(
         context,
-        reference.object_id,
+        reference,
     )
-
-    terminal_role = reference.terminal_role
-
-    if terminal_role is None:
-        raise ValidationError(
-            code="MISSING_TERMINAL_ROLE",
-            message=(
-                "Terminal endpoint reference requires "
-                "a terminal role."
-            ),
-            details={
-                "equipment_id": reference.object_id,
-            },
-        )
-
-    # --------------------------------------------------------
-    # Preferred public terminal access
-    # --------------------------------------------------------
 
     terminals = getattr(
         equipment,
@@ -250,119 +403,66 @@ def _resolve_terminal(
         None,
     )
 
-    if terminals is not None:
-        terminal = _find_terminal_by_role(
-            terminals,
-            terminal_role,
+    if terminals is None:
+        raise ResourceError(
+            code="EQUIPMENT_TERMINALS_UNAVAILABLE",
+            message=(
+                f"Equipment "
+                f"'{reference.object_id}' does not "
+                "expose the canonical terminals "
+                "collection."
+            ),
+            details={
+                "equipment_type": (
+                    reference.equipment_type.value
+                    if reference.equipment_type
+                    else None
+                ),
+                "equipment_id": reference.object_id,
+            },
         )
 
-        if terminal is not None:
-            return terminal
+    requested_role = reference.terminal_role
 
-    # --------------------------------------------------------
-    # Branch-style equipment
-    #
-    # Core Branch explicitly exposes:
-    #
-    #     from_terminal
-    #     to_terminal
-    #
-    # Handle those canonical attributes directly.
-    # --------------------------------------------------------
-
-    for attribute_name in (
-        "from_terminal",
-        "to_terminal",
-    ):
-        terminal = getattr(
-            equipment,
-            attribute_name,
-            None,
+    if not isinstance(
+        requested_role,
+        str,
+    ) or not requested_role:
+        raise ValidationError(
+            code="INVALID_TERMINAL_ROLE",
+            message=(
+                "Terminal reference requires a "
+                "non-empty terminal role."
+            ),
+            details={
+                "equipment_id": reference.object_id,
+            },
         )
-
-        if terminal is None:
-            continue
-
-        role = getattr(
-            terminal,
-            "role",
-            None,
-        )
-
-        if role == terminal_role:
-            return terminal
-
-    # --------------------------------------------------------
-    # Generic terminal attributes
-    #
-    # This supports equipment such as transformers that expose
-    # named terminals without requiring the handler to know
-    # every equipment-specific topology implementation.
-    # --------------------------------------------------------
-
-    for attribute_name in (
-        "hv_terminal",
-        "lv_terminal",
-        "primary_terminal",
-        "secondary_terminal",
-    ):
-        terminal = getattr(
-            equipment,
-            attribute_name,
-            None,
-        )
-
-        if terminal is None:
-            continue
-
-        role = getattr(
-            terminal,
-            "role",
-            None,
-        )
-
-        if role == terminal_role:
-            return terminal
-
-    raise ResourceError(
-        code="TERMINAL_NOT_FOUND",
-        message=(
-            f"Terminal '{terminal_role}' was not found "
-            f"on equipment '{reference.object_id}'."
-        ),
-        details={
-            "equipment_id": reference.object_id,
-            "terminal_role": terminal_role,
-        },
-    )
-
-
-def _find_terminal_by_role(
-    terminals: Any,
-    terminal_role: str,
-) -> Any | None:
-    """
-    Find a terminal by its role from a public terminal
-    collection or mapping.
-    """
-
-    if isinstance(terminals, Mapping):
-        terminal = terminals.get(
-            terminal_role
-        )
-
-        if terminal is not None:
-            return terminal
 
     for terminal in terminals:
         if getattr(
             terminal,
             "role",
             None,
-        ) == terminal_role:
+        ) == requested_role:
             return terminal
 
-    return None
+    raise ResourceError(
+        code="TERMINAL_NOT_FOUND",
+        message=(
+            f"Terminal '{requested_role}' was not "
+            f"found on "
+            f"{reference.equipment_type.value} "
+            f"'{reference.object_id}'."
+        ),
+        details={
+            "equipment_type": (
+                reference.equipment_type.value
+            ),
+            "equipment_id": reference.object_id,
+            "terminal_role": requested_role,
+        },
+    )
 
 
 # ============================================================
@@ -374,8 +474,8 @@ def _resolve_endpoint(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve an Application EndpointReference to a canonical
-    Core endpoint object.
+    Resolve an immutable Application EndpointReference into
+    the corresponding canonical Core endpoint.
     """
 
     if not isinstance(
@@ -385,36 +485,21 @@ def _resolve_endpoint(
         raise ValidationError(
             code="INVALID_ENDPOINT_REFERENCE",
             message=(
-                "Endpoint must be represented by "
+                "Command endpoint must be an "
                 "EndpointReference."
             ),
             details={
-                "received_type": type(reference).__name__,
+                "received_type": type(
+                    reference
+                ).__name__,
             },
         )
 
-    if (
-        reference.kind
-        is EndpointReferenceKind.BUS
-    ):
-        bus = _find_by_id(
-            context.network.buses,
-            reference.object_id,
+    if reference.kind is EndpointReferenceKind.BUS:
+        return _resolve_bus(
+            context,
+            reference,
         )
-
-        if bus is None:
-            raise ResourceError(
-                code="BUS_NOT_FOUND",
-                message=(
-                    f"Bus '{reference.object_id}' "
-                    "could not be resolved."
-                ),
-                details={
-                    "bus_id": reference.object_id,
-                },
-            )
-
-        return bus
 
     if (
         reference.kind
@@ -426,10 +511,10 @@ def _resolve_endpoint(
         )
 
     raise ValidationError(
-        code="UNSUPPORTED_ENDPOINT_REFERENCE",
+        code="UNSUPPORTED_ENDPOINT_KIND",
         message=(
-            f"Unsupported endpoint reference kind "
-            f"'{reference.kind}'."
+            f"Unsupported endpoint kind "
+            f"'{reference.kind.value}'."
         ),
         details={
             "kind": reference.kind.value,
@@ -443,13 +528,14 @@ def _resolve_endpoint(
 
 class ModelCommandHandlers:
     """
-    Handler registry for canonical model commands.
+    Canonical Application handlers for model commands.
     """
 
     def __init__(
         self,
         model_service: Any,
     ) -> None:
+
         if model_service is None:
             raise ValueError(
                 "model_service is required."
@@ -465,7 +551,7 @@ class ModelCommandHandlers:
         self,
     ) -> Mapping[str, Handler]:
         """
-        Return the complete canonical model-handler registry.
+        Return the canonical model command registry.
         """
 
         return {
@@ -619,14 +705,14 @@ class ModelCommandHandlers:
 
 
 # ============================================================
-# REGISTRATION FACTORY
+# FACTORY
 # ============================================================
 
 def build_model_command_handlers(
     model_service: Any,
 ) -> Mapping[str, Handler]:
     """
-    Construct the canonical model command registry.
+    Build the canonical model command handler registry.
     """
 
     return ModelCommandHandlers(
