@@ -18,6 +18,8 @@ Commands:
     DeleteLineCommand
     CreateTransformerCommand
     DeleteTransformerCommand
+    CreateLoadCommand
+    DeleteLoadCommand
 
 Architectural rules
 -------------------
@@ -52,6 +54,30 @@ or:
 The complete endpoint identity remains inside the immutable
 EndpointReference.
 
+Load commands
+-------------
+
+A Load is a single-terminal injection model.
+
+Creation therefore carries only the Load's model/value data:
+
+    load_id
+    p
+    q
+    name
+    in_service
+
+The command deliberately does not contain:
+
+    * a Core Load object;
+    * a Core Terminal object;
+    * a Core Bus object;
+    * resolved topology;
+    * UI state.
+
+Load connectivity is handled separately through the
+application/topology command workflow.
+
 Author:
     Subhendu Mishra
 """
@@ -77,6 +103,9 @@ DELETE_LINE = "model.delete_line"
 
 CREATE_TRANSFORMER = "model.create_transformer"
 DELETE_TRANSFORMER = "model.delete_transformer"
+
+CREATE_LOAD = "model.create_load"
+DELETE_LOAD = "model.delete_load"
 
 
 # ============================================================
@@ -374,6 +403,86 @@ class DeleteTransformerCommand(Command):
 
 
 # ============================================================
+# CREATE LOAD
+# ============================================================
+
+class CreateLoadCommand(Command):
+    """
+    Request creation of a canonical Core Load.
+
+    A Load is initially created as a model object.  The command
+    does not embed a Core Terminal or Core Bus.
+
+    Connectivity/topology is resolved by the appropriate
+    application/topology workflow.
+    """
+
+    def __init__(
+        self,
+        *,
+        load_id: str,
+        p: float = 0.0,
+        q: float = 0.0,
+        name: str = "",
+        in_service: bool = True,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+
+        super().__init__(
+            command_type=CREATE_LOAD,
+            payload={
+                "load_id": load_id,
+                "p": p,
+                "q": q,
+                "name": name,
+                "in_service": in_service,
+            },
+            command_id=(
+                command_id
+                if command_id is not None
+                else uuid4()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# DELETE LOAD
+# ============================================================
+
+class DeleteLoadCommand(Command):
+    """
+    Request deletion of a canonical Core Load.
+    """
+
+    def __init__(
+        self,
+        *,
+        load_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+
+        super().__init__(
+            command_type=DELETE_LOAD,
+            payload={
+                "load_id": load_id,
+            },
+            command_id=(
+                command_id
+                if command_id is not None
+                else uuid4()
+            ),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
 # PUBLIC API
 # ============================================================
 
@@ -384,10 +493,14 @@ __all__ = [
     "DELETE_LINE",
     "CREATE_TRANSFORMER",
     "DELETE_TRANSFORMER",
+    "CREATE_LOAD",
+    "DELETE_LOAD",
     "CreateBusCommand",
     "DeleteBusCommand",
     "CreateLineCommand",
     "DeleteLineCommand",
     "CreateTransformerCommand",
     "DeleteTransformerCommand",
+    "CreateLoadCommand",
+    "DeleteLoadCommand",
 ]
