@@ -60,6 +60,25 @@ internals or individual Network collections directly.
 
 The handler remains an orchestration boundary and delegates all
 Core mutation to ModelService.
+
+Load commands
+-------------
+
+Load creation is intentionally independent of topology.
+
+CreateLoadCommand carries:
+
+    load_id
+    p
+    q
+    name
+    in_service
+
+The handler therefore does not resolve a Bus or Terminal for
+Load creation.
+
+Load connectivity is handled by the appropriate separate
+Application topology workflow.
 """
 
 from __future__ import annotations
@@ -79,6 +98,8 @@ from .commands.model_commands import (
     DELETE_LINE,
     CREATE_TRANSFORMER,
     DELETE_TRANSFORMER,
+    CREATE_LOAD,
+    DELETE_LOAD,
 )
 
 
@@ -134,14 +155,19 @@ class ModelCommandHandlers:
         return {
             CREATE_BUS: self.create_bus,
             DELETE_BUS: self.delete_bus,
+
             CREATE_LINE: self.create_line,
             DELETE_LINE: self.delete_line,
+
             CREATE_TRANSFORMER: (
                 self.create_transformer
             ),
             DELETE_TRANSFORMER: (
                 self.delete_transformer
             ),
+
+            CREATE_LOAD: self.create_load,
+            DELETE_LOAD: self.delete_load,
         }
 
     # ========================================================
@@ -303,6 +329,52 @@ class ModelCommandHandlers:
             transformer_id=command.payload[
                 "transformer_id"
             ],
+            transaction=transaction,
+        )
+
+    # ========================================================
+    # LOAD
+    # ========================================================
+
+    def create_load(
+        self,
+        command: Command,
+        context: Any,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """
+        Create a Load through ModelService.
+
+        Load creation does not resolve an endpoint.
+
+        The resulting Load is initially disconnected and its
+        terminal/topology is handled separately by the
+        Application topology workflow.
+        """
+
+        payload = command.payload
+
+        return self._model_service.create_load(
+            load_id=payload["load_id"],
+            p=payload["p"],
+            q=payload["q"],
+            name=payload["name"],
+            in_service=payload["in_service"],
+            transaction=transaction,
+        )
+
+    def delete_load(
+        self,
+        command: Command,
+        context: Any,
+        transaction: Transaction,
+    ) -> ApplicationResult[Any]:
+        """
+        Delete a Load through ModelService.
+        """
+
+        return self._model_service.delete_load(
+            load_id=command.payload["load_id"],
             transaction=transaction,
         )
 
