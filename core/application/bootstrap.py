@@ -10,41 +10,45 @@ GridForge V2 — Application Bootstrap
 
 Composition root for the headless Application layer.
 
-Responsibilities
-----------------
+This module constructs and wires the Application-layer objects
+against the authoritative Core Network.
 
-This module is responsible only for constructing and wiring the
-Application-layer components.
-
-Composition:
+Composition
+-----------
 
     Core Network
         |
         v
     ApplicationContext
         |
-        v
-    CommandManager
+        +----------------------+
+        |                      |
+        v                      v
+    ModelService        CommandManager
+        |                      |
+        v                      v
+    Model Handlers  <----------+
         |
         v
-    Model Command Handlers
-        |
-        v
-    Application facade
+    Application
+
+Responsibilities
+----------------
+- Accept the authoritative Core Network.
+- Construct ApplicationContext.
+- Construct ModelService against that Network.
+- Build the canonical model-command handler registry.
+- Construct CommandManager with that registry.
+- Construct and return the Application facade.
 
 This module does NOT:
-
-    * implement domain logic;
-    * mutate the Core directly;
-    * resolve endpoint references;
-    * execute commands;
-    * create Transactions;
-    * perform undo/redo;
-    * contain UI or Qt code;
-    * contain SLD logic.
-
-The Core Network is supplied by the caller and remains the
-authoritative domain object.
+- create or replace the Core Network;
+- mutate Core state;
+- resolve EndpointReference values;
+- create Transactions;
+- execute commands;
+- manage undo/redo;
+- contain UI/Qt/SLD logic.
 """
 
 from __future__ import annotations
@@ -52,9 +56,10 @@ from __future__ import annotations
 from typing import Any
 
 from .application import Application
-from .command_handlers import register_model_handlers
+from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
+from .services.model_service import ModelService
 
 
 # ============================================================
@@ -65,7 +70,7 @@ def create_application(
     network: Any,
 ) -> Application:
     """
-    Construct the fully wired headless Application.
+    Construct the fully configured headless Application.
 
     Parameters
     ----------
@@ -79,9 +84,8 @@ def create_application(
 
     Notes
     -----
-    Bootstrap owns composition only.
-
-    The supplied Network is not replaced, copied, or recreated.
+    The supplied Network remains the authoritative Core object.
+    Bootstrap only composes the Application layer around it.
     """
 
     if network is None:
@@ -93,13 +97,17 @@ def create_application(
         network=network,
     )
 
-    command_manager = CommandManager(
-        context=context,
+    model_service = ModelService(
+        network=network,
     )
 
-    register_model_handlers(
-        command_manager,
-        context,
+    handlers = build_model_command_handlers(
+        model_service,
+    )
+
+    command_manager = CommandManager(
+        context=context,
+        handlers=handlers,
     )
 
     return Application(
