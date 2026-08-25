@@ -32,7 +32,7 @@ Handlers do not:
 
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
