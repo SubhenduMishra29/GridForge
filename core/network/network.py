@@ -43,6 +43,7 @@ Canonical ownership
         |      +-- Generator
         |      +-- Load
         |      +-- Shunt
+        |      +-- Grid
         |
         +-- Topology
         +-- YBus
@@ -132,6 +133,10 @@ class Network:
     def shunts(self) -> tuple[Any, ...]:
         return self.registry.shunts
 
+    @property
+    def grids(self) -> tuple[Any, ...]:
+        return self.registry.grids
+
     # ========================================================
     # CANONICAL EQUIPMENT LOOKUP
     # ========================================================
@@ -155,6 +160,7 @@ class Network:
                 generator
                 load
                 shunt
+                grid
 
         object_id:
             Canonical equipment identifier.
@@ -338,6 +344,44 @@ class Network:
 
         self.registry.remove_shunt(shunt)
         self._invalidate_ybus()
+
+    # ========================================================
+    # GRID
+    # ========================================================
+
+    def add_grid(
+        self,
+        grid: Any,
+    ) -> None:
+        """
+        Register a Grid in the canonical network.
+
+        Grid is a first-class electrical network element.
+
+        Grid is not a Network container.
+
+        Its electrical power quantities are represented by the
+        Grid model itself:
+
+            p_mw              -> MW
+            q_mvar            -> MVAr
+            short_circuit_mva -> MVA
+
+        Network is responsible only for canonical membership.
+        Grid electrical behavior remains owned by core/model/grid.py.
+        """
+
+        self.registry.add_grid(grid)
+
+    def remove_grid(
+        self,
+        grid: Any,
+    ) -> None:
+        """
+        Remove a Grid from the canonical network.
+        """
+
+        self.registry.remove_grid(grid)
 
     # ========================================================
     # CACHE / ANALYSIS INVALIDATION
