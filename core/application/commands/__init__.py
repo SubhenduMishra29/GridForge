@@ -1,3 +1,4 @@
+```python
 # ============================================================
 # File: core/application/commands/__init__.py
 # GridForge V2 — Headless Application Commands
@@ -57,8 +58,11 @@ Current canonical model commands
 
     model.create_load
     model.delete_load
-
     model.update_load
+
+    model.create_grid
+    model.delete_grid
+    model.update_grid
 
 
 Endpoint rule
@@ -87,6 +91,33 @@ Load mutation is represented by UpdateLoadCommand.
 
 Topology attachment is handled separately by the appropriate
 Application topology workflow.
+
+
+Grid rule
+---------
+
+Grid is a first-class electrical network element.
+
+Grid is NOT a Network container.
+
+Grid commands represent Grid model state only.
+
+Grid creation does not carry a Core Bus or Core Terminal.
+
+A Grid is initially created as a disconnected Core model object.
+
+Grid mutation is represented by UpdateGridCommand.
+
+Grid deletion is represented by DeleteGridCommand.
+
+Grid connectivity/topology attachment is handled separately
+by the appropriate Application topology workflow.
+
+Grid electrical power quantities use:
+
+    p_mw              -> MW
+    q_mvar            -> MVAr
+    short_circuit_mva -> MVA
 """
 
 from __future__ import annotations
@@ -106,6 +137,11 @@ from .model_commands import (
 
     UPDATE_LOAD,
 
+    CREATE_GRID,
+    DELETE_GRID,
+
+    UPDATE_GRID,
+
     CreateBusCommand,
     DeleteBusCommand,
 
@@ -119,6 +155,11 @@ from .model_commands import (
     DeleteLoadCommand,
 
     UpdateLoadCommand,
+
+    CreateGridCommand,
+    DeleteGridCommand,
+
+    UpdateGridCommand,
 )
 
 
@@ -141,6 +182,11 @@ __all__ = [
 
     "UPDATE_LOAD",
 
+    "CREATE_GRID",
+    "DELETE_GRID",
+
+    "UPDATE_GRID",
+
     "CreateBusCommand",
     "DeleteBusCommand",
 
@@ -154,4 +200,10 @@ __all__ = [
     "DeleteLoadCommand",
 
     "UpdateLoadCommand",
+
+    "CreateGridCommand",
+    "DeleteGridCommand",
+
+    "UpdateGridCommand",
 ]
+```
