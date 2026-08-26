@@ -27,7 +27,9 @@ The registry does NOT:
     * calculate electrical quantities;
     * construct equipment;
     * own SLD state;
-    * know about UI or canvas state.
+    * know about UI or canvas state;
+    * construct Y-bus matrices;
+    * assign numerical solver indices.
 
 Network remains the public façade.
 
@@ -38,12 +40,17 @@ Supported equipment families
 ----------------------------
 
     bus
-    line
-    transformer
+    grid
     generator
     load
     shunt
-    grid
+    line
+    transformer
+    branch
+    cable
+    switch
+    disconnector
+    fuse
 """
 
 from __future__ import annotations
@@ -54,16 +61,26 @@ from typing import Any
 class NetworkRegistry:
     """
     Canonical membership registry for Network equipment.
+
+    Registry membership is identity-preserving.
+
+    The registry stores the canonical Core model instances and
+    never creates replacement objects during lookup.
     """
 
     def __init__(self) -> None:
         self._buses: list[Any] = []
-        self._lines: list[Any] = []
-        self._transformers: list[Any] = []
+        self._grids: list[Any] = []
         self._generators: list[Any] = []
         self._loads: list[Any] = []
         self._shunts: list[Any] = []
-        self._grids: list[Any] = []
+        self._lines: list[Any] = []
+        self._transformers: list[Any] = []
+        self._branches: list[Any] = []
+        self._cables: list[Any] = []
+        self._switches: list[Any] = []
+        self._disconnectors: list[Any] = []
+        self._fuses: list[Any] = []
 
     # ========================================================
     # READ-ONLY COLLECTIONS
@@ -74,12 +91,8 @@ class NetworkRegistry:
         return tuple(self._buses)
 
     @property
-    def lines(self) -> tuple[Any, ...]:
-        return tuple(self._lines)
-
-    @property
-    def transformers(self) -> tuple[Any, ...]:
-        return tuple(self._transformers)
+    def grids(self) -> tuple[Any, ...]:
+        return tuple(self._grids)
 
     @property
     def generators(self) -> tuple[Any, ...]:
@@ -94,17 +107,45 @@ class NetworkRegistry:
         return tuple(self._shunts)
 
     @property
-    def grids(self) -> tuple[Any, ...]:
-        return tuple(self._grids)
+    def lines(self) -> tuple[Any, ...]:
+        return tuple(self._lines)
+
+    @property
+    def transformers(self) -> tuple[Any, ...]:
+        return tuple(self._transformers)
+
+    @property
+    def branches(self) -> tuple[Any, ...]:
+        return tuple(self._branches)
+
+    @property
+    def cables(self) -> tuple[Any, ...]:
+        return tuple(self._cables)
+
+    @property
+    def switches(self) -> tuple[Any, ...]:
+        return tuple(self._switches)
+
+    @property
+    def disconnectors(self) -> tuple[Any, ...]:
+        return tuple(self._disconnectors)
+
+    @property
+    def fuses(self) -> tuple[Any, ...]:
+        return tuple(self._fuses)
 
     # ========================================================
-    # INTERNAL HELPERS
+    # INTERNAL VALIDATION
     # ========================================================
 
     @staticmethod
     def _validate_id(
         object_id: str,
     ) -> str:
+        """
+        Validate and normalize an equipment identifier.
+        """
+
         if not isinstance(object_id, str):
             raise TypeError(
                 "object_id must be a string."
@@ -123,6 +164,10 @@ class NetworkRegistry:
     def _validate_element_type(
         element_type: str,
     ) -> str:
+        """
+        Validate and normalize an equipment family name.
+        """
+
         if not isinstance(
             element_type,
             str,
@@ -145,6 +190,10 @@ class NetworkRegistry:
         collection: list[Any],
         element: Any,
     ) -> bool:
+        """
+        Return True when the exact object instance is registered.
+        """
+
         return any(
             existing is element
             for existing in collection
@@ -155,6 +204,12 @@ class NetworkRegistry:
         collection: list[Any],
         object_id: str,
     ) -> Any | None:
+        """
+        Find the canonical object having the supplied ID.
+
+        The returned object is the actual registered instance.
+        """
+
         for element in collection:
             if getattr(
                 element,
@@ -164,6 +219,74 @@ class NetworkRegistry:
                 return element
 
         return None
+
+    @staticmethod
+    def _register(
+        collection: list[Any],
+        element: Any,
+        label: str,
+    ) -> None:
+        """
+        Register one canonical equipment instance.
+
+        Both object identity and object ID are protected.
+        """
+
+        if element is None:
+            raise ValueError(
+                f"{label} must not be None."
+            )
+
+        if NetworkRegistry._contains_identity(
+            collection,
+            element,
+        ):
+            raise ValueError(
+                f"{label} is already registered."
+            )
+
+        object_id = getattr(
+            element,
+            "id",
+            None,
+        )
+
+        if object_id is not None:
+            if NetworkRegistry._find_identity(
+                collection,
+                object_id,
+            ) is not None:
+                raise ValueError(
+                    f"{label} ID {object_id!r} is already "
+                    "registered."
+                )
+
+        collection.append(element)
+
+    @staticmethod
+    def _remove_identity(
+        collection: list[Any],
+        element: Any,
+        label: str,
+    ) -> None:
+        """
+        Remove exactly the registered object instance.
+
+        Equality is intentionally not used.
+
+        Registry membership is identity-based.
+        """
+
+        for index, existing in enumerate(
+            collection
+        ):
+            if existing is element:
+                collection.pop(index)
+                return
+
+        raise KeyError(
+            f"{label} is not registered."
+        )
 
     # ========================================================
     # CANONICAL LOOKUP
@@ -177,8 +300,24 @@ class NetworkRegistry:
         """
         Return the canonical registered equipment object.
 
-        Lookup is identity-preserving and does not mutate the
-        network.
+        Parameters
+        ----------
+        element_type:
+            Canonical equipment family name.
+
+        object_id:
+            Canonical equipment identifier.
+
+        Returns
+        -------
+        Any
+            The actual registered Core model instance.
+
+        Raises
+        ------
+        KeyError
+            If the equipment family is unsupported or the
+            requested object is not registered.
         """
 
         element_type = self._validate_element_type(
@@ -191,12 +330,17 @@ class NetworkRegistry:
 
         collections = {
             "bus": self._buses,
-            "line": self._lines,
-            "transformer": self._transformers,
+            "grid": self._grids,
             "generator": self._generators,
             "load": self._loads,
             "shunt": self._shunts,
-            "grid": self._grids,
+            "line": self._lines,
+            "transformer": self._transformers,
+            "branch": self._branches,
+            "cable": self._cables,
+            "switch": self._switches,
+            "disconnector": self._disconnectors,
+            "fuse": self._fuses,
         }
 
         collection = collections.get(
@@ -230,36 +374,11 @@ class NetworkRegistry:
         self,
         bus: Any,
     ) -> None:
-        if bus is None:
-            raise ValueError(
-                "bus must not be None."
-            )
-
-        if self._contains_identity(
+        self._register(
             self._buses,
             bus,
-        ):
-            raise ValueError(
-                "Bus is already registered."
-            )
-
-        object_id = getattr(
-            bus,
-            "id",
-            None,
+            "Bus",
         )
-
-        if object_id is not None:
-            if self._find_identity(
-                self._buses,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"Bus ID {object_id!r} is already "
-                    "registered."
-                )
-
-        self._buses.append(bus)
 
     def remove_bus(
         self,
@@ -272,103 +391,27 @@ class NetworkRegistry:
         )
 
     # ========================================================
-    # LINE
+    # GRID
     # ========================================================
 
-    def add_line(
+    def add_grid(
         self,
-        line: Any,
+        grid: Any,
     ) -> None:
-        if line is None:
-            raise ValueError(
-                "line must not be None."
-            )
-
-        if self._contains_identity(
-            self._lines,
-            line,
-        ):
-            raise ValueError(
-                "Line is already registered."
-            )
-
-        object_id = getattr(
-            line,
-            "id",
-            None,
+        self._register(
+            self._grids,
+            grid,
+            "Grid",
         )
 
-        if object_id is not None:
-            if self._find_identity(
-                self._lines,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"Line ID {object_id!r} is already "
-                    "registered."
-                )
-
-        self._lines.append(line)
-
-    def remove_line(
+    def remove_grid(
         self,
-        line: Any,
+        grid: Any,
     ) -> None:
         self._remove_identity(
-            self._lines,
-            line,
-            "Line",
-        )
-
-    # ========================================================
-    # TRANSFORMER
-    # ========================================================
-
-    def add_transformer(
-        self,
-        transformer: Any,
-    ) -> None:
-        if transformer is None:
-            raise ValueError(
-                "transformer must not be None."
-            )
-
-        if self._contains_identity(
-            self._transformers,
-            transformer,
-        ):
-            raise ValueError(
-                "Transformer is already registered."
-            )
-
-        object_id = getattr(
-            transformer,
-            "id",
-            None,
-        )
-
-        if object_id is not None:
-            if self._find_identity(
-                self._transformers,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"Transformer ID {object_id!r} is already "
-                    "registered."
-                )
-
-        self._transformers.append(
-            transformer
-        )
-
-    def remove_transformer(
-        self,
-        transformer: Any,
-    ) -> None:
-        self._remove_identity(
-            self._transformers,
-            transformer,
-            "Transformer",
+            self._grids,
+            grid,
+            "Grid",
         )
 
     # ========================================================
@@ -379,37 +422,10 @@ class NetworkRegistry:
         self,
         generator: Any,
     ) -> None:
-        if generator is None:
-            raise ValueError(
-                "generator must not be None."
-            )
-
-        if self._contains_identity(
+        self._register(
             self._generators,
             generator,
-        ):
-            raise ValueError(
-                "Generator is already registered."
-            )
-
-        object_id = getattr(
-            generator,
-            "id",
-            None,
-        )
-
-        if object_id is not None:
-            if self._find_identity(
-                self._generators,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"Generator ID {object_id!r} is already "
-                    "registered."
-                )
-
-        self._generators.append(
-            generator
+            "Generator",
         )
 
     def remove_generator(
@@ -430,36 +446,11 @@ class NetworkRegistry:
         self,
         load: Any,
     ) -> None:
-        if load is None:
-            raise ValueError(
-                "load must not be None."
-            )
-
-        if self._contains_identity(
+        self._register(
             self._loads,
             load,
-        ):
-            raise ValueError(
-                "Load is already registered."
-            )
-
-        object_id = getattr(
-            load,
-            "id",
-            None,
+            "Load",
         )
-
-        if object_id is not None:
-            if self._find_identity(
-                self._loads,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"Load ID {object_id!r} is already "
-                    "registered."
-                )
-
-        self._loads.append(load)
 
     def remove_load(
         self,
@@ -479,36 +470,11 @@ class NetworkRegistry:
         self,
         shunt: Any,
     ) -> None:
-        if shunt is None:
-            raise ValueError(
-                "shunt must not be None."
-            )
-
-        if self._contains_identity(
+        self._register(
             self._shunts,
             shunt,
-        ):
-            raise ValueError(
-                "Shunt is already registered."
-            )
-
-        object_id = getattr(
-            shunt,
-            "id",
-            None,
+            "Shunt",
         )
-
-        if object_id is not None:
-            if self._find_identity(
-                self._shunts,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"Shunt ID {object_id!r} is already "
-                    "registered."
-                )
-
-        self._shunts.append(shunt)
 
     def remove_shunt(
         self,
@@ -521,81 +487,171 @@ class NetworkRegistry:
         )
 
     # ========================================================
-    # GRID
+    # LINE
     # ========================================================
 
-    def add_grid(
+    def add_line(
         self,
-        grid: Any,
+        line: Any,
     ) -> None:
-        if grid is None:
-            raise ValueError(
-                "grid must not be None."
-            )
-
-        if self._contains_identity(
-            self._grids,
-            grid,
-        ):
-            raise ValueError(
-                "Grid is already registered."
-            )
-
-        object_id = getattr(
-            grid,
-            "id",
-            None,
+        self._register(
+            self._lines,
+            line,
+            "Line",
         )
 
-        if object_id is not None:
-            if self._find_identity(
-                self._grids,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"Grid ID {object_id!r} is already "
-                    "registered."
-                )
-
-        self._grids.append(grid)
-
-    def remove_grid(
+    def remove_line(
         self,
-        grid: Any,
+        line: Any,
     ) -> None:
         self._remove_identity(
-            self._grids,
-            grid,
-            "Grid",
+            self._lines,
+            line,
+            "Line",
         )
 
     # ========================================================
-    # IDENTITY REMOVAL
+    # TRANSFORMER
     # ========================================================
 
-    @staticmethod
-    def _remove_identity(
-        collection: list[Any],
-        element: Any,
-        label: str,
+    def add_transformer(
+        self,
+        transformer: Any,
     ) -> None:
-        """
-        Remove exactly the registered object instance.
+        self._register(
+            self._transformers,
+            transformer,
+            "Transformer",
+        )
 
-        Equality is intentionally not used.
+    def remove_transformer(
+        self,
+        transformer: Any,
+    ) -> None:
+        self._remove_identity(
+            self._transformers,
+            transformer,
+            "Transformer",
+        )
 
-        Registry membership is identity-based.
-        """
+    # ========================================================
+    # BRANCH
+    # ========================================================
 
-        for index, existing in enumerate(
-            collection
-        ):
-            if existing is element:
-                collection.pop(index)
-                return
+    def add_branch(
+        self,
+        branch: Any,
+    ) -> None:
+        self._register(
+            self._branches,
+            branch,
+            "Branch",
+        )
 
-        raise KeyError(
-            f"{label} is not registered."
+    def remove_branch(
+        self,
+        branch: Any,
+    ) -> None:
+        self._remove_identity(
+            self._branches,
+            branch,
+            "Branch",
+        )
+
+    # ========================================================
+    # CABLE
+    # ========================================================
+
+    def add_cable(
+        self,
+        cable: Any,
+    ) -> None:
+        self._register(
+            self._cables,
+            cable,
+            "Cable",
+        )
+
+    def remove_cable(
+        self,
+        cable: Any,
+    ) -> None:
+        self._remove_identity(
+            self._cables,
+            cable,
+            "Cable",
+        )
+
+    # ========================================================
+    # SWITCH
+    # ========================================================
+
+    def add_switch(
+        self,
+        switch: Any,
+    ) -> None:
+        self._register(
+            self._switches,
+            switch,
+            "Switch",
+        )
+
+    def remove_switch(
+        self,
+        switch: Any,
+    ) -> None:
+        self._remove_identity(
+            self._switches,
+            switch,
+            "Switch",
+        )
+
+    # ========================================================
+    # DISCONNECTOR
+    # ========================================================
+
+    def add_disconnector(
+        self,
+        disconnector: Any,
+    ) -> None:
+        self._register(
+            self._disconnectors,
+            disconnector,
+            "Disconnector",
+        )
+
+    def remove_disconnector(
+        self,
+        disconnector: Any,
+    ) -> None:
+        self._remove_identity(
+            self._disconnectors,
+            disconnector,
+            "Disconnector",
+        )
+
+    # ========================================================
+    # FUSE
+    # ========================================================
+
+    def add_fuse(
+        self,
+        fuse: Any,
+    ) -> None:
+        self._register(
+            self._fuses,
+            fuse,
+            "Fuse",
+        )
+
+    def remove_fuse(
+        self,
+        fuse: Any,
+    ) -> None:
+        self._remove_identity(
+            self._fuses,
+            fuse,
+            "Fuse",
         )
 
 
