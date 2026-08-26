@@ -61,19 +61,27 @@ from ..endpoint_reference import EndpointReference
 CREATE_BUS = "model.create_bus"
 DELETE_BUS = "model.delete_bus"
 
-CREATE_LINE = "model.create_line"
-DELETE_LINE = "model.delete_line"
+CREATE_GRID = "model.create_grid"
+DELETE_GRID = "model.delete_grid"
+UPDATE_GRID = "model.update_grid"
 
-CREATE_TRANSFORMER = "model.create_transformer"
-DELETE_TRANSFORMER = "model.delete_transformer"
+CREATE_GENERATOR = "model.create_generator"
+UPDATE_GENERATOR = "model.update_generator"
+DELETE_GENERATOR = "model.delete_generator"
 
 CREATE_LOAD = "model.create_load"
 DELETE_LOAD = "model.delete_load"
 UPDATE_LOAD = "model.update_load"
 
-CREATE_GRID = "model.create_grid"
-DELETE_GRID = "model.delete_grid"
-UPDATE_GRID = "model.update_grid"
+CREATE_SHUNT = "model.create_shunt"
+UPDATE_SHUNT = "model.update_shunt"
+DELETE_SHUNT = "model.delete_shunt"
+
+CREATE_LINE = "model.create_line"
+DELETE_LINE = "model.delete_line"
+
+CREATE_TRANSFORMER = "model.create_transformer"
+DELETE_TRANSFORMER = "model.delete_transformer"
 
 CREATE_BRANCH = "model.create_branch"
 UPDATE_BRANCH = "model.update_branch"
@@ -168,245 +176,6 @@ class DeleteBusCommand(Command):
         super().__init__(
             command_type=DELETE_BUS,
             payload={"bus_id": bus_id},
-            command_id=command_id or uuid4(),
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
-
-
-# ============================================================
-# LINE
-# ============================================================
-
-class CreateLineCommand(Command):
-    """
-    Request creation of a canonical Core Line.
-
-    Endpoints remain immutable EndpointReference values.
-    """
-
-    def __init__(
-        self,
-        *,
-        line_id: str,
-        endpoint_from: EndpointReference,
-        endpoint_to: EndpointReference,
-        r: float,
-        x: float,
-        b: float = 0.0,
-        name: str = "",
-        rate_mva: float = 100.0,
-        command_id: UUID | None = None,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> None:
-        if not isinstance(endpoint_from, EndpointReference):
-            raise TypeError(
-                "endpoint_from must be an EndpointReference."
-            )
-
-        if not isinstance(endpoint_to, EndpointReference):
-            raise TypeError(
-                "endpoint_to must be an EndpointReference."
-            )
-
-        super().__init__(
-            command_type=CREATE_LINE,
-            payload={
-                "line_id": line_id,
-                "endpoint_from": endpoint_from,
-                "endpoint_to": endpoint_to,
-                "r": r,
-                "x": x,
-                "b": b,
-                "name": name,
-                "rate_mva": rate_mva,
-            },
-            command_id=command_id or uuid4(),
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
-
-
-class DeleteLineCommand(Command):
-    """Request deletion of a canonical Core Line."""
-
-    def __init__(
-        self,
-        *,
-        line_id: str,
-        command_id: UUID | None = None,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> None:
-        super().__init__(
-            command_type=DELETE_LINE,
-            payload={"line_id": line_id},
-            command_id=command_id or uuid4(),
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
-
-
-# ============================================================
-# TRANSFORMER
-# ============================================================
-
-class CreateTransformerCommand(Command):
-    """Request creation of a canonical Core Transformer."""
-
-    def __init__(
-        self,
-        *,
-        transformer_id: str,
-        endpoint_from: EndpointReference,
-        endpoint_to: EndpointReference,
-        r: float,
-        x: float,
-        tap: float = 1.0,
-        shift: float = 0.0,
-        name: str = "",
-        rate_mva: float = 100.0,
-        command_id: UUID | None = None,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> None:
-        if not isinstance(endpoint_from, EndpointReference):
-            raise TypeError(
-                "endpoint_from must be an EndpointReference."
-            )
-
-        if not isinstance(endpoint_to, EndpointReference):
-            raise TypeError(
-                "endpoint_to must be an EndpointReference."
-            )
-
-        super().__init__(
-            command_type=CREATE_TRANSFORMER,
-            payload={
-                "transformer_id": transformer_id,
-                "endpoint_from": endpoint_from,
-                "endpoint_to": endpoint_to,
-                "r": r,
-                "x": x,
-                "tap": tap,
-                "shift": shift,
-                "name": name,
-                "rate_mva": rate_mva,
-            },
-            command_id=command_id or uuid4(),
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
-
-
-class DeleteTransformerCommand(Command):
-    """Request deletion of a canonical Core Transformer."""
-
-    def __init__(
-        self,
-        *,
-        transformer_id: str,
-        command_id: UUID | None = None,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> None:
-        super().__init__(
-            command_type=DELETE_TRANSFORMER,
-            payload={"transformer_id": transformer_id},
-            command_id=command_id or uuid4(),
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
-
-
-# ============================================================
-# LOAD
-# ============================================================
-
-class CreateLoadCommand(Command):
-    """Request creation of a canonical Core Load."""
-
-    def __init__(
-        self,
-        *,
-        load_id: str,
-        p: float = 0.0,
-        q: float = 0.0,
-        name: str = "",
-        in_service: bool = True,
-        command_id: UUID | None = None,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> None:
-        super().__init__(
-            command_type=CREATE_LOAD,
-            payload={
-                "load_id": load_id,
-                "p": p,
-                "q": q,
-                "name": name,
-                "in_service": in_service,
-            },
-            command_id=command_id or uuid4(),
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
-
-
-class DeleteLoadCommand(Command):
-    """Request deletion of a canonical Core Load."""
-
-    def __init__(
-        self,
-        *,
-        load_id: str,
-        command_id: UUID | None = None,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> None:
-        super().__init__(
-            command_type=DELETE_LOAD,
-            payload={"load_id": load_id},
-            command_id=command_id or uuid4(),
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
-
-
-class UpdateLoadCommand(Command):
-    """Request mutation of an existing canonical Core Load."""
-
-    def __init__(
-        self,
-        *,
-        load_id: str,
-        name: str | None = None,
-        p: float | None = None,
-        q: float | None = None,
-        in_service: bool | None = None,
-        command_id: UUID | None = None,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> None:
-        if all(
-            value is None
-            for value in (name, p, q, in_service)
-        ):
-            raise ValueError(
-                "UpdateLoadCommand requires at least one "
-                "mutable Load field."
-            )
-
-        super().__init__(
-            command_type=UPDATE_LOAD,
-            payload={
-                "load_id": load_id,
-                "name": name,
-                "p": p,
-                "q": q,
-                "in_service": in_service,
-            },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
             causation_id=causation_id,
@@ -554,6 +323,523 @@ class UpdateGridCommand(Command):
                 "in_service": in_service,
                 "grounded": grounded,
             },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# GENERATOR
+# ============================================================
+
+class CreateGeneratorCommand(Command):
+    """
+    Request creation of a canonical Core Generator.
+
+    The endpoint is represented only by an EndpointReference.
+    Endpoint resolution is performed outside the command.
+    """
+
+    def __init__(
+        self,
+        *,
+        generator_id: str,
+        endpoint: EndpointReference | None = None,
+        p: float = 0.0,
+        q: float = 0.0,
+        V_setpoint: float = 1.0,
+        q_limits: tuple[float, float] = (
+            -float("inf"),
+            float("inf"),
+        ),
+        name: str = "",
+        in_service: bool = True,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if (
+            endpoint is not None
+            and not isinstance(endpoint, EndpointReference)
+        ):
+            raise TypeError(
+                "endpoint must be an EndpointReference or None."
+            )
+
+        if (
+            not isinstance(q_limits, tuple)
+            or len(q_limits) != 2
+        ):
+            raise TypeError(
+                "q_limits must be a two-element tuple."
+            )
+
+        super().__init__(
+            command_type=CREATE_GENERATOR,
+            payload={
+                "generator_id": generator_id,
+                "endpoint": endpoint,
+                "p": p,
+                "q": q,
+                "V_setpoint": V_setpoint,
+                "q_limits": q_limits,
+                "name": name,
+                "in_service": in_service,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class UpdateGeneratorCommand(Command):
+    """Request mutation of an existing Core Generator."""
+
+    def __init__(
+        self,
+        *,
+        generator_id: str,
+        p: float | None = None,
+        q: float | None = None,
+        V_setpoint: float | None = None,
+        q_limits: tuple[float, float] | None = None,
+        name: str | None = None,
+        in_service: bool | None = None,
+        endpoint: EndpointReference | None = None,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if (
+            endpoint is not None
+            and not isinstance(endpoint, EndpointReference)
+        ):
+            raise TypeError(
+                "endpoint must be an EndpointReference or None."
+            )
+
+        values = (
+            p,
+            q,
+            V_setpoint,
+            q_limits,
+            name,
+            in_service,
+            endpoint,
+        )
+
+        if all(value is None for value in values):
+            raise ValueError(
+                "UpdateGeneratorCommand requires at least one "
+                "mutable Generator field."
+            )
+
+        if (
+            q_limits is not None
+            and (
+                not isinstance(q_limits, tuple)
+                or len(q_limits) != 2
+            )
+        ):
+            raise TypeError(
+                "q_limits must be a two-element tuple."
+            )
+
+        super().__init__(
+            command_type=UPDATE_GENERATOR,
+            payload={
+                "generator_id": generator_id,
+                "p": p,
+                "q": q,
+                "V_setpoint": V_setpoint,
+                "q_limits": q_limits,
+                "name": name,
+                "in_service": in_service,
+                "endpoint": endpoint,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class DeleteGeneratorCommand(Command):
+    """Request deletion of a canonical Core Generator."""
+
+    def __init__(
+        self,
+        *,
+        generator_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        super().__init__(
+            command_type=DELETE_GENERATOR,
+            payload={"generator_id": generator_id},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# LOAD
+# ============================================================
+
+class CreateLoadCommand(Command):
+    """Request creation of a canonical Core Load."""
+
+    def __init__(
+        self,
+        *,
+        load_id: str,
+        p: float = 0.0,
+        q: float = 0.0,
+        name: str = "",
+        in_service: bool = True,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        super().__init__(
+            command_type=CREATE_LOAD,
+            payload={
+                "load_id": load_id,
+                "p": p,
+                "q": q,
+                "name": name,
+                "in_service": in_service,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class DeleteLoadCommand(Command):
+    """Request deletion of a canonical Core Load."""
+
+    def __init__(
+        self,
+        *,
+        load_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        super().__init__(
+            command_type=DELETE_LOAD,
+            payload={"load_id": load_id},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class UpdateLoadCommand(Command):
+    """Request mutation of an existing canonical Core Load."""
+
+    def __init__(
+        self,
+        *,
+        load_id: str,
+        name: str | None = None,
+        p: float | None = None,
+        q: float | None = None,
+        in_service: bool | None = None,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if all(
+            value is None
+            for value in (name, p, q, in_service)
+        ):
+            raise ValueError(
+                "UpdateLoadCommand requires at least one "
+                "mutable Load field."
+            )
+
+        super().__init__(
+            command_type=UPDATE_LOAD,
+            payload={
+                "load_id": load_id,
+                "name": name,
+                "p": p,
+                "q": q,
+                "in_service": in_service,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# SHUNT
+# ============================================================
+
+class CreateShuntCommand(Command):
+    """
+    Request creation of a canonical Core Shunt.
+
+    The endpoint is represented only by an EndpointReference.
+    """
+
+    def __init__(
+        self,
+        *,
+        shunt_id: str,
+        name: str = "",
+        endpoint: EndpointReference | None = None,
+        g_pu: float = 0.0,
+        b_pu: float = 0.0,
+        in_service: bool = True,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if (
+            endpoint is not None
+            and not isinstance(endpoint, EndpointReference)
+        ):
+            raise TypeError(
+                "endpoint must be an EndpointReference or None."
+            )
+
+        super().__init__(
+            command_type=CREATE_SHUNT,
+            payload={
+                "shunt_id": shunt_id,
+                "name": name,
+                "endpoint": endpoint,
+                "g_pu": g_pu,
+                "b_pu": b_pu,
+                "in_service": in_service,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class UpdateShuntCommand(Command):
+    """Request mutation of an existing Core Shunt."""
+
+    def __init__(
+        self,
+        *,
+        shunt_id: str,
+        name: str | None = None,
+        endpoint: EndpointReference | None = None,
+        g_pu: float | None = None,
+        b_pu: float | None = None,
+        in_service: bool | None = None,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if (
+            endpoint is not None
+            and not isinstance(endpoint, EndpointReference)
+        ):
+            raise TypeError(
+                "endpoint must be an EndpointReference or None."
+            )
+
+        if all(
+            value is None
+            for value in (
+                name,
+                endpoint,
+                g_pu,
+                b_pu,
+                in_service,
+            )
+        ):
+            raise ValueError(
+                "UpdateShuntCommand requires at least one "
+                "mutable Shunt field."
+            )
+
+        super().__init__(
+            command_type=UPDATE_SHUNT,
+            payload={
+                "shunt_id": shunt_id,
+                "name": name,
+                "endpoint": endpoint,
+                "g_pu": g_pu,
+                "b_pu": b_pu,
+                "in_service": in_service,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class DeleteShuntCommand(Command):
+    """Request deletion of a canonical Core Shunt."""
+
+    def __init__(
+        self,
+        *,
+        shunt_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        super().__init__(
+            command_type=DELETE_SHUNT,
+            payload={"shunt_id": shunt_id},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# LINE
+# ============================================================
+
+class CreateLineCommand(Command):
+    """
+    Request creation of a canonical Core Line.
+
+    Endpoints remain immutable EndpointReference values.
+    """
+
+    def __init__(
+        self,
+        *,
+        line_id: str,
+        endpoint_from: EndpointReference,
+        endpoint_to: EndpointReference,
+        r: float,
+        x: float,
+        b: float = 0.0,
+        name: str = "",
+        rate_mva: float = 100.0,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(endpoint_from, EndpointReference):
+            raise TypeError(
+                "endpoint_from must be an EndpointReference."
+            )
+
+        if not isinstance(endpoint_to, EndpointReference):
+            raise TypeError(
+                "endpoint_to must be an EndpointReference."
+            )
+
+        super().__init__(
+            command_type=CREATE_LINE,
+            payload={
+                "line_id": line_id,
+                "endpoint_from": endpoint_from,
+                "endpoint_to": endpoint_to,
+                "r": r,
+                "x": x,
+                "b": b,
+                "name": name,
+                "rate_mva": rate_mva,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class DeleteLineCommand(Command):
+    """Request deletion of a canonical Core Line."""
+
+    def __init__(
+        self,
+        *,
+        line_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        super().__init__(
+            command_type=DELETE_LINE,
+            payload={"line_id": line_id},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+# ============================================================
+# TRANSFORMER
+# ============================================================
+
+class CreateTransformerCommand(Command):
+    """Request creation of a canonical Core Transformer."""
+
+    def __init__(
+        self,
+        *,
+        transformer_id: str,
+        endpoint_from: EndpointReference,
+        endpoint_to: EndpointReference,
+        r: float,
+        x: float,
+        tap: float = 1.0,
+        shift: float = 0.0,
+        name: str = "",
+        rate_mva: float = 100.0,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(endpoint_from, EndpointReference):
+            raise TypeError(
+                "endpoint_from must be an EndpointReference."
+            )
+
+        if not isinstance(endpoint_to, EndpointReference):
+            raise TypeError(
+                "endpoint_to must be an EndpointReference."
+            )
+
+        super().__init__(
+            command_type=CREATE_TRANSFORMER,
+            payload={
+                "transformer_id": transformer_id,
+                "endpoint_from": endpoint_from,
+                "endpoint_to": endpoint_to,
+                "r": r,
+                "x": x,
+                "tap": tap,
+                "shift": shift,
+                "name": name,
+                "rate_mva": rate_mva,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class DeleteTransformerCommand(Command):
+    """Request deletion of a canonical Core Transformer."""
+
+    def __init__(
+        self,
+        *,
+        transformer_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        super().__init__(
+            command_type=DELETE_TRANSFORMER,
+            payload={"transformer_id": transformer_id},
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
             causation_id=causation_id,
@@ -1386,6 +1672,38 @@ __all__ = [
     "CreateBusCommand",
     "DeleteBusCommand",
 
+    # Grid
+    "CREATE_GRID",
+    "DELETE_GRID",
+    "UPDATE_GRID",
+    "CreateGridCommand",
+    "DeleteGridCommand",
+    "UpdateGridCommand",
+
+    # Generator
+    "CREATE_GENERATOR",
+    "UPDATE_GENERATOR",
+    "DELETE_GENERATOR",
+    "CreateGeneratorCommand",
+    "UpdateGeneratorCommand",
+    "DeleteGeneratorCommand",
+
+    # Load
+    "CREATE_LOAD",
+    "DELETE_LOAD",
+    "UPDATE_LOAD",
+    "CreateLoadCommand",
+    "DeleteLoadCommand",
+    "UpdateLoadCommand",
+
+    # Shunt
+    "CREATE_SHUNT",
+    "UPDATE_SHUNT",
+    "DELETE_SHUNT",
+    "CreateShuntCommand",
+    "UpdateShuntCommand",
+    "DeleteShuntCommand",
+
     # Line
     "CREATE_LINE",
     "DELETE_LINE",
@@ -1397,22 +1715,6 @@ __all__ = [
     "DELETE_TRANSFORMER",
     "CreateTransformerCommand",
     "DeleteTransformerCommand",
-
-    # Load
-    "CREATE_LOAD",
-    "DELETE_LOAD",
-    "UPDATE_LOAD",
-    "CreateLoadCommand",
-    "DeleteLoadCommand",
-    "UpdateLoadCommand",
-
-    # Grid
-    "CREATE_GRID",
-    "DELETE_GRID",
-    "UPDATE_GRID",
-    "CreateGridCommand",
-    "DeleteGridCommand",
-    "UpdateGridCommand",
 
     # Branch
     "CREATE_BRANCH",
