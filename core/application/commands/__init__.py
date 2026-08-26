@@ -5,22 +5,34 @@
 # ============================================================
 
 """
-GridForge V2 — Headless Application Commands.
- 
-This package contains immutable Application command contracts.
+GridForge V2 — Headless Application Commands
+=============================================
 
-Commands represent requested intent only.
+Public package API for immutable Application command contracts.
 
-They do NOT:
+This module is intentionally a thin re-export layer.
 
-* mutate Core;
-* mutate Network;
-* manipulate topology;
-* manipulate terminals;
-* execute Application Services;
-* access Qt;
-* access UI;
-* access graphics objects.
+Canonical command definitions live in:
+
+    core.application.commands.model_commands
+
+Commands represent Application intent only.
+
+They:
+
+    * do not mutate Core;
+    * do not mutate Network;
+    * do not resolve endpoints;
+    * do not manipulate topology;
+    * do not access UI state;
+    * do not access Qt;
+    * do not contain Core model objects;
+    * do not contain solver indices;
+    * do not contain Y-bus indices;
+    * do not contain numerical matrix data.
+
+Endpoint-bearing commands carry EndpointReference value objects.
+Endpoint resolution belongs to the Application handler boundary.
 
 Execution path
 --------------
@@ -37,128 +49,136 @@ Execution path
        Handler
           |
           v
-    Application Service
+    ModelService
           |
           v
-      Core Public API
+    Core / Network
 
-
-Current canonical model commands
---------------------------------
-
-    model.create_bus
-    model.delete_bus
-
-    model.create_line
-    model.delete_line
-
-    model.create_transformer
-    model.delete_transformer
-
-    model.create_load
-    model.delete_load
-    model.update_load
-
-    model.create_grid
-    model.delete_grid
-    model.update_grid
-
-
-Endpoint rule
--------------
-
-Line and Transformer creation commands carry EndpointReference
-values, not Core endpoint objects.
-
-An EndpointReference may identify:
-
-* a Bus by its Bus ID; or
-* a Terminal by equipment type, equipment ID, and terminal role.
-
-Endpoint resolution is performed by EndpointResolver during
-command-handler execution.
-
-
-Load rule
----------
-
-Load creation does not carry a Core Bus or Core Terminal.
-
-A Load is initially created as a disconnected Core model object.
-
-Load mutation is represented by UpdateLoadCommand.
-
-Topology attachment is handled separately by the appropriate
-Application topology workflow.
-
-
-Grid rule
----------
-
-Grid is a first-class electrical network element.
-
-Grid is NOT a Network container.
-
-Grid commands represent Grid model state only.
-
-Grid creation does not carry a Core Bus or Core Terminal.
-
-A Grid is initially created as a disconnected Core model object.
-
-Grid mutation is represented by UpdateGridCommand.
-
-Grid deletion is represented by DeleteGridCommand.
-
-Grid connectivity/topology attachment is handled separately
-by the appropriate Application topology workflow.
-
-Grid electrical power quantities use:
-
-    p_mw              -> MW
-    q_mvar            -> MVAr
-    short_circuit_mva -> MVA
+The command package is deliberately independent of the numerical
+analysis layer. Y-bus construction and numerical index reconciliation
+are outside this Application command contract and are audited separately.
 """
 
 from __future__ import annotations
 
 from .model_commands import (
+    # ========================================================
+    # BUS
+    # ========================================================
     CREATE_BUS,
     DELETE_BUS,
-
-    CREATE_LINE,
-    DELETE_LINE,
-
-    CREATE_TRANSFORMER,
-    DELETE_TRANSFORMER,
-
-    CREATE_LOAD,
-    DELETE_LOAD,
-
-    UPDATE_LOAD,
-
-    CREATE_GRID,
-    DELETE_GRID,
-
-    UPDATE_GRID,
-
     CreateBusCommand,
     DeleteBusCommand,
 
+    # ========================================================
+    # LINE
+    # ========================================================
+    CREATE_LINE,
+    DELETE_LINE,
     CreateLineCommand,
     DeleteLineCommand,
 
+    # ========================================================
+    # TRANSFORMER
+    # ========================================================
+    CREATE_TRANSFORMER,
+    DELETE_TRANSFORMER,
     CreateTransformerCommand,
     DeleteTransformerCommand,
 
+    # ========================================================
+    # LOAD
+    # ========================================================
+    CREATE_LOAD,
+    DELETE_LOAD,
+    UPDATE_LOAD,
     CreateLoadCommand,
     DeleteLoadCommand,
-
     UpdateLoadCommand,
 
+    # ========================================================
+    # GRID
+    # ========================================================
+    CREATE_GRID,
+    DELETE_GRID,
+    UPDATE_GRID,
     CreateGridCommand,
     DeleteGridCommand,
-
     UpdateGridCommand,
+
+    # ========================================================
+    # BRANCH
+    # ========================================================
+    CREATE_BRANCH,
+    UPDATE_BRANCH,
+    DELETE_BRANCH,
+    CreateBranchCommand,
+    UpdateBranchCommand,
+    DeleteBranchCommand,
+
+    # ========================================================
+    # CABLE
+    # ========================================================
+    CREATE_CABLE,
+    UPDATE_CABLE,
+    DELETE_CABLE,
+    CreateCableCommand,
+    UpdateCableCommand,
+    DeleteCableCommand,
+
+    # ========================================================
+    # SWITCH
+    # ========================================================
+    CREATE_SWITCH,
+    UPDATE_SWITCH,
+    DELETE_SWITCH,
+    OPEN_SWITCH,
+    CLOSE_SWITCH,
+    PUT_SWITCH_IN_SERVICE,
+    TAKE_SWITCH_OUT_OF_SERVICE,
+    CreateSwitchCommand,
+    UpdateSwitchCommand,
+    DeleteSwitchCommand,
+    OpenSwitchCommand,
+    CloseSwitchCommand,
+    PutSwitchInServiceCommand,
+    TakeSwitchOutOfServiceCommand,
+
+    # ========================================================
+    # DISCONNECTOR
+    # ========================================================
+    CREATE_DISCONNECTOR,
+    UPDATE_DISCONNECTOR,
+    DELETE_DISCONNECTOR,
+    OPEN_DISCONNECTOR,
+    CLOSE_DISCONNECTOR,
+    PUT_DISCONNECTOR_IN_SERVICE,
+    TAKE_DISCONNECTOR_OUT_OF_SERVICE,
+    CreateDisconnectorCommand,
+    UpdateDisconnectorCommand,
+    DeleteDisconnectorCommand,
+    OpenDisconnectorCommand,
+    CloseDisconnectorCommand,
+    PutDisconnectorInServiceCommand,
+    TakeDisconnectorOutOfServiceCommand,
+
+    # ========================================================
+    # FUSE
+    # ========================================================
+    CREATE_FUSE,
+    UPDATE_FUSE,
+    DELETE_FUSE,
+    BLOW_FUSE,
+    RESET_FUSE,
+    PUT_FUSE_IN_SERVICE,
+    TAKE_FUSE_OUT_OF_SERVICE,
+    CreateFuseCommand,
+    UpdateFuseCommand,
+    DeleteFuseCommand,
+    BlowFuseCommand,
+    ResetFuseCommand,
+    PutFuseInServiceCommand,
+    TakeFuseOutOfServiceCommand,
 )
 
 
@@ -167,41 +187,121 @@ from .model_commands import (
 # ============================================================
 
 __all__ = [
+    # ========================================================
+    # BUS
+    # ========================================================
     "CREATE_BUS",
     "DELETE_BUS",
-
-    "CREATE_LINE",
-    "DELETE_LINE",
-
-    "CREATE_TRANSFORMER",
-    "DELETE_TRANSFORMER",
-
-    "CREATE_LOAD",
-    "DELETE_LOAD",
-
-    "UPDATE_LOAD",
-
-    "CREATE_GRID",
-    "DELETE_GRID",
-
-    "UPDATE_GRID",
-
     "CreateBusCommand",
     "DeleteBusCommand",
 
+    # ========================================================
+    # LINE
+    # ========================================================
+    "CREATE_LINE",
+    "DELETE_LINE",
     "CreateLineCommand",
     "DeleteLineCommand",
 
+    # ========================================================
+    # TRANSFORMER
+    # ========================================================
+    "CREATE_TRANSFORMER",
+    "DELETE_TRANSFORMER",
     "CreateTransformerCommand",
     "DeleteTransformerCommand",
 
+    # ========================================================
+    # LOAD
+    # ========================================================
+    "CREATE_LOAD",
+    "DELETE_LOAD",
+    "UPDATE_LOAD",
     "CreateLoadCommand",
     "DeleteLoadCommand",
-
     "UpdateLoadCommand",
 
+    # ========================================================
+    # GRID
+    # ========================================================
+    "CREATE_GRID",
+    "DELETE_GRID",
+    "UPDATE_GRID",
     "CreateGridCommand",
     "DeleteGridCommand",
-
     "UpdateGridCommand",
+
+    # ========================================================
+    # BRANCH
+    # ========================================================
+    "CREATE_BRANCH",
+    "UPDATE_BRANCH",
+    "DELETE_BRANCH",
+    "CreateBranchCommand",
+    "UpdateBranchCommand",
+    "DeleteBranchCommand",
+
+    # ========================================================
+    # CABLE
+    # ========================================================
+    "CREATE_CABLE",
+    "UPDATE_CABLE",
+    "DELETE_CABLE",
+    "CreateCableCommand",
+    "UpdateCableCommand",
+    "DeleteCableCommand",
+
+    # ========================================================
+    # SWITCH
+    # ========================================================
+    "CREATE_SWITCH",
+    "UPDATE_SWITCH",
+    "DELETE_SWITCH",
+    "OPEN_SWITCH",
+    "CLOSE_SWITCH",
+    "PUT_SWITCH_IN_SERVICE",
+    "TAKE_SWITCH_OUT_OF_SERVICE",
+    "CreateSwitchCommand",
+    "UpdateSwitchCommand",
+    "DeleteSwitchCommand",
+    "OpenSwitchCommand",
+    "CloseSwitchCommand",
+    "PutSwitchInServiceCommand",
+    "TakeSwitchOutOfServiceCommand",
+
+    # ========================================================
+    # DISCONNECTOR
+    # ========================================================
+    "CREATE_DISCONNECTOR",
+    "UPDATE_DISCONNECTOR",
+    "DELETE_DISCONNECTOR",
+    "OPEN_DISCONNECTOR",
+    "CLOSE_DISCONNECTOR",
+    "PUT_DISCONNECTOR_IN_SERVICE",
+    "TAKE_DISCONNECTOR_OUT_OF_SERVICE",
+    "CreateDisconnectorCommand",
+    "UpdateDisconnectorCommand",
+    "DeleteDisconnectorCommand",
+    "OpenDisconnectorCommand",
+    "CloseDisconnectorCommand",
+    "PutDisconnectorInServiceCommand",
+    "TakeDisconnectorOutOfServiceCommand",
+
+    # ========================================================
+    # FUSE
+    # ========================================================
+    "CREATE_FUSE",
+    "UPDATE_FUSE",
+    "DELETE_FUSE",
+    "BLOW_FUSE",
+    "RESET_FUSE",
+    "PUT_FUSE_IN_SERVICE",
+    "TAKE_FUSE_OUT_OF_SERVICE",
+    "CreateFuseCommand",
+    "UpdateFuseCommand",
+    "DeleteFuseCommand",
+    "BlowFuseCommand",
+    "ResetFuseCommand",
+    "PutFuseInServiceCommand",
+    "TakeFuseOutOfServiceCommand",
 ]
