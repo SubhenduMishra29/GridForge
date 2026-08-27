@@ -96,7 +96,7 @@ from core.network.endpoint import resolve_terminal_bus
 @dataclass(frozen=True)
 class YBus:
     """
-    Immutable Y-bus representation metadata.
+    Immutable Y-bus numerical representation.
 
     Parameters
     ----------
