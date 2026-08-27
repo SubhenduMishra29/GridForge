@@ -1,31 +1,26 @@
 """
-GridForge V2
+GridForge V2 — Numerical Layer
+
 Author: Subhendu Mishra
 
-File:
-    core/numerical/__init__.py
+The Numerical layer owns mathematical representations and numerical state
+derived from the authoritative electrical network.
 
-Purpose:
-    Public package boundary for GridForge numerical representations.
+It must not own canonical electrical models or topology.
 
-Architectural Boundary:
-    This package contains numerical representations and numerical state
-    containers. It does not own physical equipment, network topology,
-    study semantics, UI, persistence, or solver algorithms.
-
-Frozen Principle:
-    Model      → physical/domain objects
-    Network    → topology
-    Study      → calculation meaning/formulation
-    Numerical  → numerical representation/state
-    Solver     → computation
-    Results    → calculated outputs
+Public API:
+    BusState
+    DynamicState
+    YBus
+    YBusBuilder
 """
 
 from .state import BusState, DynamicState
-
+from .ybus import YBus, YBusBuilder
 
 __all__ = [
     "BusState",
     "DynamicState",
+    "YBus",
+    "YBusBuilder",
 ]
