@@ -1,5 +1,7 @@
 # File: core/numerical/ybus.py
+
 # GridForge V2
+
 # Author: Subhendu Mishra
 
 """
@@ -55,7 +57,7 @@ Ysh = G + jB
 YBus is a derived numerical artifact and is not stored on Network.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -81,12 +83,16 @@ def __post_init__(self) -> None:
         )
 
     if self.matrix.ndim != 2:
-        raise ValueError("YBus matrix must be two-dimensional.")
+        raise ValueError(
+            "YBus matrix must be two-dimensional."
+        )
 
     rows, columns = self.matrix.shape
 
     if rows != columns:
-        raise ValueError("YBus matrix must be square.")
+        raise ValueError(
+            "YBus matrix must be square."
+        )
 
     if rows != len(self.bus_ids):
         raise ValueError(
@@ -99,7 +105,9 @@ def __post_init__(self) -> None:
         )
 
     if len(set(self.bus_ids)) != len(self.bus_ids):
-        raise ValueError("YBus bus_ids must be unique.")
+        raise ValueError(
+            "YBus bus_ids must be unique."
+        )
 
 @property
 def shape(self) -> tuple[int, int]:
@@ -173,7 +181,10 @@ that index to already be valid and never mutates it.
 
 def __init__(self, network: Any) -> None:
     if network is None:
-        raise ValueError("YBusBuilder requires a Network.")
+        raise ValueError(
+            "YBusBuilder requires a Network."
+        )
+
     self.network = network
 
 def build(self) -> YBus:
@@ -205,14 +216,11 @@ def build(self) -> YBus:
         if self._is_in_service(shunt):
             self._stamp_shunt(matrix, shunt)
 
-    result = YBus(
+    return YBus(
         matrix=matrix.tocsr(),
         bus_ids=tuple(str(bus.id) for bus in buses),
         topology_revision=self.network.topology_revision,
     )
-
-    result.validate()
-    return result
 
 def _require_valid_network_index(
     self,
@@ -221,10 +229,14 @@ def _require_valid_network_index(
     """
     Require a valid, already-prepared authoritative BusIndex.
 
-    No rebuild/ensure/invalidate operation is permitted here.
+    No rebuild, ensure, or invalidate operation is permitted here.
     """
 
-    index = getattr(self.network, "index", None)
+    index = getattr(
+        self.network,
+        "index",
+        None,
+    )
 
     if index is None:
         raise AttributeError(
@@ -251,8 +263,8 @@ def _require_valid_network_index(
 
     if set(mapping) != expected_ids:
         raise RuntimeError(
-            "Network BusIndex does not correspond to the current "
-            "Network bus membership."
+            "Network BusIndex does not correspond to the "
+            "current Network bus membership."
         )
 
     expected_positions = set(range(len(buses)))
@@ -260,7 +272,7 @@ def _require_valid_network_index(
     if set(mapping.values()) != expected_positions:
         raise RuntimeError(
             "Network BusIndex does not provide a complete "
-            "deterministic bus ordering."
+            "matrix ordering."
         )
 
 def _stamp_line(
@@ -272,6 +284,7 @@ def _stamp_line(
         line,
         "from_terminal",
     )
+
     to_bus = self._resolve_branch_bus(
         line,
         "to_terminal",
@@ -281,7 +294,9 @@ def _stamp_line(
     j = self._bus_index(to_bus)
 
     try:
-        y_series = complex(line.series_admittance)
+        y_series = complex(
+            line.series_admittance
+        )
     except (
         AttributeError,
         TypeError,
@@ -292,13 +307,32 @@ def _stamp_line(
             "does not provide a valid series_admittance."
         ) from exc
 
-    b_total = float(
-        getattr(
-            line,
-            "total_shunt_susceptance",
-            0.0,
+    if not np.isfinite(
+        y_series.real
+    ) or not np.isfinite(
+        y_series.imag
+    ):
+        raise ValueError(
+            f"Line '{getattr(line, 'id', line)}' "
+            "has a non-finite series admittance."
         )
-    )
+
+    try:
+        b_total = float(
+            getattr(
+                line,
+                "total_shunt_susceptance",
+                0.0,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            f"Line '{getattr(line, 'id', line)}' "
+            "has invalid total shunt susceptance."
+        ) from exc
 
     if not np.isfinite(b_total):
         raise ValueError(
@@ -308,8 +342,12 @@ def _stamp_line(
 
     y_shunt_half = 1j * b_total / 2.0
 
-    matrix[i, i] += y_series + y_shunt_half
-    matrix[j, j] += y_series + y_shunt_half
+    matrix[i, i] += (
+        y_series + y_shunt_half
+    )
+    matrix[j, j] += (
+        y_series + y_shunt_half
+    )
     matrix[i, j] -= y_series
     matrix[j, i] -= y_series
 
@@ -322,6 +360,7 @@ def _stamp_transformer(
         transformer,
         "from_terminal",
     )
+
     to_bus = self._resolve_branch_bus(
         transformer,
         "to_terminal",
@@ -344,6 +383,17 @@ def _stamp_transformer(
             f"'{getattr(transformer, 'id', transformer)}' "
             "does not provide a valid series_admittance."
         ) from exc
+
+    if not np.isfinite(
+        y_series.real
+    ) or not np.isfinite(
+        y_series.imag
+    ):
+        raise ValueError(
+            f"Transformer "
+            f"'{getattr(transformer, 'id', transformer)}' "
+            "has a non-finite series admittance."
+        )
 
     try:
         tap = float(transformer.tap)
@@ -373,26 +423,41 @@ def _stamp_transformer(
             "has an invalid phase shift."
         )
 
-    complex_tap = tap * np.exp(1j * shift)
+    complex_tap = (
+        tap * np.exp(1j * shift)
+    )
 
     matrix[i, i] += (
         y_series / abs(complex_tap) ** 2
     )
+
     matrix[i, j] -= (
         y_series / np.conj(complex_tap)
     )
+
     matrix[j, i] -= (
         y_series / complex_tap
     )
+
     matrix[j, j] += y_series
 
-    b_total = float(
-        getattr(
-            transformer,
-            "b_pu",
-            0.0,
+    try:
+        b_total = float(
+            getattr(
+                transformer,
+                "b_pu",
+                0.0,
+            )
         )
-    )
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            f"Transformer "
+            f"'{getattr(transformer, 'id', transformer)}' "
+            "has invalid shunt susceptance."
+        ) from exc
 
     if not np.isfinite(b_total):
         raise ValueError(
@@ -414,12 +479,30 @@ def _stamp_shunt(
     bus = self._resolve_shunt_bus(shunt)
     index = self._bus_index(bus)
 
-    conductance = float(
-        getattr(shunt, "g_pu", 0.0)
-    )
-    susceptance = float(
-        getattr(shunt, "b_pu", 0.0)
-    )
+    try:
+        conductance = float(
+            getattr(
+                shunt,
+                "g_pu",
+                0.0,
+            )
+        )
+
+        susceptance = float(
+            getattr(
+                shunt,
+                "b_pu",
+                0.0,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            f"Shunt '{getattr(shunt, 'id', shunt)}' "
+            "has invalid numerical parameters."
+        ) from exc
 
     if not np.isfinite(conductance):
         raise ValueError(
@@ -458,6 +541,14 @@ def _resolve_branch_bus(
 
     bus = resolve_terminal_bus(terminal)
 
+    if bus is None:
+        raise ValueError(
+            f"{type(element).__name__} "
+            f"'{getattr(element, 'id', element)}' "
+            f"terminal '{terminal_name}' "
+            "does not resolve to a Bus."
+        )
+
     self._require_registered_bus(
         element,
         terminal_name,
@@ -485,6 +576,13 @@ def _resolve_shunt_bus(
 
     bus = resolve_terminal_bus(terminal)
 
+    if bus is None:
+        raise ValueError(
+            f"Shunt "
+            f"'{getattr(shunt, 'id', shunt)}' "
+            "terminal does not resolve to a Bus."
+        )
+
     self._require_registered_bus(
         shunt,
         "terminal",
@@ -499,14 +597,6 @@ def _require_registered_bus(
     terminal_name: str,
     bus: Any,
 ) -> None:
-    if bus is None:
-        raise ValueError(
-            f"{type(element).__name__} "
-            f"'{getattr(element, 'id', element)}' "
-            f"terminal '{terminal_name}' "
-            "does not resolve to a Bus."
-        )
-
     if not any(
         registered_bus is bus
         for registered_bus in self.network.buses
@@ -520,7 +610,11 @@ def _require_registered_bus(
         )
 
 def _bus_index(self, bus: Any) -> int:
-    index = getattr(self.network, "index", None)
+    index = getattr(
+        self.network,
+        "index",
+        None,
+    )
 
     if index is None:
         raise AttributeError(
@@ -535,7 +629,9 @@ def _bus_index(self, bus: Any) -> int:
     bus_id = getattr(bus, "id", None)
 
     if bus_id is None:
-        raise ValueError("Bus must provide an id.")
+        raise ValueError(
+            "Bus must provide an id."
+        )
 
     try:
         value = index.get(bus_id)
@@ -574,10 +670,9 @@ def _is_in_service(element: Any) -> bool:
     )
 
 @staticmethod
-def validate_matrix(ybus: Any) -> None:
-    if ybus is None:
-        raise ValueError("Y-bus cannot be None.")
-
+def validate_matrix(
+    ybus: csr_matrix,
+) -> None:
     if not isinstance(ybus, csr_matrix):
         raise TypeError(
             "Y-bus must be a scipy.sparse.csr_matrix."
@@ -611,7 +706,9 @@ def __repr__(self) -> str:
     )
 ```
 
-**all** = [
+__all__ = [
 "YBus",
 "YBusBuilder",
 ]
+
+
