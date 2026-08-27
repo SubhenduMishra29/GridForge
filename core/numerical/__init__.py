@@ -1,26 +1,59 @@
+# File: core/numerical/**init**.py
+
+# GridForge V2
+
+# Author: Subhendu Mishra
+
 """
-GridForge V2 — Numerical Layer
+GridForge V2 — Numerical Layer.
 
-Author: Subhendu Mishra
+The Numerical layer owns derived mathematical representations and
+numerical state produced from authoritative electrical Network/Model
+data.
 
-The Numerical layer owns mathematical representations and numerical state
-derived from the authoritative electrical network.
+## Ownership boundary
 
-It must not own canonical electrical models or topology.
+Network owns:
+- canonical electrical models
+- Network membership
+- topology
+- terminal relationships
+- authoritative BusIndex
+- topology revision
 
-Public API:
-    BusState
-    DynamicState
-    YBus
-    YBusBuilder
+Numerical owns:
+- numerical state
+- numerical representations
+- Y-bus construction
+- derived numerical artifacts
+
+Solver owns:
+- numerical solution algorithms
+
+Numerical must not:
+- own physical equipment models;
+- own Network topology;
+- own NetworkState;
+- own the authoritative BusIndex;
+- mutate Network;
+- implement study orchestration;
+- implement solver algorithms;
+- depend on UI or plugins.
+
+## Public API
+
+BusState
+DynamicState
+YBus
+YBusBuilder
 """
 
 from .state import BusState, DynamicState
 from .ybus import YBus, YBusBuilder
 
 __all__ = [
-    "BusState",
-    "DynamicState",
-    "YBus",
-    "YBusBuilder",
+"BusState",
+"DynamicState",
+"YBus",
+"YBusBuilder",
 ]
