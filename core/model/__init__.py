@@ -19,7 +19,7 @@ The model layer owns:
     - electrical parameters
     - terminals
     - local equipment connectivity
-    - equipment operating state
+    - physical equipment operating state
     - electrical injection contracts
     - ratings and limits
     - local validation
@@ -31,17 +31,51 @@ The model layer does NOT own:
     - graph construction
     - network connectivity algorithms
     - Y-bus construction
+    - numerical state
     - numerical solving
     - power-flow calculations
     - short-circuit calculations
     - protection coordination
     - dynamic simulation
+    - study formulation
+    - study results
     - GUI state
     - SLD geometry
     - rendering
+    - persistence
 
 Those responsibilities belong to the appropriate Network,
-Solver, Analysis, Protection, Simulation, Plugin, and UI layers.
+Numerical, Study, Solver, Analysis, Protection, Simulation,
+Persistence, Plugin, and UI layers.
+
+Public API Principle
+--------------------
+This package exposes stable physical-model contracts and built-in
+physical model types.
+
+Numerical state is deliberately NOT exported from this package.
+
+In particular:
+
+    BusState
+    DynamicState
+
+belong to:
+
+    core.numerical
+
+Likewise, load-flow formulation concepts such as:
+
+    PQ
+    PV
+    SLACK
+
+are Study/Numerical concepts and are therefore not exposed as
+fundamental Bus model types.
+
+Plugin-defined models must not require modification of this module
+merely to exist. Plugin discovery and registration belong to the
+Registry / Plugin infrastructure.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -63,7 +97,7 @@ from .injection import Injection
 # NETWORK / ELECTRICAL ELEMENTS
 # =====================================================================
 
-from .bus import Bus, BusType
+from .bus import Bus
 from .branch import Branch
 from .line import Line
 from .cable import Cable
@@ -81,10 +115,12 @@ from .fuse import Fuse
 
 from .load import Load
 from .generator import Generator
+
 from .synchronous_machine import (
     SynchronousMachine,
     SyncMachine,
 )
+
 from .motor import Motor
 
 from .shunt import Shunt
@@ -119,20 +155,10 @@ from .cvt import CVT
 
 
 # =====================================================================
-# PROTECTION
+# PROTECTION DEVICE MODEL
 # =====================================================================
 
 from .relay import Relay
-
-
-# =====================================================================
-# STATE MODELS
-# =====================================================================
-
-from .state import (
-    BusState,
-    DynamicState,
-)
 
 
 # =====================================================================
@@ -151,7 +177,6 @@ __all__ = (
     # Network / electrical elements
     # -----------------------------------------------------------------
     "Bus",
-    "BusType",
     "Branch",
     "Line",
     "Cable",
@@ -181,7 +206,7 @@ __all__ = (
     "Grid",
 
     # -----------------------------------------------------------------
-    # Measurement
+    # Measurement / instrument transformers
     # -----------------------------------------------------------------
     "CTPolarity",
     "CurrentTransformer",
@@ -190,13 +215,7 @@ __all__ = (
     "CVT",
 
     # -----------------------------------------------------------------
-    # Protection
+    # Protection device
     # -----------------------------------------------------------------
     "Relay",
-
-    # -----------------------------------------------------------------
-    # State
-    # -----------------------------------------------------------------
-    "BusState",
-    "DynamicState",
 )
