@@ -11,62 +11,37 @@ GridForge V2 — Numerical Y-Bus Representation
 The Numerical layer owns the mathematical Y-bus representation
 derived from the authoritative electrical Network.
 
-Architecture
-------------
-
-    core.model
-        canonical physical models
-              |
-              v
-        core.network
-        ----------------
-        Registry
-        Topology
-        Endpoint resolution
-        BusIndex
-              |
-              v
-        core.numerical
-        ----------------
-        YBusBuilder
-              |
-              v
-             YBus
-              |
-              v
-        Analysis / Solver
-
 Ownership
 ---------
 
-    Network
-        owns canonical electrical objects, membership, topology,
-        endpoint relationships, and deterministic bus identity/indexing.
+Network owns:
+    - canonical electrical models
+    - registry/membership
+    - topology
+    - terminal relationships
+    - authoritative BusIndex
 
-    Numerical
-        owns derived mathematical representations such as YBus.
+Numerical owns:
+    - derived Y-bus representation
+    - numerical matrix construction
 
-    Solver
-        consumes numerical representations and numerical state.
+Solver owns:
+    - numerical solution procedures
 
-YBus is NOT authoritative electrical network state.
+YBusBuilder is a read-only consumer of the Network.
 
-YBusBuilder is intentionally read-only with respect to the
-canonical Network and model objects.
+It MUST NOT:
+    - rebuild the Network BusIndex
+    - mutate Network topology
+    - register/remove equipment
+    - modify canonical model objects
+    - perform power-flow calculations
+    - perform short-circuit calculations
+    - perform engineering validation
+    - perform GUI/application operations
 
-The builder does not:
-
-- register network elements;
-- remove network elements;
-- modify buses;
-- modify branches;
-- modify topology;
-- assign or redefine bus indices;
-- perform power-flow calculations;
-- perform short-circuit calculations;
-- perform engineering validation;
-- manage application commands;
-- perform GUI operations.
+Before YBusBuilder.build() is called, Network.index MUST already
+be valid and correspond to the current Network bus membership.
 
 Electrical conventions
 ----------------------
@@ -83,30 +58,23 @@ Transformer:
     Z = R + jX
     Y = 1 / Z
 
-For complex off-nominal tap:
-
-    a = |tap| exp(j*shift)
-
-The standard two-winding transformer contribution is:
+    a = tap * exp(j * shift)
 
     Yii += Y / |a|²
     Yij -= Y / conj(a)
     Yji -= Y / a
     Yjj += Y
 
-Transformer shunt susceptance, when present, is treated as a
-total shunt susceptance and split equally between the two sides.
+Transformer shunt susceptance, when explicitly supplied by the
+model, is treated as total susceptance and divided equally between
+the two terminals.
 
 Shunt:
 
     Ysh = G + jB
 
-Network endpoint resolution remains a Network responsibility.
-
-The numerical layer consumes the resolver; it does not duplicate
-terminal-to-bus relationship management.
-
-GridForge V2
+The resulting YBus is a derived numerical artifact. It is not
+stored as authoritative state on Network.
 """
 
 from __future__ import annotations
@@ -128,7 +96,7 @@ from core.network.endpoint import resolve_terminal_bus
 @dataclass(frozen=True)
 class YBus:
     """
-    Numerical Y-bus representation.
+    Immutable Y-bus representation metadata.
 
     Parameters
     ----------
@@ -136,17 +104,11 @@ class YBus:
         Complex sparse CSR nodal-admittance matrix.
 
     bus_ids:
-        Bus identifiers in exactly the matrix row/column order.
+        Bus identifiers in matrix row/column order.
 
     revision:
         Optional Network revision associated with this derived
-        representation.
-
-    Notes
-    -----
-    YBus is a derived Numerical artifact.
-
-    It does not own or mutate the canonical Network.
+        numerical representation.
     """
 
     matrix: csr_matrix
@@ -154,7 +116,7 @@ class YBus:
     revision: Optional[int] = None
 
     def __post_init__(self) -> None:
-        """Validate the numerical representation."""
+        """Validate the structural numerical representation."""
 
         if not isinstance(self.matrix, csr_matrix):
             raise TypeError(
@@ -189,7 +151,7 @@ class YBus:
             )
 
     # ========================================================
-    # BASIC NUMERICAL ACCESS
+    # BASIC ACCESS
     # ========================================================
 
     @property
@@ -200,7 +162,7 @@ class YBus:
 
     @property
     def size(self) -> int:
-        """Return the total number of matrix elements."""
+        """Return the total matrix element count."""
 
         return self.matrix.size
 
@@ -228,17 +190,13 @@ class YBus:
 
     def index_of(self, bus_id: str) -> int:
         """
-        Return the matrix index associated with a bus identifier.
-
-        The mapping is derived from the canonical Network BusIndex
-        when the YBus is constructed.
+        Return the numerical matrix index for a bus identifier.
         """
 
         try:
             return self.bus_ids.index(bus_id)
 
         except ValueError as exc:
-
             raise KeyError(
                 f"Bus '{bus_id}' is not present in this YBus."
             ) from exc
@@ -248,17 +206,12 @@ class YBus:
     # ========================================================
 
     def __getitem__(self, key: Any) -> Any:
-        """Delegate matrix indexing to the CSR representation."""
+        """Delegate indexing to the underlying CSR matrix."""
 
         return self.matrix[key]
 
     def tocsr(self) -> csr_matrix:
-        """
-        Return the underlying CSR matrix.
-
-        A CSR matrix is already the canonical stored representation,
-        so this operation returns the same matrix object.
-        """
+        """Return the underlying CSR matrix."""
 
         return self.matrix
 
@@ -273,7 +226,7 @@ class YBus:
         return self.matrix.toarray()
 
     def copy(self) -> "YBus":
-        """Return an independent copy of the numerical artifact."""
+        """Return an independent copy of the YBus artifact."""
 
         return YBus(
             matrix=self.matrix.copy(),
@@ -317,30 +270,31 @@ class YBusBuilder:
     """
     Construct a Numerical YBus from an authoritative Network.
 
-    The Network supplies:
+    BusIndex contract
+    -----------------
 
-    - canonical buses;
-    - canonical branches and shunts;
-    - terminal relationships;
-    - deterministic BusIndex mapping.
+    The Network owns the canonical BusIndex.
 
-    The builder supplies:
+    YBusBuilder requires that index to already be valid.
 
-    - numerical admittance conversion;
-    - matrix stamping;
-    - derived YBus construction.
+    YBusBuilder NEVER calls:
 
-    The builder never stores the YBus on the Network.
+        index.ensure()
+        index.rebuild()
+        index.invalidate()
+
+    Consequently, constructing a YBus does not mutate Network
+    numerical-index state.
     """
 
     # ========================================================
     # INITIALIZATION
     # ========================================================
 
-    def __init__(
-        self,
-        network: Any,
-    ) -> None:
+    def __init__(self, network: Any) -> None:
+        """
+        Create a YBusBuilder for an authoritative Network.
+        """
 
         if network is None:
             raise ValueError(
@@ -357,12 +311,9 @@ class YBusBuilder:
         """
         Build and return a Numerical YBus.
 
-        The canonical Network remains unchanged.
+        The Network BusIndex must already be valid.
 
-        Returns
-        -------
-        YBus
-            Derived complex sparse nodal-admittance representation.
+        The canonical Network and its BusIndex are never modified.
         """
 
         buses = tuple(
@@ -374,7 +325,7 @@ class YBusBuilder:
                 "Cannot build Y-bus for a Network with no buses."
             )
 
-        self._ensure_network_index(
+        self._require_valid_network_index(
             buses
         )
 
@@ -390,7 +341,6 @@ class YBusBuilder:
         # ----------------------------------------------------
 
         for line in self.network.lines:
-
             if not self._is_in_service(line):
                 continue
 
@@ -404,7 +354,6 @@ class YBusBuilder:
         # ----------------------------------------------------
 
         for transformer in self.network.transformers:
-
             if not self._is_in_service(transformer):
                 continue
 
@@ -418,7 +367,6 @@ class YBusBuilder:
         # ----------------------------------------------------
 
         for shunt in self.network.shunts:
-
             if not self._is_in_service(shunt):
                 continue
 
@@ -451,20 +399,19 @@ class YBusBuilder:
         return result
 
     # ========================================================
-    # NETWORK INDEX
+    # INDEX CONTRACT
     # ========================================================
 
-    def _ensure_network_index(
+    def _require_valid_network_index(
         self,
         buses: tuple[Any, ...],
     ) -> None:
         """
-        Ensure that the authoritative Network BusIndex contains
-        every canonical bus.
+        Require an already-prepared authoritative Network BusIndex.
 
-        BusIndex remains owned by Network.
+        This method is deliberately read-only.
 
-        This method does not create a second numerical index.
+        It does not call ensure(), rebuild(), or invalidate().
         """
 
         index = getattr(
@@ -478,20 +425,59 @@ class YBusBuilder:
                 "Network must provide an authoritative BusIndex."
             )
 
-        ensure = getattr(
+        valid = getattr(
             index,
-            "ensure",
+            "valid",
             None,
         )
 
-        if ensure is None:
-            raise AttributeError(
-                "Network BusIndex must provide ensure()."
+        if valid is not True:
+            raise RuntimeError(
+                "Network BusIndex is invalid or not prepared. "
+                "Rebuild the Network BusIndex before constructing YBus."
             )
 
-        ensure(
-            buses
-        )
+        for bus in buses:
+            bus_id = getattr(
+                bus,
+                "id",
+                None,
+            )
+
+            if bus_id is None:
+                raise ValueError(
+                    "Every Network Bus must provide an id."
+                )
+
+            try:
+                value = index.get(
+                    bus_id
+                )
+
+            except (
+                KeyError,
+                AttributeError,
+                TypeError,
+                ValueError,
+            ) as exc:
+                raise RuntimeError(
+                    f"Network BusIndex does not contain "
+                    f"Bus '{bus_id}'. "
+                    "Rebuild the Network BusIndex before "
+                    "constructing YBus."
+                ) from exc
+
+            if not isinstance(value, int):
+                raise TypeError(
+                    f"Network BusIndex returned a non-integer "
+                    f"index for Bus '{bus_id}'."
+                )
+
+            if value < 0 or value >= len(buses):
+                raise ValueError(
+                    f"Network BusIndex returned invalid index "
+                    f"{value} for Bus '{bus_id}'."
+                )
 
     # ========================================================
     # LINE STAMPING
@@ -503,12 +489,7 @@ class YBusBuilder:
         line: Any,
     ) -> None:
         """
-        Stamp a canonical Line using its explicit numerical model.
-
-        The audited Line model provides:
-
-            series_admittance
-            total_shunt_susceptance
+        Stamp a canonical Line using its explicit electrical model.
         """
 
         from_bus = self._resolve_branch_bus(
@@ -529,9 +510,20 @@ class YBusBuilder:
             to_bus,
         )
 
-        y_series = complex(
-            line.series_admittance
-        )
+        try:
+            y_series = complex(
+                line.series_admittance
+            )
+
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                f"Line '{getattr(line, 'id', line)}' "
+                "does not provide a valid series_admittance."
+            ) from exc
 
         b_total = float(
             getattr(
@@ -540,6 +532,12 @@ class YBusBuilder:
                 0.0,
             )
         )
+
+        if not np.isfinite(b_total):
+            raise ValueError(
+                f"Line '{getattr(line, 'id', line)}' "
+                "has invalid total shunt susceptance."
+            )
 
         y_shunt_half = (
             1j * b_total / 2.0
@@ -568,15 +566,7 @@ class YBusBuilder:
         transformer: Any,
     ) -> None:
         """
-        Stamp a canonical Transformer.
-
-        Transformer parameters are taken directly from the audited
-        Transformer model:
-
-            series_admittance
-            shunt_admittance
-            tap
-            shift
+        Stamp a canonical two-winding Transformer.
         """
 
         from_bus = self._resolve_branch_bus(
@@ -597,9 +587,21 @@ class YBusBuilder:
             to_bus,
         )
 
-        y_series = complex(
-            transformer.series_admittance
-        )
+        try:
+            y_series = complex(
+                transformer.series_admittance
+            )
+
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                f"Transformer "
+                f"'{getattr(transformer, 'id', transformer)}' "
+                "does not provide a valid series_admittance."
+            ) from exc
 
         tap = float(
             transformer.tap
@@ -647,7 +649,10 @@ class YBusBuilder:
 
         matrix[j, j] += y_series
 
-        # Transformer model b is total shunt susceptance.
+        # ----------------------------------------------------
+        # Optional total transformer shunt susceptance.
+        # ----------------------------------------------------
+
         b_total = float(
             getattr(
                 transformer,
@@ -655,6 +660,13 @@ class YBusBuilder:
                 0.0,
             )
         )
+
+        if not np.isfinite(b_total):
+            raise ValueError(
+                f"Transformer "
+                f"'{getattr(transformer, 'id', transformer)}' "
+                "has invalid shunt susceptance."
+            )
 
         y_shunt_half = (
             1j * b_total / 2.0
@@ -675,22 +687,22 @@ class YBusBuilder:
         """
         Stamp a canonical Shunt.
 
-        The audited Shunt model stores:
+        The audited Shunt contract is:
 
             g_pu
             b_pu
 
-        and therefore:
+        with:
 
             Y = G + jB
         """
 
         bus = self._resolve_shunt_bus(
-            shunt,
+            shunt
         )
 
         index = self._bus_index(
-            bus,
+            bus
         )
 
         conductance = float(
@@ -709,18 +721,14 @@ class YBusBuilder:
             )
         )
 
-        if not np.isfinite(
-            conductance
-        ):
+        if not np.isfinite(conductance):
             raise ValueError(
                 f"Shunt "
                 f"'{getattr(shunt, 'id', shunt)}' "
                 "has invalid conductance."
             )
 
-        if not np.isfinite(
-            susceptance
-        ):
+        if not np.isfinite(susceptance):
             raise ValueError(
                 f"Shunt "
                 f"'{getattr(shunt, 'id', shunt)}' "
@@ -744,8 +752,7 @@ class YBusBuilder:
         """
         Resolve a branch terminal to its canonical Network Bus.
 
-        Terminal-to-bus interpretation remains delegated to the
-        Network endpoint resolver.
+        Terminal interpretation remains a Network responsibility.
         """
 
         terminal = getattr(
@@ -778,7 +785,7 @@ class YBusBuilder:
         shunt: Any,
     ) -> Any:
         """
-        Resolve a canonical Shunt terminal to its Bus.
+        Resolve a Shunt terminal to its canonical Network Bus.
         """
 
         terminal = getattr(
@@ -813,7 +820,9 @@ class YBusBuilder:
         bus: Any,
     ) -> None:
         """
-        Ensure that the resolved Bus belongs to this Network.
+        Ensure the resolved Bus belongs to this Network.
+
+        This is a consistency check only; it does not mutate Network.
         """
 
         if bus is None:
@@ -824,11 +833,11 @@ class YBusBuilder:
                 "does not resolve to a Bus."
             )
 
-        buses = tuple(
+        network_buses = tuple(
             self.network.buses
         )
 
-        if bus not in buses:
+        if bus not in network_buses:
             raise ValueError(
                 f"{type(element).__name__} "
                 f"'{getattr(element, 'id', element)}' "
@@ -846,9 +855,9 @@ class YBusBuilder:
         bus: Any,
     ) -> int:
         """
-        Obtain the authoritative Network BusIndex value.
+        Read an already-prepared Network BusIndex.
 
-        Numerical does not create a competing index mapping.
+        No index mutation is permitted here.
         """
 
         index = getattr(
@@ -862,35 +871,53 @@ class YBusBuilder:
                 "Network must provide an authoritative BusIndex."
             )
 
-        get = getattr(
+        valid = getattr(
             index,
-            "get",
+            "valid",
             None,
         )
 
-        if get is None:
-            raise AttributeError(
-                "Network BusIndex must provide get()."
+        if valid is not True:
+            raise RuntimeError(
+                "Network BusIndex is invalid or not prepared."
+            )
+
+        bus_id = getattr(
+            bus,
+            "id",
+            None,
+        )
+
+        if bus_id is None:
+            raise ValueError(
+                "Bus must provide an id."
             )
 
         try:
-            value = int(
-                get(bus.id)
+            value = index.get(
+                bus_id
             )
 
-        except (KeyError, AttributeError, TypeError, ValueError) as exc:
-
-            raise ValueError(
-                f"Bus "
-                f"'{getattr(bus, 'id', bus)}' "
-                "does not have a valid matrix index."
+        except (
+            KeyError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise KeyError(
+                f"Bus '{bus_id}' is not present "
+                "in the valid Network BusIndex."
             ) from exc
+
+        if not isinstance(value, int):
+            raise TypeError(
+                f"Network BusIndex returned a non-integer "
+                f"index for Bus '{bus_id}'."
+            )
 
         if value < 0:
             raise ValueError(
-                f"Bus "
-                f"'{getattr(bus, 'id', bus)}' "
-                "has a negative matrix index."
+                f"Bus '{bus_id}' has a negative matrix index."
             )
 
         return value
@@ -904,11 +931,10 @@ class YBusBuilder:
         element: Any,
     ) -> bool:
         """
-        Return whether an element participates in the numerical
-        network representation.
+        Return whether an element participates in the numerical model.
 
-        Models without an explicit operational-state attribute
-        are treated as active.
+        Models without an explicit in_service attribute are treated
+        as active.
         """
 
         return bool(
@@ -920,46 +946,45 @@ class YBusBuilder:
         )
 
     # ========================================================
-    # RESULT VALIDATION
+    # MATRIX VALIDATION
     # ========================================================
 
     @staticmethod
     def validate_matrix(
-        Ybus: Any,
+        ybus: Any,
     ) -> None:
         """
-        Validate a raw CSR Y-bus matrix.
+        Validate a raw Y-bus CSR matrix.
 
         This performs structural numerical checks only.
-        It does not perform engineering validation.
         """
 
-        if Ybus is None:
+        if ybus is None:
             raise ValueError(
                 "Y-bus cannot be None."
             )
 
         if not isinstance(
-            Ybus,
+            ybus,
             csr_matrix,
         ):
             raise TypeError(
                 "Y-bus must be a scipy.sparse.csr_matrix."
             )
 
-        if Ybus.ndim != 2:
+        if ybus.ndim != 2:
             raise ValueError(
                 "Y-bus must be two-dimensional."
             )
 
-        rows, columns = Ybus.shape
+        rows, columns = ybus.shape
 
         if rows != columns:
             raise ValueError(
                 "Y-bus must be square."
             )
 
-        if Ybus.dtype.kind != "c":
+        if ybus.dtype.kind != "c":
             raise TypeError(
                 "Y-bus must use a complex dtype."
             )
