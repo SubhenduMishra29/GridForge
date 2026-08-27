@@ -5,17 +5,56 @@
 # ============================================================
 
 """
-Network-derived state management.
+GridForge V2 — Network Derived State
+====================================
 
-NetworkState owns:
+NetworkState owns lifecycle and revision information for
+Network-derived structural state.
 
-    topology revision
-    Y-bus revision
-    topology dirty state
-    Y-bus dirty state
+It owns:
 
-It does not own model objects, topology graphs, or Y-bus
-mathematics.
+    topology_revision
+    topology_dirty
+
+It does not own:
+
+    - canonical model objects
+    - equipment membership
+    - topology graphs
+    - terminal relationships
+    - BusIndex mappings
+    - numerical Y-bus objects
+    - Y-bus validity or revision state
+    - solver state
+    - study state
+    - numerical operating-point state
+
+Ownership
+---------
+
+Network:
+
+    authoritative domain objects and structural lifecycle
+
+NetworkState:
+
+    topology revision and topology synchronization state
+
+BusIndex:
+
+    derived bus.id -> matrix index mapping and its validity
+
+Numerical:
+
+    derived numerical artifacts, including YBus
+
+A numerical artifact records the Network topology revision from
+which it was derived. Its freshness is determined externally by
+comparison:
+
+    artifact.revision == network.state.topology_revision
+
+NetworkState never owns or mutates numerical artifacts.
 """
 
 from __future__ import annotations
@@ -23,15 +62,29 @@ from __future__ import annotations
 
 class NetworkState:
     """
-    Own revision and invalidation state for an assembled Network.
+    Lifecycle and revision state for an assembled Network.
+
+    NetworkState tracks whether Network-derived topology is
+    synchronized with the current authoritative Network revision.
+
+    It deliberately has no knowledge of numerical artifacts such
+    as YBus or numerical indexing structures such as BusIndex.
     """
 
-    def __init__(self) -> None:
-        self.topology_revision = 0
-        self.ybus_revision = -1
+    # ============================================================
+    # INITIALIZATION
+    # ============================================================
 
+    def __init__(self) -> None:
+        """
+        Initialize Network-derived structural state.
+
+        A newly created Network has not yet synchronized its
+        derived topology representation.
+        """
+
+        self.topology_revision = 0
         self.topology_dirty = True
-        self.ybus_dirty = True
 
     # ============================================================
     # INVALIDATION
@@ -39,59 +92,65 @@ class NetworkState:
 
     def invalidate_topology(self) -> None:
         """
-        Invalidate topology and everything derived from topology.
+        Invalidate derived topology for a structural Network change.
+
+        This method represents a new authoritative topology
+        revision.
+
+        Callers responsible for other derived artifacts, such as
+        BusIndex, must invalidate those artifacts according to their
+        own ownership contracts.
         """
 
         self.topology_revision += 1
-
         self.topology_dirty = True
-        self.ybus_dirty = True
-        self.ybus_revision = -1
-
-    # ------------------------------------------------------------
-
-    def invalidate_ybus(self) -> None:
-        """
-        Invalidate Y-bus without changing topology revision.
-        """
-
-        self.ybus_dirty = True
-        self.ybus_revision = -1
 
     # ============================================================
-    # MARK VALID
+    # SYNCHRONIZATION
     # ============================================================
 
     def topology_rebuilt(self) -> None:
         """
-        Mark topology as synchronized with the current revision.
+        Mark derived topology as synchronized with the current
+        topology revision.
+
+        Rebuilding topology does not create a new authoritative
+        topology revision. It synchronizes derived topology with the
+        existing revision.
         """
 
         self.topology_dirty = False
-
-    # ------------------------------------------------------------
-
-    def ybus_rebuilt(self) -> None:
-        """
-        Mark Y-bus as synchronized with the current topology
-        revision.
-        """
-
-        self.ybus_dirty = False
-        self.ybus_revision = self.topology_revision
 
     # ============================================================
     # QUERIES
     # ============================================================
 
     @property
-    def ybus_valid(self) -> bool:
+    def topology_valid(self) -> bool:
         """
-        Return whether the current Y-bus is valid for the current
-        topology revision.
+        Return whether derived topology is synchronized with the
+        current Network topology revision.
+        """
+
+        return not self.topology_dirty
+
+    # ============================================================
+    # REPRESENTATION
+    # ============================================================
+
+    def __repr__(self) -> str:
+        """
+        Return a concise developer-facing representation.
         """
 
         return (
-            not self.ybus_dirty
-            and self.ybus_revision == self.topology_revision
+            "NetworkState("
+            f"topology_revision={self.topology_revision}, "
+            f"topology_dirty={self.topology_dirty}"
+            ")"
         )
+
+
+__all__ = [
+    "NetworkState",
+]
