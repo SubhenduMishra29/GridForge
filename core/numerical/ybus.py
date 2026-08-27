@@ -1,5 +1,5 @@
 # ============================================================
-# File: core/network/ybus.py
+# File: core/numerical/ybus.py
 # GridForge V2 — Y-Bus Builder
 # Author: Subhendu Mishra
 # ============================================================
