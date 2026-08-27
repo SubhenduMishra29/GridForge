@@ -112,7 +112,7 @@ GridForge V2
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix
