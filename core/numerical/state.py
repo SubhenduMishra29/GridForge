@@ -1,4 +1,4 @@
-# core/model/state.py
+# core/numerical/state.py
 """
 GridForge V2 Numerical State Models
 ===================================
