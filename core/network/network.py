@@ -1,140 +1,122 @@
 # ============================================================
 # File: core/network/network.py
-# GridForge V2 — Canonical Network Façade
+# GridForge V2 — Network Aggregate
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-GridForge V2 — Canonical Network Façade
-=======================================
+GridForge V2 — Network Aggregate
+================================
 
-Network is the public façade for the canonical electrical
-network model.
+The Network is the authoritative electrical-system aggregate.
 
-Responsibilities
-----------------
+Network owns:
 
-    * expose canonical network equipment;
-    * delegate equipment membership to NetworkRegistry;
-    * provide canonical equipment lookup;
-    * coordinate network-level topology/cache invalidation;
-    * expose network-level services.
+    - canonical equipment membership through NetworkRegistry
+    - terminal-centric topology through NetworkTopology
+    - Network-derived lifecycle state through NetworkState
+    - canonical BusIndex used by numerical consumers
 
-Network does NOT:
+Network does NOT own:
 
-    * own duplicate equipment collections;
-    * resolve UI/SLD objects;
-    * know about Qt;
-    * render anything;
-    * create application commands;
-    * manage command history;
-    * perform Application-layer endpoint resolution.
+    - YBus or other numerical matrices
+    - solver state
+    - study state
+    - numerical operating-point state
+    - GUI state
+    - command/history state
 
-Canonical ownership
--------------------
+Numerical artifacts are derived from Network and carry the
+Network topology revision from which they were created.
 
-    Network
-        |
-        +-- NetworkRegistry
-        |      |
-        |      +-- Bus
-        |      +-- Grid
-        |      +-- Generator
-        |      +-- Load
-        |      +-- Shunt
-        |      +-- Line
-        |      +-- Transformer
-        |      +-- Branch
-        |      +-- Cable
-        |      +-- Switch
-        |      +-- Disconnector
-        |      +-- Fuse
-        |
-        +-- Topology
-        +-- YBus
-        +-- Services
+A Network mutation affecting structural topology must invalidate:
 
-Lookup boundary
----------------
+    1. NetworkState.topology_revision
+    2. NetworkState.topology_dirty
+    3. BusIndex
 
-Application code must use:
-
-    network.get_by_id(element_type, object_id)
-
-and must not access registry collections directly.
-
-Terminal-centric topology
---------------------------
-
-Network membership and topology are separate concerns.
-
-Electrical equipment owns its authoritative Terminal objects.
-
-For one-terminal equipment:
-
-    Equipment
-        |
-        +-- Terminal
-              |
-              +-- endpoint
-
-For two-terminal equipment:
-
-    Equipment
-        |
-        +-- Terminal A
-        |      |
-        |      +-- endpoint
-        |
-        +-- Terminal B
-               |
-               +-- endpoint
-
-Network does not introduce parallel bus-id topology state.
-
-Endpoint resolution remains an Application-layer concern.
-
-Y-bus / numerical indexing
----------------------------
-
-This façade does not define:
-
-    * Y-bus formulation;
-    * numerical bus indexing;
-    * matrix stamping;
-    * solver ordering;
-    * numerical index reconciliation.
-
-Those remain separate functionality-audit concerns.
+Network is intentionally a thin façade. Equipment-specific
+electrical behavior belongs to the model layer; topology logic
+belongs to NetworkTopology; membership belongs to NetworkRegistry;
+and numerical construction belongs to Numerical.
 """
-
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable, Optional
 
+from core.model import (
+    Battery,
+    Branch,
+    Bus,
+    Cable,
+    Capacitor,
+    CT,
+    CVT,
+    Disconnector,
+    Generator,
+    Grid,
+    Injection,
+    Line,
+    Load,
+    Motor,
+    PT,
+    Reactor,
+    Relay,
+    Shunt,
+    Solar,
+    Switch,
+    SynchronousMachine,
+    Transformer,
+)
+
+from .indexing import BusIndex
 from .registry import NetworkRegistry
+from .state import NetworkState
 from .topology import NetworkTopology
-from .ybus import YBus
 
 
 class Network:
     """
-    Canonical electrical network façade.
+    Authoritative electrical network aggregate.
 
-    Network owns the canonical network-level infrastructure
-    while NetworkRegistry owns equipment membership.
-
-    Network does not duplicate registry state.
+    The class provides a stable façade over the Network
+    infrastructure without implementing equipment-specific
+    electrical logic.
     """
+
+    # ========================================================
+    # INITIALIZATION
+    # ========================================================
 
     def __init__(
         self,
         *,
-        registry: NetworkRegistry | None = None,
-        topology: NetworkTopology | None = None,
-        ybus: YBus | None = None,
+        registry: Optional[NetworkRegistry] = None,
+        topology: Optional[NetworkTopology] = None,
+        state: Optional[NetworkState] = None,
+        index: Optional[BusIndex] = None,
     ) -> None:
+        """
+        Initialize an authoritative Network aggregate.
+
+        Parameters
+        ----------
+        registry:
+            Optional existing NetworkRegistry.
+
+        topology:
+            Optional existing NetworkTopology.
+
+        state:
+            Optional existing NetworkState.
+
+        index:
+            Optional existing BusIndex.
+
+        No numerical YBus object is accepted or stored.
+        """
+
         self.registry = (
             registry
             if registry is not None
@@ -147,515 +129,602 @@ class Network:
             else NetworkTopology()
         )
 
-        self.ybus = (
-            ybus
-            if ybus is not None
-            else YBus()
+        self.state = (
+            state
+            if state is not None
+            else NetworkState()
+        )
+
+        self.index = (
+            index
+            if index is not None
+            else BusIndex()
         )
 
     # ========================================================
-    # CANONICAL COLLECTIONS
+    # REGISTRY FAÇADES
     # ========================================================
 
     @property
-    def buses(self) -> tuple[Any, ...]:
-        """Return all canonical Bus objects."""
+    def buses(self) -> tuple[Bus, ...]:
+        """Return registered buses."""
 
-        return self.registry.buses
-
-    @property
-    def grids(self) -> tuple[Any, ...]:
-        """Return all canonical Grid objects."""
-
-        return self.registry.grids
+        return tuple(self.registry.buses)
 
     @property
-    def generators(self) -> tuple[Any, ...]:
-        """Return all canonical Generator objects."""
+    def grids(self) -> tuple[Grid, ...]:
+        """Return registered grids."""
 
-        return self.registry.generators
-
-    @property
-    def loads(self) -> tuple[Any, ...]:
-        """Return all canonical Load objects."""
-
-        return self.registry.loads
+        return tuple(self.registry.grids)
 
     @property
-    def shunts(self) -> tuple[Any, ...]:
-        """Return all canonical Shunt objects."""
+    def generators(self) -> tuple[Generator, ...]:
+        """Return registered generators."""
 
-        return self.registry.shunts
-
-    @property
-    def lines(self) -> tuple[Any, ...]:
-        """Return all canonical Line objects."""
-
-        return self.registry.lines
+        return tuple(self.registry.generators)
 
     @property
-    def transformers(self) -> tuple[Any, ...]:
-        """Return all canonical Transformer objects."""
+    def loads(self) -> tuple[Load, ...]:
+        """Return registered loads."""
 
-        return self.registry.transformers
-
-    @property
-    def branches(self) -> tuple[Any, ...]:
-        """Return all canonical Branch objects."""
-
-        return self.registry.branches
+        return tuple(self.registry.loads)
 
     @property
-    def cables(self) -> tuple[Any, ...]:
-        """Return all canonical Cable objects."""
+    def shunts(self) -> tuple[Shunt, ...]:
+        """Return registered shunts."""
 
-        return self.registry.cables
-
-    @property
-    def switches(self) -> tuple[Any, ...]:
-        """Return all canonical Switch objects."""
-
-        return self.registry.switches
+        return tuple(self.registry.shunts)
 
     @property
-    def disconnectors(self) -> tuple[Any, ...]:
-        """Return all canonical Disconnector objects."""
+    def lines(self) -> tuple[Line, ...]:
+        """Return registered lines."""
 
-        return self.registry.disconnectors
+        return tuple(self.registry.lines)
+
+    @property
+    def transformers(self) -> tuple[Transformer, ...]:
+        """Return registered transformers."""
+
+        return tuple(self.registry.transformers)
+
+    @property
+    def branches(self) -> tuple[Branch, ...]:
+        """Return registered branches."""
+
+        return tuple(self.registry.branches)
+
+    @property
+    def cables(self) -> tuple[Cable, ...]:
+        """Return registered cables."""
+
+        return tuple(self.registry.cables)
+
+    @property
+    def switches(self) -> tuple[Switch, ...]:
+        """Return registered switches."""
+
+        return tuple(self.registry.switches)
+
+    @property
+    def disconnectors(self) -> tuple[Disconnector, ...]:
+        """Return registered disconnectors."""
+
+        return tuple(self.registry.disconnectors)
 
     @property
     def fuses(self) -> tuple[Any, ...]:
-        """Return all canonical Fuse objects."""
+        """Return registered fuses when supported by the registry."""
 
-        return self.registry.fuses
+        return tuple(
+            getattr(
+                self.registry,
+                "fuses",
+                (),
+            )
+        )
+
+    @property
+    def reactors(self) -> tuple[Reactor, ...]:
+        """Return registered reactors."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "reactors",
+                (),
+            )
+        )
+
+    @property
+    def capacitors(self) -> tuple[Capacitor, ...]:
+        """Return registered capacitors."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "capacitors",
+                (),
+            )
+        )
+
+    @property
+    def motors(self) -> tuple[Motor, ...]:
+        """Return registered motors."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "motors",
+                (),
+            )
+        )
+
+    @property
+    def batteries(self) -> tuple[Battery, ...]:
+        """Return registered batteries."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "batteries",
+                (),
+            )
+        )
+
+    @property
+    def solar(self) -> tuple[Solar, ...]:
+        """Return registered solar models."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "solar",
+                (),
+            )
+        )
+
+    @property
+    def injections(self) -> tuple[Injection, ...]:
+        """Return registered injections."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "injections",
+                (),
+            )
+        )
+
+    @property
+    def relays(self) -> tuple[Relay, ...]:
+        """Return registered relays."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "relays",
+                (),
+            )
+        )
+
+    @property
+    def synchronous_machines(
+        self,
+    ) -> tuple[SynchronousMachine, ...]:
+        """Return registered synchronous machines."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "synchronous_machines",
+                (),
+            )
+        )
+
+    @property
+    def cts(self) -> tuple[CT, ...]:
+        """Return registered CT models."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "cts",
+                (),
+            )
+        )
+
+    @property
+    def pts(self) -> tuple[PT, ...]:
+        """Return registered PT models."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "pts",
+                (),
+            )
+        )
+
+    @property
+    def cvts(self) -> tuple[CVT, ...]:
+        """Return registered CVT models."""
+
+        return tuple(
+            getattr(
+                self.registry,
+                "cvts",
+                (),
+            )
+        )
 
     # ========================================================
-    # CANONICAL EQUIPMENT LOOKUP
+    # LOOKUP
     # ========================================================
 
     def get_by_id(
         self,
-        element_type: str,
-        object_id: str,
+        model_id: str,
     ) -> Any:
         """
-        Return the canonical registered equipment object.
-
-        Parameters
-        ----------
-        element_type:
-            Canonical equipment family.
-
-        object_id:
-            Canonical equipment identifier.
-
-        Returns
-        -------
-        Any
-            Exact registered Core model instance.
-
-        Notes
-        -----
-        Lookup is delegated to NetworkRegistry.
-
-        This method does not:
-
-            * create equipment;
-            * clone equipment;
-            * mutate equipment;
-            * connect terminals;
-            * resolve endpoints;
-            * modify topology;
-            * perform numerical indexing.
+        Return a registered model by identifier.
         """
 
         return self.registry.get_by_id(
-            element_type,
-            object_id,
+            model_id
         )
 
     # ========================================================
-    # BUS
+    # ADD
     # ========================================================
 
-    def add_bus(
-        self,
-        bus: Any,
-    ) -> None:
-        """Register a Bus in the canonical network."""
+    def add_bus(self, bus: Bus) -> None:
+        """Register a Bus and invalidate structural state."""
 
         self.registry.add_bus(bus)
-        self._invalidate_topology()
+        self._invalidate_structure()
 
-    def remove_bus(
-        self,
-        bus: Any,
-    ) -> None:
-        """Remove a Bus from the canonical network."""
-
-        self.registry.remove_bus(bus)
-        self._invalidate_topology()
-
-    # ========================================================
-    # GRID
-    # ========================================================
-
-    def add_grid(
-        self,
-        grid: Any,
-    ) -> None:
-        """
-        Register a Grid in the canonical network.
-
-        Grid is a first-class electrical network element.
-
-        Grid is NOT a Network container.
-        """
+    def add_grid(self, grid: Grid) -> None:
+        """Register a Grid."""
 
         self.registry.add_grid(grid)
-        self._invalidate_topology()
-
-    def remove_grid(
-        self,
-        grid: Any,
-    ) -> None:
-        """Remove a Grid from the canonical network."""
-
-        self.registry.remove_grid(grid)
-        self._invalidate_topology()
-
-    # ========================================================
-    # GENERATOR
-    # ========================================================
+        self._invalidate_structure()
 
     def add_generator(
         self,
-        generator: Any,
+        generator: Generator,
     ) -> None:
-        """Register a Generator in the canonical network."""
+        """Register a Generator."""
 
         self.registry.add_generator(generator)
-        self._invalidate_topology()
-
-    def remove_generator(
-        self,
-        generator: Any,
-    ) -> None:
-        """Remove a Generator from the canonical network."""
-
-        self.registry.remove_generator(generator)
-        self._invalidate_topology()
-
-    # ========================================================
-    # LOAD
-    # ========================================================
+        self._invalidate_structure()
 
     def add_load(
         self,
-        load: Any,
+        load: Load,
     ) -> None:
-        """Register a Load in the canonical network."""
+        """Register a Load."""
 
         self.registry.add_load(load)
-        self._invalidate_topology()
-
-    def remove_load(
-        self,
-        load: Any,
-    ) -> None:
-        """Remove a Load from the canonical network."""
-
-        self.registry.remove_load(load)
-        self._invalidate_topology()
-
-    # ========================================================
-    # SHUNT
-    # ========================================================
+        self._invalidate_structure()
 
     def add_shunt(
         self,
-        shunt: Any,
+        shunt: Shunt,
     ) -> None:
-        """
-        Register a Shunt in the canonical network.
-
-        Shunt owns its electrical admittance.
-
-        Network does not perform Y-bus stamping.
-        """
+        """Register a Shunt."""
 
         self.registry.add_shunt(shunt)
-        self._invalidate_topology()
-        self._invalidate_ybus()
-
-    def remove_shunt(
-        self,
-        shunt: Any,
-    ) -> None:
-        """Remove a Shunt from the canonical network."""
-
-        self.registry.remove_shunt(shunt)
-        self._invalidate_topology()
-        self._invalidate_ybus()
-
-    # ========================================================
-    # LINE
-    # ========================================================
+        self._invalidate_structure()
 
     def add_line(
         self,
-        line: Any,
+        line: Line,
     ) -> None:
-        """Register a Line in the canonical network."""
+        """Register a Line."""
 
         self.registry.add_line(line)
-        self._invalidate_topology()
-
-    def remove_line(
-        self,
-        line: Any,
-    ) -> None:
-        """Remove a Line from the canonical network."""
-
-        self.registry.remove_line(line)
-        self._invalidate_topology()
-
-    # ========================================================
-    # TRANSFORMER
-    # ========================================================
+        self._invalidate_structure()
 
     def add_transformer(
         self,
-        transformer: Any,
+        transformer: Transformer,
     ) -> None:
-        """Register a Transformer in the canonical network."""
+        """Register a Transformer."""
 
         self.registry.add_transformer(transformer)
-        self._invalidate_topology()
-
-    def remove_transformer(
-        self,
-        transformer: Any,
-    ) -> None:
-        """Remove a Transformer from the canonical network."""
-
-        self.registry.remove_transformer(transformer)
-        self._invalidate_topology()
-
-    # ========================================================
-    # BRANCH
-    # ========================================================
+        self._invalidate_structure()
 
     def add_branch(
         self,
-        branch: Any,
+        branch: Branch,
     ) -> None:
-        """
-        Register a Branch in the canonical network.
-
-        Branch topology is represented exclusively through
-        its authoritative terminals.
-        """
+        """Register a Branch."""
 
         self.registry.add_branch(branch)
-        self._invalidate_topology()
-
-    def remove_branch(
-        self,
-        branch: Any,
-    ) -> None:
-        """
-        Remove a Branch from the canonical network.
-        """
-
-        self.registry.remove_branch(branch)
-        self._invalidate_topology()
-
-    # ========================================================
-    # CABLE
-    # ========================================================
+        self._invalidate_structure()
 
     def add_cable(
         self,
-        cable: Any,
+        cable: Cable,
     ) -> None:
-        """
-        Register a Cable in the canonical network.
-
-        Cable remains a branch-family model and therefore
-        remains terminal-centric.
-        """
+        """Register a Cable."""
 
         self.registry.add_cable(cable)
-        self._invalidate_topology()
-
-    def remove_cable(
-        self,
-        cable: Any,
-    ) -> None:
-        """Remove a Cable from the canonical network."""
-
-        self.registry.remove_cable(cable)
-        self._invalidate_topology()
-
-    # ========================================================
-    # SWITCH
-    # ========================================================
+        self._invalidate_structure()
 
     def add_switch(
         self,
-        switch: Any,
+        switch: Switch,
     ) -> None:
-        """
-        Register a Switch in the canonical network.
-
-        Switching state belongs to the Switch model.
-
-        Topological endpoints remain represented by terminals.
-        """
+        """Register a Switch."""
 
         self.registry.add_switch(switch)
-        self._invalidate_topology()
-        self._invalidate_ybus()
-
-    def remove_switch(
-        self,
-        switch: Any,
-    ) -> None:
-        """Remove a Switch from the canonical network."""
-
-        self.registry.remove_switch(switch)
-        self._invalidate_topology()
-        self._invalidate_ybus()
-
-    # ========================================================
-    # DISCONNECTOR
-    # ========================================================
+        self._invalidate_structure()
 
     def add_disconnector(
         self,
-        disconnector: Any,
+        disconnector: Disconnector,
     ) -> None:
-        """
-        Register a Disconnector in the canonical network.
-
-        Disconnector operating state remains model-owned.
-        """
+        """Register a Disconnector."""
 
         self.registry.add_disconnector(disconnector)
-        self._invalidate_topology()
-        self._invalidate_ybus()
-
-    def remove_disconnector(
-        self,
-        disconnector: Any,
-    ) -> None:
-        """Remove a Disconnector from the canonical network."""
-
-        self.registry.remove_disconnector(disconnector)
-        self._invalidate_topology()
-        self._invalidate_ybus()
-
-    # ========================================================
-    # FUSE
-    # ========================================================
+        self._invalidate_structure()
 
     def add_fuse(
         self,
         fuse: Any,
     ) -> None:
-        """
-        Register a Fuse in the canonical network.
-
-        Fuse state remains model-owned.
-        """
+        """Register a Fuse when supported by the registry."""
 
         self.registry.add_fuse(fuse)
-        self._invalidate_topology()
-        self._invalidate_ybus()
+        self._invalidate_structure()
 
-    def remove_fuse(
+    def add_reactor(
         self,
-        fuse: Any,
+        reactor: Reactor,
     ) -> None:
-        """Remove a Fuse from the canonical network."""
+        """Register a Reactor."""
 
-        self.registry.remove_fuse(fuse)
-        self._invalidate_topology()
-        self._invalidate_ybus()
+        self.registry.add_reactor(reactor)
+        self._invalidate_structure()
+
+    def add_capacitor(
+        self,
+        capacitor: Capacitor,
+    ) -> None:
+        """Register a Capacitor."""
+
+        self.registry.add_capacitor(capacitor)
+        self._invalidate_structure()
+
+    def add_motor(
+        self,
+        motor: Motor,
+    ) -> None:
+        """Register a Motor."""
+
+        self.registry.add_motor(motor)
+        self._invalidate_structure()
+
+    def add_battery(
+        self,
+        battery: Battery,
+    ) -> None:
+        """Register a Battery."""
+
+        self.registry.add_battery(battery)
+        self._invalidate_structure()
+
+    def add_solar(
+        self,
+        solar: Solar,
+    ) -> None:
+        """Register a Solar model."""
+
+        self.registry.add_solar(solar)
+        self._invalidate_structure()
+
+    def add_injection(
+        self,
+        injection: Injection,
+    ) -> None:
+        """Register an Injection."""
+
+        self.registry.add_injection(injection)
+        self._invalidate_structure()
+
+    def add_relay(
+        self,
+        relay: Relay,
+    ) -> None:
+        """Register a Relay."""
+
+        self.registry.add_relay(relay)
+        self._invalidate_structure()
+
+    def add_synchronous_machine(
+        self,
+        machine: SynchronousMachine,
+    ) -> None:
+        """Register a SynchronousMachine."""
+
+        self.registry.add_synchronous_machine(machine)
+        self._invalidate_structure()
+
+    def add_ct(
+        self,
+        ct: CT,
+    ) -> None:
+        """Register a CT."""
+
+        self.registry.add_ct(ct)
+        self._invalidate_structure()
+
+    def add_pt(
+        self,
+        pt: PT,
+    ) -> None:
+        """Register a PT."""
+
+        self.registry.add_pt(pt)
+        self._invalidate_structure()
+
+    def add_cvt(
+        self,
+        cvt: CVT,
+    ) -> None:
+        """Register a CVT."""
+
+        self.registry.add_cvt(cvt)
+        self._invalidate_structure()
 
     # ========================================================
-    # NETWORK MODEL INVENTORY
+    # REMOVE
+    # ========================================================
+
+    def remove_by_id(
+        self,
+        model_id: str,
+    ) -> Any:
+        """
+        Remove a registered model by identifier.
+
+        Returns the removed model.
+        """
+
+        removed = self.registry.remove_by_id(
+            model_id
+        )
+
+        self._invalidate_structure()
+
+        return removed
+
+    # ========================================================
+    # STRUCTURAL INVALIDATION
+    # ========================================================
+
+    def _invalidate_structure(self) -> None:
+        """
+        Invalidate Network-derived structural state.
+
+        NetworkState owns the topology revision.
+
+        BusIndex owns the bus-to-matrix-index lifecycle.
+
+        Neither responsibility is duplicated here.
+        """
+
+        self.state.invalidate_topology()
+        self.index.invalidate()
+
+    # ========================================================
+    # INDEX PREPARATION
+    # ========================================================
+
+    def rebuild_index(self) -> None:
+        """
+        Explicitly prepare the authoritative BusIndex.
+
+        This is a Network preparation operation and is therefore
+        allowed to mutate BusIndex.
+
+        Numerical consumers must never call this implicitly.
+        """
+
+        self.index.rebuild(
+            self.buses
+        )
+
+    # ========================================================
+    # TOPOLOGY SYNCHRONIZATION
+    # ========================================================
+
+    def rebuild_topology(self) -> None:
+        """
+        Rebuild the Network topology representation.
+
+        NetworkTopology owns the topology implementation.
+        """
+
+        rebuild = getattr(
+            self.topology,
+            "rebuild",
+            None,
+        )
+
+        if rebuild is None:
+            raise AttributeError(
+                "NetworkTopology must provide rebuild()."
+            )
+
+        rebuild(
+            self
+        )
+
+        self.state.topology_rebuilt()
+
+    # ========================================================
+    # PREPARATION
+    # ========================================================
+
+    def prepare(self) -> None:
+        """
+        Explicitly prepare Network-derived structures.
+
+        Preparation:
+
+            1. rebuilds Network topology
+            2. rebuilds BusIndex
+
+        No numerical YBus is constructed here.
+        """
+
+        self.rebuild_topology()
+        self.rebuild_index()
+
+    # ========================================================
+    # BASIC STATE
     # ========================================================
 
     @property
-    def model_types(self) -> tuple[str, ...]:
-        """
-        Return the canonical supported model families.
+    def topology_revision(self) -> int:
+        """Return the authoritative Network topology revision."""
 
-        This is descriptive only. Registry remains the authority
-        for membership.
-        """
+        return self.state.topology_revision
+
+    @property
+    def topology_valid(self) -> bool:
+        """Return whether derived topology is synchronized."""
+
+        return self.state.topology_valid
+
+    @property
+    def index_valid(self) -> bool:
+        """Return whether the authoritative BusIndex is valid."""
+
+        return self.index.valid
+
+    # ========================================================
+    # REPRESENTATION
+    # ========================================================
+
+    def __repr__(self) -> str:
+        """Return a concise developer-facing representation."""
 
         return (
-            "bus",
-            "grid",
-            "generator",
-            "load",
-            "shunt",
-            "line",
-            "transformer",
-            "branch",
-            "cable",
-            "switch",
-            "disconnector",
-            "fuse",
+            "Network("
+            f"buses={len(self.buses)}, "
+            f"lines={len(self.lines)}, "
+            f"transformers={len(self.transformers)}, "
+            f"topology_revision="
+            f"{self.state.topology_revision}, "
+            f"topology_valid="
+            f"{self.state.topology_valid}, "
+            f"index_valid="
+            f"{self.index.valid}"
+            ")"
         )
-
-    # ========================================================
-    # CACHE / ANALYSIS INVALIDATION
-    # ========================================================
-
-    def _invalidate_topology(self) -> None:
-        """
-        Invalidate topology-dependent state.
-
-        Network does not rebuild topology here.
-        """
-
-        invalidate = getattr(
-            self.topology,
-            "invalidate",
-            None,
-        )
-
-        if callable(invalidate):
-            invalidate()
-
-        self._invalidate_ybus()
-
-    def _invalidate_ybus(self) -> None:
-        """
-        Invalidate Y-bus-dependent cached state.
-
-        This does NOT perform:
-
-            * bus indexing;
-            * Y-bus construction;
-            * numerical stamping;
-            * solver ordering.
-
-        Those remain outside this architectural reconciliation.
-        """
-
-        invalidate = getattr(
-            self.ybus,
-            "invalidate",
-            None,
-        )
-
-        if callable(invalidate):
-            invalidate()
 
 
 __all__ = [
