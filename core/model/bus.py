@@ -1,8 +1,8 @@
 # core/model/bus.py
 
 """
-GridForge V2 Bus Model
-======================
+GridForge V2 — Bus Model
+========================
 
 Author:
 Subhendu Mishra
@@ -17,34 +17,46 @@ ElectricalObject
       v
      Bus
       |
-      +---- electrical node identity/configuration
+      +---- physical/node-local configuration
       |
-      +---- authoritative terminal
+      +---- authoritative Terminal
       |
       v
     Network
 ```
 
-The Bus model owns only physical and node-local configuration.
+The Bus represents the physical electrical node.
+
+The Bus owns:
+
+```
+- stable identity;
+- human-readable name;
+- nominal voltage;
+- operational state;
+- optional initial voltage conditions;
+- exactly one authoritative electrical Terminal.
+```
 
 The Bus does NOT own:
 
 ```
-- PQ / PV / SLACK study classification
-- study-specific P/Q/V/angle specifications
-- solved numerical state
-- Y-bus construction
-- solver indices
-- Jacobian matrices
-- load-flow calculations
-- short-circuit calculations
-- dynamic simulation
-- protection calculations
-- control logic
-- network collections
-- SLD geometry
-- GUI state
-- persistence logic
+- Network collections;
+- topology collections;
+- PQ / PV / SLACK study classification;
+- study-specific P/Q/V/angle specifications;
+- solved numerical state;
+- Y-bus matrices;
+- solver indices;
+- Jacobians;
+- load-flow calculations;
+- short-circuit calculations;
+- dynamic simulation;
+- protection calculations;
+- control logic;
+- SLD geometry;
+- GUI state;
+- persistence logic.
 ```
 
 ## Study Boundary
@@ -54,25 +66,25 @@ not an intrinsic physical property of a Bus.
 
 Study-specific quantities belong to the Study / Analysis layer.
 
-Numerical quantities belong to the Numerical layer.
+Numerical quantities and solved state belong to the Numerical layer.
 
 ## Initial Conditions
 
 A Bus may optionally provide initial voltage conditions used as
 input to a numerical study.
 
-These are initial-condition values and must not be confused with
-solved numerical state.
+These values are explicitly initial conditions.
+
+They are not solved numerical state.
 
 ## Topology Boundary
 
-The Bus does not own collections of Loads, Generators, Lines,
-Transformers, or other equipment.
+The Bus does not own collections of connected equipment.
 
 Equipment connects through Terminal objects.
 
-Network owns the authoritative topology and determines which
-connected objects participate in a particular network.
+Network owns authoritative topology and determines network
+membership and connectivity.
 
 A Bus may therefore exist:
 
@@ -83,11 +95,56 @@ A Bus may therefore exist:
 - as part of a larger Network.
 ```
 
+Connectivity is not itself a measure of study validity.
+
 ## Electrical Boundary
 
 The Bus represents an electrical node.
 
-It does not calculate the net power balance of that node.
+It does not calculate the node power balance.
+
+Load, generator, grid, shunt, and other equipment contributions
+are assembled by the appropriate Network / Study / Numerical
+layers.
+
+## Terminal Ownership Contract
+
+The Bus permanently owns exactly one authoritative Terminal.
+
+The Terminal is created by the Bus itself.
+
+An externally created Terminal cannot be injected into or adopted
+by a Bus.
+
+Terminal ownership is never transferred between model objects.
+
+This guarantees:
+
+```
+Bus -> authoritative Terminal -> endpoint
+```
+
+rather than:
+
+```
+Bus -> externally shared/adopted Terminal
+```
+
+## Compatibility Boundary
+
+The repository contains application-layer code using the
+`nominal_voltage_kv` constructor name.
+
+That name is retained as the canonical constructor parameter
+because it describes the physical quantity explicitly and keeps
+the verified application construction path compatible.
+
+The `nominal_voltage` property remains available as the
+internal/public model terminology.
+
+The old `terminal=` constructor injection mechanism is
+intentionally removed because it violates the frozen ownership
+contract.
 
 ## Design Principles
 
@@ -97,12 +154,14 @@ It does not calculate the net power balance of that node.
 4. Numerical state is external to Bus.
 5. Network topology is external to Bus.
 6. Terminal connectivity remains terminal-centric.
-7. Bus never constructs or owns Y-bus matrices.
-8. Bus never performs numerical solving.
-9. Bus never owns GUI/SLD state.
-10. Device collections are owned by Network, not Bus.
-11. Bus permanently owns its authoritative Terminal.
-12. Terminal ownership is never transferred between model objects.
+7. Bus owns exactly one authoritative Terminal.
+8. Terminal ownership is never transferred.
+9. Bus never adopts another object's Terminal.
+10. Bus never constructs or owns Y-bus matrices.
+11. Bus never performs numerical solving.
+12. Bus never owns GUI/SLD state.
+13. Device collections are owned by Network.
+14. Initial voltage values are configuration/input, not solved state.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -121,25 +180,14 @@ class Bus(ElectricalObject):
 First-class electrical network node.
 
 ```
-The Bus is a physical electrical model and node interface.
-
-It owns:
-
-    - stable identity;
-    - human-readable name;
-    - nominal voltage;
-    - operational state;
-    - optional initial voltage conditions;
-    - its authoritative terminal interface.
-
-It does not own study formulation or solved numerical state.
+The Bus owns one authoritative Terminal.
 
 Parameters
 ----------
 id:
     Stable GridForge object identifier.
 
-nominal_voltage:
+nominal_voltage_kv:
     Nominal bus voltage in kV.
 
 name:
@@ -156,11 +204,12 @@ in_service:
 
 Notes
 -----
-The Bus always creates and owns its authoritative Terminal.
+The Bus always creates its own Terminal.
 
-An externally created Terminal cannot be supplied to the Bus.
-This prevents Terminal ownership transfer and accidental sharing
-of a physical Terminal between model objects.
+A Terminal cannot be supplied to the constructor.
+
+This makes Terminal ownership explicit and prevents terminal
+sharing or ownership transfer between model objects.
 """
 
 TYPE = "BUS"
@@ -169,14 +218,14 @@ def __init__(
     self,
     id: str,
     *,
-    nominal_voltage: float,
+    nominal_voltage_kv: float,
     name: str = "",
     initial_voltage_magnitude: float = 1.0,
     initial_voltage_angle: float = 0.0,
     in_service: bool = True,
 ) -> None:
     """
-    Create a first-class electrical Bus.
+    Create a Bus and its authoritative Terminal.
     """
 
     ElectricalObject.__init__(
@@ -187,7 +236,7 @@ def __init__(
 
     self._nominal_voltage = (
         self._validate_nominal_voltage(
-            nominal_voltage
+            nominal_voltage_kv
         )
     )
 
@@ -210,18 +259,14 @@ def __init__(
         "in_service",
     )
 
-    # =============================================================
-    # AUTHORITATIVE BUS TERMINAL
-    # =============================================================
+    # -------------------------------------------------------------
+    # AUTHORITATIVE TERMINAL
+    # -------------------------------------------------------------
     #
     # The Bus creates its own Terminal.
     #
-    # Terminal ownership is therefore established exactly once:
-    #
-    #     Bus -> Terminal(owner=Bus)
-    #
-    # No external Terminal may be adopted or have its owner
-    # reassigned here.
+    # Ownership is established during Terminal construction and
+    # is never subsequently reassigned.
     #
 
     self._terminal = Terminal(
@@ -362,7 +407,7 @@ def set_initial_voltage(
 @property
 def terminal(self) -> Terminal:
     """
-    Return the authoritative Bus terminal.
+    Return the authoritative Bus Terminal.
     """
 
     return self._terminal
@@ -370,12 +415,10 @@ def terminal(self) -> Terminal:
 @property
 def terminals(self) -> tuple[Terminal, ...]:
     """
-    Return all Bus terminals.
+    Return the Bus terminal collection.
 
-    A Bus currently exposes one electrical node terminal.
-
-    Network topology determines what other equipment terminals
-    are associated with this electrical node.
+    A Bus currently has exactly one authoritative electrical
+    Terminal.
     """
 
     return (self._terminal,)
@@ -387,12 +430,11 @@ def terminals(self) -> tuple[Terminal, ...]:
 @property
 def is_connected(self) -> bool:
     """
-    Return whether the Bus terminal has a local endpoint.
+    Return whether the Bus Terminal has an endpoint.
 
-    This is a local terminal-connectivity diagnostic only.
+    This is a local terminal-connectivity diagnostic.
 
-    It does not determine whether the Bus is electrically valid
-    for a particular Network or Study.
+    It does not determine Network or Study validity.
     """
 
     return self._terminal.is_connected
@@ -400,7 +442,7 @@ def is_connected(self) -> bool:
 @property
 def endpoint(self) -> Any:
     """
-    Return the Bus terminal endpoint, if any.
+    Return the Bus Terminal endpoint, if any.
     """
 
     return self._terminal.endpoint
@@ -410,11 +452,11 @@ def connect_terminal(
     endpoint: Any,
 ) -> None:
     """
-    Connect the Bus terminal to a local endpoint.
+    Connect the authoritative Bus Terminal to an endpoint.
 
-    Terminal owns the actual local connection state.
+    Terminal owns the local connection state.
 
-    This method does not perform Network topology validation.
+    Network topology validation remains outside the Bus.
     """
 
     if endpoint is None:
@@ -422,15 +464,13 @@ def connect_terminal(
             "Bus terminal endpoint cannot be None."
         )
 
-    self._terminal.connect(
-        endpoint
-    )
+    self._terminal.connect(endpoint)
 
 def disconnect_terminal(
     self,
 ) -> None:
     """
-    Disconnect the Bus terminal.
+    Disconnect the authoritative Bus Terminal.
 
     A disconnected Bus remains a valid physical model object.
     """
@@ -508,7 +548,7 @@ def validate_parameters(self) -> bool:
     Validate Bus-local parameters.
 
     Study formulation, Network topology, and numerical state
-    are deliberately not required for model validity.
+    are deliberately outside this validation boundary.
     """
 
     self._nominal_voltage = (
@@ -547,6 +587,8 @@ def validate(self) -> bool:
         self
     )
 
+    self.validate_parameters()
+
     if self._terminal is None:
         raise ValueError(
             f"Bus '{self.id}' must have a terminal."
@@ -580,10 +622,10 @@ def summary(self) -> dict[str, Any]:
     """
     Return structured Bus diagnostics.
 
-    The summary deliberately contains only Bus-local model
-    information and initial-condition information.
+    Only Bus-local model and initial-condition information is
+    exposed.
 
-    It does not expose study-specific or solved numerical state.
+    Study-specific and solved numerical state are excluded.
     """
 
     return {
@@ -650,17 +692,17 @@ def _validate_nominal_voltage(
         ValueError,
     ) as exc:
         raise ValueError(
-            "nominal_voltage must be numeric."
+            "nominal_voltage_kv must be numeric."
         ) from exc
 
     if not math.isfinite(value):
         raise ValueError(
-            "nominal_voltage must be finite."
+            "nominal_voltage_kv must be finite."
         )
 
     if value <= 0.0:
         raise ValueError(
-            "nominal_voltage must be greater than zero."
+            "nominal_voltage_kv must be greater than zero."
         )
 
     return value
@@ -704,9 +746,11 @@ def _validate_voltage_angle(
     """
     Validate a voltage angle in degrees.
 
-    Any finite angle is accepted. Angle normalization is left
-    to the numerical formulation because different numerical
-    consumers may use different conventions.
+    Any finite angle is accepted.
+
+    Angle normalization is left to the numerical formulation
+    because different numerical consumers may use different
+    conventions.
     """
 
     try:
@@ -749,12 +793,6 @@ def _validate_bool(
 
     return value
 ```
-
-# =====================================================================
-
-# PUBLIC API
-
-# =====================================================================
 
 __all__ = [
 "Bus",
