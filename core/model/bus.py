@@ -19,10 +19,10 @@ ElectricalObject
       |
       +---- electrical node identity/configuration
       |
-      +---- terminal interface
+      +---- authoritative terminal
       |
       v
-   Network
+    Network
 ```
 
 The Bus model owns only physical and node-local configuration.
@@ -52,47 +52,17 @@ The Bus does NOT own:
 PQ / PV / SLACK is a property of a particular study formulation,
 not an intrinsic physical property of a Bus.
 
-Study-specific quantities such as:
+Study-specific quantities belong to the Study / Analysis layer.
 
-```
-P specification
-Q specification
-voltage specification
-angle specification
-reactive-power limits
-study bus type
-```
-
-belong to the Study / Analysis layer.
-
-Numerical quantities such as:
-
-```
-voltage magnitude
-voltage angle
-P
-Q
-residuals
-solver convergence
-```
-
-belong to the Numerical layer.
+Numerical quantities belong to the Numerical layer.
 
 ## Initial Conditions
 
 A Bus may optionally provide initial voltage conditions used as
 input to a numerical study.
 
-These are explicitly named as initial conditions and must not be
-confused with solved numerical state.
-
-```
-initial_voltage_magnitude
-initial_voltage_angle
-```
-
-The numerical layer may consume these values when constructing
-an initial numerical state.
+These are initial-condition values and must not be confused with
+solved numerical state.
 
 ## Topology Boundary
 
@@ -113,29 +83,11 @@ A Bus may therefore exist:
 - as part of a larger Network.
 ```
 
-Connectivity is not itself a measure of study validity.
-
 ## Electrical Boundary
 
 The Bus represents an electrical node.
 
 It does not calculate the net power balance of that node.
-
-For example:
-
-```
-Load
-    -> (-P, -Q)
-
-Generator
-    -> (+P, +Q)
-
-Other Injection models
-    -> their respective network injection
-```
-
-The Network / Study / Numerical layers determine how these
-contributions are assembled and solved.
 
 ## Design Principles
 
@@ -149,6 +101,8 @@ contributions are assembled and solved.
 8. Bus never performs numerical solving.
 9. Bus never owns GUI/SLD state.
 10. Device collections are owned by Network, not Bus.
+11. Bus permanently owns its authoritative Terminal.
+12. Terminal ownership is never transferred between model objects.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -191,10 +145,6 @@ nominal_voltage:
 name:
     Human-readable bus name.
 
-terminal:
-    Optional existing Terminal representing the bus
-    electrical interface.
-
 initial_voltage_magnitude:
     Optional initial voltage magnitude in per-unit.
 
@@ -203,6 +153,14 @@ initial_voltage_angle:
 
 in_service:
     Operational state.
+
+Notes
+-----
+The Bus always creates and owns its authoritative Terminal.
+
+An externally created Terminal cannot be supplied to the Bus.
+This prevents Terminal ownership transfer and accidental sharing
+of a physical Terminal between model objects.
 """
 
 TYPE = "BUS"
@@ -213,19 +171,24 @@ def __init__(
     *,
     nominal_voltage: float,
     name: str = "",
-    terminal: Terminal | None = None,
     initial_voltage_magnitude: float = 1.0,
     initial_voltage_angle: float = 0.0,
     in_service: bool = True,
 ) -> None:
+    """
+    Create a first-class electrical Bus.
+    """
+
     ElectricalObject.__init__(
         self,
         id=id,
         name=name,
     )
 
-    self._nominal_voltage = self._validate_nominal_voltage(
-        nominal_voltage
+    self._nominal_voltage = (
+        self._validate_nominal_voltage(
+            nominal_voltage
+        )
     )
 
     self._initial_voltage_magnitude = (
@@ -247,22 +210,24 @@ def __init__(
         "in_service",
     )
 
-    self._terminal = (
-        terminal
-        if terminal is not None
-        else Terminal(
-            owner=self,
-            role="BUS",
-        )
+    # =============================================================
+    # AUTHORITATIVE BUS TERMINAL
+    # =============================================================
+    #
+    # The Bus creates its own Terminal.
+    #
+    # Terminal ownership is therefore established exactly once:
+    #
+    #     Bus -> Terminal(owner=Bus)
+    #
+    # No external Terminal may be adopted or have its owner
+    # reassigned here.
+    #
+
+    self._terminal = Terminal(
+        owner=self,
+        role="BUS",
     )
-
-    if self._terminal.owner is None:
-        self._terminal.owner = self
-
-    elif self._terminal.owner is not self:
-        raise ValueError(
-            "Terminal is already owned by another object."
-        )
 
     self.validate()
 
@@ -291,9 +256,14 @@ def nominal_voltage(self) -> float:
     return self._nominal_voltage
 
 @nominal_voltage.setter
-def nominal_voltage(self, value: float) -> None:
-    self._nominal_voltage = self._validate_nominal_voltage(
-        value
+def nominal_voltage(
+    self,
+    value: float,
+) -> None:
+    self._nominal_voltage = (
+        self._validate_nominal_voltage(
+            value
+        )
     )
 
 @property
@@ -305,9 +275,14 @@ def nominal_voltage_kv(self) -> float:
     return self._nominal_voltage
 
 @nominal_voltage_kv.setter
-def nominal_voltage_kv(self, value: float) -> None:
-    self._nominal_voltage = self._validate_nominal_voltage(
-        value
+def nominal_voltage_kv(
+    self,
+    value: float,
+) -> None:
+    self._nominal_voltage = (
+        self._validate_nominal_voltage(
+            value
+        )
     )
 
 # =================================================================
@@ -412,7 +387,7 @@ def terminals(self) -> tuple[Terminal, ...]:
 @property
 def is_connected(self) -> bool:
     """
-    Return whether the Bus terminal has an endpoint.
+    Return whether the Bus terminal has a local endpoint.
 
     This is a local terminal-connectivity diagnostic only.
 
@@ -435,9 +410,9 @@ def connect_terminal(
     endpoint: Any,
 ) -> None:
     """
-    Connect the Bus terminal to an endpoint.
+    Connect the Bus terminal to a local endpoint.
 
-    Terminal owns the actual connection state.
+    Terminal owns the actual local connection state.
 
     This method does not perform Network topology validation.
     """
@@ -447,9 +422,13 @@ def connect_terminal(
             "Bus terminal endpoint cannot be None."
         )
 
-    self._terminal.connect(endpoint)
+    self._terminal.connect(
+        endpoint
+    )
 
-def disconnect_terminal(self) -> None:
+def disconnect_terminal(
+    self,
+) -> None:
     """
     Disconnect the Bus terminal.
 
@@ -471,7 +450,10 @@ def in_service(self) -> bool:
     return self._in_service
 
 @in_service.setter
-def in_service(self, value: bool) -> None:
+def in_service(
+    self,
+    value: bool,
+) -> None:
     self._in_service = self._validate_bool(
         value,
         "in_service",
@@ -570,9 +552,22 @@ def validate(self) -> bool:
             f"Bus '{self.id}' must have a terminal."
         )
 
+    if not isinstance(
+        self._terminal,
+        Terminal,
+    ):
+        raise TypeError(
+            f"Bus '{self.id}' terminal must be a Terminal."
+        )
+
     if self._terminal.owner is not self:
         raise ValueError(
             f"Bus '{self.id}' terminal ownership is invalid."
+        )
+
+    if self._terminal.role != "BUS":
+        raise ValueError(
+            f"Bus '{self.id}' terminal role must be 'BUS'."
         )
 
     return True
@@ -595,29 +590,22 @@ def summary(self) -> dict[str, Any]:
         "id": self.id,
         "name": self.name,
         "type": self.TYPE,
-
         "nominal_voltage_kv": (
             self._nominal_voltage
         ),
-
         "initial_voltage_magnitude_pu": (
             self._initial_voltage_magnitude
         ),
-
         "initial_voltage_angle_deg": (
             self._initial_voltage_angle
         ),
-
         "terminal": self._terminal.role,
-
         "endpoint": (
             self._terminal.endpoint.id
             if self._terminal.endpoint is not None
             else None
         ),
-
         "connected": self.is_connected,
-
         "in_service": self._in_service,
     }
 
@@ -657,7 +645,10 @@ def _validate_nominal_voltage(
 
     try:
         value = float(value)
-    except (TypeError, ValueError) as exc:
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
         raise ValueError(
             "nominal_voltage must be numeric."
         ) from exc
@@ -685,7 +676,10 @@ def _validate_voltage_magnitude(
 
     try:
         value = float(value)
-    except (TypeError, ValueError) as exc:
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
         raise ValueError(
             f"{name} must be numeric."
         ) from exc
@@ -717,7 +711,10 @@ def _validate_voltage_angle(
 
     try:
         value = float(value)
-    except (TypeError, ValueError) as exc:
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
         raise ValueError(
             f"{name} must be numeric."
         ) from exc
@@ -742,13 +739,22 @@ def _validate_bool(
     True through bool coercion.
     """
 
-    if not isinstance(value, bool):
+    if not isinstance(
+        value,
+        bool,
+    ):
         raise ValueError(
             f"{name} must be boolean."
         )
 
     return value
 ```
+
+# =====================================================================
+
+# PUBLIC API
+
+# =====================================================================
 
 __all__ = [
 "Bus",
