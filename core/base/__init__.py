@@ -1,4 +1,3 @@
-```python
 """
 GridForge Base Layer
 ====================
@@ -31,4 +30,3 @@ from .per_unit import PerUnitSystem
 __all__ = [
     "PerUnitSystem",
 ]
-```
