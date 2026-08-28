@@ -72,7 +72,7 @@ which dispatches to:
     self.validate_parameters()
 
 Because Line overrides validate_parameters(), Branch validation
-is reached through normal superclass validation.
+is explicitly invoked through the inheritance chain.
 
 Construction therefore follows:
 
@@ -92,6 +92,9 @@ Construction therefore follows:
             |
             v
     Branch.validate_parameters()
+            |
+            v
+    ElectricalObject.validate_parameters()
 
 No overridable validation method is called by Branch.__init__().
 
@@ -122,10 +125,8 @@ All Rights Reserved.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
-from .base import ElectricalObject
 from .branch import Branch
 
 
@@ -214,11 +215,13 @@ class Line(Branch):
             in_service=in_service,
         )
 
-        # No self.validate_parameters() here.
+        # Validation is intentionally not performed here.
         #
-        # Branch deliberately does not validate during its own
-        # construction. The complete Line object is validated
-        # through Line.validate() after initialization.
+        # Branch.__init__() also does not invoke
+        # validate_parameters().
+        #
+        # The complete Line object is validated explicitly through
+        # Line.validate().
 
     # ================================================================
     # IDENTITY
@@ -411,14 +414,23 @@ class Line(Branch):
 
     def validate_parameters(self) -> bool:
         """
-        Validate Line-specific parameters and then Branch
-        parameters.
+        Validate Line-specific parameters.
 
-        Dynamic validation is intentionally performed only after
-        complete Line construction.
+        The Branch validation contract is invoked first so that
+        Branch-owned invariants remain authoritative.
+
+        Validation chain:
+
+            Line.validate_parameters()
+                    |
+                    v
+            Branch.validate_parameters()
+                    |
+                    v
+            ElectricalObject.validate_parameters()
         """
 
-        ElectricalObject.validate_parameters(
+        Branch.validate_parameters(
             self
         )
 
@@ -454,28 +466,19 @@ class Line(Branch):
         """
         Validate the complete Line.
 
-        This is the authoritative public validation entry point.
+        ElectricalObject.validate() is the authoritative public
+        validation entry point.
 
-        ElectricalObject.validate() performs the base dispatch to
-        Line.validate_parameters(), which then validates the Line
-        and Branch contracts.
+        Dynamic dispatch invokes:
+
+            Line.validate_parameters()
+                ↓
+            Branch.validate_parameters()
+                ↓
+            ElectricalObject.validate_parameters()
         """
 
-        ElectricalObject.validate(
-            self
-        )
-
-        if self.from_terminal.owner is not self:
-            raise ValueError(
-                f"Line '{self.id}' from_terminal ownership is invalid."
-            )
-
-        if self.to_terminal.owner is not self:
-            raise ValueError(
-                f"Line '{self.id}' to_terminal ownership is invalid."
-            )
-
-        return True
+        return super().validate()
 
     # ================================================================
     # DIAGNOSTICS
