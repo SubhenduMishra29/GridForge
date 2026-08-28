@@ -1,4 +1,3 @@
-```python
 """
 GridForge Per-Unit System
 =========================
@@ -772,4 +771,3 @@ class PerUnitSystem:
             f"<PerUnitSystem "
             f"base_mva={self.base_mva:.6f}>"
         )
-```
