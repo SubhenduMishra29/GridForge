@@ -1,15 +1,13 @@
-# ============================================================
-# File: core/model/branch.py
-#
-# GridForge V2 — Branch Model
-#
-# Author: Subhendu Mishra
-# ============================================================
+# core/model/bus.py
 
 """
-GridForge V2 Branch Model.
+GridForge V2 — Bus Model
+========================
 
-Generic two-terminal electrical branch foundation.
+Author:
+Subhendu Mishra
+
+A Bus is a first-class electrical network node.
 
 Architecture
 ------------
@@ -17,77 +15,149 @@ Architecture
     ElectricalObject
           |
           v
-        Branch
+         Bus
           |
-          +-- from_terminal
-          |       |
-          |       +-- endpoint
+          +---- physical/node-local configuration
           |
-          +-- to_terminal
-                  |
-                  +-- endpoint
+          +---- authoritative Terminal
+          |
+          v
+        Network
 
-A Branch owns exactly two physical Terminals.
+The Bus represents the physical electrical node.
 
-Terminal ownership is established by the Branch and is never
-transferred.
+The Bus owns:
 
-The Branch owns:
+    - stable identity;
+    - human-readable name;
+    - nominal voltage;
+    - operational state;
+    - optional initial voltage conditions;
+    - exactly one authoritative electrical Terminal.
 
-    - its two terminals;
-    - branch-local engineering parameters;
-    - branch-local operational state;
-    - branch-local validation;
-    - optional engineering extensions.
+The Bus does NOT own:
 
-The Branch does not own:
-
-    - global Network topology;
-    - Bus collections;
-    - Terminal ownership belonging to another object;
-    - Y-bus construction;
-    - numerical indexing;
-    - load-flow solving;
-    - short-circuit solving;
-    - protection calculations;
+    - Network collections;
+    - topology collections;
+    - PQ / PV / SLACK study classification;
+    - study-specific P/Q/V/angle specifications;
+    - solved numerical state;
+    - Y-bus matrices;
+    - solver indices;
+    - Jacobians;
+    - load-flow calculations;
+    - short-circuit calculations;
     - dynamic simulation;
+    - protection calculations;
+    - control logic;
     - SLD geometry;
-    - GUI state.
+    - GUI state;
+    - persistence logic.
 
-Endpoint Contract
+Study Boundary
+--------------
+
+PQ / PV / SLACK is a property of a particular study formulation,
+not an intrinsic physical property of a Bus.
+
+Study-specific quantities belong to the Study / Analysis layer.
+
+Numerical quantities and solved state belong to the Numerical layer.
+
+Initial Conditions
+------------------
+
+A Bus may optionally provide initial voltage conditions used as
+input to a numerical study.
+
+These values are explicitly initial conditions.
+
+They are not solved numerical state.
+
+Topology Boundary
 -----------------
 
-Each Branch Terminal stores one local endpoint reference.
+The Bus does not own collections of connected equipment.
 
-The canonical relationship is:
+Equipment connects through Terminal objects.
 
-    Branch Terminal -> endpoint
+Network owns authoritative topology and determines network
+membership and connectivity.
 
-The endpoint is a domain-level connection reference.
+A Bus may therefore exist:
 
-A Branch never adopts another object's Terminal as one of its
-physical Terminals.
+    - before being connected;
+    - with no connected equipment;
+    - as an isolated node;
+    - as part of a larger Network.
 
-Terminal-to-Terminal chaining is not part of the Branch contract.
+Connectivity is not itself a measure of study validity.
 
-Network-level interpretation and resolution of endpoints belongs
-to the Network/endpoint layer.
+Electrical Boundary
+-------------------
 
-Constructor Lifecycle
----------------------
+The Bus represents an electrical node.
 
-The Branch constructor initializes only Branch-owned state.
+It does not calculate the node power balance.
 
-It deliberately does NOT invoke ``self.validate_parameters()``.
+Load, generator, grid, shunt, and other equipment contributions
+are assembled by the appropriate Network / Study / Numerical
+layers.
 
-This is important because subclasses such as Line, Cable and
-Transformer override ``validate_parameters()``.
+Terminal Ownership Contract
+----------------------------
 
-Calling an overridable method from the base constructor would
-dispatch into a partially initialized subclass.
+The Bus permanently owns exactly one authoritative Terminal.
 
-Validation is therefore explicitly performed after construction
-through ``validate()``.
+The Terminal is created by the Bus itself.
+
+An externally created Terminal cannot be injected into or adopted
+by a Bus.
+
+Terminal ownership is never transferred between model objects.
+
+This guarantees:
+
+    Bus -> authoritative Terminal -> endpoint
+
+rather than:
+
+    Bus -> externally shared/adopted Terminal
+
+Compatibility Boundary
+----------------------
+
+The repository contains application-layer code using the
+``nominal_voltage_kv`` constructor name.
+
+That name is retained as the canonical constructor parameter
+because it describes the physical quantity explicitly and keeps
+the verified application construction path compatible.
+
+The ``nominal_voltage`` property remains available as a model
+alias.
+
+The old ``terminal=`` constructor injection mechanism is
+intentionally removed because it violates the frozen ownership
+contract.
+
+Design Principles
+-----------------
+
+1. Bus represents a physical electrical node.
+2. Bus identity is independent of study identity.
+3. Study formulation is external to Bus.
+4. Numerical state is external to Bus.
+5. Network topology is external to Bus.
+6. Terminal connectivity remains terminal-centric.
+7. Bus owns exactly one authoritative Terminal.
+8. Terminal ownership is never transferred.
+9. Bus never adopts another object's Terminal.
+10. Bus never constructs or owns Y-bus matrices.
+11. Bus never performs numerical solving.
+12. Bus never owns GUI/SLD state.
+13. Device collections are owned by Network.
+14. Initial voltage values are configuration/input, not solved state.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -102,902 +172,580 @@ from .base import ElectricalObject
 from .terminal import Terminal
 
 
-class Branch(ElectricalObject):
+class Bus(ElectricalObject):
     """
-    Generic two-terminal electrical branch.
+    First-class electrical network node.
 
-    Specialized equipment such as Line, Cable, Transformer and
-    Breaker may inherit this common terminal and operational
-    contract.
+    The Bus owns one authoritative Terminal.
 
-    A Branch owns exactly two Terminals:
+    Parameters
+    ----------
+    id:
+        Stable GridForge object identifier.
 
-        from_terminal
-        to_terminal
+    nominal_voltage_kv:
+        Nominal bus voltage in kV.
 
-    The Terminals are created by the Branch itself.
+    name:
+        Human-readable bus name.
+
+    initial_voltage_magnitude:
+        Initial voltage magnitude in per-unit.
+
+    initial_voltage_angle:
+        Initial voltage angle in degrees.
+
+    in_service:
+        Operational state.
+
+    Notes
+    -----
+    The Bus always creates its own Terminal.
+
+    A Terminal cannot be supplied to the constructor.
+
+    This makes Terminal ownership explicit and prevents terminal
+    sharing or ownership transfer between model objects.
     """
 
-    TYPE = "BRANCH"
+    TYPE = "BUS"
 
     def __init__(
         self,
         id: str,
-        endpoint_from: Any = None,
-        endpoint_to: Any = None,
         *,
-        r: float | None = None,
-        x: float | None = None,
-        b: float | None = None,
+        nominal_voltage_kv: float,
         name: str = "",
-        rate_mva: float | None = None,
-        tap: float = 1.0,
-        shift: float = 0.0,
+        initial_voltage_magnitude: float = 1.0,
+        initial_voltage_angle: float = 0.0,
         in_service: bool = True,
     ) -> None:
         """
-        Construct a Branch.
-
-        Parameters
-        ----------
-        id:
-            Stable GridForge object identifier.
-
-        endpoint_from:
-            Optional initial from-side endpoint.
-
-        endpoint_to:
-            Optional initial to-side endpoint.
-
-        r:
-            Optional generic series resistance in per-unit.
-
-        x:
-            Optional generic series reactance in per-unit.
-
-        b:
-            Optional generic total shunt susceptance in per-unit.
-
-        name:
-            Human-readable name.
-
-        rate_mva:
-            Optional equipment rating in MVA.
-
-        tap:
-            Generic tap ratio. Specialized equipment may constrain
-            this value.
-
-        shift:
-            Generic phase shift in radians.
-
-        in_service:
-            Initial operational state.
-
-        Notes
-        -----
-        The Branch creates its own Terminals.
-
-        An existing Terminal cannot be supplied as an endpoint.
-
-        The constructor does not call ``validate_parameters()``.
-        Validation is performed after complete object construction.
+        Create a Bus and its authoritative Terminal.
         """
 
-        super().__init__(
+        ElectricalObject.__init__(
+            self,
             id=id,
             name=name,
         )
 
-        # ============================================================
-        # PHYSICAL TERMINALS
-        # ============================================================
-
-        self.from_terminal = self._create_terminal(
-            endpoint=endpoint_from,
-            role="from",
-        )
-
-        self.to_terminal = self._create_terminal(
-            endpoint=endpoint_to,
-            role="to",
-        )
-
-        # ============================================================
-        # GENERIC ELECTRICAL PARAMETERS
-        # ============================================================
-
-        self.r = self._validate_optional_finite(
-            r,
-            "r",
-        )
-
-        self.x = self._validate_optional_finite(
-            x,
-            "x",
-        )
-
-        self.b = self._validate_optional_finite(
-            b,
-            "b",
-        )
-
-        # ============================================================
-        # GENERIC TRANSFORMER-COMPATIBLE PARAMETERS
-        # ============================================================
-
-        self.tap = self._validate_positive(
-            tap,
-            "tap",
-        )
-
-        self.shift = self._validate_finite(
-            shift,
-            "shift",
-        )
-
-        # ============================================================
-        # RATING
-        # ============================================================
-
-        if rate_mva is None:
-            self.rate_mva = None
-        else:
-            self.rate_mva = self._validate_positive(
-                rate_mva,
-                "rate_mva",
+        self._nominal_voltage = (
+            self._validate_nominal_voltage(
+                nominal_voltage_kv
             )
+        )
 
-        # ============================================================
-        # OPERATIONAL STATE
-        # ============================================================
+        self._initial_voltage_magnitude = (
+            self._validate_voltage_magnitude(
+                initial_voltage_magnitude,
+                "initial_voltage_magnitude",
+            )
+        )
 
-        self.in_service = self._validate_bool(
+        self._initial_voltage_angle = (
+            self._validate_voltage_angle(
+                initial_voltage_angle,
+                "initial_voltage_angle",
+            )
+        )
+
+        self._in_service = self._validate_bool(
             in_service,
             "in_service",
         )
 
-        # ============================================================
-        # EXTENSIONS
-        # ============================================================
-
-        self._extensions: dict[str, Any] = {}
-
-        # IMPORTANT:
+        # -------------------------------------------------------------
+        # AUTHORITATIVE TERMINAL
+        # -------------------------------------------------------------
         #
-        # Do not call self.validate_parameters() here.
+        # The Bus creates its own Terminal.
         #
-        # Subclasses override validate_parameters(), and invoking
-        # an overridable method during base construction can execute
-        # subclass logic before subclass initialization is complete.
+        # Ownership is established during Terminal construction and
+        # is never subsequently reassigned.
+        #
 
-    # ================================================================
+        self._terminal = Terminal(
+            owner=self,
+            role="BUS",
+        )
+
+        self.validate()
+
+    # =================================================================
     # IDENTITY
-    # ================================================================
+    # =================================================================
 
     @property
     def element_type(self) -> str:
-        """Return the canonical GridForge element type."""
+        """
+        Return the canonical GridForge element type.
+        """
 
         return self.TYPE
 
-    # ================================================================
-    # TERMINAL CREATION
-    # ================================================================
+    # =================================================================
+    # NOMINAL VOLTAGE
+    # =================================================================
 
-    def _create_terminal(
+    @property
+    def nominal_voltage(self) -> float:
+        """
+        Return nominal bus voltage in kV.
+        """
+
+        return self._nominal_voltage
+
+    @nominal_voltage.setter
+    def nominal_voltage(
         self,
-        endpoint: Any = None,
-        *,
-        role: str,
-    ) -> Terminal:
-        """
-        Create a Branch-owned Terminal.
-
-        The Branch always creates its own Terminal.
-
-        Existing Terminal objects cannot be supplied as endpoints.
-
-        This prevents:
-
-            - ownership transfer;
-            - ownership reassignment;
-            - accidental Terminal sharing;
-            - Terminal-to-Terminal chaining.
-        """
-
-        if isinstance(
-            endpoint,
-            Terminal,
-        ):
-            raise TypeError(
-                f"Branch '{self.id}' endpoint '{role}' "
-                "cannot be a Terminal. Branch terminals are "
-                "owned exclusively by the Branch."
+        value: float,
+    ) -> None:
+        self._nominal_voltage = (
+            self._validate_nominal_voltage(
+                value
             )
-
-        return Terminal(
-            endpoint=endpoint,
-            owner=self,
-            role=role,
         )
 
-    # ================================================================
-    # TERMINALS
-    # ================================================================
-
     @property
-    def terminals(
+    def nominal_voltage_kv(self) -> float:
+        """
+        Return nominal bus voltage in kV.
+        """
+
+        return self._nominal_voltage
+
+    @nominal_voltage_kv.setter
+    def nominal_voltage_kv(
         self,
-    ) -> tuple[Terminal, Terminal]:
-        """
-        Return the authoritative Branch Terminals.
-        """
-
-        return (
-            self.from_terminal,
-            self.to_terminal,
+        value: float,
+    ) -> None:
+        self._nominal_voltage = (
+            self._validate_nominal_voltage(
+                value
+            )
         )
 
-    # ================================================================
-    # ENDPOINTS
-    # ================================================================
+    # =================================================================
+    # INITIAL VOLTAGE CONDITIONS
+    # =================================================================
 
     @property
-    def from_endpoint(self) -> Any:
+    def initial_voltage_magnitude(self) -> float:
         """
-        Return the from-side endpoint.
-        """
+        Return the configured initial voltage magnitude in per-unit.
 
-        return self.from_terminal.endpoint
-
-    @property
-    def to_endpoint(self) -> Any:
-        """
-        Return the to-side endpoint.
+        This is an initial-condition value, not a solved numerical
+        result.
         """
 
-        return self.to_terminal.endpoint
+        return self._initial_voltage_magnitude
 
-    def endpoints(
+    @initial_voltage_magnitude.setter
+    def initial_voltage_magnitude(
         self,
-    ) -> tuple[Any, Any]:
-        """
-        Return the authoritative endpoint pair.
-        """
-
-        return (
-            self.from_endpoint,
-            self.to_endpoint,
+        value: float,
+    ) -> None:
+        self._initial_voltage_magnitude = (
+            self._validate_voltage_magnitude(
+                value,
+                "initial_voltage_magnitude",
+            )
         )
 
-    # ================================================================
+    @property
+    def initial_voltage_angle(self) -> float:
+        """
+        Return the configured initial voltage angle in degrees.
+
+        This is an initial-condition value, not a solved numerical
+        result.
+        """
+
+        return self._initial_voltage_angle
+
+    @initial_voltage_angle.setter
+    def initial_voltage_angle(
+        self,
+        value: float,
+    ) -> None:
+        self._initial_voltage_angle = (
+            self._validate_voltage_angle(
+                value,
+                "initial_voltage_angle",
+            )
+        )
+
+    def set_initial_voltage(
+        self,
+        magnitude: float,
+        angle: float,
+    ) -> None:
+        """
+        Set the initial voltage condition.
+
+        Parameters
+        ----------
+        magnitude:
+            Initial voltage magnitude in per-unit.
+
+        angle:
+            Initial voltage angle in degrees.
+        """
+
+        self.initial_voltage_magnitude = magnitude
+        self.initial_voltage_angle = angle
+
+    # =================================================================
+    # TERMINAL
+    # =================================================================
+
+    @property
+    def terminal(self) -> Terminal:
+        """
+        Return the authoritative Bus Terminal.
+        """
+
+        return self._terminal
+
+    @property
+    def terminals(self) -> tuple[Terminal, ...]:
+        """
+        Return the Bus terminal collection.
+
+        A Bus currently has exactly one authoritative electrical
+        Terminal.
+        """
+
+        return (self._terminal,)
+
+    # =================================================================
     # CONNECTIVITY
-    # ================================================================
+    # =================================================================
 
     @property
     def is_connected(self) -> bool:
         """
-        Return True when both Branch Terminals have endpoints.
+        Return whether the Bus Terminal has an endpoint.
+
+        This is a local terminal-connectivity diagnostic.
+
+        It does not determine Network or Study validity.
         """
 
-        return (
-            self.from_terminal.is_connected
-            and self.to_terminal.is_connected
-        )
+        return self._terminal.is_connected
 
     @property
-    def is_fully_connected(self) -> bool:
+    def endpoint(self) -> Any:
         """
-        Alias for ``is_connected``.
-        """
-
-        return self.is_connected
-
-    @property
-    def has_from_endpoint(self) -> bool:
-        """
-        Return whether the from-side endpoint is attached.
+        Return the Bus Terminal endpoint, if any.
         """
 
-        return self.from_terminal.is_connected
+        return self._terminal.endpoint
 
-    @property
-    def has_to_endpoint(self) -> bool:
-        """
-        Return whether the to-side endpoint is attached.
-        """
-
-        return self.to_terminal.is_connected
-
-    # ================================================================
-    # TERMINAL ATTACHMENT
-    # ================================================================
-
-    def connect_from(
+    def connect_terminal(
         self,
         endpoint: Any,
     ) -> None:
         """
-        Attach the from-side endpoint.
+        Connect the authoritative Bus Terminal to an endpoint.
 
-        This modifies the Branch Terminal's local endpoint reference.
+        Terminal owns the local connection state.
 
-        It does not construct or mutate global Network topology.
+        Network topology validation remains outside the Bus.
         """
-
-        if isinstance(
-            endpoint,
-            Terminal,
-        ):
-            raise TypeError(
-                "A Branch endpoint cannot be another Terminal."
-            )
 
         if endpoint is None:
             raise ValueError(
-                "Branch from endpoint cannot be None."
+                "Bus terminal endpoint cannot be None."
             )
 
-        self.from_terminal.attach(
-            endpoint
-        )
+        self._terminal.connect(endpoint)
 
-    def connect_to(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """
-        Attach the to-side endpoint.
-
-        This modifies the Branch Terminal's local endpoint reference.
-
-        It does not construct or mutate global Network topology.
-        """
-
-        if isinstance(
-            endpoint,
-            Terminal,
-        ):
-            raise TypeError(
-                "A Branch endpoint cannot be another Terminal."
-            )
-
-        if endpoint is None:
-            raise ValueError(
-                "Branch to endpoint cannot be None."
-            )
-
-        self.to_terminal.attach(
-            endpoint
-        )
-
-    def disconnect_from(
+    def disconnect_terminal(
         self,
     ) -> None:
         """
-        Detach the from-side endpoint.
+        Disconnect the authoritative Bus Terminal.
+
+        A disconnected Bus remains a valid physical model object.
         """
 
-        self.from_terminal.detach()
+        self._terminal.disconnect()
 
-    def disconnect_to(
-        self,
-    ) -> None:
-        """
-        Detach the to-side endpoint.
-        """
-
-        self.to_terminal.detach()
-
-    # ================================================================
-    # GENERIC ELECTRICAL PARAMETERS
-    # ================================================================
-
-    @property
-    def has_per_unit_parameters(self) -> bool:
-        """
-        Return True when generic r and x are defined.
-        """
-
-        return (
-            self.r is not None
-            and self.x is not None
-        )
-
-    @property
-    def impedance(self) -> complex:
-        """
-        Return generic series impedance.
-
-            Z = R + jX
-        """
-
-        if (
-            self.r is None
-            or self.x is None
-        ):
-            raise ValueError(
-                f"Branch '{self.id}' does not define "
-                "generic series impedance."
-            )
-
-        return complex(
-            self.r,
-            self.x,
-        )
-
-    @property
-    def series_impedance(self) -> complex:
-        """
-        Return the generic series impedance.
-
-        Alias for ``impedance``.
-        """
-
-        return self.impedance
-
-    @property
-    def admittance(self) -> complex:
-        """
-        Return generic series admittance.
-
-            Y = 1 / Z
-        """
-
-        z = self.impedance
-
-        if z == 0.0 + 0.0j:
-            raise ZeroDivisionError(
-                f"Branch '{self.id}' has zero series impedance."
-            )
-
-        return 1.0 / z
-
-    @property
-    def series_admittance(self) -> complex:
-        """
-        Return generic series admittance.
-
-        Alias for ``admittance``.
-        """
-
-        return self.admittance
-
-    @property
-    def shunt_admittance(self) -> complex:
-        """
-        Return generic total shunt admittance.
-
-            Ysh = jB
-        """
-
-        if self.b is None:
-            return 0.0 + 0.0j
-
-        return complex(
-            0.0,
-            self.b,
-        )
-
-    # ================================================================
-    # PER-UNIT ACCESSORS
-    # ================================================================
-
-    @property
-    def r_pu(self) -> float | None:
-        """Return generic resistance in per-unit."""
-
-        return self.r
-
-    @property
-    def x_pu(self) -> float | None:
-        """Return generic reactance in per-unit."""
-
-        return self.x
-
-    @property
-    def b_pu(self) -> float | None:
-        """Return generic shunt susceptance in per-unit."""
-
-        return self.b
-
-    # ================================================================
-    # TAP / PHASE SHIFT
-    # ================================================================
-
-    @property
-    def tap_ratio(self) -> float:
-        """Return the generic tap ratio."""
-
-        return self.tap
-
-    @property
-    def phase_shift(self) -> float:
-        """Return the generic phase shift in radians."""
-
-        return self.shift
-
-    # ================================================================
-    # RATING
-    # ================================================================
-
-    @property
-    def has_rating(self) -> bool:
-        """Return whether an equipment rating is defined."""
-
-        return self.rate_mva is not None
-
-    def set_rating(
-        self,
-        rate_mva: float | None,
-    ) -> None:
-        """
-        Set or clear the equipment rating.
-        """
-
-        if rate_mva is None:
-            self.rate_mva = None
-            return
-
-        self.rate_mva = self._validate_positive(
-            rate_mva,
-            "rate_mva",
-        )
-
-    # ================================================================
+    # =================================================================
     # OPERATIONAL STATE
-    # ================================================================
+    # =================================================================
 
-    def connect(
+    @property
+    def in_service(self) -> bool:
+        """
+        Return whether the Bus is in service.
+        """
+
+        return self._in_service
+
+    @in_service.setter
+    def in_service(
         self,
+        value: bool,
     ) -> None:
-        """
-        Place the Branch in service.
-
-        This does not attach physical Terminals.
-        """
-
-        self.in_service = True
-
-    def disconnect(
-        self,
-    ) -> None:
-        """
-        Take the Branch out of service.
-
-        This does not detach physical Terminals.
-        """
-
-        self.in_service = False
-
-    def close(
-        self,
-    ) -> None:
-        """
-        Compatibility alias for ``connect``.
-        """
-
-        self.connect()
-
-    def trip(
-        self,
-    ) -> None:
-        """
-        Compatibility alias for ``disconnect``.
-        """
-
-        self.disconnect()
+        self._in_service = self._validate_bool(
+            value,
+            "in_service",
+        )
 
     @property
     def is_in_service(self) -> bool:
         """
-        Return whether the Branch is in service.
+        Compatibility alias for in_service.
         """
 
-        return self.in_service
+        return self._in_service
 
     @property
     def is_out_of_service(self) -> bool:
         """
-        Return whether the Branch is out of service.
+        Return True when the Bus is out of service.
         """
 
-        return not self.in_service
+        return not self._in_service
 
-    # ================================================================
-    # EXTENSIONS
-    # ================================================================
-
-    def register_extension(
+    def set_in_service(
         self,
-        extension_id: str,
-        extension: Any,
+        value: bool,
     ) -> None:
         """
-        Register an optional engineering extension.
-
-        Extensions do not bypass Core/Application contracts.
+        Set the Bus operational state.
         """
 
-        if not isinstance(
-            extension_id,
-            str,
-        ):
-            raise TypeError(
-                "extension_id must be a string."
-            )
+        self.in_service = value
 
-        extension_id = extension_id.strip()
-
-        if not extension_id:
-            raise ValueError(
-                "extension_id cannot be empty."
-            )
-
-        if extension is None:
-            raise ValueError(
-                "extension cannot be None."
-            )
-
-        if extension_id in self._extensions:
-            raise ValueError(
-                f"Extension '{extension_id}' is already registered."
-            )
-
-        self._extensions[
-            extension_id
-        ] = extension
-
-    def get_extension(
-        self,
-        extension_id: str,
-    ) -> Any | None:
+    def close(self) -> None:
         """
-        Return a registered extension or None.
+        Place the Bus in service.
         """
 
-        return self._extensions.get(
-            extension_id
-        )
+        self._in_service = True
 
-    def remove_extension(
-        self,
-        extension_id: str,
-    ) -> Any | None:
+    def trip(self) -> None:
         """
-        Remove and return a registered extension.
+        Remove the Bus from service.
         """
 
-        return self._extensions.pop(
-            extension_id,
-            None,
-        )
+        self._in_service = False
 
-    @property
-    def extension_ids(self) -> tuple[str, ...]:
-        """
-        Return registered extension identifiers.
-        """
-
-        return tuple(
-            self._extensions.keys()
-        )
-
-    # ================================================================
+    # =================================================================
     # VALIDATION
-    # ================================================================
+    # =================================================================
 
-    def validate_parameters(
-        self,
-    ) -> bool:
+    def validate_parameters(self) -> bool:
         """
-        Validate Branch-local engineering parameters.
+        Validate Bus-local parameters.
 
-        Generic r/x/b values are optional because specialized
-        branches may use different physical parameterizations.
+        Study formulation, Network topology, and numerical state
+        are deliberately outside this validation boundary.
         """
 
-        self.r = self._validate_optional_finite(
-            self.r,
-            "r",
-        )
-
-        self.x = self._validate_optional_finite(
-            self.x,
-            "x",
-        )
-
-        self.b = self._validate_optional_finite(
-            self.b,
-            "b",
-        )
-
-        self.tap = self._validate_positive(
-            self.tap,
-            "tap",
-        )
-
-        self.shift = self._validate_finite(
-            self.shift,
-            "shift",
-        )
-
-        if self.rate_mva is not None:
-            self.rate_mva = self._validate_positive(
-                self.rate_mva,
-                "rate_mva",
+        self._nominal_voltage = (
+            self._validate_nominal_voltage(
+                self._nominal_voltage
             )
+        )
 
-        self.in_service = self._validate_bool(
-            self.in_service,
+        self._initial_voltage_magnitude = (
+            self._validate_voltage_magnitude(
+                self._initial_voltage_magnitude,
+                "initial_voltage_magnitude",
+            )
+        )
+
+        self._initial_voltage_angle = (
+            self._validate_voltage_angle(
+                self._initial_voltage_angle,
+                "initial_voltage_angle",
+            )
+        )
+
+        self._in_service = self._validate_bool(
+            self._in_service,
             "in_service",
         )
 
         return True
 
-    def validate(
-        self,
-    ) -> bool:
+    def validate(self) -> bool:
         """
-        Validate the complete Branch model.
+        Validate the complete Bus model.
 
-        This method is safe to call after construction because the
-        complete Branch/subclass object has already been initialized.
-
-        Base validation is responsible for invoking
-        ``validate_parameters()`` through normal dynamic dispatch.
+        ElectricalObject.validate() is responsible for invoking
+        validate_parameters() through normal dynamic dispatch.
         """
 
-        ElectricalObject.validate(
-            self
-        )
+        ElectricalObject.validate(self)
 
-        if not isinstance(
-            self.from_terminal,
-            Terminal,
-        ):
-            raise TypeError(
-                f"Branch '{self.id}' from_terminal must be Terminal."
+        if self._terminal is None:
+            raise ValueError(
+                f"Bus '{self.id}' must have a terminal."
             )
 
         if not isinstance(
-            self.to_terminal,
+            self._terminal,
             Terminal,
         ):
             raise TypeError(
-                f"Branch '{self.id}' to_terminal must be Terminal."
+                f"Bus '{self.id}' terminal must be a Terminal."
             )
 
-        if self.from_terminal.owner is not self:
+        if self._terminal.owner is not self:
             raise ValueError(
-                f"Branch '{self.id}' from_terminal ownership is invalid."
+                f"Bus '{self.id}' terminal ownership is invalid."
             )
 
-        if self.to_terminal.owner is not self:
+        if self._terminal.role != "BUS":
             raise ValueError(
-                f"Branch '{self.id}' to_terminal ownership is invalid."
-            )
-
-        if self.from_terminal.role != "from":
-            raise ValueError(
-                f"Branch '{self.id}' from_terminal role is invalid."
-            )
-
-        if self.to_terminal.role != "to":
-            raise ValueError(
-                f"Branch '{self.id}' to_terminal role is invalid."
+                f"Bus '{self.id}' terminal role must be 'BUS'."
             )
 
         return True
 
-    # ================================================================
+    # =================================================================
     # DIAGNOSTICS
-    # ================================================================
+    # =================================================================
 
-    def summary(
-        self,
-    ) -> dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """
-        Return structured Branch diagnostics.
+        Return structured Bus diagnostics.
 
-        Endpoint information is reported directly from the
-        authoritative Terminals.
+        Only Bus-local model and initial-condition information is
+        exposed.
 
-        No Network topology or solved numerical state is included.
+        Study-specific and solved numerical state are excluded.
         """
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
-
-            "from_endpoint": (
-                self.from_endpoint.id
-                if self.from_endpoint is not None
-                and hasattr(
-                    self.from_endpoint,
-                    "id",
-                )
-                else self.from_endpoint
+            "nominal_voltage_kv": (
+                self._nominal_voltage
             ),
-
-            "to_endpoint": (
-                self.to_endpoint.id
-                if self.to_endpoint is not None
-                and hasattr(
-                    self.to_endpoint,
-                    "id",
-                )
-                else self.to_endpoint
+            "initial_voltage_magnitude_pu": (
+                self._initial_voltage_magnitude
             ),
-
+            "initial_voltage_angle_deg": (
+                self._initial_voltage_angle
+            ),
+            "terminal": self._terminal.role,
+            "endpoint": (
+                self._terminal.endpoint.id
+                if self._terminal.endpoint is not None
+                else None
+            ),
             "connected": self.is_connected,
-            "in_service": self.in_service,
-
-            "r": self.r,
-            "x": self.x,
-            "b": self.b,
-
-            "rate_mva": self.rate_mva,
-
-            "tap": self.tap,
-            "shift": self.shift,
-
-            "extensions": self.extension_ids,
+            "in_service": self._in_service,
         }
 
-    # ================================================================
+    # =================================================================
     # REPRESENTATION
-    # ================================================================
+    # =================================================================
 
     def __repr__(self) -> str:
         """
         Return a concise developer-facing representation.
         """
 
-        from_id = (
-            self.from_endpoint.id
-            if self.from_endpoint is not None
-            and hasattr(
-                self.from_endpoint,
-                "id",
-            )
-            else self.from_endpoint
-        )
-
-        to_id = (
-            self.to_endpoint.id
-            if self.to_endpoint is not None
-            and hasattr(
-                self.to_endpoint,
-                "id",
-            )
-            else self.to_endpoint
-        )
-
         return (
-            f"<Branch "
+            f"<Bus "
             f"id={self.id}, "
-            f"{from_id} -> {to_id}, "
-            f"r={self.r}, "
-            f"x={self.x}, "
-            f"b={self.b}, "
-            f"rate_mva={self.rate_mva}, "
-            f"in_service={self.in_service}>"
+            f"name={self.name!r}, "
+            f"nominal_voltage="
+            f"{self._nominal_voltage:.6f} kV, "
+            f"initial_voltage="
+            f"{self._initial_voltage_magnitude:.6f} pu, "
+            f"initial_angle="
+            f"{self._initial_voltage_angle:.6f} deg, "
+            f"in_service={self._in_service}>"
         )
 
-    # ================================================================
+    # =================================================================
     # VALIDATION HELPERS
-    # ================================================================
+    # =================================================================
 
     @staticmethod
-    def _validate_finite(
+    def _validate_nominal_voltage(
+        value: float,
+    ) -> float:
+        """
+        Validate nominal bus voltage in kV.
+        """
+
+        try:
+            value = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                "nominal_voltage_kv must be numeric."
+            ) from exc
+
+        if not math.isfinite(value):
+            raise ValueError(
+                "nominal_voltage_kv must be finite."
+            )
+
+        if value <= 0.0:
+            raise ValueError(
+                "nominal_voltage_kv must be greater than zero."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_voltage_magnitude(
         value: float,
         name: str,
     ) -> float:
         """
-        Validate a finite numeric value.
+        Validate a voltage magnitude in per-unit.
+        """
+
+        try:
+            value = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                f"{name} must be numeric."
+            ) from exc
+
+        if not math.isfinite(value):
+            raise ValueError(
+                f"{name} must be finite."
+            )
+
+        if value <= 0.0:
+            raise ValueError(
+                f"{name} must be greater than zero."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_voltage_angle(
+        value: float,
+        name: str,
+    ) -> float:
+        """
+        Validate a voltage angle in degrees.
+
+        Any finite angle is accepted.
+
+        Angle normalization is left to the numerical formulation
+        because different numerical consumers may use different
+        conventions.
         """
 
         try:
@@ -1017,46 +765,6 @@ class Branch(ElectricalObject):
 
         return value
 
-    @classmethod
-    def _validate_optional_finite(
-        cls,
-        value: float | None,
-        name: str,
-    ) -> float | None:
-        """
-        Validate an optional finite numeric value.
-        """
-
-        if value is None:
-            return None
-
-        return cls._validate_finite(
-            value,
-            name,
-        )
-
-    @classmethod
-    def _validate_positive(
-        cls,
-        value: float,
-        name: str,
-    ) -> float:
-        """
-        Validate a finite positive numeric value.
-        """
-
-        value = cls._validate_finite(
-            value,
-            name,
-        )
-
-        if value <= 0.0:
-            raise ValueError(
-                f"{name} must be greater than zero."
-            )
-
-        return value
-
     @staticmethod
     def _validate_bool(
         value: bool,
@@ -1065,7 +773,9 @@ class Branch(ElectricalObject):
         """
         Validate a strict boolean value.
 
-        Arbitrary truthy/falsy values are rejected.
+        Arbitrary truthy/falsy values are deliberately rejected so
+        values such as the string ``"False"`` cannot silently become
+        True through bool coercion.
         """
 
         if not isinstance(
@@ -1080,5 +790,5 @@ class Branch(ElectricalObject):
 
 
 __all__ = [
-    "Branch",
+    "Bus",
 ]
