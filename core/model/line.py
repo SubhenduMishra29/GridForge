@@ -128,7 +128,7 @@ from __future__ import annotations
 from typing import Any
 
 from .branch import Branch
-
+import math
 
 class Line(Branch):
     """
