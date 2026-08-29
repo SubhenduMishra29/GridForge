@@ -142,7 +142,7 @@ Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 import math
 from typing import Any
