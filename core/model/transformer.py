@@ -142,7 +142,7 @@ Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 import math
 from typing import Any
@@ -216,16 +216,6 @@ def __init__(
 
     in_service:
         Branch-owned operational state.
-
-    Notes
-    -----
-    The Transformer constructor exposes r/x/b only to
-    initialize inherited Branch state.
-
-    Transformer does not duplicate those fields.
-
-    Validation is intentionally deferred until the model
-    is explicitly validated.
     """
 
     super().__init__(
@@ -256,10 +246,7 @@ def __init__(
 
 @property
 def element_type(self) -> str:
-    """
-    Return the canonical GridForge element type.
-    """
-
+    """Return the canonical GridForge element type."""
     return self.TYPE
 
 # ============================================================
@@ -268,10 +255,7 @@ def element_type(self) -> str:
 
 @property
 def tap(self) -> float:
-    """
-    Return the static magnitude tap ratio.
-    """
-
+    """Return the static magnitude tap ratio."""
     return self._tap
 
 @tap.setter
@@ -286,12 +270,7 @@ def tap(
 
 @property
 def tap_ratio(self) -> float:
-    """
-    Return the static magnitude tap ratio.
-
-    Alias for tap.
-    """
-
+    """Alias for the static magnitude tap ratio."""
     return self._tap
 
 @tap_ratio.setter
@@ -306,23 +285,14 @@ def tap_ratio(
 
 @property
 def turns_ratio(self) -> float:
-    """
-    Return the configured static transformer ratio.
-    """
-
+    """Return the configured static transformer ratio."""
     return self._tap
 
 def set_tap(
     self,
     tap: float,
 ) -> None:
-    """
-    Set the static transformer tap ratio.
-
-    This method does not implement automatic OLTC or voltage
-    regulation behavior.
-    """
-
+    """Set the static transformer tap ratio."""
     self.tap = tap
 
 # ============================================================
@@ -331,10 +301,7 @@ def set_tap(
 
 @property
 def shift(self) -> float:
-    """
-    Return static phase shift in radians.
-    """
-
+    """Return static phase shift in radians."""
     return self._shift
 
 @shift.setter
@@ -349,10 +316,7 @@ def shift(
 
 @property
 def phase_shift_rad(self) -> float:
-    """
-    Return static phase shift in radians.
-    """
-
+    """Return static phase shift in radians."""
     return self._shift
 
 @phase_shift_rad.setter
@@ -367,10 +331,7 @@ def phase_shift_rad(
 
 @property
 def phase_shift_deg(self) -> float:
-    """
-    Return static phase shift in degrees.
-    """
-
+    """Return static phase shift in degrees."""
     return math.degrees(
         self._shift
     )
@@ -393,20 +354,14 @@ def set_phase_shift(
     self,
     shift: float,
 ) -> None:
-    """
-    Set static phase shift in radians.
-    """
-
+    """Set static phase shift in radians."""
     self.shift = shift
 
 def set_phase_shift_degrees(
     self,
     degrees: float,
 ) -> None:
-    """
-    Set static phase shift in degrees.
-    """
-
+    """Set static phase shift in degrees."""
     self.phase_shift_deg = degrees
 
 # ============================================================
@@ -426,9 +381,7 @@ def validate_parameters(self) -> bool:
         ElectricalObject
     """
 
-    Branch.validate_parameters(
-        self
-    )
+    Branch.validate_parameters(self)
 
     self._tap = self._validate_positive(
         self._tap,
@@ -473,9 +426,7 @@ def summary(self) -> dict[str, Any]:
 # ============================================================
 
 def __repr__(self) -> str:
-    """
-    Return a concise developer-facing representation.
-    """
+    """Return a concise developer-facing representation."""
 
     from_endpoint = self.from_endpoint
     to_endpoint = self.to_endpoint
@@ -509,9 +460,7 @@ def _validate_finite(
     value: float,
     name: str,
 ) -> float:
-    """
-    Validate a finite numeric value.
-    """
+    """Validate a finite numeric value."""
 
     try:
         value = float(value)
@@ -535,9 +484,7 @@ def _validate_positive(
     value: float,
     name: str,
 ) -> float:
-    """
-    Validate a finite positive numeric value.
-    """
+    """Validate a finite positive numeric value."""
 
     value = Transformer._validate_finite(
         value,
@@ -550,7 +497,6 @@ def _validate_positive(
         )
 
     return value
-```
 
 __all__ = [
 "Transformer",
