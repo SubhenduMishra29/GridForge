@@ -16,10 +16,9 @@
 GridForge V2 Transformer Model
 ==============================
 
-A Transformer is a specialized two-terminal Branch representing
-a static physical transformer.
+A Transformer is a specialized two-terminal Branch.
 
-## Architecture
+Architecture:
 
 ```
 ElectricalObject
@@ -33,20 +32,11 @@ ElectricalObject
 
 ## Ownership
 
-ElectricalObject owns:
-
-```
-- stable identity;
-- human-readable name;
-- base validation contract.
-```
-
 Branch owns:
 
 ```
 - authoritative terminals;
 - endpoint connectivity;
-- generic branch electrical parameters;
 - r;
 - x;
 - b;
@@ -54,92 +44,15 @@ Branch owns:
 - in_service.
 ```
 
-Transformer owns only transformer-specific configuration:
+Transformer adds only:
 
 ```
 - tap;
 - shift.
 ```
 
-Transformer does NOT own:
-
-```
-- Bus objects;
-- external Terminal objects;
-- Network topology;
-- Network collections;
-- endpoint resolution;
-- study formulation;
-- solved numerical state;
-- Y-bus construction;
-- solver indices;
-- OLTC control logic;
-- protection logic;
-- dynamic simulation;
-- GUI state;
-- SLD geometry;
-- persistence.
-```
-
-## Terminal Boundary
-
-Transformer inherits its authoritative terminal interface from
-Branch. It does not adopt externally supplied Terminal instances.
-
-Topology remains terminal-centric. Network is responsible for
-authoritative topology and endpoint interpretation.
-
-## Electrical Boundary
-
-The generic branch electrical parameters:
-
-```
-r
-x
-b
-```
-
-remain owned and validated by Branch.
-
-Transformer exposes these parameters in its constructor only
-because they are required to initialize the inherited Branch
-state. Transformer does not duplicate their storage.
-
-Transformer-specific electrical configuration is:
-
-```
-tap
-shift
-```
-
-Automatic tap-changing, voltage regulation, and OLTC behavior
-belong outside this physical model.
-
-## Validation Boundary
-
-The public validation entry point remains inherited from
-ElectricalObject.
-
-The validation chain is:
-
-```
-ElectricalObject.validate()
-        |
-        v
-Transformer.validate_parameters()
-        |
-        v
-Branch.validate_parameters()
-        |
-        v
-ElectricalObject.validate_parameters()
-```
-
-The constructor does not invoke validate() or
-validate_parameters().
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+Transformer does not duplicate Branch-owned electrical or
+connectivity state.
 """
 
 from __future__ import annotations
@@ -153,11 +66,8 @@ class Transformer(Branch):
 """
 Static two-terminal transformer.
 
-```
-Branch owns terminals, endpoint connectivity, r/x/b, rating,
-and operational state.
-
-Transformer owns only tap ratio and phase shift.
+Branch owns the generic branch and connectivity state.
+Transformer owns only transformer-specific configuration.
 """
 
 TYPE = "TRANSFORMER"
@@ -186,12 +96,10 @@ def __init__(
         Stable GridForge object identifier.
 
     endpoint_from:
-        Optional initial endpoint reference for the
-        inherited from terminal.
+        Initial reference for the inherited from-side terminal.
 
     endpoint_to:
-        Optional initial endpoint reference for the
-        inherited to terminal.
+        Initial reference for the inherited to-side terminal.
 
     r:
         Branch-owned series resistance.
@@ -209,10 +117,10 @@ def __init__(
         Transformer-owned static phase shift in radians.
 
     name:
-        Human-readable transformer name.
+        Human-readable name.
 
     rate_mva:
-        Branch-owned optional equipment rating.
+        Branch-owned optional rating.
 
     in_service:
         Branch-owned operational state.
@@ -301,7 +209,7 @@ def set_tap(
 
 @property
 def shift(self) -> float:
-    """Return static phase shift in radians."""
+    """Return the static phase shift in radians."""
     return self._shift
 
 @shift.setter
@@ -316,7 +224,7 @@ def shift(
 
 @property
 def phase_shift_rad(self) -> float:
-    """Return static phase shift in radians."""
+    """Return the static phase shift in radians."""
     return self._shift
 
 @phase_shift_rad.setter
@@ -331,10 +239,8 @@ def phase_shift_rad(
 
 @property
 def phase_shift_deg(self) -> float:
-    """Return static phase shift in degrees."""
-    return math.degrees(
-        self._shift
-    )
+    """Return the static phase shift in degrees."""
+    return math.degrees(self._shift)
 
 @phase_shift_deg.setter
 def phase_shift_deg(
@@ -346,22 +252,20 @@ def phase_shift_deg(
         "phase_shift_deg",
     )
 
-    self._shift = math.radians(
-        value
-    )
+    self._shift = math.radians(value)
 
 def set_phase_shift(
     self,
     shift: float,
 ) -> None:
-    """Set static phase shift in radians."""
+    """Set the static phase shift in radians."""
     self.shift = shift
 
 def set_phase_shift_degrees(
     self,
     degrees: float,
 ) -> None:
-    """Set static phase shift in degrees."""
+    """Set the static phase shift in degrees."""
     self.phase_shift_deg = degrees
 
 # ============================================================
@@ -372,13 +276,8 @@ def validate_parameters(self) -> bool:
     """
     Validate Transformer-specific and inherited parameters.
 
-    Validation order:
-
-        Transformer
-            ↓
-        Branch
-            ↓
-        ElectricalObject
+    The inherited Branch validation is executed first.
+    Transformer then validates its own tap and phase-shift state.
     """
 
     Branch.validate_parameters(self)
@@ -403,8 +302,8 @@ def summary(self) -> dict[str, Any]:
     """
     Return structured Transformer diagnostics.
 
-    Generic branch state remains supplied by Branch.
-    Transformer adds only its own parameters.
+    Inherited state comes from Branch.
+    Transformer adds only transformer-specific state.
     """
 
     summary = super().summary()
@@ -464,10 +363,7 @@ def _validate_finite(
 
     try:
         value = float(value)
-    except (
-        TypeError,
-        ValueError,
-    ) as exc:
+    except (TypeError, ValueError) as exc:
         raise ValueError(
             f"{name} must be numeric."
         ) from exc
@@ -497,6 +393,7 @@ def _validate_positive(
         )
 
     return value
+
 
 __all__ = [
 "Transformer",
