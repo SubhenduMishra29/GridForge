@@ -265,10 +265,12 @@ class PanelsPlugin(QObject):
         """
         Initialize the panel composition layer.
 
-        This establishes the host context only.
+        Canonical application panels are composed here so that
+        the application shell can safely request their existing
+        docks after plugin initialization.
 
-        No Workspace is created, selected, activated, arranged,
-        or realized here.
+        Workspace placement, visibility policy, tabification,
+        and activation remain outside this plugin.
         """
 
         if not isinstance(
@@ -300,6 +302,25 @@ class PanelsPlugin(QObject):
 
         self._context = context
         self._initialized = True
+
+        try:
+            # Local import is intentional: default_panels imports
+            # PanelSpec from this module, so a module-level import
+            # would create a circular import during startup.
+            from ui.panels.default_panels import (
+                compose_default_panel_specs,
+            )
+
+            for spec in compose_default_panel_specs():
+                self.add_panel(spec)
+
+        except Exception:
+            self._dock_widgets.clear()
+            self._panels.clear()
+            self._panel_specs.clear()
+            self._context = None
+            self._initialized = False
+            raise
 
     def shutdown(self) -> None:
         """
