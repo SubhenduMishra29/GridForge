@@ -55,8 +55,7 @@ from ui.core.qt import (
 )
 
 from ui.core.controller import Controller
-from ui.core.plugin_registry import PluginRegistry
-
+from ui.plugins.plugin_registry import PluginRegistry
 
 class MainWindow(QMainWindow):
     """
