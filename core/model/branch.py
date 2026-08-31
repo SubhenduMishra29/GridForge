@@ -1,105 +1,114 @@
 # ============================================================
 # File: core/model/branch.py
-#
 # GridForge V2 — Branch Model
-#
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-GridForge V2 Branch Model
-=========================
+GridForge V2 — Branch
+=====================
 
-A Branch is the common two-terminal electrical model for equipment
-that transfers electrical quantities between two network endpoints.
+Base model for two-terminal electrical branch equipment.
 
 Architecture
 ------------
 
     ElectricalObject
-          |
-          v
+          │
+          ▼
         Branch
        /      \
-  Line/Cable  Transformer/other branches
+      ▼        ▼
+   Terminal  Terminal
+      │          │
+      ▼          ▼
+  endpoint    endpoint
+      │          │
+      └────┬─────┘
+           ▼
+        Network
+           │
+           ▼
+       Topology
 
-Branch owns:
+Branch owns exactly two authoritative Terminal objects.
 
-    - stable identity through ElectricalObject;
-    - exactly two authoritative terminals;
-    - from/to endpoint references;
-    - branch-local operational state;
-    - branch-local rating and generic branch parameters.
+Endpoint ownership
+------------------
 
-Branch does NOT own:
+    Branch
+      │
+      ├── from_terminal ── owns endpoint
+      │
+      └── to_terminal ─── owns endpoint
 
-    - Bus objects;
-    - Network topology;
-    - Network collections;
-    - endpoint-to-Bus resolution;
-    - Y-bus construction;
-    - solver indices;
-    - study-specific state;
-    - solved numerical state;
-    - GUI/SLD state;
-    - persistence;
-    - Terminal objects supplied by external callers.
+Branch MUST NOT maintain a second copy of either endpoint.
 
-Terminal Boundary
------------------
+Network responsibility
+----------------------
 
-A Branch creates and owns its two Terminal objects.
+Branch does not:
 
-External Terminal adoption/sharing is deliberately unsupported.
+    - resolve endpoints into Network topology;
+    - resolve endpoints into Bus objects;
+    - maintain Network collections;
+    - construct Y-bus matrices;
+    - assign solver indices;
+    - maintain solved numerical state;
+    - execute protection logic;
+    - execute control logic;
+    - maintain UI/SLD state.
 
-The authoritative branch interface is:
+Terminal responsibility
+-----------------------
 
-    from_terminal
-    to_terminal
+Branch delegates endpoint mutation exclusively to:
 
-and their endpoint references:
+    Terminal.attach()
+    Terminal.detach()
 
-    from_endpoint
-    to_endpoint
+The canonical Terminal API is:
 
-A Branch does not expose from_bus or to_bus.
+    owner
+    role
+    endpoint
+    attach()
+    detach()
+    is_connected
+    validate()
 
-Bus resolution is a Network responsibility.
+Validation
+----------
 
-Validation Boundary
--------------------
+ElectricalObject defines the public validation entry point:
 
-Validation is entered through:
+    validate()
 
-    ElectricalObject.validate()
+Branch extends the common parameter-validation contract through:
 
-which dynamically dispatches to:
+    validate_parameters()
 
-    self.validate_parameters()
+Specialized subclasses such as Line, Cable, and Transformer
+may override validate_parameters() and must call:
 
-Branch therefore validates its own branch-local parameters and
-then explicitly propagates validation to:
+    Branch.validate_parameters(self)
 
-    ElectricalObject.validate_parameters()
+before validating their own parameters.
 
-This allows subclasses such as Line to extend the validation chain:
+Construction
+------------
 
-    Line.validate_parameters()
-            |
-            v
-    Branch.validate_parameters()
-            |
-            v
-    ElectricalObject.validate_parameters()
+Branch creates its authoritative terminals during construction.
 
-Construction Boundary
----------------------
+Optional endpoint references may be supplied during construction
+and are attached through Terminal.attach().
 
-Branch does not call validate() or validate_parameters() from its
-constructor.
+Branch intentionally does not invoke the polymorphic public
+validate() method during construction because subclasses may not
+yet have initialized their own state.
 
-A subclass must be allowed to finish construction before complete
-validation occurs.
+The complete concrete object is validated through validate() after
+construction.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -107,7 +116,6 @@ All Rights Reserved.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from .base import ElectricalObject
@@ -116,33 +124,36 @@ from .terminal import Terminal
 
 class Branch(ElectricalObject):
     """
-    Common two-terminal electrical branch model.
+    Base class for two-terminal electrical branch equipment.
 
-    Branch is an electrical model abstraction and not a Network
-    topology object.
-
-    Each Branch owns exactly two Terminal instances:
+    A Branch owns exactly two authoritative terminals:
 
         from_terminal
         to_terminal
 
-    Endpoints are references carried by the terminals. Their
-    interpretation and connection to Network topology remain
-    outside the Branch model.
+    Endpoint state is stored exclusively by those terminals.
     """
 
-    TYPE = "BRANCH"
+    __slots__ = (
+        "_from_terminal",
+        "_to_terminal",
+        "_r",
+        "_x",
+        "_b",
+        "_rate_mva",
+        "_in_service",
+    )
 
     def __init__(
         self,
-        id: str,
-        endpoint_from: Any = None,
-        endpoint_to: Any = None,
         *,
-        r: float | None = None,
-        x: float | None = None,
-        b: float | None = None,
-        name: str = "",
+        id: str,
+        endpoint_from: Any | None = None,
+        endpoint_to: Any | None = None,
+        r: float = 0.0,
+        x: float = 0.0,
+        b: float = 0.0,
+        name: str | None = None,
         rate_mva: float | None = None,
         in_service: bool = True,
     ) -> None:
@@ -155,37 +166,35 @@ class Branch(ElectricalObject):
             Stable GridForge object identifier.
 
         endpoint_from:
-            Optional endpoint reference for the from terminal.
+            Optional endpoint for the FROM terminal.
 
         endpoint_to:
-            Optional endpoint reference for the to terminal.
+            Optional endpoint for the TO terminal.
 
         r:
-            Optional series resistance in per-unit.
+            Series resistance.
 
         x:
-            Optional series reactance in per-unit.
+            Series reactance.
 
         b:
-            Optional total shunt susceptance in per-unit.
+            Total shunt susceptance.
 
         name:
             Human-readable branch name.
 
         rate_mva:
-            Optional branch rating in MVA.
+            Optional continuous apparent-power rating in MVA.
 
         in_service:
             Operational state.
 
         Notes
         -----
-        The Branch always creates its own terminals.
+        Terminal objects are always created internally and owned
+        by this Branch.
 
-        External Terminal objects are not accepted or adopted.
-
-        Validation is deliberately deferred until construction of
-        the complete concrete model.
+        Endpoint references are attached through Terminal.attach().
         """
 
         super().__init__(
@@ -193,149 +202,146 @@ class Branch(ElectricalObject):
             name=name,
         )
 
+        # --------------------------------------------------------
+        # Authoritative terminals
+        # --------------------------------------------------------
+
         self._from_terminal = Terminal(
             owner=self,
             role="FROM",
-            endpoint=endpoint_from,
         )
 
         self._to_terminal = Terminal(
             owner=self,
             role="TO",
-            endpoint=endpoint_to,
         )
 
-        self._r = self._validate_optional_finite(
+        # --------------------------------------------------------
+        # Generic branch electrical parameters
+        # --------------------------------------------------------
+
+        self._r = self._coerce_numeric(
             r,
             "r",
         )
 
-        self._x = self._validate_optional_finite(
+        self._x = self._coerce_numeric(
             x,
             "x",
         )
 
-        self._b = self._validate_optional_finite(
+        self._b = self._coerce_numeric(
             b,
             "b",
         )
 
-        self._rate_mva = self._validate_optional_positive(
-            rate_mva,
-            "rate_mva",
-        )
+        if rate_mva is not None:
+            rate_mva = self._coerce_numeric(
+                rate_mva,
+                "rate_mva",
+            )
 
-        self._in_service = self._validate_bool(
-            in_service,
-            "in_service",
-        )
+            if rate_mva <= 0.0:
+                raise ValueError(
+                    "rate_mva must be positive when provided."
+                )
 
-        # Deliberately no validate() call here.
+        self._rate_mva = rate_mva
+        self._in_service = bool(in_service)
+
+        # --------------------------------------------------------
+        # Optional initial endpoint references
+        # --------------------------------------------------------
+
+        if endpoint_from is not None:
+            self._from_terminal.attach(
+                endpoint_from
+            )
+
+        if endpoint_to is not None:
+            self._to_terminal.attach(
+                endpoint_to
+            )
+
+        # IMPORTANT:
         #
-        # A concrete subclass must be allowed to finish
-        # initialization before complete validation occurs.
+        # Do not call self.validate() here.
+        #
+        # Subclasses may override validate_parameters() and their
+        # own state may not yet exist during Branch construction.
+        #
+        # Complete validation is performed after concrete
+        # construction through the public validate() entry point.
 
-    # ================================================================
-    # IDENTITY
-    # ================================================================
-
-    @property
-    def element_type(self) -> str:
-        """
-        Return the canonical GridForge element type.
-        """
-
-        return self.TYPE
-
-    # ================================================================
+    # ============================================================
     # TERMINALS
-    # ================================================================
+    # ============================================================
 
     @property
     def from_terminal(self) -> Terminal:
         """
-        Return the authoritative from terminal.
-
-        The returned Terminal is owned exclusively by this Branch.
+        Return the authoritative FROM terminal.
         """
-
         return self._from_terminal
 
     @property
     def to_terminal(self) -> Terminal:
         """
-        Return the authoritative to terminal.
-
-        The returned Terminal is owned exclusively by this Branch.
+        Return the authoritative TO terminal.
         """
-
         return self._to_terminal
 
-    @property
-    def terminals(self) -> tuple[Terminal, Terminal]:
-        """
-        Return the two authoritative Branch terminals.
-
-        Terminal ownership remains inside the Branch model.
-        """
-
-        return (
-            self._from_terminal,
-            self._to_terminal,
-        )
-
-    # ================================================================
-    # ENDPOINT REFERENCES
-    # ================================================================
+    # ============================================================
+    # ENDPOINTS
+    # ============================================================
 
     @property
-    def from_endpoint(self) -> Any:
+    def from_endpoint(self) -> Any | None:
         """
-        Return the endpoint reference associated with the from
-        terminal.
+        Return the endpoint owned by the FROM terminal.
 
-        The endpoint is not interpreted as a Bus by Branch.
+        This is a convenience accessor only.
         """
-
         return self._from_terminal.endpoint
 
     @property
-    def to_endpoint(self) -> Any:
+    def to_endpoint(self) -> Any | None:
         """
-        Return the endpoint reference associated with the to
-        terminal.
+        Return the endpoint owned by the TO terminal.
 
-        The endpoint is not interpreted as a Bus by Branch.
+        This is a convenience accessor only.
         """
-
         return self._to_terminal.endpoint
 
-    @property
-    def endpoints(self) -> tuple[Any, Any]:
-        """
-        Return the two endpoint references.
-        """
+    # ============================================================
+    # CONNECTION STATE
+    # ============================================================
 
+    @property
+    def is_connected(self) -> bool:
+        """
+        Return True when both terminals have endpoints.
+        """
         return (
-            self.from_endpoint,
-            self.to_endpoint,
+            self._from_terminal.is_connected
+            and self._to_terminal.is_connected
         )
 
-    # ================================================================
+    # ============================================================
     # ENDPOINT MUTATION
-    # ================================================================
+    # ============================================================
 
     def set_from_endpoint(
         self,
         endpoint: Any,
     ) -> None:
         """
-        Set the from-terminal endpoint reference.
+        Attach an endpoint to the FROM terminal.
 
-        Network topology validation is outside Branch.
+        This method is a Branch-level convenience operation.
+        The Terminal remains the authoritative endpoint owner.
         """
-
-        self._from_terminal.set_endpoint(
+        self._from_terminal.attach(
             endpoint
         )
 
@@ -344,218 +350,102 @@ class Branch(ElectricalObject):
         endpoint: Any,
     ) -> None:
         """
-        Set the to-terminal endpoint reference.
+        Attach an endpoint to the TO terminal.
 
-        Network topology validation is outside Branch.
+        This method is a Branch-level convenience operation.
         """
-
-        self._to_terminal.set_endpoint(
+        self._to_terminal.attach(
             endpoint
-        )
-
-    # ================================================================
-    # CONNECTIVITY
-    # ================================================================
-
-    @property
-    def is_connected(self) -> bool:
-        """
-        Return True when both Branch terminals have endpoints.
-        """
-
-        return (
-            self._from_terminal.is_connected
-            and self._to_terminal.is_connected
-        )
-
-    @property
-    def is_partially_connected(self) -> bool:
-        """
-        Return True when exactly one Branch terminal has an
-        endpoint.
-        """
-
-        return (
-            self._from_terminal.is_connected
-            != self._to_terminal.is_connected
-        )
-
-    @property
-    def is_open(self) -> bool:
-        """
-        Return True when neither Branch terminal has an endpoint.
-        """
-
-        return (
-            not self._from_terminal.is_connected
-            and not self._to_terminal.is_connected
         )
 
     def connect(
         self,
-        endpoint_from: Any,
-        endpoint_to: Any,
+        from_endpoint: Any,
+        to_endpoint: Any,
     ) -> None:
         """
-        Assign both endpoint references.
+        Attach both Branch endpoints.
 
-        This method performs local terminal assignment only.
-
-        Network-level topology validation remains outside Branch.
+        Only Terminal.attach() performs the actual endpoint state
+        mutation.
         """
-
-        if endpoint_from is None:
-            raise ValueError(
-                "Branch from endpoint cannot be None."
-            )
-
-        if endpoint_to is None:
-            raise ValueError(
-                "Branch to endpoint cannot be None."
-            )
-
-        self._from_terminal.set_endpoint(
-            endpoint_from
+        self._from_terminal.attach(
+            from_endpoint
         )
 
-        self._to_terminal.set_endpoint(
-            endpoint_to
+        self._to_terminal.attach(
+            to_endpoint
         )
 
     def disconnect(self) -> None:
         """
-        Disconnect both Branch terminals.
+        Detach both Branch terminals.
 
-        The Branch remains a valid model object after
-        disconnection.
+        Network topology is not modified by this method.
         """
+        self._from_terminal.detach()
+        self._to_terminal.detach()
 
-        self._from_terminal.disconnect()
-        self._to_terminal.disconnect()
-
-    # ================================================================
+    # ============================================================
     # ELECTRICAL PARAMETERS
-    # ================================================================
+    # ============================================================
 
     @property
-    def r(self) -> float | None:
+    def r(self) -> float:
         """
-        Return series resistance in per-unit.
+        Return series resistance.
         """
-
         return self._r
 
     @r.setter
     def r(
         self,
-        value: float | None,
+        value: float,
     ) -> None:
-        self._r = self._validate_optional_finite(
+        self._r = self._coerce_numeric(
             value,
             "r",
         )
 
     @property
-    def x(self) -> float | None:
+    def x(self) -> float:
         """
-        Return series reactance in per-unit.
+        Return series reactance.
         """
-
         return self._x
 
     @x.setter
     def x(
         self,
-        value: float | None,
+        value: float,
     ) -> None:
-        self._x = self._validate_optional_finite(
+        self._x = self._coerce_numeric(
             value,
             "x",
         )
 
     @property
-    def b(self) -> float | None:
+    def b(self) -> float:
         """
-        Return total shunt susceptance in per-unit.
+        Return total shunt susceptance.
         """
-
         return self._b
 
     @b.setter
     def b(
         self,
-        value: float | None,
+        value: float,
     ) -> None:
-        self._b = self._validate_optional_finite(
+        self._b = self._coerce_numeric(
             value,
             "b",
         )
 
-    # ================================================================
-    # COMMON BRANCH ALIASES
-    # ================================================================
-
-    @property
-    def resistance(self) -> float | None:
-        """
-        Return series resistance.
-
-        Alias for r.
-        """
-
-        return self._r
-
-    @resistance.setter
-    def resistance(
-        self,
-        value: float | None,
-    ) -> None:
-        self.r = value
-
-    @property
-    def reactance(self) -> float | None:
-        """
-        Return series reactance.
-
-        Alias for x.
-        """
-
-        return self._x
-
-    @reactance.setter
-    def reactance(
-        self,
-        value: float | None,
-    ) -> None:
-        self.x = value
-
-    @property
-    def shunt_susceptance(self) -> float | None:
-        """
-        Return total shunt susceptance.
-
-        Alias for b.
-        """
-
-        return self._b
-
-    @shunt_susceptance.setter
-    def shunt_susceptance(
-        self,
-        value: float | None,
-    ) -> None:
-        self.b = value
-
-    # ================================================================
-    # RATING
-    # ================================================================
-
     @property
     def rate_mva(self) -> float | None:
         """
-        Return the optional branch rating in MVA.
+        Return continuous MVA rating.
         """
-
         return self._rate_mva
 
     @rate_mva.setter
@@ -563,36 +453,31 @@ class Branch(ElectricalObject):
         self,
         value: float | None,
     ) -> None:
-        self._rate_mva = self._validate_optional_positive(
+        if value is None:
+            self._rate_mva = None
+            return
+
+        value = self._coerce_numeric(
             value,
             "rate_mva",
         )
 
-    @property
-    def rating_mva(self) -> float | None:
-        """
-        Compatibility alias for rate_mva.
-        """
+        if value <= 0.0:
+            raise ValueError(
+                "rate_mva must be positive when provided."
+            )
 
-        return self._rate_mva
+        self._rate_mva = value
 
-    @rating_mva.setter
-    def rating_mva(
-        self,
-        value: float | None,
-    ) -> None:
-        self.rate_mva = value
-
-    # ================================================================
-    # OPERATIONAL STATE
-    # ================================================================
+    # ============================================================
+    # SERVICE STATE
+    # ============================================================
 
     @property
     def in_service(self) -> bool:
         """
         Return whether the Branch is in service.
         """
-
         return self._in_service
 
     @in_service.setter
@@ -600,226 +485,223 @@ class Branch(ElectricalObject):
         self,
         value: bool,
     ) -> None:
-        self._in_service = self._validate_bool(
-            value,
-            "in_service",
+        self._in_service = bool(value)
+
+    # ============================================================
+    # ELECTRICAL HELPERS
+    # ============================================================
+
+    @property
+    def impedance(self) -> complex:
+        """
+        Return series impedance:
+
+            Z = R + jX
+        """
+        return complex(
+            self._r,
+            self._x,
         )
 
     @property
-    def is_in_service(self) -> bool:
+    def admittance(self) -> complex:
         """
-        Compatibility alias for in_service.
-        """
+        Return series admittance:
 
-        return self._in_service
+            Y = 1 / Z
+        """
+        z = self.impedance
+
+        if z == 0.0 + 0.0j:
+            raise ZeroDivisionError(
+                "Branch series impedance cannot be zero."
+            )
+
+        return 1.0 / z
 
     @property
-    def is_out_of_service(self) -> bool:
+    def shunt_admittance(self) -> complex:
         """
-        Return True when the Branch is out of service.
+        Return total shunt admittance:
+
+            Ysh = jB
         """
+        return complex(
+            0.0,
+            self._b,
+        )
 
-        return not self._in_service
-
-    def set_in_service(
-        self,
-        value: bool,
-    ) -> None:
-        """
-        Set the operational state.
-        """
-
-        self.in_service = value
-
-    def close(self) -> None:
-        """
-        Place the Branch in service.
-        """
-
-        self._in_service = True
-
-    def trip(self) -> None:
-        """
-        Remove the Branch from service.
-        """
-
-        self._in_service = False
-
-    # ================================================================
+    # ============================================================
     # VALIDATION
-    # ================================================================
+    # ============================================================
 
     def validate_parameters(self) -> bool:
         """
-        Validate Branch-local parameters.
+        Validate Branch-owned parameters.
 
-        The Base validation contract is explicitly propagated
-        through ElectricalObject.validate_parameters().
+        This method intentionally does not call self.validate()
+        and therefore does not create recursive validation.
 
-        This is essential for subclasses.
-
-        Validation chain:
-
-            Line.validate_parameters()
-                    |
-                    v
-            Branch.validate_parameters()
-                    |
-                    v
-            ElectricalObject.validate_parameters()
+        Subclasses should call this method before validating their
+        own parameters.
         """
 
-        ElectricalObject.validate_parameters(
-            self
-        )
+        # --------------------------------------------------------
+        # Base ElectricalObject validation
+        # --------------------------------------------------------
 
-        self._r = self._validate_optional_finite(
-            self._r,
-            "r",
-        )
+        super().validate_parameters()
 
-        self._x = self._validate_optional_finite(
-            self._x,
-            "x",
-        )
+        # --------------------------------------------------------
+        # Terminal ownership
+        # --------------------------------------------------------
 
-        self._b = self._validate_optional_finite(
-            self._b,
-            "b",
-        )
+        if self._from_terminal.owner is not self:
+            raise ValueError(
+                "FROM terminal must be owned by this Branch."
+            )
 
-        self._rate_mva = self._validate_optional_positive(
-            self._rate_mva,
-            "rate_mva",
-        )
+        if self._to_terminal.owner is not self:
+            raise ValueError(
+                "TO terminal must be owned by this Branch."
+            )
 
-        self._in_service = self._validate_bool(
-            self._in_service,
-            "in_service",
-        )
+        # --------------------------------------------------------
+        # Terminal roles
+        # --------------------------------------------------------
+
+        if self._from_terminal.role != "FROM":
+            raise ValueError(
+                "FROM terminal must have role 'FROM'."
+            )
+
+        if self._to_terminal.role != "TO":
+            raise ValueError(
+                "TO terminal must have role 'TO'."
+            )
+
+        # --------------------------------------------------------
+        # Terminal-local validation
+        # --------------------------------------------------------
+
+        self._from_terminal.validate()
+        self._to_terminal.validate()
+
+        # --------------------------------------------------------
+        # Branch rating
+        # --------------------------------------------------------
 
         if (
-            self._r is not None
-            and self._x is not None
-            and self._r == 0.0
-            and self._x == 0.0
+            self._rate_mva is not None
+            and self._rate_mva <= 0.0
         ):
             raise ValueError(
-                f"Branch '{self.id}' cannot have zero "
-                "series impedance."
+                "rate_mva must be positive when provided."
             )
 
         return True
 
-    def validate(self) -> bool:
-        """
-        Validate the complete Branch.
-
-        The authoritative validation entry point is inherited
-        from ElectricalObject.
-
-        Dynamic dispatch therefore invokes the concrete model's
-        validate_parameters() implementation.
-        """
-
-        return super().validate()
-
-    # ================================================================
+    # ============================================================
     # DIAGNOSTICS
-    # ================================================================
+    # ============================================================
 
     def summary(self) -> dict[str, Any]:
         """
         Return Branch-local diagnostics.
 
-        No Bus resolution or Network topology is included.
+        No Network topology or Bus resolution is included.
         """
+        summary = super().summary()
 
         from_endpoint = self.from_endpoint
         to_endpoint = self.to_endpoint
 
-        return {
-            "id": self.id,
-            "name": self.name,
-            "type": self.TYPE,
+        summary.update(
+            {
+                "from_endpoint": (
+                    getattr(
+                        from_endpoint,
+                        "id",
+                        None,
+                    )
+                    if from_endpoint is not None
+                    else None
+                ),
+                "to_endpoint": (
+                    getattr(
+                        to_endpoint,
+                        "id",
+                        None,
+                    )
+                    if to_endpoint is not None
+                    else None
+                ),
+                "connected": self.is_connected,
+                "r": self._r,
+                "x": self._x,
+                "b": self._b,
+                "rate_mva": self._rate_mva,
+                "in_service": self._in_service,
+            }
+        )
 
-            "from_endpoint": (
-                from_endpoint.id
-                if from_endpoint is not None
-                and hasattr(from_endpoint, "id")
-                else from_endpoint
-            ),
+        return summary
 
-            "to_endpoint": (
-                to_endpoint.id
-                if to_endpoint is not None
-                and hasattr(to_endpoint, "id")
-                else to_endpoint
-            ),
-
-            "connected": self.is_connected,
-            "partially_connected": self.is_partially_connected,
-
-            "r": self._r,
-            "x": self._x,
-            "b": self._b,
-
-            "rate_mva": self._rate_mva,
-            "in_service": self._in_service,
-        }
-
-    # ================================================================
+    # ============================================================
     # REPRESENTATION
-    # ================================================================
+    # ============================================================
 
     def __repr__(self) -> str:
         """
         Return a concise developer-facing representation.
         """
-
         from_endpoint = self.from_endpoint
         to_endpoint = self.to_endpoint
 
         from_id = (
-            from_endpoint.id
+            getattr(
+                from_endpoint,
+                "id",
+                None,
+            )
             if from_endpoint is not None
-            and hasattr(from_endpoint, "id")
-            else from_endpoint
+            else None
         )
 
         to_id = (
-            to_endpoint.id
+            getattr(
+                to_endpoint,
+                "id",
+                None,
+            )
             if to_endpoint is not None
-            and hasattr(to_endpoint, "id")
-            else to_endpoint
+            else None
         )
 
         return (
-            f"<Branch "
-            f"id={self.id}, "
-            f"{from_id} -> {to_id}, "
-            f"r={self._r}, "
-            f"x={self._x}, "
-            f"b={self._b}, "
-            f"rate_mva={self._rate_mva}, "
-            f"in_service={self._in_service}>"
+            f"{type(self).__name__}("
+            f"id={self.id!r}, "
+            f"name={self.name!r}, "
+            f"from_endpoint={from_id!r}, "
+            f"to_endpoint={to_id!r}, "
+            f"in_service={self.in_service!r}"
+            f")"
         )
 
-    # ================================================================
-    # VALIDATION HELPERS
-    # ================================================================
+    # ============================================================
+    # INTERNAL HELPERS
+    # ============================================================
 
     @staticmethod
-    def _validate_finite(
-        value: float,
+    def _coerce_numeric(
+        value: Any,
         name: str,
     ) -> float:
         """
-        Validate a finite numeric value.
+        Convert a value to float and reject non-numeric values.
         """
-
         try:
-            value = float(value)
+            return float(value)
         except (
             TypeError,
             ValueError,
@@ -827,72 +709,6 @@ class Branch(ElectricalObject):
             raise ValueError(
                 f"{name} must be numeric."
             ) from exc
-
-        if not math.isfinite(value):
-            raise ValueError(
-                f"{name} must be finite."
-            )
-
-        return value
-
-    @classmethod
-    def _validate_optional_finite(
-        cls,
-        value: float | None,
-        name: str,
-    ) -> float | None:
-        """
-        Validate an optional finite numeric value.
-        """
-
-        if value is None:
-            return None
-
-        return cls._validate_finite(
-            value,
-            name,
-        )
-
-    @classmethod
-    def _validate_optional_positive(
-        cls,
-        value: float | None,
-        name: str,
-    ) -> float | None:
-        """
-        Validate an optional finite positive numeric value.
-        """
-
-        if value is None:
-            return None
-
-        value = cls._validate_finite(
-            value,
-            name,
-        )
-
-        if value <= 0.0:
-            raise ValueError(
-                f"{name} must be greater than zero."
-            )
-
-        return value
-
-    @staticmethod
-    def _validate_bool(
-        value: bool,
-        name: str,
-    ) -> bool:
-        """
-        Validate a strict boolean value.
-        """
-
-        if not isinstance(value, bool):
-            raise ValueError(
-                f"{name} must be boolean."
-            )
-
-        return value
 
 
 __all__ = [
