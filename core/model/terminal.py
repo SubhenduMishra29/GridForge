@@ -1,606 +1,317 @@
 # ============================================================
-
 # File: core/model/terminal.py
-
 # GridForge V2 — Terminal Model
-
 # Author: Subhendu Mishra
-
 # ============================================================
 
 """
-GridForge V2 Terminal Model.
+GridForge V2 — Terminal
+=======================
 
-Defines the local electrical terminal abstraction used by GridForge
-equipment models.
+Authoritative electrical connection point owned by an
+electrical equipment model.
 
-## Architecture
-
-A Terminal represents one physical or logical electrical connection
-point owned by an equipment model.
-
-```
-Equipment
-    |
-    +-- Terminal
-          |
-          +-- endpoint
-```
-
-A Terminal owns only its local endpoint reference.
-
-The Terminal does not own, construct, or interpret global electrical
-topology.
-
-## Architecture boundaries
-
-Model layer
-
-```
-
-Terminal owns:
-
-    - its equipment owner;
-    - its local role;
-    - its local endpoint reference;
-    - local connection state;
-    - local contract validation.
-
-Terminal does not own:
-
-    - Network membership;
-    - global connectivity;
-    - connectivity graphs;
-    - electrical islands;
-    - topology traversal;
-    - numerical indexing;
-    - Y-bus construction;
-    - solver state;
-    - protection execution;
-    - simulation execution;
-    - application command resolution;
-    - UI or SLD state.
-
-Application layer
-```
-
-Application-layer EndpointReference and EndpointResolver abstractions
-resolve external references into canonical Core objects.
-
-Terminal must not import or depend upon those abstractions.
-
-Network layer
-
-```
-
-The Network layer interprets terminal endpoint relationships and derives
-electrical topology.
-
-The canonical conceptual relationship is:
+Architecture
+------------
 
     Equipment
-        |
-        +-- Terminal
-              |
-              +-- endpoint
-                     |
-                     +-- Bus
+        │
+        ├── owns Terminal
+        │
+        └── Terminal
+              │
+              └── endpoint
+                       │
+                       ▼
+                    Network
+                       │
+                       ▼
+                    Topology
 
-A Terminal does not traverse chains of other Terminal instances to
-discover a Bus.
+Terminal is a local domain object.
 
-Ownership
----------
+It does NOT:
+    - own Network topology
+    - resolve Network membership
+    - traverse terminal chains
+    - construct Y-bus matrices
+    - assign solver indices
+    - perform numerical calculations
+    - execute protection logic
+    - manage SLD/UI state
+    - mutate global Network state
 
-A Terminal belongs to one equipment owner.
-
-Terminal ownership is established during construction and must not be
-silently transferred to another equipment object.
-
-A Terminal is therefore not an independently registered engineering
-object and does not introduce a second global identity.
-
-Its contextual identity is defined by:
-
-    owner + role
-
-Endpoint semantics
+Canonical contract
 ------------------
 
-The endpoint is intentionally treated as a local reference by this
-class.
+    Terminal
+    ├── owner
+    ├── role
+    ├── endpoint
+    ├── attach(endpoint)
+    ├── detach()
+    ├── is_connected
+    └── validate()
 
-Terminal validates only the minimum local contract required to store
-and report the endpoint.
+Important invariants
+--------------------
 
-Interpretation of the endpoint as a Bus, validation of Network
-membership, and construction of electrical topology belong to the
-Network layer.
+1. Every authoritative Terminal has an owning Equipment object.
+2. Every authoritative Terminal has a semantic role.
+3. Endpoint is optional until the Terminal is connected.
+4. Terminal owns the endpoint reference.
+5. Equipment must not maintain a duplicate endpoint reference.
+6. attach() and detach() are the canonical endpoint mutation APIs.
+7. is_connected is derived from endpoint.
+8. Terminal never interprets global topology.
+9. Terminal never imports Network, Solver, UI, SLD, or Analysis.
+10. Legacy compatibility aliases are intentionally not provided.
 
-GridForge V2
+The Network layer is responsible for interpreting Terminal
+endpoints into authoritative electrical topology.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-
-# ============================================================
-# TERMINAL
-# ============================================================
+if TYPE_CHECKING:
+    from .base import ElectricalObject
 
 
 class Terminal:
     """
-    Local electrical connection point owned by an equipment model.
+    Authoritative electrical connection point.
+
+    A Terminal belongs to exactly one Equipment object and may
+    reference one endpoint.
 
     Parameters
     ----------
-    endpoint:
-        Optional local endpoint reference.
-
     owner:
-        Equipment object that owns this Terminal.
+        Authoritative owning Equipment object.
 
     role:
-        Optional terminal role, for example:
+        Semantic role of the terminal within its owner.
 
-            - "BUS"
-            - "FROM"
-            - "TO"
-            - "HV"
-            - "LV"
-            - "P1"
-            - "P2"
+    endpoint:
+        Optional endpoint object. The endpoint is intentionally
+        not resolved into Network topology by Terminal.
 
     Notes
     -----
-    A Terminal stores only local connection information.
-
-    It does not determine global topology or resolve chains of
-    Terminal objects.
+    Terminal is deliberately small. Global connectivity belongs
+    to the Network layer.
     """
+
+    __slots__ = (
+        "_owner",
+        "_role",
+        "_endpoint",
+    )
 
     def __init__(
         self,
-        endpoint: Any = None,
-        owner: Any = None,
-        role: str | None = None,
+        *,
+        owner: "ElectricalObject",
+        role: str,
+        endpoint: Any | None = None,
     ) -> None:
         """
-        Create a Terminal.
+        Create an authoritative Terminal.
 
         Parameters
         ----------
-        endpoint:
-            Optional local endpoint reference.
-
         owner:
-            Optional equipment owner.
+            Equipment object that owns this Terminal.
 
         role:
-            Optional terminal role.
+            Semantic role of the Terminal.
+
+        endpoint:
+            Optional initial endpoint.
+
+        Raises
+        ------
+        TypeError
+            If owner or role has an invalid type.
+
+        ValueError
+            If role is empty or endpoint is invalid.
         """
+        if owner is None:
+            raise TypeError("Terminal owner must not be None.")
 
-        if owner is not None:
-            self._validate_owner(owner)
+        if not isinstance(role, str):
+            raise TypeError("Terminal role must be a string.")
 
-        normalized_role = self._normalize_role(role)
+        normalized_role = role.strip()
 
-        if endpoint is not None:
-            self._validate_endpoint(endpoint)
+        if not normalized_role:
+            raise ValueError("Terminal role must not be empty.")
 
         self._owner = owner
         self._role = normalized_role
-        self._endpoint = endpoint
+        self._endpoint: Any | None = None
+
+        if endpoint is not None:
+            self.attach(endpoint)
 
         self.validate()
 
-    # ========================================================
-    # OWNER
-    # ========================================================
+    # --------------------------------------------------------
+    # Authoritative properties
+    # --------------------------------------------------------
 
     @property
-    def owner(self) -> Any:
+    def owner(self) -> "ElectricalObject":
         """
-        Return the equipment that owns this Terminal.
+        Return the authoritative equipment owner.
         """
-
         return self._owner
 
     @property
-    def owner_id(self) -> str | None:
+    def role(self) -> str:
         """
-        Return the owning equipment identifier.
-
-        Returns
-        -------
-        str | None
-            The owner ID when an owner exists, otherwise ``None``.
+        Return the semantic terminal role.
         """
-
-        if self._owner is None:
-            return None
-
-        return self._owner.id
-
-    # ========================================================
-    # ROLE
-    # ========================================================
-
-    @property
-    def role(self) -> str | None:
-        """
-        Return the local terminal role.
-        """
-
         return self._role
 
     @property
-    def terminal_role(self) -> str | None:
+    def endpoint(self) -> Any | None:
         """
-        Compatibility alias for :attr:`role`.
+        Return the currently attached endpoint.
+
+        None means that the Terminal is currently disconnected.
         """
-
-        return self._role
-
-    @staticmethod
-    def _normalize_role(
-        role: str | None,
-    ) -> str | None:
-        """
-        Normalize an optional terminal role.
-
-        Empty or whitespace-only roles are rejected.
-
-        Parameters
-        ----------
-        role:
-            Optional role string.
-
-        Returns
-        -------
-        str | None
-            Normalized role or ``None``.
-        """
-
-        if role is None:
-            return None
-
-        if not isinstance(role, str):
-            raise TypeError(
-                "Terminal role must be a string or None."
-            )
-
-        normalized = role.strip()
-
-        if not normalized:
-            raise ValueError(
-                "Terminal role cannot be empty."
-            )
-
-        return normalized
-
-    # ========================================================
-    # ENDPOINT
-    # ========================================================
-
-    @property
-    def endpoint(self) -> Any:
-        """
-        Return the locally attached endpoint.
-
-        The returned object is not interpreted by Terminal as global
-        electrical topology.
-        """
-
         return self._endpoint
 
-    @property
-    def endpoint_id(self) -> str | None:
-        """
-        Return the local endpoint identifier.
-
-        Returns
-        -------
-        str | None
-            The endpoint ID when attached, otherwise ``None``.
-        """
-
-        if self._endpoint is None:
-            return None
-
-        return self._endpoint.id
+    # --------------------------------------------------------
+    # Connection state
+    # --------------------------------------------------------
 
     @property
     def is_connected(self) -> bool:
         """
-        Return whether a local endpoint is attached.
-
-        This indicates only local attachment state.
-
-        It does not imply that the endpoint belongs to a Network or
-        that the Terminal participates in valid electrical topology.
+        Return True when an endpoint is attached.
         """
-
         return self._endpoint is not None
 
-    # ========================================================
-    # LOCAL ATTACHMENT
-    # ========================================================
+    # --------------------------------------------------------
+    # Endpoint mutation
+    # --------------------------------------------------------
 
-    def attach(
-        self,
-        endpoint: Any,
-    ) -> None:
+    def attach(self, endpoint: Any) -> None:
         """
-        Attach a local endpoint.
+        Attach this Terminal to an endpoint.
 
-        This operation changes only this Terminal's local endpoint
-        reference.
-
-        It does not:
-
-            - register objects with a Network;
-            - validate Network membership;
-            - build a connectivity graph;
-            - determine electrical topology;
-            - rebuild numerical structures;
-            - assign indices;
-            - resolve application EndpointReference objects.
+        This operation changes only the local Terminal state.
+        It does not modify Network topology.
 
         Parameters
         ----------
         endpoint:
-            Local endpoint object.
-        """
+            Endpoint object to associate with this Terminal.
 
+        Raises
+        ------
+        ValueError
+            If the endpoint is invalid.
+
+        Notes
+        -----
+        Re-attaching replaces the current endpoint. Network-level
+        topology invalidation/rebuild is outside Terminal's
+        responsibility.
+        """
         self._validate_endpoint(endpoint)
 
         self._endpoint = endpoint
 
         self.validate()
 
-    def detach(
-        self,
-    ) -> None:
+    def detach(self) -> None:
         """
-        Remove the local endpoint reference.
+        Detach the current endpoint.
 
-        This operation changes only:
-
-            terminal.endpoint
+        This operation changes only the local Terminal state.
+        It does not modify Network topology.
         """
-
         self._endpoint = None
 
-    # ========================================================
-    # COMPATIBILITY API
-    # ========================================================
+        self.validate()
 
-    def connect(
-        self,
-        endpoint: Any,
-    ) -> None:
+    # --------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------
+
+    def validate(self) -> None:
         """
-        Compatibility alias for :meth:`attach`.
+        Validate Terminal-local invariants.
 
-        New Core code should prefer ``attach()`` because the operation
-        is explicitly local and does not imply ownership of global
-        Network topology.
+        Validation is intentionally limited to this Terminal's
+        own state. Network-wide validation belongs to Network.
         """
+        if self._owner is None:
+            raise ValueError("Terminal owner must not be None.")
 
-        self.attach(endpoint)
+        if not isinstance(self._role, str):
+            raise TypeError("Terminal role must be a string.")
 
-    def disconnect(
-        self,
-    ) -> None:
-        """
-        Compatibility alias for :meth:`detach`.
+        if not self._role.strip():
+            raise ValueError("Terminal role must not be empty.")
 
-        New Core code should prefer ``detach()``.
-        """
+        if self._endpoint is not None:
+            self._validate_endpoint(self._endpoint)
 
-        self.detach()
-
-    # ========================================================
-    # VALIDATION
-    # ========================================================
+    # --------------------------------------------------------
+    # Internal validation helpers
+    # --------------------------------------------------------
 
     @staticmethod
-    def _validate_owner(
-        owner: Any,
-    ) -> None:
+    def _validate_endpoint(endpoint: Any) -> None:
         """
-        Validate the minimum equipment owner contract.
+        Validate the minimal endpoint contract.
 
-        The owner must expose a non-empty string ``id``.
+        Terminal intentionally does not require the endpoint to be
+        a specific equipment type. Endpoint interpretation belongs
+        to the Network layer.
+
+        The endpoint must expose a non-empty string ``id`` so that
+        it participates in GridForge's canonical identity model.
         """
-
-        if not hasattr(owner, "id"):
-            raise TypeError(
-                "Terminal owner must expose an 'id' attribute."
-            )
-
-        owner_id = getattr(owner, "id")
-
-        if not isinstance(owner_id, str):
-            raise TypeError(
-                "Terminal owner ID must be a string."
-            )
-
-        if not owner_id.strip():
-            raise ValueError(
-                "Terminal owner ID cannot be empty."
-            )
-
-    @staticmethod
-    def _validate_endpoint(
-        endpoint: Any,
-    ) -> None:
-        """
-        Validate the minimum local endpoint contract.
-
-        An endpoint must expose a non-empty string ``id``.
-
-        Terminal deliberately does not determine endpoint category,
-        Network membership, or electrical compatibility.
-
-        Those responsibilities belong to the appropriate Network and
-        validation contracts.
-        """
-
         if endpoint is None:
-            raise ValueError(
-                "Terminal endpoint cannot be None."
-            )
+            raise ValueError("Terminal endpoint must not be None.")
 
-        if not hasattr(endpoint, "id"):
-            raise TypeError(
-                "Terminal endpoint must expose an 'id' attribute."
-            )
-
-        endpoint_id = getattr(endpoint, "id")
+        endpoint_id = getattr(endpoint, "id", None)
 
         if not isinstance(endpoint_id, str):
             raise TypeError(
-                "Terminal endpoint ID must be a string."
+                "Terminal endpoint must expose a string 'id' attribute."
             )
 
         if not endpoint_id.strip():
             raise ValueError(
-                "Terminal endpoint ID cannot be empty."
+                "Terminal endpoint id must not be empty."
             )
 
-    def validate_parameters(
-        self,
-    ) -> bool:
+    # --------------------------------------------------------
+    # Representation
+    # --------------------------------------------------------
+
+    def __repr__(self) -> str:
         """
-        Validate the local Terminal contract.
-
-        Validation covers only:
-
-            - owner identity;
-            - role validity;
-            - endpoint identity.
-
-        Validation does not cover:
-
-            - electrical compatibility;
-            - Network membership;
-            - global topology;
-            - electrical islands;
-            - branch connectivity.
+        Return a concise debugging representation.
         """
-
-        if self._owner is not None:
-            self._validate_owner(
-                self._owner,
-            )
-
-        if self._role is not None:
-            self._normalize_role(
-                self._role,
-            )
+        endpoint_id = None
 
         if self._endpoint is not None:
-            self._validate_endpoint(
-                self._endpoint,
-            )
-
-        return True
-
-    def validate(
-        self,
-    ) -> bool:
-        """
-        Validate this Terminal.
-
-        Returns
-        -------
-        bool
-            ``True`` when the local Terminal contract is valid.
-        """
-
-        return self.validate_parameters()
-
-    # ========================================================
-    # COMPATIBILITY BUS ACCESS
-    # ========================================================
-
-    @property
-    def bus(self) -> Any:
-        """
-        Return a directly attached Bus-like endpoint.
-
-        This property is retained only as a compatibility accessor for
-        existing model code.
-
-        No Terminal-to-Terminal traversal is performed.
-
-        If the endpoint is another Terminal, ``None`` is returned.
-        Bus resolution beyond the directly attached endpoint belongs
-        to the Network endpoint resolver.
-
-        New Core code should use the canonical Network endpoint
-        resolution contract rather than relying on this compatibility
-        accessor.
-        """
-
-        endpoint = self._endpoint
-
-        if endpoint is None:
-            return None
-
-        if isinstance(endpoint, Terminal):
-            return None
-
-        return endpoint
-
-    # ========================================================
-    # DIAGNOSTICS
-    # ========================================================
-
-    def summary(
-        self,
-    ) -> dict[str, Any]:
-        """
-        Return structured Terminal-local diagnostics.
-
-        The returned data describes only this Terminal's local state.
-        It is not a topology query.
-        """
-
-        return {
-            "owner": self.owner_id,
-            "role": self.role,
-            "endpoint": self.endpoint_id,
-            "connected": self.is_connected,
-        }
-
-    # ========================================================
-    # REPRESENTATION
-    # ========================================================
-
-    def __repr__(
-        self,
-    ) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
+            endpoint_id = getattr(self._endpoint, "id", None)
 
         return (
-            f"<Terminal "
-            f"owner={self.owner_id!r}, "
-            f"role={self.role!r}, "
-            f"endpoint={self.endpoint_id!r}>"
+            f"{type(self).__name__}("
+            f"owner={self._owner!r}, "
+            f"role={self._role!r}, "
+            f"endpoint={endpoint_id!r}"
+            f")"
         )
-
-
-# ============================================================
-# PUBLIC API
-# ============================================================
-
-__all__ = [
-    "Terminal",
-]
