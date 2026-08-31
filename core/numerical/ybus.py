@@ -7,79 +7,39 @@
 """
 GridForge V2 — Numerical Y-bus construction.
 
-Location
---------
+Location:
     core/numerical/ybus.py
 
-Architecture
-------------
-
+Architecture:
     Model
       ↓
     Network
       ↓
     Numerical
-      ├── authoritative BusIndex consumption
-      └── derived Y-bus construction
+      ├── consumes authoritative BusIndex
+      └── constructs derived Y-bus
       ↓
     Solver
 
-Ownership
----------
+Ownership:
+    Network owns:
+        - canonical electrical models;
+        - equipment membership;
+        - terminal relationships;
+        - topology;
+        - authoritative BusIndex.
 
-Network owns:
+    Numerical owns:
+        - numerical matrix construction;
+        - derived Y-bus representation.
 
-    - canonical electrical models;
-    - equipment membership;
-    - terminal relationships;
-    - topology;
-    - authoritative BusIndex;
-    - topology revision.
-
-Numerical owns:
-
-    - derived Y-bus representation;
-    - numerical matrix construction.
-
-Solver owns:
-
-    - numerical solution procedures.
+    Solver owns:
+        - numerical solution algorithms.
 
 YBusBuilder is a read-only consumer of Network.
 
-The builder requires Network.index to already be valid. It never
-rebuilds, ensures, invalidates, or otherwise mutates Network state.
-
-Electrical stamping
--------------------
-
-Two-terminal branches:
-
-    Z = R + jX
-    Y = 1 / Z
-
-    Yii += Y + jB/2
-    Yjj += Y + jB/2
-    Yij -= Y
-    Yji -= Y
-
-Transformer:
-
-    a = tap * exp(j * shift)
-
-    Yii += Y / |a|² + jB/2
-    Yij -= Y / conj(a)
-    Yji -= Y / a
-    Yjj += Y + jB/2
-
-Shunt:
-
-    Ysh = G + jB
-
-    Yii += Ysh
-
-YBus is a derived numerical artifact. It is never stored on or
-mutated into Network.
+The builder requires Network.index to already be valid.
+It never rebuilds, invalidates, or mutates Network state.
 """
 
 from __future__ import annotations
@@ -95,7 +55,12 @@ from core.network.endpoint import resolve_terminal_bus
 
 @dataclass(frozen=True)
 class YBus:
-    """Immutable numerical Y-bus representation."""
+    """
+    Immutable numerical Y-bus representation.
+
+    The matrix ordering is defined by the authoritative Network
+    BusIndex used during construction.
+    """
 
     matrix: csr_matrix
     bus_ids: tuple[str, ...]
@@ -136,16 +101,16 @@ class YBus:
 
     @property
     def shape(self) -> tuple[int, int]:
-        """Return matrix shape."""
+        """Return the Y-bus matrix shape."""
         return self.matrix.shape
 
     @property
     def nnz(self) -> int:
-        """Return number of stored non-zero entries."""
+        """Return the number of stored non-zero values."""
         return self.matrix.nnz
 
     def index_of(self, bus_id: str) -> int:
-        """Return the matrix index for a bus identifier."""
+        """Return the numerical index of a bus."""
         try:
             return self.bus_ids.index(bus_id)
         except ValueError as exc:
@@ -154,6 +119,7 @@ class YBus:
             ) from exc
 
     def __getitem__(self, key: Any) -> Any:
+        """Allow matrix-style indexing."""
         return self.matrix[key]
 
     def tocsr(self) -> csr_matrix:
@@ -161,11 +127,11 @@ class YBus:
         return self.matrix
 
     def toarray(self) -> np.ndarray:
-        """Return a dense array representation."""
+        """Return a dense matrix representation."""
         return self.matrix.toarray()
 
     def copy(self) -> "YBus":
-        """Return an independent YBus copy."""
+        """Return an independent copy."""
         return YBus(
             matrix=self.matrix.copy(),
             bus_ids=self.bus_ids,
@@ -177,8 +143,10 @@ class YBusBuilder:
     """
     Construct a YBus from an authoritative Network.
 
-    The Network owns the BusIndex and electrical connectivity.
-    This builder consumes that state read-only.
+    The Network remains the source of electrical membership,
+    connectivity, and bus ordering.
+
+    This builder performs read-only numerical interpretation.
     """
 
     def __init__(self, network: Any) -> None:
@@ -191,9 +159,9 @@ class YBusBuilder:
 
     def build(self) -> YBus:
         """
-        Build YBus from the current authoritative Network.
+        Build YBus from the current Network state.
 
-        Network state is never mutated.
+        The Network is never mutated.
         """
 
         buses = tuple(self._network.buses)
@@ -211,30 +179,41 @@ class YBusBuilder:
         )
 
         self._stamp_branches(
-            matrix,
-            getattr(self._network, "lines", ()),
-            "Line",
+            matrix=matrix,
+            branches=getattr(self._network, "lines", ()),
+            label="Line",
         )
 
         self._stamp_branches(
-            matrix,
-            getattr(self._network, "cables", ()),
-            "Cable",
+            matrix=matrix,
+            branches=getattr(self._network, "cables", ()),
+            label="Cable",
         )
 
         self._stamp_transformers(
-            matrix,
-            getattr(self._network, "transformers", ()),
+            matrix=matrix,
+            transformers=getattr(
+                self._network,
+                "transformers",
+                (),
+            ),
         )
 
         self._stamp_shunts(
-            matrix,
-            getattr(self._network, "shunts", ()),
+            matrix=matrix,
+            shunts=getattr(
+                self._network,
+                "shunts",
+                (),
+            ),
         )
 
         return YBus(
             matrix=matrix.tocsr(),
-            bus_ids=tuple(str(bus.id) for bus in buses),
+            bus_ids=tuple(
+                str(bus.id)
+                for bus in buses
+            ),
             topology_revision=getattr(
                 self._network,
                 "topology_revision",
@@ -243,7 +222,7 @@ class YBusBuilder:
         )
 
     # ============================================================
-    # NETWORK CONTRACT
+    # NETWORK INDEX CONTRACT
     # ============================================================
 
     def _require_valid_index(
@@ -251,9 +230,9 @@ class YBusBuilder:
         buses: tuple[Any, ...],
     ) -> None:
         """
-        Require a prepared authoritative Network BusIndex.
+        Validate the authoritative Network BusIndex.
 
-        This method performs validation only.
+        This method validates only. It never rebuilds the index.
         """
 
         index = getattr(
@@ -290,7 +269,7 @@ class YBusBuilder:
 
         if set(mapping) != expected_ids:
             raise RuntimeError(
-                "Network BusIndex does not correspond to "
+                "Network BusIndex does not match "
                 "current Network bus membership."
             )
 
@@ -298,15 +277,15 @@ class YBusBuilder:
 
         if set(mapping.values()) != expected_positions:
             raise RuntimeError(
-                "Network BusIndex does not provide a complete "
-                "matrix ordering."
+                "Network BusIndex does not provide "
+                "a complete numerical ordering."
             )
 
     def _bus_index(
         self,
         bus: Any,
     ) -> int:
-        """Resolve the authoritative numerical index of a bus."""
+        """Return the authoritative numerical index of a Bus."""
 
         bus_id = getattr(bus, "id", None)
 
@@ -321,7 +300,8 @@ class YBusBuilder:
             return mapping[bus_id]
         except KeyError as exc:
             raise ValueError(
-                f"Bus '{bus_id}' is not present in Network BusIndex."
+                f"Bus '{bus_id}' is not present "
+                "in the Network BusIndex."
             ) from exc
 
     # ============================================================
@@ -353,9 +333,6 @@ class YBusBuilder:
     ) -> Any:
         """
         Resolve a branch terminal to its authoritative Bus.
-
-        Endpoint interpretation remains delegated to the Network
-        endpoint contract.
         """
 
         try:
@@ -389,33 +366,34 @@ class YBusBuilder:
     def _resolve_shunt_bus(
         shunt: Any,
     ) -> Any:
-        """Resolve a shunt connection to its authoritative Bus."""
+        """
+        Resolve the Shunt's authoritative Bus.
 
-        for terminal_name in (
-            "terminal",
-            "bus_terminal",
-        ):
-            terminal = getattr(
-                shunt,
-                terminal_name,
-                None,
+        Frozen model contract:
+
+            shunt.terminal
+                ↓
+            resolve_terminal_bus()
+                ↓
+            Bus
+        """
+
+        try:
+            terminal = shunt.terminal
+            bus = resolve_terminal_bus(terminal)
+        except Exception as exc:
+            raise ValueError(
+                f"Shunt '{getattr(shunt, 'id', shunt)}' "
+                "does not resolve to a Bus."
+            ) from exc
+
+        if bus is None:
+            raise ValueError(
+                f"Shunt '{getattr(shunt, 'id', shunt)}' "
+                "does not resolve to a Bus."
             )
 
-            if terminal is None:
-                continue
-
-            try:
-                bus = resolve_terminal_bus(terminal)
-            except Exception:
-                continue
-
-            if bus is not None:
-                return bus
-
-        raise ValueError(
-            f"Shunt '{getattr(shunt, 'id', shunt)}' "
-            "does not resolve to a Bus."
-        )
+        return bus
 
     # ============================================================
     # STANDARD BRANCH STAMPING
@@ -427,16 +405,20 @@ class YBusBuilder:
         branches: Any,
         label: str,
     ) -> None:
-        """Stamp in-service standard two-terminal branches."""
+        """
+        Stamp all in-service standard two-terminal branches.
+
+        Used for Lines and Cables.
+        """
 
         for branch in branches:
             if not self._is_in_service(branch):
                 continue
 
             self._stamp_branch(
-                matrix,
-                branch,
-                label,
+                matrix=matrix,
+                branch=branch,
+                label=label,
             )
 
     def _stamp_branch(
@@ -448,12 +430,12 @@ class YBusBuilder:
         """
         Stamp a standard pi-equivalent branch.
 
-        The Branch contract supplies:
+        Required model contract:
 
-            series_admittance
-            b
             from_terminal
             to_terminal
+            series_admittance
+            b
         """
 
         from_bus = self._resolve_branch_bus(
@@ -490,7 +472,9 @@ class YBusBuilder:
             "b",
         )
 
-        y_shunt_half = 1j * b_total / 2.0
+        y_shunt_half = (
+            1j * b_total / 2.0
+        )
 
         matrix[i, i] += (
             y_series + y_shunt_half
@@ -498,6 +482,7 @@ class YBusBuilder:
         matrix[j, j] += (
             y_series + y_shunt_half
         )
+
         matrix[i, j] -= y_series
         matrix[j, i] -= y_series
 
@@ -517,8 +502,8 @@ class YBusBuilder:
                 continue
 
             self._stamp_transformer(
-                matrix,
-                transformer,
+                matrix=matrix,
+                transformer=transformer,
             )
 
     def _stamp_transformer(
@@ -529,12 +514,12 @@ class YBusBuilder:
         """
         Stamp an off-nominal transformer.
 
-        Branch supplies:
+        Branch contract:
 
             series_admittance
             b
 
-        Transformer supplies:
+        Transformer contract:
 
             tap
             shift
@@ -575,7 +560,8 @@ class YBusBuilder:
 
         if tap <= 0.0:
             raise ValueError(
-                f"Transformer '{getattr(transformer, 'id', transformer)}' "
+                f"Transformer "
+                f"'{getattr(transformer, 'id', transformer)}' "
                 "must have a positive tap ratio."
             )
 
@@ -607,12 +593,15 @@ class YBusBuilder:
         matrix[i, i] += (
             y_series / abs(complex_tap) ** 2
         )
+
         matrix[i, j] -= (
             y_series / np.conj(complex_tap)
         )
+
         matrix[j, i] -= (
             y_series / complex_tap
         )
+
         matrix[j, j] += y_series
 
         y_shunt_half = (
@@ -638,8 +627,8 @@ class YBusBuilder:
                 continue
 
             self._stamp_shunt(
-                matrix,
-                shunt,
+                matrix=matrix,
+                shunt=shunt,
             )
 
     def _stamp_shunt(
@@ -647,7 +636,15 @@ class YBusBuilder:
         matrix: lil_matrix,
         shunt: Any,
     ) -> None:
-        """Stamp a shunt admittance onto its connected bus."""
+        """
+        Stamp shunt admittance onto its connected Bus.
+
+        Shunt contract:
+
+            g_pu
+            b_pu
+            terminal
+        """
 
         bus = self._resolve_shunt_bus(shunt)
         index = self._bus_index(bus)
@@ -696,13 +693,15 @@ class YBusBuilder:
             result = float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"{label} '{getattr(element, 'id', element)}' "
+                f"{label} "
+                f"'{getattr(element, 'id', element)}' "
                 f"has invalid '{parameter}'."
             ) from exc
 
         if not np.isfinite(result):
             raise ValueError(
-                f"{label} '{getattr(element, 'id', element)}' "
+                f"{label} "
+                f"'{getattr(element, 'id', element)}' "
                 f"has non-finite '{parameter}'."
             )
 
@@ -721,7 +720,8 @@ class YBusBuilder:
             result = complex(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"{label} '{getattr(element, 'id', element)}' "
+                f"{label} "
+                f"'{getattr(element, 'id', element)}' "
                 f"has invalid '{parameter}'."
             ) from exc
 
@@ -730,7 +730,8 @@ class YBusBuilder:
             or not np.isfinite(result.imag)
         ):
             raise ValueError(
-                f"{label} '{getattr(element, 'id', element)}' "
+                f"{label} "
+                f"'{getattr(element, 'id', element)}' "
                 f"has non-finite '{parameter}'."
             )
 
