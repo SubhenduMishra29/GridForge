@@ -1,41 +1,98 @@
-# core/model/pt.py
+# ============================================================
+# File: core/model/pt.py
+# GridForge V2 — Potential Transformer Model
+# Author: Subhendu Mishra
+# ============================================================
+
 """
-GridForge V2 Potential Transformer (PT) Model
-=============================================
+GridForge V2 — Potential Transformer Model
+==========================================
 
-Author:
-    Subhendu Mishra
+Potential Transformer (PT) / Voltage Transformer (VT) domain model.
 
-A PT is an electrical measurement instrument transformer.
+Architecture
+------------
 
-The PT model owns:
+    ElectricalObject
+           |
+           v
+          PT
+       /  / \  \
+      A  B   A  B
+      |  |   |  |
+      v  v   v  v
+    Terminal endpoints
 
-    - identity
-    - ratio / rated voltages
-    - accuracy data
+A PT is a four-terminal instrument-transformer element.
+
+Physical terminals:
+
+    primary_a
+    primary_b
+    secondary_a
+    secondary_b
+
+Terminal Contract
+-----------------
+
+Terminal is the authoritative owner of endpoint state.
+
+PT owns the four Terminal objects.
+
+Each Terminal owns:
+
+    owner
+    role
+    endpoint
+    connection state
+
+Endpoint mutation must use:
+
+    Terminal.attach(endpoint)
+    Terminal.detach()
+
+PT does not maintain duplicate endpoint state.
+
+Domain Boundary
+---------------
+
+PT owns CT/PT nameplate and measurement characteristics:
+
+    - primary rated voltage
+    - secondary rated voltage
+    - voltage ratio
+    - accuracy class
     - burden
     - phase displacement
-    - four physical terminals
     - service state
 
-The PT does NOT own:
+PT does NOT own:
 
-    - network topology
+    - Bus objects
+    - Network topology
     - graph state
-    - network containers
     - relay logic
     - protection decisions
+    - measurement channels
+    - solver matrices
     - SLD geometry
     - GUI state
+    - rendering state
 
-Terminal architecture:
+Those responsibilities belong to the appropriate Core,
+Application, Analysis, and UI layers.
 
-    primary_a  ─────┐
-    primary_b  ─────┤ PT
-    secondary_a ────┤
-    secondary_b ────┘
+Validation
+----------
 
-Connectivity is owned by the Network layer.
+ElectricalObject remains the authoritative object-validation
+entry point.
+
+PT specializes:
+
+    validate_parameters()
+
+PT does not replace the inherited validation contract.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -54,43 +111,36 @@ class PT(ElectricalObject):
     """
     Potential Transformer / Voltage Transformer model.
 
-    The PT is a measurement device and therefore does not implement
-    the Injection contract.
+    A PT is a four-terminal measurement instrument transformer.
 
-    Parameters
-    ----------
-    id:
-        Stable GridForge object identifier.
+    Physical terminals:
 
-    name:
-        Human-readable name.
+        primary_a
+        primary_b
+        secondary_a
+        secondary_b
 
-    primary_voltage_kv:
-        Rated primary voltage in kV.
-
-    secondary_voltage_v:
-        Rated secondary voltage in volts.
-
-    accuracy_class:
-        Instrument-transformer accuracy class.
-
-    burden_va:
-        Rated secondary burden in VA.
-
-    phase_displacement_deg:
-        Rated phase displacement in degrees.
-
-    in_service:
-        Equipment service state.
-
-    primary_a, primary_b:
-        Primary-side terminal endpoints.
-
-    secondary_a, secondary_b:
-        Secondary-side terminal endpoints.
+    Terminal objects are authoritative for endpoint connectivity.
     """
 
     TYPE = "PT"
+
+    __slots__ = (
+        "_primary_a_terminal",
+        "_primary_b_terminal",
+        "_secondary_a_terminal",
+        "_secondary_b_terminal",
+        "_primary_voltage_kv",
+        "_secondary_voltage_v",
+        "_accuracy_class",
+        "_burden_va",
+        "_phase_displacement_deg",
+        "_in_service",
+    )
+
+    # ============================================================
+    # CONSTRUCTION
+    # ============================================================
 
     def __init__(
         self,
@@ -108,121 +158,229 @@ class PT(ElectricalObject):
         secondary_a: Any = None,
         secondary_b: Any = None,
     ) -> None:
+        """
+        Construct a Potential Transformer.
+
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        name:
+            Human-readable PT name.
+
+        primary_voltage_kv:
+            Rated primary voltage in kV.
+
+        secondary_voltage_v:
+            Rated secondary voltage in volts.
+
+        accuracy_class:
+            Instrument-transformer accuracy class.
+
+        burden_va:
+            Rated secondary burden in VA.
+
+        phase_displacement_deg:
+            Rated phase displacement in degrees.
+
+        in_service:
+            Whether the PT is operationally in service.
+
+        primary_a:
+            Optional endpoint attached to primary terminal A.
+
+        primary_b:
+            Optional endpoint attached to primary terminal B.
+
+        secondary_a:
+            Optional endpoint attached to secondary terminal A.
+
+        secondary_b:
+            Optional endpoint attached to secondary terminal B.
+
+        Notes
+        -----
+        Endpoint references are attached through Terminal.attach().
+        PT does not maintain independent endpoint storage.
+        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # =============================================================
-        # NAMEPLATE / MEASUREMENT PARAMETERS
-        # =============================================================
+        # --------------------------------------------------------
+        # Authoritative terminals
+        # --------------------------------------------------------
 
-        self.primary_voltage_kv = (
+        self._primary_a_terminal = Terminal(
+            owner=self,
+            role="primary_a",
+        )
+
+        self._primary_b_terminal = Terminal(
+            owner=self,
+            role="primary_b",
+        )
+
+        self._secondary_a_terminal = Terminal(
+            owner=self,
+            role="secondary_a",
+        )
+
+        self._secondary_b_terminal = Terminal(
+            owner=self,
+            role="secondary_b",
+        )
+
+        # --------------------------------------------------------
+        # Initial endpoint attachment
+        # --------------------------------------------------------
+
+        if primary_a is not None:
+            self._primary_a_terminal.attach(
+                primary_a
+            )
+
+        if primary_b is not None:
+            self._primary_b_terminal.attach(
+                primary_b
+            )
+
+        if secondary_a is not None:
+            self._secondary_a_terminal.attach(
+                secondary_a
+            )
+
+        if secondary_b is not None:
+            self._secondary_b_terminal.attach(
+                secondary_b
+            )
+
+        # --------------------------------------------------------
+        # Nameplate / measurement parameters
+        # --------------------------------------------------------
+
+        self._primary_voltage_kv = (
             self._validate_positive(
                 primary_voltage_kv,
                 "primary_voltage_kv",
             )
         )
 
-        self.secondary_voltage_v = (
+        self._secondary_voltage_v = (
             self._validate_positive(
                 secondary_voltage_v,
                 "secondary_voltage_v",
             )
         )
 
-        if not isinstance(
-            accuracy_class,
-            str,
-        ):
-            raise TypeError(
-                "accuracy_class must be a string."
+        self._accuracy_class = (
+            self._validate_accuracy_class(
+                accuracy_class
             )
+        )
 
-        self.accuracy_class = accuracy_class.strip()
-
-        if not self.accuracy_class:
-            raise ValueError(
-                "accuracy_class cannot be empty."
-            )
-
-        self.burden_va = (
+        self._burden_va = (
             self._validate_non_negative(
                 burden_va,
                 "burden_va",
             )
         )
 
-        self.phase_displacement_deg = (
+        self._phase_displacement_deg = (
             self._validate_finite(
                 phase_displacement_deg,
                 "phase_displacement_deg",
             )
         )
 
-        # =============================================================
-        # SERVICE STATE
-        # =============================================================
-
-        if not isinstance(
-            in_service,
-            bool,
-        ):
-            raise TypeError(
-                "in_service must be boolean."
+        self._in_service = (
+            self._validate_bool(
+                in_service,
+                "in_service",
             )
-
-        self.in_service = in_service
-
-        # =============================================================
-        # AUTHORITATIVE TERMINALS
-        # =============================================================
-
-        self.primary_a = Terminal(
-            endpoint=primary_a,
-            owner=self,
         )
 
-        self.primary_b = Terminal(
-            endpoint=primary_b,
-            owner=self,
-        )
-
-        self.secondary_a = Terminal(
-            endpoint=secondary_a,
-            owner=self,
-        )
-
-        self.secondary_b = Terminal(
-            endpoint=secondary_b,
-            owner=self,
-        )
-
-        # =============================================================
-        # COMMON MODEL VALIDATION
-        # =============================================================
-
-        self.validate()
-
-    # =================================================================
+    # ============================================================
     # IDENTITY
-    # =================================================================
+    # ============================================================
 
     @property
     def element_type(self) -> str:
-        """Return the canonical PT element type."""
-
+        """
+        Return the canonical GridForge element type.
+        """
         return self.TYPE
 
-    # =================================================================
+    # ============================================================
     # TERMINALS
-    # =================================================================
+    # ============================================================
 
     @property
-    def terminals(self) -> tuple[Terminal, ...]:
+    def primary_a(self) -> Terminal:
         """
-        Return all PT terminals in deterministic order.
+        Return the authoritative primary-A terminal.
+        """
+        return self._primary_a_terminal
+
+    @property
+    def primary_b(self) -> Terminal:
+        """
+        Return the authoritative primary-B terminal.
+        """
+        return self._primary_b_terminal
+
+    @property
+    def secondary_a(self) -> Terminal:
+        """
+        Return the authoritative secondary-A terminal.
+        """
+        return self._secondary_a_terminal
+
+    @property
+    def secondary_b(self) -> Terminal:
+        """
+        Return the authoritative secondary-B terminal.
+        """
+        return self._secondary_b_terminal
+
+    @property
+    def primary_terminals(
+        self,
+    ) -> tuple[Terminal, Terminal]:
+        """
+        Return primary terminals in deterministic order.
+        """
+        return (
+            self._primary_a_terminal,
+            self._primary_b_terminal,
+        )
+
+    @property
+    def secondary_terminals(
+        self,
+    ) -> tuple[Terminal, Terminal]:
+        """
+        Return secondary terminals in deterministic order.
+        """
+        return (
+            self._secondary_a_terminal,
+            self._secondary_b_terminal,
+        )
+
+    @property
+    def terminals(
+        self,
+    ) -> tuple[
+        Terminal,
+        Terminal,
+        Terminal,
+        Terminal,
+    ]:
+        """
+        Return all authoritative terminals.
 
         Order:
 
@@ -231,262 +389,432 @@ class PT(ElectricalObject):
             secondary_a
             secondary_b
         """
-
         return (
-            self.primary_a,
-            self.primary_b,
-            self.secondary_a,
-            self.secondary_b,
+            self._primary_a_terminal,
+            self._primary_b_terminal,
+            self._secondary_a_terminal,
+            self._secondary_b_terminal,
+        )
+
+    # ============================================================
+    # ENDPOINT ACCESS
+    # ============================================================
+
+    @property
+    def primary_a_endpoint(self) -> Any | None:
+        """
+        Return the endpoint owned by primary_a Terminal.
+        """
+        return self._primary_a_terminal.endpoint
+
+    @property
+    def primary_b_endpoint(self) -> Any | None:
+        """
+        Return the endpoint owned by primary_b Terminal.
+        """
+        return self._primary_b_terminal.endpoint
+
+    @property
+    def secondary_a_endpoint(self) -> Any | None:
+        """
+        Return the endpoint owned by secondary_a Terminal.
+        """
+        return self._secondary_a_terminal.endpoint
+
+    @property
+    def secondary_b_endpoint(self) -> Any | None:
+        """
+        Return the endpoint owned by secondary_b Terminal.
+        """
+        return self._secondary_b_terminal.endpoint
+
+    # ============================================================
+    # ENDPOINT MUTATION
+    # ============================================================
+
+    def connect_primary_a(
+        self,
+        endpoint: Any,
+    ) -> None:
+        """
+        Attach an endpoint to primary_a.
+        """
+        self._primary_a_terminal.attach(
+            endpoint
+        )
+
+    def connect_primary_b(
+        self,
+        endpoint: Any,
+    ) -> None:
+        """
+        Attach an endpoint to primary_b.
+        """
+        self._primary_b_terminal.attach(
+            endpoint
+        )
+
+    def connect_secondary_a(
+        self,
+        endpoint: Any,
+    ) -> None:
+        """
+        Attach an endpoint to secondary_a.
+        """
+        self._secondary_a_terminal.attach(
+            endpoint
+        )
+
+    def connect_secondary_b(
+        self,
+        endpoint: Any,
+    ) -> None:
+        """
+        Attach an endpoint to secondary_b.
+        """
+        self._secondary_b_terminal.attach(
+            endpoint
+        )
+
+    def disconnect_primary_a(self) -> None:
+        """
+        Detach primary_a.
+        """
+        self._primary_a_terminal.detach()
+
+    def disconnect_primary_b(self) -> None:
+        """
+        Detach primary_b.
+        """
+        self._primary_b_terminal.detach()
+
+    def disconnect_secondary_a(self) -> None:
+        """
+        Detach secondary_a.
+        """
+        self._secondary_a_terminal.detach()
+
+    def disconnect_secondary_b(self) -> None:
+        """
+        Detach secondary_b.
+        """
+        self._secondary_b_terminal.detach()
+
+    def disconnect_all(self) -> None:
+        """
+        Detach all PT terminals.
+        """
+        for terminal in self.terminals:
+            terminal.detach()
+
+    # ============================================================
+    # NAMEPLATE — PRIMARY VOLTAGE
+    # ============================================================
+
+    @property
+    def primary_voltage_kv(self) -> float:
+        """
+        Return rated primary voltage in kV.
+        """
+        return self._primary_voltage_kv
+
+    @primary_voltage_kv.setter
+    def primary_voltage_kv(
+        self,
+        value: float,
+    ) -> None:
+        self._primary_voltage_kv = (
+            self._validate_positive(
+                value,
+                "primary_voltage_kv",
+            )
+        )
+
+    # ============================================================
+    # NAMEPLATE — SECONDARY VOLTAGE
+    # ============================================================
+
+    @property
+    def secondary_voltage_v(self) -> float:
+        """
+        Return rated secondary voltage in volts.
+        """
+        return self._secondary_voltage_v
+
+    @secondary_voltage_v.setter
+    def secondary_voltage_v(
+        self,
+        value: float,
+    ) -> None:
+        self._secondary_voltage_v = (
+            self._validate_positive(
+                value,
+                "secondary_voltage_v",
+            )
+        )
+
+    # ============================================================
+    # VOLTAGE RATIO
+    # ============================================================
+
+    @property
+    def voltage_ratio(self) -> float:
+        """
+        Return nominal primary-to-secondary voltage ratio.
+
+        Primary voltage is stored in kV and secondary voltage
+        is stored in V, therefore primary voltage is converted
+        to volts before calculating the ratio.
+        """
+        return (
+            self._primary_voltage_kv * 1000.0
+            / self._secondary_voltage_v
         )
 
     @property
-    def primary_terminals(self) -> tuple[Terminal, Terminal]:
-        """Return the two primary terminals."""
+    def ratio(self) -> float:
+        """
+        Return nominal PT voltage ratio.
 
-        return (
-            self.primary_a,
-            self.primary_b,
-        )
+        Compatibility alias for voltage_ratio.
+        """
+        return self.voltage_ratio
+
+    # ============================================================
+    # ACCURACY CLASS
+    # ============================================================
 
     @property
-    def secondary_terminals(self) -> tuple[Terminal, Terminal]:
-        """Return the two secondary terminals."""
+    def accuracy_class(self) -> str:
+        """
+        Return instrument-transformer accuracy class.
+        """
+        return self._accuracy_class
 
-        return (
-            self.secondary_a,
-            self.secondary_b,
+    @accuracy_class.setter
+    def accuracy_class(
+        self,
+        value: str,
+    ) -> None:
+        self._accuracy_class = (
+            self._validate_accuracy_class(
+                value
+            )
         )
 
-    # =================================================================
+    # ============================================================
+    # BURDEN
+    # ============================================================
+
+    @property
+    def burden_va(self) -> float:
+        """
+        Return rated secondary burden in VA.
+        """
+        return self._burden_va
+
+    @burden_va.setter
+    def burden_va(
+        self,
+        value: float,
+    ) -> None:
+        self._burden_va = (
+            self._validate_non_negative(
+                value,
+                "burden_va",
+            )
+        )
+
+    # ============================================================
+    # PHASE DISPLACEMENT
+    # ============================================================
+
+    @property
+    def phase_displacement_deg(self) -> float:
+        """
+        Return rated phase displacement in degrees.
+        """
+        return self._phase_displacement_deg
+
+    @phase_displacement_deg.setter
+    def phase_displacement_deg(
+        self,
+        value: float,
+    ) -> None:
+        self._phase_displacement_deg = (
+            self._validate_finite(
+                value,
+                "phase_displacement_deg",
+            )
+        )
+
+    # ============================================================
     # SERVICE STATE
-    # =================================================================
+    # ============================================================
+
+    @property
+    def in_service(self) -> bool:
+        """
+        Return whether the PT is in service.
+        """
+        return self._in_service
+
+    @in_service.setter
+    def in_service(
+        self,
+        value: bool,
+    ) -> None:
+        self._in_service = (
+            self._validate_bool(
+                value,
+                "in_service",
+            )
+        )
 
     @property
     def is_in_service(self) -> bool:
-        """Return True when the PT is in service."""
-
-        return self.in_service
+        """
+        Return True when the PT is in service.
+        """
+        return self._in_service
 
     @property
     def is_out_of_service(self) -> bool:
-        """Return True when the PT is out of service."""
-
-        return not self.in_service
+        """
+        Return True when the PT is out of service.
+        """
+        return not self._in_service
 
     def put_in_service(self) -> None:
-        """Place the PT in service."""
-
-        self.in_service = True
+        """
+        Place the PT in service.
+        """
+        self._in_service = True
 
     def take_out_of_service(self) -> None:
-        """Take the PT out of service."""
-
-        self.in_service = False
-
-    # Compatibility methods retained for callers using the older API.
+        """
+        Take the PT out of service.
+        """
+        self._in_service = False
 
     def set_in_service(
         self,
         value: bool,
     ) -> None:
         """
-        Set PT service state.
-
-        Unlike the previous implementation, arbitrary values are not
-        silently coerced to bool.
+        Set PT service state using strict boolean validation.
         """
-
-        if not isinstance(
-            value,
-            bool,
-        ):
-            raise TypeError(
-                "in_service must be boolean."
+        self._in_service = (
+            self._validate_bool(
+                value,
+                "in_service",
             )
-
-        self.in_service = value
-
-    # =================================================================
-    # RATIO
-    # =================================================================
-
-    @property
-    def voltage_ratio(self) -> float:
-        """
-        Return primary-to-secondary voltage ratio.
-
-        Primary voltage is stored in kV and secondary voltage in V.
-        """
-
-        return (
-            self.primary_voltage_kv * 1000.0
-            / self.secondary_voltage_v
         )
 
-    @property
-    def ratio(self) -> float:
-        """Compatibility alias for voltage_ratio."""
-
-        return self.voltage_ratio
-
-    # =================================================================
+    # ============================================================
     # CONNECTIVITY
-    # =================================================================
+    # ============================================================
 
     @property
     def is_primary_connected(self) -> bool:
-        """Return True when both primary terminals are connected."""
-
+        """
+        Return True when both primary terminals are connected.
+        """
         return (
-            self.primary_a.is_connected
-            and self.primary_b.is_connected
+            self._primary_a_terminal.is_connected
+            and self._primary_b_terminal.is_connected
         )
 
     @property
     def is_secondary_connected(self) -> bool:
-        """Return True when both secondary terminals are connected."""
-
+        """
+        Return True when both secondary terminals are connected.
+        """
         return (
-            self.secondary_a.is_connected
-            and self.secondary_b.is_connected
+            self._secondary_a_terminal.is_connected
+            and self._secondary_b_terminal.is_connected
         )
 
     @property
     def is_connected(self) -> bool:
         """
-        Return True when all PT terminals are connected.
+        Return True when all four PT terminals are connected.
         """
-
         return all(
             terminal.is_connected
             for terminal in self.terminals
         )
 
-    # =================================================================
-    # TERMINAL CONNECTION HELPERS
-    # =================================================================
+    @property
+    def is_partially_connected(self) -> bool:
+        """
+        Return True when at least one but not all PT terminals
+        are connected.
+        """
+        states = tuple(
+            terminal.is_connected
+            for terminal in self.terminals
+        )
 
-    def connect_primary_a(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """Connect primary terminal A."""
+        return any(states) and not all(states)
 
-        if endpoint is None:
-            raise ValueError(
-                f"PT '{self.id}' primary_a endpoint cannot be None."
-            )
-
-        self.primary_a.connect(endpoint)
-
-    def connect_primary_b(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """Connect primary terminal B."""
-
-        if endpoint is None:
-            raise ValueError(
-                f"PT '{self.id}' primary_b endpoint cannot be None."
-            )
-
-        self.primary_b.connect(endpoint)
-
-    def connect_secondary_a(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """Connect secondary terminal A."""
-
-        if endpoint is None:
-            raise ValueError(
-                f"PT '{self.id}' secondary_a endpoint cannot be None."
-            )
-
-        self.secondary_a.connect(endpoint)
-
-    def connect_secondary_b(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """Connect secondary terminal B."""
-
-        if endpoint is None:
-            raise ValueError(
-                f"PT '{self.id}' secondary_b endpoint cannot be None."
-            )
-
-        self.secondary_b.connect(endpoint)
-
-    def disconnect_all(self) -> None:
-        """Disconnect all PT terminals."""
-
-        for terminal in self.terminals:
-            terminal.disconnect()
-
-    # =================================================================
+    # ============================================================
     # VALIDATION
-    # =================================================================
+    # ============================================================
 
     def validate_parameters(self) -> bool:
         """
-        Validate PT-local engineering parameters.
+        Validate PT-specific parameters.
 
-        Network topology is deliberately outside this method.
+        Network topology is deliberately not validated here.
         """
 
-        self.primary_voltage_kv = (
+        super().validate_parameters()
+
+        self._primary_voltage_kv = (
             self._validate_positive(
-                self.primary_voltage_kv,
+                self._primary_voltage_kv,
                 "primary_voltage_kv",
             )
         )
 
-        self.secondary_voltage_v = (
+        self._secondary_voltage_v = (
             self._validate_positive(
-                self.secondary_voltage_v,
+                self._secondary_voltage_v,
                 "secondary_voltage_v",
             )
         )
 
-        if not isinstance(
-            self.accuracy_class,
-            str,
-        ):
-            raise TypeError(
-                "accuracy_class must be a string."
+        self._accuracy_class = (
+            self._validate_accuracy_class(
+                self._accuracy_class
             )
-
-        self.accuracy_class = (
-            self.accuracy_class.strip()
         )
 
-        if not self.accuracy_class:
-            raise ValueError(
-                "accuracy_class cannot be empty."
-            )
-
-        self.burden_va = (
+        self._burden_va = (
             self._validate_non_negative(
-                self.burden_va,
+                self._burden_va,
                 "burden_va",
             )
         )
 
-        self.phase_displacement_deg = (
+        self._phase_displacement_deg = (
             self._validate_finite(
-                self.phase_displacement_deg,
+                self._phase_displacement_deg,
                 "phase_displacement_deg",
             )
         )
 
-        if not isinstance(
-            self.in_service,
-            bool,
-        ):
-            raise TypeError(
-                "in_service must be boolean."
+        self._in_service = (
+            self._validate_bool(
+                self._in_service,
+                "in_service",
             )
+        )
+
+        # --------------------------------------------------------
+        # Terminal ownership validation
+        # --------------------------------------------------------
 
         for terminal in self.terminals:
             if terminal.owner is not self:
@@ -496,33 +824,16 @@ class PT(ElectricalObject):
 
         return True
 
-    def validate(self) -> bool:
-        """
-        Validate the complete PT through the common model contract.
-        """
-
-        return super().validate()
-
-    # =================================================================
+    # ============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # ============================================================
 
     def summary(self) -> dict[str, Any]:
-        """Return structured PT diagnostic information."""
+        """
+        Return structured PT diagnostic information.
 
-        def endpoint_id(
-            terminal: Terminal,
-        ) -> Any:
-            endpoint = terminal.endpoint
-
-            if endpoint is None:
-                return None
-
-            return getattr(
-                endpoint,
-                "id",
-                endpoint,
-            )
+        Endpoint information is delegated to Terminal.
+        """
 
         return {
             "id": self.id,
@@ -530,37 +841,45 @@ class PT(ElectricalObject):
             "type": self.TYPE,
 
             "primary_voltage_kv":
-                self.primary_voltage_kv,
+                self._primary_voltage_kv,
 
             "secondary_voltage_v":
-                self.secondary_voltage_v,
+                self._secondary_voltage_v,
 
-            "ratio":
+            "voltage_ratio":
                 self.voltage_ratio,
 
             "accuracy_class":
-                self.accuracy_class,
+                self._accuracy_class,
 
             "burden_va":
-                self.burden_va,
+                self._burden_va,
 
             "phase_displacement_deg":
-                self.phase_displacement_deg,
+                self._phase_displacement_deg,
 
             "in_service":
-                self.in_service,
+                self._in_service,
 
-            "primary_a":
-                endpoint_id(self.primary_a),
+            "primary_a_endpoint":
+                self._endpoint_identifier(
+                    self._primary_a_terminal.endpoint
+                ),
 
-            "primary_b":
-                endpoint_id(self.primary_b),
+            "primary_b_endpoint":
+                self._endpoint_identifier(
+                    self._primary_b_terminal.endpoint
+                ),
 
-            "secondary_a":
-                endpoint_id(self.secondary_a),
+            "secondary_a_endpoint":
+                self._endpoint_identifier(
+                    self._secondary_a_terminal.endpoint
+                ),
 
-            "secondary_b":
-                endpoint_id(self.secondary_b),
+            "secondary_b_endpoint":
+                self._endpoint_identifier(
+                    self._secondary_b_terminal.endpoint
+                ),
 
             "is_primary_connected":
                 self.is_primary_connected,
@@ -572,45 +891,52 @@ class PT(ElectricalObject):
                 self.is_connected,
         }
 
-    # =================================================================
+    # ============================================================
     # REPRESENTATION
-    # =================================================================
+    # ============================================================
 
     def __repr__(self) -> str:
-        """Return concise developer-facing representation."""
+        """
+        Return a concise developer-facing representation.
+        """
 
         return (
             f"<PT "
             f"id={self.id}, "
-            f"ratio={self.voltage_ratio:.6f}, "
-            f"accuracy={self.accuracy_class}, "
-            f"in_service={self.in_service}>"
+            f"ratio={self.voltage_ratio:.6g}, "
+            f"accuracy={self._accuracy_class}, "
+            f"in_service={self._in_service}>"
         )
 
-    # =================================================================
+    # ============================================================
     # VALIDATION HELPERS
-    # =================================================================
+    # ============================================================
 
     @staticmethod
     def _validate_finite(
         value: float,
         name: str,
     ) -> float:
-        """Convert to float and require a finite value."""
+        """
+        Convert to float and require a finite value.
+        """
 
         try:
-            value = float(value)
-        except (TypeError, ValueError) as exc:
+            numeric = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
             raise ValueError(
                 f"{name} must be numeric."
             ) from exc
 
-        if not math.isfinite(value):
+        if not math.isfinite(numeric):
             raise ValueError(
                 f"{name} must be finite."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_positive(
@@ -618,19 +944,21 @@ class PT(ElectricalObject):
         value: float,
         name: str,
     ) -> float:
-        """Convert to float and require value > 0."""
+        """
+        Validate a finite positive numeric value.
+        """
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value <= 0.0:
+        if numeric <= 0.0:
             raise ValueError(
                 f"{name} must be greater than zero."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_non_negative(
@@ -638,19 +966,84 @@ class PT(ElectricalObject):
         value: float,
         name: str,
     ) -> float:
-        """Convert to float and require value >= 0."""
+        """
+        Validate a finite non-negative numeric value.
+        """
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value < 0.0:
+        if numeric < 0.0:
             raise ValueError(
                 f"{name} cannot be negative."
             )
 
+        return numeric
+
+    @staticmethod
+    def _validate_bool(
+        value: bool,
+        name: str,
+    ) -> bool:
+        """
+        Validate a strict boolean value.
+        """
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} must be boolean."
+            )
+
         return value
+
+    @staticmethod
+    def _validate_accuracy_class(
+        value: str,
+    ) -> str:
+        """
+        Validate the PT accuracy-class identifier.
+        """
+
+        if not isinstance(
+            value,
+            str,
+        ):
+            raise TypeError(
+                "accuracy_class must be a string."
+            )
+
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                "accuracy_class cannot be empty."
+            )
+
+        return value
+
+    @staticmethod
+    def _endpoint_identifier(
+        endpoint: Any | None,
+    ) -> Any | None:
+        """
+        Return an endpoint identifier for diagnostics only.
+
+        No topology resolution is performed.
+        """
+
+        if endpoint is None:
+            return None
+
+        return getattr(
+            endpoint,
+            "id",
+            endpoint,
+        )
 
 
 __all__ = [

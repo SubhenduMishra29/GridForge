@@ -1,13 +1,14 @@
-# core/model/bus.py
+# ============================================================
+# File: core/model/bus.py
+# GridForge V2 — Bus Model
+# Author: Subhendu Mishra
+# ============================================================
 
 """
 GridForge V2 — Bus Model
 ========================
 
-Author:
-Subhendu Mishra
-
-A Bus is a first-class electrical network node.
+Authoritative electrical Bus model.
 
 Architecture
 ------------
@@ -17,150 +18,49 @@ Architecture
           v
          Bus
           |
-          +---- physical/node-local configuration
-          |
-          +---- authoritative Terminal
+          v
+       Terminal
           |
           v
-        Network
-
-The Bus represents the physical electrical node.
+       Endpoint
 
 The Bus owns:
 
-    - stable identity;
-    - human-readable name;
-    - nominal voltage;
-    - operational state;
-    - optional initial voltage conditions;
-    - exactly one authoritative electrical Terminal.
+    - identity
+    - nominal electrical parameters
+    - operating state
+    - exactly one authoritative Terminal
+
+The Terminal owns:
+
+    - endpoint connectivity
+    - connection state
 
 The Bus does NOT own:
 
-    - Network collections;
-    - topology collections;
-    - PQ / PV / SLACK study classification;
-    - study-specific P/Q/V/angle specifications;
-    - solved numerical state;
-    - Y-bus matrices;
-    - solver indices;
-    - Jacobians;
-    - load-flow calculations;
-    - short-circuit calculations;
-    - dynamic simulation;
-    - protection calculations;
-    - control logic;
-    - SLD geometry;
-    - GUI state;
-    - persistence logic.
+    - global Network topology
+    - SLD geometry
+    - canvas state
+    - solver state
+    - UI state
 
-Study Boundary
---------------
-
-PQ / PV / SLACK is a property of a particular study formulation,
-not an intrinsic physical property of a Bus.
-
-Study-specific quantities belong to the Study / Analysis layer.
-
-Numerical quantities and solved state belong to the Numerical layer.
-
-Initial Conditions
-------------------
-
-A Bus may optionally provide initial voltage conditions used as
-input to a numerical study.
-
-These values are explicitly initial conditions.
-
-They are not solved numerical state.
-
-Topology Boundary
+Terminal Contract
 -----------------
 
-The Bus does not own collections of connected equipment.
+The canonical Terminal API is:
 
-Equipment connects through Terminal objects.
+    Terminal(owner=self, role="bus")
 
-Network owns authoritative topology and determines network
-membership and connectivity.
+    terminal.attach(endpoint)
+    terminal.detach()
 
-A Bus may therefore exist:
+    terminal.endpoint
+    terminal.is_connected
 
-    - before being connected;
-    - with no connected equipment;
-    - as an isolated node;
-    - as part of a larger Network.
+No duplicate authoritative endpoint state is maintained by Bus.
 
-Connectivity is not itself a measure of study validity.
-
-Electrical Boundary
--------------------
-
-The Bus represents an electrical node.
-
-It does not calculate the node power balance.
-
-Load, generator, grid, shunt, and other equipment contributions
-are assembled by the appropriate Network / Study / Numerical
-layers.
-
-Terminal Ownership Contract
-----------------------------
-
-The Bus permanently owns exactly one authoritative Terminal.
-
-The Terminal is created by the Bus itself.
-
-An externally created Terminal cannot be injected into or adopted
-by a Bus.
-
-Terminal ownership is never transferred between model objects.
-
-This guarantees:
-
-    Bus -> authoritative Terminal -> endpoint
-
-rather than:
-
-    Bus -> externally shared/adopted Terminal
-
-Compatibility Boundary
-----------------------
-
-The repository contains application-layer code using the
-``nominal_voltage_kv`` constructor name.
-
-That name is retained as the canonical constructor parameter
-because it describes the physical quantity explicitly and keeps
-the verified application construction path compatible.
-
-The ``nominal_voltage`` property remains available as a model
-alias.
-
-The old ``terminal=`` constructor injection mechanism is
-intentionally removed because it violates the frozen ownership
-contract.
-
-Design Principles
------------------
-
-1. Bus represents a physical electrical node.
-2. Bus identity is independent of study identity.
-3. Study formulation is external to Bus.
-4. Numerical state is external to Bus.
-5. Network topology is external to Bus.
-6. Terminal connectivity remains terminal-centric.
-7. Bus owns exactly one authoritative Terminal.
-8. Terminal ownership is never transferred.
-9. Bus never adopts another object's Terminal.
-10. Bus never constructs or owns Y-bus matrices.
-11. Bus never performs numerical solving.
-12. Bus never owns GUI/SLD state.
-13. Device collections are owned by Network.
-14. Initial voltage values are configuration/input, not solved state.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+The ``bus`` object itself is an electrical domain object and
+may serve as an endpoint for other electrical model terminals.
 """
 
 from __future__ import annotations
@@ -174,38 +74,33 @@ from .terminal import Terminal
 
 class Bus(ElectricalObject):
     """
-    First-class electrical network node.
+    Authoritative electrical bus.
 
-    The Bus owns one authoritative Terminal.
+    A Bus owns one Terminal representing its external electrical
+    connection point.
 
     Parameters
     ----------
     id:
         Stable GridForge object identifier.
 
-    nominal_voltage_kv:
-        Nominal bus voltage in kV.
-
     name:
         Human-readable bus name.
 
-    initial_voltage_magnitude:
-        Initial voltage magnitude in per-unit.
+    nominal_voltage_kv:
+        Nominal bus voltage in kV.
 
-    initial_voltage_angle:
-        Initial voltage angle in degrees.
+    voltage_pu:
+        Present bus voltage magnitude in per-unit.
+
+    angle_deg:
+        Present bus voltage angle in degrees.
+
+    frequency_hz:
+        Nominal system frequency in Hz.
 
     in_service:
-        Operational state.
-
-    Notes
-    -----
-    The Bus always creates its own Terminal.
-
-    A Terminal cannot be supplied to the constructor.
-
-    This makes Terminal ownership explicit and prevents terminal
-    sharing or ownership transfer between model objects.
+        Whether the bus is operationally in service.
     """
 
     TYPE = "BUS"
@@ -214,14 +109,17 @@ class Bus(ElectricalObject):
         self,
         id: str,
         *,
-        nominal_voltage_kv: float,
         name: str = "",
-        initial_voltage_magnitude: float = 1.0,
-        initial_voltage_angle: float = 0.0,
+        nominal_voltage_kv: float = 0.0,
+        voltage_pu: float = 1.0,
+        angle_deg: float = 0.0,
+        frequency_hz: float = 50.0,
         in_service: bool = True,
     ) -> None:
         """
-        Create a Bus and its authoritative Terminal.
+        Construct an authoritative Bus.
+
+        The Bus always creates and owns its own Terminal.
         """
 
         ElectricalObject.__init__(
@@ -230,180 +128,80 @@ class Bus(ElectricalObject):
             name=name,
         )
 
-        self._nominal_voltage = (
-            self._validate_nominal_voltage(
-                nominal_voltage_kv
+        # ========================================================
+        # ELECTRICAL PARAMETERS
+        # ========================================================
+
+        self.nominal_voltage_kv = (
+            self._validate_non_negative(
+                nominal_voltage_kv,
+                "nominal_voltage_kv",
             )
         )
 
-        self._initial_voltage_magnitude = (
-            self._validate_voltage_magnitude(
-                initial_voltage_magnitude,
-                "initial_voltage_magnitude",
+        self.voltage_pu = (
+            self._validate_positive(
+                voltage_pu,
+                "voltage_pu",
             )
         )
 
-        self._initial_voltage_angle = (
-            self._validate_voltage_angle(
-                initial_voltage_angle,
-                "initial_voltage_angle",
+        self.angle_deg = (
+            self._validate_finite(
+                angle_deg,
+                "angle_deg",
             )
         )
 
-        self._in_service = self._validate_bool(
+        self.frequency_hz = (
+            self._validate_positive(
+                frequency_hz,
+                "frequency_hz",
+            )
+        )
+
+        # ========================================================
+        # OPERATING STATE
+        # ========================================================
+
+        self.in_service = self._validate_bool(
             in_service,
             "in_service",
         )
 
-        # -------------------------------------------------------------
+        # ========================================================
         # AUTHORITATIVE TERMINAL
-        # -------------------------------------------------------------
-        #
-        # The Bus creates its own Terminal.
-        #
-        # Ownership is established during Terminal construction and
-        # is never subsequently reassigned.
-        #
+        # ========================================================
 
         self._terminal = Terminal(
             owner=self,
-            role="BUS",
+            role="bus",
         )
+
+        # ========================================================
+        # COMMON VALIDATION
+        # ========================================================
 
         self.validate()
 
-    # =================================================================
+    # ============================================================
     # IDENTITY
-    # =================================================================
+    # ============================================================
 
     @property
     def element_type(self) -> str:
-        """
-        Return the canonical GridForge element type.
-        """
+        """Return canonical GridForge element type."""
 
         return self.TYPE
 
-    # =================================================================
-    # NOMINAL VOLTAGE
-    # =================================================================
-
-    @property
-    def nominal_voltage(self) -> float:
-        """
-        Return nominal bus voltage in kV.
-        """
-
-        return self._nominal_voltage
-
-    @nominal_voltage.setter
-    def nominal_voltage(
-        self,
-        value: float,
-    ) -> None:
-        self._nominal_voltage = (
-            self._validate_nominal_voltage(
-                value
-            )
-        )
-
-    @property
-    def nominal_voltage_kv(self) -> float:
-        """
-        Return nominal bus voltage in kV.
-        """
-
-        return self._nominal_voltage
-
-    @nominal_voltage_kv.setter
-    def nominal_voltage_kv(
-        self,
-        value: float,
-    ) -> None:
-        self._nominal_voltage = (
-            self._validate_nominal_voltage(
-                value
-            )
-        )
-
-    # =================================================================
-    # INITIAL VOLTAGE CONDITIONS
-    # =================================================================
-
-    @property
-    def initial_voltage_magnitude(self) -> float:
-        """
-        Return the configured initial voltage magnitude in per-unit.
-
-        This is an initial-condition value, not a solved numerical
-        result.
-        """
-
-        return self._initial_voltage_magnitude
-
-    @initial_voltage_magnitude.setter
-    def initial_voltage_magnitude(
-        self,
-        value: float,
-    ) -> None:
-        self._initial_voltage_magnitude = (
-            self._validate_voltage_magnitude(
-                value,
-                "initial_voltage_magnitude",
-            )
-        )
-
-    @property
-    def initial_voltage_angle(self) -> float:
-        """
-        Return the configured initial voltage angle in degrees.
-
-        This is an initial-condition value, not a solved numerical
-        result.
-        """
-
-        return self._initial_voltage_angle
-
-    @initial_voltage_angle.setter
-    def initial_voltage_angle(
-        self,
-        value: float,
-    ) -> None:
-        self._initial_voltage_angle = (
-            self._validate_voltage_angle(
-                value,
-                "initial_voltage_angle",
-            )
-        )
-
-    def set_initial_voltage(
-        self,
-        magnitude: float,
-        angle: float,
-    ) -> None:
-        """
-        Set the initial voltage condition.
-
-        Parameters
-        ----------
-        magnitude:
-            Initial voltage magnitude in per-unit.
-
-        angle:
-            Initial voltage angle in degrees.
-        """
-
-        self.initial_voltage_magnitude = magnitude
-        self.initial_voltage_angle = angle
-
-    # =================================================================
+    # ============================================================
     # TERMINAL
-    # =================================================================
+    # ============================================================
 
     @property
     def terminal(self) -> Terminal:
         """
-        Return the authoritative Bus Terminal.
+        Return the Bus's authoritative Terminal.
         """
 
         return self._terminal
@@ -412,164 +210,195 @@ class Bus(ElectricalObject):
     def terminals(self) -> tuple[Terminal, ...]:
         """
         Return the Bus terminal collection.
-
-        A Bus currently has exactly one authoritative electrical
-        Terminal.
         """
 
-        return (self._terminal,)
+        return (
+            self._terminal,
+        )
 
-    # =================================================================
+    # ============================================================
     # CONNECTIVITY
-    # =================================================================
+    # ============================================================
+
+    @property
+    def endpoint(self) -> Any | None:
+        """
+        Return the Terminal endpoint.
+
+        Terminal.endpoint is the sole authoritative connectivity
+        state.
+        """
+
+        return self._terminal.endpoint
 
     @property
     def is_connected(self) -> bool:
         """
         Return whether the Bus Terminal has an endpoint.
-
-        This is a local terminal-connectivity diagnostic.
-
-        It does not determine Network or Study validity.
         """
 
         return self._terminal.is_connected
 
-    @property
-    def endpoint(self) -> Any:
-        """
-        Return the Bus Terminal endpoint, if any.
-        """
-
-        return self._terminal.endpoint
-
-    def connect_terminal(
+    def connect_endpoint(
         self,
         endpoint: Any,
     ) -> None:
         """
-        Connect the authoritative Bus Terminal to an endpoint.
+        Attach the Bus Terminal to an endpoint.
 
-        Terminal owns the local connection state.
-
-        Network topology validation remains outside the Bus.
+        Uses the frozen Terminal API.
         """
 
         if endpoint is None:
             raise ValueError(
-                "Bus terminal endpoint cannot be None."
+                f"Bus '{self.id}' endpoint cannot be None."
             )
 
-        self._terminal.connect(endpoint)
+        self._terminal.attach(
+            endpoint
+        )
 
-    def disconnect_terminal(
+    def disconnect_endpoint(self) -> None:
+        """
+        Detach the Bus Terminal.
+
+        Uses the frozen Terminal API.
+        """
+
+        self._terminal.detach()
+
+    # ============================================================
+    # VOLTAGE
+    # ============================================================
+
+    def set_voltage(
         self,
+        voltage_pu: float,
+        angle_deg: float = 0.0,
     ) -> None:
         """
-        Disconnect the authoritative Bus Terminal.
-
-        A disconnected Bus remains a valid physical model object.
+        Set bus voltage magnitude and phase angle.
         """
 
-        self._terminal.disconnect()
+        self.voltage_pu = (
+            self._validate_positive(
+                voltage_pu,
+                "voltage_pu",
+            )
+        )
 
-    # =================================================================
-    # OPERATIONAL STATE
-    # =================================================================
-
-    @property
-    def in_service(self) -> bool:
-        """
-        Return whether the Bus is in service.
-        """
-
-        return self._in_service
-
-    @in_service.setter
-    def in_service(
-        self,
-        value: bool,
-    ) -> None:
-        self._in_service = self._validate_bool(
-            value,
-            "in_service",
+        self.angle_deg = (
+            self._validate_finite(
+                angle_deg,
+                "angle_deg",
+            )
         )
 
     @property
-    def is_in_service(self) -> bool:
+    def voltage_angle_rad(self) -> float:
+        """Return bus voltage angle in radians."""
+
+        return math.radians(
+            self.angle_deg
+        )
+
+    @property
+    def voltage_complex_pu(self) -> complex:
         """
-        Compatibility alias for in_service.
+        Return the bus voltage as a complex per-unit quantity.
         """
 
-        return self._in_service
+        angle = math.radians(
+            self.angle_deg
+        )
+
+        return (
+            self.voltage_pu
+            * complex(
+                math.cos(angle),
+                math.sin(angle),
+            )
+        )
+
+    # ============================================================
+    # OPERATING STATE
+    # ============================================================
+
+    @property
+    def is_in_service(self) -> bool:
+        """Return whether the Bus is in service."""
+
+        return self.in_service
 
     @property
     def is_out_of_service(self) -> bool:
-        """
-        Return True when the Bus is out of service.
-        """
+        """Return whether the Bus is out of service."""
 
-        return not self._in_service
+        return not self.in_service
+
+    def put_in_service(self) -> None:
+        """Place the Bus in service."""
+
+        self.in_service = True
+
+    def take_out_of_service(self) -> None:
+        """Take the Bus out of service."""
+
+        self.in_service = False
 
     def set_in_service(
         self,
         value: bool,
     ) -> None:
-        """
-        Set the Bus operational state.
-        """
+        """Set Bus operating state."""
 
-        self.in_service = value
+        self.in_service = self._validate_bool(
+            value,
+            "in_service",
+        )
 
-    def close(self) -> None:
-        """
-        Place the Bus in service.
-        """
-
-        self._in_service = True
-
-    def trip(self) -> None:
-        """
-        Remove the Bus from service.
-        """
-
-        self._in_service = False
-
-    # =================================================================
+    # ============================================================
     # VALIDATION
-    # =================================================================
+    # ============================================================
 
     def validate_parameters(self) -> bool:
         """
-        Validate Bus-local parameters.
-
-        Study formulation, Network topology, and numerical state
-        are deliberately outside this validation boundary.
+        Validate Bus-local electrical parameters.
         """
 
-        self._nominal_voltage = (
-            self._validate_nominal_voltage(
-                self._nominal_voltage
+        self.nominal_voltage_kv = (
+            self._validate_non_negative(
+                self.nominal_voltage_kv,
+                "nominal_voltage_kv",
             )
         )
 
-        self._initial_voltage_magnitude = (
-            self._validate_voltage_magnitude(
-                self._initial_voltage_magnitude,
-                "initial_voltage_magnitude",
+        self.voltage_pu = (
+            self._validate_positive(
+                self.voltage_pu,
+                "voltage_pu",
             )
         )
 
-        self._initial_voltage_angle = (
-            self._validate_voltage_angle(
-                self._initial_voltage_angle,
-                "initial_voltage_angle",
+        self.angle_deg = (
+            self._validate_finite(
+                self.angle_deg,
+                "angle_deg",
             )
         )
 
-        self._in_service = self._validate_bool(
-            self._in_service,
-            "in_service",
+        self.frequency_hz = (
+            self._validate_positive(
+                self.frequency_hz,
+                "frequency_hz",
+            )
+        )
+
+        self.in_service = (
+            self._validate_bool(
+                self.in_service,
+                "in_service",
+            )
         )
 
         return True
@@ -578,23 +407,17 @@ class Bus(ElectricalObject):
         """
         Validate the complete Bus model.
 
-        ElectricalObject.validate() is responsible for invoking
-        validate_parameters() through normal dynamic dispatch.
+        Global topology is intentionally not validated here.
         """
 
-        ElectricalObject.validate(self)
-
-        if self._terminal is None:
-            raise ValueError(
-                f"Bus '{self.id}' must have a terminal."
-            )
+        self.validate_parameters()
 
         if not isinstance(
             self._terminal,
             Terminal,
         ):
             raise TypeError(
-                f"Bus '{self.id}' terminal must be a Terminal."
+                "Bus terminal must be a Terminal."
             )
 
         if self._terminal.owner is not self:
@@ -602,117 +425,96 @@ class Bus(ElectricalObject):
                 f"Bus '{self.id}' terminal ownership is invalid."
             )
 
-        if self._terminal.role != "BUS":
+        if self._terminal.role != "bus":
             raise ValueError(
-                f"Bus '{self.id}' terminal role must be 'BUS'."
+                "Bus terminal role must be 'bus'."
             )
 
-        return True
+        self._terminal.validate()
 
-    # =================================================================
+        return super().validate()
+
+    # ============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # ============================================================
 
     def summary(self) -> dict[str, Any]:
         """
-        Return structured Bus diagnostics.
-
-        Only Bus-local model and initial-condition information is
-        exposed.
-
-        Study-specific and solved numerical state are excluded.
+        Return a structured Bus diagnostic summary.
         """
+
+        endpoint = self._terminal.endpoint
+
+        endpoint_id = None
+
+        if endpoint is not None:
+            endpoint_id = getattr(
+                endpoint,
+                "id",
+                endpoint,
+            )
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
-            "nominal_voltage_kv": (
-                self._nominal_voltage
-            ),
-            "initial_voltage_magnitude_pu": (
-                self._initial_voltage_magnitude
-            ),
-            "initial_voltage_angle_deg": (
-                self._initial_voltage_angle
-            ),
-            "terminal": self._terminal.role,
-            "endpoint": (
-                self._terminal.endpoint.id
-                if self._terminal.endpoint is not None
-                else None
-            ),
-            "connected": self.is_connected,
-            "in_service": self._in_service,
+
+            "terminal": self._terminal,
+            "terminal_role": self._terminal.role,
+
+            "endpoint": endpoint_id,
+            "is_connected":
+                self._terminal.is_connected,
+
+            "nominal_voltage_kv":
+                self.nominal_voltage_kv,
+
+            "voltage_pu":
+                self.voltage_pu,
+
+            "angle_deg":
+                self.angle_deg,
+
+            "frequency_hz":
+                self.frequency_hz,
+
+            "voltage_complex_pu":
+                self.voltage_complex_pu,
+
+            "in_service":
+                self.in_service,
         }
 
-    # =================================================================
+    # ============================================================
     # REPRESENTATION
-    # =================================================================
+    # ============================================================
 
     def __repr__(self) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
+        """Return concise developer-facing representation."""
 
         return (
             f"<Bus "
             f"id={self.id}, "
-            f"name={self.name!r}, "
-            f"nominal_voltage="
-            f"{self._nominal_voltage:.6f} kV, "
-            f"initial_voltage="
-            f"{self._initial_voltage_magnitude:.6f} pu, "
-            f"initial_angle="
-            f"{self._initial_voltage_angle:.6f} deg, "
-            f"in_service={self._in_service}>"
+            f"V={self.voltage_pu:.6f} pu, "
+            f"angle={self.angle_deg:.6f} deg, "
+            f"in_service={self.in_service}>"
         )
 
-    # =================================================================
+    # ============================================================
     # VALIDATION HELPERS
-    # =================================================================
+    # ============================================================
 
     @staticmethod
-    def _validate_nominal_voltage(
-        value: float,
-    ) -> float:
-        """
-        Validate nominal bus voltage in kV.
-        """
-
-        try:
-            value = float(value)
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
-            raise ValueError(
-                "nominal_voltage_kv must be numeric."
-            ) from exc
-
-        if not math.isfinite(value):
-            raise ValueError(
-                "nominal_voltage_kv must be finite."
-            )
-
-        if value <= 0.0:
-            raise ValueError(
-                "nominal_voltage_kv must be greater than zero."
-            )
-
-        return value
-
-    @staticmethod
-    def _validate_voltage_magnitude(
+    def _validate_finite(
         value: float,
         name: str,
     ) -> float:
-        """
-        Validate a voltage magnitude in per-unit.
-        """
+        """Convert to float and require a finite value."""
 
         try:
-            value = float(value)
+            numeric = float(
+                value
+            )
         except (
             TypeError,
             ValueError,
@@ -721,68 +523,67 @@ class Bus(ElectricalObject):
                 f"{name} must be numeric."
             ) from exc
 
-        if not math.isfinite(value):
+        if not math.isfinite(
+            numeric
+        ):
             raise ValueError(
                 f"{name} must be finite."
             )
 
-        if value <= 0.0:
+        return numeric
+
+    @classmethod
+    def _validate_positive(
+        cls,
+        value: float,
+        name: str,
+    ) -> float:
+        """Convert to float and require value > 0."""
+
+        numeric = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if numeric <= 0.0:
             raise ValueError(
                 f"{name} must be greater than zero."
             )
 
-        return value
+        return numeric
 
-    @staticmethod
-    def _validate_voltage_angle(
+    @classmethod
+    def _validate_non_negative(
+        cls,
         value: float,
         name: str,
     ) -> float:
-        """
-        Validate a voltage angle in degrees.
+        """Convert to float and require value >= 0."""
 
-        Any finite angle is accepted.
+        numeric = cls._validate_finite(
+            value,
+            name,
+        )
 
-        Angle normalization is left to the numerical formulation
-        because different numerical consumers may use different
-        conventions.
-        """
-
-        try:
-            value = float(value)
-        except (
-            TypeError,
-            ValueError,
-        ) as exc:
+        if numeric < 0.0:
             raise ValueError(
-                f"{name} must be numeric."
-            ) from exc
-
-        if not math.isfinite(value):
-            raise ValueError(
-                f"{name} must be finite."
+                f"{name} cannot be negative."
             )
 
-        return value
+        return numeric
 
     @staticmethod
     def _validate_bool(
         value: bool,
         name: str,
     ) -> bool:
-        """
-        Validate a strict boolean value.
-
-        Arbitrary truthy/falsy values are deliberately rejected so
-        values such as the string ``"False"`` cannot silently become
-        True through bool coercion.
-        """
+        """Validate a strict boolean."""
 
         if not isinstance(
             value,
             bool,
         ):
-            raise ValueError(
+            raise TypeError(
                 f"{name} must be boolean."
             )
 

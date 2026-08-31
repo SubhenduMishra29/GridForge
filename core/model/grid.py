@@ -1,47 +1,91 @@
-# core/model/grid.py
+# ============================================================
+# File: core/model/grid.py
+# GridForge V2 — Grid Source Model
+# Author: Subhendu Mishra
+# ============================================================
+
 """
-GridForge V2 Grid Model
-=======================
+GridForge V2 — Grid Source Model
+================================
 
-Author:
-    Subhendu Mishra
+Authoritative external-grid / utility-source electrical model.
 
-Grid is an electrical source element representing an external
-utility/grid connection.
+Architecture
+------------
 
-Grid is NOT:
+    ElectricalObject
+          +
+       Injection
+          |
+          v
+         Grid
+          |
+          v
+       Terminal
+          |
+          v
+       Endpoint
+          |
+          v
+       Network
 
-    - a network container
-    - a collection of buses
-    - a collection of loads
-    - a collection of generators
-    - a topology manager
-    - a graph
-    - a Y-bus builder
-    - a solver
-    - an SLD container
-    - a GUI object
+Grid owns:
 
-Authoritative physical connection:
+    - source identity
+    - nominal voltage
+    - frequency
+    - voltage magnitude / angle
+    - P/Q injection
+    - short-circuit data
+    - sequence impedance data
+    - grounding state
+    - operating state
+    - optional engineering extensions
+    - exactly one authoritative Terminal
 
-    Grid
-      |
-    Terminal
-      |
-    Terminal.endpoint
-      |
-    Network / Topology
-      |
-     Bus
+Grid does NOT own:
 
-Grid implements the common Injection contract.
+    - Network topology
+    - Bus collections
+    - global graph state
+    - Y-bus construction
+    - power-flow solving
+    - short-circuit solving
+    - SLD geometry
+    - UI state
 
-Power convention:
+Terminal Contract
+-----------------
 
-    Positive P/Q = injection into the electrical network.
+Grid owns exactly one authoritative Terminal.
 
-The Network layer owns topology.
-The Grid model owns only Grid-local electrical/source state.
+Terminal owns endpoint connectivity.
+
+Canonical operations are:
+
+    connect_endpoint(endpoint)
+        -> Terminal.attach(endpoint)
+
+    disconnect_endpoint()
+        -> Terminal.detach()
+
+Endpoint state is never duplicated inside Grid.
+
+Power Convention
+----------------
+
+Grid is an injection source:
+
+    P > 0 -> active power injected
+    Q > 0 -> reactive power injected
+
+An out-of-service Grid contributes:
+
+    P = 0
+    Q = 0
+
+Grounding and sequence-impedance data remain engineering
+parameters and do not constitute network topology.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -59,12 +103,9 @@ from .terminal import Terminal
 
 class Grid(ElectricalObject, Injection):
     """
-    External utility/grid source electrical model.
+    External electrical grid / utility source.
 
-    A Grid may exist while disconnected from the network.
-
-    Connectivity is established through its Terminal.
-    Network topology is never modified directly by this model.
+    Positive P/Q values represent injection into the network.
     """
 
     TYPE = "GRID"
@@ -72,9 +113,11 @@ class Grid(ElectricalObject, Injection):
     def __init__(
         self,
         id: str,
-        name: str = "",
         *,
         endpoint: Any = None,
+        terminal: Terminal | None = None,
+        bus: Any = None,
+        name: str = "",
         nominal_voltage_kv: float = 0.0,
         frequency_hz: float = 50.0,
         voltage_pu: float = 1.0,
@@ -88,17 +131,85 @@ class Grid(ElectricalObject, Injection):
         z0_pu: complex | None = None,
         in_service: bool = True,
         grounded: bool = True,
-        bus: Any = None,
     ) -> None:
+        """
+        Construct an external Grid source.
 
-        super().__init__(
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        endpoint:
+            Initial electrical endpoint.
+
+        terminal:
+            Optional pre-created authoritative Terminal.
+
+        bus:
+            Compatibility alias for the initial endpoint.
+
+        name:
+            Human-readable source name.
+
+        nominal_voltage_kv:
+            Nominal source voltage in kV.
+
+        frequency_hz:
+            System frequency in Hz.
+
+        voltage_pu:
+            Source voltage magnitude in per-unit.
+
+        angle_deg:
+            Source voltage angle in degrees.
+
+        p_mw:
+            Active-power injection in MW.
+
+        q_mvar:
+            Reactive-power injection in MVAr.
+
+        short_circuit_mva:
+            Optional short-circuit level in MVA.
+
+        x_over_r:
+            Optional X/R ratio.
+
+        z1_pu:
+            Positive-sequence impedance.
+
+        z2_pu:
+            Negative-sequence impedance.
+
+        z0_pu:
+            Zero-sequence impedance.
+
+        in_service:
+            Whether the source is operationally in service.
+
+        grounded:
+            Whether the source is grounded.
+
+        Notes
+        -----
+        ``endpoint`` and ``bus`` are aliases for initial endpoint
+        selection only. Endpoint state is subsequently owned by
+        Terminal.
+
+        An externally supplied Terminal must already belong to this
+        Grid. Terminal ownership is not mutated by Grid.
+        """
+
+        ElectricalObject.__init__(
+            self,
             id=id,
             name=name,
         )
 
-        # =============================================================
-        # COMPATIBILITY
-        # =============================================================
+        # ========================================================
+        # ENDPOINT COMPATIBILITY
+        # ========================================================
 
         if (
             endpoint is not None
@@ -106,16 +217,16 @@ class Grid(ElectricalObject, Injection):
             and endpoint is not bus
         ):
             raise ValueError(
-                f"Grid '{self.id}' received both endpoint and bus "
-                "with different values."
+                f"Grid '{self.id}' received both endpoint and "
+                "bus with different values."
             )
 
         if endpoint is None:
             endpoint = bus
 
-        # =============================================================
-        # ELECTRICAL SOURCE PARAMETERS
-        # =============================================================
+        # ========================================================
+        # ELECTRICAL PARAMETERS
+        # ========================================================
 
         self.nominal_voltage_kv = (
             self._validate_non_negative(
@@ -159,10 +270,6 @@ class Grid(ElectricalObject, Injection):
             )
         )
 
-        # =============================================================
-        # SHORT-CIRCUIT / SOURCE IMPEDANCE DATA
-        # =============================================================
-
         self.short_circuit_mva = (
             self._validate_optional_positive(
                 short_circuit_mva,
@@ -198,53 +305,75 @@ class Grid(ElectricalObject, Injection):
             )
         )
 
-        # =============================================================
+        # ========================================================
         # OPERATING STATE
-        # =============================================================
+        # ========================================================
 
-        if not isinstance(
+        self.in_service = self._validate_bool(
             in_service,
-            bool,
-        ):
-            raise TypeError(
-                "in_service must be boolean."
-            )
-
-        if not isinstance(
-            grounded,
-            bool,
-        ):
-            raise TypeError(
-                "grounded must be boolean."
-            )
-
-        self.in_service = in_service
-        self.grounded = grounded
-
-        # =============================================================
-        # AUTHORITATIVE PHYSICAL TERMINAL
-        # =============================================================
-
-        self.terminal = Terminal(
-            endpoint=endpoint,
-            owner=self,
+            "in_service",
         )
 
-        # =============================================================
+        self.grounded = self._validate_bool(
+            grounded,
+            "grounded",
+        )
+
+        # ========================================================
+        # AUTHORITATIVE PHYSICAL TERMINAL
+        # ========================================================
+
+        if terminal is None:
+            self._terminal = Terminal(
+                owner=self,
+                role="terminal",
+            )
+        else:
+            if not isinstance(
+                terminal,
+                Terminal,
+            ):
+                raise TypeError(
+                    "terminal must be a Terminal."
+                )
+
+            if terminal.owner is not self:
+                raise ValueError(
+                    f"Grid '{self.id}' terminal owner "
+                    "must be this Grid."
+                )
+
+            if terminal.role != "terminal":
+                raise ValueError(
+                    "Grid terminal role must be 'terminal'."
+                )
+
+            self._terminal = terminal
+
+        # ========================================================
+        # INITIAL ENDPOINT
+        # ========================================================
+
+        if endpoint is not None:
+            self.connect_endpoint(
+                endpoint
+            )
+
+        # ========================================================
         # OPTIONAL ENGINEERING EXTENSIONS
-        # =============================================================
+        # ========================================================
 
         self._extensions: dict[str, Any] = {}
 
-        # =============================================================
-        # COMMON MODEL VALIDATION CONTRACT
-        # =============================================================
+        # ========================================================
+        # COMMON MODEL VALIDATION
+        # ========================================================
 
         self.validate()
 
-    # =================================================================
+    # ============================================================
     # IDENTITY
-    # =================================================================
+    # ============================================================
 
     @property
     def element_type(self) -> str:
@@ -252,57 +381,85 @@ class Grid(ElectricalObject, Injection):
 
         return self.TYPE
 
-    # =================================================================
-    # TERMINALS
-    # =================================================================
+    # ============================================================
+    # TERMINAL
+    # ============================================================
+
+    @property
+    def terminal(self) -> Terminal:
+        """
+        Return the authoritative physical Terminal.
+        """
+
+        return self._terminal
 
     @property
     def terminals(self) -> tuple[Terminal, ...]:
-        """Return the Grid's physical terminal."""
+        """
+        Return the Grid's physical terminal collection.
+
+        Grid has exactly one terminal.
+        """
 
         return (
-            self.terminal,
+            self._terminal,
         )
 
-    # =================================================================
+    # ============================================================
     # CONNECTIVITY
-    # =================================================================
+    # ============================================================
 
     @property
-    def endpoint(self) -> Any:
+    def endpoint(self) -> Any | None:
         """
         Return the authoritative physical endpoint.
 
-        Terminal.endpoint is authoritative.
+        Terminal.endpoint is the sole source of endpoint truth.
         """
 
-        return self.terminal.endpoint
+        return self._terminal.endpoint
 
     @property
-    def bus(self) -> Any:
+    def bus(self) -> Any | None:
         """
-        Compatibility accessor.
+        Compatibility accessor for the historical bus API.
 
-        Bus state is derived from the Terminal and is not stored
+        Bus state is derived from Terminal and is never stored
         independently by Grid.
         """
 
-        return self.terminal.bus
+        return self._terminal.endpoint
+
+    @bus.setter
+    def bus(
+        self,
+        value: Any,
+    ) -> None:
+        """
+        Compatibility setter routed through the canonical
+        Terminal API.
+        """
+
+        self.connect_endpoint(
+            value
+        )
 
     @property
     def is_connected(self) -> bool:
         """Return whether the Grid terminal has an endpoint."""
 
-        return self.terminal.is_connected
+        return self._terminal.is_connected
 
     def connect_endpoint(
         self,
         endpoint: Any,
     ) -> None:
         """
-        Connect the Grid terminal locally.
+        Attach the Grid terminal to an electrical endpoint.
 
-        This does not modify global network topology.
+        This modifies Terminal-local connectivity only.
+
+        It does not directly modify global Network topology.
         """
 
         if endpoint is None:
@@ -310,22 +467,22 @@ class Grid(ElectricalObject, Injection):
                 f"Grid '{self.id}' endpoint cannot be None."
             )
 
-        self.terminal.connect(
+        self._terminal.attach(
             endpoint
         )
 
     def disconnect_endpoint(self) -> None:
         """
-        Disconnect the Grid terminal locally.
+        Detach the Grid terminal.
 
-        This does not modify global network topology.
+        This modifies Terminal-local connectivity only.
         """
 
-        self.terminal.disconnect()
+        self._terminal.detach()
 
-    # =================================================================
+    # ============================================================
     # OPERATING STATE
-    # =================================================================
+    # ============================================================
 
     @property
     def is_in_service(self) -> bool:
@@ -355,25 +512,53 @@ class Grid(ElectricalObject, Injection):
 
         self.in_service = False
 
-    # Compatibility aliases.
-    #
-    # These names describe service state, not terminal connectivity.
-    # New application code should prefer put_in_service() and
-    # take_out_of_service().
+    def set_in_service(
+        self,
+        value: bool,
+    ) -> None:
+        """Set Grid operational state."""
+
+        self.in_service = self._validate_bool(
+            value,
+            "in_service",
+        )
+
+    # ============================================================
+    # SERVICE COMPATIBILITY ALIASES
+    # ============================================================
 
     def connect(self) -> None:
-        """Compatibility alias for put_in_service()."""
+        """
+        Compatibility alias for putting the Grid source in service.
+
+        This does NOT connect the Terminal.
+        """
 
         self.put_in_service()
 
     def disconnect(self) -> None:
+        """
+        Compatibility alias for taking the Grid source out of
+        service.
+
+        This does NOT disconnect the Terminal.
+        """
+
+        self.take_out_of_service()
+
+    def close(self) -> None:
+        """Compatibility alias for put_in_service()."""
+
+        self.put_in_service()
+
+    def trip(self) -> None:
         """Compatibility alias for take_out_of_service()."""
 
         self.take_out_of_service()
 
-    # =================================================================
+    # ============================================================
     # INJECTION CONTRACT
-    # =================================================================
+    # ============================================================
 
     def get_power(self) -> tuple[float, float]:
         """
@@ -381,7 +566,7 @@ class Grid(ElectricalObject, Injection):
 
         Positive P/Q represent injection into the network.
 
-        An out-of-service Grid contributes no injection.
+        An out-of-service Grid contributes zero injection.
         """
 
         if not self.in_service:
@@ -414,19 +599,31 @@ class Grid(ElectricalObject, Injection):
 
     @property
     def active_power_mw(self) -> float:
-        """Return active power injection."""
+        """Return configured active-power injection."""
 
         return self.p_mw
 
     @property
     def reactive_power_mvar(self) -> float:
-        """Return reactive power injection."""
+        """Return configured reactive-power injection."""
 
         return self.q_mvar
 
-    # =================================================================
+    @property
+    def active_power_injection_mw(self) -> float:
+        """Return effective active-power injection."""
+
+        return self.get_power()[0]
+
+    @property
+    def reactive_power_injection_mvar(self) -> float:
+        """Return effective reactive-power injection."""
+
+        return self.get_power()[1]
+
+    # ============================================================
     # VOLTAGE
-    # =================================================================
+    # ============================================================
 
     def set_voltage(
         self,
@@ -451,9 +648,9 @@ class Grid(ElectricalObject, Injection):
             )
         )
 
-    # =================================================================
+    # ============================================================
     # SEQUENCE IMPEDANCE
-    # =================================================================
+    # ============================================================
 
     def set_sequence_impedances(
         self,
@@ -463,7 +660,7 @@ class Grid(ElectricalObject, Injection):
         z0_pu: complex | None = None,
     ) -> None:
         """
-        Set positive-, negative- and zero-sequence impedances.
+        Set positive-, negative-, and zero-sequence impedances.
         """
 
         self.z1_pu = (
@@ -488,13 +685,15 @@ class Grid(ElectricalObject, Injection):
         )
 
     def has_sequence_impedance_data(self) -> bool:
-        """Return whether positive-sequence impedance is available."""
+        """
+        Return whether positive-sequence impedance data exists.
+        """
 
         return self.z1_pu is not None
 
-    # =================================================================
+    # ============================================================
     # VALIDATION
-    # =================================================================
+    # ============================================================
 
     def validate_parameters(self) -> bool:
         """
@@ -580,47 +779,54 @@ class Grid(ElectricalObject, Injection):
             )
         )
 
-        if not isinstance(
+        self.in_service = self._validate_bool(
             self.in_service,
-            bool,
-        ):
-            raise TypeError(
-                "in_service must be boolean."
-            )
+            "in_service",
+        )
 
-        if not isinstance(
+        self.grounded = self._validate_bool(
             self.grounded,
-            bool,
-        ):
-            raise TypeError(
-                "grounded must be boolean."
-            )
+            "grounded",
+        )
 
-        if self.terminal.owner is not self:
+        if self._terminal.owner is not self:
             raise ValueError(
                 f"Grid '{self.id}' terminal ownership is invalid."
             )
+
+        if self._terminal.role != "terminal":
+            raise ValueError(
+                "Grid terminal role must be 'terminal'."
+            )
+
+        self._terminal.validate()
 
         return True
 
     def validate(self) -> bool:
         """
-        Validate the complete Grid model through the common
-        ElectricalObject validation contract.
+        Validate the complete Grid model.
+
+        ElectricalObject provides the common model-level
+        validation contract.
         """
+
+        self.validate_parameters()
 
         return super().validate()
 
-    # =================================================================
+    # ============================================================
     # EXTENSIONS
-    # =================================================================
+    # ============================================================
 
     def register_extension(
         self,
         extension_id: str,
         extension: Any,
     ) -> None:
-        """Register an optional engineering extension."""
+        """
+        Register an optional engineering extension.
+        """
 
         if not isinstance(
             extension_id,
@@ -647,7 +853,9 @@ class Grid(ElectricalObject, Injection):
                 f"Extension '{extension_id}' is already registered."
             )
 
-        self._extensions[extension_id] = extension
+        self._extensions[
+            extension_id
+        ] = extension
 
     def get_extension(
         self,
@@ -678,20 +886,22 @@ class Grid(ElectricalObject, Injection):
             self._extensions.keys()
         )
 
-    # =================================================================
+    # ============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # ============================================================
 
     def summary(self) -> dict[str, Any]:
         """Return a structured Grid diagnostic summary."""
 
+        endpoint = self._terminal.endpoint
+
         endpoint_id = None
 
-        if self.endpoint is not None:
+        if endpoint is not None:
             endpoint_id = getattr(
-                self.endpoint,
+                endpoint,
                 "id",
-                self.endpoint,
+                endpoint,
             )
 
         return {
@@ -699,9 +909,13 @@ class Grid(ElectricalObject, Injection):
             "name": self.name,
             "type": self.TYPE,
 
-            "terminal": self.terminal.id,
+            "terminal": self._terminal,
+            "terminal_role": self._terminal.role,
+
             "endpoint": endpoint_id,
-            "is_connected": self.is_connected,
+            "bus": endpoint_id,
+            "is_connected":
+                self._terminal.is_connected,
 
             "nominal_voltage_kv":
                 self.nominal_voltage_kv,
@@ -749,20 +963,22 @@ class Grid(ElectricalObject, Injection):
                 self.extension_ids,
         }
 
-    # =================================================================
+    # ============================================================
     # REPRESENTATION
-    # =================================================================
+    # ============================================================
 
     def __repr__(self) -> str:
         """Return concise developer-facing representation."""
 
+        endpoint = self._terminal.endpoint
+
         endpoint_id = None
 
-        if self.endpoint is not None:
+        if endpoint is not None:
             endpoint_id = getattr(
-                self.endpoint,
+                endpoint,
                 "id",
-                self.endpoint,
+                endpoint,
             )
 
         return (
@@ -775,9 +991,9 @@ class Grid(ElectricalObject, Injection):
             f"in_service={self.in_service}>"
         )
 
-    # =================================================================
+    # ============================================================
     # VALIDATION HELPERS
-    # =================================================================
+    # ============================================================
 
     @staticmethod
     def _validate_finite(
@@ -787,18 +1003,23 @@ class Grid(ElectricalObject, Injection):
         """Convert to float and require a finite value."""
 
         try:
-            value = float(value)
-        except (TypeError, ValueError) as exc:
+            numeric = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
             raise ValueError(
                 f"{name} must be numeric."
             ) from exc
 
-        if not math.isfinite(value):
+        if not math.isfinite(
+            numeric
+        ):
             raise ValueError(
                 f"{name} must be finite."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_positive(
@@ -808,17 +1029,17 @@ class Grid(ElectricalObject, Injection):
     ) -> float:
         """Convert to float and require value > 0."""
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value <= 0.0:
+        if numeric <= 0.0:
             raise ValueError(
                 f"{name} must be greater than zero."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_non_negative(
@@ -828,17 +1049,17 @@ class Grid(ElectricalObject, Injection):
     ) -> float:
         """Convert to float and require value >= 0."""
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value < 0.0:
+        if numeric < 0.0:
             raise ValueError(
                 f"{name} cannot be negative."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_optional_positive(
@@ -856,30 +1077,65 @@ class Grid(ElectricalObject, Injection):
             name,
         )
 
-    @staticmethod
+    @classmethod
     def _validate_optional_impedance(
+        cls,
         value: complex | None,
         name: str,
     ) -> complex | None:
-        """Validate an optional finite complex impedance."""
+        """
+        Validate an optional complex impedance.
+
+        Both real and imaginary components must be finite.
+        """
 
         if value is None:
             return None
 
-        try:
-            value = complex(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"{name} must be a valid complex value."
-            ) from exc
+        if not isinstance(
+            value,
+            complex,
+        ):
+            try:
+                value = complex(
+                    value
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as exc:
+                raise ValueError(
+                    f"{name} must be a complex impedance."
+                ) from exc
 
         if not (
-            math.isfinite(value.real)
-            and math.isfinite(value.imag)
+            math.isfinite(
+                value.real
+            )
+            and math.isfinite(
+                value.imag
+            )
         ):
             raise ValueError(
-                f"{name} must contain finite real and "
-                "imaginary parts."
+                f"{name} must contain finite real "
+                "and imaginary components."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_bool(
+        value: bool,
+        name: str,
+    ) -> bool:
+        """Validate a strict boolean."""
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} must be boolean."
             )
 
         return value

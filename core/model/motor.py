@@ -1,75 +1,136 @@
-# core/model/motor.py
+# ============================================================
+# File: core/model/motor.py
+# GridForge V2 — Motor Model
+# Author: Subhendu Mishra
+# ============================================================
+
 """
-GridForge V2 Motor Model
-========================
+GridForge V2 — Motor Model
+==========================
 
-Author:
-    Subhendu Mishra
-
-A Motor is an electrical power-consumption element.
+Authoritative electrical-domain model for a motor load.
 
 Architecture
 ------------
 
     ElectricalObject
-          +
-      Injection
-          |
-          v
+          │
+          ▼
         Motor
-          |
-          v
-       Terminal
-          |
-          v
-    Network / Topology
+          │
+          └── Terminal
+                └── endpoint
 
-The Motor owns:
+The Motor owns exactly one authoritative Terminal.
 
-    - motor identity
-    - rated apparent power
-    - rated voltage
-    - power factor
-    - active/reactive operating state
-    - efficiency
-    - slip
-    - starting current
-    - running state
-    - service state
-    - one authoritative Terminal
+The Terminal owns the electrical endpoint reference.
 
-The Motor does NOT own:
+The Motor does not maintain an independent bus or endpoint
+state.
 
-    - network topology
-    - Bus collections
-    - network graph
-    - load-flow solving
-    - motor dynamic simulation
-    - protection coordination
-    - SLD geometry
-    - GUI state
+Motor operating quantities
+--------------------------
+
+The Motor stores:
+
+    p
+        Active-power consumption.
+
+    q
+        Reactive-power consumption.
+
+    rated_mva
+        Rated apparent power.
+
+    rated_kv
+        Rated voltage.
+
+    power_factor
+        Nameplate / operating power factor.
+
+    efficiency
+        Motor efficiency.
+
+    slip
+        Motor slip.
+
+    starting_current_pu
+        Starting current in per-unit.
+
+    running
+        Running state.
+
+    in_service
+        Operational service state.
 
 Power convention
 ----------------
 
-Motor consumption is represented internally as positive
-consumption values:
+Motor p and q are positive consumption quantities.
 
-    p > 0  -> active power consumed
-    q > 0  -> reactive power consumed
+Therefore the electrical-network injection is:
 
-Therefore the network injection returned by get_power() is:
+    P_network = -p
+    Q_network = -q
 
-    (-p, -q)
-
-When the Motor is stopped or out of service:
+A stopped or out-of-service Motor contributes:
 
     (0, 0)
 
-The p/q operating values are per-unit.
+Terminal contract
+-----------------
 
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+The canonical Terminal contract is:
+
+    Terminal
+    ├── owner
+    ├── role
+    ├── endpoint
+    ├── attach()
+    ├── detach()
+    ├── is_connected
+    └── validate()
+
+Therefore:
+
+    connect_endpoint(endpoint)
+        -> Terminal.attach(endpoint)
+
+    disconnect_endpoint()
+        -> Terminal.detach()
+
+Electrical connectivity and operational state are deliberately
+separate.
+
+    connect_endpoint()
+    disconnect_endpoint()
+
+operate on electrical connectivity.
+
+    put_in_service()
+    take_out_of_service()
+
+operate on service state.
+
+The legacy Motor connect()/disconnect() service aliases are
+retained only for compatibility with the existing model API.
+
+Network topology
+----------------
+
+Motor does not:
+
+    - register itself with a Network
+    - mutate Bus topology
+    - construct Y-Bus matrices
+    - perform load flow
+    - perform short-circuit analysis
+    - perform protection analysis
+    - perform dynamic integration
+    - maintain UI/SLD state
+
+Those responsibilities belong to the appropriate Core
+subsystems and Application layer.
 """
 
 from __future__ import annotations
@@ -84,51 +145,14 @@ from .terminal import Terminal
 
 class Motor(ElectricalObject, Injection):
     """
-    Electrical motor model.
+    Electrical-domain motor model.
 
-    Parameters
-    ----------
-    id:
-        Stable GridForge object identifier.
+    Motor power values represent positive consumption.
 
-    name:
-        Human-readable motor name.
+    Network injection is therefore negative while the motor is
+    operating.
 
-    endpoint:
-        Initial electrical endpoint. May be None.
-
-    rated_mva:
-        Motor rated apparent power in MVA.
-
-    rated_kv:
-        Motor rated voltage in kV.
-
-    power_factor:
-        Operating power factor, 0 < PF <= 1.
-
-    p:
-        Active power consumption in per-unit.
-
-    q:
-        Reactive power consumption in per-unit.
-
-    efficiency:
-        Motor efficiency, 0 < efficiency <= 1.
-
-    slip:
-        Per-unit motor slip, 0 <= slip < 1.
-
-    starting_current_pu:
-        Starting current in per-unit.
-
-    running:
-        Initial motor running state.
-
-    in_service:
-        Initial equipment service state.
-
-    bus:
-        Backward-compatible endpoint alias.
+    The Motor has exactly one authoritative Terminal.
     """
 
     TYPE = "MOTOR"
@@ -136,30 +160,82 @@ class Motor(ElectricalObject, Injection):
     def __init__(
         self,
         id: str,
-        name: str = "",
-        *,
         endpoint: Any = None,
-        rated_mva: float = 1.0,
-        rated_kv: float = 11.0,
-        power_factor: float = 0.9,
-        p: float = 1.0,
-        q: float = 0.0,
-        efficiency: float = 0.95,
-        slip: float = 0.02,
-        starting_current_pu: float = 6.0,
-        running: bool = True,
-        in_service: bool = True,
+        *,
         bus: Any = None,
+        terminal: Terminal | None = None,
+        rated_mva: float = 1.0,
+        rated_kv: float = 1.0,
+        power_factor: float = 0.9,
+        p: float = 0.0,
+        q: float = 0.0,
+        efficiency: float = 1.0,
+        slip: float = 0.0,
+        starting_current_pu: float = 0.0,
+        running: bool = False,
+        in_service: bool = True,
+        name: str = "",
     ) -> None:
+        """
+        Construct a Motor.
+
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        endpoint:
+            Initial electrical endpoint.
+
+        bus:
+            Compatibility alias for endpoint.
+
+        terminal:
+            Optional pre-created Terminal. If supplied, it must
+            belong to this Motor and have role ``"terminal"``.
+
+        rated_mva:
+            Motor rated apparent power.
+
+        rated_kv:
+            Motor rated voltage.
+
+        power_factor:
+            Motor power factor.
+
+        p:
+            Active-power consumption.
+
+        q:
+            Reactive-power consumption.
+
+        efficiency:
+            Motor efficiency.
+
+        slip:
+            Motor slip.
+
+        starting_current_pu:
+            Starting current in per-unit.
+
+        running:
+            Initial running state.
+
+        in_service:
+            Initial service state.
+
+        name:
+            Human-readable Motor name.
+        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # =============================================================
-        # ENDPOINT COMPATIBILITY
-        # =============================================================
+        # --------------------------------------------------------
+        # Endpoint / bus compatibility
+        # --------------------------------------------------------
 
         if (
             endpoint is not None
@@ -167,16 +243,16 @@ class Motor(ElectricalObject, Injection):
             and endpoint is not bus
         ):
             raise ValueError(
-                f"Motor '{self.id}' received both endpoint and bus "
-                "with different values."
+                f"Motor '{self.id}' received both "
+                "'endpoint' and 'bus' with different values."
             )
 
         if endpoint is None:
             endpoint = bus
 
-        # =============================================================
-        # NAMEPLATE DATA
-        # =============================================================
+        # --------------------------------------------------------
+        # NAMEPLATE / ELECTRICAL PARAMETERS
+        # --------------------------------------------------------
 
         self.rated_mva = self._validate_positive(
             rated_mva,
@@ -188,13 +264,15 @@ class Motor(ElectricalObject, Injection):
             "rated_kv",
         )
 
-        self.power_factor = self._validate_power_factor(
-            power_factor,
+        self.power_factor = (
+            self._validate_power_factor(
+                power_factor,
+            )
         )
 
-        # =============================================================
+        # --------------------------------------------------------
         # OPERATING ELECTRICAL STATE
-        # =============================================================
+        # --------------------------------------------------------
 
         self.p = self._validate_non_negative(
             p,
@@ -206,8 +284,10 @@ class Motor(ElectricalObject, Injection):
             "q",
         )
 
-        self.efficiency = self._validate_efficiency(
-            efficiency,
+        self.efficiency = (
+            self._validate_efficiency(
+                efficiency,
+            )
         )
 
         self.slip = self._validate_slip(
@@ -221,9 +301,9 @@ class Motor(ElectricalObject, Injection):
             )
         )
 
-        # =============================================================
+        # --------------------------------------------------------
         # SERVICE / RUNNING STATE
-        # =============================================================
+        # --------------------------------------------------------
 
         if not isinstance(
             running,
@@ -244,46 +324,90 @@ class Motor(ElectricalObject, Injection):
         self.running = running
         self.in_service = in_service
 
-        # =============================================================
+        # --------------------------------------------------------
         # AUTHORITATIVE TERMINAL
-        # =============================================================
+        # --------------------------------------------------------
 
-        self.terminal = Terminal(
-            endpoint=endpoint,
-            owner=self,
-        )
+        if terminal is None:
+            self._terminal = Terminal(
+                owner=self,
+                role="terminal",
+            )
+        else:
+            if not isinstance(
+                terminal,
+                Terminal,
+            ):
+                raise TypeError(
+                    "terminal must be a Terminal."
+                )
 
-        # =============================================================
+            if terminal.owner is not self:
+                raise ValueError(
+                    f"Motor '{self.id}' terminal owner "
+                    "must be this Motor."
+                )
+
+            if terminal.role != "terminal":
+                raise ValueError(
+                    "Motor terminal role must be "
+                    "'terminal'."
+                )
+
+            self._terminal = terminal
+
+        # --------------------------------------------------------
+        # INITIAL ELECTRICAL CONNECTION
+        # --------------------------------------------------------
+
+        if endpoint is not None:
+            self._terminal.attach(
+                endpoint
+            )
+
+        # --------------------------------------------------------
         # COMMON VALIDATION CONTRACT
-        # =============================================================
+        # --------------------------------------------------------
 
         self.validate()
 
-    # =================================================================
+    # ============================================================
     # IDENTITY
-    # =================================================================
+    # ============================================================
 
     @property
     def element_type(self) -> str:
-        """Return canonical GridForge element type."""
+        """
+        Return canonical GridForge element type.
+        """
 
         return self.TYPE
 
-    # =================================================================
-    # TERMINALS
-    # =================================================================
+    # ============================================================
+    # TERMINAL
+    # ============================================================
+
+    @property
+    def terminal(self) -> Terminal:
+        """
+        Return the authoritative Motor Terminal.
+        """
+
+        return self._terminal
 
     @property
     def terminals(self) -> tuple[Terminal, ...]:
-        """Return the Motor's authoritative terminal."""
+        """
+        Return the Motor's authoritative terminal collection.
+        """
 
         return (
-            self.terminal,
+            self._terminal,
         )
 
-    # =================================================================
+    # ============================================================
     # CONNECTIVITY
-    # =================================================================
+    # ============================================================
 
     @property
     def endpoint(self) -> Any:
@@ -293,30 +417,32 @@ class Motor(ElectricalObject, Injection):
         Terminal.endpoint is the source of truth.
         """
 
-        return self.terminal.endpoint
+        return self._terminal.endpoint
 
     @property
     def bus(self) -> Any:
         """
-        Compatibility accessor for the terminal bus.
+        Compatibility accessor for the terminal endpoint.
 
         This is derived state and is not authoritative.
         """
 
-        return self.terminal.bus
+        return self._terminal.endpoint
 
     @property
     def is_connected(self) -> bool:
-        """Return True when the Motor terminal is connected."""
+        """
+        Return True when the Motor terminal is connected.
+        """
 
-        return self.terminal.is_connected
+        return self._terminal.is_connected
 
     def connect_endpoint(
         self,
         endpoint: Any,
     ) -> None:
         """
-        Connect the Motor terminal locally.
+        Connect the Motor Terminal to an electrical endpoint.
 
         Global network topology is not modified here.
         """
@@ -326,91 +452,134 @@ class Motor(ElectricalObject, Injection):
                 f"Motor '{self.id}' endpoint cannot be None."
             )
 
-        self.terminal.connect(
+        self._terminal.attach(
             endpoint
         )
 
     def disconnect_endpoint(self) -> None:
         """
-        Disconnect the Motor terminal locally.
+        Disconnect the Motor Terminal locally.
         """
 
-        self.terminal.disconnect()
+        self._terminal.detach()
 
-    # =================================================================
+    # ============================================================
     # SERVICE STATE
-    # =================================================================
+    # ============================================================
 
     @property
     def is_in_service(self) -> bool:
-        """Return True when the Motor is in service."""
+        """
+        Return True when the Motor is in service.
+        """
 
         return self.in_service
 
     @property
     def is_out_of_service(self) -> bool:
-        """Return True when the Motor is out of service."""
+        """
+        Return True when the Motor is out of service.
+        """
 
         return not self.in_service
 
     def put_in_service(self) -> None:
-        """Place the Motor in service."""
+        """
+        Place the Motor in service.
+
+        Terminal connectivity is unchanged.
+        """
 
         self.in_service = True
 
     def take_out_of_service(self) -> None:
-        """Take the Motor out of service."""
+        """
+        Take the Motor out of service.
+
+        Terminal connectivity is unchanged.
+        """
 
         self.in_service = False
 
-    # Compatibility aliases.
-    #
-    # These operate on service state, not terminal connectivity.
+    # ------------------------------------------------------------
+    # Compatibility aliases
+    # ------------------------------------------------------------
 
     def connect(self) -> None:
-        """Compatibility alias for put_in_service()."""
+        """
+        Compatibility alias for put_in_service().
+
+        This method changes service state only.
+
+        New code should use:
+
+            connect_endpoint(endpoint)
+
+        for electrical connectivity.
+        """
 
         self.put_in_service()
 
     def disconnect(self) -> None:
-        """Compatibility alias for take_out_of_service()."""
+        """
+        Compatibility alias for take_out_of_service().
+
+        This method changes service state only.
+
+        New code should use:
+
+            disconnect_endpoint()
+
+        for electrical connectivity.
+        """
 
         self.take_out_of_service()
 
-    # =================================================================
+    # ============================================================
     # RUNNING STATE
-    # =================================================================
+    # ============================================================
 
     @property
     def is_running(self) -> bool:
-        """Return True when the motor is running."""
+        """
+        Return True when the Motor is running.
+        """
 
         return self.running
 
     @property
     def is_stopped(self) -> bool:
-        """Return True when the motor is stopped."""
+        """
+        Return True when the Motor is stopped.
+        """
 
         return not self.running
 
     def start(self) -> None:
-        """Start the Motor."""
+        """
+        Start the Motor.
+
+        A Motor cannot start while out of service.
+        """
 
         if not self.in_service:
             raise RuntimeError(
-                f"Motor '{self.id}' cannot start while out of service."
+                f"Motor '{self.id}' cannot start "
+                "while out of service."
             )
 
         self.running = True
 
     def stop(self) -> None:
-        """Stop the Motor."""
+        """
+        Stop the Motor.
+        """
 
         self.running = False
 
-    # =================================================================
+    # ============================================================
     # INJECTION CONTRACT
-    # =================================================================
+    # ============================================================
 
     def get_power(self) -> tuple[float, float]:
         """
@@ -418,11 +587,11 @@ class Motor(ElectricalObject, Injection):
 
         Motor p/q represent positive consumption.
 
-        Therefore an operating Motor injects:
+        Therefore:
 
-            (-p, -q)
+            operating Motor -> (-p, -q)
 
-        A stopped or out-of-service Motor injects:
+        A stopped or out-of-service Motor returns:
 
             (0, 0)
         """
@@ -441,16 +610,18 @@ class Motor(ElectricalObject, Injection):
             -self.q,
         )
 
-    # =================================================================
+    # ============================================================
     # POWER STATE
-    # =================================================================
+    # ============================================================
 
     def set_power(
         self,
         p: float,
         q: float,
     ) -> None:
-        """Set active/reactive motor consumption in per-unit."""
+        """
+        Set active/reactive motor consumption.
+        """
 
         self.p = self._validate_non_negative(
             p,
@@ -466,7 +637,9 @@ class Motor(ElectricalObject, Injection):
         self,
         p: float,
     ) -> None:
-        """Set active motor consumption in per-unit."""
+        """
+        Set active motor consumption.
+        """
 
         self.p = self._validate_non_negative(
             p,
@@ -477,7 +650,9 @@ class Motor(ElectricalObject, Injection):
         self,
         q: float,
     ) -> None:
-        """Set reactive motor consumption in per-unit."""
+        """
+        Set reactive motor consumption.
+        """
 
         self.q = self._validate_non_negative(
             q,
@@ -486,45 +661,59 @@ class Motor(ElectricalObject, Injection):
 
     @property
     def active_power(self) -> float:
-        """Return active power consumption in per-unit."""
+        """
+        Return active-power consumption.
+        """
 
         return self.p
 
     @property
     def reactive_power(self) -> float:
-        """Return reactive power consumption in per-unit."""
+        """
+        Return reactive-power consumption.
+        """
 
         return self.q
 
-    # =================================================================
+    # ============================================================
     # NAMEPLATE / OPERATING PARAMETERS
-    # =================================================================
+    # ============================================================
 
     def set_power_factor(
         self,
         power_factor: float,
     ) -> None:
-        """Set operating power factor."""
+        """
+        Set operating power factor.
+        """
 
-        self.power_factor = self._validate_power_factor(
-            power_factor,
+        self.power_factor = (
+            self._validate_power_factor(
+                power_factor,
+            )
         )
 
     def set_efficiency(
         self,
         efficiency: float,
     ) -> None:
-        """Set motor efficiency."""
+        """
+        Set motor efficiency.
+        """
 
-        self.efficiency = self._validate_efficiency(
-            efficiency,
+        self.efficiency = (
+            self._validate_efficiency(
+                efficiency,
+            )
         )
 
     def set_slip(
         self,
         slip: float,
     ) -> None:
-        """Set motor slip."""
+        """
+        Set motor slip.
+        """
 
         self.slip = self._validate_slip(
             slip,
@@ -534,7 +723,9 @@ class Motor(ElectricalObject, Injection):
         self,
         starting_current_pu: float,
     ) -> None:
-        """Set starting current in per-unit."""
+        """
+        Set starting current in per-unit.
+        """
 
         self.starting_current_pu = (
             self._validate_non_negative(
@@ -543,15 +734,15 @@ class Motor(ElectricalObject, Injection):
             )
         )
 
-    # =================================================================
+    # ============================================================
     # VALIDATION
-    # =================================================================
+    # ============================================================
 
     def validate_parameters(self) -> bool:
         """
         Validate Motor-local engineering invariants.
 
-        Network topology is deliberately outside this method.
+        Network topology resolution remains outside the Motor.
         """
 
         self.rated_mva = self._validate_positive(
@@ -564,8 +755,10 @@ class Motor(ElectricalObject, Injection):
             "rated_kv",
         )
 
-        self.power_factor = self._validate_power_factor(
-            self.power_factor,
+        self.power_factor = (
+            self._validate_power_factor(
+                self.power_factor,
+            )
         )
 
         self.p = self._validate_non_negative(
@@ -578,8 +771,10 @@ class Motor(ElectricalObject, Injection):
             "q",
         )
 
-        self.efficiency = self._validate_efficiency(
-            self.efficiency,
+        self.efficiency = (
+            self._validate_efficiency(
+                self.efficiency,
+            )
         )
 
         self.slip = self._validate_slip(
@@ -609,49 +804,67 @@ class Motor(ElectricalObject, Injection):
                 "in_service must be boolean."
             )
 
-        if self.terminal.owner is not self:
-            raise ValueError(
-                f"Motor '{self.id}' terminal ownership is invalid."
+        if not isinstance(
+            self._terminal,
+            Terminal,
+        ):
+            raise TypeError(
+                "Motor terminal must be a Terminal."
             )
+
+        if self._terminal.owner is not self:
+            raise ValueError(
+                f"Motor '{self.id}' terminal owner "
+                "must be this Motor."
+            )
+
+        if self._terminal.role != "terminal":
+            raise ValueError(
+                "Motor terminal role must be "
+                "'terminal'."
+            )
+
+        self._terminal.validate()
 
         return True
 
-    def validate(self) -> bool:
-        """
-        Validate complete Motor model through the common contract.
-        """
-
-        return super().validate()
-
-    # =================================================================
+    # ============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # ============================================================
 
     def summary(self) -> dict[str, Any]:
-        """Return structured Motor diagnostics."""
+        """
+        Return structured Motor diagnostics.
 
-        endpoint_id = None
+        Endpoint information is obtained exclusively from the
+        authoritative Terminal.
+        """
 
-        if self.endpoint is not None:
-            endpoint_id = getattr(
-                self.endpoint,
-                "id",
-                self.endpoint,
-            )
+        endpoint = self._terminal.endpoint
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
 
-            "terminal": self.terminal.id,
+            "terminal": self._terminal,
 
-            "endpoint": endpoint_id,
-            "is_connected": self.is_connected,
+            "endpoint": (
+                endpoint.id
+                if endpoint is not None
+                and hasattr(endpoint, "id")
+                else endpoint
+            ),
+
+            "bus": (
+                endpoint.id
+                if endpoint is not None
+                and hasattr(endpoint, "id")
+                else endpoint
+            ),
 
             "rated_mva": self.rated_mva,
             "rated_kv": self.rated_kv,
-
             "power_factor": self.power_factor,
 
             "p": self.p,
@@ -659,66 +872,76 @@ class Motor(ElectricalObject, Injection):
 
             "efficiency": self.efficiency,
             "slip": self.slip,
-
             "starting_current_pu":
                 self.starting_current_pu,
 
             "running": self.running,
             "in_service": self.in_service,
 
-            "injection": self.get_power(),
+            "is_connected":
+                self._terminal.is_connected,
+
+            "injection":
+                self.get_power(),
         }
 
-    # =================================================================
+    # ============================================================
     # REPRESENTATION
-    # =================================================================
+    # ============================================================
 
     def __repr__(self) -> str:
-        """Return concise developer-facing representation."""
+        """
+        Return concise developer-facing representation.
+        """
 
-        endpoint_id = None
+        endpoint = self._terminal.endpoint
 
-        if self.endpoint is not None:
-            endpoint_id = getattr(
-                self.endpoint,
-                "id",
-                self.endpoint,
-            )
+        endpoint_id = (
+            endpoint.id
+            if endpoint is not None
+            and hasattr(endpoint, "id")
+            else endpoint
+        )
 
         return (
             f"<Motor "
             f"id={self.id}, "
             f"endpoint={endpoint_id}, "
-            f"P={self.p:.6f} pu, "
-            f"Q={self.q:.6f} pu, "
+            f"P={self.p:.6f}, "
+            f"Q={self.q:.6f}, "
             f"running={self.running}, "
             f"in_service={self.in_service}>"
         )
 
-    # =================================================================
+    # ============================================================
     # VALIDATION HELPERS
-    # =================================================================
+    # ============================================================
 
     @staticmethod
     def _validate_finite(
         value: float,
         name: str,
     ) -> float:
-        """Convert to float and require a finite value."""
+        """
+        Convert value to float and require it to be finite.
+        """
 
         try:
-            value = float(value)
-        except (TypeError, ValueError) as exc:
+            numeric = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
             raise ValueError(
                 f"{name} must be numeric."
             ) from exc
 
-        if not math.isfinite(value):
+        if not math.isfinite(numeric):
             raise ValueError(
                 f"{name} must be finite."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_positive(
@@ -726,19 +949,21 @@ class Motor(ElectricalObject, Injection):
         value: float,
         name: str,
     ) -> float:
-        """Convert to float and require value > 0."""
+        """
+        Validate a strictly positive finite value.
+        """
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value <= 0.0:
+        if numeric <= 0.0:
             raise ValueError(
                 f"{name} must be greater than zero."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_non_negative(
@@ -746,82 +971,110 @@ class Motor(ElectricalObject, Injection):
         value: float,
         name: str,
     ) -> float:
-        """Convert to float and require value >= 0."""
+        """
+        Validate a finite non-negative value.
+        """
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value < 0.0:
+        if numeric < 0.0:
             raise ValueError(
-                f"{name} cannot be negative."
+                f"{name} must be greater than or equal "
+                "to zero."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_power_factor(
         cls,
         value: float,
     ) -> float:
-        """Validate 0 < power factor <= 1."""
+        """
+        Validate power factor.
 
-        value = cls._validate_finite(
+        Power factor is represented as a positive fraction
+        between 0 and 1 inclusive.
+        """
+
+        numeric = cls._validate_finite(
             value,
             "power_factor",
         )
 
-        if not (
-            0.0 < value <= 1.0
-        ):
+        if not 0.0 < numeric <= 1.0:
             raise ValueError(
-                "power_factor must satisfy "
-                "0 < power_factor <= 1."
+                "power_factor must be greater than "
+                "zero and less than or equal to 1.0."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_efficiency(
         cls,
         value: float,
     ) -> float:
-        """Validate 0 < efficiency <= 1."""
+        """
+        Validate motor efficiency as a fraction.
+        """
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             "efficiency",
         )
 
-        if not (
-            0.0 < value <= 1.0
-        ):
+        if not 0.0 < numeric <= 1.0:
             raise ValueError(
-                "efficiency must satisfy "
-                "0 < efficiency <= 1."
+                "efficiency must be greater than "
+                "zero and less than or equal to 1.0."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_slip(
         cls,
         value: float,
     ) -> float:
-        """Validate 0 <= slip < 1."""
+        """
+        Validate motor slip.
 
-        value = cls._validate_finite(
+        Slip is represented as a fraction and must be within
+        the physical interval [0, 1).
+        """
+
+        numeric = cls._validate_finite(
             value,
             "slip",
         )
 
-        if not (
-            0.0 <= value < 1.0
-        ):
+        if not 0.0 <= numeric < 1.0:
             raise ValueError(
-                "slip must satisfy "
-                "0 <= slip < 1."
+                "slip must be greater than or equal to "
+                "zero and less than 1.0."
+            )
+
+        return numeric
+
+    @staticmethod
+    def _validate_bool(
+        value: bool,
+        name: str,
+    ) -> bool:
+        """
+        Validate a strict boolean.
+        """
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} must be boolean."
             )
 
         return value

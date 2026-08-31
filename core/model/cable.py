@@ -8,119 +8,85 @@
 GridForge V2 — Cable Model
 ==========================
 
-Concrete two-terminal physical cable model.
+Authoritative electrical cable model.
 
 Architecture
 ------------
 
     ElectricalObject
           |
-          v
         Branch
+       /      \
+ FROM Terminal  TO Terminal
           |
-          v
-        Cable
-       /     \
-      v       v
- FROM       TO
-Terminal   Terminal
-      |       |
-      v       v
- endpoint  endpoint
+         Cable
 
-Cable inherits the authoritative terminal and endpoint contract
-from Branch.
+Cable is a specialized two-terminal Branch.
 
-Endpoint ownership
-------------------
+The Cable owns only cable-domain electrical and engineering
+parameters.  Physical connectivity is owned by the inherited
+Branch Terminals.
 
-Cable does NOT maintain independent endpoint state.
+Authoritative connectivity contract
+------------------------------------
 
-The authoritative endpoint references are:
+    cable.from_terminal
+    cable.to_terminal
 
-    Cable.from_terminal.endpoint
-    Cable.to_terminal.endpoint
+    cable.from_endpoint
+    cable.to_endpoint
 
-Network interprets those endpoints into topology.
+    cable.connect_from(endpoint)
+    cable.connect_to(endpoint)
 
-Electrical parameter ownership
-------------------------------
+    cable.disconnect_from()
+    cable.disconnect_to()
 
-Branch owns the canonical positive-sequence branch parameters:
+The Terminal object is the sole authority for endpoint state.
 
-    r
-    x
-    b
+Cable does NOT own:
 
-Cable exposes engineering aliases:
+    - Network topology
+    - Bus registration
+    - Y-bus assembly
+    - power-flow solution state
+    - protection execution
+    - SLD geometry
+    - canvas state
+    - renderer state
+    - persistence
 
-    r1
-    x1
-    b1
+Electrical model
+----------------
 
-These aliases do NOT create duplicate state.
+The positive-sequence series impedance is:
 
-Therefore:
+    Z1 = R1 + jX1
 
-    r1 <-> Branch.r
-    x1 <-> Branch.x
-    b1 <-> Branch.b
+The zero-sequence series impedance is:
 
-Cable additionally owns zero-sequence parameters:
+    Z0 = R0 + jX0
 
-    r0
-    x0
-    b0
+The positive-sequence total charging susceptance is:
 
-and physical/rating parameters:
+    B1 = B1_total
 
-    length_km
-    rated_voltage_kv
-    rated_current_a
+The zero-sequence total charging susceptance is:
 
-Responsibility boundaries
--------------------------
+    B0 = B0_total
 
-Cable does NOT:
+For the positive-sequence pi model:
 
-    - own Bus objects;
-    - resolve endpoints into Bus objects;
-    - mutate Network topology;
-    - maintain Network collections;
-    - construct global Y-bus matrices;
-    - assign solver indices;
-    - maintain solved numerical state;
-    - perform power-flow calculations;
-    - perform short-circuit calculations;
-    - execute protection logic;
-    - execute control logic;
-    - maintain UI/SLD state;
-    - perform persistence.
+    Yseries = 1 / Z1
+    Yshunt  = j B1
+    Yhalf   = j B1 / 2
 
-Study-specific use of sequence parameters belongs to the
-Analysis/Numerical layers.
+The zero-sequence quantities are exposed separately for
+unbalanced and fault-analysis layers.
 
-Validation
-----------
-
-Validation follows:
-
-    ElectricalObject.validate()
-            |
-            v
-    Cable.validate_parameters()
-            |
-            v
-    Branch.validate_parameters()
-            |
-            v
-    ElectricalObject.validate_parameters()
-
-Construction deliberately does not call validate() because the
-complete concrete object must first be initialized.
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
+The model deliberately does not construct Network/Y-bus
+objects.  Those responsibilities belong to Core Network and
+solver/analysis layers.
 """
 
 from __future__ import annotations
@@ -133,177 +99,197 @@ from .branch import Branch
 
 class Cable(Branch):
     """
-    Two-terminal physical cable model.
+    Two-terminal underground/submarine/special cable model.
 
-    Positive-sequence parameters are inherited canonically from
-    Branch:
+    The class preserves the Branch two-terminal electrical
+    contract while adding cable-specific sequence, physical,
+    thermal and engineering parameters.
 
-        r
-        x
-        b
+    Parameters
+    ----------
+    id:
+        Stable GridForge object identifier.
 
-    Engineering aliases are provided as:
+    r:
+        Positive-sequence series resistance in per-unit.
 
-        r1
-        x1
-        b1
+    x:
+        Positive-sequence series reactance in per-unit.
 
-    Zero-sequence parameters remain Cable-specific:
+    b:
+        Positive-sequence total charging susceptance in per-unit.
 
-        r0
-        x0
-        b0
+    r0:
+        Zero-sequence series resistance in per-unit.
+
+    x0:
+        Zero-sequence series reactance in per-unit.
+
+    b0:
+        Zero-sequence total charging susceptance in per-unit.
+
+    length_km:
+        Cable length in kilometres.
+
+    rated_voltage_kv:
+        Rated line-to-line voltage in kV.
+
+    rated_current_a:
+        Continuous current rating in amperes.
+
+    thermal_limit_mva:
+        Continuous apparent-power thermal limit in MVA.
+
+    conductor_count:
+        Number of parallel conductors per phase.
+
+    name:
+        Human-readable cable name.
+
+    in_service:
+        Initial operational state.
     """
 
     TYPE = "CABLE"
 
-    __slots__ = (
-        "_length_km",
-        "_r0",
-        "_x0",
-        "_b0",
-        "_rated_voltage_kv",
-        "_rated_current_a",
-    )
-
     def __init__(
         self,
         id: str,
-        endpoint_from: Any = None,
-        endpoint_to: Any = None,
         *,
-        length_km: float | None = None,
-        r1: float = 0.0,
-        x1: float = 0.0,
-        b1: float = 0.0,
+        r: float = 0.0,
+        x: float = 0.0,
+        b: float = 0.0,
         r0: float | None = None,
         x0: float | None = None,
         b0: float | None = None,
-        rated_voltage_kv: float | None = None,
-        rated_current_a: float | None = None,
+        length_km: float = 0.0,
+        rated_voltage_kv: float = 0.0,
+        rated_current_a: float = 0.0,
+        thermal_limit_mva: float = 0.0,
+        conductor_count: int = 1,
         name: str = "",
-        rate_mva: float | None = None,
         in_service: bool = True,
+        from_endpoint: Any = None,
+        to_endpoint: Any = None,
     ) -> None:
         """
         Construct a Cable.
 
-        Parameters
-        ----------
-        id:
-            Stable GridForge object identifier.
+        ``r``, ``x`` and ``b`` are the canonical positive-sequence
+        Branch parameters.
 
-        endpoint_from:
-            Optional endpoint reference for the FROM terminal.
+        Zero-sequence parameters default to their positive-sequence
+        counterparts when omitted.
 
-        endpoint_to:
-            Optional endpoint reference for the TO terminal.
-
-        length_km:
-            Physical cable length in kilometres.
-
-        r1:
-            Positive-sequence series resistance.
-
-            Stored canonically as Branch.r.
-
-        x1:
-            Positive-sequence series reactance.
-
-            Stored canonically as Branch.x.
-
-        b1:
-            Positive-sequence total shunt susceptance.
-
-            Stored canonically as Branch.b.
-
-        r0:
-            Zero-sequence series resistance.
-
-        x0:
-            Zero-sequence series reactance.
-
-        b0:
-            Zero-sequence total shunt susceptance.
-
-        rated_voltage_kv:
-            Cable rated voltage in kV.
-
-        rated_current_a:
-            Cable rated current in amperes.
-
-        name:
-            Human-readable cable name.
-
-        rate_mva:
-            Optional continuous apparent-power rating in MVA.
-
-        in_service:
-            Operational service state.
-
-        Notes
-        -----
-        No validation is performed during construction.
-
-        The complete object is validated through the inherited
-        ElectricalObject.validate() entry point after construction.
+        Connectivity is delegated entirely to Branch/Terminal.
         """
+
+        # ========================================================
+        # DEFAULT ZERO-SEQUENCE PARAMETERS
+        # ========================================================
+
+        if r0 is None:
+            r0 = r
+
+        if x0 is None:
+            x0 = x
+
+        if b0 is None:
+            b0 = b
+
+        # ========================================================
+        # BRANCH INITIALIZATION
+        # ========================================================
 
         super().__init__(
             id=id,
-            endpoint_from=endpoint_from,
-            endpoint_to=endpoint_to,
-            r=r1,
-            x=x1,
-            b=b1,
+            r=r,
+            x=x,
+            b=b,
             name=name,
-            rate_mva=rate_mva,
             in_service=in_service,
+            from_endpoint=from_endpoint,
+            to_endpoint=to_endpoint,
         )
 
-        self._length_km = self._validate_optional_positive(
-            length_km,
-            "length_km",
-        )
+        # ========================================================
+        # ZERO-SEQUENCE PARAMETERS
+        # ========================================================
 
-        self._r0 = self._validate_optional_finite(
+        self.r0 = self._validate_finite(
             r0,
             "r0",
         )
 
-        self._x0 = self._validate_optional_finite(
+        self.x0 = self._validate_finite(
             x0,
             "x0",
         )
 
-        self._b0 = self._validate_optional_finite(
+        self.b0 = self._validate_finite(
             b0,
             "b0",
         )
 
-        self._rated_voltage_kv = (
-            self._validate_optional_positive(
+        # ========================================================
+        # PHYSICAL PARAMETERS
+        # ========================================================
+
+        self.length_km = self._validate_non_negative(
+            length_km,
+            "length_km",
+        )
+
+        self.rated_voltage_kv = (
+            self._validate_non_negative(
                 rated_voltage_kv,
                 "rated_voltage_kv",
             )
         )
 
-        self._rated_current_a = (
-            self._validate_optional_positive(
+        self.rated_current_a = (
+            self._validate_non_negative(
                 rated_current_a,
                 "rated_current_a",
             )
         )
 
+        self.thermal_limit_mva = (
+            self._validate_non_negative(
+                thermal_limit_mva,
+                "thermal_limit_mva",
+            )
+        )
+
+        if not isinstance(
+            conductor_count,
+            int,
+        ):
+            raise TypeError(
+                "conductor_count must be an integer."
+            )
+
+        if conductor_count < 1:
+            raise ValueError(
+                "conductor_count must be at least 1."
+            )
+
+        self.conductor_count = conductor_count
+
+        # ========================================================
+        # FINAL VALIDATION
+        # ========================================================
+
+        self.validate()
+
     # ============================================================
-    # TYPE
+    # IDENTITY
     # ============================================================
 
     @property
     def element_type(self) -> str:
-        """
-        Return the canonical GridForge model type.
-        """
+        """Return canonical GridForge element type."""
+
         return self.TYPE
 
     # ============================================================
@@ -311,335 +297,598 @@ class Cable(Branch):
     # ============================================================
 
     @property
-    def r1(self) -> float:
-        """
-        Return positive-sequence resistance.
+    def resistance(self) -> float:
+        """Return positive-sequence resistance."""
 
-        Canonical storage is Branch.r.
-        """
         return self.r
 
-    @r1.setter
-    def r1(self, value: float) -> None:
-        """
-        Set positive-sequence resistance.
-
-        Canonical storage is Branch.r.
-        """
-        self.r = value
+    @resistance.setter
+    def resistance(
+        self,
+        value: float,
+    ) -> None:
+        self.r = self._validate_finite(
+            value,
+            "resistance",
+        )
 
     @property
-    def x1(self) -> float:
-        """
-        Return positive-sequence reactance.
+    def reactance(self) -> float:
+        """Return positive-sequence reactance."""
 
-        Canonical storage is Branch.x.
-        """
         return self.x
 
-    @x1.setter
-    def x1(self, value: float) -> None:
-        """
-        Set positive-sequence reactance.
-
-        Canonical storage is Branch.x.
-        """
-        self.x = value
+    @reactance.setter
+    def reactance(
+        self,
+        value: float,
+    ) -> None:
+        self.x = self._validate_finite(
+            value,
+            "reactance",
+        )
 
     @property
-    def b1(self) -> float:
-        """
-        Return positive-sequence shunt susceptance.
+    def shunt_susceptance(self) -> float:
+        """Return positive-sequence total charging susceptance."""
 
-        Canonical storage is Branch.b.
-        """
         return self.b
 
-    @b1.setter
-    def b1(self, value: float) -> None:
-        """
-        Set positive-sequence shunt susceptance.
-
-        Canonical storage is Branch.b.
-        """
-        self.b = value
-
-    # ============================================================
-    # CABLE LENGTH
-    # ============================================================
-
-    @property
-    def length_km(self) -> float | None:
-        """
-        Return physical cable length in kilometres.
-        """
-        return self._length_km
-
-    @length_km.setter
-    def length_km(
+    @shunt_susceptance.setter
+    def shunt_susceptance(
         self,
-        value: float | None,
+        value: float,
     ) -> None:
-        self._length_km = self._validate_optional_positive(
+        self.b = self._validate_finite(
             value,
-            "length_km",
+            "shunt_susceptance",
         )
 
     # ============================================================
-    # ZERO-SEQUENCE PARAMETERS
+    # ZERO-SEQUENCE ALIASES
     # ============================================================
 
     @property
-    def r0(self) -> float | None:
-        """
-        Return zero-sequence series resistance.
-        """
-        return self._r0
+    def zero_sequence_resistance(self) -> float:
+        """Return zero-sequence resistance."""
 
-    @r0.setter
-    def r0(
+        return self.r0
+
+    @zero_sequence_resistance.setter
+    def zero_sequence_resistance(
         self,
-        value: float | None,
+        value: float,
     ) -> None:
-        self._r0 = self._validate_optional_finite(
+        self.r0 = self._validate_finite(
             value,
-            "r0",
+            "zero_sequence_resistance",
         )
 
     @property
-    def x0(self) -> float | None:
-        """
-        Return zero-sequence series reactance.
-        """
-        return self._x0
+    def zero_sequence_reactance(self) -> float:
+        """Return zero-sequence reactance."""
 
-    @x0.setter
-    def x0(
+        return self.x0
+
+    @zero_sequence_reactance.setter
+    def zero_sequence_reactance(
         self,
-        value: float | None,
+        value: float,
     ) -> None:
-        self._x0 = self._validate_optional_finite(
+        self.x0 = self._validate_finite(
             value,
-            "x0",
+            "zero_sequence_reactance",
         )
 
     @property
-    def b0(self) -> float | None:
-        """
-        Return zero-sequence shunt susceptance.
-        """
-        return self._b0
+    def zero_sequence_susceptance(self) -> float:
+        """Return zero-sequence total charging susceptance."""
 
-    @b0.setter
-    def b0(
+        return self.b0
+
+    @zero_sequence_susceptance.setter
+    def zero_sequence_susceptance(
         self,
-        value: float | None,
+        value: float,
     ) -> None:
-        self._b0 = self._validate_optional_finite(
+        self.b0 = self._validate_finite(
             value,
-            "b0",
+            "zero_sequence_susceptance",
         )
 
     # ============================================================
-    # RATED VOLTAGE
+    # IMPEDANCE
     # ============================================================
 
     @property
-    def rated_voltage_kv(self) -> float | None:
+    def impedance(self) -> complex:
         """
-        Return cable rated voltage in kV.
-        """
-        return self._rated_voltage_kv
+        Return positive-sequence series impedance.
 
-    @rated_voltage_kv.setter
-    def rated_voltage_kv(
-        self,
-        value: float | None,
-    ) -> None:
-        self._rated_voltage_kv = (
-            self._validate_optional_positive(
-                value,
-                "rated_voltage_kv",
+            Z1 = R1 + jX1
+        """
+
+        return complex(
+            self.r,
+            self.x,
+        )
+
+    @property
+    def zero_sequence_impedance(self) -> complex:
+        """
+        Return zero-sequence series impedance.
+
+            Z0 = R0 + jX0
+        """
+
+        return complex(
+            self.r0,
+            self.x0,
+        )
+
+    @property
+    def z1(self) -> complex:
+        """Canonical positive-sequence impedance."""
+
+        return self.impedance
+
+    @property
+    def z0(self) -> complex:
+        """Canonical zero-sequence impedance."""
+
+        return self.zero_sequence_impedance
+
+    # ============================================================
+    # SERIES ADMITTANCE
+    # ============================================================
+
+    @property
+    def series_admittance(self) -> complex:
+        """
+        Return positive-sequence series admittance.
+
+            Y1 = 1 / Z1
+        """
+
+        z = self.impedance
+
+        if abs(z) == 0.0:
+            raise ZeroDivisionError(
+                f"Cable '{self.id}' has zero positive-sequence "
+                "series impedance."
             )
-        )
+
+        return 1.0 / z
+
+    @property
+    def y1(self) -> complex:
+        """Canonical positive-sequence series admittance."""
+
+        return self.series_admittance
+
+    @property
+    def zero_sequence_series_admittance(self) -> complex:
+        """
+        Return zero-sequence series admittance.
+
+            Y0 = 1 / Z0
+        """
+
+        z = self.zero_sequence_impedance
+
+        if abs(z) == 0.0:
+            raise ZeroDivisionError(
+                f"Cable '{self.id}' has zero zero-sequence "
+                "series impedance."
+            )
+
+        return 1.0 / z
+
+    @property
+    def y0(self) -> complex:
+        """Canonical zero-sequence series admittance."""
+
+        return self.zero_sequence_series_admittance
 
     # ============================================================
-    # RATED CURRENT
+    # SHUNT ADMITTANCE
     # ============================================================
 
     @property
-    def rated_current_a(self) -> float | None:
+    def shunt_admittance(self) -> complex:
         """
-        Return cable rated current in amperes.
-        """
-        return self._rated_current_a
+        Return total positive-sequence shunt admittance.
 
-    @rated_current_a.setter
-    def rated_current_a(
-        self,
-        value: float | None,
-    ) -> None:
-        self._rated_current_a = (
-            self._validate_optional_positive(
-                value,
-                "rated_current_a",
-            )
+            Yshunt1 = jB1
+        """
+
+        return complex(
+            0.0,
+            self.b,
+        )
+
+    @property
+    def y_shunt(self) -> complex:
+        """Alias for positive-sequence total shunt admittance."""
+
+        return self.shunt_admittance
+
+    @property
+    def half_shunt_admittance(self) -> complex:
+        """
+        Return half of the positive-sequence charging admittance.
+
+            Yhalf1 = jB1 / 2
+        """
+
+        return self.shunt_admittance / 2.0
+
+    @property
+    def y_half(self) -> complex:
+        """Alias for half positive-sequence shunt admittance."""
+
+        return self.half_shunt_admittance
+
+    @property
+    def zero_sequence_shunt_admittance(self) -> complex:
+        """
+        Return total zero-sequence shunt admittance.
+
+            Yshunt0 = jB0
+        """
+
+        return complex(
+            0.0,
+            self.b0,
+        )
+
+    @property
+    def zero_sequence_half_shunt_admittance(self) -> complex:
+        """
+        Return half zero-sequence charging admittance.
+        """
+
+        return (
+            self.zero_sequence_shunt_admittance
+            / 2.0
         )
 
     # ============================================================
-    # SEQUENCE PARAMETERS
+    # PI MODEL
     # ============================================================
 
-    def positive_sequence_parameters(
-        self,
-    ) -> dict[str, float]:
+    @property
+    def pi_model(self) -> dict[str, complex]:
         """
-        Return canonical positive-sequence parameters.
+        Return the positive-sequence nominal pi-model parameters.
 
-        The returned values are aliases of Branch-owned state.
+        This is a value representation only.  It does not create
+        or modify a Network/Y-bus object.
         """
+
         return {
-            "r": self.r,
-            "x": self.x,
-            "b": self.b,
+            "z_series": self.impedance,
+            "y_series": self.series_admittance,
+            "y_shunt": self.shunt_admittance,
+            "y_half": self.half_shunt_admittance,
         }
 
-    def zero_sequence_parameters(
+    @property
+    def zero_sequence_pi_model(
         self,
-    ) -> dict[str, float | None]:
+    ) -> dict[str, complex]:
         """
-        Return Cable zero-sequence parameters.
+        Return zero-sequence nominal pi-model parameters.
+        """
 
-        Zero-sequence state is Cable-specific.
-        """
         return {
-            "r0": self.r0,
-            "x0": self.x0,
-            "b0": self.b0,
+            "z_series":
+                self.zero_sequence_impedance,
+            "y_series":
+                self.zero_sequence_series_admittance,
+            "y_shunt":
+                self.zero_sequence_shunt_admittance,
+            "y_half":
+                self.zero_sequence_half_shunt_admittance,
         }
 
     # ============================================================
-    # VALIDATION
+    # ENGINEERING PARAMETERS
+    # ============================================================
+
+    @property
+    def length_m(self) -> float:
+        """Return cable length in metres."""
+
+        return self.length_km * 1000.0
+
+    @length_m.setter
+    def length_m(
+        self,
+        value: float,
+    ) -> None:
+        self.length_km = (
+            self._validate_non_negative(
+                value,
+                "length_m",
+            )
+            / 1000.0
+        )
+
+    @property
+    def rated_apparent_power_mva(self) -> float:
+        """
+        Return the thermal apparent-power rating.
+
+        If an explicit thermal_limit_mva is available, it is
+        authoritative.  Otherwise, when voltage and current ratings
+        are available, derive:
+
+            S = sqrt(3) V I / 1000
+        """
+
+        if self.thermal_limit_mva > 0.0:
+            return self.thermal_limit_mva
+
+        if (
+            self.rated_voltage_kv > 0.0
+            and self.rated_current_a > 0.0
+        ):
+            return (
+                math.sqrt(3.0)
+                * self.rated_voltage_kv
+                * self.rated_current_a
+                / 1000.0
+            )
+
+        return 0.0
+
+    @property
+    def ampacity_a(self) -> float:
+        """Return continuous current rating."""
+
+        return self.rated_current_a
+
+    # ============================================================
+    # SERVICE STATE
+    # ============================================================
+
+    @property
+    def is_in_service(self) -> bool:
+        """Return whether the Cable is in service."""
+
+        return self.in_service
+
+    @property
+    def is_out_of_service(self) -> bool:
+        """Return whether the Cable is out of service."""
+
+        return not self.in_service
+
+    def put_in_service(self) -> None:
+        """Place Cable in service."""
+
+        self.in_service = True
+
+    def take_out_of_service(self) -> None:
+        """Take Cable out of service."""
+
+        self.in_service = False
+
+    # ============================================================
+    # PARAMETER VALIDATION
     # ============================================================
 
     def validate_parameters(self) -> bool:
         """
-        Validate the complete Cable parameter hierarchy.
+        Validate Cable-local parameters.
 
-        Order:
-
-            Cable
-              |
-              v
-            Branch
-              |
-              v
-            ElectricalObject
+        Zero series impedance is not permitted because the Cable
+        is a physical branch and its series admittance must remain
+        mathematically defined.
         """
 
-        Branch.validate_parameters(self)
+        # --------------------------------------------------------
+        # Parent Branch validation
+        # --------------------------------------------------------
 
-        self._validate_finite(
-            self.r,
-            "r1",
-        )
+        super().validate_parameters()
 
-        self._validate_finite(
-            self.x,
-            "x1",
-        )
+        # --------------------------------------------------------
+        # Zero sequence
+        # --------------------------------------------------------
 
-        self._validate_finite(
-            self.b,
-            "b1",
-        )
-
-        self._r0 = self._validate_optional_finite(
-            self._r0,
+        self.r0 = self._validate_finite(
+            self.r0,
             "r0",
         )
 
-        self._x0 = self._validate_optional_finite(
-            self._x0,
+        self.x0 = self._validate_finite(
+            self.x0,
             "x0",
         )
 
-        self._b0 = self._validate_optional_finite(
-            self._b0,
+        self.b0 = self._validate_finite(
+            self.b0,
             "b0",
         )
 
-        self._length_km = (
-            self._validate_optional_positive(
-                self._length_km,
+        # --------------------------------------------------------
+        # Physical parameters
+        # --------------------------------------------------------
+
+        self.length_km = (
+            self._validate_non_negative(
+                self.length_km,
                 "length_km",
             )
         )
 
-        self._rated_voltage_kv = (
-            self._validate_optional_positive(
-                self._rated_voltage_kv,
+        self.rated_voltage_kv = (
+            self._validate_non_negative(
+                self.rated_voltage_kv,
                 "rated_voltage_kv",
             )
         )
 
-        self._rated_current_a = (
-            self._validate_optional_positive(
-                self._rated_current_a,
+        self.rated_current_a = (
+            self._validate_non_negative(
+                self.rated_current_a,
                 "rated_current_a",
             )
         )
 
+        self.thermal_limit_mva = (
+            self._validate_non_negative(
+                self.thermal_limit_mva,
+                "thermal_limit_mva",
+            )
+        )
+
+        if not isinstance(
+            self.conductor_count,
+            int,
+        ):
+            raise TypeError(
+                "conductor_count must be an integer."
+            )
+
+        if self.conductor_count < 1:
+            raise ValueError(
+                "conductor_count must be at least 1."
+            )
+
+        # --------------------------------------------------------
+        # Series impedance
+        # --------------------------------------------------------
+
+        if abs(self.impedance) == 0.0:
+            raise ValueError(
+                f"Cable '{self.id}' must have non-zero "
+                "positive-sequence series impedance."
+            )
+
+        if (
+            self.r0 == 0.0
+            and self.x0 == 0.0
+        ):
+            raise ValueError(
+                f"Cable '{self.id}' must have non-zero "
+                "zero-sequence series impedance."
+            )
+
         return True
 
     # ============================================================
-    # DIAGNOSTICS
+    # COMPLETE VALIDATION
+    # ============================================================
+
+    def validate(self) -> bool:
+        """
+        Validate the complete Cable.
+
+        Terminal and topology validation remains delegated to
+        Branch and Terminal.
+        """
+
+        self.validate_parameters()
+
+        return super().validate()
+
+    # ============================================================
+    # ENGINEERING SUMMARY
     # ============================================================
 
     def summary(self) -> dict[str, Any]:
         """
-        Return Cable-local diagnostics.
+        Return a structured engineering summary.
 
-        No Network topology or solved numerical state is included.
+        The summary contains only model-owned state and derived
+        electrical values.
         """
 
-        summary = super().summary()
+        from_endpoint = self.from_endpoint
+        to_endpoint = self.to_endpoint
 
-        summary.update(
-            {
-                "type": self.TYPE,
-                "length_km": self.length_km,
-                "r1": self.r1,
-                "x1": self.x1,
-                "b1": self.b1,
-                "r0": self.r0,
-                "x0": self.x0,
-                "b0": self.b0,
-                "rated_voltage_kv": self.rated_voltage_kv,
-                "rated_current_a": self.rated_current_a,
-            }
-        )
+        from_id = None
+        to_id = None
 
-        return summary
+        if from_endpoint is not None:
+            from_id = getattr(
+                from_endpoint,
+                "id",
+                from_endpoint,
+            )
+
+        if to_endpoint is not None:
+            to_id = getattr(
+                to_endpoint,
+                "id",
+                to_endpoint,
+            )
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "type": self.TYPE,
+
+            "from_endpoint": from_id,
+            "to_endpoint": to_id,
+
+            "from_connected":
+                self.from_terminal.is_connected,
+            "to_connected":
+                self.to_terminal.is_connected,
+
+            "r": self.r,
+            "x": self.x,
+            "b": self.b,
+
+            "r0": self.r0,
+            "x0": self.x0,
+            "b0": self.b0,
+
+            "z1": self.impedance,
+            "z0":
+                self.zero_sequence_impedance,
+
+            "y1":
+                self.series_admittance,
+            "y0":
+                self.zero_sequence_series_admittance,
+
+            "length_km":
+                self.length_km,
+
+            "rated_voltage_kv":
+                self.rated_voltage_kv,
+
+            "rated_current_a":
+                self.rated_current_a,
+
+            "thermal_limit_mva":
+                self.thermal_limit_mva,
+
+            "conductor_count":
+                self.conductor_count,
+
+            "in_service":
+                self.in_service,
+        }
 
     # ============================================================
     # REPRESENTATION
     # ============================================================
 
     def __repr__(self) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
+        """Return concise developer-facing representation."""
 
         return (
             f"<Cable "
             f"id={self.id}, "
-            f"length_km={self.length_km}, "
-            f"r1={self.r1}, "
-            f"x1={self.x1}, "
-            f"b1={self.b1}, "
-            f"rated_voltage_kv={self.rated_voltage_kv}, "
-            f"rated_current_a={self.rated_current_a}, "
+            f"Z1={self.impedance!r}, "
+            f"Z0={self.zero_sequence_impedance!r}, "
+            f"length={self.length_km:.6f} km, "
             f"in_service={self.in_service}>"
         )
 
@@ -652,12 +901,12 @@ class Cable(Branch):
         value: float,
         name: str,
     ) -> float:
-        """
-        Validate and return a finite numeric value.
-        """
+        """Convert value to float and require finiteness."""
 
         try:
-            value = float(value)
+            numeric = float(
+                value
+            )
         except (
             TypeError,
             ValueError,
@@ -666,55 +915,34 @@ class Cable(Branch):
                 f"{name} must be numeric."
             ) from exc
 
-        if not math.isfinite(value):
+        if not math.isfinite(
+            numeric
+        ):
             raise ValueError(
                 f"{name} must be finite."
             )
 
-        return value
+        return numeric
 
     @classmethod
-    def _validate_optional_finite(
+    def _validate_non_negative(
         cls,
-        value: float | None,
+        value: float,
         name: str,
-    ) -> float | None:
-        """
-        Validate an optional finite numeric value.
-        """
+    ) -> float:
+        """Convert value to float and require >= 0."""
 
-        if value is None:
-            return None
-
-        return cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-    @classmethod
-    def _validate_optional_positive(
-        cls,
-        value: float | None,
-        name: str,
-    ) -> float | None:
-        """
-        Validate an optional finite positive numeric value.
-        """
-
-        if value is None:
-            return None
-
-        value = cls._validate_finite(
-            value,
-            name,
-        )
-
-        if value <= 0.0:
+        if numeric < 0.0:
             raise ValueError(
-                f"{name} must be greater than zero."
+                f"{name} cannot be negative."
             )
 
-        return value
+        return numeric
 
 
 __all__ = [
