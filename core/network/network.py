@@ -13,20 +13,16 @@ Authoritative electrical Network aggregate.
 
 Network owns:
 - canonical equipment membership through NetworkRegistry;
-- derived topology through TopologyManager;
-- topology lifecycle through NetworkState;
-- canonical bus indexing through BusIndex.
+- topology lifecycle coordination;
+- BusIndex lifecycle coordination.
 
-Network does NOT:
+Network does not:
 - implement equipment physics;
-- resolve or mutate model terminals;
 - implement topology algorithms;
-- construct Y-bus or other numerical matrices;
-- perform numerical solving;
-- own UI/SLD state.
-
-Application commands/services should use Network as the
-controlled mutation façade.
+- construct Y-bus;
+- run numerical studies;
+- own UI/SLD state;
+- depend on plugin implementations.
 """
 
 from __future__ import annotations
@@ -46,9 +42,9 @@ def __init__(
     self,
     *,
     registry: Optional[NetworkRegistry] = None,
-    topology: Optional[TopologyManager] = None,
     state: Optional[NetworkState] = None,
     index: Optional[BusIndex] = None,
+    topology: Optional[TopologyManager] = None,
 ) -> None:
     self.registry = registry or NetworkRegistry()
     self.state = state or NetworkState()
@@ -57,14 +53,17 @@ def __init__(
     if topology is None:
         self.topology = TopologyManager(self)
     else:
-        if getattr(topology, "network", self) is not self:
+        owner = getattr(topology, "network", None)
+
+        if owner is not None and owner is not self:
             raise ValueError(
-                "TopologyManager belongs to a different Network."
+                "TopologyManager belongs to another Network."
             )
+
         self.topology = topology
 
 # ========================================================
-# CANONICAL COLLECTIONS
+# COLLECTIONS
 # ========================================================
 
 @property
@@ -152,7 +151,7 @@ def get_by_id(
     element_type: str,
     object_id: str,
 ) -> Any:
-    """Return the canonical registered model instance."""
+    """Return a canonical registered model."""
 
     return self.registry.get_by_id(
         element_type,
@@ -160,54 +159,54 @@ def get_by_id(
     )
 
 # ========================================================
-# DERIVED-STATE INVALIDATION
+# LIFECYCLE
 # ========================================================
 
-def _invalidate_topology(
+def _invalidate(
     self,
     *,
-    invalidate_index: bool = False,
+    bus_membership: bool = False,
 ) -> None:
-    """Invalidate topology and optionally the BusIndex."""
+    """Invalidate derived Network representations."""
 
     self.state.invalidate_topology()
     self.topology.invalidate()
 
-    if invalidate_index:
+    if bus_membership:
         self.index.invalidate()
 
 def _add(
     self,
-    register,
+    add_method,
     element: Any,
     *,
-    topology: bool = False,
-    bus: bool = False,
+    affects_topology: bool = False,
+    affects_bus_index: bool = False,
 ) -> None:
-    """Register equipment and invalidate derived state."""
+    """Register an element and invalidate derived state."""
 
-    register(element)
+    add_method(element)
 
-    if topology or bus:
-        self._invalidate_topology(
-            invalidate_index=bus,
+    if affects_topology:
+        self._invalidate(
+            bus_membership=affects_bus_index,
         )
 
 def _remove(
     self,
-    unregister,
+    remove_method,
     element: Any,
     *,
-    topology: bool = False,
-    bus: bool = False,
+    affects_topology: bool = False,
+    affects_bus_index: bool = False,
 ) -> None:
-    """Remove equipment and invalidate derived state."""
+    """Remove an element and invalidate derived state."""
 
-    unregister(element)
+    remove_method(element)
 
-    if topology or bus:
-        self._invalidate_topology(
-            invalidate_index=bus,
+    if affects_topology:
+        self._invalidate(
+            bus_membership=affects_bus_index,
         )
 
 # ========================================================
@@ -218,20 +217,20 @@ def add_bus(self, bus: Any) -> None:
     self._add(
         self.registry.add_bus,
         bus,
-        topology=True,
-        bus=True,
+        affects_topology=True,
+        affects_bus_index=True,
     )
 
 def remove_bus(self, bus: Any) -> None:
     self._remove(
         self.registry.remove_bus,
         bus,
-        topology=True,
-        bus=True,
+        affects_topology=True,
+        affects_bus_index=True,
     )
 
 # ========================================================
-# BUS-CONNECTED ELECTRICAL EQUIPMENT
+# BUS-CONNECTED EQUIPMENT
 # ========================================================
 
 def add_grid(self, grid: Any) -> None:
@@ -301,63 +300,63 @@ def remove_battery(self, battery: Any) -> None:
     self._remove(self.registry.remove_battery, battery)
 
 # ========================================================
-# TOPOLOGY BRANCHES
+# BRANCHES
 # ========================================================
 
 def add_branch(self, branch: Any) -> None:
     self._add(
         self.registry.add_branch,
         branch,
-        topology=True,
+        affects_topology=True,
     )
 
 def remove_branch(self, branch: Any) -> None:
     self._remove(
         self.registry.remove_branch,
         branch,
-        topology=True,
+        affects_topology=True,
     )
 
 def add_line(self, line: Any) -> None:
     self._add(
         self.registry.add_line,
         line,
-        topology=True,
+        affects_topology=True,
     )
 
 def remove_line(self, line: Any) -> None:
     self._remove(
         self.registry.remove_line,
         line,
-        topology=True,
+        affects_topology=True,
     )
 
 def add_cable(self, cable: Any) -> None:
     self._add(
         self.registry.add_cable,
         cable,
-        topology=True,
+        affects_topology=True,
     )
 
 def remove_cable(self, cable: Any) -> None:
     self._remove(
         self.registry.remove_cable,
         cable,
-        topology=True,
+        affects_topology=True,
     )
 
 def add_transformer(self, transformer: Any) -> None:
     self._add(
         self.registry.add_transformer,
         transformer,
-        topology=True,
+        affects_topology=True,
     )
 
 def remove_transformer(self, transformer: Any) -> None:
     self._remove(
         self.registry.remove_transformer,
         transformer,
-        topology=True,
+        affects_topology=True,
     )
 
 # ========================================================
@@ -368,102 +367,81 @@ def add_breaker(self, breaker: Any) -> None:
     self._add(
         self.registry.add_breaker,
         breaker,
-        topology=True,
+        affects_topology=True,
     )
 
 def remove_breaker(self, breaker: Any) -> None:
     self._remove(
         self.registry.remove_breaker,
         breaker,
-        topology=True,
+        affects_topology=True,
     )
 
 def add_switch(self, switch: Any) -> None:
     self._add(
         self.registry.add_switch,
         switch,
-        topology=True,
+        affects_topology=True,
     )
 
 def remove_switch(self, switch: Any) -> None:
     self._remove(
         self.registry.remove_switch,
         switch,
-        topology=True,
+        affects_topology=True,
     )
 
-def add_disconnector(
-    self,
-    disconnector: Any,
-) -> None:
+def add_disconnector(self, disconnector: Any) -> None:
     self._add(
         self.registry.add_disconnector,
         disconnector,
-        topology=True,
+        affects_topology=True,
     )
 
-def remove_disconnector(
-    self,
-    disconnector: Any,
-) -> None:
+def remove_disconnector(self, disconnector: Any) -> None:
     self._remove(
         self.registry.remove_disconnector,
         disconnector,
-        topology=True,
+        affects_topology=True,
     )
 
 def add_fuse(self, fuse: Any) -> None:
     self._add(
         self.registry.add_fuse,
         fuse,
-        topology=True,
+        affects_topology=True,
     )
 
 def remove_fuse(self, fuse: Any) -> None:
     self._remove(
         self.registry.remove_fuse,
         fuse,
-        topology=True,
+        affects_topology=True,
     )
 
 # ========================================================
-# TOPOLOGY PREPARATION
+# DERIVED REPRESENTATIONS
 # ========================================================
 
 def rebuild_topology(self) -> dict[Any, set[Any]]:
-    """Rebuild derived topology and synchronize NetworkState."""
+    """
+    Rebuild topology through TopologyManager.
+
+    NetworkState remains the lifecycle authority.
+    """
 
     graph = self.topology.build()
     self.state.topology_rebuilt()
 
     return graph
 
-# ========================================================
-# NUMERICAL INDEX PREPARATION
-# ========================================================
+def ensure_bus_index(self) -> None:
+    """Ensure BusIndex reflects the current Network buses."""
 
-def rebuild_index(self) -> None:
-    """Rebuild the canonical numerical BusIndex."""
-
-    self.index.rebuild(self.buses)
+    self.index.ensure(self.buses)
 
 # ========================================================
-# EXPLICIT PREPARATION
-# ========================================================
-
-def prepare(self) -> None:
-    """
-    Prepare structural Network representations.
-
-    This prepares topology and BusIndex only.
-    Numerical matrices remain the responsibility of Numerical.
-    """
-
-    self.rebuild_topology()
-    self.rebuild_index()
-
-# ========================================================
-# STATE ACCESS
+# STATE
 # ========================================================
 
 @property
@@ -475,12 +453,12 @@ def topology_valid(self) -> bool:
     return self.state.topology_valid
 
 @property
+def topology_dirty(self) -> bool:
+    return self.state.topology_dirty
+
+@property
 def index_valid(self) -> bool:
     return self.index.valid
-
-# ========================================================
-# REPRESENTATION
-# ========================================================
 
 def __repr__(self) -> str:
     return (
