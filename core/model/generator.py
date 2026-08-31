@@ -1,12 +1,15 @@
-# core/model/generator.py
+# ============================================================
+# File: core/model/generator.py
+# GridForge V2 — Generator Model
+# Author: Subhendu Mishra
+# ============================================================
+
 """
-GridForge V2 Generator Model
-============================
+GridForge V2 — Generator Model
+==============================
 
-Author:
-    Subhendu Mishra
-
-A Generator is an electrical power-injection element.
+Authoritative electrical-domain model for a controllable
+generator / power-injection element.
 
 Architecture
 ------------
@@ -46,10 +49,49 @@ The Generator does NOT own:
     - dynamics
     - UI/SLD state
 
+Terminal Contract
+-----------------
+
+The canonical Terminal contract is:
+
+    Terminal
+    ├── owner
+    ├── role
+    ├── endpoint
+    ├── attach()
+    ├── detach()
+    ├── is_connected
+    └── validate()
+
+Therefore:
+
+    connect(endpoint) -> Terminal.attach(endpoint)
+    disconnect()      -> Terminal.detach()
+
+The Generator never maintains a duplicate endpoint/bus
+reference.
+
 The ``endpoint`` property is derived from Terminal state.
 
-The ``bus`` property is retained only as a compatibility accessor.
-It is never authoritative.
+The ``bus`` property is retained only as a read-only
+compatibility accessor.
+
+Operational State
+-----------------
+
+Electrical connectivity and operational state are distinct.
+
+    connect(endpoint)
+        -> establishes terminal connectivity
+
+    disconnect()
+        -> removes terminal connectivity
+
+    put_in_service()
+        -> changes operational state
+
+    take_out_of_service()
+        -> changes operational state
 
 Power convention
 ----------------
@@ -70,8 +112,8 @@ The Generator may locally enforce:
 
     Qmin <= Q <= Qmax
 
-PV/PQ operating-mode decisions belong to the analysis/control layer,
-not to this model.
+PV/PQ operating-mode decisions belong to the
+analysis/control layer, not to this model.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -92,6 +134,9 @@ class Generator(ElectricalObject, Injection):
     Controllable electrical generator model.
 
     A Generator may exist before being connected to a network.
+
+    The Generator has exactly one authoritative electrical
+    Terminal.
 
     Parameters
     ----------
@@ -139,17 +184,56 @@ class Generator(ElectricalObject, Injection):
         name: str = "",
         *,
         bus: Any = None,
+        terminal: Terminal | None = None,
         in_service: bool = True,
     ) -> None:
+        """
+        Construct a Generator.
+
+        Endpoint mutation is performed exclusively through the
+        authoritative Terminal.
+
+        Parameters
+        ----------
+        id:
+            Stable GridForge object identifier.
+
+        endpoint:
+            Initial electrical endpoint.
+
+        p:
+            Active power injection.
+
+        q:
+            Reactive power injection.
+
+        V_setpoint:
+            Voltage setpoint in per-unit.
+
+        q_limits:
+            Reactive-power limits ``(Qmin, Qmax)``.
+
+        name:
+            Human-readable name.
+
+        bus:
+            Compatibility alias for endpoint.
+
+        terminal:
+            Optional pre-created Terminal owned by this Generator.
+
+        in_service:
+            Initial operational state.
+        """
 
         super().__init__(
             id=id,
             name=name,
         )
 
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
         # Endpoint / compatibility handling
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
 
         if (
             endpoint is not None
@@ -164,9 +248,9 @@ class Generator(ElectricalObject, Injection):
         if endpoint is None:
             endpoint = bus
 
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
         # Electrical state
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
 
         self.p = self._validate_finite(
             p,
@@ -187,44 +271,97 @@ class Generator(ElectricalObject, Injection):
             q_limits
         )
 
-        # -------------------------------------------------------------
-        # Authoritative physical connection
-        # -------------------------------------------------------------
-
-        self.terminal = Terminal(
-            endpoint=endpoint,
-            owner=self,
+        self._validate_q_value(
+            self.q,
+            self.q_min,
+            self.q_max,
         )
 
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
+        # Authoritative Terminal
+        # --------------------------------------------------------
+
+        if terminal is None:
+            self._terminal = Terminal(
+                owner=self,
+                role="terminal",
+            )
+        else:
+            if not isinstance(
+                terminal,
+                Terminal,
+            ):
+                raise TypeError(
+                    "terminal must be a Terminal."
+                )
+
+            if terminal.owner is not self:
+                raise ValueError(
+                    f"Generator '{self.id}' terminal owner "
+                    "must be this Generator."
+                )
+
+            if terminal.role != "terminal":
+                raise ValueError(
+                    "Generator terminal role must be "
+                    "'terminal'."
+                )
+
+            self._terminal = terminal
+
+        # --------------------------------------------------------
+        # Initial physical connection
+        # --------------------------------------------------------
+
+        if endpoint is not None:
+            self._terminal.attach(
+                endpoint
+            )
+
+        # --------------------------------------------------------
         # Operational state
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
 
-        self.in_service = bool(
-            in_service
+        self.in_service = self._validate_bool(
+            in_service,
+            "in_service",
         )
 
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
         # Optional plugin references
-        # -------------------------------------------------------------
+        # --------------------------------------------------------
 
         self._plugins: dict[str, Any] = {}
 
         self.validate()
 
-    # =================================================================
+    # ============================================================
     # IDENTITY
-    # =================================================================
+    # ============================================================
 
     @property
     def element_type(self) -> str:
-        """Return canonical GridForge element type."""
+        """
+        Return canonical GridForge element type.
+        """
 
         return self.TYPE
 
-    # =================================================================
+    # ============================================================
     # TERMINAL
-    # =================================================================
+    # ============================================================
+
+    @property
+    def terminal(self) -> Terminal:
+        """
+        Return the authoritative Generator Terminal.
+
+        The Terminal object is returned for domain inspection
+        and controlled terminal operations. Endpoint ownership
+        remains exclusively inside Terminal.
+        """
+
+        return self._terminal
 
     @property
     def terminals(self) -> tuple[Terminal, ...]:
@@ -235,104 +372,141 @@ class Generator(ElectricalObject, Injection):
         """
 
         return (
-            self.terminal,
+            self._terminal,
         )
 
-    # =================================================================
+    # ============================================================
     # CONNECTIVITY
-    # =================================================================
+    # ============================================================
 
     @property
-    def endpoint(self) -> Any:
+    def endpoint(self) -> Any | None:
         """
         Return the authoritative physical endpoint.
 
         Terminal.endpoint is the source of truth.
         """
 
-        return self.terminal.endpoint
+        return self._terminal.endpoint
 
     @property
-    def bus(self) -> Any:
+    def bus(self) -> Any | None:
         """
-        Compatibility accessor for the terminal bus.
+        Compatibility accessor for the terminal endpoint.
 
-        This is derived state and is not authoritative.
+        This is derived state and is never authoritative.
         """
 
-        return self.terminal.bus
+        return self._terminal.endpoint
 
     @property
     def is_connected(self) -> bool:
-        """Return True when the Generator terminal is connected."""
+        """
+        Return True when the Generator terminal is connected.
+        """
 
-        return self.terminal.is_connected
+        return self._terminal.is_connected
 
     def connect(
         self,
         endpoint: Any,
     ) -> None:
-        """Connect the Generator terminal to an endpoint."""
+        """
+        Connect the Generator terminal to an endpoint.
+
+        This operation changes electrical connectivity only.
+        It does not change operational service state.
+        """
 
         if endpoint is None:
             raise ValueError(
-                f"Generator '{self.id}' endpoint cannot be None."
+                f"Generator '{self.id}' endpoint "
+                "cannot be None."
             )
 
-        self.terminal.connect(
+        self._terminal.attach(
             endpoint
         )
 
     def disconnect(self) -> None:
-        """Disconnect the Generator terminal."""
+        """
+        Disconnect the Generator terminal.
 
-        self.terminal.disconnect()
+        This operation changes electrical connectivity only.
+        It does not change operational service state.
+        """
 
-    # =================================================================
+        self._terminal.detach()
+
+    # ============================================================
     # INJECTION CONTRACT
-    # =================================================================
+    # ============================================================
 
     def get_power(self) -> tuple[float, float]:
         """
         Return network power injection.
 
         Positive values represent injection into the network.
+
+        Returns
+        -------
+        tuple[float, float]
+            ``(P, Q)``
         """
 
         if not self.in_service:
-            return 0.0, 0.0
+            return (
+                0.0,
+                0.0,
+            )
 
         return (
             self.p,
             self.q,
         )
 
-    # =================================================================
+    # ============================================================
     # POWER CONTROL
-    # =================================================================
+    # ============================================================
 
     def set_power(
         self,
         p: float,
         q: float,
     ) -> None:
-        """Set active and reactive power."""
+        """
+        Set active and reactive power.
 
-        self.p = self._validate_finite(
+        The requested Q must remain within the configured
+        local Q limits.
+        """
+
+        p_value = self._validate_finite(
             p,
             "p",
         )
 
-        self.q = self._validate_finite(
+        q_value = self._validate_finite(
             q,
             "q",
         )
+
+        self._validate_q_value(
+            q_value,
+            self.q_min,
+            self.q_max,
+        )
+
+        self.p = p_value
+        self.q = q_value
 
     def set_active_power(
         self,
         p: float,
     ) -> None:
-        """Set active power injection."""
+        """
+        Set active power injection.
+        """
 
         self.p = self._validate_finite(
             p,
@@ -343,47 +517,67 @@ class Generator(ElectricalObject, Injection):
         self,
         q: float,
     ) -> None:
-        """Set reactive power injection."""
+        """
+        Set reactive power injection.
 
-        self.q = self._validate_finite(
+        The value must remain within Q limits.
+        """
+
+        q_value = self._validate_finite(
             q,
             "q",
         )
 
+        self._validate_q_value(
+            q_value,
+            self.q_min,
+            self.q_max,
+        )
+
+        self.q = q_value
+
     @property
     def active_power(self) -> float:
-        """Return active power injection."""
+        """
+        Return active power injection.
+        """
 
         return self.p
 
     @property
     def reactive_power(self) -> float:
-        """Return reactive power injection."""
+        """
+        Return reactive power injection.
+        """
 
         return self.q
 
-    # =================================================================
+    # ============================================================
     # VOLTAGE CONTROL
-    # =================================================================
+    # ============================================================
 
     def set_voltage_setpoint(
         self,
         V_setpoint: float,
     ) -> None:
-        """Set generator voltage setpoint."""
+        """
+        Set generator voltage setpoint.
+        """
 
         self.V_setpoint = self._validate_positive(
             V_setpoint,
             "V_setpoint",
         )
 
-    # =================================================================
+    # ============================================================
     # REACTIVE POWER LIMITS
-    # =================================================================
+    # ============================================================
 
     @property
     def q_limits(self) -> tuple[float, float]:
-        """Return ``(Qmin, Qmax)``."""
+        """
+        Return ``(Qmin, Qmax)``.
+        """
 
         return (
             self.q_min,
@@ -395,14 +589,28 @@ class Generator(ElectricalObject, Injection):
         q_min: float,
         q_max: float,
     ) -> None:
-        """Set generator reactive-power limits."""
+        """
+        Set generator reactive-power limits.
 
-        self.q_min, self.q_max = self._validate_q_limits(
+        The existing Generator operating point must remain
+        inside the new limits.
+        """
+
+        new_min, new_max = self._validate_q_limits(
             (
                 q_min,
                 q_max,
             )
         )
+
+        self._validate_q_value(
+            self.q,
+            new_min,
+            new_max,
+        )
+
+        self.q_min = new_min
+        self.q_max = new_max
 
     def q_limit_status(
         self,
@@ -432,11 +640,14 @@ class Generator(ElectricalObject, Injection):
 
     def enforce_q_limits(self) -> bool:
         """
-        Clamp reactive power to the local Generator limits.
+        Clamp reactive power to the configured Q limits.
 
-        Returns True if Q was changed.
+        Returns
+        -------
+        bool
+            True when Q was changed.
 
-        This method does not alter PV/PQ operating mode.
+        This method does not determine PV/PQ operating mode.
         """
 
         old_q = self.q
@@ -451,59 +662,84 @@ class Generator(ElectricalObject, Injection):
 
         return self.q != old_q
 
-    # =================================================================
+    # ============================================================
     # OPERATIONAL STATE
-    # =================================================================
+    # ============================================================
 
     @property
     def is_in_service(self) -> bool:
-        """Return True when the Generator is in service."""
+        """
+        Return True when the Generator is in service.
+        """
 
         return self.in_service
 
     @property
     def is_out_of_service(self) -> bool:
-        """Return True when the Generator is out of service."""
+        """
+        Return True when the Generator is out of service.
+        """
 
         return not self.in_service
 
     def put_in_service(self) -> None:
-        """Place Generator in service."""
+        """
+        Place Generator in service.
+
+        This does not alter terminal connectivity.
+        """
 
         self.in_service = True
 
     def take_out_of_service(self) -> None:
-        """Remove Generator from service."""
+        """
+        Remove Generator from service.
+
+        This does not alter terminal connectivity.
+        """
 
         self.in_service = False
 
     def close(self) -> None:
-        """Compatibility alias for putting Generator in service."""
+        """
+        Compatibility alias for putting Generator in service.
+
+        This does not connect the electrical Terminal.
+        """
 
         self.put_in_service()
 
     def trip(self) -> None:
-        """Compatibility alias for taking Generator out of service."""
+        """
+        Compatibility alias for taking Generator out of service.
+
+        This does not disconnect the electrical Terminal.
+        """
 
         self.take_out_of_service()
 
-    # =================================================================
+    # ============================================================
     # PLUGIN REFERENCES
-    # =================================================================
+    # ============================================================
 
     def attach_plugin(
         self,
         key: str,
         plugin: Any,
     ) -> None:
-        """Attach a plugin reference."""
+        """
+        Attach a plugin reference.
+
+        Plugin execution remains outside the Generator model.
+        """
 
         if not isinstance(
             key,
             str,
         ) or not key.strip():
             raise ValueError(
-                "Generator plugin key must be a non-empty string."
+                "Generator plugin key must be "
+                "a non-empty string."
             )
 
         if plugin is None:
@@ -517,7 +753,9 @@ class Generator(ElectricalObject, Injection):
         self,
         key: str,
     ) -> Any | None:
-        """Return a plugin reference if present."""
+        """
+        Return a plugin reference if present.
+        """
 
         return self._plugins.get(
             key
@@ -527,7 +765,9 @@ class Generator(ElectricalObject, Injection):
         self,
         key: str,
     ) -> bool:
-        """Return True when the plugin exists."""
+        """
+        Return True when the plugin exists.
+        """
 
         return key in self._plugins
 
@@ -535,22 +775,24 @@ class Generator(ElectricalObject, Injection):
         self,
         key: str,
     ) -> Any | None:
-        """Remove and return a plugin reference."""
+        """
+        Remove and return a plugin reference.
+        """
 
         return self._plugins.pop(
             key,
             None,
         )
 
-    # =================================================================
+    # ============================================================
     # VALIDATION
-    # =================================================================
+    # ============================================================
 
     def validate_parameters(self) -> bool:
         """
         Validate Generator-local invariants.
 
-        Topological connectivity is deliberately not required.
+        Network topology is deliberately not resolved here.
         """
 
         self.p = self._validate_finite(
@@ -575,56 +817,71 @@ class Generator(ElectricalObject, Injection):
             )
         )
 
-        if not isinstance(
+        self._validate_q_value(
+            self.q,
+            self.q_min,
+            self.q_max,
+        )
+
+        self.in_service = self._validate_bool(
             self.in_service,
-            bool,
+            "in_service",
+        )
+
+        if not isinstance(
+            self._terminal,
+            Terminal,
         ):
-            raise ValueError(
-                f"Generator '{self.id}' in_service "
-                "must be boolean."
+            raise TypeError(
+                "Generator terminal must be a Terminal."
             )
 
-        if self.terminal.owner is not self:
+        if self._terminal.owner is not self:
             raise ValueError(
-                f"Generator '{self.id}' terminal ownership "
-                "is invalid."
+                f"Generator '{self.id}' terminal owner "
+                "must be this Generator."
             )
+
+        if self._terminal.role != "terminal":
+            raise ValueError(
+                "Generator terminal role must be "
+                "'terminal'."
+            )
+
+        self._terminal.validate()
 
         return True
 
-    def validate(self) -> bool:
-        """
-        Validate the complete Generator model.
-        """
-
-        return super().validate()
-
-    # =================================================================
+    # ============================================================
     # DIAGNOSTICS
-    # =================================================================
+    # ============================================================
 
     def summary(self) -> dict[str, Any]:
-        """Return structured Generator diagnostics."""
+        """
+        Return structured Generator diagnostics.
+        """
+
+        endpoint = self._terminal.endpoint
 
         return {
             "id": self.id,
             "name": self.name,
             "type": self.TYPE,
 
-            "terminal": self.terminal.id,
+            "terminal": self._terminal,
 
             "endpoint": (
-                self.endpoint.id
-                if self.endpoint is not None
-                and hasattr(self.endpoint, "id")
-                else self.endpoint
+                endpoint.id
+                if endpoint is not None
+                and hasattr(endpoint, "id")
+                else endpoint
             ),
 
             "bus": (
-                self.bus.id
-                if self.bus is not None
-                and hasattr(self.bus, "id")
-                else self.bus
+                endpoint.id
+                if endpoint is not None
+                and hasattr(endpoint, "id")
+                else endpoint
             ),
 
             "p": self.p,
@@ -637,7 +894,7 @@ class Generator(ElectricalObject, Injection):
                 self.q_limit_status(),
 
             "is_connected":
-                self.is_connected,
+                self._terminal.is_connected,
 
             "in_service":
                 self.in_service,
@@ -649,18 +906,22 @@ class Generator(ElectricalObject, Injection):
                 len(self._plugins),
         }
 
-    # =================================================================
+    # ============================================================
     # REPRESENTATION
-    # =================================================================
+    # ============================================================
 
     def __repr__(self) -> str:
-        """Return concise developer-facing representation."""
+        """
+        Return concise developer-facing representation.
+        """
+
+        endpoint = self._terminal.endpoint
 
         endpoint_id = (
-            self.endpoint.id
-            if self.endpoint is not None
-            and hasattr(self.endpoint, "id")
-            else self.endpoint
+            endpoint.id
+            if endpoint is not None
+            and hasattr(endpoint, "id")
+            else endpoint
         )
 
         return (
@@ -674,30 +935,35 @@ class Generator(ElectricalObject, Injection):
             f"in_service={self.in_service}>"
         )
 
-    # =================================================================
+    # ============================================================
     # VALIDATION HELPERS
-    # =================================================================
+    # ============================================================
 
     @staticmethod
     def _validate_finite(
         value: float,
         name: str,
     ) -> float:
-        """Return a finite floating-point value."""
+        """
+        Convert a value to float and require it to be finite.
+        """
 
         try:
-            value = float(value)
-        except (TypeError, ValueError) as exc:
+            numeric = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
             raise ValueError(
                 f"{name} must be numeric."
             ) from exc
 
-        if not math.isfinite(value):
+        if not math.isfinite(numeric):
             raise ValueError(
                 f"{name} must be finite."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_positive(
@@ -705,19 +971,21 @@ class Generator(ElectricalObject, Injection):
         value: float,
         name: str,
     ) -> float:
-        """Return a finite value greater than zero."""
+        """
+        Return a finite value greater than zero.
+        """
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value <= 0.0:
+        if numeric <= 0.0:
             raise ValueError(
                 f"{name} must be greater than zero."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_non_negative(
@@ -725,56 +993,116 @@ class Generator(ElectricalObject, Injection):
         value: float,
         name: str,
     ) -> float:
-        """Return a finite value greater than or equal to zero."""
+        """
+        Return a finite non-negative value.
+        """
 
-        value = cls._validate_finite(
+        numeric = cls._validate_finite(
             value,
             name,
         )
 
-        if value < 0.0:
+        if numeric < 0.0:
             raise ValueError(
-                f"{name} cannot be negative."
+                f"{name} must be greater than or equal "
+                "to zero."
             )
 
-        return value
+        return numeric
 
     @classmethod
     def _validate_q_limits(
         cls,
         q_limits: tuple[float, float],
     ) -> tuple[float, float]:
-        """Validate and normalize Qmin/Qmax."""
+        """
+        Validate reactive-power limits.
 
-        try:
-            if len(q_limits) != 2:
-                raise ValueError
-        except (TypeError, ValueError) as exc:
+        Infinite Q limits are permitted.
+        """
+
+        if (
+            not isinstance(q_limits, (tuple, list))
+            or len(q_limits) != 2
+        ):
             raise ValueError(
                 "q_limits must contain exactly "
-                "(Qmin, Qmax)."
-            ) from exc
+                "(q_min, q_max)."
+            )
 
-        q_min = float(q_limits[0])
-        q_max = float(q_limits[1])
+        try:
+            q_min = float(q_limits[0])
+            q_max = float(q_limits[1])
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                "q_limits values must be numeric."
+            ) from exc
 
         if math.isnan(q_min) or math.isnan(q_max):
             raise ValueError(
-                "Q limits cannot be NaN."
+                "q_limits cannot contain NaN."
             )
-
-        # +/- infinity are intentionally permitted because the
-        # default Generator capability may be unbounded.
 
         if q_min > q_max:
             raise ValueError(
-                "Qmin cannot exceed Qmax."
+                "q_min must be less than or equal to q_max."
             )
 
         return (
             q_min,
             q_max,
         )
+
+    @classmethod
+    def _validate_q_value(
+        cls,
+        q: float,
+        q_min: float,
+        q_max: float,
+        tolerance: float = 1e-9,
+    ) -> float:
+        """
+        Validate Q against the supplied limits.
+
+        A small numerical tolerance is permitted.
+        """
+
+        q = cls._validate_finite(
+            q,
+            "q",
+        )
+
+        if (
+            q < q_min - tolerance
+            or q > q_max + tolerance
+        ):
+            raise ValueError(
+                "q must be within q_limits."
+            )
+
+        return q
+
+    @staticmethod
+    def _validate_bool(
+        value: bool,
+        name: str,
+    ) -> bool:
+        """
+        Validate a strict boolean.
+        """
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            raise TypeError(
+                f"{name} must be boolean."
+            )
+
+        return value
 
 
 __all__ = [
