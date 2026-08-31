@@ -3,85 +3,76 @@
 # GridForge V2 — Network Topology
 # Author: Subhendu Mishra
 # ============================================================
-
 """
-GridForge V2 Network Topology Manager.
+GridForge V2 — Network Topology
 
-The TopologyManager owns only the assembled-network topology view.
+Responsibility
+--------------
+Derive electrical bus connectivity from the authoritative Network
+equipment and frozen Terminal contracts.
 
-Responsibilities
-----------------
-- Build the electrical connectivity graph.
-- Resolve branch terminal endpoints to buses.
-- Respect element in-service state.
-- Determine electrical connectivity.
-- Detect electrical islands.
+Topology is derived state. It is never authoritative equipment state.
 
-Does NOT
---------
-- Own canonical model objects.
-- Register/remove network elements.
-- Own bus indexing.
-- Build Y-bus.
-- Perform electrical calculations.
-- Modify model objects.
-- Perform engineering validation.
-- Implement command/application workflows.
+This module:
+    - resolves equipment terminals to canonical Buses;
+    - determines whether registered equipment currently conducts;
+    - builds the undirected electrical connectivity graph;
+    - tracks conductive equipment between bus pairs;
+    - provides read-only connectivity and island queries.
 
-Ownership boundary
-------------------
+This module does NOT:
+    - mutate model objects;
+    - own equipment state;
+    - own Terminal endpoint state;
+    - modify Network membership;
+    - assign numerical bus indices;
+    - build Y-bus matrices;
+    - solve electrical equations;
+    - perform engineering analysis;
+    - depend on Application or UI.
 
-    Network
+Architecture
+------------
+    core/model
         |
-        +-- NetworkRegistry
-        |       canonical membership
+        v
+    core/network/endpoint.py
         |
-        +-- BusIndex
-        |       bus.id -> matrix index
+        v
+    TopologyManager
         |
-        +-- NetworkState
-        |       derived-state validity
-        |
-        +-- TopologyManager
-        |       connectivity graph
-        |
-        +-- YBusBuilder
-                admittance matrix
+        +--> derived connectivity
+        +--> electrical islands
+        +--> branch relationships
 
-Terminal architecture
----------------------
-
-For branch equipment, terminal endpoints are authoritative.
-
-    Line
-        from_terminal -> endpoint -> Bus
-        to_terminal   -> endpoint -> Bus
-
-    Transformer
-        from_terminal -> endpoint -> Bus
-        to_terminal   -> endpoint -> Bus
-
-The shared endpoint resolver is therefore used instead of
-duplicating terminal-resolution logic here.
-
-GridForge V2
+The authoritative endpoint remains Terminal.endpoint.
+The authoritative equipment operating state remains in the model.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
+
+from core.model.branch import Branch
+from core.model.breaker import Breaker
+from core.model.cable import Cable
+from core.model.disconnector import Disconnector
+from core.model.fuse import Fuse
+from core.model.line import Line
+from core.model.switch import Switch
+from core.model.transformer import Transformer
 
 from .endpoint import resolve_terminal_bus
 
 
 class TopologyManager:
     """
-    Build and query the electrical topology of a Network.
+    Derive and query electrical Network topology.
 
-    The manager does not own the network elements. It creates a
-    derived connectivity graph from the canonical elements currently
-    registered on the Network.
+    The manager does not own authoritative electrical state. It builds
+    a derived graph from the canonical objects currently registered
+    with the Network.
     """
 
     # ============================================================
@@ -89,84 +80,35 @@ class TopologyManager:
     # ============================================================
 
     def __init__(self, network: Any) -> None:
+        """
+        Create a topology manager for a Network aggregate.
+        """
+
         if network is None:
-            raise ValueError(
-                "TopologyManager requires a Network."
-            )
+            raise ValueError("network cannot be None.")
 
         self.network = network
 
-        # --------------------------------------------------------
-        # DERIVED GRAPH
-        #
-        # bus -> set of electrically connected buses
-        # --------------------------------------------------------
-
         self._graph: Dict[Any, Set[Any]] = {}
-
-        # --------------------------------------------------------
-        # DERIVED BRANCH MAP
-        #
-        # (bus_a, bus_b) -> registered branch elements
-        #
-        # This is supplementary information and is not the
-        # authoritative network membership.
-        # --------------------------------------------------------
-
-        self._edges: Dict[
-            Tuple[Any, Any],
-            List[Any],
-        ] = {}
+        self._edges: Dict[Tuple[Any, Any], List[Any]] = {}
 
         self._dirty = True
-
-    # ============================================================
-    # PROPERTIES
-    # ============================================================
-
-    @property
-    def graph(self) -> Dict[Any, Set[Any]]:
-        """
-        Return the currently built topology graph.
-
-        The returned graph is the manager's derived representation.
-        Call ``build()`` when the topology is dirty.
-        """
-
-        return self._graph
-
-    # ------------------------------------------------------------
-
-    @property
-    def edges(self) -> Dict[Tuple[Any, Any], List[Any]]:
-        """
-        Return the derived branch-edge mapping.
-        """
-
-        return self._edges
-
-    # ------------------------------------------------------------
-
-    @property
-    def dirty(self) -> bool:
-        """
-        Whether the topology graph requires rebuilding.
-        """
-
-        return self._dirty
 
     # ============================================================
     # INVALIDATION
     # ============================================================
 
+    @property
+    def dirty(self) -> bool:
+        """Return True when the derived topology must be rebuilt."""
+
+        return self._dirty
+
     def invalidate(self) -> None:
         """
-        Mark the topology graph as stale.
+        Mark the derived topology as stale.
 
-        TopologyManager owns the validity of its own derived graph.
-
-        NetworkState separately tracks Network-level derived-state
-        validity.
+        Network membership and model state are untouched.
         """
 
         self._dirty = True
@@ -175,31 +117,17 @@ class TopologyManager:
     # BUILD
     # ============================================================
 
-    def build(
-        self,
-    ) -> Dict[Any, Set[Any]]:
+    def build(self) -> Dict[Any, Set[Any]]:
         """
-        Build the electrical connectivity graph.
+        Rebuild the complete derived topology.
+
+        Only presently conductive two-terminal elements with both
+        terminals resolving to registered Buses become topology edges.
 
         Returns
         -------
         dict
-            Mapping:
-
-                Bus -> set(Bus)
-
-        Notes
-        -----
-        Only in-service topology-affecting branch elements are
-        included.
-
-        Currently supported branch families are:
-
-            - Line
-            - Transformer
-
-        Shunts, generators, and loads do not create bus-to-bus
-        connectivity edges.
+            Mapping of canonical Bus objects to neighbouring Buses.
         """
 
         graph: Dict[Any, Set[Any]] = {
@@ -207,88 +135,36 @@ class TopologyManager:
             for bus in self.network.buses
         }
 
-        edges: Dict[
-            Tuple[Any, Any],
-            List[Any],
-        ] = {}
+        edges: Dict[Tuple[Any, Any], List[Any]] = {}
 
-        # --------------------------------------------------------
-        # LINES
-        # --------------------------------------------------------
+        for element in self._topology_elements():
 
-        for line in self.network.lines:
-
-            if not self._is_in_service(line):
+            if not self._is_conductive(element):
                 continue
 
-            from_bus = self._resolve_branch_terminal(
-                line,
+            bus_a = self._resolve_bus(
+                element,
                 "from_terminal",
             )
-
-            to_bus = self._resolve_branch_terminal(
-                line,
+            bus_b = self._resolve_bus(
+                element,
                 "to_terminal",
             )
 
-            self._validate_registered_bus(
-                from_bus,
-                line,
-                "from_terminal",
-            )
-
-            self._validate_registered_bus(
-                to_bus,
-                line,
-                "to_terminal",
-            )
-
-            self._add_edge(
-                graph,
-                edges,
-                from_bus,
-                to_bus,
-                line,
-            )
-
-        # --------------------------------------------------------
-        # TRANSFORMERS
-        # --------------------------------------------------------
-
-        for transformer in self.network.transformers:
-
-            if not self._is_in_service(transformer):
+            if bus_a is None or bus_b is None:
                 continue
 
-            from_bus = self._resolve_branch_terminal(
-                transformer,
-                "from_terminal",
-            )
+            if bus_a is bus_b:
+                # A self-loop does not create a useful bus-to-bus
+                # connectivity edge, but the equipment remains a
+                # valid registered network element.
+                continue
 
-            to_bus = self._resolve_branch_terminal(
-                transformer,
-                "to_terminal",
-            )
+            graph.setdefault(bus_a, set()).add(bus_b)
+            graph.setdefault(bus_b, set()).add(bus_a)
 
-            self._validate_registered_bus(
-                from_bus,
-                transformer,
-                "from_terminal",
-            )
-
-            self._validate_registered_bus(
-                to_bus,
-                transformer,
-                "to_terminal",
-            )
-
-            self._add_edge(
-                graph,
-                edges,
-                from_bus,
-                to_bus,
-                transformer,
-            )
+            key = self._edge_key(bus_a, bus_b)
+            edges.setdefault(key, []).append(element)
 
         self._graph = graph
         self._edges = edges
@@ -297,162 +173,124 @@ class TopologyManager:
         return self._graph
 
     # ============================================================
-    # BRANCH RESOLUTION
+    # TOPOLOGY ELEMENTS
     # ============================================================
 
-    def _resolve_branch_terminal(
-        self,
-        element: Any,
-        terminal_name: str,
-    ) -> Any:
+    def _topology_elements(self) -> List[Any]:
         """
-        Resolve one branch terminal to its Bus.
+        Return registered two-terminal elements capable of creating
+        electrical connectivity.
 
-        Terminal resolution is delegated to the canonical endpoint
-        resolver.
-
-        Raises
-        ------
-        ValueError
-            If the terminal is absent or cannot resolve to a Bus.
+        Registry collections remain the source of membership.
         """
 
-        terminal = getattr(
+        elements: List[Any] = []
+
+        collections = (
+            "branches",
+            "lines",
+            "cables",
+            "transformers",
+            "breakers",
+            "switches",
+            "disconnectors",
+            "fuses",
+        )
+
+        seen: Set[int] = set()
+
+        for collection_name in collections:
+
+            collection = getattr(
+                self.network,
+                collection_name,
+                (),
+            )
+
+            for element in collection:
+
+                identity = id(element)
+
+                if identity in seen:
+                    continue
+
+                seen.add(identity)
+                elements.append(element)
+
+        return elements
+
+    # ============================================================
+    # CONDUCTION STATE
+    # ============================================================
+
+    @staticmethod
+    def _is_conductive(element: Any) -> bool:
+        """
+        Return whether an element currently participates in topology.
+
+        Existing model-state contracts are used directly.
+
+        Priority:
+            1. Model-provided ``conducts`` property.
+            2. Breaker operational state.
+            3. Switch operational state.
+            4. Disconnector operational state.
+            5. Fuse operational state.
+            6. Generic ``in_service`` state.
+
+        No state is modified here.
+        """
+
+        conducts = getattr(
             element,
-            terminal_name,
+            "conducts",
             None,
         )
 
-        if terminal is None:
-            raise ValueError(
-                f"{type(element).__name__} "
-                f"'{getattr(element, 'id', element)}' "
-                f"does not provide '{terminal_name}'."
+        if conducts is not None:
+            return bool(conducts)
+
+        if isinstance(element, Breaker):
+            return (
+                bool(getattr(element, "in_service", True))
+                and bool(getattr(element, "closed", False))
+                and not bool(getattr(element, "failed", False))
             )
 
-        bus = resolve_terminal_bus(terminal)
-
-        if bus is None:
-            raise ValueError(
-                f"{type(element).__name__} "
-                f"'{getattr(element, 'id', element)}' "
-                f"terminal '{terminal_name}' does not resolve "
-                "to a Bus."
+        if isinstance(
+            element,
+            (
+                Switch,
+                Disconnector,
+            ),
+        ):
+            return (
+                bool(getattr(element, "in_service", True))
+                and bool(getattr(element, "closed", False))
             )
 
-        return bus
-
-    # ============================================================
-    # EDGE CONSTRUCTION
-    # ============================================================
-
-    @staticmethod
-    def _add_edge(
-        graph: Dict[Any, Set[Any]],
-        edges: Dict[Tuple[Any, Any], List[Any]],
-        bus_a: Any,
-        bus_b: Any,
-        element: Any,
-    ) -> None:
-        """
-        Add an undirected electrical branch edge.
-
-        Topology is treated as an undirected connectivity graph.
-
-        A branch connecting a bus to itself is retained as an
-        element edge but does not create a second graph node.
-        """
-
-        graph.setdefault(bus_a, set())
-        graph.setdefault(bus_b, set())
-
-        graph[bus_a].add(bus_b)
-        graph[bus_b].add(bus_a)
-
-        key = TopologyManager._edge_key(
-            bus_a,
-            bus_b,
-        )
-
-        edges.setdefault(
-            key,
-            [],
-        ).append(element)
-
-    # ------------------------------------------------------------
-
-    @staticmethod
-    def _edge_key(
-        bus_a: Any,
-        bus_b: Any,
-    ) -> Tuple[Any, Any]:
-        """
-        Produce a deterministic undirected edge key.
-
-        Bus IDs are used only for deterministic ordering of the
-        derived edge dictionary. Bus object identity remains the
-        graph node identity.
-        """
-
-        id_a = getattr(bus_a, "id", None)
-        id_b = getattr(bus_b, "id", None)
-
-        try:
-            if id_a <= id_b:
-                return bus_a, bus_b
-            return bus_b, bus_a
-
-        except TypeError:
-            # Mixed/non-orderable ID types are legal at the topology
-            # layer. Fall back to stable string representations.
-            if str(id_a) <= str(id_b):
-                return bus_a, bus_b
-
-            return bus_b, bus_a
-
-    # ============================================================
-    # BUS VALIDATION
-    # ============================================================
-
-    def _validate_registered_bus(
-        self,
-        bus: Any,
-        element: Any,
-        terminal_name: str,
-    ) -> None:
-        """
-        Ensure a resolved endpoint belongs to this Network.
-
-        This is a structural topology check, not engineering
-        validation.
-        """
-
-        if bus not in self.network.buses:
-            raise ValueError(
-                f"{type(element).__name__} "
-                f"'{getattr(element, 'id', element)}' "
-                f"terminal '{terminal_name}' resolves to Bus "
-                f"'{getattr(bus, 'id', bus)}', which is not "
-                "registered on this Network."
+        if isinstance(element, Fuse):
+            return (
+                bool(getattr(element, "in_service", True))
+                and not bool(getattr(element, "blown", False))
             )
 
-    # ============================================================
-    # SERVICE STATE
-    # ============================================================
-
-    @staticmethod
-    def _is_in_service(
-        element: Any,
-    ) -> bool:
-        """
-        Return whether an element participates in topology.
-
-        Missing ``in_service`` is treated as active for compatibility
-        with model objects that do not expose an explicit service
-        state.
-
-        This method does not modify the element.
-        """
+        if isinstance(
+            element,
+            (
+                Branch,
+                Line,
+                Cable,
+                Transformer,
+            ),
+        ):
+            return bool(
+                getattr(
+                    element,
+                    "in_service",
+                    True,
+                )
+            )
 
         return bool(
             getattr(
@@ -463,14 +301,54 @@ class TopologyManager:
         )
 
     # ============================================================
+    # ENDPOINT RESOLUTION
+    # ============================================================
+
+    def _resolve_bus(
+        self,
+        element: Any,
+        terminal_name: str,
+    ) -> Any | None:
+        """
+        Resolve one element Terminal to a canonical registered Bus.
+
+        Invalid/unconnected endpoints do not create topology edges.
+        """
+
+        terminal = getattr(
+            element,
+            terminal_name,
+            None,
+        )
+
+        if terminal is None:
+            return None
+
+        try:
+            bus = resolve_terminal_bus(
+                terminal,
+            )
+        except (TypeError, ValueError):
+            return None
+
+        if bus not in self.network.buses:
+            raise ValueError(
+                f"{type(element).__name__} "
+                f"'{getattr(element, 'id', element)}' "
+                f"terminal '{terminal_name}' resolves to Bus "
+                f"'{getattr(bus, 'id', bus)}', which is not "
+                "registered on this Network."
+            )
+
+        return bus
+
+    # ============================================================
     # ENSURE
     # ============================================================
 
-    def ensure_built(
-        self,
-    ) -> Dict[Any, Set[Any]]:
+    def ensure_built(self) -> Dict[Any, Set[Any]]:
         """
-        Return a valid topology graph, rebuilding when necessary.
+        Return a valid derived topology graph.
         """
 
         if self._dirty:
@@ -488,31 +366,13 @@ class TopologyManager:
         bus_b: Any,
     ) -> bool:
         """
-        Determine whether two buses belong to the same electrical
-        connectivity component.
-
-        Parameters
-        ----------
-        bus_a, bus_b
-            Canonical Bus objects registered on the Network.
-
-        Returns
-        -------
-        bool
-            True when a path exists between the two buses.
-
-        Notes
-        -----
-        Connectivity is topological only. It does not determine
-        electrical operating conditions, power flow, voltage, or
-        stability.
+        Return True when a conductive path exists between two Buses.
         """
 
         self._require_registered_bus(
             bus_a,
             "bus_a",
         )
-
         self._require_registered_bus(
             bus_b,
             "bus_b",
@@ -523,10 +383,8 @@ class TopologyManager:
 
         graph = self.ensure_built()
 
-        visited: Set[Any] = set()
+        visited: Set[Any] = {bus_a}
         queue = deque([bus_a])
-
-        visited.add(bus_a)
 
         while queue:
 
@@ -540,26 +398,23 @@ class TopologyManager:
                 if neighbour is bus_b:
                     return True
 
-                if neighbour not in visited:
+                if neighbour in visited:
+                    continue
 
-                    visited.add(neighbour)
-                    queue.append(neighbour)
+                visited.add(neighbour)
+                queue.append(neighbour)
 
         return False
 
     # ============================================================
-    # ISLAND DETECTION
+    # ISLANDS
     # ============================================================
 
-    def find_islands(
-        self,
-    ) -> List[Set[Any]]:
+    def find_islands(self) -> List[Set[Any]]:
         """
-        Return the electrical connectivity islands.
+        Return all electrical connectivity islands.
 
-        Each island is represented as a set of canonical Bus objects.
-
-        Isolated buses are valid one-bus islands.
+        An isolated registered Bus is a valid one-Bus island.
         """
 
         graph = self.ensure_built()
@@ -567,24 +422,18 @@ class TopologyManager:
         islands: List[Set[Any]] = []
         visited: Set[Any] = set()
 
-        # --------------------------------------------------------
-        # Preserve Network bus ordering when discovering islands.
-        # --------------------------------------------------------
-
         for bus in self.network.buses:
 
             if bus in visited:
                 continue
 
             island: Set[Any] = set()
-
             queue = deque([bus])
             visited.add(bus)
 
             while queue:
 
                 current = queue.popleft()
-
                 island.add(current)
 
                 for neighbour in graph.get(
@@ -592,27 +441,20 @@ class TopologyManager:
                     set(),
                 ):
 
-                    if neighbour not in visited:
+                    if neighbour in visited:
+                        continue
 
-                        visited.add(neighbour)
-                        queue.append(neighbour)
+                    visited.add(neighbour)
+                    queue.append(neighbour)
 
             islands.append(island)
 
         return islands
 
-    # ============================================================
-    # ISLAND COUNT
-    # ============================================================
-
     def island_count(self) -> int:
-        """
-        Return the number of electrical islands.
-        """
+        """Return the number of electrical connectivity islands."""
 
-        return len(
-            self.find_islands()
-        )
+        return len(self.find_islands())
 
     # ============================================================
     # CONNECTED COMPONENT
@@ -623,7 +465,7 @@ class TopologyManager:
         bus: Any,
     ) -> Set[Any]:
         """
-        Return the complete electrical island containing ``bus``.
+        Return the electrical island containing ``bus``.
         """
 
         self._require_registered_bus(
@@ -633,10 +475,8 @@ class TopologyManager:
 
         graph = self.ensure_built()
 
-        component: Set[Any] = set()
+        component: Set[Any] = {bus}
         queue = deque([bus])
-
-        component.add(bus)
 
         while queue:
 
@@ -647,10 +487,11 @@ class TopologyManager:
                 set(),
             ):
 
-                if neighbour not in component:
+                if neighbour in component:
+                    continue
 
-                    component.add(neighbour)
-                    queue.append(neighbour)
+                component.add(neighbour)
+                queue.append(neighbour)
 
         return component
 
@@ -664,18 +505,15 @@ class TopologyManager:
         bus_b: Any,
     ) -> List[Any]:
         """
-        Return registered in-service branch elements connecting
-        ``bus_a`` and ``bus_b``.
+        Return conductive topology elements connecting two Buses.
 
-        The returned list is a copy and does not expose internal
-        topology state for mutation.
+        A copy is returned so callers cannot mutate internal state.
         """
 
         self._require_registered_bus(
             bus_a,
             "bus_a",
         )
-
         self._require_registered_bus(
             bus_b,
             "bus_b",
@@ -704,7 +542,9 @@ class TopologyManager:
         bus: Any,
     ) -> Set[Any]:
         """
-        Return the buses directly connected to ``bus``.
+        Return the directly connected Buses.
+
+        A copy is returned so internal topology cannot be mutated.
         """
 
         self._require_registered_bus(
@@ -729,16 +569,45 @@ class TopologyManager:
         self,
         bus: Any,
     ) -> int:
-        """
-        Return the topological degree of a bus.
-        """
+        """Return the topological degree of a Bus."""
 
-        return len(
-            self.neighbours(bus)
-        )
+        return len(self.neighbours(bus))
 
     # ============================================================
-    # REGISTERED BUS CHECK
+    # EDGE KEY
+    # ============================================================
+
+    @staticmethod
+    def _edge_key(
+        bus_a: Any,
+        bus_b: Any,
+    ) -> Tuple[Any, Any]:
+        """
+        Return a stable unordered edge key.
+
+        Bus objects themselves may not be orderable, so their IDs are
+        compared where possible with a string fallback.
+        """
+
+        id_a = getattr(bus_a, "id", bus_a)
+        id_b = getattr(bus_b, "id", bus_b)
+
+        try:
+
+            if id_a <= id_b:
+                return bus_a, bus_b
+
+            return bus_b, bus_a
+
+        except TypeError:
+
+            if str(id_a) <= str(id_b):
+                return bus_a, bus_b
+
+            return bus_b, bus_a
+
+    # ============================================================
+    # BUS VALIDATION
     # ============================================================
 
     def _require_registered_bus(
@@ -747,7 +616,7 @@ class TopologyManager:
         argument_name: str,
     ) -> None:
         """
-        Ensure a supplied Bus belongs to the Network.
+        Ensure a supplied Bus belongs to this Network.
         """
 
         if bus is None:
@@ -766,13 +635,9 @@ class TopologyManager:
     # CLEAR
     # ============================================================
 
-    def clear(
-        self,
-    ) -> None:
+    def clear(self) -> None:
         """
-        Discard the derived topology graph.
-
-        Network membership is untouched.
+        Discard derived topology without changing Network membership.
         """
 
         self._graph = {}
@@ -785,7 +650,7 @@ class TopologyManager:
 
     def summary(self) -> Dict[str, Any]:
         """
-        Return a concise topology summary.
+        Return a concise derived-topology summary.
         """
 
         graph = self.ensure_built()
@@ -802,19 +667,7 @@ class TopologyManager:
             "dirty": self._dirty,
         }
 
-    # ============================================================
-    # REPRESENTATION
-    # ============================================================
 
-    def __repr__(self) -> str:
-        """
-        Return a concise developer-facing representation.
-        """
-
-        return (
-            f"TopologyManager("
-            f"buses={len(self._graph)}, "
-            f"edges={sum(len(v) for v in self._graph.values()) // 2}, "
-            f"dirty={self._dirty}"
-            f")"
-        )
+__all__ = [
+    "TopologyManager",
+]
