@@ -1,660 +1,394 @@
 # ============================================================
+
 # File: core/network/registry.py
-# GridForge V2 — Canonical Network Equipment Registry
+
+# GridForge V2 — Network Registry
+
 # Author: Subhendu Mishra
+
 # ============================================================
 
 """
-GridForge V2 — Canonical Network Equipment Registry
-====================================================
+Canonical registry for electrical equipment belonging to a Network.
 
-NetworkRegistry owns canonical equipment membership for a
-Network.
+Registry owns:
+- typed equipment collections;
+- registration/removal;
+- deterministic ID lookup.
 
-Responsibilities
-----------------
+Registry does NOT own:
+- topology;
+- topology validity/revision;
+- numerical matrices;
+- equipment physics;
+- UI/SLD state;
+- plugin lifecycle.
 
-    * register equipment;
-    * remove equipment;
-    * provide canonical equipment lookup by ID;
-    * expose immutable/read-only collection views.
-
-The registry does NOT:
-
-    * resolve electrical endpoints;
-    * connect terminals;
-    * perform topology validation;
-    * calculate electrical quantities;
-    * construct equipment;
-    * own SLD state;
-    * know about UI or canvas state;
-    * construct Y-bus matrices;
-    * assign numerical solver indices.
-
-Network remains the public façade.
-
-The Application layer must access equipment through Network,
-not through this registry directly.
-
-Supported equipment families
-----------------------------
-
-    bus
-    grid
-    generator
-    load
-    shunt
-    line
-    transformer
-    branch
-    cable
-    switch
-    disconnector
-    fuse
+Network is the public mutation façade.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
+from typing import Any, Dict, Tuple
 
 class NetworkRegistry:
-    """
-    Canonical membership registry for Network equipment.
+"""Typed canonical membership registry for a Network."""
 
-    Registry membership is identity-preserving.
+```
+def __init__(self) -> None:
+    self._buses: Dict[str, Any] = {}
+    self._grids: Dict[str, Any] = {}
+    self._generators: Dict[str, Any] = {}
+    self._synchronous_machines: Dict[str, Any] = {}
+    self._loads: Dict[str, Any] = {}
+    self._motors: Dict[str, Any] = {}
+    self._shunts: Dict[str, Any] = {}
+    self._capacitors: Dict[str, Any] = {}
+    self._reactors: Dict[str, Any] = {}
+    self._solar: Dict[str, Any] = {}
+    self._batteries: Dict[str, Any] = {}
 
-    The registry stores the canonical Core model instances and
-    never creates replacement objects during lookup.
-    """
+    self._branches: Dict[str, Any] = {}
+    self._lines: Dict[str, Any] = {}
+    self._cables: Dict[str, Any] = {}
+    self._transformers: Dict[str, Any] = {}
 
-    def __init__(self) -> None:
-        self._buses: list[Any] = []
-        self._grids: list[Any] = []
-        self._generators: list[Any] = []
-        self._loads: list[Any] = []
-        self._shunts: list[Any] = []
-        self._lines: list[Any] = []
-        self._transformers: list[Any] = []
-        self._branches: list[Any] = []
-        self._cables: list[Any] = []
-        self._switches: list[Any] = []
-        self._disconnectors: list[Any] = []
-        self._fuses: list[Any] = []
+    self._breakers: Dict[str, Any] = {}
+    self._switches: Dict[str, Any] = {}
+    self._disconnectors: Dict[str, Any] = {}
+    self._fuses: Dict[str, Any] = {}
 
-    # ========================================================
-    # READ-ONLY COLLECTIONS
-    # ========================================================
+# ========================================================
+# COLLECTIONS
+# ========================================================
 
-    @property
-    def buses(self) -> tuple[Any, ...]:
-        return tuple(self._buses)
+@property
+def buses(self) -> Tuple[Any, ...]:
+    return tuple(self._buses.values())
 
-    @property
-    def grids(self) -> tuple[Any, ...]:
-        return tuple(self._grids)
+@property
+def grids(self) -> Tuple[Any, ...]:
+    return tuple(self._grids.values())
 
-    @property
-    def generators(self) -> tuple[Any, ...]:
-        return tuple(self._generators)
+@property
+def generators(self) -> Tuple[Any, ...]:
+    return tuple(self._generators.values())
 
-    @property
-    def loads(self) -> tuple[Any, ...]:
-        return tuple(self._loads)
+@property
+def synchronous_machines(self) -> Tuple[Any, ...]:
+    return tuple(self._synchronous_machines.values())
 
-    @property
-    def shunts(self) -> tuple[Any, ...]:
-        return tuple(self._shunts)
+@property
+def loads(self) -> Tuple[Any, ...]:
+    return tuple(self._loads.values())
 
-    @property
-    def lines(self) -> tuple[Any, ...]:
-        return tuple(self._lines)
+@property
+def motors(self) -> Tuple[Any, ...]:
+    return tuple(self._motors.values())
 
-    @property
-    def transformers(self) -> tuple[Any, ...]:
-        return tuple(self._transformers)
+@property
+def shunts(self) -> Tuple[Any, ...]:
+    return tuple(self._shunts.values())
 
-    @property
-    def branches(self) -> tuple[Any, ...]:
-        return tuple(self._branches)
+@property
+def capacitors(self) -> Tuple[Any, ...]:
+    return tuple(self._capacitors.values())
 
-    @property
-    def cables(self) -> tuple[Any, ...]:
-        return tuple(self._cables)
+@property
+def reactors(self) -> Tuple[Any, ...]:
+    return tuple(self._reactors.values())
 
-    @property
-    def switches(self) -> tuple[Any, ...]:
-        return tuple(self._switches)
+@property
+def solar(self) -> Tuple[Any, ...]:
+    return tuple(self._solar.values())
 
-    @property
-    def disconnectors(self) -> tuple[Any, ...]:
-        return tuple(self._disconnectors)
+@property
+def batteries(self) -> Tuple[Any, ...]:
+    return tuple(self._batteries.values())
 
-    @property
-    def fuses(self) -> tuple[Any, ...]:
-        return tuple(self._fuses)
+@property
+def branches(self) -> Tuple[Any, ...]:
+    return tuple(self._branches.values())
 
-    # ========================================================
-    # INTERNAL VALIDATION
-    # ========================================================
+@property
+def lines(self) -> Tuple[Any, ...]:
+    return tuple(self._lines.values())
 
-    @staticmethod
-    def _validate_id(
-        object_id: str,
-    ) -> str:
-        """
-        Validate and normalize an equipment identifier.
-        """
+@property
+def cables(self) -> Tuple[Any, ...]:
+    return tuple(self._cables.values())
 
-        if not isinstance(object_id, str):
-            raise TypeError(
-                "object_id must be a string."
-            )
+@property
+def transformers(self) -> Tuple[Any, ...]:
+    return tuple(self._transformers.values())
 
-        object_id = object_id.strip()
+@property
+def breakers(self) -> Tuple[Any, ...]:
+    return tuple(self._breakers.values())
 
-        if not object_id:
-            raise ValueError(
-                "object_id must not be empty."
-            )
+@property
+def switches(self) -> Tuple[Any, ...]:
+    return tuple(self._switches.values())
 
-        return object_id
+@property
+def disconnectors(self) -> Tuple[Any, ...]:
+    return tuple(self._disconnectors.values())
 
-    @staticmethod
-    def _validate_element_type(
-        element_type: str,
-    ) -> str:
-        """
-        Validate and normalize an equipment family name.
-        """
+@property
+def fuses(self) -> Tuple[Any, ...]:
+    return tuple(self._fuses.values())
 
-        if not isinstance(
-            element_type,
-            str,
-        ):
-            raise TypeError(
-                "element_type must be a string."
-            )
+# ========================================================
+# INTERNAL REGISTRATION
+# ========================================================
 
-        element_type = element_type.strip().lower()
+@staticmethod
+def _object_id(element: Any) -> str:
+    """Return the stable identifier required for registration."""
 
-        if not element_type:
-            raise ValueError(
-                "element_type must not be empty."
-            )
+    object_id = getattr(element, "id", None)
 
-        return element_type
-
-    @staticmethod
-    def _contains_identity(
-        collection: list[Any],
-        element: Any,
-    ) -> bool:
-        """
-        Return True when the exact object instance is registered.
-        """
-
-        return any(
-            existing is element
-            for existing in collection
+    if object_id is None:
+        raise ValueError(
+            "Network elements must provide a stable 'id'."
         )
 
-    @staticmethod
-    def _find_identity(
-        collection: list[Any],
-        object_id: str,
-    ) -> Any | None:
-        """
-        Find the canonical object having the supplied ID.
+    return str(object_id)
 
-        The returned object is the actual registered instance.
-        """
+@staticmethod
+def _add(
+    collection: Dict[str, Any],
+    element: Any,
+) -> None:
+    """Register one element and reject duplicate IDs."""
 
-        for element in collection:
-            if getattr(
-                element,
-                "id",
-                None,
-            ) == object_id:
-                return element
+    object_id = NetworkRegistry._object_id(element)
 
-        return None
-
-    @staticmethod
-    def _register(
-        collection: list[Any],
-        element: Any,
-        label: str,
-    ) -> None:
-        """
-        Register one canonical equipment instance.
-
-        Both object identity and object ID are protected.
-        """
-
-        if element is None:
-            raise ValueError(
-                f"{label} must not be None."
-            )
-
-        if NetworkRegistry._contains_identity(
-            collection,
-            element,
-        ):
-            raise ValueError(
-                f"{label} is already registered."
-            )
-
-        object_id = getattr(
-            element,
-            "id",
-            None,
+    if object_id in collection:
+        raise ValueError(
+            f"Duplicate network element ID: {object_id}"
         )
 
-        if object_id is not None:
-            if NetworkRegistry._find_identity(
-                collection,
-                object_id,
-            ) is not None:
-                raise ValueError(
-                    f"{label} ID {object_id!r} is already "
-                    "registered."
-                )
+    collection[object_id] = element
 
-        collection.append(element)
+@staticmethod
+def _remove(
+    collection: Dict[str, Any],
+    element: Any,
+) -> None:
+    """Remove one element by its stable ID."""
 
-    @staticmethod
-    def _remove_identity(
-        collection: list[Any],
-        element: Any,
-        label: str,
-    ) -> None:
-        """
-        Remove exactly the registered object instance.
+    object_id = NetworkRegistry._object_id(element)
 
-        Equality is intentionally not used.
-
-        Registry membership is identity-based.
-        """
-
-        for index, existing in enumerate(
-            collection
-        ):
-            if existing is element:
-                collection.pop(index)
-                return
-
+    if object_id not in collection:
         raise KeyError(
-            f"{label} is not registered."
+            f"Network element is not registered: {object_id}"
         )
 
-    # ========================================================
-    # CANONICAL LOOKUP
-    # ========================================================
+    del collection[object_id]
 
-    def get_by_id(
-        self,
-        element_type: str,
-        object_id: str,
-    ) -> Any:
-        """
-        Return the canonical registered equipment object.
+# ========================================================
+# BUS / SOURCE / INJECTION EQUIPMENT
+# ========================================================
 
-        Parameters
-        ----------
-        element_type:
-            Canonical equipment family name.
+def add_bus(self, bus: Any) -> None:
+    self._add(self._buses, bus)
 
-        object_id:
-            Canonical equipment identifier.
+def remove_bus(self, bus: Any) -> None:
+    self._remove(self._buses, bus)
 
-        Returns
-        -------
-        Any
-            The actual registered Core model instance.
+def add_grid(self, grid: Any) -> None:
+    self._add(self._grids, grid)
 
-        Raises
-        ------
-        KeyError
-            If the equipment family is unsupported or the
-            requested object is not registered.
-        """
+def remove_grid(self, grid: Any) -> None:
+    self._remove(self._grids, grid)
 
-        element_type = self._validate_element_type(
-            element_type
-        )
+def add_generator(self, generator: Any) -> None:
+    self._add(self._generators, generator)
 
-        object_id = self._validate_id(
-            object_id
-        )
+def remove_generator(self, generator: Any) -> None:
+    self._remove(self._generators, generator)
 
-        collections = {
-            "bus": self._buses,
-            "grid": self._grids,
-            "generator": self._generators,
-            "load": self._loads,
-            "shunt": self._shunts,
-            "line": self._lines,
-            "transformer": self._transformers,
-            "branch": self._branches,
-            "cable": self._cables,
-            "switch": self._switches,
-            "disconnector": self._disconnectors,
-            "fuse": self._fuses,
-        }
+def add_synchronous_machine(self, machine: Any) -> None:
+    self._add(
+        self._synchronous_machines,
+        machine,
+    )
 
-        collection = collections.get(
-            element_type
-        )
+def remove_synchronous_machine(self, machine: Any) -> None:
+    self._remove(
+        self._synchronous_machines,
+        machine,
+    )
 
-        if collection is None:
-            raise KeyError(
-                "Unsupported equipment type: "
-                f"{element_type!r}"
-            )
+def add_load(self, load: Any) -> None:
+    self._add(self._loads, load)
 
-        element = self._find_identity(
-            collection,
-            object_id,
-        )
+def remove_load(self, load: Any) -> None:
+    self._remove(self._loads, load)
 
-        if element is None:
-            raise KeyError(
-                f"No {element_type!r} with ID "
-                f"{object_id!r} is registered."
-            )
+def add_motor(self, motor: Any) -> None:
+    self._add(self._motors, motor)
 
-        return element
+def remove_motor(self, motor: Any) -> None:
+    self._remove(self._motors, motor)
 
-    # ========================================================
-    # BUS
-    # ========================================================
+def add_shunt(self, shunt: Any) -> None:
+    self._add(self._shunts, shunt)
 
-    def add_bus(
-        self,
-        bus: Any,
-    ) -> None:
-        self._register(
-            self._buses,
-            bus,
-            "Bus",
-        )
+def remove_shunt(self, shunt: Any) -> None:
+    self._remove(self._shunts, shunt)
 
-    def remove_bus(
-        self,
-        bus: Any,
-    ) -> None:
-        self._remove_identity(
-            self._buses,
-            bus,
-            "Bus",
-        )
+def add_capacitor(self, capacitor: Any) -> None:
+    self._add(self._capacitors, capacitor)
 
-    # ========================================================
-    # GRID
-    # ========================================================
+def remove_capacitor(self, capacitor: Any) -> None:
+    self._remove(self._capacitors, capacitor)
 
-    def add_grid(
-        self,
-        grid: Any,
-    ) -> None:
-        self._register(
-            self._grids,
-            grid,
-            "Grid",
-        )
+def add_reactor(self, reactor: Any) -> None:
+    self._add(self._reactors, reactor)
 
-    def remove_grid(
-        self,
-        grid: Any,
-    ) -> None:
-        self._remove_identity(
-            self._grids,
-            grid,
-            "Grid",
-        )
+def remove_reactor(self, reactor: Any) -> None:
+    self._remove(self._reactors, reactor)
 
-    # ========================================================
-    # GENERATOR
-    # ========================================================
+def add_solar(self, solar: Any) -> None:
+    self._add(self._solar, solar)
 
-    def add_generator(
-        self,
-        generator: Any,
-    ) -> None:
-        self._register(
-            self._generators,
-            generator,
-            "Generator",
-        )
+def remove_solar(self, solar: Any) -> None:
+    self._remove(self._solar, solar)
 
-    def remove_generator(
-        self,
-        generator: Any,
-    ) -> None:
-        self._remove_identity(
-            self._generators,
-            generator,
-            "Generator",
-        )
+def add_battery(self, battery: Any) -> None:
+    self._add(self._batteries, battery)
 
-    # ========================================================
-    # LOAD
-    # ========================================================
+def remove_battery(self, battery: Any) -> None:
+    self._remove(self._batteries, battery)
 
-    def add_load(
-        self,
-        load: Any,
-    ) -> None:
-        self._register(
-            self._loads,
-            load,
-            "Load",
-        )
+# ========================================================
+# TOPOLOGY BRANCHES
+# ========================================================
 
-    def remove_load(
-        self,
-        load: Any,
-    ) -> None:
-        self._remove_identity(
-            self._loads,
-            load,
-            "Load",
-        )
+def add_branch(self, branch: Any) -> None:
+    self._add(self._branches, branch)
 
-    # ========================================================
-    # SHUNT
-    # ========================================================
+def remove_branch(self, branch: Any) -> None:
+    self._remove(self._branches, branch)
 
-    def add_shunt(
-        self,
-        shunt: Any,
-    ) -> None:
-        self._register(
-            self._shunts,
-            shunt,
-            "Shunt",
-        )
+def add_line(self, line: Any) -> None:
+    self._add(self._lines, line)
 
-    def remove_shunt(
-        self,
-        shunt: Any,
-    ) -> None:
-        self._remove_identity(
-            self._shunts,
-            shunt,
-            "Shunt",
-        )
+def remove_line(self, line: Any) -> None:
+    self._remove(self._lines, line)
 
-    # ========================================================
-    # LINE
-    # ========================================================
+def add_cable(self, cable: Any) -> None:
+    self._add(self._cables, cable)
 
-    def add_line(
-        self,
-        line: Any,
-    ) -> None:
-        self._register(
-            self._lines,
-            line,
-            "Line",
-        )
+def remove_cable(self, cable: Any) -> None:
+    self._remove(self._cables, cable)
 
-    def remove_line(
-        self,
-        line: Any,
-    ) -> None:
-        self._remove_identity(
-            self._lines,
-            line,
-            "Line",
-        )
+def add_transformer(self, transformer: Any) -> None:
+    self._add(
+        self._transformers,
+        transformer,
+    )
 
-    # ========================================================
-    # TRANSFORMER
-    # ========================================================
+def remove_transformer(self, transformer: Any) -> None:
+    self._remove(
+        self._transformers,
+        transformer,
+    )
 
-    def add_transformer(
-        self,
-        transformer: Any,
-    ) -> None:
-        self._register(
-            self._transformers,
-            transformer,
-            "Transformer",
-        )
+# ========================================================
+# SWITCHING EQUIPMENT
+# ========================================================
 
-    def remove_transformer(
-        self,
-        transformer: Any,
-    ) -> None:
-        self._remove_identity(
-            self._transformers,
-            transformer,
-            "Transformer",
-        )
+def add_breaker(self, breaker: Any) -> None:
+    self._add(self._breakers, breaker)
 
-    # ========================================================
-    # BRANCH
-    # ========================================================
+def remove_breaker(self, breaker: Any) -> None:
+    self._remove(self._breakers, breaker)
 
-    def add_branch(
-        self,
-        branch: Any,
-    ) -> None:
-        self._register(
-            self._branches,
-            branch,
-            "Branch",
-        )
+def add_switch(self, switch: Any) -> None:
+    self._add(self._switches, switch)
 
-    def remove_branch(
-        self,
-        branch: Any,
-    ) -> None:
-        self._remove_identity(
-            self._branches,
-            branch,
-            "Branch",
-        )
+def remove_switch(self, switch: Any) -> None:
+    self._remove(self._switches, switch)
 
-    # ========================================================
-    # CABLE
-    # ========================================================
+def add_disconnector(
+    self,
+    disconnector: Any,
+) -> None:
+    self._add(
+        self._disconnectors,
+        disconnector,
+    )
 
-    def add_cable(
-        self,
-        cable: Any,
-    ) -> None:
-        self._register(
-            self._cables,
-            cable,
-            "Cable",
-        )
+def remove_disconnector(
+    self,
+    disconnector: Any,
+) -> None:
+    self._remove(
+        self._disconnectors,
+        disconnector,
+    )
 
-    def remove_cable(
-        self,
-        cable: Any,
-    ) -> None:
-        self._remove_identity(
-            self._cables,
-            cable,
-            "Cable",
-        )
+def add_fuse(self, fuse: Any) -> None:
+    self._add(self._fuses, fuse)
 
-    # ========================================================
-    # SWITCH
-    # ========================================================
+def remove_fuse(self, fuse: Any) -> None:
+    self._remove(self._fuses, fuse)
 
-    def add_switch(
-        self,
-        switch: Any,
-    ) -> None:
-        self._register(
-            self._switches,
-            switch,
-            "Switch",
-        )
+# ========================================================
+# LOOKUP
+# ========================================================
 
-    def remove_switch(
-        self,
-        switch: Any,
-    ) -> None:
-        self._remove_identity(
-            self._switches,
-            switch,
-            "Switch",
-        )
+def get_by_id(
+    self,
+    element_type: str,
+    object_id: str,
+) -> Any:
+    """
+    Return an element by canonical type name and ID.
 
-    # ========================================================
-    # DISCONNECTOR
-    # ========================================================
+    Raises:
+        KeyError: if the type or ID is not registered.
+    """
 
-    def add_disconnector(
-        self,
-        disconnector: Any,
-    ) -> None:
-        self._register(
-            self._disconnectors,
-            disconnector,
-            "Disconnector",
-        )
+    collections = {
+        "bus": self._buses,
+        "grid": self._grids,
+        "generator": self._generators,
+        "synchronous_machine": self._synchronous_machines,
+        "load": self._loads,
+        "motor": self._motors,
+        "shunt": self._shunts,
+        "capacitor": self._capacitors,
+        "reactor": self._reactors,
+        "solar": self._solar,
+        "battery": self._batteries,
+        "branch": self._branches,
+        "line": self._lines,
+        "cable": self._cables,
+        "transformer": self._transformers,
+        "breaker": self._breakers,
+        "switch": self._switches,
+        "disconnector": self._disconnectors,
+        "fuse": self._fuses,
+    }
 
-    def remove_disconnector(
-        self,
-        disconnector: Any,
-    ) -> None:
-        self._remove_identity(
-            self._disconnectors,
-            disconnector,
-            "Disconnector",
-        )
+    try:
+        collection = collections[element_type.lower()]
+    except KeyError as exc:
+        raise KeyError(
+            f"Unknown network element type: {element_type}"
+        ) from exc
 
-    # ========================================================
-    # FUSE
-    # ========================================================
+    try:
+        return collection[str(object_id)]
+    except KeyError as exc:
+        raise KeyError(
+            f"Network element is not registered: "
+            f"{element_type}:{object_id}"
+        ) from exc
+```
 
-    def add_fuse(
-        self,
-        fuse: Any,
-    ) -> None:
-        self._register(
-            self._fuses,
-            fuse,
-            "Fuse",
-        )
-
-    def remove_fuse(
-        self,
-        fuse: Any,
-    ) -> None:
-        self._remove_identity(
-            self._fuses,
-            fuse,
-            "Fuse",
-        )
-
-
-__all__ = [
-    "NetworkRegistry",
-]
+__all__ = ["NetworkRegistry"]
