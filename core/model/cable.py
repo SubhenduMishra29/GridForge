@@ -1,114 +1,123 @@
 # ============================================================
-# File: core/model/cvt.py
-# GridForge V2 — Capacitive Voltage Transformer Model
+# File: core/model/cable.py
+# GridForge V2 — Cable Model
 # Author: Subhendu Mishra
 # ============================================================
 
 """
-GridForge V2 — Capacitive Voltage Transformer Model
-===================================================
+GridForge V2 — Cable Model
+==========================
 
-Capacitive Voltage Transformer (CVT) / Capacitive Potential
-Transformer (CPT) domain model.
+Concrete two-terminal physical cable model.
 
 Architecture
 ------------
 
     ElectricalObject
-           |
-           v
-          CVT
-       /  /  \  \
-      H1 H2   X1 X2
-      |  |    |  |
-      v  v    v  v
-    Terminal endpoints
+          |
+          v
+        Branch
+          |
+          v
+        Cable
+       /     \
+      v       v
+ FROM       TO
+Terminal   Terminal
+      |       |
+      v       v
+ endpoint  endpoint
 
-A CVT is a four-terminal instrument-transformer element.
+Cable inherits the authoritative terminal and endpoint contract
+from Branch.
 
-Physical terminals:
+Endpoint ownership
+------------------
 
-    H1 — primary/high-voltage terminal 1
-    H2 — primary/high-voltage terminal 2
-    X1 — secondary/low-voltage terminal 1
-    X2 — secondary/low-voltage terminal 2
+Cable does NOT maintain independent endpoint state.
 
-Terminal Contract
------------------
+The authoritative endpoint references are:
 
-Terminal is the authoritative owner of endpoint state.
+    Cable.from_terminal.endpoint
+    Cable.to_terminal.endpoint
 
-CVT owns the four Terminal objects.
+Network interprets those endpoints into topology.
 
-Each Terminal owns:
+Electrical parameter ownership
+------------------------------
 
-    owner
-    role
-    endpoint
-    connection state
+Branch owns the canonical positive-sequence branch parameters:
 
-Endpoint mutation must use:
+    r
+    x
+    b
 
-    Terminal.attach(endpoint)
-    Terminal.detach()
+Cable exposes engineering aliases:
 
-CVT does not maintain duplicate endpoint state.
+    r1
+    x1
+    b1
 
-Domain Boundary
----------------
+These aliases do NOT create duplicate state.
 
-CVT owns static nameplate and instrument-transformer data:
+Therefore:
 
-    - rated primary voltage
-    - rated secondary voltage
-    - voltage ratio
-    - accuracy class
-    - rated burden
-    - polarity
-    - frequency
-    - service state
+    r1 <-> Branch.r
+    x1 <-> Branch.x
+    b1 <-> Branch.b
 
-CVT does NOT own:
+Cable additionally owns zero-sequence parameters:
 
-    - Bus objects
-    - Network topology
-    - graph state
-    - Y-bus construction
-    - load-flow calculations
-    - short-circuit calculations
-    - relay logic
-    - protection decisions
-    - dynamic simulation
-    - transient simulation
-    - ferroresonance simulation
-    - measurement channels
-    - SLD geometry
-    - GUI state
-    - rendering state
+    r0
+    x0
+    b0
 
-Those responsibilities belong to the appropriate Core,
-Application, Analysis, Numerical, and UI layers.
+and physical/rating parameters:
+
+    length_km
+    rated_voltage_kv
+    rated_current_a
+
+Responsibility boundaries
+-------------------------
+
+Cable does NOT:
+
+    - own Bus objects;
+    - resolve endpoints into Bus objects;
+    - mutate Network topology;
+    - maintain Network collections;
+    - construct global Y-bus matrices;
+    - assign solver indices;
+    - maintain solved numerical state;
+    - perform power-flow calculations;
+    - perform short-circuit calculations;
+    - execute protection logic;
+    - execute control logic;
+    - maintain UI/SLD state;
+    - perform persistence.
+
+Study-specific use of sequence parameters belongs to the
+Analysis/Numerical layers.
 
 Validation
 ----------
 
-ElectricalObject remains the authoritative validation entry point.
+Validation follows:
 
-CVT specializes:
+    ElectricalObject.validate()
+            |
+            v
+    Cable.validate_parameters()
+            |
+            v
+    Branch.validate_parameters()
+            |
+            v
+    ElectricalObject.validate_parameters()
 
-    validate_parameters()
-
-CVT does not replace the inherited validation contract.
-
-Engineering Convention
-----------------------
-
-H1/H2 are retained as the physical primary-side terminal names.
-
-X1/X2 are retained as the physical secondary-side terminal names.
-
-The model does not infer electrical topology from terminal names.
-Terminal role is explicit and authoritative.
+Construction deliberately does not call validate() because the
+complete concrete object must first be initialized.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -117,734 +126,397 @@ All Rights Reserved.
 from __future__ import annotations
 
 import math
-from enum import Enum
 from typing import Any
 
-from .base import ElectricalObject
-from .terminal import Terminal
+from .branch import Branch
 
 
-class CVTPolarity(str, Enum):
+class Cable(Branch):
     """
-    Physical polarity convention of a CVT.
+    Two-terminal physical cable model.
 
-    NORMAL:
-        H1 corresponds to the positive/reference orientation
-        relative to X1.
+    Positive-sequence parameters are inherited canonically from
+    Branch:
 
-    REVERSED:
-        The secondary polarity is reversed relative to the
-        normal convention.
+        r
+        x
+        b
 
-    This property describes the equipment convention only.
-    It does not perform a voltage transformation calculation.
-    """
+    Engineering aliases are provided as:
 
-    NORMAL = "NORMAL"
-    REVERSED = "REVERSED"
+        r1
+        x1
+        b1
 
+    Zero-sequence parameters remain Cable-specific:
 
-class CapacitiveVoltageTransformer(ElectricalObject):
-    """
-    Four-terminal Capacitive Voltage Transformer.
-
-    Physical terminals:
-
-        H1 — primary/high-voltage terminal 1
-        H2 — primary/high-voltage terminal 2
-        X1 — secondary/low-voltage terminal 1
-        X2 — secondary/low-voltage terminal 2
-
-    Terminal objects are authoritative for endpoint state.
+        r0
+        x0
+        b0
     """
 
-    TYPE = "CVT"
+    TYPE = "CABLE"
 
     __slots__ = (
-        "_h1_terminal",
-        "_h2_terminal",
-        "_x1_terminal",
-        "_x2_terminal",
-        "_rated_primary_voltage_kv",
-        "_rated_secondary_voltage_v",
-        "_accuracy_class",
-        "_rated_burden_va",
-        "_polarity",
-        "_frequency_hz",
-        "_in_service",
+        "_length_km",
+        "_r0",
+        "_x0",
+        "_b0",
+        "_rated_voltage_kv",
+        "_rated_current_a",
     )
-
-    # ============================================================
-    # CONSTRUCTION
-    # ============================================================
 
     def __init__(
         self,
         id: str,
-        name: str = "",
+        endpoint_from: Any = None,
+        endpoint_to: Any = None,
         *,
-        rated_primary_voltage_kv: float = 220.0,
-        rated_secondary_voltage_v: float = 110.0,
-        accuracy_class: str = "0.5",
-        rated_burden_va: float = 100.0,
-        polarity: CVTPolarity | str = CVTPolarity.NORMAL,
-        frequency_hz: float = 50.0,
+        length_km: float | None = None,
+        r1: float = 0.0,
+        x1: float = 0.0,
+        b1: float = 0.0,
+        r0: float | None = None,
+        x0: float | None = None,
+        b0: float | None = None,
+        rated_voltage_kv: float | None = None,
+        rated_current_a: float | None = None,
+        name: str = "",
+        rate_mva: float | None = None,
         in_service: bool = True,
-        h1_endpoint: Any = None,
-        h2_endpoint: Any = None,
-        x1_endpoint: Any = None,
-        x2_endpoint: Any = None,
     ) -> None:
         """
-        Construct a Capacitive Voltage Transformer.
+        Construct a Cable.
 
         Parameters
         ----------
         id:
             Stable GridForge object identifier.
 
+        endpoint_from:
+            Optional endpoint reference for the FROM terminal.
+
+        endpoint_to:
+            Optional endpoint reference for the TO terminal.
+
+        length_km:
+            Physical cable length in kilometres.
+
+        r1:
+            Positive-sequence series resistance.
+
+            Stored canonically as Branch.r.
+
+        x1:
+            Positive-sequence series reactance.
+
+            Stored canonically as Branch.x.
+
+        b1:
+            Positive-sequence total shunt susceptance.
+
+            Stored canonically as Branch.b.
+
+        r0:
+            Zero-sequence series resistance.
+
+        x0:
+            Zero-sequence series reactance.
+
+        b0:
+            Zero-sequence total shunt susceptance.
+
+        rated_voltage_kv:
+            Cable rated voltage in kV.
+
+        rated_current_a:
+            Cable rated current in amperes.
+
         name:
-            Human-readable CVT name.
+            Human-readable cable name.
 
-        rated_primary_voltage_kv:
-            Rated primary voltage in kV.
-
-        rated_secondary_voltage_v:
-            Rated secondary voltage in volts.
-
-        accuracy_class:
-            Instrument-transformer accuracy class.
-
-        rated_burden_va:
-            Rated secondary burden in VA.
-
-        polarity:
-            CVTPolarity value or corresponding string.
-
-        frequency_hz:
-            Rated operating frequency in Hz.
+        rate_mva:
+            Optional continuous apparent-power rating in MVA.
 
         in_service:
-            Whether the CVT is operationally in service.
-
-        h1_endpoint:
-            Optional endpoint attached to H1.
-
-        h2_endpoint:
-            Optional endpoint attached to H2.
-
-        x1_endpoint:
-            Optional endpoint attached to X1.
-
-        x2_endpoint:
-            Optional endpoint attached to X2.
+            Operational service state.
 
         Notes
         -----
-        Endpoint references are attached through Terminal.attach().
-        No independent endpoint state is maintained by the CVT.
+        No validation is performed during construction.
+
+        The complete object is validated through the inherited
+        ElectricalObject.validate() entry point after construction.
         """
 
         super().__init__(
             id=id,
+            endpoint_from=endpoint_from,
+            endpoint_to=endpoint_to,
+            r=r1,
+            x=x1,
+            b=b1,
             name=name,
+            rate_mva=rate_mva,
+            in_service=in_service,
         )
 
-        # --------------------------------------------------------
-        # Authoritative physical terminals
-        # --------------------------------------------------------
-
-        self._h1_terminal = Terminal(
-            owner=self,
-            role="H1",
+        self._length_km = self._validate_optional_positive(
+            length_km,
+            "length_km",
         )
 
-        self._h2_terminal = Terminal(
-            owner=self,
-            role="H2",
+        self._r0 = self._validate_optional_finite(
+            r0,
+            "r0",
         )
 
-        self._x1_terminal = Terminal(
-            owner=self,
-            role="X1",
+        self._x0 = self._validate_optional_finite(
+            x0,
+            "x0",
         )
 
-        self._x2_terminal = Terminal(
-            owner=self,
-            role="X2",
+        self._b0 = self._validate_optional_finite(
+            b0,
+            "b0",
         )
 
-        # --------------------------------------------------------
-        # Initial endpoint attachment
-        # --------------------------------------------------------
-
-        if h1_endpoint is not None:
-            self._h1_terminal.attach(
-                h1_endpoint
-            )
-
-        if h2_endpoint is not None:
-            self._h2_terminal.attach(
-                h2_endpoint
-            )
-
-        if x1_endpoint is not None:
-            self._x1_terminal.attach(
-                x1_endpoint
-            )
-
-        if x2_endpoint is not None:
-            self._x2_terminal.attach(
-                x2_endpoint
-            )
-
-        # --------------------------------------------------------
-        # Nameplate parameters
-        # --------------------------------------------------------
-
-        self._rated_primary_voltage_kv = (
-            self._validate_positive(
-                rated_primary_voltage_kv,
-                "rated_primary_voltage_kv",
+        self._rated_voltage_kv = (
+            self._validate_optional_positive(
+                rated_voltage_kv,
+                "rated_voltage_kv",
             )
         )
 
-        self._rated_secondary_voltage_v = (
-            self._validate_positive(
-                rated_secondary_voltage_v,
-                "rated_secondary_voltage_v",
-            )
-        )
-
-        self._accuracy_class = (
-            self._validate_accuracy_class(
-                accuracy_class
-            )
-        )
-
-        self._rated_burden_va = (
-            self._validate_non_negative(
-                rated_burden_va,
-                "rated_burden_va",
-            )
-        )
-
-        self._polarity = (
-            self._validate_polarity(
-                polarity
-            )
-        )
-
-        self._frequency_hz = (
-            self._validate_positive(
-                frequency_hz,
-                "frequency_hz",
-            )
-        )
-
-        self._in_service = (
-            self._validate_bool(
-                in_service,
-                "in_service",
+        self._rated_current_a = (
+            self._validate_optional_positive(
+                rated_current_a,
+                "rated_current_a",
             )
         )
 
     # ============================================================
-    # IDENTITY
+    # TYPE
     # ============================================================
 
     @property
     def element_type(self) -> str:
         """
-        Return the canonical GridForge element type.
+        Return the canonical GridForge model type.
         """
         return self.TYPE
 
     # ============================================================
-    # TERMINALS
+    # POSITIVE-SEQUENCE PARAMETERS
     # ============================================================
 
     @property
-    def h1_terminal(self) -> Terminal:
+    def r1(self) -> float:
         """
-        Return the authoritative H1 terminal.
+        Return positive-sequence resistance.
+
+        Canonical storage is Branch.r.
         """
-        return self._h1_terminal
+        return self.r
+
+    @r1.setter
+    def r1(self, value: float) -> None:
+        """
+        Set positive-sequence resistance.
+
+        Canonical storage is Branch.r.
+        """
+        self.r = value
 
     @property
-    def h2_terminal(self) -> Terminal:
+    def x1(self) -> float:
         """
-        Return the authoritative H2 terminal.
+        Return positive-sequence reactance.
+
+        Canonical storage is Branch.x.
         """
-        return self._h2_terminal
+        return self.x
+
+    @x1.setter
+    def x1(self, value: float) -> None:
+        """
+        Set positive-sequence reactance.
+
+        Canonical storage is Branch.x.
+        """
+        self.x = value
 
     @property
-    def x1_terminal(self) -> Terminal:
+    def b1(self) -> float:
         """
-        Return the authoritative X1 terminal.
+        Return positive-sequence shunt susceptance.
+
+        Canonical storage is Branch.b.
         """
-        return self._x1_terminal
+        return self.b
+
+    @b1.setter
+    def b1(self, value: float) -> None:
+        """
+        Set positive-sequence shunt susceptance.
+
+        Canonical storage is Branch.b.
+        """
+        self.b = value
+
+    # ============================================================
+    # CABLE LENGTH
+    # ============================================================
 
     @property
-    def x2_terminal(self) -> Terminal:
+    def length_km(self) -> float | None:
         """
-        Return the authoritative X2 terminal.
+        Return physical cable length in kilometres.
         """
-        return self._x2_terminal
+        return self._length_km
 
-    @property
-    def primary_terminals(
+    @length_km.setter
+    def length_km(
         self,
-    ) -> tuple[Terminal, Terminal]:
-        """
-        Return primary H1/H2 terminals.
-        """
-        return (
-            self._h1_terminal,
-            self._h2_terminal,
-        )
-
-    @property
-    def secondary_terminals(
-        self,
-    ) -> tuple[Terminal, Terminal]:
-        """
-        Return secondary X1/X2 terminals.
-        """
-        return (
-            self._x1_terminal,
-            self._x2_terminal,
-        )
-
-    @property
-    def terminals(
-        self,
-    ) -> tuple[
-        Terminal,
-        Terminal,
-        Terminal,
-        Terminal,
-    ]:
-        """
-        Return all authoritative terminals.
-
-        Order:
-
-            H1
-            H2
-            X1
-            X2
-        """
-        return (
-            self._h1_terminal,
-            self._h2_terminal,
-            self._x1_terminal,
-            self._x2_terminal,
-        )
-
-    # ============================================================
-    # ENDPOINT ACCESS
-    # ============================================================
-
-    @property
-    def h1_endpoint(self) -> Any | None:
-        """
-        Return the endpoint owned by H1 Terminal.
-        """
-        return self._h1_terminal.endpoint
-
-    @property
-    def h2_endpoint(self) -> Any | None:
-        """
-        Return the endpoint owned by H2 Terminal.
-        """
-        return self._h2_terminal.endpoint
-
-    @property
-    def x1_endpoint(self) -> Any | None:
-        """
-        Return the endpoint owned by X1 Terminal.
-        """
-        return self._x1_terminal.endpoint
-
-    @property
-    def x2_endpoint(self) -> Any | None:
-        """
-        Return the endpoint owned by X2 Terminal.
-        """
-        return self._x2_terminal.endpoint
-
-    # ============================================================
-    # ENDPOINT MUTATION
-    # ============================================================
-
-    def connect_h1(
-        self,
-        endpoint: Any,
+        value: float | None,
     ) -> None:
-        """
-        Attach an endpoint to H1.
-        """
-        self._h1_terminal.attach(
-            endpoint
+        self._length_km = self._validate_optional_positive(
+            value,
+            "length_km",
         )
-
-    def connect_h2(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """
-        Attach an endpoint to H2.
-        """
-        self._h2_terminal.attach(
-            endpoint
-        )
-
-    def connect_x1(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """
-        Attach an endpoint to X1.
-        """
-        self._x1_terminal.attach(
-            endpoint
-        )
-
-    def connect_x2(
-        self,
-        endpoint: Any,
-    ) -> None:
-        """
-        Attach an endpoint to X2.
-        """
-        self._x2_terminal.attach(
-            endpoint
-        )
-
-    def disconnect_h1(self) -> None:
-        """
-        Detach H1.
-        """
-        self._h1_terminal.detach()
-
-    def disconnect_h2(self) -> None:
-        """
-        Detach H2.
-        """
-        self._h2_terminal.detach()
-
-    def disconnect_x1(self) -> None:
-        """
-        Detach X1.
-        """
-        self._x1_terminal.detach()
-
-    def disconnect_x2(self) -> None:
-        """
-        Detach X2.
-        """
-        self._x2_terminal.detach()
-
-    def disconnect_all(self) -> None:
-        """
-        Detach all CVT terminals.
-        """
-        for terminal in self.terminals:
-            terminal.detach()
 
     # ============================================================
-    # PRIMARY VOLTAGE
+    # ZERO-SEQUENCE PARAMETERS
     # ============================================================
 
     @property
-    def rated_primary_voltage_kv(self) -> float:
+    def r0(self) -> float | None:
         """
-        Return rated primary voltage in kV.
+        Return zero-sequence series resistance.
         """
-        return self._rated_primary_voltage_kv
+        return self._r0
 
-    @rated_primary_voltage_kv.setter
-    def rated_primary_voltage_kv(
+    @r0.setter
+    def r0(
         self,
-        value: float,
+        value: float | None,
     ) -> None:
-        self._rated_primary_voltage_kv = (
-            self._validate_positive(
+        self._r0 = self._validate_optional_finite(
+            value,
+            "r0",
+        )
+
+    @property
+    def x0(self) -> float | None:
+        """
+        Return zero-sequence series reactance.
+        """
+        return self._x0
+
+    @x0.setter
+    def x0(
+        self,
+        value: float | None,
+    ) -> None:
+        self._x0 = self._validate_optional_finite(
+            value,
+            "x0",
+        )
+
+    @property
+    def b0(self) -> float | None:
+        """
+        Return zero-sequence shunt susceptance.
+        """
+        return self._b0
+
+    @b0.setter
+    def b0(
+        self,
+        value: float | None,
+    ) -> None:
+        self._b0 = self._validate_optional_finite(
+            value,
+            "b0",
+        )
+
+    # ============================================================
+    # RATED VOLTAGE
+    # ============================================================
+
+    @property
+    def rated_voltage_kv(self) -> float | None:
+        """
+        Return cable rated voltage in kV.
+        """
+        return self._rated_voltage_kv
+
+    @rated_voltage_kv.setter
+    def rated_voltage_kv(
+        self,
+        value: float | None,
+    ) -> None:
+        self._rated_voltage_kv = (
+            self._validate_optional_positive(
                 value,
-                "rated_primary_voltage_kv",
+                "rated_voltage_kv",
             )
         )
 
     # ============================================================
-    # SECONDARY VOLTAGE
+    # RATED CURRENT
     # ============================================================
 
     @property
-    def rated_secondary_voltage_v(self) -> float:
+    def rated_current_a(self) -> float | None:
         """
-        Return rated secondary voltage in volts.
+        Return cable rated current in amperes.
         """
-        return self._rated_secondary_voltage_v
+        return self._rated_current_a
 
-    @rated_secondary_voltage_v.setter
-    def rated_secondary_voltage_v(
+    @rated_current_a.setter
+    def rated_current_a(
         self,
-        value: float,
+        value: float | None,
     ) -> None:
-        self._rated_secondary_voltage_v = (
-            self._validate_positive(
+        self._rated_current_a = (
+            self._validate_optional_positive(
                 value,
-                "rated_secondary_voltage_v",
+                "rated_current_a",
             )
         )
 
     # ============================================================
-    # VOLTAGE RATIO
+    # SEQUENCE PARAMETERS
     # ============================================================
 
-    @property
-    def voltage_ratio(self) -> float:
-        """
-        Return nominal primary-to-secondary voltage ratio.
-
-        Primary voltage is stored in kV and secondary voltage
-        is stored in V, so the primary value is converted to V.
-        """
-        return (
-            self._rated_primary_voltage_kv * 1000.0
-            / self._rated_secondary_voltage_v
-        )
-
-    @property
-    def ratio(self) -> float:
-        """
-        Return nominal CVT voltage ratio.
-
-        Alias for voltage_ratio.
-        """
-        return self.voltage_ratio
-
-    # ============================================================
-    # ACCURACY CLASS
-    # ============================================================
-
-    @property
-    def accuracy_class(self) -> str:
-        """
-        Return the CVT accuracy class.
-        """
-        return self._accuracy_class
-
-    @accuracy_class.setter
-    def accuracy_class(
+    def positive_sequence_parameters(
         self,
-        value: str,
-    ) -> None:
-        self._accuracy_class = (
-            self._validate_accuracy_class(
-                value
-            )
-        )
-
-    # ============================================================
-    # BURDEN
-    # ============================================================
-
-    @property
-    def rated_burden_va(self) -> float:
+    ) -> dict[str, float]:
         """
-        Return rated secondary burden in VA.
-        """
-        return self._rated_burden_va
+        Return canonical positive-sequence parameters.
 
-    @rated_burden_va.setter
-    def rated_burden_va(
+        The returned values are aliases of Branch-owned state.
+        """
+        return {
+            "r": self.r,
+            "x": self.x,
+            "b": self.b,
+        }
+
+    def zero_sequence_parameters(
         self,
-        value: float,
-    ) -> None:
-        self._rated_burden_va = (
-            self._validate_non_negative(
-                value,
-                "rated_burden_va",
-            )
-        )
+    ) -> dict[str, float | None]:
+        """
+        Return Cable zero-sequence parameters.
 
-    @property
-    def burden_va(self) -> float:
+        Zero-sequence state is Cable-specific.
         """
-        Return rated burden in VA.
-
-        Engineering alias for rated_burden_va.
-        """
-        return self._rated_burden_va
-
-    @burden_va.setter
-    def burden_va(
-        self,
-        value: float,
-    ) -> None:
-        self._rated_burden_va = (
-            self._validate_non_negative(
-                value,
-                "burden_va",
-            )
-        )
-
-    # ============================================================
-    # POLARITY
-    # ============================================================
-
-    @property
-    def polarity(self) -> CVTPolarity:
-        """
-        Return the CVT polarity convention.
-        """
-        return self._polarity
-
-    @polarity.setter
-    def polarity(
-        self,
-        value: CVTPolarity | str,
-    ) -> None:
-        self._polarity = (
-            self._validate_polarity(
-                value
-            )
-        )
-
-    # ============================================================
-    # FREQUENCY
-    # ============================================================
-
-    @property
-    def frequency_hz(self) -> float:
-        """
-        Return rated frequency in Hz.
-        """
-        return self._frequency_hz
-
-    @frequency_hz.setter
-    def frequency_hz(
-        self,
-        value: float,
-    ) -> None:
-        self._frequency_hz = (
-            self._validate_positive(
-                value,
-                "frequency_hz",
-            )
-        )
-
-    # ============================================================
-    # SERVICE STATE
-    # ============================================================
-
-    @property
-    def in_service(self) -> bool:
-        """
-        Return whether the CVT is in service.
-        """
-        return self._in_service
-
-    @in_service.setter
-    def in_service(
-        self,
-        value: bool,
-    ) -> None:
-        self._in_service = (
-            self._validate_bool(
-                value,
-                "in_service",
-            )
-        )
-
-    @property
-    def is_in_service(self) -> bool:
-        """
-        Return True when the CVT is in service.
-        """
-        return self._in_service
-
-    @property
-    def is_out_of_service(self) -> bool:
-        """
-        Return True when the CVT is out of service.
-        """
-        return not self._in_service
-
-    def put_in_service(self) -> None:
-        """
-        Place the CVT in service.
-        """
-        self._in_service = True
-
-    def take_out_of_service(self) -> None:
-        """
-        Take the CVT out of service.
-        """
-        self._in_service = False
-
-    def set_in_service(
-        self,
-        value: bool,
-    ) -> None:
-        """
-        Set CVT service state.
-        """
-        self._in_service = (
-            self._validate_bool(
-                value,
-                "in_service",
-            )
-        )
-
-    # ============================================================
-    # CONNECTIVITY
-    # ============================================================
-
-    @property
-    def is_primary_connected(self) -> bool:
-        """
-        Return True when H1 and H2 are both connected.
-        """
-        return (
-            self._h1_terminal.is_connected
-            and self._h2_terminal.is_connected
-        )
-
-    @property
-    def is_secondary_connected(self) -> bool:
-        """
-        Return True when X1 and X2 are both connected.
-        """
-        return (
-            self._x1_terminal.is_connected
-            and self._x2_terminal.is_connected
-        )
-
-    @property
-    def is_connected(self) -> bool:
-        """
-        Return True when all four CVT terminals are connected.
-        """
-        return all(
-            terminal.is_connected
-            for terminal in self.terminals
-        )
-
-    @property
-    def is_partially_connected(self) -> bool:
-        """
-        Return True when at least one but not all terminals
-        are connected.
-        """
-        states = tuple(
-            terminal.is_connected
-            for terminal in self.terminals
-        )
-
-        return any(states) and not all(states)
+        return {
+            "r0": self.r0,
+            "x0": self.x0,
+            "b0": self.b0,
+        }
 
     # ============================================================
     # VALIDATION
@@ -852,67 +524,71 @@ class CapacitiveVoltageTransformer(ElectricalObject):
 
     def validate_parameters(self) -> bool:
         """
-        Validate CVT-specific parameters.
+        Validate the complete Cable parameter hierarchy.
 
-        Terminal ownership is also checked here.
+        Order:
 
-        Network topology is deliberately not validated here.
+            Cable
+              |
+              v
+            Branch
+              |
+              v
+            ElectricalObject
         """
 
-        super().validate_parameters()
+        Branch.validate_parameters(self)
 
-        self._rated_primary_voltage_kv = (
-            self._validate_positive(
-                self._rated_primary_voltage_kv,
-                "rated_primary_voltage_kv",
+        self._validate_finite(
+            self.r,
+            "r1",
+        )
+
+        self._validate_finite(
+            self.x,
+            "x1",
+        )
+
+        self._validate_finite(
+            self.b,
+            "b1",
+        )
+
+        self._r0 = self._validate_optional_finite(
+            self._r0,
+            "r0",
+        )
+
+        self._x0 = self._validate_optional_finite(
+            self._x0,
+            "x0",
+        )
+
+        self._b0 = self._validate_optional_finite(
+            self._b0,
+            "b0",
+        )
+
+        self._length_km = (
+            self._validate_optional_positive(
+                self._length_km,
+                "length_km",
             )
         )
 
-        self._rated_secondary_voltage_v = (
-            self._validate_positive(
-                self._rated_secondary_voltage_v,
-                "rated_secondary_voltage_v",
+        self._rated_voltage_kv = (
+            self._validate_optional_positive(
+                self._rated_voltage_kv,
+                "rated_voltage_kv",
             )
         )
 
-        self._accuracy_class = (
-            self._validate_accuracy_class(
-                self._accuracy_class
+        self._rated_current_a = (
+            self._validate_optional_positive(
+                self._rated_current_a,
+                "rated_current_a",
             )
         )
-
-        self._rated_burden_va = (
-            self._validate_non_negative(
-                self._rated_burden_va,
-                "rated_burden_va",
-            )
-        )
-
-        self._polarity = (
-            self._validate_polarity(
-                self._polarity
-            )
-        )
-
-        self._frequency_hz = (
-            self._validate_positive(
-                self._frequency_hz,
-                "frequency_hz",
-            )
-        )
-
-        self._in_service = (
-            self._validate_bool(
-                self._in_service,
-                "in_service",
-            )
-        )
-
-        for terminal in self.terminals:
-            if terminal.owner is not self:
-                raise ValueError(
-                    f"CVT '{self.id}' terminal ownership is invalid."
-                )
 
         return True
 
@@ -922,69 +598,29 @@ class CapacitiveVoltageTransformer(ElectricalObject):
 
     def summary(self) -> dict[str, Any]:
         """
-        Return structured CVT diagnostic information.
+        Return Cable-local diagnostics.
 
-        Endpoint information is obtained from Terminal.
+        No Network topology or solved numerical state is included.
         """
 
-        return {
-            "id": self.id,
-            "name": self.name,
-            "type": self.TYPE,
+        summary = super().summary()
 
-            "rated_primary_voltage_kv":
-                self._rated_primary_voltage_kv,
+        summary.update(
+            {
+                "type": self.TYPE,
+                "length_km": self.length_km,
+                "r1": self.r1,
+                "x1": self.x1,
+                "b1": self.b1,
+                "r0": self.r0,
+                "x0": self.x0,
+                "b0": self.b0,
+                "rated_voltage_kv": self.rated_voltage_kv,
+                "rated_current_a": self.rated_current_a,
+            }
+        )
 
-            "rated_secondary_voltage_v":
-                self._rated_secondary_voltage_v,
-
-            "voltage_ratio":
-                self.voltage_ratio,
-
-            "accuracy_class":
-                self._accuracy_class,
-
-            "rated_burden_va":
-                self._rated_burden_va,
-
-            "polarity":
-                self._polarity.value,
-
-            "frequency_hz":
-                self._frequency_hz,
-
-            "in_service":
-                self._in_service,
-
-            "h1_endpoint":
-                self._endpoint_identifier(
-                    self._h1_terminal.endpoint
-                ),
-
-            "h2_endpoint":
-                self._endpoint_identifier(
-                    self._h2_terminal.endpoint
-                ),
-
-            "x1_endpoint":
-                self._endpoint_identifier(
-                    self._x1_terminal.endpoint
-                ),
-
-            "x2_endpoint":
-                self._endpoint_identifier(
-                    self._x2_terminal.endpoint
-                ),
-
-            "is_primary_connected":
-                self.is_primary_connected,
-
-            "is_secondary_connected":
-                self.is_secondary_connected,
-
-            "is_connected":
-                self.is_connected,
-        }
+        return summary
 
     # ============================================================
     # REPRESENTATION
@@ -996,11 +632,15 @@ class CapacitiveVoltageTransformer(ElectricalObject):
         """
 
         return (
-            f"<CVT "
+            f"<Cable "
             f"id={self.id}, "
-            f"ratio={self.voltage_ratio:.6g}, "
-            f"accuracy={self._accuracy_class}, "
-            f"in_service={self._in_service}>"
+            f"length_km={self.length_km}, "
+            f"r1={self.r1}, "
+            f"x1={self.x1}, "
+            f"b1={self.b1}, "
+            f"rated_voltage_kv={self.rated_voltage_kv}, "
+            f"rated_current_a={self.rated_current_a}, "
+            f"in_service={self.in_service}>"
         )
 
     # ============================================================
@@ -1013,11 +653,11 @@ class CapacitiveVoltageTransformer(ElectricalObject):
         name: str,
     ) -> float:
         """
-        Convert to float and require a finite value.
+        Validate and return a finite numeric value.
         """
 
         try:
-            numeric = float(value)
+            value = float(value)
         except (
             TypeError,
             ValueError,
@@ -1026,165 +666,57 @@ class CapacitiveVoltageTransformer(ElectricalObject):
                 f"{name} must be numeric."
             ) from exc
 
-        if not math.isfinite(numeric):
+        if not math.isfinite(value):
             raise ValueError(
                 f"{name} must be finite."
             )
 
-        return numeric
+        return value
 
     @classmethod
-    def _validate_positive(
+    def _validate_optional_finite(
         cls,
-        value: float,
+        value: float | None,
         name: str,
-    ) -> float:
+    ) -> float | None:
         """
-        Validate a finite positive numeric value.
+        Validate an optional finite numeric value.
         """
 
-        numeric = cls._validate_finite(
+        if value is None:
+            return None
+
+        return cls._validate_finite(
             value,
             name,
         )
 
-        if numeric <= 0.0:
+    @classmethod
+    def _validate_optional_positive(
+        cls,
+        value: float | None,
+        name: str,
+    ) -> float | None:
+        """
+        Validate an optional finite positive numeric value.
+        """
+
+        if value is None:
+            return None
+
+        value = cls._validate_finite(
+            value,
+            name,
+        )
+
+        if value <= 0.0:
             raise ValueError(
                 f"{name} must be greater than zero."
             )
 
-        return numeric
-
-    @classmethod
-    def _validate_non_negative(
-        cls,
-        value: float,
-        name: str,
-    ) -> float:
-        """
-        Validate a finite non-negative numeric value.
-        """
-
-        numeric = cls._validate_finite(
-            value,
-            name,
-        )
-
-        if numeric < 0.0:
-            raise ValueError(
-                f"{name} cannot be negative."
-            )
-
-        return numeric
-
-    @staticmethod
-    def _validate_bool(
-        value: bool,
-        name: str,
-    ) -> bool:
-        """
-        Validate a strict boolean value.
-        """
-
-        if not isinstance(
-            value,
-            bool,
-        ):
-            raise TypeError(
-                f"{name} must be boolean."
-            )
-
         return value
-
-    @staticmethod
-    def _validate_accuracy_class(
-        value: str,
-    ) -> str:
-        """
-        Validate an accuracy-class identifier.
-        """
-
-        if not isinstance(
-            value,
-            str,
-        ):
-            raise TypeError(
-                "accuracy_class must be a string."
-            )
-
-        value = value.strip()
-
-        if not value:
-            raise ValueError(
-                "accuracy_class cannot be empty."
-            )
-
-        return value
-
-    @staticmethod
-    def _validate_polarity(
-        value: CVTPolarity | str,
-    ) -> CVTPolarity:
-        """
-        Validate and normalize CVT polarity.
-        """
-
-        if isinstance(
-            value,
-            CVTPolarity,
-        ):
-            return value
-
-        if isinstance(
-            value,
-            str,
-        ):
-            try:
-                return CVTPolarity(value)
-            except ValueError:
-                try:
-                    return CVTPolarity[
-                        value
-                    ]
-                except KeyError as exc:
-                    raise ValueError(
-                        "polarity must be a valid "
-                        "CVTPolarity value."
-                    ) from exc
-
-        raise TypeError(
-            "polarity must be a CVTPolarity or string."
-        )
-
-    @staticmethod
-    def _endpoint_identifier(
-        endpoint: Any | None,
-    ) -> Any | None:
-        """
-        Return an endpoint identifier for diagnostics only.
-
-        No topology resolution is performed.
-        """
-
-        if endpoint is None:
-            return None
-
-        return getattr(
-            endpoint,
-            "id",
-            endpoint,
-        )
-
-
-# ============================================================
-# Public aliases
-# ============================================================
-
-CVT = CapacitiveVoltageTransformer
 
 
 __all__ = [
-    "CVTPolarity",
-    "CapacitiveVoltageTransformer",
-    "CVT",
+    "Cable",
 ]
