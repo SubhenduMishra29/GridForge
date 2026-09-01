@@ -11,17 +11,22 @@
 """
 Typed registry for canonical electrical Network equipment.
 
-Registry owns membership only.
+Registry owns equipment membership only.
 
 It does not:
 - build topology;
-- validate electrical connectivity;
-- calculate numerical values;
-- manage UI/SLD state;
-- manage plugins.
+- manage topology validity or revision;
+- manage BusIndex;
+- construct numerical matrices;
+- own UI/SLD state;
+- manage plugin lifecycle.
+
+Branch is an abstract/common equipment concept. The `branches`
+collection is therefore derived from the concrete branch collections
+and is never independently registered.
 """
 
-from __future__ import annotations
+from **future** import annotations
 
 from typing import Any
 
@@ -31,18 +36,21 @@ class NetworkRegistry:
 ```
 def __init__(self) -> None:
     self._buses: dict[str, Any] = {}
+
     self._grids: dict[str, Any] = {}
     self._generators: dict[str, Any] = {}
     self._synchronous_machines: dict[str, Any] = {}
+
     self._loads: dict[str, Any] = {}
     self._motors: dict[str, Any] = {}
+
     self._shunts: dict[str, Any] = {}
     self._capacitors: dict[str, Any] = {}
     self._reactors: dict[str, Any] = {}
+
     self._solar: dict[str, Any] = {}
     self._batteries: dict[str, Any] = {}
 
-    self._branches: dict[str, Any] = {}
     self._lines: dict[str, Any] = {}
     self._cables: dict[str, Any] = {}
     self._transformers: dict[str, Any] = {}
@@ -57,8 +65,10 @@ def __init__(self) -> None:
 # ========================================================
 
 @staticmethod
-def _values(collection: dict[str, Any]) -> tuple[Any, ...]:
-    """Return a read-only snapshot of a collection."""
+def _values(
+    collection: dict[str, Any],
+) -> tuple[Any, ...]:
+    """Return an immutable collection snapshot."""
 
     return tuple(collection.values())
 
@@ -107,10 +117,6 @@ def batteries(self) -> tuple[Any, ...]:
     return self._values(self._batteries)
 
 @property
-def branches(self) -> tuple[Any, ...]:
-    return self._values(self._branches)
-
-@property
 def lines(self) -> tuple[Any, ...]:
     return self._values(self._lines)
 
@@ -121,6 +127,20 @@ def cables(self) -> tuple[Any, ...]:
 @property
 def transformers(self) -> tuple[Any, ...]:
     return self._values(self._transformers)
+
+@property
+def branches(self) -> tuple[Any, ...]:
+    """
+    Return the derived aggregate of all concrete Branch models.
+
+    Branches are not independently registered.
+    """
+
+    return (
+        *self.lines,
+        *self.cables,
+        *self.transformers,
+    )
 
 @property
 def breakers(self) -> tuple[Any, ...]:
@@ -139,7 +159,7 @@ def fuses(self) -> tuple[Any, ...]:
     return self._values(self._fuses)
 
 # ========================================================
-# REGISTRATION
+# INTERNAL REGISTRATION
 # ========================================================
 
 @staticmethod
@@ -190,7 +210,7 @@ def _remove(
     del collection[object_id]
 
 # ========================================================
-# BUS / INJECTION EQUIPMENT
+# BUS
 # ========================================================
 
 def add_bus(self, element: Any) -> None:
@@ -198,6 +218,10 @@ def add_bus(self, element: Any) -> None:
 
 def remove_bus(self, element: Any) -> None:
     self._remove(self._buses, element)
+
+# ========================================================
+# SOURCE / MACHINE EQUIPMENT
+# ========================================================
 
 def add_grid(self, element: Any) -> None:
     self._add(self._grids, element)
@@ -217,6 +241,10 @@ def add_synchronous_machine(self, element: Any) -> None:
 def remove_synchronous_machine(self, element: Any) -> None:
     self._remove(self._synchronous_machines, element)
 
+# ========================================================
+# LOAD / MACHINE EQUIPMENT
+# ========================================================
+
 def add_load(self, element: Any) -> None:
     self._add(self._loads, element)
 
@@ -228,6 +256,10 @@ def add_motor(self, element: Any) -> None:
 
 def remove_motor(self, element: Any) -> None:
     self._remove(self._motors, element)
+
+# ========================================================
+# SHUNT EQUIPMENT
+# ========================================================
 
 def add_shunt(self, element: Any) -> None:
     self._add(self._shunts, element)
@@ -247,6 +279,10 @@ def add_reactor(self, element: Any) -> None:
 def remove_reactor(self, element: Any) -> None:
     self._remove(self._reactors, element)
 
+# ========================================================
+# ENERGY EQUIPMENT
+# ========================================================
+
 def add_solar(self, element: Any) -> None:
     self._add(self._solar, element)
 
@@ -260,14 +296,8 @@ def remove_battery(self, element: Any) -> None:
     self._remove(self._batteries, element)
 
 # ========================================================
-# BRANCH EQUIPMENT
+# CONCRETE BRANCH EQUIPMENT
 # ========================================================
-
-def add_branch(self, element: Any) -> None:
-    self._add(self._branches, element)
-
-def remove_branch(self, element: Any) -> None:
-    self._remove(self._branches, element)
 
 def add_line(self, element: Any) -> None:
     self._add(self._lines, element)
@@ -338,7 +368,6 @@ def get_by_id(
         "reactor": self._reactors,
         "solar": self._solar,
         "battery": self._batteries,
-        "branch": self._branches,
         "line": self._lines,
         "cable": self._cables,
         "transformer": self._transformers,
@@ -349,6 +378,16 @@ def get_by_id(
     }
 
     key = element_type.strip().lower()
+
+    if key == "branch":
+        for branch in self.branches:
+            if self._id(branch) == str(object_id):
+                return branch
+
+        raise KeyError(
+            f"Network element is not registered: "
+            f"branch:{object_id}"
+        )
 
     if key not in collections:
         raise KeyError(
