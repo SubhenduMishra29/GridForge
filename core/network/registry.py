@@ -26,7 +26,7 @@ collection is therefore derived from the concrete branch collections
 and is never independently registered.
 """
 
-from **future** import annotations
+from __future__ import annotations
 
 from typing import Any
 
