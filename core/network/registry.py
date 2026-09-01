@@ -33,7 +33,7 @@ from typing import Any
 class NetworkRegistry:
 """Store canonical Network equipment by stable object ID."""
 
-```
+ 
 def __init__(self) -> None:
     self._buses: dict[str, Any] = {}
 
@@ -401,6 +401,6 @@ def get_by_id(
             f"Network element is not registered: "
             f"{element_type}:{object_id}"
         ) from exc
-```
+ 
 
 __all__ = ["NetworkRegistry"]
