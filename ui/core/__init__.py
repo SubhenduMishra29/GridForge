@@ -1,44 +1,21 @@
 # ============================================================
 # File: ui/core/__init__.py
 # GridForge V2 — UI Core Package
+# Author: Subhendu Mishra
 # ============================================================
-"""
-GridForge V2 UI Core
-====================
+"""GridForge V2 UI Core — Presentation infrastructure.
 
-The ``ui.core`` package provides the foundational infrastructure
-and coordination services shared by the GridForge graphical UI.
+The ``ui.core`` package provides foundational infrastructure and
+coordination services shared by the graphical UI.
 
-UI Core is an infrastructure layer.
+UI Core belongs to the Presentation layer. It may own UI state and
+UI infrastructure, but it does not own Application or Core/domain
+truth.
 
-It provides stable services and contracts for:
+Current architectural position
+------------------------------
 
-    - UI/application controller access
-    - command execution and history
-    - selection management
-    - plugin infrastructure
-    - panel registration
-    - renderer registration
-    - tool management
-    - geometric snapping
-    - Qt abstraction
-
-UI Core does NOT own engineering truth.
-
-Engineering state remains authoritative in:
-
-    core.model
-    core.network
-    core.analysis
-    core.solver
-    core.protection
-    core.simulation
-    ...
-
-Architectural Position
-----------------------
-
-    GridForge UI
+    Presentation UI
         │
         ├── Canvas
         ├── Tools
@@ -49,25 +26,56 @@ Architectural Position
                 ▼
              ui.core
                 │
-        ┌───────┼────────┐
-        ▼       ▼        ▼
-    Services  Registries Contracts
-        │
-        ▼
-    Controllers
-        │
-        ▼
-    GridForge Core
+                ▼
+    Presentation Controllers / UI Services
+                │
+                ▼
+    [future explicit UI ↔ Application interface]
+                │
+                ▼
+            Application
+                │
+                ▼
+               Core
 
+The future UI↔Application interface is intentionally not implemented
+in this package during the current UI-focused development phase.
+
+Responsibilities
+----------------
+
+UI Core provides stable UI infrastructure and contracts for:
+
+    - Presentation/UI controller access
+    - UI command infrastructure
+    - selection management
+    - plugin infrastructure
+    - panel registration
+    - renderer registration
+    - tool management
+    - geometric snapping
+    - Qt abstraction
+
+UI Core does NOT own engineering truth.
+
+Engineering state remains authoritative in the Core domain:
+
+    core.model
+    core.network
+    core.analysis
+    core.solver
+    core.protection
+    core.simulation
+    ...
 
 Ownership Boundary
 ------------------
 
-UI Core may own or coordinate UI/application state such as:
+UI Core may own or coordinate UI state such as:
 
     - active tool
-    - selection
-    - command history
+    - selection projection/state
+    - UI command history
     - plugin lifecycle
     - renderer registration
     - panel registration
@@ -88,8 +96,8 @@ UI Core must never become the authoritative owner of:
     - simulation state
     - persistent engineering state
 
-The Controller/Core remains authoritative for engineering
-operations and engineering state.
+The Application layer will provide the future controlled bridge
+between Presentation intent and Core mutation.
 
 Qt Boundary
 -----------
@@ -100,177 +108,36 @@ All Qt dependencies used by the UI subsystem must pass through:
 
     ui.core.qt
 
-Concrete UI modules must not directly import:
-
-    PySide6
-    PyQt5
-    PyQt6
-    PySide2
-
-The ``ui.core`` package itself does not re-export Qt classes.
-Consumers requiring Qt types should explicitly import them from:
-
-    ui.core.qt
+Concrete UI modules must not directly import PySide6, PyQt5,
+PyQt6, or PySide2.
 
 Public Service Boundary
 -----------------------
 
-The package exposes stable UI infrastructure services.
-
-Current services include:
+Current UI infrastructure services include:
 
     CommandManager
     SelectionManager
 
-Additional UI infrastructure is exposed through its dedicated
-modules and registries rather than through a universal manager.
+Additional infrastructure remains exposed through dedicated
+modules and focused registries rather than a universal manager.
 
 Design Principles
 -----------------
 
-1. Core remains authoritative.
-
+1. Core remains authoritative for engineering truth.
 2. UI state must not become engineering state.
-
-3. Qt remains behind a single abstraction boundary.
-
-4. Registries remain focused on their respective responsibilities.
-
-5. Plugin loading remains explicit.
-
-6. Concrete plugins and renderers are not implicitly imported
-   by this package.
-
-7. Command execution remains independent of Qt.
-
-8. Selection is a projection of authoritative Controller state.
-
-9. UI infrastructure must remain lightweight.
-
-10. Dependencies must remain acyclic.
-
-11. No engineering computation belongs in ``ui.core``.
-
-12. No duplicate engineering state belongs in ``ui.core``.
-
-Future Direction
-----------------
-
-The UI Core is intended to evolve into a stable infrastructure
-layer supporting the complete GridForge V2 GUI.
-
-Future capabilities may include:
-
-    - unified UI service context
-    - command registry and command discovery
-    - keyboard shortcut infrastructure
-    - workspace management
-    - multi-canvas context management
-    - navigation services
-    - panel/dock registration
-    - UI event infrastructure
-    - application UI state management
-    - renderer lifecycle management
-    - tool lifecycle management
-    - plugin dependency resolution
-    - plugin capability discovery
-    - persistent UI preferences
-    - theme and presentation services
-    - context-sensitive action infrastructure
-    - UI diagnostics and service health reporting
-
-These extensions must preserve the fundamental boundary:
-
-    UI Infrastructure
-          │
-          ▼
-    Controller
-          │
-          ▼
-    GridForge Core
-
-UI Core must never evolve into a second application Core.
-
-Package Philosophy
-------------------
-
-The ``ui.core`` package is deliberately small in architectural
-scope but broad in infrastructural usefulness.
-
-It should provide the mechanisms that higher-level UI components
-need without embedding the behavior of those components.
-
-For example:
-
-    SelectTool
-        │
-        ▼
-    SelectionManager
-        │
-        ▼
-    Controller
-        │
-        ▼
-    GridForge Core
-
-and:
-
-    UI Command
-        │
-        ▼
-    CommandManager
-        │
-        ▼
-    Controller
-        │
-        ▼
-    GridForge Core
-
-The infrastructure coordinates the interaction, while the
-authoritative application and engineering layers determine the
-result.
-
-Import Policy
--------------
-
-Prefer explicit imports from the relevant UI Core module:
-
-    from ui.core.command_manager import CommandManager
-    from ui.core.selection_manager import SelectionManager
-
-rather than importing implementation details from unrelated
-UI packages.
-
-The package-level namespace should remain intentionally small.
-
-This prevents ``ui.core`` from becoming a universal namespace
-or an implicit dependency aggregator.
-
-GridForge V2 Guiding Principle
-------------------------------
-
-    Shared UI infrastructure belongs in ``ui.core``.
-    Engineering truth belongs in ``core``.
-
-This boundary is fundamental to maintaining a scalable,
-testable, headless Core and a modular GUI architecture.
+3. Application is the future controlled Core↔UI bridge.
+4. Qt remains behind the UI Qt abstraction boundary.
+5. Registries remain focused on their responsibilities.
+6. Plugin loading remains explicit.
+7. Concrete plugins and renderers are not implicitly imported here.
+8. UI command infrastructure remains independent of Qt.
+9. Selection is a UI projection of authoritative state.
+10. UI infrastructure remains lightweight.
+11. Dependencies remain acyclic.
+12. No engineering computation belongs in ``ui.core``.
+13. No duplicate engineering truth belongs in ``ui.core``.
 """
 
-from __future__ import annotations
-
-# ============================================================
-# Public UI Core Services
-# ============================================================
-
-from ui.core.command_manager import CommandManager
-from ui.core.selection_manager import SelectionManager
-
-
-# ============================================================
-# Public API
-# ============================================================
-
-__all__ = [
-    "CommandManager",
-    "SelectionManager",
-]
+__all__: list[str] = []
