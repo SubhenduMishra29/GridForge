@@ -18,8 +18,9 @@ from .command_result import CommandResult
 class AddNetworkElementCommand(Command):
     """Application intent to add one element to a Network aggregate."""
 
-    element_type: str
-    element: Any
+    element_type: str = ""
+    element: Any = None
+    presentation_update_kind: str = "sld_projection_invalidated"
 
 
 class AddNetworkElementHandler:
@@ -29,6 +30,9 @@ class AddNetworkElementHandler:
         if network is None:
             raise ValueError("network must not be None")
         self._network = network
+
+    def __call__(self, command: AddNetworkElementCommand) -> CommandResult:
+        return self.handle(command)
 
     def handle(self, command: AddNetworkElementCommand) -> CommandResult:
         if not isinstance(command, AddNetworkElementCommand):
@@ -51,8 +55,8 @@ class AddNetworkElementHandler:
         except Exception as exc:
             return CommandResult.failure(str(exc))
 
-        return CommandResult.success(
-            payload={
+        return CommandResult.ok(
+            {
                 "element_type": command.element_type,
                 "element": command.element,
             }
