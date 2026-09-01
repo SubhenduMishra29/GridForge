@@ -4,12 +4,39 @@
 # File:
 #     ui/panels/properties_panel.py
 #
+# Author:
+#     Subhendu Mishra
+#
 # Purpose:
-#     Selected-object properties panel.
+#     Presentation-only properties inspector panel.
+#
+# Responsibilities:
+#     - Own the logical inspection target for this panel.
+#     - Expose panel lifecycle state through PanelBase.
+#     - Accept already-projected inspection data without owning it.
+#     - Provide a stable place for future property-edit intents.
 #
 # Architectural boundary:
-#     Logical panel only. The authoritative selected object and
-#     electrical model remain outside the panel.
+#     This panel is a Presentation-layer component.
+#     It does not own Core electrical truth, SLDDocument truth,
+#     persistence, commands, tools, selection authority, or Qt
+#     widget realization.
+#
+#     Read path:
+#         Core/Application event
+#             -> Projection / ViewState
+#             -> PropertiesPanel.set_target()
+#             -> presentation
+#
+#     Write path (future edits):
+#         user intent
+#             -> command / application boundary
+#             -> Core or authoritative document state
+#             -> event
+#             -> Projection / ViewState
+#             -> PropertiesPanel
+#
+#     The panel must never mutate the inspected target directly.
 # ============================================================
 
 from __future__ import annotations
@@ -20,11 +47,14 @@ from .panel_base import PanelBase
 
 
 class PropertiesPanel(PanelBase):
-    """
-    Properties inspector panel.
+    """Logical properties-inspector panel.
 
-    The panel stores only the currently inspected presentation
-    target. It does not own the underlying electrical object.
+    ``PropertiesPanel`` deliberately contains no Qt widgets.  The panel
+    lifecycle is logical and is realized by the presentation shell.
+
+    The inspection target is treated as externally owned presentation
+    data.  Holding a reference does not transfer ownership and does not
+    authorize mutation of the underlying Core or document object.
     """
 
     _PANEL_ID = "properties"
@@ -36,9 +66,13 @@ class PropertiesPanel(PanelBase):
         self._active = False
         self._target: Any | None = None
 
+    # --------------------------------------------------------
+    # Identity
+    # --------------------------------------------------------
+
     @property
     def panel_id(self) -> str:
-        """Return the stable panel identifier."""
+        """Return the stable logical panel identifier."""
         return self._PANEL_ID
 
     @property
@@ -46,45 +80,57 @@ class PropertiesPanel(PanelBase):
         """Return the human-readable panel title."""
         return self._TITLE
 
+    # --------------------------------------------------------
+    # Lifecycle state
+    # --------------------------------------------------------
+
     @property
     def is_created(self) -> bool:
-        """Return whether the panel lifecycle has started."""
+        """Return whether logical panel creation has completed."""
         return self._created
 
     @property
     def is_visible(self) -> bool:
-        """Return the current logical visibility state."""
+        """Return whether the panel is logically visible."""
         return self._visible
 
     @property
     def is_active(self) -> bool:
-        """Return the current logical activation state."""
+        """Return whether the panel is logically active."""
         return self._active
+
+    # --------------------------------------------------------
+    # Inspection target
+    # --------------------------------------------------------
 
     @property
     def target(self) -> Any | None:
-        """Return the current inspection target."""
+        """Return the current externally-owned inspection target.
+
+        The returned object is presentation input only.  Callers must not
+        use the panel as a route for direct domain mutation.
+        """
         return self._target
 
-    def set_target(
-        self,
-        target: Any | None,
-    ) -> None:
-        """
-        Set the object currently being inspected.
+    def set_target(self, target: Any | None) -> None:
+        """Set the current inspection target.
 
-        The panel stores only a reference; it does not become the
-        owner of the target.
+        ``target`` should normally be a projected/ViewState-compatible
+        representation.  The panel does not copy, mutate, or take
+        ownership of it.
         """
-
         self._target = target
 
     def clear_target(self) -> None:
         """Clear the current inspection target."""
         self._target = None
 
+    # --------------------------------------------------------
+    # Lifecycle hooks
+    # --------------------------------------------------------
+
     def on_create(self) -> None:
-        """Initialize panel-local transient state."""
+        """Initialize panel-local logical state."""
         self._created = True
 
     def on_show(self) -> None:
@@ -104,14 +150,13 @@ class PropertiesPanel(PanelBase):
         self._active = False
 
     def on_destroy(self) -> None:
-        """Release panel-local lifecycle state."""
+        """Release panel-local transient state."""
         self._target = None
         self._active = False
         self._visible = False
         self._created = False
 
     def reset(self) -> None:
-        """Reset the transient inspection target."""
+        """Reset transient inspection state without destroying the panel."""
         self._target = None
         self._active = False
-
