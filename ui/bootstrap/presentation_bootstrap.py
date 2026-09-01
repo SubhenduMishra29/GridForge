@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from application.application_context import ApplicationContext
+from ui.workspace.workspace_manager import WorkspaceManager
 
 
 @dataclass
@@ -23,7 +24,22 @@ class PresentationBootstrap:
     """Expose application-owned services to presentation composition."""
 
     application_context: ApplicationContext
+    workspace_manager: WorkspaceManager
     shell: Any = None
+
+    @classmethod
+    def create(
+        cls,
+        application_context: ApplicationContext,
+        workspace_manager: WorkspaceManager | None = None,
+    ) -> "PresentationBootstrap":
+        """Compose presentation infrastructure around an application context."""
+        if not isinstance(application_context, ApplicationContext):
+            raise TypeError("application_context must be ApplicationContext")
+        return cls(
+            application_context=application_context,
+            workspace_manager=workspace_manager or WorkspaceManager(),
+        )
 
     @property
     def command_dispatcher(self):
