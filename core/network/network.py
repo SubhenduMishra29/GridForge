@@ -38,7 +38,7 @@ from .topology import TopologyManager
 class Network:
 """Authoritative electrical network aggregate."""
 
-```
+ 
 def __init__(
     self,
     *,
@@ -511,6 +511,6 @@ def __repr__(self) -> str:
         f"index_valid={self.index_valid}"
         ")"
     )
-```
+ 
 
 __all__ = ["Network"]
