@@ -1,23 +1,42 @@
 # ============================================================
 # File: tests/ui/workspace/test_workspace.py
-# GridForge V2 — Workspace Tests
+# GridForge V2 — Workspace State Tests
 # Author: Subhendu Mishra
 # ============================================================
 
-from ui.workspace.workspace import Workspace
+from ui.workspace.panel_area import PanelArea
+from ui.workspace.workspace_definition import (
+    WorkspaceDefinition,
+    WorkspacePlacement,
+)
+from ui.workspace.workspace_layout import WorkspaceLayout
+from ui.workspace.workspace_state import WorkspaceState
 
 
-def test_workspace_has_stable_identity_and_active_document() -> None:
-    document = object()
-    workspace = Workspace("WS-001", document)
+def test_workspace_layout_is_immutable_and_lookupable() -> None:
+    placement = WorkspacePlacement("sld", PanelArea.CENTER)
+    layout = WorkspaceLayout.from_placements([placement])
 
-    assert workspace.workspace_id == "WS-001"
-    assert workspace.active_document is document
+    assert layout.get_area("sld") is PanelArea.CENTER
+    assert layout.get_placement("sld") == placement
 
 
-def test_workspace_can_track_active_surface_without_core_mutation() -> None:
-    workspace = Workspace("WS-001", object())
+def test_workspace_state_requires_logical_layout() -> None:
+    placement = WorkspacePlacement("sld", PanelArea.CENTER)
+    layout = WorkspaceLayout.from_placements([placement])
+    state = WorkspaceState("WS-001", layout)
 
-    workspace.set_active_surface("sld")
+    assert state.workspace_id == "WS-001"
+    assert state.layout is layout
 
-    assert workspace.active_surface == "sld"
+
+def test_workspace_definition_contains_only_logical_intent() -> None:
+    placement = WorkspacePlacement("sld", PanelArea.CENTER)
+    definition = WorkspaceDefinition(
+        workspace_id="WS-001",
+        title="Engineering",
+        placements=(placement,),
+    )
+
+    assert definition.workspace_id == "WS-001"
+    assert definition.placements == (placement,)
