@@ -3,43 +3,45 @@
 # GridForge V2 — SLD Presentation Surface
 # Author: Subhendu Mishra
 # ============================================================
-"""Concrete Qt host for the SLD presentation surface.
+"""SLD presentation coordinator attached to the canonical Canvas scene.
 
-This module is the realization boundary between the logical SLD document and
-its graphics scene. It owns Qt scene/view objects and delegates document
-projection to SLDSceneRenderer. It does not own electrical truth or workspace
-policy.
+Canvas owns the Qt viewport and QGraphicsScene. This class owns only the
+SLD presentation/rendering coordination and never creates a second viewport
+or scene.
 """
 
 from __future__ import annotations
 
-from ui.core.qt import QGraphicsScene, QGraphicsView, QWidget
+from typing import Any
 
 from .sld_document import SLDDocument
 from .sld_layout import SLDLayout
 from .sld_scene_renderer import SLDSceneRenderer
 
 
-class SLDSurface(QGraphicsView):
-    """Present one SLD document through a Qt graphics view."""
+class SLDSurface:
+    """Coordinate SLD presentation on an existing Canvas graphics view."""
 
-    def __init__(
-        self,
-        *,
-        layout: SLDLayout | None = None,
-        parent: QWidget | None = None,
-    ) -> None:
-        scene = QGraphicsScene()
-        super().__init__(scene, parent)
+    def __init__(self, graphics_view: Any, *, layout: SLDLayout | None = None) -> None:
+        if graphics_view is None:
+            raise ValueError("graphics_view must not be None")
+
+        scene = getattr(graphics_view, "graphics_scene", None)
+        if scene is None:
+            raise TypeError("graphics_view must expose graphics_scene")
+
+        self._graphics_view = graphics_view
         self._renderer = SLDSceneRenderer(scene, layout=layout)
         self._document_id: str | None = None
 
-        self.setObjectName("GridForgeSLDSurface")
-        self.setAcceptDrops(True)
+    @property
+    def graphics_view(self) -> Any:
+        """Return the injected canonical Canvas viewport."""
+        return self._graphics_view
 
     @property
     def renderer(self) -> SLDSceneRenderer:
-        """Return the presentation renderer owned by this surface."""
+        """Return the SLD presentation renderer."""
         return self._renderer
 
     @property
@@ -48,7 +50,7 @@ class SLDSurface(QGraphicsView):
         return self._document_id
 
     def present(self, document: SLDDocument) -> None:
-        """Render an SLD document without mutating the document itself."""
+        """Render an SLD document onto the existing Canvas scene."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument")
 
@@ -56,7 +58,7 @@ class SLDSurface(QGraphicsView):
         self._renderer.render(document.model)
 
     def clear_document(self) -> None:
-        """Remove all presentation items and detach the logical document."""
+        """Remove SLD presentation items and detach the logical document."""
         self._renderer.clear()
         self._document_id = None
 
