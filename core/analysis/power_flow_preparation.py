@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from core.model.injection import Injection
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
 
@@ -40,6 +41,16 @@ class PreparedPowerFlow:
 
 class PowerFlowPreparation:
     """Prepare Power Flow numerical contracts from Core state."""
+
+    _INJECTION_COLLECTIONS = (
+        "grids",
+        "generators",
+        "synchronous_machines",
+        "loads",
+        "motors",
+        "solar",
+        "batteries",
+    )
 
     def __init__(
         self,
@@ -124,32 +135,38 @@ class PowerFlowPreparation:
 
         return tuple(result)
 
-    @staticmethod
-    def _bus_power_spec(bus: Any) -> tuple[float, float, float | None, float | None]:
-        """Aggregate explicit connected operating specifications for a bus."""
+    def _bus_power_spec(
+        self,
+        bus: Any,
+    ) -> tuple[float, float, float | None, float | None]:
+        """Aggregate physical injection models attached to one bus."""
         p = 0.0
         q = 0.0
         q_min: float | None = None
         q_max: float | None = None
 
-        terminal = getattr(bus, "terminal", None)
-        connected = getattr(terminal, "connected_equipment", ()) if terminal else ()
+        for collection_name in self._INJECTION_COLLECTIONS:
+            for equipment in getattr(self.network, collection_name, ()):
+                if not isinstance(equipment, Injection):
+                    continue
+                if not getattr(equipment, "in_service", True):
+                    continue
 
-        for equipment in connected:
-            if not getattr(equipment, "in_service", True):
-                continue
-            get_power = getattr(equipment, "get_power", None)
-            if get_power is None:
-                continue
-            ep, eq = get_power()
-            p += float(ep)
-            q += float(eq)
-            if hasattr(equipment, "q_min"):
-                value = float(equipment.q_min)
-                q_min = value if q_min is None else q_min + value
-            if hasattr(equipment, "q_max"):
-                value = float(equipment.q_max)
-                q_max = value if q_max is None else q_max + value
+                terminal = getattr(equipment, "terminal", None)
+                endpoint = getattr(terminal, "endpoint", None)
+                if endpoint is not bus and getattr(endpoint, "id", None) != getattr(bus, "id", None):
+                    continue
+
+                ep, eq = equipment.get_power()
+                p += float(ep)
+                q += float(eq)
+
+                if hasattr(equipment, "q_min"):
+                    value = float(equipment.q_min)
+                    q_min = value if q_min is None else q_min + value
+                if hasattr(equipment, "q_max"):
+                    value = float(equipment.q_max)
+                    q_max = value if q_max is None else q_max + value
 
         return p, q, q_min, q_max
 
