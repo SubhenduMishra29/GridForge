@@ -1,3 +1,8 @@
+# ============================================================
+# File: ui/sld/__init__.py
+# GridForge V2 — SLD Presentation Subsystem
+# Author: Subhendu Mishra
+# ============================================================
 """GridForge V2 — SLD presentation subsystem.
 
 SLD is the first-class electrical visual projection/editing surface.
@@ -12,6 +17,7 @@ from .sld_controller import SLDController
 from .sld_layout import SLDLayout, SLDPlacement
 from .sld_projection import SLDProjection
 from .sld_projection_manager import SLDProjectionManager
+from .sld_read_synchronizer import SLDReadSynchronizer
 
 __all__ = [
     "SLDModel",
@@ -24,4 +30,5 @@ __all__ = [
     "SLDPlacement",
     "SLDProjection",
     "SLDProjectionManager",
+    "SLDReadSynchronizer",
 ]
