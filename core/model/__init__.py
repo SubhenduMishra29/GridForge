@@ -146,10 +146,11 @@ from .ct import (
     CurrentTransformer,
 )
 
-from .pt import (
-    PTPolarity,
-    PotentialTransformer,
-)
+from .pt import PT
+
+# Canonical PT implementation is PT; PotentialTransformer is its
+# compatibility alias. There is intentionally no second PT class.
+PotentialTransformer = PT
 
 from .cvt import CVT
 
@@ -210,12 +211,12 @@ __all__ = (
     # -----------------------------------------------------------------
     "CTPolarity",
     "CurrentTransformer",
-    "PTPolarity",
+    "PT",
     "PotentialTransformer",
     "CVT",
 
     # -----------------------------------------------------------------
-    # Protection device
+    # Protection device model
     # -----------------------------------------------------------------
     "Relay",
 )
