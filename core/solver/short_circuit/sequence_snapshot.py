@@ -1,6 +1,6 @@
 """Immutable sequence-network data prepared for short-circuit execution.
 
-The snapshot is deliberately detached from ``SequenceNetwork``.  It contains
+The snapshot is deliberately detached from ``SequenceNetwork``. It contains
 only defensive, immutable copies of sequence element impedances and optional
 sequence impedance matrices, so numerical execution cannot observe later
 mutations of the preparation container.
@@ -22,7 +22,7 @@ def _freeze_mapping(values: Mapping[Any, complex | None]) -> Mapping[Any, comple
     return MappingProxyType(dict(values))
 
 
-def _freeze_matrix(matrix: np.ndarray | None) -> ComplexMatrix | None:
+def _freeze_matrix(matrix: Any) -> ComplexMatrix | None:
     if matrix is None:
         return None
     array = np.asarray(matrix, dtype=complex)
@@ -52,6 +52,20 @@ class SequenceNetworkSnapshot:
         object.__setattr__(self, "negative_matrix", _freeze_matrix(self.negative_matrix))
         object.__setattr__(self, "zero_matrix", _freeze_matrix(self.zero_matrix))
 
+    @classmethod
+    def from_sequence_network(cls, sequence_network: Any) -> "SequenceNetworkSnapshot":
+        """Detach all supported sequence data from a preparation container."""
+        if sequence_network is None:
+            raise ValueError("Sequence network cannot be None.")
+        return cls(
+            positive=dict(getattr(sequence_network, "positive", {})),
+            negative=dict(getattr(sequence_network, "negative", {})),
+            zero=dict(getattr(sequence_network, "zero", {})),
+            positive_matrix=sequence_network.get_matrix("positive") if sequence_network.has_matrix("positive") else None,
+            negative_matrix=sequence_network.get_matrix("negative") if sequence_network.has_matrix("negative") else None,
+            zero_matrix=sequence_network.get_matrix("zero") if sequence_network.has_matrix("zero") else None,
+        )
+
     @staticmethod
     def _normalize_sequence(sequence: str) -> str:
         aliases = {
@@ -67,7 +81,8 @@ class SequenceNetworkSnapshot:
         return aliases[key]
 
     def get_impedance(self, element_id: Any, sequence: str) -> complex:
-        data = getattr(self, self._normalize_sequence(sequence))
+        sequence = self._normalize_sequence(sequence)
+        data = getattr(self, sequence)
         if element_id not in data:
             raise KeyError(f"No {sequence}-sequence impedance registered for element {element_id!r}.")
         value = data[element_id]
@@ -108,5 +123,5 @@ class SequenceNetworkSnapshot:
             if isinstance(index, bool) or not isinstance(index, (int, np.integer)):
                 raise TypeError(f"{name} must be an integer.")
             if not 0 <= int(index) < matrix.shape[0]:
-                raise IndexError(f"{name} index {index} is outside the valid matrix range.")
+                raise IndexError(f"{name} index is outside the valid matrix range.")
         return complex(matrix[int(from_bus), int(to_bus)])
