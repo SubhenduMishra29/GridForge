@@ -5,9 +5,10 @@
 # ============================================================
 """Headless publication boundary for Application events.
 
-The Core/Application event contract is deliberately UI-agnostic. This bus
-routes those events to registered consumers while keeping dispatch ownership
-inside the Application layer.
+The bus routes immutable Application events to registered consumers while
+keeping dispatch ownership inside the Application layer. Subscribers may
+subscribe to a concrete event type or to ApplicationEvent for an aggregate
+stream.
 """
 
 from __future__ import annotations
@@ -76,7 +77,11 @@ class ApplicationEventBus:
         event_type: type[ApplicationEvent],
     ) -> Iterable[EventHandler]:
         with self._lock:
-            return tuple(self._handlers.get(event_type, ()))
+            handlers: list[EventHandler] = []
+            for subscribed_type, registered in self._handlers.items():
+                if issubclass(event_type, subscribed_type):
+                    handlers.extend(registered)
+            return tuple(handlers)
 
 
 __all__ = ["ApplicationEventBus", "EventHandler"]
