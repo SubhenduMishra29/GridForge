@@ -4,51 +4,10 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
-GridForge V2 — Application Bootstrap
-=====================================
+"""Composition root for the headless GridForge Application layer.
 
-Composition root for the headless Application layer.
-
-This module constructs and wires the Application-layer objects
-against the authoritative Core Network.
-
-Composition
------------
-
-    Core Network
-        |
-        v
-    ApplicationContext
-        |
-        +----------------------+
-        |                      |
-        v                      v
-    ModelService        CommandManager
-        |                      |
-        v                      v
-    Model Handlers  <----------+
-        |
-        v
-    Application
-
-Responsibilities
-----------------
-- Accept the authoritative Core Network.
-- Construct ApplicationContext.
-- Construct ModelService against that Network.
-- Build the canonical model-command handler registry.
-- Construct CommandManager with that registry.
-- Construct and return the Application facade.
-
-This module does NOT:
-- create or replace the Core Network;
-- mutate Core state;
-- resolve EndpointReference values;
-- create Transactions;
-- execute commands;
-- manage undo/redo;
-- contain UI/Qt/SLD logic.
+The supplied Core Network remains authoritative. Bootstrap composes the
+Application mutation and read boundaries around that Network.
 """
 
 from __future__ import annotations
@@ -59,62 +18,32 @@ from .application import Application
 from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
+from .read_service import NetworkReadService
 from .services.model_service import ModelService
 
 
-# ============================================================
-# APPLICATION FACTORY
-# ============================================================
-
-def create_application(
-    network: Any,
-) -> Application:
-    """
-    Construct the fully configured headless Application.
-
-    Parameters
-    ----------
-    network:
-        The authoritative Core Network instance.
-
-    Returns
-    -------
-    Application
-        Fully configured Application facade.
-
-    Notes
-    -----
-    The supplied Network remains the authoritative Core object.
-    Bootstrap only composes the Application layer around it.
-    """
-
+def create_application(network: Any) -> Application:
+    """Construct the fully configured headless Application facade."""
     if network is None:
-        raise ValueError(
-            "network is required."
-        )
+        raise ValueError("network is required.")
 
-    context = ApplicationContext(
-        network=network,
-    )
-
-    model_service = ModelService(
-        network=network,
-    )
-
-    handlers = build_model_command_handlers(
-        model_service,
-    )
-
+    context = ApplicationContext(network=network)
+    model_service = ModelService(network=network)
+    handlers = build_model_command_handlers(model_service)
     command_manager = CommandManager(
         context=context,
         handlers=handlers,
     )
 
+    # The read boundary is composed here, at the same boundary as mutation.
+    # Presentation therefore receives immutable snapshots without reaching
+    # into the Core Network directly.
+    read_service = NetworkReadService(network)
+
     return Application(
         command_manager=command_manager,
+        read_service=read_service,
     )
 
 
-__all__ = [
-    "create_application",
-]
+__all__ = ["create_application"]

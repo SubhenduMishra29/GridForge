@@ -91,14 +91,17 @@ import math
 from typing import Any
 
 from .base import ElectricalObject
+from .injection import Injection
 from .terminal import Terminal
 
 
-class Solar(ElectricalObject):
+class Solar(ElectricalObject, Injection):
     """
     Static solar generation / injection model.
 
     Positive P/Q values represent injection into the network.
+
+    Solar formally implements the GridForge Injection contract.
     """
 
     TYPE = "SOLAR"
@@ -717,6 +720,8 @@ class Solar(ElectricalObject):
         Return effective network injection.
 
         Positive values represent injection into the network.
+
+        This method implements the GridForge Injection contract.
         """
 
         return (
