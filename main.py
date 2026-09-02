@@ -64,12 +64,19 @@ def build_application() -> tuple[
     # --------------------------------------------------------
     # SLD → Canvas realization boundary
     # --------------------------------------------------------
-    # This object converts SLD document structure into immutable,
-    # renderer-neutral Canvas input. It never receives Core objects.
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
 
+    # --------------------------------------------------------
+    # UI/application coordination boundary
+    # --------------------------------------------------------
     controller = Controller()
+
+    # The composition root provides the headless Application to the
+    # Controller as an externally owned dependency. Tools reach mutation
+    # through this boundary; they never receive the Core Network.
+    controller.gridforge_application = gridforge_application
+
     tool_manager = ToolManager(
         controller=controller,
         interaction_manager=None,
