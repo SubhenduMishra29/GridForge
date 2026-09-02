@@ -7,8 +7,8 @@
 # ============================================================
 """Presentation-owned SLD document.
 
-SLDDocument is a Workspace Document specialization. It owns only the
-editable SLD document structure and never owns authoritative electrical truth.
+SLDDocument owns editable SLD document structure, including persistent
+presentation geometry. It never owns authoritative electrical truth.
 """
 
 from __future__ import annotations
@@ -45,6 +45,11 @@ class SLDDocument(Document):
     def model(self) -> SLDModel:
         """Return the presentation-owned SLD structural model."""
         return self._model
+
+    def set_node_position(self, node_id: str, x: float, y: float) -> None:
+        """Persist graphical position in the SLD document model."""
+        self._model.get_node(node_id).set_position(x, y)
+        self.mark_modified()
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the SLD document and its structural model."""
