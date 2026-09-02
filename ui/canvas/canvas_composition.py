@@ -38,6 +38,7 @@ from ui.core.renderer_registry import RendererRegistry
 from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
+from ui.tools.default_tool_registry import create_default_tool_factories
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,20 @@ class CanvasComposer:
         )
 
         selection_manager.set_scene(scene)
+
+        # ToolManager already owns the lifecycle and registry. The
+        # composition boundary supplies the shared services required by
+        # concrete tools and registers only factories, preserving lazy
+        # construction and keeping tool creation outside Canvas widgets.
+        tool_manager.register_tools(
+            create_default_tool_factories(
+                controller=controller,
+                command_manager=None,
+                selection_manager=selection_manager,
+                snap_system=snap_system,
+                renderer_registry=renderer_registry,
+            )
+        )
 
         return CanvasComposition(
             view=view,

@@ -10,6 +10,7 @@ import sys
 from core.application.bootstrap import create_application
 from core.network.network import Network
 
+from ui.canvas.canvas_composition import CanvasComposer
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
@@ -84,10 +85,28 @@ def build_application() -> tuple[
         tool_registry=None,
     )
 
+    # Canvas services are composed by the application bootstrap. The
+    # CanvasPlugin consumes this immutable composition; it does not create
+    # or own the shared Canvas services.
+    canvas_composition = CanvasComposer().compose(
+        controller=controller,
+        tool_manager=tool_manager,
+        parent=None,
+    )
+
     plugin_manager = PluginManager()
     plugin_manager.define_defaults()
     plugin_manager.load_all()
     plugin_registry = plugin_manager.registry
+
+    canvas_entry = plugin_registry.get_entry("canvas")
+    if canvas_entry is None:
+        raise RuntimeError("CanvasPlugin is not registered.")
+    canvas_plugin = canvas_entry.plugin
+    set_composition = getattr(canvas_plugin, "set_composition", None)
+    if not callable(set_composition):
+        raise RuntimeError("CanvasPlugin does not expose set_composition().")
+    set_composition(canvas_composition)
 
     window = MainWindow(
         controller=controller,
@@ -117,11 +136,6 @@ def build_application() -> tuple[
     # --------------------------------------------------------
     # Application event → SLD → Canvas live update boundary
     # --------------------------------------------------------
-    canvas_entry = plugin_registry.get_entry("canvas")
-    if canvas_entry is None:
-        raise RuntimeError("CanvasPlugin is not registered.")
-
-    canvas_plugin = canvas_entry.plugin
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas):
         raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
