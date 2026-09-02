@@ -1,9 +1,3 @@
-
----
-
-# `ui/workspace/document.py`
-
-```python
 # ============================================================
 # GridForge V2
 # ============================================================
@@ -11,12 +5,15 @@
 #     ui/workspace/document.py
 #
 # Purpose:
-#     Generic application-level document descriptor.
+#     Generic UI workspace document descriptor.
 #
 # Architectural Role:
 #     Provides a common document lifecycle abstraction for the
-#     workspace without forcing the workspace to depend directly
-#     on the SLD implementation.
+#     Presentation workspace without forcing the workspace to
+#     depend directly on a specialized SLD implementation.
+#
+# Author:
+#     Subhendu Mishra
 #
 # Responsibilities:
 #     - document identity;
@@ -28,13 +25,12 @@
 # Does NOT:
 #     - own QGraphicsScene;
 #     - render content;
-#     - perform electrical calculations.
+#     - perform electrical calculations;
+#     - own Application/Core state.
 #
 # ============================================================
 
-"""
-GridForge V2 — Workspace Document.
-"""
+"""GridForge V2 — UI Workspace Document."""
 
 from __future__ import annotations
 
@@ -42,11 +38,12 @@ from typing import Any, Dict, Optional
 
 
 class Document:
-    """
-    Generic UI application document descriptor.
+    """Generic Presentation/workspace document descriptor.
 
-    Specialized documents such as SLDDocument may contain their own
-    domain model while still being represented by the workspace layer.
+    Specialized documents such as SLDDocument may contain their
+    own presentation/document model while still being managed by
+    the workspace layer. This class does not represent the Core
+    engineering model and is not an Application-layer document.
     """
 
     def __init__(
@@ -58,19 +55,11 @@ class Document:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not document_id:
-            raise ValueError(
-                "document_id must not be empty"
-            )
-
+            raise ValueError("document_id must not be empty")
         if not document_type:
-            raise ValueError(
-                "document_type must not be empty"
-            )
-
+            raise ValueError("document_type must not be empty")
         if not name:
-            raise ValueError(
-                "name must not be empty"
-            )
+            raise ValueError("name must not be empty")
 
         self._document_id = str(document_id)
         self._document_type = str(document_type)
@@ -93,10 +82,7 @@ class Document:
     @name.setter
     def name(self, value: str) -> None:
         if not value:
-            raise ValueError(
-                "name must not be empty"
-            )
-
+            raise ValueError("name must not be empty")
         if value != self._name:
             self._name = str(value)
             self.mark_modified()
@@ -115,26 +101,12 @@ class Document:
     def mark_clean(self) -> None:
         self._modified = False
 
-    def get_metadata(
-        self,
-        key: str,
-        default: Any = None,
-    ) -> Any:
-        return self._metadata.get(
-            key,
-            default,
-        )
+    def get_metadata(self, key: str, default: Any = None) -> Any:
+        return self._metadata.get(key, default)
 
-    def set_metadata(
-        self,
-        key: str,
-        value: Any,
-    ) -> None:
+    def set_metadata(self, key: str, value: Any) -> None:
         if not key:
-            raise ValueError(
-                "metadata key must not be empty"
-            )
-
+            raise ValueError("metadata key must not be empty")
         self._metadata[key] = value
         self.mark_modified()
 
@@ -148,32 +120,16 @@ class Document:
         }
 
     @classmethod
-    def from_dict(
-        cls,
-        data: Dict[str, Any],
-    ) -> "Document":
+    def from_dict(cls, data: Dict[str, Any]) -> "Document":
         document = cls(
-            document_id=str(
-                data["document_id"]
-            ),
-            document_type=str(
-                data["document_type"]
-            ),
-            name=str(
-                data.get(
-                    "name",
-                    "Untitled",
-                )
-            ),
-            metadata=dict(
-                data.get(
-                    "metadata",
-                    {},
-                )
-            ),
+            document_id=str(data["document_id"]),
+            document_type=str(data["document_type"]),
+            name=str(data.get("name", "Untitled")),
+            metadata=dict(data.get("metadata", {})),
         )
-
         if data.get("modified", False):
             document.mark_modified()
-
         return document
+
+
+__all__ = ["Document"]

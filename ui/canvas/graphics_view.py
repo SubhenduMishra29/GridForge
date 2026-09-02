@@ -14,15 +14,18 @@ Architectural role
 GraphicsView owns the Qt viewport and QGraphicsScene.
 
 It does not:
-    - create application controllers;
+    - create Presentation controllers;
     - create ToolManager;
     - own tool lifecycle;
     - perform electrical calculations;
     - modify Core state;
     - construct domain objects.
 
-Application-owned interaction dependencies are injected into the
-viewport and forwarded to InteractionManager.
+UI interaction dependencies are injected into the viewport and
+forwarded to Presentation interaction services.
+
+The Application layer is the future explicit Core↔UI integration
+boundary. GraphicsView does not bypass that boundary.
 """
 
 from __future__ import annotations
@@ -40,21 +43,14 @@ from ui.canvas.navigation_controller import NavigationController
 
 
 class GraphicsView(QGraphicsView):
+    """Canonical GridForge Canvas viewport.
+
+    GraphicsView translates raw Qt input into calls to
+    ``InteractionManager`` and ``NavigationController``.
+
+    Presentation/UI services are supplied by composition. The view
+    itself does not own Application or Core state.
     """
-    Canonical GridForge canvas viewport.
-
-    GraphicsView translates raw Qt input into calls to:
-
-        InteractionManager
-        NavigationController
-
-    The application Controller and ToolManager are supplied by the
-    application composition layer.
-    """
-
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
 
     def __init__(
         self,
@@ -62,201 +58,80 @@ class GraphicsView(QGraphicsView):
         tool_manager: Any,
         parent: Optional[Any] = None,
     ) -> None:
+        """Create the Canvas viewport.
+
+        ``controller`` is a Presentation/UI controller reference.
+        ``tool_manager`` is an existing UI ToolManager supplied by
+        the composition boundary.
         """
-        Create the canvas viewport.
-
-        Parameters
-        ----------
-        controller:
-            Application/UI controller.
-
-        tool_manager:
-            Existing application-owned ToolManager.
-
-            GraphicsView does not create or own this object.
-
-        parent:
-            Optional Qt parent widget.
-
-        Raises
-        ------
-        ValueError
-            If controller or tool_manager is None.
-        """
-
         if controller is None:
-            raise ValueError(
-                "controller must not be None."
-            )
+            raise ValueError("controller must not be None.")
 
         if tool_manager is None:
-            raise ValueError(
-                "tool_manager must not be None."
-            )
+            raise ValueError("tool_manager must not be None.")
 
         super().__init__(parent)
-
-        # ----------------------------------------------------
-        # External application dependencies
-        # ----------------------------------------------------
 
         self.controller = controller
         self.tool_manager = tool_manager
 
-        # ----------------------------------------------------
-        # Canvas scene
-        # ----------------------------------------------------
-
         self._scene = QGraphicsScene(self)
+        self.setScene(self._scene)
 
-        self.setScene(
-            self._scene
+        self.interaction_manager = InteractionManager(
+            view=self,
+            controller=controller,
+            tool_manager=tool_manager,
         )
 
-        # ----------------------------------------------------
-        # Interaction service
-        #
-        # InteractionManager receives the authoritative
-        # application-owned ToolManager.
-        # ----------------------------------------------------
+        self.navigation_controller = NavigationController(view=self)
 
-        self.interaction_manager = (
-            InteractionManager(
-                view=self,
-                controller=controller,
-                tool_manager=tool_manager,
-            )
-        )
-
-        # ----------------------------------------------------
-        # Navigation service
-        # ----------------------------------------------------
-
-        self.navigation_controller = (
-            NavigationController(
-                view=self,
-            )
-        )
-
-        # ----------------------------------------------------
-        # Viewport configuration
-        # ----------------------------------------------------
-
-        self.setMouseTracking(
-            True
-        )
-
-        self.setFocusPolicy(
-            Qt.StrongFocus
-        )
-
-        self.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff
-        )
-
-        self.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff
-        )
-
-    # ========================================================
-    # SCENE ACCESS
-    # ========================================================
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
     @property
     def graphics_scene(self) -> QGraphicsScene:
-        """
-        Return the authoritative QGraphicsScene.
-        """
-
+        """Return the Canvas-owned QGraphicsScene."""
         return self._scene
 
-    # ========================================================
-    # EVENT FORWARDING
-    # ========================================================
+    def mousePressEvent(self, event: Any) -> None:
+        if not self.interaction_manager.mouse_press(event):
+            super().mousePressEvent(event)
 
-    def mousePressEvent(
-        self,
-        event: Any,
-    ) -> None:
-        """
-        Forward mouse press events to InteractionManager.
-        """
+    def mouseMoveEvent(self, event: Any) -> None:
+        if not self.interaction_manager.mouse_move(event):
+            super().mouseMoveEvent(event)
 
-        self.interaction_manager.mouse_press(
-            event
-        )
+    def mouseReleaseEvent(self, event: Any) -> None:
+        if not self.interaction_manager.mouse_release(event):
+            super().mouseReleaseEvent(event)
 
-    # --------------------------------------------------------
+    def wheelEvent(self, event: Any) -> None:
+        if not self.navigation_controller.wheel_event(event):
+            super().wheelEvent(event)
 
-    def mouseMoveEvent(
-        self,
-        event: Any,
-    ) -> None:
-        """
-        Forward mouse move events to InteractionManager.
-        """
+    def keyPressEvent(self, event: Any) -> None:
+        if not self.interaction_manager.key_press(event):
+            super().keyPressEvent(event)
 
-        self.interaction_manager.mouse_move(
-            event
-        )
+    def keyReleaseEvent(self, event: Any) -> None:
+        if not self.interaction_manager.key_release(event):
+            super().keyReleaseEvent(event)
 
-    # --------------------------------------------------------
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
 
-    def mouseReleaseEvent(
-        self,
-        event: Any,
-    ) -> None:
-        """
-        Forward mouse release events to InteractionManager.
-        """
+    def dispose(self) -> None:
+        """Dispose Presentation interaction services owned by the view."""
+        interaction_manager = self.interaction_manager
+        if interaction_manager is not None:
+            interaction_manager.dispose()
 
-        self.interaction_manager.mouse_release(
-            event
-        )
-
-    # --------------------------------------------------------
-
-    def wheelEvent(
-        self,
-        event: Any,
-    ) -> None:
-        """
-        Forward wheel events to NavigationController.
-        """
-
-        self.navigation_controller.wheel_event(
-            event
-        )
-
-    # --------------------------------------------------------
-
-    def keyPressEvent(
-        self,
-        event: Any,
-    ) -> None:
-        """
-        Forward keyboard events to InteractionManager.
-        """
-
-        self.interaction_manager.key_press(
-            event
-        )
-
-    # --------------------------------------------------------
-
-    def keyReleaseEvent(
-        self,
-        event: Any,
-    ) -> None:
-        """
-        Forward keyboard release events to InteractionManager.
-        """
-
-        self.interaction_manager.key_release(
-            event
-        )
+        navigation_controller = self.navigation_controller
+        if navigation_controller is not None:
+            navigation_controller.dispose()
 
 
-__all__ = [
-    "GraphicsView",
-]
+__all__ = ["GraphicsView"]
