@@ -1,11 +1,11 @@
 """GridForge short-circuit numerical package.
 
-The execution boundary is:
+Canonical execution boundary:
 
     ShortCircuitInput -> ShortCircuitSolver -> ShortCircuitResult
 
-SequenceNetwork remains a preparation/container object; numerical execution
-uses SequenceNetworkSnapshot instead of the mutable preparation container.
+SequenceNetwork is preparation state; SequenceNetworkSnapshot is the immutable
+execution representation.
 """
 
 from .fault_types import FaultType
@@ -17,6 +17,7 @@ from .unsymmetrical_fault import UnsymmetricalFault
 from .input import ShortCircuitInput
 from .result import ShortCircuitResult
 from .short_circuit_solver import ShortCircuitSolver
+from .short_circuit import ShortCircuit
 
 __all__ = [
     "FaultType",
@@ -28,4 +29,5 @@ __all__ = [
     "ShortCircuitInput",
     "ShortCircuitResult",
     "ShortCircuitSolver",
+    "ShortCircuit",
 ]
