@@ -83,10 +83,9 @@ class CanvasComposer:
         grid_system = GridSystem()
         scene = GridScene()
 
-        # GraphicsView is created as the viewport shell first because
-        # CoordinateSystem and the interaction/navigation services require
-        # the actual view instance. No Canvas service is constructed by the
-        # view itself.
+        # GraphicsView is initially a viewport shell. Services requiring
+        # the actual view are composed immediately afterward and then bound
+        # through the explicit Canvas composition seam.
         view = GraphicsView(
             controller=controller,
             tool_manager=tool_manager,
@@ -99,7 +98,7 @@ class CanvasComposer:
             grid_system=grid_system,
         )
         snap_system = SnapSystem(
-            coordinate_system=coordinate_system,
+            controller=controller,
             grid_system=grid_system,
             scene=scene,
         )
@@ -121,15 +120,14 @@ class CanvasComposer:
         )
 
         render_system = RenderSystem(
-            renderer_registry=renderer_registry,
             scene=scene,
             controller=controller,
+            renderer_registry=renderer_registry,
             grid_system=grid_system,
             selection_manager=selection_manager,
         )
 
         selection_manager.set_scene(scene)
-        render_system.set_scene(scene)
 
         return CanvasComposition(
             view=view,
