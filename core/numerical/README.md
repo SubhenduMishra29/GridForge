@@ -6,7 +6,7 @@
 
 `core/numerical` is the numerical representation and numerical-construction layer of GridForge V2.
 
-It converts authoritative electrical information supplied by the Network and Model layers into numerical structures required by studies and solvers.
+It converts authoritative electrical information supplied by the Model and Network layers into numerical structures required by studies and solvers.
 
 The Numerical layer owns **numerical representation and numerical construction**.
 
@@ -23,7 +23,7 @@ core/model
     ▼
 core/network
     │
-    │ authoritative network + topology
+    │ authoritative membership + topology
     │ prepared BusIndex
     ▼
 core/numerical
@@ -61,7 +61,7 @@ The Numerical layer owns:
 * sparse numerical representations;
 * numerical precondition checks;
 * Y-bus construction;
-* numerical artifacts derived from authoritative Network/Model data.
+* numerical artifacts derived from authoritative Model/Network data.
 
 The Numerical layer does **not** own:
 
@@ -104,7 +104,7 @@ core/numerical
 
 Numerical structures are derived representations.
 
-If a numerical representation disagrees with the authoritative Network or Model state, the numerical representation is stale or invalid.
+If a numerical representation disagrees with the authoritative Model or Network state, the numerical representation is stale or invalid.
 
 ---
 
@@ -208,7 +208,7 @@ The intended flow is:
 ```text
 Network
    │
-   ├── authoritative models
+   ├── authoritative membership/models
    ├── prepared topology
    └── valid BusIndex
           │
@@ -231,7 +231,7 @@ Numerical state is distinct from physical Model state and Network state.
 
 ```text
 Model state
-    = physical equipment parameters
+    = physical equipment parameters / engineering state
 
 NetworkState
     = Network topology/lifecycle state
@@ -654,7 +654,8 @@ The fundamental Numerical contract is:
 In particular:
 
 ```text
-Network owns truth.
+Model owns physical equipment truth.
+Network owns assembled membership, connectivity, topology, and BusIndex.
 Numerical owns numerical representation.
 Solver owns algorithms.
 Study owns analysis intent.
@@ -668,8 +669,8 @@ UI owns presentation.
 The Numerical layer must preserve the following invariants:
 
 ```text
-1. Network owns authoritative topology.
-2. Network owns authoritative BusIndex.
+1. Model owns authoritative physical equipment truth.
+2. Network owns authoritative membership, topology, and BusIndex.
 3. Numerical consumes a valid prepared BusIndex.
 4. Numerical owns YBus construction.
 5. Numerical does not own Network state.
