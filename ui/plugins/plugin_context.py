@@ -35,6 +35,8 @@ class PluginContext:
     sld_document: Any = None
     # Renderer-neutral projection boundary between SLD and Canvas.
     sld_canvas_projection: Any = None
+    # Transient graphics realization of the SLD canvas snapshot.
+    sld_canvas_render_system: Any = None
 
     tool_manager: Any = None
     tool_registry: Any = None
