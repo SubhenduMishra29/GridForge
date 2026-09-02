@@ -25,17 +25,18 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ui.canvas.coordinate_system import CoordinateSystem
+from ui.canvas.grid_scene import GridScene
 from ui.canvas.grid_system import GridSystem
 from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
 from ui.canvas.preview_layer import PreviewLayer
+from ui.canvas.render_system import RenderSystem
+from ui.core.controller import Controller
 from ui.core.qt import QWidget
+from ui.core.renderer_registry import RendererRegistry
 from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
-from ui.core.controller import Controller
-from ui.core.renderer_registry import RendererRegistry
-from ui.canvas.render_system import RenderSystem
 from ui.core.tool_manager import ToolManager
 
 
@@ -44,6 +45,7 @@ class CanvasComposition:
     """Fully composed Canvas services and their authoritative viewport."""
 
     view: GraphicsView
+    scene: GridScene
     selection_manager: SelectionManager
     renderer_registry: RendererRegistry
     render_system: RenderSystem
@@ -57,17 +59,7 @@ class CanvasComposition:
     @property
     def widget(self) -> QWidget:
         """Return the composed Canvas widget."""
-
         return self.view
-
-    @property
-    def scene(self):
-        """Return the scene exposed by the authoritative Canvas view."""
-
-        scene = self.view.scene()
-        if scene is None:
-            raise RuntimeError("Canvas view does not currently have a scene.")
-        return scene
 
 
 class CanvasComposer:
@@ -81,26 +73,37 @@ class CanvasComposer:
         parent: Optional[QWidget] = None,
     ) -> CanvasComposition:
         """Construct and wire one complete Canvas service graph."""
+        if controller is None:
+            raise ValueError("controller must not be None.")
+        if tool_manager is None:
+            raise ValueError("tool_manager must not be None.")
 
         selection_manager = SelectionManager(controller=controller)
         renderer_registry = RendererRegistry()
         grid_system = GridSystem()
-        coordinate_system = CoordinateSystem()
-        snap_system = SnapSystem(
-            coordinate_system=coordinate_system,
-            grid_system=grid_system,
-        )
-        preview_layer = PreviewLayer()
+        scene = GridScene()
 
+        # GraphicsView is created as the viewport shell first because
+        # CoordinateSystem and the interaction/navigation services require
+        # the actual view instance. No Canvas service is constructed by the
+        # view itself.
         view = GraphicsView(
             controller=controller,
             tool_manager=tool_manager,
+            scene=scene,
             parent=parent,
         )
-        scene = view.scene()
-        if scene is None:
-            raise RuntimeError("GraphicsView did not create a scene.")
 
+        coordinate_system = CoordinateSystem(
+            view=view,
+            grid_system=grid_system,
+        )
+        snap_system = SnapSystem(
+            coordinate_system=coordinate_system,
+            grid_system=grid_system,
+            scene=scene,
+        )
+        preview_layer = PreviewLayer(scene=scene)
         interaction_manager = InteractionManager(
             view=view,
             controller=controller,
@@ -111,6 +114,12 @@ class CanvasComposer:
             selection_manager=selection_manager,
         )
         navigation_controller = NavigationController(view=view)
+
+        view.bind_services(
+            interaction_manager=interaction_manager,
+            navigation_controller=navigation_controller,
+        )
+
         render_system = RenderSystem(
             renderer_registry=renderer_registry,
             scene=scene,
@@ -122,11 +131,9 @@ class CanvasComposer:
         selection_manager.set_scene(scene)
         render_system.set_scene(scene)
 
-        # The view currently creates these two services internally. Keep the
-        # explicit composition references here until GraphicsView is migrated
-        # to pure dependency injection in a later, separately verified step.
         return CanvasComposition(
             view=view,
+            scene=scene,
             selection_manager=selection_manager,
             renderer_registry=renderer_registry,
             render_system=render_system,
