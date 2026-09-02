@@ -3,7 +3,7 @@
 # GridForge V2 — SLD Projection Manager
 # Author: Subhendu Mishra
 # ============================================================
-"""Coordinate SLD projections and presentation layout."""
+"""Coordinate SLD projections without owning document geometry."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from ui.sld.sld_projection import SLDProjection
 
 
 class SLDProjectionManager:
-    """Own SLD projection lifecycle without owning Core electrical truth."""
+    """Own SLD projection lifecycle without owning Core or saved geometry."""
 
     def __init__(
         self,
@@ -27,7 +27,7 @@ class SLDProjectionManager:
 
     @property
     def layout(self) -> SLDLayout:
-        """Return the presentation-only layout owned by this SLD surface."""
+        """Return the presentation-only layout policy."""
         return self._layout
 
     def project(self, read_model: ElementReadModel) -> SLDProjection:
@@ -66,26 +66,16 @@ class SLDProjectionManager:
         return self.projection(object_id)
 
     def arrange(self, object_ids: tuple[str, ...] | list[str]) -> tuple:
-        """Generate deterministic dummy placement for projected objects."""
-        placements = self._layout.arrange(object_ids)
-        for placement in placements:
-            self._layout.set_position(placement.object_id, placement.x, placement.y)
-        return placements
-
-    def set_position(self, object_id: str, x: float, y: float) -> None:
-        """Set presentation geometry for an existing projected object."""
-        if self.projection(object_id) is None:
-            raise KeyError(f"No SLD projection registered for {object_id!r}")
-        self._layout.set_position(object_id, x, y)
+        """Generate deterministic dummy placements without persisting them."""
+        return self._layout.arrange(object_ids)
 
     def remove(self, object_id: str) -> SLDProjection | None:
-        """Remove an SLD projection and its associated layout state."""
+        """Remove an SLD projection."""
         projection = self._registry.remove(object_id)
         if projection is None:
             return None
         if not isinstance(projection, SLDProjection):
             raise TypeError("Registry contains a non-SLD projection for object ID")
-        self._layout.remove(object_id)
         return projection
 
 
