@@ -21,14 +21,8 @@ class PluginContext:
 
     main_window: QWidget | None = None
     parent: QWidget | None = None
-
-    # Qt application instance. Kept distinct from the GridForge Application.
     application: Any = None
-
-    # Headless GridForge Application facade.
-    # This is the canonical command/read boundary for presentation clients.
     gridforge_application: Any = None
-
     root_widget: QWidget | None = None
     controller: Any = None
 
@@ -36,6 +30,9 @@ class PluginContext:
     project_controller: Any = None
     command_manager: Any = None
     event_bus: Any = None
+
+    # Active presentation document supplied by application composition.
+    sld_document: Any = None
 
     tool_manager: Any = None
     tool_registry: Any = None
