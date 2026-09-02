@@ -10,6 +10,7 @@ import sys
 from core.application.bootstrap import create_application
 from core.network.network import Network
 
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
 from ui.core.qt import QApplication
@@ -35,16 +36,12 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
     # --------------------------------------------------------
     # Authoritative Core/Application boundary
     # --------------------------------------------------------
-    # One Core Network is created here. Presentation never creates
-    # an alternative electrical model.
     network = Network()
     gridforge_application = create_application(network)
 
     # --------------------------------------------------------
     # SLD read-side presentation boundary
     # --------------------------------------------------------
-    # The SLD document is presentation-owned. It is populated only
-    # from immutable Application read data; it never stores Core objects.
     sld_document = SLDDocument(
         document_id="sld-document",
         name="GridForge SLD",
@@ -55,6 +52,14 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
         sld_document,
         gridforge_application.read_network(),
     )
+
+    # --------------------------------------------------------
+    # SLD → Canvas realization boundary
+    # --------------------------------------------------------
+    # This object converts SLD document structure into immutable,
+    # renderer-neutral Canvas input. It never receives Core objects.
+    sld_canvas_projection = SLDCanvasProjection()
+    sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
 
     controller = Controller()
     tool_manager = ToolManager(
@@ -85,7 +90,9 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
         root_widget=root_widget,
         controller=controller,
         sld_document=sld_document,
+        sld_canvas_projection=sld_canvas_projection,
         tool_manager=tool_manager,
+        metadata={"sld_canvas_snapshot": sld_canvas_snapshot},
     )
 
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}
