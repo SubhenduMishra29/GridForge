@@ -7,7 +7,7 @@ File:
 
 Purpose:
     Define the application-bootstrap ownership contract for the Canvas
-    composition handoff.
+    composition handoff and enforce the unified SLD rendering boundary.
 
 Author:
     Subhendu Mishra
@@ -27,3 +27,30 @@ def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
     assert "set_composition" in source
     assert source.index("CanvasComposer") < source.index("initialize_all")
     assert source.index("set_composition") < source.index("initialize_all")
+
+
+def test_canvas_composition_does_not_construct_legacy_renderer_stack() -> None:
+    """Application composition must not activate the legacy renderer path."""
+    from ui.canvas.canvas_composition import CanvasComposer
+
+    source = inspect.getsource(CanvasComposer.compose)
+
+    assert "RenderSystem" not in source
+    assert "RendererRegistry" not in source
+
+
+def test_default_tool_factories_do_not_depend_on_legacy_renderer_registry() -> None:
+    """Tool construction must not require the retired renderer registry."""
+    from ui.tools.default_tool_registry import create_default_tool_factories
+
+    signature = inspect.signature(create_default_tool_factories)
+    assert "renderer_registry" not in signature.parameters
+
+
+def test_tool_base_has_no_legacy_renderer_registry_contract() -> None:
+    """ToolBase must not expose the retired renderer registry dependency."""
+    from ui.tools.tool_base import ToolBase
+
+    signature = inspect.signature(ToolBase.__init__)
+    assert "renderer_registry" not in signature.parameters
+    assert not hasattr(ToolBase, "get_renderer_registry")

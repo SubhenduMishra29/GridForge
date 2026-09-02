@@ -12,11 +12,13 @@ Author:
     Subhendu Mishra
 
 Architectural role:
-    Compose existing Canvas services without making Canvas, plugins, or
-    Qt graphics items authoritative owners of electrical truth.
+    Compose Canvas viewport, interaction, navigation, selection, grid,
+    snapping, and preview services. SLD graphics realization is owned by
+    CanvasPlugin through SLDCanvasProjection and SLDCanvasRenderSystem.
 
-This module deliberately does not introduce a second renderer framework.
-Existing renderer contracts remain authoritative.
+Boundary rule:
+    This composition must not construct or expose the legacy
+    RenderSystem/RendererRegistry renderer architecture.
 """
 
 from __future__ import annotations
@@ -31,10 +33,8 @@ from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
 from ui.canvas.preview_layer import PreviewLayer
-from ui.canvas.render_system import RenderSystem
 from ui.core.controller import Controller
 from ui.core.qt import QWidget
-from ui.core.renderer_registry import RendererRegistry
 from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
@@ -43,13 +43,11 @@ from ui.tools.default_tool_registry import create_default_tool_factories
 
 @dataclass(frozen=True)
 class CanvasComposition:
-    """Fully composed Canvas services and their authoritative viewport."""
+    """Fully composed Canvas viewport and interaction services."""
 
     view: GraphicsView
     scene: GridScene
     selection_manager: SelectionManager
-    renderer_registry: RendererRegistry
-    render_system: RenderSystem
     grid_system: GridSystem
     interaction_manager: InteractionManager
     navigation_controller: NavigationController
@@ -64,7 +62,7 @@ class CanvasComposition:
 
 
 class CanvasComposer:
-    """Application-level constructor for the existing Canvas services."""
+    """Application-level constructor for the Canvas service graph."""
 
     def compose(
         self,
@@ -80,13 +78,9 @@ class CanvasComposer:
             raise ValueError("tool_manager must not be None.")
 
         selection_manager = SelectionManager(controller=controller)
-        renderer_registry = RendererRegistry()
         grid_system = GridSystem()
         scene = GridScene()
 
-        # GraphicsView is initially a viewport shell. Services requiring
-        # the actual view are composed immediately afterward and then bound
-        # through the explicit Canvas composition seam.
         view = GraphicsView(
             controller=controller,
             tool_manager=tool_manager,
@@ -120,27 +114,17 @@ class CanvasComposer:
             navigation_controller=navigation_controller,
         )
 
-        render_system = RenderSystem(
-            scene=scene,
-            controller=controller,
-            renderer_registry=renderer_registry,
-            grid_system=grid_system,
-            selection_manager=selection_manager,
-        )
-
         selection_manager.set_scene(scene)
 
-        # ToolManager already owns the lifecycle and registry. The
-        # composition boundary supplies the shared services required by
-        # concrete tools and registers only factories, preserving lazy
-        # construction and keeping tool creation outside Canvas widgets.
+        # ToolManager owns tool lifecycle. Tools no longer depend on the
+        # retired renderer registry; SLD projection/rendering is handled by
+        # CanvasPlugin through SLDCanvasProjection and SLDCanvasRenderSystem.
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
                 command_manager=None,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
-                renderer_registry=renderer_registry,
             )
         )
 
@@ -148,8 +132,6 @@ class CanvasComposer:
             view=view,
             scene=scene,
             selection_manager=selection_manager,
-            renderer_registry=renderer_registry,
-            render_system=render_system,
             grid_system=grid_system,
             interaction_manager=interaction_manager,
             navigation_controller=navigation_controller,

@@ -8,11 +8,16 @@ Architectural role
 ------------------
 This module owns only the default mapping from stable tool IDs to
 factory callables. ToolManager remains the lifecycle owner, while the
-application/UI composition boundary supplies the shared dependencies.
+application/UI composition boundary supplies the shared interaction
+services.
 
 The registry contains interaction tools for concrete Core model types.
 It does not create Core objects, execute commands, render graphics, or
 own electrical truth.
+
+SLD rendering is deliberately outside the tool factory contract. The
+unified SLD projection/rendering path is owned by SLD projection and
+Canvas realization services.
 """
 
 from __future__ import annotations
@@ -53,7 +58,6 @@ def create_default_tool_factories(
     command_manager: Any = None,
     selection_manager: Any,
     snap_system: Any,
-    renderer_registry: Any,
 ) -> dict[str, ToolFactory]:
     """Return the standard concrete-tool factory mapping.
 
@@ -68,7 +72,6 @@ def create_default_tool_factories(
             command_manager=command_manager,
             selection_manager=selection_manager,
             snap_system=snap_system,
-            renderer_registry=renderer_registry,
         )
 
     return {

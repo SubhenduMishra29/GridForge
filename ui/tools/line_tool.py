@@ -8,15 +8,9 @@
 #     SLD line-connection interaction tool.
 #
 # Architectural Role:
-#     LineTool captures transient connection intent, converts
-#     snapped presentation identity into EndpointReference, and
-#     dispatches the existing CreateLineCommand through the
-#     Application boundary.
-#
-# IMPORTANT:
-#     BusItem and LineItem remain presentation-only projections.
-#     This tool never mutates Core directly and never resolves
-#     Core topology itself.
+#     LineTool captures connection intent and dispatches the
+#     existing CreateLineCommand through the Application boundary.
+#     Rendering is owned by the unified SLD projection path.
 #
 # Author: Subhendu Mishra
 # ============================================================
@@ -44,16 +38,13 @@ class LineTool(ToolBase):
         command_manager: Any,
         selection_manager: Any,
         snap_system: Any,
-        renderer_registry: Any,
     ) -> None:
         super().__init__(
             controller=controller,
             command_manager=command_manager,
             selection_manager=selection_manager,
             snap_system=snap_system,
-            renderer_registry=renderer_registry,
         )
-
         self._start_position: Optional[Tuple[float, float]] = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._start_endpoint: Any = None
@@ -79,16 +70,12 @@ class LineTool(ToolBase):
         self._clear_state()
 
     def on_mouse_press(self, event: Any) -> bool:
-        """Capture an endpoint or dispatch a completed line intent."""
         self._ensure_active()
-
         snap_result = self._snap(event)
         if snap_result is None:
             return False
-
         position = self._position_tuple(snap_result.position)
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
-
         if self._start_endpoint is None:
             self._start_endpoint = endpoint
             self._start_position = position
@@ -96,38 +83,25 @@ class LineTool(ToolBase):
             self._current_position = position
             self._preview_active = True
             return True
-
         self._current_endpoint = endpoint
         self._current_position = position
-
-        self._execute_line_command(
-            self._start_endpoint,
-            self._current_endpoint,
-        )
-
+        self._execute_line_command(self._start_endpoint, self._current_endpoint)
         self._clear_state()
         return True
 
     def on_mouse_move(self, event: Any) -> bool:
-        """Update transient line preview from the current snap."""
         self._ensure_active()
-
         if self._start_endpoint is None:
             return False
-
         snap_result = self._snap(event)
         if snap_result is None:
             return False
-
         self._current_position = self._position_tuple(snap_result.position)
-        self._current_endpoint = EndpointIdentityAdapter.from_snap_result(
-            snap_result
-        )
+        self._current_endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         self._preview_active = True
         return True
 
     def on_mouse_release(self, event: Any) -> bool:
-        """Release without introducing a second line-creation path."""
         self._ensure_active()
         return self._start_endpoint is not None
 
@@ -151,64 +125,15 @@ class LineTool(ToolBase):
         self._clear_state()
 
     def _snap(self, event: Any) -> Any:
-        """Resolve a pointer position through the canonical SnapSystem."""
         scene_position = self.event_position(event)
         snap_system = self.get_snap_system()
         snap = getattr(snap_system, "snap", None)
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
-        result = snap(
-            scene_position,
-            allow_grid=True,
-            allow_object=True,
-        )
+        result = snap(scene_position, allow_grid=True, allow_object=True)
         if getattr(result, "position", None) is None:
             return None
         return result
-
-    def _snap_position(self, event: Any) -> Optional[Tuple[float, float]]:
-        """Compatibility helper returning only snapped geometry."""
-        result = self._snap(event)
-        if result is None:
-            return None
-        return self._position_tuple(result.position)
-
-    def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
-        """Dispatch CreateLineCommand through the headless Application."""
-        application = getattr(self.controller, "gridforge_application", None)
-        if not isinstance(application, Application):
-            raise RuntimeError(
-                "LineTool requires the composed GridForge Application "
-                "at controller.gridforge_application."
-            )
-
-        parameters = getattr(self.controller, "line_parameters", None)
-        if not isinstance(parameters, dict):
-            raise RuntimeError(
-                "Line engineering parameters are not configured. "
-                "The UI must not invent R/X/B/rating values."
-            )
-
-        required = ("r", "x", "rate_mva")
-        missing = [name for name in required if name not in parameters]
-        if missing:
-            raise RuntimeError(
-                "Line engineering parameters are incomplete: "
-                + ", ".join(missing)
-            )
-
-        command = CreateLineCommand(
-            line_id=f"line-{uuid4().hex}",
-            endpoint_from=endpoint_from,
-            endpoint_to=endpoint_to,
-            r=float(parameters["r"]),
-            x=float(parameters["x"]),
-            b=float(parameters.get("b", 0.0)),
-            name=str(parameters.get("name", "")),
-            rate_mva=float(parameters["rate_mva"]),
-        )
-
-        return application.execute(command)
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -217,8 +142,7 @@ class LineTool(ToolBase):
         if isinstance(position, (tuple, list)) and len(position) >= 2:
             return float(position[0]), float(position[1])
         raise TypeError(
-            "SnapResult.position must provide x/y coordinates "
-            "or a two-element position."
+            "SnapResult.position must provide x/y coordinates or a two-element position."
         )
 
     @staticmethod
@@ -231,6 +155,35 @@ class LineTool(ToolBase):
         if isinstance(event, dict):
             key = event.get("key", key)
         return key in ("Escape", "escape", 0x01000000)
+
+    def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
+        application = getattr(self.controller, "gridforge_application", None)
+        if not isinstance(application, Application):
+            raise RuntimeError(
+                "LineTool requires the composed GridForge Application at controller.gridforge_application."
+            )
+        parameters = getattr(self.controller, "line_parameters", None)
+        if not isinstance(parameters, dict):
+            raise RuntimeError(
+                "Line engineering parameters are not configured. The UI must not invent R/X/B/rating values."
+            )
+        required = ("r", "x", "rate_mva")
+        missing = [name for name in required if name not in parameters]
+        if missing:
+            raise RuntimeError(
+                "Line engineering parameters are incomplete: " + ", ".join(missing)
+            )
+        command = CreateLineCommand(
+            line_id=f"line-{uuid4().hex}",
+            endpoint_from=endpoint_from,
+            endpoint_to=endpoint_to,
+            r=float(parameters["r"]),
+            x=float(parameters["x"]),
+            b=float(parameters.get("b", 0.0)),
+            name=str(parameters.get("name", "")),
+            rate_mva=float(parameters["rate_mva"]),
+        )
+        return application.execute(command)
 
     def _clear_state(self) -> None:
         self._start_position = None
