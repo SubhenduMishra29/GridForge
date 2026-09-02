@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/items/base_item.py
 # GridForge V2 — Base Graphics Item
+# Author: Subhendu Mishra
 # ============================================================
 
 """
@@ -12,26 +13,29 @@ GridForge QGraphicsObject implementations.
 Architecture
 ------------
 
-    Core / Application Object
-              │
-              │ object identity
-              ▼
-           BaseItem
-              │
-              ├── graphical state
-              ├── selection projection
-              ├── interaction state
-              └── presentation lifecycle
-                       │
-                       ▼
-                  QGraphicsScene
+    SLD read-side / presentation identity
+                  │
+                  ▼
+               BaseItem
+                  │
+                  ├── graphical state
+                  ├── selection projection
+                  ├── interaction state
+                  └── presentation lifecycle
+                           │
+                           ▼
+                      QGraphicsScene
 
 BaseItem is a presentation object only.
 
-It does not own engineering truth.
+It does not own engineering truth, application state, or
+network topology. Its ``object_id`` identifies the projected
+presentation object; it is not a Core object reference.
 
-The authoritative engineering object remains owned by
-GridForge Core / application state.
+Authoritative engineering mutation remains outside the item layer
+and follows the command boundary:
+
+    user intent → Command → Application → Core
 """
 
 from __future__ import annotations
@@ -81,8 +85,9 @@ class BaseItem(QGraphicsObject, ABC):
         Parameters
         ----------
         object_id:
-            Stable identifier of the authoritative application
-            object represented by this item.
+            Stable identity of the projected presentation object.
+            It is an identity reference only and does not transfer
+            ownership of authoritative engineering state to the item.
 
         parent:
             Optional Qt graphics parent.
@@ -123,15 +128,16 @@ class BaseItem(QGraphicsObject, ABC):
     @property
     def object_id(self) -> Any:
         """
-        Return the authoritative application object identifier.
+        Return the stable identity of the projected object.
 
         The identifier is an identity reference only.
 
         It is not:
 
             - a QGraphicsItem identity;
-            - a network index;
-            - an electrical topology index.
+            - an authoritative network index;
+            - an electrical topology index;
+            - a Core object reference owned by the item.
         """
 
         return self._object_id
@@ -140,7 +146,7 @@ class BaseItem(QGraphicsObject, ABC):
 
     def get_object_id(self) -> Any:
         """
-        Return the represented application object identifier.
+        Return the stable identity of the projected object.
         """
 
         return self._object_id
@@ -174,8 +180,9 @@ class BaseItem(QGraphicsObject, ABC):
 
         This changes presentation state only.
 
-        Application selection must be changed through the
-        Controller / SelectionManager path.
+        Application-level selection must be coordinated through
+        the appropriate presentation/controller selection
+        infrastructure.
         """
 
         if not isinstance(
