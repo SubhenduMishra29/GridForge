@@ -7,13 +7,13 @@ File:
 
 Purpose
 -------
-Canvas composition plugin for the GridForge SLD UI.
+Canvas plugin lifecycle boundary for an application-composed SLD canvas.
 
 Architectural role
 ------------------
-CanvasPlugin owns the lifecycle of the GraphicsView and the presentation-only
-SLD canvas realization. It does not own electrical truth or construct a
-second engineering model.
+CanvasPlugin consumes an application-owned CanvasComposition. It does not
+construct Canvas services, own the Canvas scene, or dispose shared Canvas
+services. SLD projection and graphics realization remain presentation-only.
 
 Author
 ------
@@ -22,10 +22,11 @@ Subhendu Mishra
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from ui.core.qt import QGraphicsScene, QWidget
 
+from ui.canvas.canvas_composition import CanvasComposition
 from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
@@ -33,13 +34,13 @@ from ui.plugins.plugin_context import PluginContext
 
 
 class CanvasPlugin:
-    """GridForge canvas composition plugin."""
+    """GridForge canvas plugin consuming an application-owned composition."""
 
     plugin_id = "canvas"
 
     def __init__(self, context: Optional[PluginContext] = None) -> None:
         self._context = context
-        self._view: Optional[GraphicsView] = None
+        self._composition: Optional[CanvasComposition] = None
         self._initialized = False
         self._sld_canvas_snapshot: Optional[SLDCanvasSnapshot] = None
         self._sld_canvas_render_system: Optional[SLDCanvasRenderSystem] = None
@@ -57,22 +58,38 @@ class CanvasPlugin:
             raise RuntimeError("CanvasPlugin context cannot be changed after initialization.")
         self._context = context
 
+    @property
+    def composition(self) -> Optional[CanvasComposition]:
+        """Return the application-owned Canvas composition."""
+        return self._composition
+
+    def set_composition(self, composition: CanvasComposition) -> None:
+        """Attach an application-owned Canvas composition before initialization."""
+        if not isinstance(composition, CanvasComposition):
+            raise TypeError("composition must be CanvasComposition.")
+        if self._initialized:
+            raise RuntimeError("CanvasPlugin composition cannot be changed after initialization.")
+        if self._composition is not None and self._composition is not composition:
+            raise RuntimeError("CanvasPlugin already has a CanvasComposition.")
+        self._composition = composition
+
     def initialize(self, context: Optional[PluginContext] = None) -> bool:
-        """Initialize the canvas plugin."""
+        """Initialize the plugin against a pre-composed Canvas."""
         if self._initialized:
             return True
         if context is not None:
             self.set_context(context)
-        if self._context is None:
-            raise RuntimeError("CanvasPlugin requires a PluginContext.")
         self._validate_context()
-        self._create_canvas()
+        if self._composition is None:
+            raise RuntimeError("CanvasPlugin requires an application-composed CanvasComposition.")
+
+        self._sld_canvas_render_system = SLDCanvasRenderSystem(self.require_scene())
         self.synchronize_sld()
         self._initialized = True
         return True
 
     def _validate_context(self) -> None:
-        """Validate dependencies required by the canvas."""
+        """Validate dependencies required by SLD projection."""
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
         if self._context.controller is None:
@@ -84,28 +101,8 @@ class CanvasPlugin:
         if self._context.sld_canvas_projection is None:
             raise RuntimeError("CanvasPlugin requires an SLD canvas projection.")
 
-    def _create_canvas(self) -> None:
-        """Create the authoritative GridForge GraphicsView and SLD realization."""
-        if self._context is None:
-            raise RuntimeError("CanvasPlugin context is unavailable.")
-        if self._view is not None:
-            raise RuntimeError("CanvasPlugin already contains a GraphicsView.")
-
-        self._view = GraphicsView(
-            controller=self._context.controller,
-            tool_manager=self._context.tool_manager,
-            parent=self._context.parent,
-        )
-
-        if not isinstance(self._view, GraphicsView):
-            raise TypeError("GraphicsView construction returned an invalid object.")
-
-        self._sld_canvas_render_system = SLDCanvasRenderSystem(
-            self.require_scene()
-        )
-
     def synchronize_sld(self) -> SLDCanvasSnapshot:
-        """Project and realize the active SLD document in the Canvas."""
+        """Project and realize the active SLD document in the composed Canvas."""
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
         document = self._context.sld_document
@@ -134,20 +131,22 @@ class CanvasPlugin:
 
     @property
     def widget(self) -> Optional[QWidget]:
-        """Return the canvas QWidget."""
-        return self._view
+        """Return the composed canvas QWidget."""
+        return self._composition.widget if self._composition is not None else None
 
     def require_view(self) -> GraphicsView:
-        """Return the initialized GraphicsView."""
-        if self._view is None:
-            raise RuntimeError("CanvasPlugin has not been initialized.")
-        return self._view
+        """Return the GraphicsView supplied by the Canvas composition."""
+        if self._composition is None:
+            raise RuntimeError("CanvasPlugin has no CanvasComposition.")
+        if not isinstance(self._composition.view, GraphicsView):
+            raise TypeError("CanvasComposition view must be a GraphicsView.")
+        return self._composition.view
 
     def require_scene(self) -> QGraphicsScene:
-        """Return the scene owned by GraphicsView."""
-        scene = self.require_view().scene()
+        """Return the scene supplied by the Canvas composition."""
+        scene = self._composition.scene if self._composition is not None else None
         if scene is None:
-            raise RuntimeError("GraphicsView does not currently have a scene.")
+            raise RuntimeError("CanvasPlugin has no CanvasComposition scene.")
         return scene
 
     @property
@@ -156,21 +155,17 @@ class CanvasPlugin:
         return self._initialized
 
     def shutdown(self) -> None:
-        """Shut down the canvas plugin and release transient SLD graphics."""
+        """Release plugin-owned transient SLD realization only."""
         if self._sld_canvas_render_system is not None:
             self._sld_canvas_render_system.dispose()
         self._sld_canvas_render_system = None
-
-        if self._view is not None:
-            self._view.setParent(None)
-            self._view.deleteLater()
-        self._view = None
         self._sld_canvas_snapshot = None
         self._initialized = False
+        # CanvasComposition and its services remain application-owned.
 
 
 def create_canvas_plugin(context: Optional[PluginContext] = None) -> CanvasPlugin:
-    """Create a CanvasPlugin without constructing Qt until initialization."""
+    """Create a CanvasPlugin without constructing Canvas services."""
     return CanvasPlugin(context=context)
 
 
