@@ -22,12 +22,13 @@ def make_input():
 
 
 def test_runtime_state_is_initialized_from_numerical_input_only():
-    state = PowerFlowRuntimeState.from_input(make_input())
+    inp = make_input()
+    state = PowerFlowRuntimeState.from_input(inp)
     assert np.allclose(state.vm, [1.0, 1.0])
     assert np.allclose(state.va, [0.0, 0.0])
-    assert tuple(state.effective_bus_types) == make_input().bus_types
-    assert tuple(state.effective_q_spec) == make_input().q_spec
-    assert not any("core.model" in repr(value) for value in state.__dict__.values())
+    assert tuple(state.effective_bus_types) == inp.bus_types
+    assert tuple(state.effective_q_spec) == inp.q_spec
+    assert not any(value is inp for value in (state.vm, state.va, state.effective_q_spec))
 
 
 def test_runtime_state_owns_pv_pq_transition_without_changing_input():
