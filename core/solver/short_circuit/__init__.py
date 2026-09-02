@@ -1,79 +1,31 @@
-"""
-GridForge Short Circuit Solver Package
+"""GridForge short-circuit numerical package.
 
+The execution boundary is:
 
-Modules:
+    ShortCircuitInput -> ShortCircuitSolver -> ShortCircuitResult
 
-fault_types
-    Fault classification
-
-
-sequence_network
-    Positive, negative and zero sequence data
-
-
-impedance_matrix
-    Ybus to Zbus conversion
-
-
-symmetrical_fault
-    Three phase balanced faults
-
-
-unsymmetrical_fault
-    LG, LL, LLG faults
-
-
-short_circuit_solver
-    Main fault analysis engine
-
-
+SequenceNetwork remains a preparation/container object; numerical execution
+uses SequenceNetworkSnapshot instead of the mutable preparation container.
 """
 
-
-from .fault_types import (
-    FaultType
-)
-
-
-from .sequence_network import (
-    SequenceNetwork
-)
-
-
-from .impedance_matrix import (
-    ImpedanceMatrix
-)
-
-
-from .symmetrical_fault import (
-    SymmetricalFault
-)
-
-
-from .unsymmetrical_fault import (
-    UnsymmetricalFault
-)
-
-
-from .short_circuit_solver import (
-    ShortCircuitSolver
-)
-
-
+from .fault_types import FaultType
+from .sequence_network import SequenceNetwork
+from .sequence_snapshot import SequenceNetworkSnapshot
+from .impedance_matrix import ImpedanceMatrix
+from .symmetrical_fault import SymmetricalFault
+from .unsymmetrical_fault import UnsymmetricalFault
+from .input import ShortCircuitInput
+from .result import ShortCircuitResult
+from .short_circuit_solver import ShortCircuitSolver
 
 __all__ = [
-
     "FaultType",
-
     "SequenceNetwork",
-
+    "SequenceNetworkSnapshot",
     "ImpedanceMatrix",
-
     "SymmetricalFault",
-
     "UnsymmetricalFault",
-
+    "ShortCircuitInput",
+    "ShortCircuitResult",
     "ShortCircuitSolver",
-
 ]
