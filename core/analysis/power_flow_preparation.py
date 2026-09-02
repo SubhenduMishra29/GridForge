@@ -14,11 +14,12 @@ prepared result.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
+from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.model.injection import Injection
 from core.numerical.ybus import YBus, YBusBuilder
-from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
+from core.solver.power_flow.input import PowerFlowInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,17 +53,35 @@ class PowerFlowPreparation:
         "batteries",
     )
 
+    @staticmethod
+    def prepare(
+        network: Any,
+        power_flow_configuration: PowerFlowStudyConfiguration,
+    ) -> PreparedPowerFlow:
+        """Build immutable Power Flow input and matching YBus."""
+        preparation = PowerFlowPreparation(
+            network,
+            power_flow_configuration,
+        )
+        return preparation._prepare()
+
     def __init__(
         self,
         network: Any,
-        bus_types: Mapping[Any, PowerFlowBusType | str],
+        power_flow_configuration: PowerFlowStudyConfiguration,
     ) -> None:
         self.network = network
-        self.bus_types = dict(bus_types)
+        self.power_flow_configuration = power_flow_configuration
         self._validate_network()
+        if not isinstance(
+            power_flow_configuration,
+            PowerFlowStudyConfiguration,
+        ):
+            raise TypeError(
+                "power_flow_configuration must be a PowerFlowStudyConfiguration."
+            )
 
-    def prepare(self) -> PreparedPowerFlow:
-        """Build the immutable Power Flow input and matching YBus."""
+    def _prepare(self) -> PreparedPowerFlow:
         buses = tuple(self.network.buses)
         if not buses:
             raise ValueError("Power Flow preparation requires at least one bus.")
@@ -88,7 +107,7 @@ class PowerFlowPreparation:
 
         input_data = PowerFlowInput(
             bus_ids=bus_ids,
-            bus_types=tuple(classification),
+            bus_types=classification,
             p_spec=tuple(p_spec),
             q_spec=tuple(q_spec),
             q_min=tuple(q_min),
@@ -105,35 +124,21 @@ class PowerFlowPreparation:
     def _prepare_bus_types(
         self,
         bus_ids: tuple[Any, ...],
-    ) -> tuple[PowerFlowBusType, ...]:
-        supplied = set(self.bus_types)
+    ) -> tuple:
+        configured = self.power_flow_configuration.bus_types
         expected = set(bus_ids)
+        supplied = set(configured)
 
         missing = expected - supplied
         extra = supplied - expected
         if missing or extra:
             raise ValueError(
-                f"Power Flow bus classification must match Network buses; "
+                "Power Flow study configuration must match the case Network buses; "
                 f"missing={sorted(missing, key=str)!r}, "
                 f"extra={sorted(extra, key=str)!r}."
             )
 
-        result: list[PowerFlowBusType] = []
-        for bus_id in bus_ids:
-            value = self.bus_types[bus_id]
-            try:
-                result.append(
-                    value
-                    if isinstance(value, PowerFlowBusType)
-                    else PowerFlowBusType(str(value).upper())
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    f"Invalid Power Flow bus classification for {bus_id!r}: "
-                    f"{value!r}."
-                ) from exc
-
-        return tuple(result)
+        return tuple(configured[bus_id] for bus_id in bus_ids)
 
     def _bus_power_spec(
         self,
@@ -177,3 +182,6 @@ class PowerFlowPreparation:
             raise TypeError("network must expose buses.")
         if not hasattr(self.network, "ensure_bus_index"):
             raise TypeError("network must expose ensure_bus_index().")
+
+
+__all__ = ["PowerFlowPreparation", "PreparedPowerFlow"]
