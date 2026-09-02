@@ -21,24 +21,10 @@ from .read_models import ElementReadModel, NetworkReadModel
 
 
 _ELEMENT_COLLECTIONS = (
-    "buses",
-    "grids",
-    "generators",
-    "synchronous_machines",
-    "loads",
-    "motors",
-    "shunts",
-    "capacitors",
-    "reactors",
-    "solar",
-    "batteries",
-    "lines",
-    "cables",
-    "transformers",
-    "breakers",
-    "switches",
-    "disconnectors",
-    "fuses",
+    "buses", "grids", "generators", "synchronous_machines", "loads",
+    "motors", "shunts", "capacitors", "reactors", "solar", "batteries",
+    "lines", "cables", "transformers", "breakers", "switches",
+    "disconnectors", "fuses",
 )
 
 
@@ -51,11 +37,7 @@ class ReadService(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def element(
-        self,
-        element_type: str,
-        object_id: str,
-    ) -> ElementReadModel:
+    def element(self, element_type: str, object_id: str) -> ElementReadModel:
         """Return one immutable element snapshot."""
         raise NotImplementedError
 
@@ -76,33 +58,30 @@ class NetworkReadService(ReadService):
                 elements.append(self._to_read_model(element_type, model))
         return NetworkReadModel(elements=tuple(elements))
 
-    def element(
-        self,
-        element_type: str,
-        object_id: str,
-    ) -> ElementReadModel:
+    def element(self, element_type: str, object_id: str) -> ElementReadModel:
         """Snapshot one canonical Core element without exposing it to callers."""
         key = element_type.strip().lower()
         model = self._network.get_by_id(key, object_id)
         return self._to_read_model(key, model)
 
     @staticmethod
-    def _to_read_model(
-        element_type: str,
-        model: Any,
-    ) -> ElementReadModel:
+    def _to_read_model(element_type: str, model: Any) -> ElementReadModel:
         object_id = str(getattr(model, "id"))
         name = getattr(model, "name", None)
         labels = {"name": str(name)} if name is not None else {}
         connectivity_refs = NetworkReadService._connectivity_refs(model)
 
-        # Only explicitly present, scalar engineering attributes are copied.
-        # No Core object references are placed in the read model.
         attributes: dict[str, Any] = {}
         for name in ("r", "x", "b", "rated_power", "voltage"):
             value = getattr(model, name, None)
             if isinstance(value, (str, int, float, bool)):
                 attributes[name] = value
+
+        endpoint_from_id, endpoint_to_id = NetworkReadService._branch_endpoint_ids(model)
+        if endpoint_from_id is not None:
+            attributes["endpoint_from_id"] = endpoint_from_id
+        if endpoint_to_id is not None:
+            attributes["endpoint_to_id"] = endpoint_to_id
 
         return ElementReadModel(
             object_id=object_id,
@@ -124,8 +103,20 @@ class NetworkReadService(ReadService):
                 refs.append(str(value_id))
         return tuple(dict.fromkeys(refs))
 
+    @staticmethod
+    def _branch_endpoint_ids(model: Any) -> tuple[str | None, str | None]:
+        """Expose endpoint identities without exposing Core objects."""
+        from_terminal = getattr(model, "from_terminal", None)
+        to_terminal = getattr(model, "to_terminal", None)
 
-__all__ = [
-    "NetworkReadService",
-    "ReadService",
-]
+        def endpoint_id(terminal: Any) -> str | None:
+            if terminal is None:
+                return None
+            endpoint = getattr(terminal, "endpoint", None)
+            value = getattr(endpoint, "id", None)
+            return None if value is None else str(value)
+
+        return endpoint_id(from_terminal), endpoint_id(to_terminal)
+
+
+__all__ = ["NetworkReadService", "ReadService"]
