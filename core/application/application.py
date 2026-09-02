@@ -4,208 +4,101 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
-GridForge V2 — Headless Application Facade
-============================================
-
-The Application facade is the stable public entry point between
-external consumers and the internal Application infrastructure.
-
-Architecture
-------------
-
-    External Consumer
-          |
-          v
-      Application
-          |
-          v
-    CommandManager
-          |
-          v
-       Handler
-          |
-          v
-    Application Service
-          |
-          v
-         Core
-
-The facade owns no Core state.
-
-The facade does not expose:
-
-    * CommandManager;
-    * ApplicationContext;
-    * Transaction;
-    * CommandHistory;
-    * handlers;
-    * Application services;
-    * Core internals.
-
-The canonical mutation path is:
-
-    Application.execute(command)
-
-Headless Boundary
------------------
-
-This module is independent of:
-
-    * PySide6;
-    * PyQt;
-    * Qt;
-    * QGraphicsScene;
-    * QGraphicsItem;
-    * UI;
-    * SLD;
-    * canvas;
-    * renderers;
-    * plugin implementation details.
-
-Composition
------------
-
-The Application object receives a fully configured
-CommandManager from the Composition Root.
-
-The Application does not construct:
-
-    * Network;
-    * ApplicationContext;
-    * CommandManager;
-    * services;
-    * handlers.
-
-Construction therefore remains outside the public facade.
-
-Capability Discovery
---------------------
-
-Consumers may query whether a command is supported without
-executing it.
-
-Command execution remains the only mutation entry point.
-"""
+"""Stable public Application facade for commands, reads, and events."""
 
 from __future__ import annotations
 
 from .command import Command
 from .command_manager import CommandManager
+from .event_bus import ApplicationEventBus
+from .events import NetworkChanged
+from .read_models import ElementReadModel, NetworkReadModel
+from .read_service import ReadService
 from .results import ApplicationResult
 
 
 class Application:
-    """
-    Public headless GridForge Application facade.
+    """Public headless GridForge Application facade.
 
-    Parameters
-    ----------
-    command_manager:
-        Fully configured internal Application command manager.
-
-    The command manager remains private.
-
-    External consumers interact through the semantic facade
-    methods exposed by this class.
+    Mutation remains exclusively command-driven. Optional read access exposes
+    immutable Application snapshots and never returns Core model objects.
+    Successful mutations publish a headless Application event after the
+    command transaction has completed.
     """
 
     def __init__(
         self,
         command_manager: CommandManager,
+        read_service: ReadService | None = None,
+        event_bus: ApplicationEventBus | None = None,
     ) -> None:
-        if not isinstance(
-            command_manager,
-            CommandManager,
-        ):
-            raise TypeError(
-                "Application command_manager must be "
-                "a CommandManager."
-            )
+        if not isinstance(command_manager, CommandManager):
+            raise TypeError("Application command_manager must be a CommandManager.")
+        if read_service is not None and not isinstance(read_service, ReadService):
+            raise TypeError("Application read_service must implement ReadService.")
+        if event_bus is not None and not isinstance(event_bus, ApplicationEventBus):
+            raise TypeError("Application event_bus must be an ApplicationEventBus.")
 
         self._command_manager = command_manager
+        self._read_service = read_service
+        self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
 
-    # ========================================================
-    # EXECUTION
-    # ========================================================
+    @property
+    def event_bus(self) -> ApplicationEventBus:
+        """Return the Application-owned headless event bus."""
+        return self._event_bus
 
-    def execute(
-        self,
-        command: Command,
-    ) -> ApplicationResult:
-        """
-        Execute an Application command.
+    def execute(self, command: Command) -> ApplicationResult:
+        """Execute a command, then publish its committed network change."""
+        if not isinstance(command, Command):
+            raise TypeError("Application.execute requires a Command.")
+        result = self._command_manager.execute(command)
+        self._publish_network_changed(command, result)
+        return result
 
-        This is the canonical mutation entry point.
-
-        External consumers provide immutable Application commands.
-
-        The internal CommandManager performs:
-
-            * command dispatch;
-            * transaction management;
-            * undo registration;
-            * history management;
-            * rollback on failure.
-        """
-
-        if not isinstance(
-            command,
-            Command,
-        ):
-            raise TypeError(
-                "Application.execute requires a Command."
-            )
-
-        return self._command_manager.execute(
-            command,
-        )
-
-    # ========================================================
-    # CAPABILITY DISCOVERY
-    # ========================================================
-
-    def supports(
-        self,
-        command_type: str,
-    ) -> bool:
-        """
-        Return whether a command type is currently supported.
-
-        This performs capability discovery only.
-
-        It does not execute a command or mutate Core state.
-        """
-
-        if not isinstance(
-            command_type,
-            str,
-        ):
+    def supports(self, command_type: str) -> bool:
+        """Return whether a command type is currently supported."""
+        if not isinstance(command_type, str):
             return False
+        return self._command_manager.is_registered(command_type)
 
-        return self._command_manager.is_registered(
-            command_type,
-        )
-
-    def command_types(
-        self,
-    ) -> tuple[str, ...]:
-        """
-        Return the currently registered command types.
-
-        The returned tuple is immutable.
-
-        This is a capability-discovery API and does not expose
-        the CommandManager itself.
-        """
-
+    def command_types(self) -> tuple[str, ...]:
+        """Return the immutable list of registered command types."""
         return self._command_manager.registered_commands
 
+    def read_network(self) -> NetworkReadModel:
+        """Return an immutable authoritative network snapshot for projections."""
+        self._require_read_service()
+        return self._read_service.network()  # type: ignore[union-attr]
 
-# ============================================================
-# PUBLIC API
-# ============================================================
+    def read_element(
+        self,
+        element_type: str,
+        object_id: str,
+    ) -> ElementReadModel:
+        """Return one immutable element snapshot for a projection."""
+        self._require_read_service()
+        return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
 
-__all__ = [
-    "Application",
-]
+    def _publish_network_changed(
+        self,
+        command: Command,
+        result: ApplicationResult,
+    ) -> None:
+        """Publish a read-side invalidation fact without exposing Core state."""
+        self._event_bus.publish(
+            NetworkChanged(
+                operation=command.command_type,
+                metadata={
+                    "command_id": str(command.command_id),
+                    "message": result.message,
+                },
+            )
+        )
+
+    def _require_read_service(self) -> None:
+        if self._read_service is None:
+            raise RuntimeError("Application read service is not configured.")
+
+
+__all__ = ["Application"]

@@ -3,30 +3,40 @@
 # GridForge V2 — SLD Projection
 # Author: Subhendu Mishra
 # ============================================================
-"""Presentation projection for an authoritative Core electrical object."""
+"""SLD presentation projection backed by Application read data."""
 
 from __future__ import annotations
 
-from typing import Any
+from core.application.read_models import ElementReadModel
 
 from ui.projection.projection import Projection
+from ui.projection.projection_state import ProjectionState
 
 
 class SLDProjection(Projection):
-    """Project one Core object into SLD presentation state."""
+    """Project one immutable Application element snapshot into SLD state."""
 
-    def __init__(self, model_object: Any) -> None:
-        object_id = getattr(model_object, "id", None)
-        super().__init__(object_id)
-        self._model_object = model_object
+    def __init__(self, read_model: ElementReadModel) -> None:
+        super().__init__(read_model.object_id)
+        self.update_from_read_model(read_model)
 
-    @property
-    def model_object(self) -> Any:
-        """Return the latest authoritative model reference."""
-        return self._model_object
+    def update_from_read_model(self, read_model: ElementReadModel) -> None:
+        """Refresh this projection from an Application read snapshot."""
+        if read_model.object_id != self.object_id:
+            raise ValueError("SLD projection cannot change object identity")
 
-    def update_from_model(self, model_object: Any) -> None:
-        """Refresh the model reference while preserving projection identity."""
-        if getattr(model_object, "id", None) != self.object_id:
-            raise ValueError("SLD projection cannot change Core object identity")
-        self._model_object = model_object
+        labels = tuple(
+            str(value)
+            for _, value in sorted(read_model.labels.items())
+        )
+        self.set_state(
+            ProjectionState(
+                object_id=read_model.object_id,
+                display_type=read_model.element_type,
+                labels=labels,
+                connectivity_refs=read_model.connectivity_refs,
+            )
+        )
+
+
+__all__ = ["SLDProjection"]

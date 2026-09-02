@@ -1,36 +1,15 @@
 # ============================================================
 # GridForge V2
 # ============================================================
-# File:
-#     ui/workspace/document.py
-#
-# Purpose:
-#     Generic UI workspace document descriptor.
-#
-# Architectural Role:
-#     Provides a common document lifecycle abstraction for the
-#     Presentation workspace without forcing the workspace to
-#     depend directly on a specialized SLD implementation.
-#
-# Author:
-#     Subhendu Mishra
-#
-# Responsibilities:
-#     - document identity;
-#     - document type;
-#     - document name;
-#     - modified state;
-#     - document metadata.
-#
-# Does NOT:
-#     - own QGraphicsScene;
-#     - render content;
-#     - perform electrical calculations;
-#     - own Application/Core state.
-#
+# File: ui/workspace/document.py
+# Purpose: UI workspace document descriptor.
+# Author: Subhendu Mishra
 # ============================================================
+"""Generic Presentation/workspace document boundary.
 
-"""GridForge V2 — UI Workspace Document."""
+A Document belongs to a Project but is not the Core engineering model.
+It contains document identity, type, metadata and editable state only.
+"""
 
 from __future__ import annotations
 
@@ -38,13 +17,7 @@ from typing import Any, Dict, Optional
 
 
 class Document:
-    """Generic Presentation/workspace document descriptor.
-
-    Specialized documents such as SLDDocument may contain their
-    own presentation/document model while still being managed by
-    the workspace layer. This class does not represent the Core
-    engineering model and is not an Application-layer document.
-    """
+    """Generic Presentation/workspace document descriptor."""
 
     def __init__(
         self,
@@ -52,6 +25,7 @@ class Document:
         document_type: str,
         name: str = "Untitled",
         *,
+        project_id: str | None = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not document_id:
@@ -60,16 +34,23 @@ class Document:
             raise ValueError("document_type must not be empty")
         if not name:
             raise ValueError("name must not be empty")
+        if project_id is not None and not str(project_id).strip():
+            raise ValueError("project_id must not be empty")
 
         self._document_id = str(document_id)
         self._document_type = str(document_type)
         self._name = str(name)
+        self._project_id = str(project_id) if project_id is not None else None
         self._metadata = dict(metadata or {})
         self._modified = False
 
     @property
     def document_id(self) -> str:
         return self._document_id
+
+    @property
+    def project_id(self) -> str | None:
+        return self._project_id
 
     @property
     def document_type(self) -> str:
@@ -113,6 +94,7 @@ class Document:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "document_id": self.document_id,
+            "project_id": self.project_id,
             "document_type": self.document_type,
             "name": self.name,
             "metadata": dict(self.metadata),
@@ -123,6 +105,7 @@ class Document:
     def from_dict(cls, data: Dict[str, Any]) -> "Document":
         document = cls(
             document_id=str(data["document_id"]),
+            project_id=data.get("project_id"),
             document_type=str(data["document_type"]),
             name=str(data.get("name", "Untitled")),
             metadata=dict(data.get("metadata", {})),
