@@ -116,16 +116,15 @@ class CanvasComposer:
 
         selection_manager.set_scene(scene)
 
-        # ToolManager owns tool lifecycle. The legacy renderer registry is
-        # deliberately not supplied: SLD projection/rendering is now owned
-        # by CanvasPlugin through SLDCanvasProjection.
+        # ToolManager owns tool lifecycle. Tools no longer depend on the
+        # retired renderer registry; SLD projection/rendering is handled by
+        # CanvasPlugin through SLDCanvasProjection and SLDCanvasRenderSystem.
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
                 command_manager=None,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
-                renderer_registry=None,
             )
         )
 
