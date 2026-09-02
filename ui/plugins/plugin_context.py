@@ -33,6 +33,8 @@ class PluginContext:
 
     # Active presentation document supplied by application composition.
     sld_document: Any = None
+    # Renderer-neutral projection boundary between SLD and Canvas.
+    sld_canvas_projection: Any = None
 
     tool_manager: Any = None
     tool_registry: Any = None
