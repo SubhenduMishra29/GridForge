@@ -45,6 +45,17 @@ class SLDCanvasRenderSystem:
         """Return the target scene."""
         return self._scene
 
+    @staticmethod
+    def _pen(width: float) -> QPen:
+        """Create a pen with a portable width-setting API."""
+        pen = QPen()
+        set_width_f = getattr(pen, "setWidthF", None)
+        if callable(set_width_f):
+            set_width_f(float(width))
+        else:
+            pen.setWidth(int(round(width)))
+        return pen
+
     def synchronize(self, snapshot: SLDCanvasSnapshot) -> None:
         """Replace the graphical SLD projection from a snapshot."""
         if not isinstance(snapshot, SLDCanvasSnapshot):
@@ -69,7 +80,7 @@ class SLDCanvasRenderSystem:
                 target.x(),
                 target.y(),
             )
-            item.setPen(QPen(self.CONNECTION_PEN_WIDTH))
+            item.setPen(self._pen(self.CONNECTION_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[connection.connection_id] = (item,)
 
@@ -81,7 +92,7 @@ class SLDCanvasRenderSystem:
                 self.NODE_RADIUS * 2.0,
             )
             item.setPos(node.x, node.y)
-            item.setPen(QPen(self.NODE_PEN_WIDTH))
+            item.setPen(self._pen(self.NODE_PEN_WIDTH))
             item.setBrush(QBrush())
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
