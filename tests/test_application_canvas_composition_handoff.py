@@ -37,3 +37,11 @@ def test_canvas_composition_does_not_construct_legacy_renderer_stack() -> None:
 
     assert "RenderSystem" not in source
     assert "RendererRegistry" not in source
+
+
+def test_default_tool_factories_do_not_depend_on_legacy_renderer_registry() -> None:
+    """Tool construction must not require the retired renderer registry."""
+    from ui.tools.default_tool_registry import create_default_tool_factories
+
+    signature = inspect.signature(create_default_tool_factories)
+    assert "renderer_registry" not in signature.parameters
