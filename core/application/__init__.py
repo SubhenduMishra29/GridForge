@@ -4,43 +4,23 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
-GridForge V2 — Headless Application Layer.
+"""Headless Application boundary between consumers and GridForge Core.
 
-This package contains the headless Application infrastructure
-that sits between external consumers and the GridForge Core.
-
-The Application layer is responsible for:
-
-    * command contracts;
-    * command dispatch;
-    * application services;
-    * transactions;
-    * undo/redo history;
-    * endpoint-reference resolution;
-    * application composition.
-
-The Application layer does NOT own:
-
-    * Core electrical state;
-    * SLD state;
-    * UI state;
-    * Qt objects;
-    * canvas objects;
-    * renderers.
-
-The canonical external mutation path is:
-
-    Application.execute(command)
-
-The public Application facade is intentionally thin.
+The Application layer owns commands, mutation orchestration, transactions,
+and read-side snapshot contracts. It does not own electrical truth, SLD/UI
+state, Qt objects, canvas objects, or renderers.
 """
 
 from __future__ import annotations
 
 from .application import Application
-
+from .read_models import ElementReadModel, NetworkReadModel
+from .read_service import NetworkReadService, ReadService
 
 __all__ = [
     "Application",
+    "ElementReadModel",
+    "NetworkReadModel",
+    "NetworkReadService",
+    "ReadService",
 ]
