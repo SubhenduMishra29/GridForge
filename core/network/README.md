@@ -1,1151 +1,450 @@
 # GridForge V2 — Network Layer
 
-The `core/network` package is the **assembled electrical-network
-layer** of GridForge V2.
+The `core/network` package is the **assembled electrical-network layer** of GridForge V2.
 
-It sits between the canonical electrical model layer and the
-engineering analysis / numerical solver layers.
+It sits between the canonical electrical model layer and the engineering analysis / numerical layers.
 
 ```text
-                        CORE MODEL
-                    canonical entities
-                           │
-                           │
-                           ▼
-                  ┌──────────────────┐
-                  │  core.network    │
-                  │                  │
-                  │     Network      │
-                  │       │          │
-                  │  ┌────┼────┐     │
-                  │  ▼    ▼    ▼     │
-                  │ Registry Index   │
-                  │       │ State    │
-                  │       │          │
-                  │   ┌───┴────┐     │
-                  │   ▼        ▼     │
-                  │Topology   Y-Bus  │
-                  └────┬────────┬────┘
-                       │        │
-                       ▼        ▼
-                 core.analysis
-                       │
-                       ▼
-                  core.solver
-1. Architectural Role
+UI / SLD
+   │
+   ▼
+Application
+   │ commands / orchestration
+   ▼
+core.model
+   │ canonical electrical objects
+   ▼
+core.network
+   ├── Network
+   ├── NetworkRegistry
+   ├── BusIndex
+   ├── NetworkState
+   └── TopologyManager
+   │
+   ▼
+core.numerical
+   ├── YBus
+   └── YBusBuilder
+   │
+   ▼
+core.analysis
+   │
+   ▼
+core.solver
+```
 
-The Network Layer assembles canonical electrical model objects into
-an operational electrical network representation.
+## 1. Architectural Role
 
-It provides the infrastructure required by engineering studies.
+The Network Layer assembles references to canonical electrical model objects into an operational network representation.
 
-The Network Layer is not the electrical model layer.
+Its responsibilities are:
 
-It is also not the application layer, SLD layer, analysis layer,
-or solver layer.
+- network membership;
+- topology lifecycle and derived connectivity;
+- deterministic bus indexing;
+- network structural state and invalidation;
+- network-level reconfiguration and structural checks.
 
-Its central responsibility is:
+The Network Layer does **not** own electrical equipment definitions, study orchestration, numerical solution algorithms, or UI/SLD state.
 
-Maintain an assembled network and expose authoritative derived
-representations of that network.
+## 2. Canonical Model Ownership
 
-2. Layer Boundaries
+`core.model` is the authoritative source of truth for electrical entities.
 
-GridForge V2 separates responsibilities as follows.
+The Network Layer stores and organizes references to those canonical objects. It must not create duplicate network-specific electrical objects.
 
-┌─────────────────────────────────────────────────────────────┐
-│ UI / SLD                                                    │
-│ Engineering authoring and visualization                    │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            │ commands / DTOs
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ APPLICATION                                                 │
-│ Commands / transactions / orchestration                     │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            │ create / connect / register
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ MODEL                                                       │
-│ Canonical electrical entities                               │
-│ Bus, Line, Transformer, Generator, Load, Shunt, etc.       │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            │ references
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ NETWORK                                                     │
-│ Assembled network / topology / indexing / Y-bus / state     │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ ANALYSIS                                                    │
-│ Study orchestration                                         │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ SOLVER                                                      │
-│ Numerical algorithms                                        │
-└─────────────────────────────────────────────────────────────┘
-3. Canonical Model Ownership
-
-core.model is the single source of truth for electrical entities.
-
-The Network Layer stores references to those objects.
-
-It does not create duplicate network-specific versions of model
-objects.
-
-Examples include:
-
-Bus
-Line
-Transformer
-Generator
-Load
-Shunt
-Breaker
-Disconnector
-Fuse
-CT
-PT
-CVT
-Relay
-Motor
-Cable
-
-The exact model inventory may expand through the GridForge plugin
-architecture, but the ownership rule does not change.
-
+```text
 core.model
     │
-    └── owns electrical object definition
-
+    └── canonical electrical objects
+            │
+            ▼
 core.network
-    │
-    └── assembles references to those objects
-4. Network Ownership
+    └── assembled membership / topology
+```
 
-The Network Layer owns the assembled-network representation.
+## 3. Network Ownership
 
-It owns:
+`core.network` owns:
 
-canonical network membership;
-deterministic bus indexing;
-topology service;
-Y-bus construction service;
-network-derived state;
-network-level reconfiguration;
-network-level status invalidation;
-network-level study state required by the network boundary.
+- canonical network membership;
+- deterministic `BusIndex` lifecycle;
+- derived topology;
+- network structural revision/invalidation state;
+- network-level structural operations.
 
-It does not own:
+It does **not** own:
 
-GUI state;
-SLD graphics;
-canvas state;
-engineering-study orchestration;
-numerical solver algorithms;
-electrical equipment definitions;
-plugin UI state.
-5. Package Structure
+- GUI state;
+- SLD graphics or layout;
+- canvas state;
+- application commands or transactions;
+- engineering-study orchestration;
+- numerical solver algorithms;
+- electrical equipment definitions;
+- numerical Y-bus artifacts.
 
-The current Network package is deliberately decomposed.
+## 4. Package Structure
 
+```text
 core/network/
-│
 ├── __init__.py
 ├── README.md
-│
 ├── network.py
 ├── registry.py
 ├── indexing.py
 ├── state.py
 ├── endpoint.py
-├── topology.py
+└── topology.py
+```
+
+Y-bus is deliberately outside this package:
+
+```text
+core/numerical/
+├── __init__.py
+├── state.py
 └── ybus.py
+```
 
-Each file has one principal responsibility.
+## 5. `network.py`
 
-6. network.py
+`network.py` contains the `Network` façade.
 
-network.py contains the Network façade.
+The façade coordinates:
 
-The façade coordinates the Network Layer services.
-
-It does not implement all network functionality itself.
-
-Conceptually:
-
+```text
 Network
-   │
    ├── NetworkRegistry
    ├── BusIndex
    ├── NetworkState
-   ├── TopologyManager
-   └── YBusBuilder
+   └── TopologyManager
+```
 
-The façade provides the stable entry point for callers that need to
-work with an assembled network.
+It provides the stable entry point for callers working with an assembled electrical network.
 
-Typical usage:
+The Network façade does not own or construct numerical Y-bus artifacts.
 
-from core.network import Network
+## 6. `registry.py`
 
-network = Network(base_mva=100.0)
-7. registry.py
+`NetworkRegistry` owns network membership.
 
-registry.py contains NetworkRegistry.
+It maintains references to canonical model objects and prevents duplicate identifiers within its registered collections.
 
-The registry owns network membership.
-
-It maintains collections of canonical model objects:
-
-buses
-lines
-transformers
-generators
-loads
-shunts
-
-The registry is responsible for:
-
-registering objects;
-preventing duplicate identifiers within a collection;
-removing canonical registered objects;
-maintaining collection membership.
-
-The registry does not own:
-
-topology;
-Y-bus;
-bus indexing;
-solver calculations;
-engineering validation;
-GUI state.
-
-Therefore:
-
+```text
 Registry = membership
+```
 
-not:
+The registry does not own topology, numerical Y-bus data, solver calculations, UI state, or study orchestration.
 
-Registry = network logic
-8. indexing.py
+## 7. `indexing.py`
 
-indexing.py contains BusIndex.
+`BusIndex` owns the derived deterministic mapping between canonical bus identifiers and numerical matrix positions.
 
-BusIndex owns the deterministic mapping between canonical bus
-identifiers and numerical matrix positions.
+Example:
 
-Conceptually:
+```text
+BUS-001 → 0
+BUS-002 → 1
+BUS-003 → 2
+```
 
-BUS-001 ──► 0
-BUS-002 ──► 1
-BUS-003 ──► 2
-BUS-004 ──► 3
+`BusIndex` is derived state. It must be rebuilt when bus membership/order changes.
 
-This mapping is required by matrix-based calculations such as Y-bus.
+The authoritative bus objects remain in `core.model` / Network membership; the index is only the numerical position mapping.
 
-The index is derived state.
+## 8. `state.py`
 
-It must therefore be invalidated whenever bus membership or bus
-ordering changes.
+`NetworkState` owns Network structural lifecycle information.
 
-The Network Layer does not allow Y-bus construction to operate on a
-stale bus index.
+It currently owns:
 
-9. state.py
+- `topology_revision`;
+- `topology_dirty`.
 
-state.py contains NetworkState.
+It deliberately does **not** own:
 
-NetworkState owns derived-network validity information.
+- canonical model objects;
+- network membership;
+- topology graphs;
+- terminal relationships;
+- `BusIndex` mappings;
+- `YBus` objects;
+- Y-bus validity/revision state;
+- solver state;
+- study state.
 
-Examples include:
+Numerical artifacts record the Network revision from which they were derived and determine freshness by comparing that revision with `NetworkState.topology_revision`.
 
-topology_dirty
-ybus_dirty
-topology_revision
-ybus_revision
+## 9. `endpoint.py`
 
-The purpose is to make derived-state invalidation explicit.
+`endpoint.py` is an internal read-only utility for resolving the Bus associated with a canonical Terminal relationship.
 
-For example:
+The authoritative relationship is:
 
-network topology changes
+```text
+Equipment → Terminal → Endpoint → Bus
+```
+
+Compatibility properties such as `from_bus`, `to_bus`, or `bus` must not replace the terminal-based physical relationship as the authoritative connectivity representation.
+
+`endpoint.py` is not a primary package-level API.
+
+## 10. `topology.py`
+
+`TopologyManager` derives electrical connectivity from the canonical Network model objects and their service/conduction state.
+
+It provides operations such as:
+
+- `build()`;
+- `find_islands()`;
+- `is_connected()`;
+- connectivity queries.
+
+Topology is derived state:
+
+```text
+Canonical model + Network membership
+              │
+              ▼
+      TopologyManager
+              │
+              ▼
+      Derived topology graph
+```
+
+`TopologyManager` does not own Bus, Line, Transformer, or other equipment objects and does not perform numerical solving.
+
+## 11. Topology and SLD Are Different
+
+The SLD is a visual engineering representation, not the electrical topology database.
+
+```text
+core.model
+   ├──────────────► core.network topology
+   │
+   └──────────────► SLD representation
+```
+
+A graphical SLD connection does not become electrical truth merely because a graphical line was drawn.
+
+Application orchestration converts authoring intent into engineering commands. Core validates and applies the resulting domain changes.
+
+## 12. Numerical Boundary and Y-Bus
+
+**Y-bus belongs to `core.numerical`, not `core.network`.**
+
+The Numerical layer owns derived mathematical representations and numerical artifacts produced from authoritative Network/Model data.
+
+```text
+core.model
+    │
+    ▼
+core.network
+    ├── topology
+    └── BusIndex
+    │
+    ▼
+core.numerical
+    ├── YBusBuilder
+    └── YBus
+    │
+    ▼
+core.analysis
+    │
+    ▼
+core.solver
+```
+
+`YBusBuilder` constructs the Y-bus from the assembled Network representation and current deterministic bus indexing.
+
+It performs matrix construction and element stamping. It does not perform Newton-Raphson iterations, power-flow solution, short-circuit solution, protection calculations, or transient simulation.
+
+The Network package therefore must **not** import or export `YBusBuilder` or `YBus` as Network-owned services.
+
+## 13. Derived-State Relationship
+
+The canonical model remains authoritative. Network and Numerical representations are derived/assembled views of that state.
+
+```text
+Canonical model mutation
         │
         ▼
-topology becomes invalid
+Network structural revision changes
         │
-        ▼
-Y-bus becomes invalid
+        ├── topology becomes stale
+        │
+        └── numerical artifacts derived from the old revision become stale
+```
 
-A change that affects only Y-bus data may invalidate Y-bus without
-necessarily changing topology.
+Derived artifacts may be discarded and rebuilt. Canonical electrical state must never be reconstructed from a Y-bus or topology graph.
 
-This distinction prevents unnecessary rebuilding.
+## 14. Network Reconfiguration
 
-10. endpoint.py
+Topology-affecting changes include operations such as:
 
-endpoint.py contains the internal terminal-resolution utility.
+- add/remove bus;
+- add/remove branch;
+- connect/disconnect equipment;
+- change topology-affecting service state;
+- other structural Network changes.
 
-Its purpose is to resolve the bus associated with a canonical terminal
-relationship.
+The Network Layer updates its structural revision/invalidation state. Numerical consumers must ensure their derived artifacts correspond to the current Network revision before use.
 
-Conceptually:
+## 15. Command and Transaction Boundary
 
-Equipment
-    │
-    ▼
-Terminal
-    │
-    ▼
-Endpoint
-    │
-    ▼
-Bus
+Network modifications are orchestrated by the Application layer.
 
-This utility exists because GridForge V2 uses terminal-based physical
-connectivity.
-
-The terminal is therefore more authoritative than compatibility
-properties such as:
-
-from_bus
-to_bus
-bus
-
-Those properties may remain useful model-level interfaces, but they
-are not the authoritative network connection representation.
-
-endpoint.py is an internal network utility.
-
-It is not a primary package-level API.
-
-11. topology.py
-
-topology.py contains TopologyManager.
-
-Topology is a derived representation of canonical model state.
-
-The topology manager determines electrical connectivity from the
-current canonical network objects and their service state.
-
-It provides functionality such as:
-
-build()
-find_islands()
-is_connected()
-
-The topology manager does not own:
-
-Bus objects;
-Line objects;
-Transformer objects;
-SLD objects;
-UI connections.
-
-The fundamental relationship is:
-
-Canonical model
-       │
-       ▼
-TopologyManager
-       │
-       ▼
-Derived electrical graph
-
-The graph can then be consumed by engineering analysis.
-
-12. Topology and SLD Are Different
-
-The SLD is not the electrical topology database.
-
-The SLD is a visual engineering representation.
-
-The canonical relationship is:
-
-Model
-  │
-  ├──────────────► Network topology
-  │
-  └──────────────► SLD representation
-
-Therefore:
-
-SLD connection
-
-does not become electrical truth merely because a graphical line was
-drawn.
-
-The application layer converts engineering authoring operations into
-commands.
-
-The Core validates and applies the resulting domain changes.
-
-13. ybus.py
-
-ybus.py contains YBusBuilder.
-
-The Y-bus is a derived numerical representation of the assembled
-network.
-
-The builder consumes:
-
-Network
-    │
-    ├── canonical buses
-    ├── canonical branches
-    ├── transformers
-    ├── shunts
-    └── deterministic BusIndex
-
-and constructs:
-
-Ybus
-
-Conceptually:
-
-Canonical network
-       │
-       ▼
-   BusIndex
-       │
-       ▼
- YBusBuilder
-       │
-       ▼
-    Y-bus
-
-The Y-bus builder performs matrix construction and element stamping.
-
-It does not perform:
-
-Newton-Raphson iterations;
-power-flow solution;
-short-circuit solution;
-protection calculations;
-transient simulation.
-14. Who Builds the Network?
-
-The Network is not normally constructed by the UI directly.
-
-The intended engineering workflow is:
-
-Engineer
+```text
+UI / SLD
    │
    ▼
-SLD / Application authoring
+Intent / Command
    │
    ▼
-Command
+Application transaction
    │
-   ▼
-Transaction
-   │
-   ├── create canonical model
+   ├── create/update canonical model
    ├── validate
-   ├── connect
-   ├── register
+   ├── connect/register
    └── commit
           │
           ▼
-       Network
+      Network
+```
 
-The Network Layer provides the APIs consumed by the Application
-Layer.
+The Network Layer is not a command dispatcher and does not own application transaction orchestration.
 
-The Application Layer owns the workflow.
+## 16. Validation Boundary
 
-15. Command Boundary
+Validation is layered.
 
-The Core is headless.
-
-Therefore commands do not depend on Qt, graphics scenes, widgets, or
-SLD items.
-
-A command represents an engineering operation.
-
-Examples include:
-
-CreateBus
-CreateLine
-CreateTransformer
-CreateGenerator
-CreateLoad
-CreateShunt
-
-ConnectTerminal
-DisconnectTerminal
-
-RegisterElement
-RemoveElement
-
-SetElementStatus
-ReconnectElement
-
-CreateNetwork
-DeleteNetwork
-
-The exact command inventory is maintained by the Application command
-architecture.
-
-The Network Layer should not become a command dispatcher.
-
-16. Transaction Boundary
-
-Network modifications should occur through application-level
-transactions.
-
-The intended conceptual workflow is:
-
-Command
-   │
-   ▼
-Begin transaction
-   │
-   ├── create model
-   ├── validate
-   ├── connect
-   ├── register
-   ├── update derived state
-   │
-   ▼
-Commit
-
-If a required operation fails:
-
-failure
-   │
-   ▼
-rollback
-
-The important ownership rule is:
-
-Application
-    owns transaction orchestration
-
-Model
-    owns canonical object state
-
-Network
-    owns assembled membership and derived network state
-17. Creation Ownership
-
-The following ownership model is mandatory.
-
-Responsibility	Owner
-Create canonical electrical object	Model/Application boundary
-Define electrical object	core.model
-Engineering command	Application
-Transaction	Application
-Network membership	NetworkRegistry
-Bus indexing	BusIndex
-Connectivity graph	TopologyManager
-Y-bus	YBusBuilder
-Derived-state validity	NetworkState
-Numerical power-flow solution	Solver
-Engineering study orchestration	Analysis
-SLD rendering	UI
-SLD interaction	UI/Application
-Electrical truth	Core Model + Network
-GUI truth	UI
-18. Validation Boundary
-
-Validation occurs at multiple architectural levels.
-
-The Network Layer must not absorb all validation.
-
-Conceptually:
-
+```text
 Command validation
-       │
-       ▼
-Domain/model validity
-       │
-       ▼
+       ↓
+Model/domain validity
+       ↓
 Network structural validity
-       │
-       ▼
+       ↓
 Engineering validation
-       │
-       ▼
+       ↓
 Study-specific validation
+```
 
-The Network Layer can enforce structural requirements necessary for
-its own operation.
+Network may enforce structural requirements needed for its own operation, such as duplicate membership, missing identifiers, unregistered references, or invalid indexing state.
 
-Examples:
+Engineering rules remain in the appropriate Core validation/engineering layers.
 
-duplicate bus ID
-missing object ID
-unregistered bus reference
-invalid network membership
-invalid bus index
+## 17. Consumption Boundary
 
-Engineering rules remain outside the Network Layer.
+Higher-level engineering layers consume Network and Numerical representations.
 
-19. Network Consumption
+```text
+                 Network
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+      topology             BusIndex
+          │                   │
+          └─────────┬─────────┘
+                    ▼
+              core.numerical
+                    │
+                  Y-Bus
+                    │
+                    ▼
+              core.analysis
+                    │
+                    ▼
+               core.solver
+```
 
-The Network is consumed by higher-level engineering layers.
+The solver owns numerical solution algorithms. It does not need to reconstruct the complete electrical Network when the required assembled/numerical representations are already supplied through the intended boundaries.
 
-Typical dependency flow:
+## 18. Headless Boundary
 
-                    Network
-                       │
-          ┌────────────┼────────────┐
-          │            │            │
-          ▼            ▼            ▼
-       topology       Ybus       injections
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-                    Analysis
-                       │
-                       ▼
-                     Solver
+`core/network` must remain completely headless.
 
-For example, a power-flow study may consume:
+It must not depend on:
 
-Network buses
-Network injections
-Network topology
-Network Y-bus
+- PySide6/PyQt;
+- `QGraphicsScene` / `QGraphicsItem`;
+- MainWindow or UI panels;
+- SLD canvas;
+- renderers;
+- UI plugins.
 
-The solver then consumes numerical representations prepared by the
-analysis layer.
+The Network Layer must be usable by tests, CLI tools, batch processing, engineering studies, automation, and headless simulation without starting a GUI.
 
-20. Y-Bus Consumer Boundary
+## 19. Solver Boundary
 
-The Y-bus is not a final engineering result.
-
-It is an intermediate network representation.
-
-The intended flow is:
-
-Model
-  │
-  ▼
-Network
-  │
-  ▼
-YBusBuilder
-  │
-  ▼
-Ybus
-  │
-  ▼
-Analysis Study
-  │
-  ▼
-Solver
-  │
-  ▼
-Engineering Result
-
-For example:
-
-Power Flow Analysis
-        │
-        ├── Network state
-        ├── Bus specifications
-        ├── Y-bus
-        └── solver configuration
-                 │
-                 ▼
-             Power Flow Solver
-
-The solver must not independently reconstruct the complete network
-from model objects when the Network Layer already provides the
-assembled representation required by the study.
-
-21. Network Reconfiguration
-
-Network reconfiguration occurs when network topology-affecting
-information changes.
-
-Examples include:
-
-add bus
-remove bus
-add line
-remove line
-add transformer
-remove transformer
-change service state
-connect branch
-disconnect branch
-
-The derived-state relationship is:
-
-network mutation
-       │
-       ▼
-topology invalid
-       │
-       ▼
-Y-bus invalid
-
-The Network does not necessarily rebuild everything immediately.
-
-Derived structures may be rebuilt lazily when requested.
-
-22. Service State
-
-Topology-affecting equipment may have an in_service state.
-
-Changing the state of such an element must invalidate the derived
-network representation.
-
-Conceptually:
-
-Line.in_service = True
-        │
-        │ change
-        ▼
-Line.in_service = False
-        │
-        ▼
-Topology invalid
-        │
-        ▼
-Y-bus invalid
-
-The Network Layer performs the state/invalidation boundary.
-
-Engineering consequences of the state change are handled by the
-appropriate analysis/validation layers.
-
-23. Bus Indexing and Y-Bus
-
-Bus indexing is deterministic.
-
-The Y-bus matrix position must always correspond to the Network's
-current bus index.
-
-BusIndex
-    │
-    ├── BUS-001 → 0
-    ├── BUS-002 → 1
-    ├── BUS-003 → 2
-    └── BUS-004 → 3
-             │
-             ▼
-          Y-bus
-
-A stale index must never be used to construct a Y-bus.
-
-Therefore Y-bus construction ensures that the bus index is current
-before matrix construction.
-
-24. Network State Is Derived State
-
-The following are derived:
-
-bus index
-topology graph
-Y-bus
-island information
-
-The canonical model objects remain authoritative.
-
-Therefore:
-
-Model
-   │
-   ├── authoritative state
-   │
-   ▼
-Network
-   │
-   ├── derived index
-   ├── derived topology
-   └── derived Y-bus
-
-Derived data may be discarded and rebuilt.
-
-Canonical model state must not be reconstructed from derived data.
-
-25. No GUI Dependency
-
-core/network must remain completely headless.
-
-It must not import:
-
-PySide6
-PyQt
-QGraphicsScene
-QGraphicsItem
-MainWindow
-SLD canvas
-UI plugin
-renderer
-
-The Network Layer must be usable from:
-
-CLI
-unit tests
-batch processing
-server processes
-automation
-engineering studies
-headless simulation
-
-without starting a GUI.
-
-26. No Solver Dependency
-
-The Network Layer must not contain numerical study algorithms.
-
-It provides network representations.
-
-It does not solve them.
+The Network Layer provides assembled network representations. It does not solve studies.
 
 Incorrect:
 
+```text
 Network.solve_power_flow()
 Network.solve_short_circuit()
 Network.run_transient()
+```
 
-Correct boundary:
+Correct:
 
-Network
-   │
-   ▼
-Analysis
-   │
-   ▼
-Solver
-27. Per-Unit Boundary
+```text
+Network / Numerical
+        ↓
+     Analysis
+        ↓
+      Solver
+        ↓
+ Engineering Result
+```
+
+## 20. Per-Unit Boundary
 
 The canonical per-unit implementation belongs to:
 
+```text
 core.base.per_unit.PerUnitSystem
+```
 
-There must not be a duplicate:
+Network may consume per-unit services where required by its structural/numerical boundaries, but it must not create a second canonical per-unit implementation.
 
-core/network/per_unit.py
+## 21. Ownership Summary
 
-The Network constructs a system-wide instance:
+| Responsibility | Owner |
+|---|---|
+| Canonical electrical object definition | `core.model` |
+| Network membership | `NetworkRegistry` |
+| Bus identifier → numerical index | `BusIndex` |
+| Network structural revision | `NetworkState` |
+| Connectivity graph | `TopologyManager` |
+| Y-bus representation | `core.numerical` |
+| Y-bus construction | `YBusBuilder` in `core.numerical` |
+| Numerical solution algorithms | `core.solver` |
+| Engineering study orchestration | `core.analysis` |
+| Commands / transactions | Application |
+| SLD rendering / interaction | UI / UI Core |
 
-network.per_unit
+## 22. Final Boundary
 
-using the Network MVA base.
+The frozen Network boundary is:
 
-PerUnitSystem may also be imported through:
+```text
+core.model
+    = authoritative electrical objects
 
-from core.network import PerUnitSystem
+core.network
+    = assembled membership + topology + structural lifecycle + BusIndex
 
-but its implementation remains owned by the Base Layer.
+core.numerical
+    = derived numerical representations, including Y-bus
 
-28. Public API
+core.analysis
+    = engineering study orchestration
 
-The package-level API is intentionally narrow.
+core.solver
+    = numerical solution algorithms
+```
 
-from core.network import (
-    Network,
-    NetworkRegistry,
-    BusIndex,
-    NetworkState,
-    TopologyManager,
-    YBusBuilder,
-    PerUnitSystem,
-)
-
-The principal entry point is:
-
-Network
-
-Most application code should interact with the Network façade rather
-than importing implementation details from individual modules.
-
-29. Example
-
-A minimal assembled network conceptually looks like:
-
-from core.network import Network
-
-network = Network(base_mva=100.0)
-
-network.add_bus(bus_1)
-network.add_bus(bus_2)
-
-network.add_line(line_1)
-
-network.rebuild_topology()
-
-Ybus = network.get_ybus()
-
-The objects passed to the Network are canonical model objects.
-
-They are not Network-specific duplicates.
-
-30. Engineering Workflow Example
-
-A typical SLD authoring operation is conceptually:
-
-Engineer selects "Bus"
-        │
-        ▼
-SLD preview
-        │
-        ▼
-Engineer clicks canvas
-        │
-        ▼
-Application creates CreateBus command
-        │
-        ▼
-Transaction
-        │
-        ├── create canonical Bus
-        ├── validate
-        ├── register Bus with Network
-        └── commit
-        │
-        ▼
-Network
-        │
-        ├── membership updated
-        ├── bus index invalidated
-        ├── topology invalidated
-        └── Y-bus invalidated
-        │
-        ▼
-SLD receives updated state/projection
-
-The SLD never becomes the owner of the electrical Bus.
-
-31. Terminal-Based Connectivity
-
-GridForge V2 uses terminals as the authoritative physical connection
-representation.
-
-Conceptually:
-
-Equipment
-    │
-    ▼
-Terminal
-    │
-    ▼
-Endpoint
-    │
-    ▼
-Bus / Terminal
-
-This allows the Network architecture to support:
-
-Terminal ↔ Bus
-Terminal ↔ Terminal
-
-and more advanced equipment topologies without forcing every
-connection into a simple from_bus / to_bus representation.
-
-Compatibility properties may exist on model objects, but they do not
-replace terminal relationships as the authoritative connection model.
-
-32. Bus-to-Bus SLD Connectivity
-
-A graphical bus-to-bus connection is an engineering authoring
-operation.
-
-It is not implemented by directly manipulating the Network graph
-from the SLD.
-
-The intended path is:
-
-SLD
- │
- ▼
-Application command
- │
- ▼
-connection validation
- │
- ▼
-canonical model connection
- │
- ▼
-Network registration/update
- │
- ▼
-Topology rebuild/invalidation
- │
- ▼
-Y-bus invalidation
-
-The exact electrical interpretation depends on the canonical model
-and connection contract.
-
-The Network Layer enforces the resulting assembled-network
-representation; the Application Layer owns the authoring workflow.
-
-33. Removal Semantics
-
-Removing a network element changes Network membership.
-
-For example:
-
-Network.remove_line(line)
-
-means:
-
-remove Line from Network membership
-
-It does not automatically mean:
-
-delete Line model object
-disconnect unrelated equipment
-delete buses
-modify SLD graphics
-
-Those operations belong to their respective ownership boundaries.
-
-34. Bus Removal
-
-Bus removal is deliberately strict.
-
-A Bus cannot be removed if a registered element still references it.
-
-References may arise through:
-
-Line terminals
-Transformer terminals
-Generator bus
-Load bus
-Shunt terminal
-
-The Network therefore prevents dangling assembled-network references.
-
-The application layer may first issue the necessary disconnect/remove
-commands and then remove the Bus.
-
-35. Important Invariants
-
-The following invariants apply to the Network Layer.
-
-Invariant 1 — Canonical model ownership
-core.model owns electrical entities.
-Invariant 2 — Network references models
-Network does not duplicate model classes.
-Invariant 3 — Registry owns membership
-Registry owns collection membership.
-Invariant 4 — Index owns matrix indexing
-BusIndex owns deterministic bus indexing.
-Invariant 5 — Topology is derived
-TopologyManager derives connectivity.
-Invariant 6 — Y-bus is derived
-YBusBuilder derives Y-bus.
-Invariant 7 — State owns invalidation
-NetworkState owns derived-state validity.
-Invariant 8 — Core remains headless
-No GUI dependency.
-Invariant 9 — Network does not solve
-No numerical engineering solver algorithms.
-Invariant 10 — Application owns commands
-Commands do not belong in core/network.
-36. Responsibility Matrix
-Operation	Primary Owner
-Define Bus	core.model
-Define Line	core.model
-Define Transformer	core.model
-Define Generator	core.model
-Define Load	core.model
-Create command	Application
-Execute transaction	Application
-Engineering authoring workflow	Application / SLD
-Register model in Network	Network / Registry
-Remove membership	Network / Registry
-Bus index	BusIndex
-Terminal-to-bus resolution	endpoint.py
-Electrical connectivity	TopologyManager
-Island detection	TopologyManager
-Y-bus construction	YBusBuilder
-Derived-state validity	NetworkState
-Power-flow orchestration	Analysis
-Power-flow numerical solution	Solver
-Short-circuit orchestration	Analysis
-Short-circuit numerical solution	Solver
-Protection study	Analysis / Protection
-SLD rendering	UI
-SLD graphical interaction	UI
-Electrical truth	Model + Network
-Visual truth	SLD/UI
-37. What the Network Layer Must Not Become
-
-The following are explicitly outside this package:
-
-CommandManager
-Command objects
-Undo/redo policy
-Qt widgets
-SLD graphics
-Canvas interaction
-Equipment palette
-Property editor
-Power-flow solver
-Newton-Raphson implementation
-Jacobian implementation
-Short-circuit solver
-Protection coordination
-Transient integration
-Plugin UI implementation
-
-If functionality requires one of these responsibilities, it belongs
-elsewhere.
-
-38. Design Goal
-
-The final Network Layer should remain small enough that an engineer
-can understand its architecture without reading every electrical
-model or numerical solver.
-
-The desired relationship is:
-
-                APPLICATION
-                     │
-                  Commands
-                     │
-                     ▼
-                   MODEL
-                     │
-              canonical objects
-                     │
-                     ▼
-                  NETWORK
-          ┌──────────┼──────────┐
-          │          │          │
-       Registry    Topology    Y-Bus
-          │          │          │
-          └──────────┼──────────┘
-                     ▼
-                  ANALYSIS
-                     │
-                     ▼
-                   SOLVER
-
-The Network Layer is therefore an assembly and derived-state
-boundary, not a general-purpose engineering computation layer.
-
-39. Version
-GridForge V2
-Network Layer
-Architecture baseline: 2.0
-Author: Subhendu Mishra
-Copyright © 2026
-40. Final Architectural Rule
-
-The most important rule of the Network Layer is:
-
-The model is authoritative; the Network assembles it; topology and
-Y-bus are derived; Application commands perform engineering
-workflows; Analysis orchestrates studies; Solver performs numerical
-computation.
-
-No component in core/network should violate that boundary without
-an explicit architectural decision.
+No layer may silently become a second owner of another layer's authoritative state.
