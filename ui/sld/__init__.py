@@ -10,6 +10,8 @@ from .sld_document import SLDDocument
 from .sld_state import SLDState
 from .sld_controller import SLDController
 from .sld_layout import SLDLayout, SLDPlacement
+from .sld_projection import SLDProjection
+from .sld_projection_manager import SLDProjectionManager
 
 __all__ = [
     "SLDModel",
@@ -20,4 +22,6 @@ __all__ = [
     "SLDController",
     "SLDLayout",
     "SLDPlacement",
+    "SLDProjection",
+    "SLDProjectionManager",
 ]
