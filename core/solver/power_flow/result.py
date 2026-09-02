@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 
 def _tuple_floats(values):
@@ -14,6 +15,10 @@ def _tuple_floats(values):
     return result
 
 
+def _immutable_records(values):
+    return tuple(MappingProxyType(dict(item)) for item in values)
+
+
 @dataclass(frozen=True, slots=True)
 class PowerFlowResult:
     """Completed numerical result with no reference to Core objects."""
@@ -21,14 +26,14 @@ class PowerFlowResult:
     success: bool
     iterations: int
     error: float
-    pv_to_pq: tuple[dict[str, Any], ...]
+    pv_to_pq: tuple[Mapping[str, Any], ...]
     history: tuple[float, ...]
     message: str
     voltage_magnitudes: tuple[float, ...]
     voltage_angles: tuple[float, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "pv_to_pq", tuple(dict(item) for item in self.pv_to_pq))
+        object.__setattr__(self, "pv_to_pq", _immutable_records(self.pv_to_pq))
         object.__setattr__(self, "history", _tuple_floats(self.history))
         object.__setattr__(self, "voltage_magnitudes", _tuple_floats(self.voltage_magnitudes))
         object.__setattr__(self, "voltage_angles", _tuple_floats(self.voltage_angles))
@@ -43,11 +48,9 @@ class PowerFlowResult:
 
     @property
     def voltages(self) -> dict[str, tuple[float, ...]]:
-        """Return the legacy-shaped voltage result without mutable arrays."""
         return {"Vm": self.voltage_magnitudes, "Va": self.voltage_angles}
 
     def as_dict(self) -> dict[str, Any]:
-        """Return a standalone serializable numerical representation."""
         return {
             "success": self.success,
             "iterations": self.iterations,
