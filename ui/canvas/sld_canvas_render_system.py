@@ -3,26 +3,22 @@
 # GridForge V2 — SLD Canvas Render System
 # Author: Subhendu Mishra
 # ============================================================
+
 """Realize an SLD canvas snapshot as transient graphics projections.
 
-This renderer is intentionally downstream of SLDCanvasProjection. It consumes
-only renderer-neutral SLD canvas snapshots and never receives Core objects.
-Existing BusItem and LineItem contracts are deliberately untouched; this
-system provides the clean realization path for SLD document data.
+The render system is downstream of :class:`SLDCanvasProjection`. It consumes
+only renderer-neutral SLD canvas snapshots and realizes them as specialized
+presentation graphics. BusItem and LineItem are graphics implementations, not
+sources of electrical truth.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from ui.core.qt import (
-    QBrush,
-    QGraphicsEllipseItem,
-    QGraphicsLineItem,
-    QGraphicsScene,
-    QPen,
-    QPointF,
-)
+from ui.core.qt import QGraphicsScene, QPen, QPointF
+from ui.items.bus_item import BusItem
+from ui.items.line_item import LineItem
 
 from .sld_canvas_projection import SLDCanvasSnapshot
 
@@ -57,7 +53,7 @@ class SLDCanvasRenderSystem:
         return pen
 
     def synchronize(self, snapshot: SLDCanvasSnapshot) -> None:
-        """Replace the graphical SLD projection from a snapshot."""
+        """Replace the graphical SLD projection from a renderer-neutral snapshot."""
         if not isinstance(snapshot, SLDCanvasSnapshot):
             raise TypeError("snapshot must be an SLDCanvasSnapshot.")
 
@@ -74,26 +70,22 @@ class SLDCanvasRenderSystem:
             if source is None or target is None:
                 continue
 
-            item = QGraphicsLineItem(
-                source.x(),
-                source.y(),
-                target.x(),
-                target.y(),
+            item = LineItem(
+                object_id=connection.connection_id,
+                start=source,
+                end=target,
             )
-            item.setPen(self._pen(self.CONNECTION_PEN_WIDTH))
+            item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[connection.connection_id] = (item,)
 
         for node in snapshot.nodes:
-            item = QGraphicsEllipseItem(
-                -self.NODE_RADIUS,
-                -self.NODE_RADIUS,
-                self.NODE_RADIUS * 2.0,
-                self.NODE_RADIUS * 2.0,
+            item = BusItem(
+                object_id=node.node_id,
+                position=QPointF(node.x, node.y),
+                radius=self._node_radius(node),
             )
-            item.setPos(node.x, node.y)
-            item.setPen(self._pen(self.NODE_PEN_WIDTH))
-            item.setBrush(QBrush())
+            item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
 
@@ -108,6 +100,16 @@ class SLDCanvasRenderSystem:
     def dispose(self) -> None:
         """Release the transient SLD graphical projection."""
         self.clear()
+
+    @classmethod
+    def _node_radius(cls, node: Any) -> float:
+        """Read optional visual radius from presentation properties."""
+        value = node.properties.get("radius", cls.NODE_RADIUS)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return cls.NODE_RADIUS
+        if value <= 0:
+            return cls.NODE_RADIUS
+        return float(value)
 
 
 __all__ = ["SLDCanvasRenderSystem"]
