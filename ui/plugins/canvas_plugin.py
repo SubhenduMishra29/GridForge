@@ -11,9 +11,13 @@ Canvas composition plugin for the GridForge SLD UI.
 
 Architectural role
 ------------------
-CanvasPlugin owns the lifecycle of the authoritative GraphicsView.
-It receives the SLD-to-Canvas projection boundary from composition but does
-not own electrical truth or construct a second model.
+CanvasPlugin owns the lifecycle of the GraphicsView and the presentation-only
+SLD canvas realization. It does not own electrical truth or construct a
+second engineering model.
+
+Author
+------
+Subhendu Mishra
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from ui.core.qt import QGraphicsScene, QWidget
 
 from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
+from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.plugins.plugin_context import PluginContext
 
 
@@ -37,6 +42,7 @@ class CanvasPlugin:
         self._view: Optional[GraphicsView] = None
         self._initialized = False
         self._sld_canvas_snapshot: Optional[SLDCanvasSnapshot] = None
+        self._sld_canvas_render_system: Optional[SLDCanvasRenderSystem] = None
 
     @property
     def context(self) -> Optional[PluginContext]:
@@ -79,7 +85,7 @@ class CanvasPlugin:
             raise RuntimeError("CanvasPlugin requires an SLD canvas projection.")
 
     def _create_canvas(self) -> None:
-        """Create the authoritative GridForge GraphicsView."""
+        """Create the authoritative GridForge GraphicsView and SLD realization."""
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
         if self._view is not None:
@@ -94,8 +100,12 @@ class CanvasPlugin:
         if not isinstance(self._view, GraphicsView):
             raise TypeError("GraphicsView construction returned an invalid object.")
 
+        self._sld_canvas_render_system = SLDCanvasRenderSystem(
+            self.require_scene()
+        )
+
     def synchronize_sld(self) -> SLDCanvasSnapshot:
-        """Refresh renderer-neutral Canvas input from the active SLD document."""
+        """Project and realize the active SLD document in the Canvas."""
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
         document = self._context.sld_document
@@ -104,13 +114,23 @@ class CanvasPlugin:
             raise RuntimeError("SLD canvas projection dependencies are unavailable.")
         if not isinstance(projection, SLDCanvasProjection):
             raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
-        self._sld_canvas_snapshot = projection.project(document.model)
-        return self._sld_canvas_snapshot
+        if self._sld_canvas_render_system is None:
+            raise RuntimeError("SLD canvas render system is not initialized.")
+
+        snapshot = projection.project(document.model)
+        self._sld_canvas_snapshot = snapshot
+        self._sld_canvas_render_system.synchronize(snapshot)
+        return snapshot
 
     @property
     def sld_canvas_snapshot(self) -> Optional[SLDCanvasSnapshot]:
         """Return the latest renderer-neutral SLD Canvas projection."""
         return self._sld_canvas_snapshot
+
+    @property
+    def sld_canvas_render_system(self) -> Optional[SLDCanvasRenderSystem]:
+        """Return the presentation-only SLD graphics realization."""
+        return self._sld_canvas_render_system
 
     @property
     def widget(self) -> Optional[QWidget]:
@@ -136,7 +156,11 @@ class CanvasPlugin:
         return self._initialized
 
     def shutdown(self) -> None:
-        """Shut down the canvas plugin."""
+        """Shut down the canvas plugin and release transient SLD graphics."""
+        if self._sld_canvas_render_system is not None:
+            self._sld_canvas_render_system.dispose()
+        self._sld_canvas_render_system = None
+
         if self._view is not None:
             self._view.setParent(None)
             self._view.deleteLater()
