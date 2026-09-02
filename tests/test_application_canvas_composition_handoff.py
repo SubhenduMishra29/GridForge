@@ -1,0 +1,29 @@
+"""
+GridForge V2
+===========
+
+File:
+    tests/test_application_canvas_composition_handoff.py
+
+Purpose:
+    Define the application-bootstrap ownership contract for the Canvas
+    composition handoff.
+
+Author:
+    Subhendu Mishra
+"""
+
+import inspect
+
+from main import build_application
+
+
+def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
+    """Bootstrap must compose Canvas before CanvasPlugin initialization."""
+    source = inspect.getsource(build_application)
+
+    assert "CanvasComposer" in source
+    assert "canvas_composition" in source
+    assert "set_composition" in source
+    assert source.index("CanvasComposer") < source.index("initialize_all")
+    assert source.index("set_composition") < source.index("initialize_all")
