@@ -60,10 +60,6 @@ class LineTool(ToolBase):
         self._current_endpoint: Any = None
         self._preview_active = False
 
-    # ========================================================
-    # METADATA
-    # ========================================================
-
     @property
     def tool_id(self) -> str:
         return self.TOOL_ID
@@ -76,19 +72,11 @@ class LineTool(ToolBase):
     def description(self) -> str:
         return "Create a connection between two SLD endpoints."
 
-    # ========================================================
-    # LIFECYCLE
-    # ========================================================
-
     def on_activate(self) -> None:
         self._clear_state()
 
     def on_deactivate(self) -> None:
         self._clear_state()
-
-    # ========================================================
-    # MOUSE PRESS
-    # ========================================================
 
     def on_mouse_press(self, event: Any) -> bool:
         """Capture an endpoint or dispatch a completed line intent."""
@@ -120,10 +108,6 @@ class LineTool(ToolBase):
         self._clear_state()
         return True
 
-    # ========================================================
-    # MOUSE MOVE
-    # ========================================================
-
     def on_mouse_move(self, event: Any) -> bool:
         """Update transient line preview from the current snap."""
         self._ensure_active()
@@ -150,19 +134,11 @@ class LineTool(ToolBase):
     def on_mouse_double_click(self, event: Any) -> bool:
         return self.on_mouse_press(event)
 
-    # ========================================================
-    # KEYBOARD
-    # ========================================================
-
     def on_key_press(self, event: Any) -> bool:
         self._ensure_active()
         if self._is_escape_event(event):
             return self.on_cancel()
         return False
-
-    # ========================================================
-    # CANCEL / RESET
-    # ========================================================
 
     def on_cancel(self) -> bool:
         self._ensure_active()
@@ -173,10 +149,6 @@ class LineTool(ToolBase):
     def on_reset(self) -> None:
         self._ensure_active()
         self._clear_state()
-
-    # ========================================================
-    # SNAP
-    # ========================================================
 
     def _snap(self, event: Any) -> Any:
         """Resolve a pointer position through the canonical SnapSystem."""
@@ -201,10 +173,6 @@ class LineTool(ToolBase):
             return None
         return self._position_tuple(result.position)
 
-    # ========================================================
-    # COMMAND BOUNDARY
-    # ========================================================
-
     def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
         """Dispatch CreateLineCommand through the headless Application."""
         application = getattr(self.controller, "gridforge_application", None)
@@ -214,24 +182,33 @@ class LineTool(ToolBase):
                 "at controller.gridforge_application."
             )
 
+        parameters = getattr(self.controller, "line_parameters", None)
+        if not isinstance(parameters, dict):
+            raise RuntimeError(
+                "Line engineering parameters are not configured. "
+                "The UI must not invent R/X/B values."
+            )
+
+        required = ("r", "x")
+        missing = [name for name in required if name not in parameters]
+        if missing:
+            raise RuntimeError(
+                "Line engineering parameters are incomplete: "
+                + ", ".join(missing)
+            )
+
         command = CreateLineCommand(
             line_id=f"line-{uuid4().hex}",
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
-            # Engineering parameters are deliberately not invented by the UI.
-            # A future property/editor flow must supply authoritative values.
-            r=0.0,
-            x=0.0,
-            b=0.0,
-            name="",
-            rate_mva=100.0,
+            r=float(parameters["r"]),
+            x=float(parameters["x"]),
+            b=float(parameters.get("b", 0.0)),
+            name=str(parameters.get("name", "")),
+            rate_mva=float(parameters.get("rate_mva", 100.0)),
         )
 
         return application.execute(command)
-
-    # ========================================================
-    # HELPERS
-    # ========================================================
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -261,10 +238,6 @@ class LineTool(ToolBase):
         self._start_endpoint = None
         self._current_endpoint = None
         self._preview_active = False
-
-    # ========================================================
-    # DIAGNOSTICS
-    # ========================================================
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
