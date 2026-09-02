@@ -63,7 +63,9 @@ class SLDReadSynchronizer:
             self._synchronize_element(document, element)
             for element in read_model.elements
         )
-        document.mark_clean()
+        # Do not call document.mark_clean() here. Read synchronization is an
+        # external authoritative update, not a user presentation save. A
+        # user's SLD layout/editing dirtiness must survive a Core refresh.
         return nodes
 
     def synchronize_element(
