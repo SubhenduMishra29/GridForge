@@ -19,7 +19,7 @@ from typing import Any
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.model.injection import Injection
 from core.numerical.ybus import YBus, YBusBuilder
-from core.solver.power_flow.input import PowerFlowInput
+from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +124,7 @@ class PowerFlowPreparation:
     def _prepare_bus_types(
         self,
         bus_ids: tuple[Any, ...],
-    ) -> tuple:
+    ) -> tuple[PowerFlowBusType, ...]:
         configured = self.power_flow_configuration.bus_types
         expected = set(bus_ids)
         supplied = set(configured)
