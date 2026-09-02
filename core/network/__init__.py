@@ -26,7 +26,10 @@ Architecture
         Index
         State
         Topology
-        Y-Bus
+              |
+              v
+    core.numerical
+        Y-bus and other numerical representations
               |
               v
     core.analysis
@@ -35,7 +38,6 @@ Architecture
               v
     core.solver
         Numerical algorithms
-
 
 Public Responsibilities
 -----------------------
@@ -57,12 +59,11 @@ The package provides:
     TopologyManager
         Builds and queries derived electrical topology.
 
-    YBusBuilder
-        Builds the network admittance matrix.
-
     PerUnitSystem
         Re-export of the canonical Base-Layer per-unit service.
 
+Y-bus construction is owned by ``core.numerical`` and is not a
+Network-layer implementation or responsibility.
 
 Architectural Boundary
 ----------------------
@@ -73,8 +74,7 @@ Architectural Boundary
 
 The Network Layer assembles references to canonical model objects
 and provides derived network representations required by analysis
-and solver layers.
-
+and numerical layers.
 
 Ownership
 ---------
@@ -85,7 +85,6 @@ Network owns:
     - network-level assembly;
     - deterministic bus indexing;
     - topology service;
-    - Y-bus service;
     - derived network state.
 
 Network does not own:
@@ -93,9 +92,9 @@ Network does not own:
     - GUI state;
     - SLD representation;
     - engineering study orchestration;
+    - numerical matrix construction;
     - numerical solver algorithms;
     - electrical equipment definitions.
-
 
 Command Boundary
 ----------------
@@ -115,7 +114,6 @@ those application-level workflows.
 
 The Network package therefore remains headless and UI-independent.
 
-
 Internal Utility Boundary
 -------------------------
 
@@ -126,7 +124,6 @@ It is intentionally not promoted as a primary package-level API.
 
 This prevents callers from treating endpoint resolution as a
 separate network-domain service.
-
 
 Per-Unit Boundary
 -----------------
@@ -139,7 +136,6 @@ There is no duplicate Network-layer implementation.
 
 ``PerUnitSystem`` is re-exported here only for convenient access.
 
-
 Stable Public API
 -----------------
 
@@ -147,22 +143,22 @@ Typical usage:
 
     from core.network import Network
 
-    network = Network(base_mva=100.0)
+    network = Network()
 
     network.add_bus(bus)
     network.add_line(line)
 
+    network.ensure_bus_index()
     network.rebuild_topology()
 
-    Ybus = network.get_ybus()
-
+Numerical consumers should obtain ``YBusBuilder`` from
+``core.numerical``, not from this package.
 
 The package-level exports are intentionally narrow.
 
 Consumers should prefer the Network façade rather than reaching
 through internal implementation modules unless a specific service
 contract explicitly requires it.
-
 
 GridForge V2 Status
 -------------------
@@ -189,8 +185,10 @@ The package boundary is intentionally separated into:
     topology.py
         connectivity
 
-    ybus.py
-        admittance construction
+Y-bus construction belongs to:
+
+    core/numerical/ybus.py
+        numerical Y-bus representation and construction
 
 Changes to this boundary require architectural justification.
 
@@ -222,7 +220,6 @@ from .state import NetworkState
 # =====================================================================
 
 from .topology import TopologyManager
-from .ybus import YBusBuilder
 
 
 # =====================================================================
@@ -255,7 +252,6 @@ __all__ = [
 
     # Derived network services
     "TopologyManager",
-    "YBusBuilder",
 
     # Base-layer service
     "PerUnitSystem",
