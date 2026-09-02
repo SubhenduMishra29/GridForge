@@ -16,6 +16,9 @@ from ui.core.qt import QApplication
 from ui.main_window import MainWindow
 from ui.plugins.plugin_context import PluginContext
 from ui.plugins.plugin_manager import PluginManager
+from ui.sld.sld_document import SLDDocument
+from ui.sld.sld_projection_manager import SLDProjectionManager
+from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import default_workspaces, get_initial_workspace
 from ui.workspace.workspace_manager import WorkspaceManager
@@ -29,10 +32,29 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
     if app is None:
         app = QApplication(sys.argv)
 
-    # The Core Network is the single authoritative electrical model.
-    # It is composed before UI plugins and is never replaced by the UI.
+    # --------------------------------------------------------
+    # Authoritative Core/Application boundary
+    # --------------------------------------------------------
+    # One Core Network is created here. Presentation never creates
+    # an alternative electrical model.
     network = Network()
     gridforge_application = create_application(network)
+
+    # --------------------------------------------------------
+    # SLD read-side presentation boundary
+    # --------------------------------------------------------
+    # The SLD document is presentation-owned. It is populated only
+    # from immutable Application read data; it never stores Core objects.
+    sld_document = SLDDocument(
+        document_id="sld-document",
+        name="GridForge SLD",
+    )
+    sld_projection_manager = SLDProjectionManager()
+    sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
+    sld_read_synchronizer.synchronize_network(
+        sld_document,
+        gridforge_application.read_network(),
+    )
 
     controller = Controller()
     tool_manager = ToolManager(
@@ -62,13 +84,11 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
         gridforge_application=gridforge_application,
         root_widget=root_widget,
         controller=controller,
+        sld_document=sld_document,
         tool_manager=tool_manager,
     )
 
-    contexts = {
-        plugin_id: context
-        for plugin_id in plugin_manager.plugin_ids
-    }
+    contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}
     plugin_manager.set_contexts(contexts)
     plugin_manager.initialize_all()
 
