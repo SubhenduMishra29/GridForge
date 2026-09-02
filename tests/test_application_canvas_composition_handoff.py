@@ -45,3 +45,12 @@ def test_default_tool_factories_do_not_depend_on_legacy_renderer_registry() -> N
 
     signature = inspect.signature(create_default_tool_factories)
     assert "renderer_registry" not in signature.parameters
+
+
+def test_tool_base_has_no_legacy_renderer_registry_contract() -> None:
+    """ToolBase must not expose the retired renderer registry dependency."""
+    from ui.tools.tool_base import ToolBase
+
+    signature = inspect.signature(ToolBase.__init__)
+    assert "renderer_registry" not in signature.parameters
+    assert not hasattr(ToolBase, "get_renderer_registry")
