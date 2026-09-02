@@ -186,10 +186,10 @@ class LineTool(ToolBase):
         if not isinstance(parameters, dict):
             raise RuntimeError(
                 "Line engineering parameters are not configured. "
-                "The UI must not invent R/X/B values."
+                "The UI must not invent R/X/B/rating values."
             )
 
-        required = ("r", "x")
+        required = ("r", "x", "rate_mva")
         missing = [name for name in required if name not in parameters]
         if missing:
             raise RuntimeError(
@@ -205,7 +205,7 @@ class LineTool(ToolBase):
             x=float(parameters["x"]),
             b=float(parameters.get("b", 0.0)),
             name=str(parameters.get("name", "")),
-            rate_mva=float(parameters.get("rate_mva", 100.0)),
+            rate_mva=float(parameters["rate_mva"]),
         )
 
         return application.execute(command)
