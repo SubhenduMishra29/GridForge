@@ -88,9 +88,17 @@ class PowerFlowPreparation:
             raise RuntimeError("Network BusIndex does not match current bus membership.")
 
         p_spec, q_spec, q_min, q_max = self._collect_injections(buses)
-        initial_vm = tuple(self._finite_positive(getattr(bus, "voltage_pu", 1.0), f"Bus '{bus.id}' voltage_pu") for bus in buses)
+        initial_vm = tuple(
+            self._finite_positive(
+                getattr(bus, "voltage_pu", 1.0),
+                f"Bus '{bus.id}' voltage_pu",
+            )
+            for bus in buses
+        )
         initial_va = tuple(
-            math.radians(self._finite(getattr(bus, "angle_deg", 0.0), f"Bus '{bus.id}' angle_deg"))
+            math.radians(
+                self._finite(getattr(bus, "angle_deg", 0.0), f"Bus '{bus.id}' angle_deg")
+            )
             for bus in buses
         )
 
@@ -111,7 +119,10 @@ class PowerFlowPreparation:
         ybus = YBusBuilder(self.network).build()
         return PreparedPowerFlow(input=input_data, ybus=ybus)
 
-    def _collect_injections(self, buses: tuple[Any, ...]) -> tuple[list[float], list[float], list[float | None], list[float | None]]:
+    def _collect_injections(
+        self,
+        buses: tuple[Any, ...],
+    ) -> tuple[list[float], list[float], list[float | None], list[float | None]]:
         bus_ids = {str(bus.id) for bus in buses}
         generation: dict[str, float] = {bus_id: 0.0 for bus_id in bus_ids}
         reactive_generation: dict[str, float] = {bus_id: 0.0 for bus_id in bus_ids}
@@ -126,14 +137,24 @@ class PowerFlowPreparation:
                 continue
             bus_id = self._element_bus_id(generator)
             if bus_id not in bus_ids:
-                raise ValueError(f"Generator '{getattr(generator, 'id', generator)}' resolves outside the Network buses.")
+                raise ValueError(
+                    f"Generator '{getattr(generator, 'id', generator)}' resolves outside the Network buses."
+                )
             p = self._finite(getattr(generator, "p", 0.0), f"Generator '{generator.id}' p")
             q = self._finite(getattr(generator, "q", 0.0), f"Generator '{generator.id}' q")
             generation[bus_id] += p
             reactive_generation[bus_id] += q
             has_generator[bus_id] = True
-            q_min = self._finite(getattr(generator, "q_min", -float("inf")), f"Generator '{generator.id}' q_min")
-            q_max = self._finite(getattr(generator, "q_max", float("inf")), f"Generator '{generator.id}' q_max")
+            q_min = self._q_limit(
+                getattr(generator, "q_min", -float("inf")),
+                f"Generator '{generator.id}' q_min",
+            )
+            q_max = self._q_limit(
+                getattr(generator, "q_max", float("inf")),
+                f"Generator '{generator.id}' q_max",
+            )
+            if q_min > q_max:
+                raise ValueError(f"Generator '{generator.id}' q_min exceeds q_max.")
             q_mins[bus_id] = q_mins.get(bus_id, 0.0) + q_min
             q_maxs[bus_id] = q_maxs.get(bus_id, 0.0) + q_max
 
@@ -142,15 +163,19 @@ class PowerFlowPreparation:
                 continue
             bus_id = self._element_bus_id(load)
             if bus_id not in bus_ids:
-                raise ValueError(f"Load '{getattr(load, 'id', load)}' resolves outside the Network buses.")
+                raise ValueError(
+                    f"Load '{getattr(load, 'id', load)}' resolves outside the Network buses."
+                )
             p = self._finite(getattr(load, "p", 0.0), f"Load '{load.id}' p")
             q = self._finite(getattr(load, "q", 0.0), f"Load '{load.id}' q")
             load_p[bus_id] += p
             load_q[bus_id] += q
 
         scale = self.configuration.base_mva
-        p_spec = [(generation[bus_id] - load_p[bus_id]) / scale for bus_id in (str(bus.id) for bus in buses)]
-        q_spec = [(reactive_generation[bus_id] - load_q[bus_id]) / scale for bus_id in (str(bus.id) for bus in buses)]
+        ordered_ids = (str(bus.id) for bus in buses)
+        p_spec = [(generation[bus_id] - load_p[bus_id]) / scale for bus_id in ordered_ids]
+        ordered_ids = (str(bus.id) for bus in buses)
+        q_spec = [(reactive_generation[bus_id] - load_q[bus_id]) / scale for bus_id in ordered_ids]
 
         q_min: list[float | None] = []
         q_max: list[float | None] = []
@@ -192,6 +217,16 @@ class PowerFlowPreparation:
             raise ValueError(f"{name} must be numeric.") from exc
         if not math.isfinite(numeric):
             raise ValueError(f"{name} must be finite.")
+        return numeric
+
+    @classmethod
+    def _q_limit(cls, value: Any, name: str) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be numeric.") from exc
+        if math.isnan(numeric):
+            raise ValueError(f"{name} must not be NaN.")
         return numeric
 
     @classmethod
