@@ -78,6 +78,7 @@ from typing import Any, Iterable, List, Optional, Sequence, Tuple
 import copy
 
 from core.analysis.power_flow import PowerFlowAnalysis
+from core.network.endpoint import resolve_terminal_bus
 from core.solver.power_flow.preparation import PowerFlowPreparation
 from core.solver.power_flow.study_configuration import PowerFlowStudyConfiguration
 
@@ -461,7 +462,7 @@ class ContingencyAnalysis:
 
     # =================================================================
     # NON-DESTRUCTIVE OUTAGE CREATION
-    # =================================================================
+    # =====================================================================
 
     def _create_outage_case(
         self,
@@ -553,9 +554,12 @@ class ContingencyAnalysis:
         bus: Any,
     ) -> bool:
         """
-        Determine Bus connectivity from authoritative Terminal endpoints.
+        Determine Bus connectivity through the canonical Network
+        Terminal-to-Bus resolver.
 
-        No duplicate bus references or collection heuristics are used.
+        The resolver supports both direct Bus endpoints and endpoint
+        adapters exposing ``.bus``. No duplicate endpoint interpretation
+        is performed in the contingency layer.
         """
 
         terminals = getattr(element, "terminals", None)
@@ -568,15 +572,18 @@ class ContingencyAnalysis:
             if terminal is None:
                 continue
 
-            endpoint = getattr(terminal, "endpoint", None)
+            try:
+                resolved_bus = resolve_terminal_bus(terminal)
+            except (TypeError, ValueError):
+                continue
 
-            if endpoint is bus:
+            if resolved_bus is bus:
                 return True
 
-            endpoint_id = getattr(endpoint, "id", None)
+            resolved_bus_id = getattr(resolved_bus, "id", None)
             bus_id = getattr(bus, "id", None)
 
-            if endpoint_id is not None and endpoint_id == bus_id:
+            if resolved_bus_id is not None and resolved_bus_id == bus_id:
                 return True
 
         return False
