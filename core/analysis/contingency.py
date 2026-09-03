@@ -27,6 +27,12 @@ Architecture
             +---- isolated case Network
             |          |
             |          v
+            |    PowerFlowStudyConfiguration
+            |          |
+            |          v
+            |    PowerFlowPreparation
+            |          |
+            |          v
             |    PowerFlowAnalysis
             |          |
             |          v
@@ -34,7 +40,6 @@ Architecture
             |
             v
     ContingencyResult
-
 
 IMPORTANT STATE-ISOLATION CONTRACT
 ----------------------------------
@@ -48,8 +53,8 @@ isolated deep copy of the authoritative Network.
 
 Outage status is applied only to the copied case Network.
 
-PowerFlowAnalysis is also instantiated only with the copied
-case Network.
+PowerFlowPreparation and PowerFlowAnalysis operate only on the
+isolated case Network and its prepared numerical contracts.
 
 The authoritative Network is never passed to:
 
@@ -73,6 +78,8 @@ from typing import Any, Iterable, List, Optional, Sequence, Tuple
 import copy
 
 from core.analysis.power_flow import PowerFlowAnalysis
+from core.solver.power_flow.preparation import PowerFlowPreparation
+from core.solver.power_flow.study_configuration import PowerFlowStudyConfiguration
 
 
 # =====================================================================
@@ -187,6 +194,11 @@ class ContingencyAnalysis:
     network:
         Authoritative GridForge Network.
 
+    power_flow_configuration:
+        Optional reusable study-level power-flow configuration. A
+        configuration is required when ``run()`` executes power flow.
+        The same instance is reused for every isolated contingency case.
+
     Notes
     -----
     The supplied Network is never modified by this analysis.
@@ -199,10 +211,23 @@ class ContingencyAnalysis:
     # INITIALIZATION
     # =================================================================
 
-    def __init__(self, network: Any) -> None:
+    def __init__(
+        self,
+        network: Any,
+        power_flow_configuration: Optional[PowerFlowStudyConfiguration] = None,
+    ) -> None:
         self.network = network
+        self.power_flow_configuration = power_flow_configuration
 
         self._validate_network()
+
+        if power_flow_configuration is not None and not isinstance(
+            power_flow_configuration,
+            PowerFlowStudyConfiguration,
+        ):
+            raise TypeError(
+                "power_flow_configuration must be PowerFlowStudyConfiguration."
+            )
 
         self._prepared_cases: List[Tuple[Any, ...]] = []
         self._result: Optional[ContingencyResult] = None
@@ -270,6 +295,12 @@ class ContingencyAnalysis:
             voltage_max=voltage_max,
             thermal_limit=thermal_limit,
         )
+
+        if self.power_flow_configuration is None:
+            raise ValueError(
+                "ContingencyAnalysis requires a PowerFlowStudyConfiguration "
+                "to execute power-flow based contingency cases."
+            )
 
         cases = self.prepare(
             elements=elements,
@@ -372,11 +403,7 @@ class ContingencyAnalysis:
             # CRITICAL ARCHITECTURAL BOUNDARY
             # ---------------------------------------------------------
             #
-            # This method receives the authoritative Network only
-            # through self.network.
-            #
             # _create_outage_case() MUST return an independent copy.
-            #
             # Everything below operates exclusively on that copy.
             # ---------------------------------------------------------
 
@@ -384,8 +411,14 @@ class ContingencyAnalysis:
                 outages
             )
 
-            power_flow = PowerFlowAnalysis(
+            prepared = PowerFlowPreparation(
                 case_network,
+                self.power_flow_configuration,
+            ).prepare()
+
+            power_flow = PowerFlowAnalysis(
+                prepared.input,
+                prepared.ybus,
                 options=power_flow_options,
             )
 
@@ -1179,4 +1212,3 @@ __all__ = [
     "ContingencyCaseResult",
     "ContingencyViolation",
 ]
-```
