@@ -11,9 +11,10 @@ Canvas plugin lifecycle boundary for an application-composed SLD canvas.
 
 Architectural role
 ------------------
-CanvasPlugin consumes an application-owned CanvasComposition. It does not
-construct Canvas services, own the Canvas scene, or dispose shared Canvas
-services. SLD projection and graphics realization remain presentation-only.
+CanvasPlugin consumes an application-owned CanvasComposition and injected SLD
+presentation services. It does not construct Canvas services, own the Canvas
+scene, or dispose shared Canvas services. SLD projection and graphics
+realization remain presentation-only.
 
 Author
 ------
@@ -74,7 +75,7 @@ class CanvasPlugin:
         self._composition = composition
 
     def initialize(self, context: Optional[PluginContext] = None) -> bool:
-        """Initialize the plugin against a pre-composed Canvas."""
+        """Initialize the plugin against a pre-composed Canvas and SLD services."""
         if self._initialized:
             return True
         if context is not None:
@@ -83,13 +84,18 @@ class CanvasPlugin:
         if self._composition is None:
             raise RuntimeError("CanvasPlugin requires an application-composed CanvasComposition.")
 
-        self._sld_canvas_render_system = SLDCanvasRenderSystem(self.require_scene())
+        self._sld_canvas_render_system = self._context.sld_canvas_render_system
+        if not isinstance(self._sld_canvas_render_system, SLDCanvasRenderSystem):
+            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
+        if self._sld_canvas_render_system.scene is not self.require_scene():
+            raise RuntimeError("SLD canvas render system must target the CanvasComposition scene.")
+
         self.synchronize_sld()
         self._initialized = True
         return True
 
     def _validate_context(self) -> None:
-        """Validate dependencies required by SLD projection."""
+        """Validate dependencies required by SLD projection and realization."""
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
         if self._context.controller is None:
@@ -100,6 +106,8 @@ class CanvasPlugin:
             raise RuntimeError("CanvasPlugin requires an active SLD document.")
         if self._context.sld_canvas_projection is None:
             raise RuntimeError("CanvasPlugin requires an SLD canvas projection.")
+        if self._context.sld_canvas_render_system is None:
+            raise RuntimeError("CanvasPlugin requires an SLD canvas render system.")
 
     def synchronize_sld(self) -> SLDCanvasSnapshot:
         """Project and realize the active SLD document in the composed Canvas."""
@@ -107,16 +115,19 @@ class CanvasPlugin:
             raise RuntimeError("CanvasPlugin context is unavailable.")
         document = self._context.sld_document
         projection = self._context.sld_canvas_projection
-        if document is None or projection is None:
+        render_system = self._context.sld_canvas_render_system
+        if document is None or projection is None or render_system is None:
             raise RuntimeError("SLD canvas projection dependencies are unavailable.")
         if not isinstance(projection, SLDCanvasProjection):
             raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
-        if self._sld_canvas_render_system is None:
-            raise RuntimeError("SLD canvas render system is not initialized.")
+        if not isinstance(render_system, SLDCanvasRenderSystem):
+            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
+        if render_system is not self._sld_canvas_render_system:
+            raise RuntimeError("SLD canvas render system changed after plugin initialization.")
 
         snapshot = projection.project(document.model)
         self._sld_canvas_snapshot = snapshot
-        self._sld_canvas_render_system.synchronize(snapshot)
+        render_system.synchronize(snapshot)
         return snapshot
 
     @property
@@ -126,7 +137,7 @@ class CanvasPlugin:
 
     @property
     def sld_canvas_render_system(self) -> Optional[SLDCanvasRenderSystem]:
-        """Return the presentation-only SLD graphics realization."""
+        """Return the injected presentation-only SLD graphics realization."""
         return self._sld_canvas_render_system
 
     @property
@@ -155,13 +166,11 @@ class CanvasPlugin:
         return self._initialized
 
     def shutdown(self) -> None:
-        """Release plugin-owned transient SLD realization only."""
-        if self._sld_canvas_render_system is not None:
-            self._sld_canvas_render_system.dispose()
+        """Release plugin-local references without disposing shared SLD services."""
         self._sld_canvas_render_system = None
         self._sld_canvas_snapshot = None
         self._initialized = False
-        # CanvasComposition and its services remain application-owned.
+        # CanvasComposition and its SLD services remain application-owned.
 
 
 def create_canvas_plugin(context: Optional[PluginContext] = None) -> CanvasPlugin:
