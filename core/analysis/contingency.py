@@ -253,9 +253,9 @@ class ContingencyAnalysis:
         Parameters
         ----------
         elements:
-            Optional sequence of line/transformer IDs.
+            Optional sequence of contingency element IDs.
 
-            If omitted, all in-service lines and transformers
+            If omitted, all in-service supported contingency elements
             are considered.
 
         contingency_type:
@@ -265,8 +265,12 @@ class ContingencyAnalysis:
             Optional element-type filter.
 
             Supported:
+                "bus"
                 "line"
                 "transformer"
+                "generator"
+                "load"
+                "shunt"
 
         power_flow_options:
             SolverOptions passed to PowerFlowAnalysis.
@@ -491,16 +495,91 @@ class ContingencyAnalysis:
                     "in the isolated case Network."
                 )
 
-            # ---------------------------------------------------------
-            # Mutation occurs ONLY on the copied Network.
-            # ---------------------------------------------------------
-
-            case_network.set_element_status(
-                element,
-                False,
-            )
+            if self._is_bus(element):
+                element.in_service = False
+                self._disable_connected_equipment(
+                    case_network,
+                    element,
+                )
+            else:
+                self._set_in_service(element, False)
 
         return case_network
+
+    @staticmethod
+    def _is_bus(element: Any) -> bool:
+        """Return True when the element is a Bus model."""
+
+        return type(element).__name__.lower() == "bus"
+
+    @staticmethod
+    def _set_in_service(element: Any, in_service: bool) -> None:
+        """Set equipment operational state through its model contract."""
+
+        if not hasattr(element, "in_service"):
+            raise TypeError(
+                f"Contingency element {element!r} has no in_service state."
+            )
+
+        element.in_service = bool(in_service)
+
+    @classmethod
+    def _disable_connected_equipment(
+        cls,
+        network: Any,
+        bus: Any,
+    ) -> None:
+        """
+        Disable supported equipment whose authoritative Terminal endpoint
+        refers to the selected Bus.
+        """
+
+        supported_collections = (
+            network.lines,
+            network.transformers,
+            network.generators,
+            network.loads,
+            network.shunts,
+        )
+
+        for collection in supported_collections:
+            for element in collection:
+                if cls._element_connected_to_bus(element, bus):
+                    cls._set_in_service(element, False)
+
+    @staticmethod
+    def _element_connected_to_bus(
+        element: Any,
+        bus: Any,
+    ) -> bool:
+        """
+        Determine Bus connectivity from authoritative Terminal endpoints.
+
+        No duplicate bus references or collection heuristics are used.
+        """
+
+        terminals = getattr(element, "terminals", None)
+
+        if terminals is None:
+            terminal = getattr(element, "terminal", None)
+            terminals = (terminal,) if terminal is not None else ()
+
+        for terminal in terminals:
+            if terminal is None:
+                continue
+
+            endpoint = getattr(terminal, "endpoint", None)
+
+            if endpoint is bus:
+                return True
+
+            endpoint_id = getattr(endpoint, "id", None)
+            bus_id = getattr(bus, "id", None)
+
+            if endpoint_id is not None and endpoint_id == bus_id:
+                return True
+
+        return False
 
     # =================================================================
     # CANDIDATE DISCOVERY
@@ -515,10 +594,14 @@ class ContingencyAnalysis:
         """
         Return valid contingency candidate IDs.
 
-        v1.0 supports:
+        Supported:
 
+            - Bus
             - Line
             - Transformer
+            - Generator
+            - Load
+            - Shunt
 
         Only currently in-service elements are candidates.
         """
@@ -529,29 +612,22 @@ class ContingencyAnalysis:
 
         available: List[Any] = []
 
-        if (
-            normalized_types is None
-            or "line" in normalized_types
-        ):
-            for line in self.network.lines:
-                if getattr(
-                    line,
-                    "in_service",
-                    True,
-                ):
-                    available.append(line.id)
+        collections = (
+            ("bus", self.network.buses),
+            ("line", self.network.lines),
+            ("transformer", self.network.transformers),
+            ("generator", self.network.generators),
+            ("load", self.network.loads),
+            ("shunt", self.network.shunts),
+        )
 
-        if (
-            normalized_types is None
-            or "transformer" in normalized_types
-        ):
-            for transformer in self.network.transformers:
-                if getattr(
-                    transformer,
-                    "in_service",
-                    True,
-                ):
-                    available.append(transformer.id)
+        for element_type, collection in collections:
+            if normalized_types is not None and element_type not in normalized_types:
+                continue
+
+            for element in collection:
+                if getattr(element, "in_service", True):
+                    available.append(element.id)
 
         # -------------------------------------------------------------
         # No explicit selection:
@@ -611,8 +687,12 @@ class ContingencyAnalysis:
         }
 
         valid_types = {
+            "bus",
             "line",
             "transformer",
+            "generator",
+            "load",
+            "shunt",
         }
 
         invalid = normalized - valid_types
@@ -686,16 +766,22 @@ class ContingencyAnalysis:
         element_id: Any,
     ) -> Optional[Any]:
         """
-        Locate a line or transformer by ID.
+        Locate a supported contingency element by ID.
         """
 
-        for line in network.lines:
-            if line.id == element_id:
-                return line
+        collections = (
+            network.buses,
+            network.lines,
+            network.transformers,
+            network.generators,
+            network.loads,
+            network.shunts,
+        )
 
-        for transformer in network.transformers:
-            if transformer.id == element_id:
-                return transformer
+        for collection in collections:
+            for element in collection:
+                if element.id == element_id:
+                    return element
 
         return None
 
@@ -1169,7 +1255,9 @@ class ContingencyAnalysis:
             "buses",
             "lines",
             "transformers",
-            "set_element_status",
+            "generators",
+            "loads",
+            "shunts",
         )
 
         for attribute in required:
