@@ -17,10 +17,9 @@ from __future__ import annotations
 from typing import Any
 
 from ui.core.qt import QGraphicsScene, QPen, QPointF
-from ui.items.bus_item import BusItem
-from ui.items.line_item import LineItem
 
 from .sld_canvas_projection import SLDCanvasSnapshot
+from .sld_graphics_item_factory import SLDGraphicsItemFactory
 
 
 class SLDCanvasRenderSystem:
@@ -30,16 +29,26 @@ class SLDCanvasRenderSystem:
     NODE_PEN_WIDTH = 1.5
     CONNECTION_PEN_WIDTH = 2.0
 
-    def __init__(self, scene: QGraphicsScene) -> None:
+    def __init__(
+        self,
+        scene: QGraphicsScene,
+        item_factory: SLDGraphicsItemFactory | None = None,
+    ) -> None:
         if scene is None:
             raise ValueError("scene must not be None.")
         self._scene = scene
+        self._item_factory = item_factory or SLDGraphicsItemFactory()
         self._items: dict[str, tuple[Any, ...]] = {}
 
     @property
     def scene(self) -> QGraphicsScene:
         """Return the target scene."""
         return self._scene
+
+    @property
+    def item_factory(self) -> SLDGraphicsItemFactory:
+        """Return the graphics-item construction boundary."""
+        return self._item_factory
 
     @staticmethod
     def _pen(width: float) -> QPen:
@@ -70,21 +79,13 @@ class SLDCanvasRenderSystem:
             if source is None or target is None:
                 continue
 
-            item = LineItem(
-                object_id=connection.connection_id,
-                start=source,
-                end=target,
-            )
+            item = self._item_factory.create_connection(connection, source, target)
             item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[connection.connection_id] = (item,)
 
         for node in snapshot.nodes:
-            item = BusItem(
-                object_id=node.node_id,
-                position=QPointF(node.x, node.y),
-                radius=self._node_radius(node),
-            )
+            item = self._item_factory.create_node(node)
             item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
@@ -100,16 +101,6 @@ class SLDCanvasRenderSystem:
     def dispose(self) -> None:
         """Release the transient SLD graphical projection."""
         self.clear()
-
-    @classmethod
-    def _node_radius(cls, node: Any) -> float:
-        """Read optional visual radius from presentation properties."""
-        value = node.properties.get("radius", cls.NODE_RADIUS)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return cls.NODE_RADIUS
-        if value <= 0:
-            return cls.NODE_RADIUS
-        return float(value)
 
 
 __all__ = ["SLDCanvasRenderSystem"]

@@ -6,8 +6,9 @@
 """SLD presentation coordinator attached to the canonical Canvas scene.
 
 Canvas owns the Qt viewport and QGraphicsScene. This class owns only the
-SLD presentation/rendering coordination and never creates a second viewport
-or scene.
+SLD presentation/update coordination and never creates a second viewport
+or scene. SLD model data is projected into renderer-neutral Canvas input
+before the canonical Canvas render system realizes graphics items.
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ from typing import Any
 
 from ui.events import UIUpdate, UIUpdateBus
 
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from .sld_document import SLDDocument
-from .sld_layout import SLDLayout
-from .sld_scene_renderer import SLDSceneRenderer
 
 
 class SLDSurface:
@@ -28,7 +29,8 @@ class SLDSurface:
         self,
         graphics_view: Any,
         *,
-        layout: SLDLayout | None = None,
+        projection: SLDCanvasProjection | None = None,
+        render_system: SLDCanvasRenderSystem | None = None,
         update_bus: UIUpdateBus | None = None,
     ) -> None:
         if graphics_view is None:
@@ -39,7 +41,10 @@ class SLDSurface:
             raise TypeError("graphics_view must expose graphics_scene")
 
         self._graphics_view = graphics_view
-        self._renderer = SLDSceneRenderer(scene, layout=layout)
+        self._projection = projection or SLDCanvasProjection()
+        self._render_system = render_system or SLDCanvasRenderSystem(scene)
+        if self._render_system.scene is not scene:
+            raise ValueError("render_system must target the graphics_view scene")
         self._document_id: str | None = None
         self._update_bus: UIUpdateBus | None = None
 
@@ -52,9 +57,14 @@ class SLDSurface:
         return self._graphics_view
 
     @property
-    def renderer(self) -> SLDSceneRenderer:
-        """Return the SLD presentation renderer."""
-        return self._renderer
+    def projection(self) -> SLDCanvasProjection:
+        """Return the SLD-to-Canvas projection boundary."""
+        return self._projection
+
+    @property
+    def render_system(self) -> SLDCanvasRenderSystem:
+        """Return the canonical Canvas SLD render system."""
+        return self._render_system
 
     @property
     def document_id(self) -> str | None:
@@ -92,16 +102,17 @@ class SLDSurface:
             self.clear_document()
 
     def present(self, document: SLDDocument) -> None:
-        """Render an SLD document onto the existing Canvas scene."""
+        """Project and realize an SLD document on the existing Canvas scene."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument")
 
         self._document_id = document.document_id
-        self._renderer.render(document.model)
+        snapshot = self._projection.project(document.model)
+        self._render_system.synchronize(snapshot)
 
     def clear_document(self) -> None:
         """Remove SLD presentation items and detach the logical document."""
-        self._renderer.clear()
+        self._render_system.clear()
         self._document_id = None
 
     def close(self) -> None:
