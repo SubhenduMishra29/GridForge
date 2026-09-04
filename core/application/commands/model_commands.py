@@ -123,21 +123,26 @@ TAKE_FUSE_OUT_OF_SERVICE = "model.take_fuse_out_of_service"
 # ============================================================
 
 class CreateBusCommand(Command):
-    """Request creation of a canonical Core Bus."""
+    """
+    Request creation of a canonical Core Bus.
+
+    The payload mirrors only the authoritative construction
+    contract of ``core.model.Bus``. Study-specific concepts such
+    as bus type, P/Q specifications, and reactive-power limits do
+    not belong to the physical Bus model and are therefore not
+    carried by this command.
+    """
 
     def __init__(
         self,
         *,
         bus_id: str,
         name: str = "",
-        bus_type: Any = None,
-        voltage: float = 1.0,
-        angle: float = 0.0,
-        p_spec: float = 0.0,
-        q_spec: float = 0.0,
-        v_setpoint: float | None = None,
-        q_min: float = float("-inf"),
-        q_max: float = float("inf"),
+        nominal_voltage_kv: float = 0.0,
+        voltage_pu: float = 1.0,
+        angle_deg: float = 0.0,
+        frequency_hz: float = 50.0,
+        in_service: bool = True,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
@@ -147,14 +152,11 @@ class CreateBusCommand(Command):
             payload={
                 "bus_id": bus_id,
                 "name": name,
-                "bus_type": bus_type,
-                "voltage": voltage,
-                "angle": angle,
-                "p_spec": p_spec,
-                "q_spec": q_spec,
-                "v_setpoint": v_setpoint,
-                "q_min": q_min,
-                "q_max": q_max,
+                "nominal_voltage_kv": nominal_voltage_kv,
+                "voltage_pu": voltage_pu,
+                "angle_deg": angle_deg,
+                "frequency_hz": frequency_hz,
+                "in_service": in_service,
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,

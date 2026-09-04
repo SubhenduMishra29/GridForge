@@ -4,11 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Composition root for the headless GridForge Application layer.
-
-The supplied Core Network remains authoritative. Bootstrap composes the
-Application mutation and read boundaries around that Network.
-"""
+"""Composition root for the headless GridForge Application layer."""
 
 from __future__ import annotations
 
@@ -19,7 +15,7 @@ from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
 from .read_service import NetworkReadService
-from .services.model_service import ModelService
+from .services.bus_model_service import ModelService
 
 
 def create_application(network: Any) -> Application:
@@ -35,9 +31,6 @@ def create_application(network: Any) -> Application:
         handlers=handlers,
     )
 
-    # The read boundary is composed here, at the same boundary as mutation.
-    # Presentation therefore receives immutable snapshots without reaching
-    # into the Core Network directly.
     read_service = NetworkReadService(network)
 
     return Application(
