@@ -58,7 +58,9 @@ class CanvasComposer:
         if command_manager is None:
             raise ValueError("command_manager must not be None.")
 
-        selection_manager = SelectionManager(controller=controller)
+        # Selection is UI-Core interaction state. Controller is deliberately
+        # not the selection authority.
+        selection_manager = SelectionManager()
         grid_system = GridSystem()
         scene = GridScene()
 

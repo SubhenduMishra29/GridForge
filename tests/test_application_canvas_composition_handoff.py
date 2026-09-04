@@ -1,9 +1,4 @@
-"""
-GridForge V2
-===========
-
-Application/bootstrap and Canvas composition boundary tests.
-"""
+"""GridForge V2 application/bootstrap Canvas composition tests."""
 
 import inspect
 
@@ -12,7 +7,6 @@ from main import build_application
 
 def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
     source = inspect.getsource(build_application)
-
     assert "CanvasComposer" in source
     assert "canvas_composition" in source
     assert "set_composition" in source
@@ -22,7 +16,6 @@ def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
 
 def test_application_bootstrap_injects_render_system_for_composed_canvas_scene() -> None:
     source = inspect.getsource(build_application)
-
     assert "SLDCanvasRenderSystem" in source
     assert "canvas_composition.scene" in source
     assert "sld_canvas_render_system" in source
@@ -34,7 +27,6 @@ def test_canvas_composition_requires_and_forwards_ui_command_manager() -> None:
 
     signature = inspect.signature(CanvasComposer.compose)
     assert "command_manager" in signature.parameters
-
     source = inspect.getsource(CanvasComposer.compose)
     assert "command_manager=command_manager" in source
     assert "command_manager=None" not in source
@@ -42,7 +34,6 @@ def test_canvas_composition_requires_and_forwards_ui_command_manager() -> None:
 
 def test_application_bootstrap_creates_one_ui_command_facade_for_canvas_tools() -> None:
     source = inspect.getsource(build_application)
-
     assert "UICommandManager" in source
     assert "command_manager = UICommandManager" in source
     assert "command_manager=command_manager" in source
@@ -52,7 +43,6 @@ def test_canvas_composition_does_not_construct_legacy_renderer_stack() -> None:
     from ui.canvas.canvas_composition import CanvasComposer
 
     source = inspect.getsource(CanvasComposer.compose)
-
     assert "RenderSystem" not in source
     assert "RendererRegistry" not in source
 

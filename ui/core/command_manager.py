@@ -6,9 +6,8 @@
 
 The UI facade owns no command history and performs no domain mutation.
 It forwards opaque Application Commands to the canonical Application
-boundary. Undo/redo and other command-state operations, when exposed by
-Application, are likewise forwarded without reaching through another
-UI or Core object.
+boundary. Command-state operations are forwarded only when explicitly
+exposed by Application; no Core or Controller reach-through is used.
 """
 
 from __future__ import annotations
@@ -93,7 +92,6 @@ class CommandManager:
         return dict(state)
 
     def get_application(self) -> Any:
-        """Return the externally owned Application dependency."""
         return self.application
 
     def __repr__(self) -> str:

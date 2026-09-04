@@ -4,7 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Stable public Application facade for commands, reads, and events."""
+"""Stable public Application facade for commands, reads, events, and history."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ class Application:
 
     Mutation remains exclusively command-driven. Optional read access exposes
     immutable Application snapshots and never returns Core model objects.
-    Successful mutations publish a headless Application event after the
-    command transaction has completed.
+    Command history remains owned by the Application command manager; these
+    methods expose that state only through this canonical Application boundary.
     """
 
     def __init__(
@@ -65,6 +65,42 @@ class Application:
     def command_types(self) -> tuple[str, ...]:
         """Return the immutable list of registered command types."""
         return self._command_manager.registered_commands
+
+    def undo(self) -> ApplicationResult | None:
+        """Undo through the canonical Application command manager."""
+        return self._command_manager.undo()
+
+    def redo(self) -> ApplicationResult | None:
+        """Redo through the canonical Application command manager."""
+        return self._command_manager.redo()
+
+    def can_undo(self) -> bool:
+        """Return whether an undo operation is available."""
+        return self._command_manager.can_undo()
+
+    def can_redo(self) -> bool:
+        """Return whether a redo operation is available."""
+        return self._command_manager.can_redo()
+
+    def undo_count(self) -> int:
+        """Return the number of undo records."""
+        return self._command_manager.undo_count()
+
+    def redo_count(self) -> int:
+        """Return the number of redo records."""
+        return self._command_manager.redo_count()
+
+    def undo_commands(self) -> tuple:
+        """Return an immutable undo-history snapshot."""
+        return self._command_manager.undo_commands()
+
+    def redo_commands(self) -> tuple:
+        """Return an immutable redo-history snapshot."""
+        return self._command_manager.redo_commands()
+
+    def clear_history(self) -> None:
+        """Clear Application command history."""
+        self._command_manager.clear_history()
 
     def read_network(self) -> NetworkReadModel:
         """Return an immutable authoritative network snapshot for projections."""
