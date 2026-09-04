@@ -18,6 +18,7 @@ from typing import Any
 
 from ui.core.qt import QGraphicsScene, QPen, QPointF
 
+from .semantic_presentation_realization import SemanticPresentationRealization
 from .sld_canvas_projection import SLDCanvasSnapshot
 from .sld_graphics_item_factory import SLDGraphicsItemFactory
 
@@ -33,11 +34,13 @@ class SLDCanvasRenderSystem:
         self,
         scene: QGraphicsScene,
         item_factory: SLDGraphicsItemFactory | None = None,
+        semantic_realization: SemanticPresentationRealization | None = None,
     ) -> None:
         if scene is None:
             raise ValueError("scene must not be None.")
         self._scene = scene
         self._item_factory = item_factory or SLDGraphicsItemFactory()
+        self._semantic_realization = semantic_realization or SemanticPresentationRealization()
         self._items: dict[str, tuple[Any, ...]] = {}
 
     @property
@@ -49,6 +52,11 @@ class SLDCanvasRenderSystem:
     def item_factory(self) -> SLDGraphicsItemFactory:
         """Return the graphics-item construction boundary."""
         return self._item_factory
+
+    @property
+    def semantic_realization(self) -> SemanticPresentationRealization:
+        """Return the semantic presentation realization boundary."""
+        return self._semantic_realization
 
     @staticmethod
     def _pen(width: float) -> QPen:
@@ -85,7 +93,8 @@ class SLDCanvasRenderSystem:
             self._items[connection.connection_id] = (item,)
 
         for node in snapshot.nodes:
-            item = self._item_factory.create_node(node)
+            selection = self._semantic_realization.realize(node)
+            item = self._item_factory.create_node(node, selection)
             item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)

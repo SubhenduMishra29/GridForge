@@ -45,22 +45,16 @@ class TransformerTool(ToolBase):
         command_manager: Any,
         selection_manager: Any,
         snap_system: Any,
-        renderer_registry: Any,
     ) -> None:
         super().__init__(
             controller=controller,
             command_manager=command_manager,
             selection_manager=selection_manager,
             snap_system=snap_system,
-            renderer_registry=renderer_registry,
         )
 
         self._position: Optional[Tuple[float, float]] = None
         self._preview_active = False
-
-    # ========================================================
-    # METADATA
-    # ========================================================
 
     @property
     def tool_id(self) -> str:
@@ -77,10 +71,6 @@ class TransformerTool(ToolBase):
         """Return the tool description."""
         return "Place a transformer on the SLD canvas."
 
-    # ========================================================
-    # LIFECYCLE
-    # ========================================================
-
     def on_activate(self) -> None:
         """Reset transient placement state."""
         self._clear_state()
@@ -88,10 +78,6 @@ class TransformerTool(ToolBase):
     def on_deactivate(self) -> None:
         """Clear transient placement state."""
         self._clear_state()
-
-    # ========================================================
-    # MOUSE
-    # ========================================================
 
     def on_mouse_press(self, event: Any) -> bool:
         """
@@ -110,8 +96,6 @@ class TransformerTool(ToolBase):
         self._preview_active = True
         return True
 
-    # --------------------------------------------------------
-
     def on_mouse_move(self, event: Any) -> bool:
         """Update the transient transformer preview position."""
         self._ensure_active()
@@ -123,8 +107,6 @@ class TransformerTool(ToolBase):
         self._position = position
         self._preview_active = True
         return True
-
-    # --------------------------------------------------------
 
     def on_mouse_release(self, event: Any) -> bool:
         """
@@ -145,15 +127,9 @@ class TransformerTool(ToolBase):
         self._require_transformer_command_boundary()
         return False
 
-    # --------------------------------------------------------
-
     def on_mouse_double_click(self, event: Any) -> bool:
         """Transformer placement uses the normal single-placement flow."""
         return self.on_mouse_press(event)
-
-    # ========================================================
-    # KEYBOARD
-    # ========================================================
 
     def on_key_press(self, event: Any) -> bool:
         """Handle keyboard input owned by TransformerTool."""
@@ -163,10 +139,6 @@ class TransformerTool(ToolBase):
             return self.on_cancel()
 
         return False
-
-    # ========================================================
-    # CANCEL / RESET
-    # ========================================================
 
     def on_cancel(self) -> bool:
         """Cancel the transient transformer placement."""
@@ -180,10 +152,6 @@ class TransformerTool(ToolBase):
         """Reset transient transformer placement state."""
         self._ensure_active()
         self._clear_state()
-
-    # ========================================================
-    # SNAP
-    # ========================================================
 
     def _snap_position(
         self,
@@ -209,10 +177,6 @@ class TransformerTool(ToolBase):
 
         return self._position_tuple(position)
 
-    # ========================================================
-    # COMMAND BOUNDARY
-    # ========================================================
-
     @staticmethod
     def _require_transformer_command_boundary() -> None:
         """
@@ -228,10 +192,6 @@ class TransformerTool(ToolBase):
             "command is currently exposed by the GridForge Core "
             "command API."
         )
-
-    # ========================================================
-    # HELPERS
-    # ========================================================
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -270,10 +230,6 @@ class TransformerTool(ToolBase):
         """Clear all transient placement state."""
         self._position = None
         self._preview_active = False
-
-    # ========================================================
-    # DIAGNOSTICS
-    # ========================================================
 
     def get_state(self) -> dict[str, Any]:
         """Return the base tool state plus placement state."""
