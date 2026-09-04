@@ -34,14 +34,12 @@ class ModelPlacementTool(ToolBase):
         command_manager: Any,
         selection_manager: Any,
         snap_system: Any,
-        renderer_registry: Any,
     ) -> None:
         super().__init__(
             controller=controller,
             command_manager=command_manager,
             selection_manager=selection_manager,
             snap_system=snap_system,
-            renderer_registry=renderer_registry,
         )
         self._position: Optional[Tuple[float, float]] = None
         self._preview_active = False
