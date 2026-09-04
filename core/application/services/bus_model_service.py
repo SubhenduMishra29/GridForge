@@ -11,7 +11,6 @@ from __future__ import annotations
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
 from core.model.bus import Bus
-from core.network.network import Network
 
 from .model_service import ModelService as _ModelService
 
