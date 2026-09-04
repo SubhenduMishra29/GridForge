@@ -32,12 +32,13 @@ Rules:
 | GF-AUD-005 | Contingency bus outage semantics | 🟡 OPEN | Bus outage currently disables the bus and connected equipment; must be correlated against authoritative topology/state semantics. |
 | GF-AUD-006 | Terminal connectivity | 🟡 OPEN | Contingency code uses defensive terminal/endpoint fallbacks; authoritative Terminal contract must be traced before accepting this as canonical. |
 | GF-AUD-007 | Contingency result correlation | 🟠 OPEN | Contingency violation detection relies on positional correlation in places where the prepared power-flow boundary has explicit bus ordering/IDs. |
-| GF-AUD-008 | Semantic presentation producer vocabulary | 🔴 OPEN | `SemanticPresentationRealization` currently maps `"buses"` → `"bus"`; the actual upstream `element_type` producer must be traced and confirmed. |
+| GF-AUD-008 | Semantic presentation producer vocabulary | 🟢 CONFIRMED | `NetworkReadService` emits concrete Network collection names such as `"buses"`; `SLDReadSynchronizer` forwards `element_type` unchanged; semantic realization intentionally maps `"buses"` → `"bus"`. |
 | GF-AUD-009 | Presentation selection boundary | 🟢 STRUCTURALLY CONFIRMED | `PresentationSelection` and `SemanticPresentationRealization` exist and are separated from graphics construction. |
 | GF-AUD-010 | Graphics factory boundary | 🟢 STRUCTURALLY CONFIRMED | Factory consumes presentation selection rather than owning semantic resolution. |
 | GF-AUD-011 | Render-system orchestration | 🟢 STRUCTURALLY CONFIRMED | RenderSystem coordinates realization and construction while retaining scene/item lifecycle responsibilities. |
 | GF-AUD-012 | Documentation drift | 🟠 OPEN | Some architectural notes describe work as pending although implementation is already present on `main`. |
 | GF-AUD-013 | Runtime verification | 🔴 OPEN | Current audit baseline has not yet been accepted as runtime-verified; no claim of passing tests is made without execution evidence. |
+| GF-AUD-014 | SLD supported-type coverage | 🟠 OPEN | Application read models expose many concrete Network element types, while semantic presentation realization currently defines only `"buses"` → `"bus"`; no complete renderer path has yet been established for the other supported element types. |
 
 ## Frozen Architectural Conclusions
 
@@ -84,6 +85,14 @@ The authoritative network must remain unchanged by contingency evaluation.
 The currently implemented conceptual boundary is:
 
 ```text
+Application Read Model
+      ↓
+SLDReadSynchronizer
+      ↓
+SLDNode
+      ↓
+SLDCanvasProjection
+      ↓
 SLDCanvasNode
       ↓
 SemanticPresentationRealization
@@ -97,20 +106,20 @@ QGraphicsItem
 
 The factory is a construction boundary, not the semantic-resolution owner.
 
+### SLD Vocabulary
+
+The authoritative read-side vocabulary currently comes from the concrete Network collection names exposed by `NetworkReadService` (for example `buses`, `lines`, `transformers`). `SLDReadSynchronizer` preserves that value rather than translating it. The renderer-facing semantic layer then maps those read-side values into renderer-neutral representation IDs. The existing `buses` → `bus` translation is therefore confirmed as an intentional boundary translation, not an upstream vocabulary mismatch.
+
 ## Immediate Next Audit Pass
 
-Trace the complete SLD semantic vocabulary and ownership chain directly in repository code:
+Trace the complete SLD supported-type coverage and ownership chain directly in repository code:
 
 ```text
-Application Read Model
+NetworkReadService element vocabulary
         ↓
 SLDReadSynchronizer
         ↓
-SLDNode
-        ↓
-SLDCanvasProjection
-        ↓
-SLDCanvasNode
+SLDNode / SLDCanvasNode
         ↓
 SemanticPresentationRealization
         ↓
@@ -118,8 +127,10 @@ PresentationSelection
         ↓
 SLDGraphicsItemFactory
         ↓
-Concrete graphics item
+Concrete graphics-item implementations
 ```
+
+For every supported read-side element type, determine whether there is a deliberate presentation representation, an implemented graphics constructor, or an explicit non-rendered status. Do not infer completeness from the existence of a generic factory.
 
 At the same time, trace the contingency path against the authoritative Network and Terminal contracts, and verify result-to-element correlation using the prepared numerical ordering contract.
 
