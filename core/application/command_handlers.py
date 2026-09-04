@@ -226,7 +226,13 @@ class ModelCommandHandlers:
         transaction: Transaction,
     ) -> ApplicationResult[Any]:
         """
-        Create a Bus through ModelService.
+        Create a canonical Core Bus through ModelService.
+
+        The handler forwards only fields that belong to the
+        authoritative Core Bus constructor. Study-specific bus
+        classification and power-flow injection fields are not
+        part of the physical Bus contract and are therefore not
+        accepted or translated here.
         """
 
         payload = command.payload
@@ -234,14 +240,13 @@ class ModelCommandHandlers:
         return self._model_service.create_bus(
             bus_id=payload["bus_id"],
             name=payload["name"],
-            bus_type=payload["bus_type"],
-            voltage=payload["voltage"],
-            angle=payload["angle"],
-            p_spec=payload["p_spec"],
-            q_spec=payload["q_spec"],
-            v_setpoint=payload["v_setpoint"],
-            q_min=payload["q_min"],
-            q_max=payload["q_max"],
+            nominal_voltage_kv=payload[
+                "nominal_voltage_kv"
+            ],
+            voltage_pu=payload["voltage_pu"],
+            angle_deg=payload["angle_deg"],
+            frequency_hz=payload["frequency_hz"],
+            in_service=payload["in_service"],
             transaction=transaction,
         )
 
