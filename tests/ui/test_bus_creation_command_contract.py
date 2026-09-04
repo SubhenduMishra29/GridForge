@@ -1,7 +1,6 @@
 # ============================================================
 # File: tests/ui/test_bus_creation_command_contract.py
 # GridForge V2 — Bus Creation Command Boundary Tests
-# Author: Subhendu Mishra
 # ============================================================
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ def test_create_bus_command_matches_authoritative_bus_contract():
     }
 
 
-def test_bus_tool_submits_create_bus_command_on_release():
+def test_bus_tool_submits_authoritative_create_bus_command_on_release():
     command_manager = _CommandManager()
     tool = BusTool(
         controller=object(),
@@ -62,7 +61,16 @@ def test_bus_tool_submits_create_bus_command_on_release():
 
     assert handled is True
     assert len(command_manager.commands) == 1
+
     command = command_manager.commands[0]
     assert isinstance(command, CreateBusCommand)
+    assert command.command_type == "model.create_bus"
     assert command.payload["bus_id"]
     assert command.payload["name"] == "Bus"
+    assert command.payload["nominal_voltage_kv"] == 0.0
+    assert command.payload["voltage_pu"] == 1.0
+    assert command.payload["angle_deg"] == 0.0
+    assert command.payload["frequency_hz"] == 50.0
+    assert command.payload["in_service"] is True
+    assert "voltage" not in command.payload
+    assert "angle" not in command.payload

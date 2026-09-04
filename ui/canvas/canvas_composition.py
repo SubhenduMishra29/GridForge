@@ -1,30 +1,9 @@
-"""
-GridForge V2
-===========
-
-File:
-    ui/canvas/canvas_composition.py
-
-Purpose:
-    Application-owned composition boundary for the Canvas subsystem.
-
-Author:
-    Subhendu Mishra
-
-Architectural role:
-    Compose Canvas viewport, interaction, navigation, selection, grid,
-    snapping, and preview services. SLD graphics realization is owned by
-    CanvasPlugin through SLDCanvasProjection and SLDCanvasRenderSystem.
-
-Boundary rule:
-    This composition must not construct or expose the legacy
-    RenderSystem/RendererRegistry renderer architecture.
-"""
+"""GridForge V2 application-owned Canvas composition boundary."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from ui.canvas.coordinate_system import CoordinateSystem
 from ui.canvas.grid_scene import GridScene
@@ -57,7 +36,6 @@ class CanvasComposition:
 
     @property
     def widget(self) -> QWidget:
-        """Return the composed Canvas widget."""
         return self.view
 
 
@@ -69,6 +47,7 @@ class CanvasComposer:
         *,
         controller: Controller,
         tool_manager: ToolManager,
+        command_manager: Any,
         parent: Optional[QWidget] = None,
     ) -> CanvasComposition:
         """Construct and wire one complete Canvas service graph."""
@@ -76,6 +55,8 @@ class CanvasComposer:
             raise ValueError("controller must not be None.")
         if tool_manager is None:
             raise ValueError("tool_manager must not be None.")
+        if command_manager is None:
+            raise ValueError("command_manager must not be None.")
 
         selection_manager = SelectionManager(controller=controller)
         grid_system = GridSystem()
@@ -116,13 +97,10 @@ class CanvasComposer:
 
         selection_manager.set_scene(scene)
 
-        # ToolManager owns tool lifecycle. Tools no longer depend on the
-        # retired renderer registry; SLD projection/rendering is handled by
-        # CanvasPlugin through SLDCanvasProjection and SLDCanvasRenderSystem.
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
-                command_manager=None,
+                command_manager=command_manager,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
             )

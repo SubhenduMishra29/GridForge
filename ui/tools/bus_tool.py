@@ -6,14 +6,6 @@
 #
 # Purpose:
 #     SLD bus-placement interaction tool.
-#
-# Architectural Role:
-#     BusTool captures placement intent in scene coordinates and
-#     hands the resulting intent to the application command
-#     boundary. It does not mutate Core directly or depend on
-#     renderer infrastructure.
-#
-# Author: Subhendu Mishra
 # ============================================================
 
 from __future__ import annotations
@@ -94,8 +86,11 @@ class BusTool(ToolBase):
         command = CreateBusCommand(
             bus_id=f"bus-{uuid4()}",
             name="Bus",
-            voltage=0.0,
-            angle=0.0,
+            nominal_voltage_kv=0.0,
+            voltage_pu=1.0,
+            angle_deg=0.0,
+            frequency_hz=50.0,
+            in_service=True,
         )
         self.execute_command(command)
         self._clear_state()
