@@ -43,7 +43,6 @@ class CanvasController:
     ) -> None:
         if controller is None:
             raise ValueError("controller must not be None.")
-
         if tool_manager is None:
             raise ValueError("tool_manager must not be None.")
 
@@ -56,21 +55,17 @@ class CanvasController:
                 tool_manager=tool_manager,
                 parent=parent,
             )
-
         if not isinstance(graphics_view, GraphicsView):
             raise TypeError("graphics_view must be a GraphicsView.")
 
         self.graphics_view = graphics_view
         scene = graphics_view.graphics_scene
-
         if scene is None:
             raise RuntimeError("GraphicsView must provide a graphics_scene.")
-
         self.scene = scene
 
         if selection_manager is None:
             selection_manager = SelectionManager(scene=scene)
-
         if not isinstance(selection_manager, SelectionManager):
             raise TypeError("selection_manager must be a SelectionManager.")
 
@@ -91,7 +86,6 @@ class CanvasController:
                 grid_system=grid_system,
                 selection_manager=selection_manager,
             )
-
         if not isinstance(render_system, RenderSystem):
             raise TypeError("render_system must be a RenderSystem.")
 
@@ -161,7 +155,7 @@ class CanvasController:
         self.selection_manager.sync_graphics(scene=self.scene)
 
     def clear_graphical_selection(self) -> None:
-        """Clear only graphical selection; SelectionManager state is retained."""
+        """Clear graphical selection without changing SelectionManager state."""
         self._ensure_active()
         self.selection_manager.reset_graphics(scene=self.scene)
 
@@ -249,8 +243,18 @@ class CanvasController:
         if callable(getter):
             state = getter()
             if isinstance(state, dict):
-                return dict(state)
+                return state
         return {"type": type(service).__name__}
+
+    def __repr__(self) -> str:
+        if self._disposed:
+            return "CanvasController(disposed=True)"
+        return (
+            "CanvasController("
+            f"scene_items={len(self.scene.items())}, "
+            f"selected={len(self.selection_manager.selected_ids)}"
+            ")"
+        )
 
 
 __all__ = ["CanvasController"]
