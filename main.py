@@ -12,6 +12,7 @@ from core.network.network import Network
 
 from ui.canvas.canvas_composition import CanvasComposer
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
 from ui.core.qt import QApplication
@@ -94,6 +95,14 @@ def build_application() -> tuple[
         parent=None,
     )
 
+    # The SLD RenderSystem is a separately composed transient realization
+    # service. It must target the exact scene created by CanvasComposition.
+    # CanvasPlugin receives this externally owned dependency through its
+    # immutable PluginContext and never constructs it itself.
+    sld_canvas_render_system = SLDCanvasRenderSystem(
+        scene=canvas_composition.scene,
+    )
+
     plugin_manager = PluginManager()
     plugin_manager.define_defaults()
     plugin_manager.load_all()
@@ -125,6 +134,7 @@ def build_application() -> tuple[
         controller=controller,
         sld_document=sld_document,
         sld_canvas_projection=sld_canvas_projection,
+        sld_canvas_render_system=sld_canvas_render_system,
         tool_manager=tool_manager,
         metadata={"sld_canvas_snapshot": sld_canvas_snapshot},
     )

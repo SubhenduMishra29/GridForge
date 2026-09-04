@@ -29,6 +29,16 @@ def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
     assert source.index("set_composition") < source.index("initialize_all")
 
 
+def test_application_bootstrap_injects_render_system_for_composed_canvas_scene() -> None:
+    """Bootstrap must inject the SLD RenderSystem for the composed Canvas scene."""
+    source = inspect.getsource(build_application)
+
+    assert "SLDCanvasRenderSystem" in source
+    assert "canvas_composition.scene" in source
+    assert "sld_canvas_render_system" in source
+    assert source.index("SLDCanvasRenderSystem") < source.index("initialize_all")
+
+
 def test_canvas_composition_does_not_construct_legacy_renderer_stack() -> None:
     """Application composition must not activate the legacy renderer path."""
     from ui.canvas.canvas_composition import CanvasComposer
