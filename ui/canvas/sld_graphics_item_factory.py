@@ -7,9 +7,10 @@
 """Construct presentation-only graphics items for the SLD canvas.
 
 This factory is deliberately narrower than a renderer or renderer registry.
-It maps renderer-neutral SLD canvas descriptors to the locked graphics item
-implementations. It does not perform layout, topology resolution, styling,
-application commands, or Core-domain mutation.
+It maps renderer-neutral SLD canvas descriptors plus an explicit presentation
+selection to the locked graphics item implementations. It does not perform
+semantic resolution, layout, topology resolution, styling, application
+commands, or Core-domain mutation.
 """
 
 from __future__ import annotations
@@ -18,18 +19,35 @@ from ui.core.qt import QPointF
 from ui.items.bus_item import BusItem
 from ui.items.line_item import LineItem
 
+from .semantic_presentation_realization import PresentationSelection
 from .sld_canvas_projection import SLDCanvasConnection, SLDCanvasNode
 
 
 class SLDGraphicsItemFactory:
     """Create typed SLD graphics projections from renderer-neutral descriptors."""
 
-    def create_node(self, node: SLDCanvasNode) -> BusItem:
-        """Create the presentation projection for one SLD node."""
+    _NODE_CONSTRUCTORS = {
+        "bus": BusItem,
+    }
+
+    def create_node(
+        self,
+        node: SLDCanvasNode,
+        selection: PresentationSelection,
+    ) -> BusItem:
+        """Construct the graphics projection selected for one SLD node."""
         if not isinstance(node, SLDCanvasNode):
             raise TypeError("node must be an SLDCanvasNode.")
+        if not isinstance(selection, PresentationSelection):
+            raise TypeError("selection must be a PresentationSelection.")
 
-        return BusItem(
+        item_class = self._NODE_CONSTRUCTORS.get(selection.representation_id)
+        if item_class is None:
+            raise ValueError(
+                f"Unsupported presentation representation: {selection.representation_id}"
+            )
+
+        return item_class(
             object_id=node.node_id,
             position=QPointF(node.x, node.y),
             radius=self._node_radius(node),
