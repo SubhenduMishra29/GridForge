@@ -21,6 +21,7 @@ from ui.events.update_boundary import UIUpdateBoundary
 from ui.main_window import MainWindow
 from ui.plugins.plugin_context import PluginContext
 from ui.plugins.plugin_manager import PluginManager
+from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
@@ -63,6 +64,12 @@ def build_application() -> tuple[
         gridforge_application.read_network(),
     )
 
+    # The SLD controller is the presentation document/edit boundary. The
+    # graphics layer reports movement into this controller; it never receives
+    # or mutates the Core Network directly.
+    sld_controller = SLDController()
+    sld_controller.register_document(sld_document)
+
     # --------------------------------------------------------
     # SLD → Canvas realization boundary
     # --------------------------------------------------------
@@ -95,12 +102,33 @@ def build_application() -> tuple[
         parent=None,
     )
 
+    def wire_sld_node_movement(node_id: str, item: object) -> None:
+        """Route graphical node movement through the SLD document boundary."""
+        position_changed = getattr(item, "position_changed", None)
+        connect = getattr(position_changed, "connect", None)
+        if not callable(connect):
+            return
+
+        def persist_position(position: object) -> None:
+            x = getattr(position, "x", None)
+            y = getattr(position, "y", None)
+            if not callable(x) or not callable(y):
+                raise TypeError("position must provide x() and y()")
+            sld_controller.set_node_position(
+                node_id,
+                float(x()),
+                float(y()),
+            )
+
+        connect(persist_position)
+
     # The SLD RenderSystem is a separately composed transient realization
     # service. It must target the exact scene created by CanvasComposition.
     # CanvasPlugin receives this externally owned dependency through its
     # immutable PluginContext and never constructs it itself.
     sld_canvas_render_system = SLDCanvasRenderSystem(
         scene=canvas_composition.scene,
+        on_node_realized=wire_sld_node_movement,
     )
 
     plugin_manager = PluginManager()
