@@ -39,6 +39,10 @@ class CreateBusApplicationContractTests(unittest.TestCase):
             bus_id="B1",
             name="Bus 1",
             nominal_voltage_kv=132.0,
+            voltage_pu=1.02,
+            angle_deg=-2.5,
+            frequency_hz=50.0,
+            in_service=True,
         )
 
         self.assertEqual(
@@ -47,11 +51,19 @@ class CreateBusApplicationContractTests(unittest.TestCase):
                 "bus_id",
                 "name",
                 "nominal_voltage_kv",
+                "voltage_pu",
+                "angle_deg",
+                "frequency_hz",
+                "in_service",
             },
         )
         self.assertEqual(command.payload["bus_id"], "B1")
         self.assertEqual(command.payload["name"], "Bus 1")
         self.assertEqual(command.payload["nominal_voltage_kv"], 132.0)
+        self.assertEqual(command.payload["voltage_pu"], 1.02)
+        self.assertEqual(command.payload["angle_deg"], -2.5)
+        self.assertEqual(command.payload["frequency_hz"], 50.0)
+        self.assertTrue(command.payload["in_service"])
 
     def test_handler_forwards_complete_bus_contract(self) -> None:
         service = _RecordingBusService()
