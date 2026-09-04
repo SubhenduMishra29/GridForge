@@ -19,6 +19,9 @@
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple
+from uuid import uuid4
+
+from core.application.commands.model_commands import CreateBusCommand
 
 from .tool_base import ToolBase
 
@@ -87,8 +90,16 @@ class BusTool(ToolBase):
             self._clear_state()
             return False
         self._position = position
-        self._require_bus_command_boundary()
-        return False
+
+        command = CreateBusCommand(
+            bus_id=f"bus-{uuid4()}",
+            name="Bus",
+            voltage=0.0,
+            angle=0.0,
+        )
+        self.execute_command(command)
+        self._clear_state()
+        return True
 
     def on_mouse_double_click(self, event: Any) -> bool:
         return self.on_mouse_press(event)
@@ -145,13 +156,6 @@ class BusTool(ToolBase):
         if isinstance(event, dict):
             key = event.get("key", key)
         return key in ("Escape", "escape", 0x01000000)
-
-    @staticmethod
-    def _require_bus_command_boundary() -> None:
-        raise RuntimeError(
-            "Bus placement requires a confirmed Core bus-creation command. "
-            "No CreateBus command is currently exposed by the GridForge Core command API."
-        )
 
     def _clear_state(self) -> None:
         self._position = None
