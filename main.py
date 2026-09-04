@@ -25,6 +25,7 @@ from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
+from ui.workspace.project import Project
 from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import default_workspaces, get_initial_workspace
 from ui.workspace.workspace_manager import WorkspaceManager
@@ -51,11 +52,22 @@ def build_application() -> tuple[
     gridforge_application = create_application(network)
 
     # --------------------------------------------------------
+    # Project identity boundary
+    # --------------------------------------------------------
+    # Project is the persistent engineering container/context. It does not
+    # own, construct, or receive the authoritative Core Network.
+    project = Project(
+        project_id="gridforge-project",
+        name="GridForge Project",
+    )
+
+    # --------------------------------------------------------
     # SLD read-side presentation boundary
     # --------------------------------------------------------
     sld_document = SLDDocument(
         document_id="sld-document",
         name="GridForge SLD",
+        project_id=project.project_id,
     )
     sld_projection_manager = SLDProjectionManager()
     sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
