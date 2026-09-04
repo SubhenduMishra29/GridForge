@@ -95,6 +95,9 @@ def build_application() -> tuple[
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
 
     controller = Controller()
+    # Compatibility for the already-migrated LineTool. BusTool does not use
+    # this path; its mutation dispatch is exclusively through command_manager.
+    controller.gridforge_application = gridforge_application
 
     tool_manager = ToolManager(
         controller=controller,
