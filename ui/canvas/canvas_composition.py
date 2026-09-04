@@ -24,7 +24,7 @@ Boundary rule:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from ui.canvas.coordinate_system import CoordinateSystem
 from ui.canvas.grid_scene import GridScene
@@ -69,6 +69,7 @@ class CanvasComposer:
         *,
         controller: Controller,
         tool_manager: ToolManager,
+        command_manager: Any,
         parent: Optional[QWidget] = None,
     ) -> CanvasComposition:
         """Construct and wire one complete Canvas service graph."""
@@ -76,6 +77,8 @@ class CanvasComposer:
             raise ValueError("controller must not be None.")
         if tool_manager is None:
             raise ValueError("tool_manager must not be None.")
+        if command_manager is None:
+            raise ValueError("command_manager must not be None.")
 
         selection_manager = SelectionManager(controller=controller)
         grid_system = GridSystem()
@@ -122,7 +125,7 @@ class CanvasComposer:
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
-                command_manager=None,
+                command_manager=command_manager,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
             )
