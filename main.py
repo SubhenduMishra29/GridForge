@@ -64,10 +64,12 @@ def build_application() -> tuple[
         gridforge_application.read_network(),
     )
 
-    # The SLD controller is the presentation document/edit boundary. The
-    # graphics layer reports movement into this controller; it never receives
-    # or mutates the Core Network directly.
-    sld_controller = SLDController()
+    # The SLD controller is the presentation document/edit boundary. It uses
+    # the already composed projection manager for layout calculation; the
+    # controller orchestrates the workflow but does not calculate geometry.
+    sld_controller = SLDController(
+        projection_manager=sld_projection_manager,
+    )
     sld_controller.register_document(sld_document)
 
     # --------------------------------------------------------
