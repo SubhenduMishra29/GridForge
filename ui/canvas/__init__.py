@@ -1,16 +1,16 @@
 # ============================================================
-# File: ui/canvas/__init__.py
 # GridForge V2 — Canvas Package
-# Author: Subhendu Mishra
 # ============================================================
 """GridForge V2 Canvas subsystem.
 
 The canvas owns the viewport, scene, coordinate conversion, grid,
 navigation, transient interaction routing, and preview graphics.
 
-Permanent SLD graphics realization is deliberately outside the generic
-Canvas composition boundary and is owned by CanvasPlugin through the
-single SLD projection path:
+Permanent SLD graphics realization is composed by the application root and
+injected into CanvasPlugin. CanvasPlugin consumes that externally owned
+service; it does not construct or own the SLD render system.
+
+The canonical SLD path is:
 
     Core/Application
         ↓
@@ -26,11 +26,24 @@ single SLD projection path:
         ↓
     QGraphicsScene
 
+Within the final presentation boundary, semantic SLD node realization is:
+
+    SLDCanvasNode
+        ↓
+    SemanticPresentationRealization
+        ↓
+    PresentationSelection
+        ↓
+    SLDGraphicsItemFactory
+        ↓
+    QGraphicsItem
+
 Ownership boundaries
 --------------------
 The canvas does not own Core electrical truth, electrical calculations,
 application command execution, topology rules, or persistence of
-transient preview graphics.
+transient preview graphics. SLD semantic realization remains renderer-neutral
+until concrete construction at SLDGraphicsItemFactory.
 
 Qt boundary
 -----------
