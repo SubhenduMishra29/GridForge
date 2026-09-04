@@ -20,7 +20,6 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
-from core.application.application import Application
 from core.application.commands.model_commands import CreateLineCommand
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
@@ -157,11 +156,6 @@ class LineTool(ToolBase):
         return key in ("Escape", "escape", 0x01000000)
 
     def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
-        application = getattr(self.controller, "gridforge_application", None)
-        if not isinstance(application, Application):
-            raise RuntimeError(
-                "LineTool requires the composed GridForge Application at controller.gridforge_application."
-            )
         parameters = getattr(self.controller, "line_parameters", None)
         if not isinstance(parameters, dict):
             raise RuntimeError(
@@ -183,7 +177,7 @@ class LineTool(ToolBase):
             name=str(parameters.get("name", "")),
             rate_mva=float(parameters["rate_mva"]),
         )
-        return application.execute(command)
+        return self.execute_command(command)
 
     def _clear_state(self) -> None:
         self._start_position = None
