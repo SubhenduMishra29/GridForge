@@ -31,7 +31,7 @@ Rules:
 | GF-AUD-004 | Contingency isolation | 🟢 STRUCTURALLY CONFIRMED | Contingency cases use isolated network copies before applying outage state. |
 | GF-AUD-005 | Contingency bus outage semantics | 🟡 OPEN | Bus outage currently disables the bus and connected equipment; must be correlated against authoritative topology/state semantics. |
 | GF-AUD-006 | Terminal connectivity | 🟡 OPEN | Contingency code uses defensive terminal/endpoint fallbacks; authoritative Terminal contract must be traced before accepting this as canonical. |
-| GF-AUD-007 | Contingency result correlation | 🟠 OPEN | Contingency violation detection relies on positional correlation in places where the prepared power-flow boundary has explicit bus ordering/IDs. |
+| GF-AUD-007 | Contingency result correlation | 🔴 CONFIRMED | Contingency violation detection assumes positional result ordering against `network.buses`, `network.lines`, and `network.transformers`, while the prepared numerical boundary explicitly carries stable `bus_ids`. More importantly, the current ContingencyAnalysis requests result fields named `converged`, `bus_voltage`, `line_loading`, and `transformer_loading`, but the authoritative `PowerFlowResult` exposes `success`, `voltage_magnitudes`, and `voltage_angles` and contains no line/transformer loading fields. The current consumer/result contract is therefore incompatible. |
 | GF-AUD-008 | Semantic presentation producer vocabulary | 🟢 CONFIRMED | `NetworkReadService` emits concrete Network collection names such as `"buses"`; `SLDReadSynchronizer` forwards `element_type` unchanged; semantic realization intentionally maps `"buses"` → `"bus"`. |
 | GF-AUD-009 | Presentation selection boundary | 🟢 STRUCTURALLY CONFIRMED | `PresentationSelection` and `SemanticPresentationRealization` exist and are separated from graphics construction. |
 | GF-AUD-010 | Graphics factory boundary | 🟢 STRUCTURALLY CONFIRMED | Factory consumes presentation selection rather than owning semantic resolution. |
@@ -76,9 +76,13 @@ PowerFlowPreparation
 PreparedPowerFlow
         ↓
 PowerFlowAnalysis
+        ↓
+PowerFlowResult
+        ↓
+Contingency result interpretation
 ```
 
-The authoritative network must remain unchanged by contingency evaluation.
+The authoritative network must remain unchanged by contingency evaluation. Contingency interpretation must consume the actual prepared-result contract rather than an older/different result vocabulary.
 
 ### SLD Presentation
 
@@ -110,20 +114,27 @@ The factory is a construction boundary, not the semantic-resolution owner.
 
 The authoritative read-side vocabulary currently comes from the concrete Network collection names exposed by `NetworkReadService` (for example `buses`, `lines`, `transformers`). `SLDReadSynchronizer` preserves that value rather than translating it. The renderer-facing semantic layer then maps those read-side values into renderer-neutral representation IDs. The existing `buses` → `bus` translation is therefore confirmed as an intentional boundary translation, not an upstream vocabulary mismatch.
 
-The complete current renderer coverage audit now establishes a gap: the Application read side emits 18 concrete element collections, while the semantic realization has only one node mapping (`buses` → `bus`) and the concrete graphics-item directory contains only `BusItem` and `LineItem`. Because the synchronizer creates an `SLDNode` for every read-side element and the render system attempts semantic realization for every snapshot node, non-bus elements are not merely unimplemented constructors; they are currently unsupported at the semantic presentation boundary and cause rendering failure when encountered as nodes.
+The complete current renderer coverage audit establishes a gap: the Application read side emits 18 concrete element collections, while the semantic realization has only one node mapping (`buses` → `bus`) and the concrete graphics-item directory contains only `BusItem` and `LineItem`. Because the synchronizer creates an `SLDNode` for every read-side element and the render system attempts semantic realization for every snapshot node, non-bus elements are not merely unimplemented constructors; they are currently unsupported at the semantic presentation boundary and cause rendering failure when encountered as nodes.
 
 This is a confirmed contract-coverage finding, not yet a decision that every electrical element must receive an SLD symbol. The required architectural decision is whether each non-bus read-side type should receive a deliberate presentation representation or be explicitly excluded from the SLD node projection before rendering.
 
+## Contingency Result Boundary
+
+Repository correlation now establishes that `PowerFlowAnalysis.solve()` returns the authoritative immutable `PowerFlowResult`. That result contains `success`, `iterations`, `error`, `pv_to_pq`, `history`, `message`, `voltage_magnitudes`, and `voltage_angles`; it does not expose a `converged` field or the contingency-specific `bus_voltage`, `line_loading`, or `transformer_loading` fields requested by the current `ContingencyAnalysis`. fileciteturn35file0 fileciteturn36file0
+
+Therefore GF-AUD-007 is confirmed at the contract level. This is stronger than a positional-ordering concern: the current contingency consumer is reading a result vocabulary that the current producer does not provide. `_result_converged()` consequently looks for `converged` and returns `False` when it is absent, while the voltage/loading detection paths request fields absent from `PowerFlowResult`. fileciteturn40file0
+
+The positional correlation issue remains independently relevant: `ContingencyAnalysis` enumerates result values by index against the current Network collections, whereas `PowerFlowInput` carries explicit `bus_ids` and validates stable YBus/Input ordering. fileciteturn31file0 fileciteturn33file0
+
+No production change is authorized yet. The next required audit step is to determine whether line/transformer loading is owned by an existing analysis result contract elsewhere, or whether ContingencyAnalysis is expected to derive those assessments from an existing authoritative flow analysis contract. Only then can the result boundary be frozen.
+
 ## Immediate Next Audit Pass
 
-The SLD supported-type coverage finding is now confirmed. Do not modify production code yet. First freeze the intended ownership/contract for the gap:
-
-1. Establish which Network element classes are semantically valid SLD node participants.
-2. Establish which branch types are connection participants (`lines`, `cables`, `transformers` are currently the synchronizer's explicit branch set).
-3. Establish whether non-rendered read-side element types should be filtered at `SLDReadSynchronizer`/projection or represented by concrete presentation selections.
-4. Only after that contract is frozen, decide whether the required change belongs in Application read models, SLD projection/synchronization, semantic realization, or graphics construction.
-
-Then continue the contingency path against the authoritative Network and Terminal contracts, and verify result-to-element correlation using the prepared numerical ordering contract.
+1. Trace the authoritative `PowerFlowResult` producer and every current consumer.
+2. Determine whether existing line-flow / transformer-flow result contracts provide the loading information expected by contingency analysis.
+3. Trace the authoritative Terminal contract to resolve GF-AUD-005 and GF-AUD-006.
+4. After the result contract is frozen, decide the smallest production migration needed; do not implement during audit.
+5. Keep runtime verification open until executable tests are actually run.
 
 ## Audit Discipline
 
