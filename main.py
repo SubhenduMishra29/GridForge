@@ -26,6 +26,7 @@ from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project import Project
+from ui.workspace.workspace import Workspace
 from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import default_workspaces, get_initial_workspace
 from ui.workspace.workspace_manager import WorkspaceManager
@@ -62,6 +63,16 @@ def build_application() -> tuple[
     )
 
     # --------------------------------------------------------
+    # Logical Project/Workspace/Document context
+    # --------------------------------------------------------
+    workspace_definition = get_initial_workspace()
+    workspace = Workspace(
+        workspace_id=workspace_definition.workspace_id,
+        name=workspace_definition.title,
+        project_id=project.project_id,
+    )
+
+    # --------------------------------------------------------
     # SLD read-side presentation boundary
     # --------------------------------------------------------
     sld_document = SLDDocument(
@@ -69,6 +80,8 @@ def build_application() -> tuple[
         name="GridForge SLD",
         project_id=project.project_id,
     )
+    workspace.add_document(sld_document)
+
     sld_projection_manager = SLDProjectionManager()
     sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
     sld_read_synchronizer.synchronize_network(
@@ -83,6 +96,19 @@ def build_application() -> tuple[
         projection_manager=sld_projection_manager,
     )
     sld_controller.register_document(sld_document)
+    sld_controller.activate_document(sld_document.document_id)
+
+    # --------------------------------------------------------
+    # Logical Document → View boundary
+    # --------------------------------------------------------
+    from ui.workspace.view_manager import ViewRecord
+
+    sld_view = ViewRecord(
+        view_id="sld-view",
+        document_id=sld_document.document_id,
+        view_type="sld",
+    )
+    workspace.add_view(sld_view)
 
     # --------------------------------------------------------
     # SLD → Canvas realization boundary
@@ -178,7 +204,10 @@ def build_application() -> tuple[
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
         tool_manager=tool_manager,
-        metadata={"sld_canvas_snapshot": sld_canvas_snapshot},
+        metadata={
+            "sld_canvas_snapshot": sld_canvas_snapshot,
+            "project_id": project.project_id,
+        },
     )
 
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}
@@ -230,7 +259,7 @@ def build_application() -> tuple[
         manager=workspace_manager,
         realizer=workspace_realizer,
     )
-    workspace_controller.activate(get_initial_workspace().workspace_id)
+    workspace_controller.activate(workspace_definition.workspace_id)
 
     window.show()
     return app, window, plugin_manager, workspace_controller, ui_update_boundary
