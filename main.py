@@ -1,6 +1,5 @@
 # ============================================================
 # GridForge V2 — Application Composition Root
-# Author: Subhendu Mishra
 # ============================================================
 
 from __future__ import annotations
@@ -13,6 +12,7 @@ from core.network.network import Network
 from ui.canvas.canvas_composition import CanvasComposer
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
+from ui.core.command_manager import CommandManager as UICommandManager
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
 from ui.core.qt import QApplication
@@ -46,25 +46,15 @@ def build_application() -> tuple[
     if app is None:
         app = QApplication(sys.argv)
 
-    # --------------------------------------------------------
-    # Authoritative Core/Application boundary
-    # --------------------------------------------------------
     network = Network()
     gridforge_application = create_application(network)
+    command_manager = UICommandManager(application=gridforge_application)
 
-    # --------------------------------------------------------
-    # Project identity boundary
-    # --------------------------------------------------------
-    # Project is the persistent engineering container/context. It does not
-    # own, construct, or receive the authoritative Core Network.
     project = Project(
         project_id="gridforge-project",
         name="GridForge Project",
     )
 
-    # --------------------------------------------------------
-    # Logical Project/Workspace/Document context
-    # --------------------------------------------------------
     workspace_definition = get_initial_workspace()
     workspace = Workspace(
         workspace_id=workspace_definition.workspace_id,
@@ -72,9 +62,6 @@ def build_application() -> tuple[
         project_id=project.project_id,
     )
 
-    # --------------------------------------------------------
-    # SLD read-side presentation boundary
-    # --------------------------------------------------------
     sld_document = SLDDocument(
         document_id="sld-document",
         name="GridForge SLD",
@@ -89,18 +76,12 @@ def build_application() -> tuple[
         gridforge_application.read_network(),
     )
 
-    # The SLD controller is the presentation document/edit boundary. It uses
-    # the already composed projection manager for layout calculation; the
-    # controller orchestrates the workflow but does not calculate geometry.
     sld_controller = SLDController(
         projection_manager=sld_projection_manager,
     )
     sld_controller.register_document(sld_document)
     sld_controller.activate_document(sld_document.document_id)
 
-    # --------------------------------------------------------
-    # Logical Document → View boundary
-    # --------------------------------------------------------
     from ui.workspace.view_manager import ViewRecord
 
     sld_view = ViewRecord(
@@ -110,21 +91,10 @@ def build_application() -> tuple[
     )
     workspace.add_view(sld_view)
 
-    # --------------------------------------------------------
-    # SLD → Canvas realization boundary
-    # --------------------------------------------------------
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
 
-    # --------------------------------------------------------
-    # UI/application coordination boundary
-    # --------------------------------------------------------
     controller = Controller()
-
-    # The composition root provides the headless Application to the
-    # Controller as an externally owned dependency. Tools reach mutation
-    # through this boundary; they never receive the Core Network.
-    controller.gridforge_application = gridforge_application
 
     tool_manager = ToolManager(
         controller=controller,
@@ -133,12 +103,10 @@ def build_application() -> tuple[
         tool_registry=None,
     )
 
-    # Canvas services are composed by the application bootstrap. The
-    # CanvasPlugin consumes this immutable composition; it does not create
-    # or own the shared Canvas services.
     canvas_composition = CanvasComposer().compose(
         controller=controller,
         tool_manager=tool_manager,
+        command_manager=command_manager,
         parent=None,
     )
 
@@ -162,10 +130,6 @@ def build_application() -> tuple[
 
         connect(persist_position)
 
-    # The SLD RenderSystem is a separately composed transient realization
-    # service. It must target the exact scene created by CanvasComposition.
-    # CanvasPlugin receives this externally owned dependency through its
-    # immutable PluginContext and never constructs it itself.
     sld_canvas_render_system = SLDCanvasRenderSystem(
         scene=canvas_composition.scene,
         on_node_realized=wire_sld_node_movement,
@@ -200,6 +164,7 @@ def build_application() -> tuple[
         gridforge_application=gridforge_application,
         root_widget=root_widget,
         controller=controller,
+        command_manager=command_manager,
         sld_document=sld_document,
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
@@ -214,9 +179,6 @@ def build_application() -> tuple[
     plugin_manager.set_contexts(contexts)
     plugin_manager.initialize_all()
 
-    # --------------------------------------------------------
-    # Application event → SLD → Canvas live update boundary
-    # --------------------------------------------------------
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas):
         raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
