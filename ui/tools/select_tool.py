@@ -10,8 +10,6 @@
 # Architectural Role:
 #     SelectTool translates pointer interaction into requests to
 #     SelectionManager. It never owns rendering infrastructure.
-#
-# Author: Subhendu Mishra
 # ============================================================
 
 from __future__ import annotations
@@ -29,19 +27,8 @@ class SelectTool(ToolBase):
     CTRL_MODIFIER = 0x04000000
     META_MODIFIER = 0x10000000
 
-    def __init__(
-        self,
-        controller: Any,
-        command_manager: Any,
-        selection_manager: Any,
-        snap_system: Any,
-    ) -> None:
-        super().__init__(
-            controller=controller,
-            command_manager=command_manager,
-            selection_manager=selection_manager,
-            snap_system=snap_system,
-        )
+    def __init__(self, controller: Any, command_manager: Any, selection_manager: Any, snap_system: Any) -> None:
+        super().__init__(controller=controller, command_manager=command_manager, selection_manager=selection_manager, snap_system=snap_system)
         self._pressed_object_id: Any = None
         self._pressed_position: Optional[Tuple[float, float]] = None
         self._dragging = False
@@ -89,11 +76,7 @@ class SelectTool(ToolBase):
 
     def on_mouse_release(self, event: Any) -> bool:
         self._ensure_active()
-        handled = (
-            self._pressed_object_id is not None
-            or self._pressed_position is not None
-            or self._dragging
-        )
+        handled = self._pressed_object_id is not None or self._pressed_position is not None or self._dragging
         self._clear_pointer_state()
         return handled
 
@@ -111,11 +94,7 @@ class SelectTool(ToolBase):
 
     def on_cancel(self) -> bool:
         self._ensure_active()
-        had_state = (
-            self._pressed_object_id is not None
-            or self._pressed_position is not None
-            or self._dragging
-        )
+        had_state = self._pressed_object_id is not None or self._pressed_position is not None or self._dragging
         self._clear_pointer_state()
         return had_state
 
@@ -158,16 +137,9 @@ class SelectTool(ToolBase):
 
     @staticmethod
     def _toggle_selection(manager: Any, object_id: Any) -> Any:
-        is_selected = getattr(manager, "is_selected", None)
-        if not callable(is_selected):
-            raise TypeError("SelectionManager must provide is_selected().")
-        controller = getattr(manager, "controller", None)
-        if controller is None:
-            raise TypeError("SelectionManager must expose its controller.")
-        toggle_selection = getattr(controller, "toggle_selection", None)
+        toggle_selection = getattr(manager, "toggle_selection", None)
         if not callable(toggle_selection):
-            raise TypeError("Controller must provide toggle_selection().")
-        is_selected(object_id)
+            raise TypeError("SelectionManager must provide toggle_selection().")
         return toggle_selection(object_id)
 
     @classmethod
@@ -212,13 +184,7 @@ class SelectTool(ToolBase):
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
-        state.update(
-            {
-                "pressed_object_id": self._pressed_object_id,
-                "pressed_position": self._pressed_position,
-                "dragging": self._dragging,
-            }
-        )
+        state.update({"pressed_object_id": self._pressed_object_id, "pressed_position": self._pressed_position, "dragging": self._dragging})
         return state
 
 
