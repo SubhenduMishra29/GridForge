@@ -54,6 +54,8 @@ class SLDReadSynchronizer:
                 node.properties.get("projection_source") == _PROJECTION_SOURCE
                 and node.equipment_id not in active_ids
             ):
+                if node.equipment_id is not None:
+                    self._projection_manager.remove(node.equipment_id)
                 document.model.remove_node(node.node_id)
 
         nodes = tuple(
