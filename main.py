@@ -21,9 +21,12 @@ from ui.events.update_boundary import UIUpdateBoundary
 from ui.main_window import MainWindow
 from ui.plugins.plugin_context import PluginContext
 from ui.plugins.plugin_manager import PluginManager
+from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
+from ui.workspace.project import Project
+from ui.workspace.workspace import Workspace
 from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import default_workspaces, get_initial_workspace
 from ui.workspace.workspace_manager import WorkspaceManager
@@ -50,18 +53,62 @@ def build_application() -> tuple[
     gridforge_application = create_application(network)
 
     # --------------------------------------------------------
+    # Project identity boundary
+    # --------------------------------------------------------
+    # Project is the persistent engineering container/context. It does not
+    # own, construct, or receive the authoritative Core Network.
+    project = Project(
+        project_id="gridforge-project",
+        name="GridForge Project",
+    )
+
+    # --------------------------------------------------------
+    # Logical Project/Workspace/Document context
+    # --------------------------------------------------------
+    workspace_definition = get_initial_workspace()
+    workspace = Workspace(
+        workspace_id=workspace_definition.workspace_id,
+        name=workspace_definition.title,
+        project_id=project.project_id,
+    )
+
+    # --------------------------------------------------------
     # SLD read-side presentation boundary
     # --------------------------------------------------------
     sld_document = SLDDocument(
         document_id="sld-document",
         name="GridForge SLD",
+        project_id=project.project_id,
     )
+    workspace.add_document(sld_document)
+
     sld_projection_manager = SLDProjectionManager()
     sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
     sld_read_synchronizer.synchronize_network(
         sld_document,
         gridforge_application.read_network(),
     )
+
+    # The SLD controller is the presentation document/edit boundary. It uses
+    # the already composed projection manager for layout calculation; the
+    # controller orchestrates the workflow but does not calculate geometry.
+    sld_controller = SLDController(
+        projection_manager=sld_projection_manager,
+    )
+    sld_controller.register_document(sld_document)
+    sld_controller.activate_document(sld_document.document_id)
+
+    # --------------------------------------------------------
+    # Logical Document → View boundary
+    # --------------------------------------------------------
+    from ui.workspace.view_manager import ViewRecord
+
+    sld_view = ViewRecord(
+        view_id="sld-view",
+        document_id=sld_document.document_id,
+        view_type="sld",
+    )
+    workspace.add_view(sld_view)
 
     # --------------------------------------------------------
     # SLD → Canvas realization boundary
@@ -95,12 +142,33 @@ def build_application() -> tuple[
         parent=None,
     )
 
+    def wire_sld_node_movement(node_id: str, item: object) -> None:
+        """Route graphical node movement through the SLD document boundary."""
+        position_changed = getattr(item, "position_changed", None)
+        connect = getattr(position_changed, "connect", None)
+        if not callable(connect):
+            return
+
+        def persist_position(position: object) -> None:
+            x = getattr(position, "x", None)
+            y = getattr(position, "y", None)
+            if not callable(x) or not callable(y):
+                raise TypeError("position must provide x() and y()")
+            sld_controller.set_node_position(
+                node_id,
+                float(x()),
+                float(y()),
+            )
+
+        connect(persist_position)
+
     # The SLD RenderSystem is a separately composed transient realization
     # service. It must target the exact scene created by CanvasComposition.
     # CanvasPlugin receives this externally owned dependency through its
     # immutable PluginContext and never constructs it itself.
     sld_canvas_render_system = SLDCanvasRenderSystem(
         scene=canvas_composition.scene,
+        on_node_realized=wire_sld_node_movement,
     )
 
     plugin_manager = PluginManager()
@@ -136,7 +204,10 @@ def build_application() -> tuple[
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
         tool_manager=tool_manager,
-        metadata={"sld_canvas_snapshot": sld_canvas_snapshot},
+        metadata={
+            "sld_canvas_snapshot": sld_canvas_snapshot,
+            "project_id": project.project_id,
+        },
     )
 
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}
@@ -188,7 +259,7 @@ def build_application() -> tuple[
         manager=workspace_manager,
         realizer=workspace_realizer,
     )
-    workspace_controller.activate(get_initial_workspace().workspace_id)
+    workspace_controller.activate(workspace_definition.workspace_id)
 
     window.show()
     return app, window, plugin_manager, workspace_controller, ui_update_boundary

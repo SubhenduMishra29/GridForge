@@ -18,14 +18,24 @@ from typing import Any, Dict, Optional
 
 from .sld_document import SLDDocument
 from .sld_model import SLDConnection, SLDNode
+from .sld_projection_manager import SLDProjectionManager
 from .sld_state import SLDState
 
 
 class SLDController:
     """Application-facing controller for SLD document operations."""
 
-    def __init__(self, state: Optional[SLDState] = None) -> None:
+    def __init__(
+        self,
+        state: Optional[SLDState] = None,
+        projection_manager: Optional[SLDProjectionManager] = None,
+    ) -> None:
         self._state = state if state is not None else SLDState()
+        self._projection_manager = (
+            projection_manager
+            if projection_manager is not None
+            else SLDProjectionManager()
+        )
         self._documents: Dict[str, SLDDocument] = {}
 
     @property
@@ -80,6 +90,36 @@ class SLDController:
         document = self._require_active_document()
         document.set_node_position(node_id, x, y)
         self._state.mark_dirty()
+
+    def arrange_nodes(
+        self,
+        object_ids: tuple[str, ...] | list[str] | None = None,
+    ) -> tuple:
+        """Arrange SLD nodes through the layout/projection boundary.
+
+        Layout calculation remains owned by ``SLDProjectionManager`` and its
+        ``SLDLayout`` policy. Persistent graphical geometry is committed only
+        through this controller's document-edit boundary.
+        """
+        document = self._require_active_document()
+        ids = (
+            tuple(node.node_id for node in document.model.nodes)
+            if object_ids is None
+            else tuple(object_ids)
+        )
+
+        for node_id in ids:
+            if not document.model.has_node(node_id):
+                raise KeyError(node_id)
+
+        placements = self._projection_manager.arrange(ids)
+        for placement in placements:
+            self.set_node_position(
+                placement.object_id,
+                placement.x,
+                placement.y,
+            )
+        return placements
 
     def remove_node(self, node_id: str) -> SLDNode:
         document = self._require_active_document()
