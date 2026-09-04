@@ -4,91 +4,28 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
-GridForge V2 — Headless Application Commands
-=============================================
-
-Public package API for immutable Application command contracts.
-
-This module is intentionally a thin re-export layer.
-
-Canonical command definitions live in:
-
-    core.application.commands.model_commands
-
-Commands represent Application intent only.
-
-They:
-
-    * do not mutate Core;
-    * do not mutate Network;
-    * do not resolve endpoints;
-    * do not manipulate topology;
-    * do not access UI state;
-    * do not access Qt;
-    * do not contain Core model objects;
-    * do not contain solver indices;
-    * do not contain Y-bus indices;
-    * do not contain numerical matrix data.
-
-Endpoint-bearing commands carry EndpointReference value objects.
-Endpoint resolution belongs to the Application handler boundary.
-
-Execution path
---------------
-
-    External Consumer
-          |
-          v
-       Command
-          |
-          v
-    CommandManager
-          |
-          v
-       Handler
-          |
-          v
-    ModelService
-          |
-          v
-    Core / Network
-
-The command package is deliberately independent of the numerical
-analysis layer. Y-bus construction and numerical index reconciliation
-are outside this Application command contract and are audited separately.
-"""
+"""Public package API for immutable Application command contracts."""
 
 from __future__ import annotations
 
+# Bus has a dedicated canonical command module.
+from .create_bus import CreateBusCommand
+
 from .model_commands import (
-    # ========================================================
-    # BUS
-    # ========================================================
     CREATE_BUS,
     DELETE_BUS,
-    CreateBusCommand,
     DeleteBusCommand,
 
-    # ========================================================
-    # LINE
-    # ========================================================
     CREATE_LINE,
     DELETE_LINE,
     CreateLineCommand,
     DeleteLineCommand,
 
-    # ========================================================
-    # TRANSFORMER
-    # ========================================================
     CREATE_TRANSFORMER,
     DELETE_TRANSFORMER,
     CreateTransformerCommand,
     DeleteTransformerCommand,
 
-    # ========================================================
-    # LOAD
-    # ========================================================
     CREATE_LOAD,
     DELETE_LOAD,
     UPDATE_LOAD,
@@ -96,9 +33,6 @@ from .model_commands import (
     DeleteLoadCommand,
     UpdateLoadCommand,
 
-    # ========================================================
-    # GRID
-    # ========================================================
     CREATE_GRID,
     DELETE_GRID,
     UPDATE_GRID,
@@ -106,9 +40,6 @@ from .model_commands import (
     DeleteGridCommand,
     UpdateGridCommand,
 
-    # ========================================================
-    # BRANCH
-    # ========================================================
     CREATE_BRANCH,
     UPDATE_BRANCH,
     DELETE_BRANCH,
@@ -116,9 +47,6 @@ from .model_commands import (
     UpdateBranchCommand,
     DeleteBranchCommand,
 
-    # ========================================================
-    # CABLE
-    # ========================================================
     CREATE_CABLE,
     UPDATE_CABLE,
     DELETE_CABLE,
@@ -126,9 +54,6 @@ from .model_commands import (
     UpdateCableCommand,
     DeleteCableCommand,
 
-    # ========================================================
-    # SWITCH
-    # ========================================================
     CREATE_SWITCH,
     UPDATE_SWITCH,
     DELETE_SWITCH,
@@ -144,9 +69,6 @@ from .model_commands import (
     PutSwitchInServiceCommand,
     TakeSwitchOutOfServiceCommand,
 
-    # ========================================================
-    # DISCONNECTOR
-    # ========================================================
     CREATE_DISCONNECTOR,
     UPDATE_DISCONNECTOR,
     DELETE_DISCONNECTOR,
@@ -162,9 +84,6 @@ from .model_commands import (
     PutDisconnectorInServiceCommand,
     TakeDisconnectorOutOfServiceCommand,
 
-    # ========================================================
-    # FUSE
-    # ========================================================
     CREATE_FUSE,
     UPDATE_FUSE,
     DELETE_FUSE,
@@ -182,38 +101,22 @@ from .model_commands import (
 )
 
 
-# ============================================================
-# PUBLIC API
-# ============================================================
-
 __all__ = [
-    # ========================================================
-    # BUS
-    # ========================================================
     "CREATE_BUS",
     "DELETE_BUS",
     "CreateBusCommand",
     "DeleteBusCommand",
 
-    # ========================================================
-    # LINE
-    # ========================================================
     "CREATE_LINE",
     "DELETE_LINE",
     "CreateLineCommand",
     "DeleteLineCommand",
 
-    # ========================================================
-    # TRANSFORMER
-    # ========================================================
     "CREATE_TRANSFORMER",
     "DELETE_TRANSFORMER",
     "CreateTransformerCommand",
     "DeleteTransformerCommand",
 
-    # ========================================================
-    # LOAD
-    # ========================================================
     "CREATE_LOAD",
     "DELETE_LOAD",
     "UPDATE_LOAD",
@@ -221,9 +124,6 @@ __all__ = [
     "DeleteLoadCommand",
     "UpdateLoadCommand",
 
-    # ========================================================
-    # GRID
-    # ========================================================
     "CREATE_GRID",
     "DELETE_GRID",
     "UPDATE_GRID",
@@ -231,9 +131,6 @@ __all__ = [
     "DeleteGridCommand",
     "UpdateGridCommand",
 
-    # ========================================================
-    # BRANCH
-    # ========================================================
     "CREATE_BRANCH",
     "UPDATE_BRANCH",
     "DELETE_BRANCH",
@@ -241,9 +138,6 @@ __all__ = [
     "UpdateBranchCommand",
     "DeleteBranchCommand",
 
-    # ========================================================
-    # CABLE
-    # ========================================================
     "CREATE_CABLE",
     "UPDATE_CABLE",
     "DELETE_CABLE",
@@ -251,9 +145,6 @@ __all__ = [
     "UpdateCableCommand",
     "DeleteCableCommand",
 
-    # ========================================================
-    # SWITCH
-    # ========================================================
     "CREATE_SWITCH",
     "UPDATE_SWITCH",
     "DELETE_SWITCH",
@@ -269,9 +160,6 @@ __all__ = [
     "PutSwitchInServiceCommand",
     "TakeSwitchOutOfServiceCommand",
 
-    # ========================================================
-    # DISCONNECTOR
-    # ========================================================
     "CREATE_DISCONNECTOR",
     "UPDATE_DISCONNECTOR",
     "DELETE_DISCONNECTOR",
@@ -287,9 +175,6 @@ __all__ = [
     "PutDisconnectorInServiceCommand",
     "TakeDisconnectorOutOfServiceCommand",
 
-    # ========================================================
-    # FUSE
-    # ========================================================
     "CREATE_FUSE",
     "UPDATE_FUSE",
     "DELETE_FUSE",
