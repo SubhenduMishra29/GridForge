@@ -30,10 +30,6 @@ class Controller(QObject):
     selection signal.
     """
 
-    # ========================================================
-    # SIGNALS
-    # ========================================================
-
     tool_changed = Signal(object, object)
     state_changed = Signal()
     project_changed = Signal(object)
@@ -48,36 +44,11 @@ class Controller(QObject):
         }
     )
 
-    # ========================================================
-    # COMMAND CONTRACT
-    # ========================================================
-
-    _COMMAND_MANAGER_METHODS = (
-        "execute",
-        "undo",
-        "redo",
-        "can_undo",
-        "can_redo",
-        "undo_count",
-        "redo_count",
-        "get_undo_commands",
-        "get_redo_commands",
-        "get_undo_name",
-        "get_redo_name",
-        "clear_history",
-        "clear_redo",
-        "reset",
-        "get_state",
-    )
-
-    # ========================================================
-    # INITIALIZATION
-    # ========================================================
-
     def __init__(
         self,
         core: Optional[Any] = None,
         parent: Optional[QObject] = None,
+        application: Optional[Any] = None,
     ) -> None:
         super().__init__(parent)
         self._core = core
@@ -87,10 +58,6 @@ class Controller(QObject):
         self._subscriptions: dict[str, list[Any]] = {
             signal_name: [] for signal_name in self._SIGNAL_NAMES
         }
-
-    # ========================================================
-    # CORE ACCESS
-    # ========================================================
 
     @property
     def core(self) -> Optional[Any]:
@@ -106,9 +73,16 @@ class Controller(QObject):
         self._core = core
         self.state_changed.emit()
 
-    # ========================================================
-    # TOOL REQUEST STATE
-    # ========================================================
+    def get_application(self) -> Optional[Any]:
+        return self.application
+
+    def set_application(self, application: Optional[Any]) -> None:
+        self._ensure_active()
+        if self.application is application:
+            return
+        self.application = application
+        self.gridforge_application = application
+        self.state_changed.emit()
 
     @property
     def tool_id(self) -> Optional[str]:
@@ -132,7 +106,6 @@ class Controller(QObject):
         previous_tool_id = self._tool_id
         if previous_tool_id == tool_id:
             return
-
         self._tool_id = tool_id
         self.tool_changed.emit(tool_id, previous_tool_id)
         self.state_changed.emit()

@@ -1,25 +1,4 @@
-"""
-GridForge V2
-===========
-
-File:
-    ui/canvas/canvas_composition.py
-
-Purpose:
-    Application-owned composition boundary for the Canvas subsystem.
-
-Author:
-    Subhendu Mishra
-
-Architectural role:
-    Compose Canvas viewport, interaction, navigation, selection, grid,
-    snapping, and preview services. SLD graphics realization is owned by
-    CanvasPlugin through SLDCanvasProjection and SLDCanvasRenderSystem.
-
-Boundary rule:
-    This composition must not construct or expose the legacy
-    RenderSystem/RendererRegistry renderer architecture.
-"""
+"""GridForge V2 application-owned Canvas composition boundary."""
 
 from __future__ import annotations
 
@@ -57,7 +36,6 @@ class CanvasComposition:
 
     @property
     def widget(self) -> QWidget:
-        """Return the composed Canvas widget."""
         return self.view
 
 
@@ -121,9 +99,6 @@ class CanvasComposer:
 
         selection_manager.set_scene(scene)
 
-        # ToolManager owns tool lifecycle. Tools no longer depend on the
-        # retired renderer registry; SLD projection/rendering is handled by
-        # CanvasPlugin through SLDCanvasProjection and SLDCanvasRenderSystem.
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
