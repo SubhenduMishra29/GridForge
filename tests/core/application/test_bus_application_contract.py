@@ -13,7 +13,7 @@ import unittest
 from core.application.commands import CreateBusCommand as PublicCreateBusCommand
 from core.application.commands.create_bus import CreateBusCommand
 from core.application.command_handlers import ModelCommandHandlers
-from core.application.services.bus_model_service import ModelService
+from core.application.services.model_service import ModelService
 from core.application.transaction import Transaction
 from core.model.bus import Bus
 from core.network.network import Network
@@ -94,6 +94,14 @@ class CreateBusApplicationContractTests(unittest.TestCase):
                 "in_service": True,
                 "transaction": transaction,
             },
+        )
+
+    def test_model_service_is_canonical_concrete_service(self) -> None:
+        service = ModelService(Network())
+        self.assertIs(type(service), ModelService)
+        self.assertEqual(
+            type(service).__module__,
+            "core.application.services.model_service",
         )
 
     def test_model_service_creates_authoritative_bus(self) -> None:
