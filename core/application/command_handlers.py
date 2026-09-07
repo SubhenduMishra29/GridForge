@@ -13,10 +13,11 @@ from .command import Command
 from .endpoint_resolver import EndpointResolver
 from .results import ApplicationResult
 from .transaction import Transaction
-from .services.bus_model_service import ModelService
+from .services.model_service import ModelService
 
 from .commands.model_commands import (
     CREATE_BUS,
+    UPDATE_BUS,
     DELETE_BUS,
     CREATE_LINE,
     DELETE_LINE,
@@ -44,6 +45,7 @@ class ModelCommandHandlers:
     def handlers(self) -> Mapping[str, Handler]:
         return {
             CREATE_BUS: self.create_bus,
+            UPDATE_BUS: self.update_bus,
             DELETE_BUS: self.delete_bus,
             CREATE_LINE: self.create_line,
             DELETE_LINE: self.delete_line,
@@ -61,6 +63,19 @@ class ModelCommandHandlers:
         """Create a Core Bus using the authoritative Bus contract."""
         payload = command.payload
         return self._model_service.create_bus(
+            bus_id=payload["bus_id"],
+            name=payload["name"],
+            nominal_voltage_kv=payload["nominal_voltage_kv"],
+            voltage_pu=payload["voltage_pu"],
+            angle_deg=payload["angle_deg"],
+            frequency_hz=payload["frequency_hz"],
+            in_service=payload["in_service"],
+            transaction=transaction,
+        )
+
+    def update_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        payload = command.payload
+        return self._model_service.update_bus(
             bus_id=payload["bus_id"],
             name=payload["name"],
             nominal_voltage_kv=payload["nominal_voltage_kv"],

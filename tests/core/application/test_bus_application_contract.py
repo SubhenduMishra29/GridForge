@@ -13,7 +13,7 @@ import unittest
 from core.application.commands import CreateBusCommand as PublicCreateBusCommand
 from core.application.commands.create_bus import CreateBusCommand
 from core.application.command_handlers import ModelCommandHandlers
-from core.application.services.bus_model_service import ModelService
+from core.application.services.model_service import ModelService
 from core.application.transaction import Transaction
 from core.model.bus import Bus
 from core.network.network import Network

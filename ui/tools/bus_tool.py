@@ -26,13 +26,13 @@ class BusTool(ToolBase):
     def __init__(
         self,
         controller: Any,
-        command_manager: Any,
+        application: Any,
         selection_manager: Any,
         snap_system: Any,
     ) -> None:
         super().__init__(
             controller=controller,
-            command_manager=command_manager,
+            application=application,
             selection_manager=selection_manager,
             snap_system=snap_system,
         )
@@ -121,11 +121,7 @@ class BusTool(ToolBase):
         snap = getattr(snap_system, "snap", None)
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
-        result = snap(
-            scene_position,
-            allow_grid=True,
-            allow_object=True,
-        )
+        result = snap(scene_position, allow_grid=True, allow_object=True)
         position = getattr(result, "position", None)
         if position is None:
             return None
@@ -137,9 +133,7 @@ class BusTool(ToolBase):
             return float(position.x()), float(position.y())
         if isinstance(position, (tuple, list)) and len(position) >= 2:
             return float(position[0]), float(position[1])
-        raise TypeError(
-            "SnapResult.position must provide x/y coordinates or a two-element position."
-        )
+        raise TypeError("SnapResult.position must provide x/y coordinates or a two-element position.")
 
     @staticmethod
     def _is_escape_event(event: Any) -> bool:
@@ -158,12 +152,7 @@ class BusTool(ToolBase):
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
-        state.update(
-            {
-                "position": self._position,
-                "preview_active": self._preview_active,
-            }
-        )
+        state.update({"position": self._position, "preview_active": self._preview_active})
         return state
 
 
