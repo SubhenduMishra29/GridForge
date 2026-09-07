@@ -108,6 +108,10 @@ class ModelService:
         bus_id: str,
         name: str | None = None,
         nominal_voltage_kv: float = 0.0,
+        voltage_pu: float = 1.0,
+        angle_deg: float = 0.0,
+        frequency_hz: float = 50.0,
+        in_service: bool = True,
         transaction: Transaction,
     ) -> ApplicationResult[Bus]:
 
@@ -124,6 +128,10 @@ class ModelService:
             id=bus_id,
             name="" if name is None else name,
             nominal_voltage_kv=nominal_voltage_kv,
+            voltage_pu=voltage_pu,
+            angle_deg=angle_deg,
+            frequency_hz=frequency_hz,
+            in_service=in_service,
         )
 
         self._network.add_bus(bus)
