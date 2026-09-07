@@ -4,79 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
-GridForge V2 Application Transaction.
-
-Transaction provides an atomic execution scope for an Application
-command.
-
-Responsibilities
-----------------
-Transaction owns:
-
-    * transaction lifecycle
-    * undo-operation registration
-    * rollback
-    * commit
-    * committed undo-journal handoff
-
-Transaction does NOT:
-
-    * know about Core domain types
-    * know about Network
-    * execute commands
-    * manage command history
-    * implement redo
-    * depend on UI
-
-Lifecycle
----------
-
-    ACTIVE
-       │
-       ├── record_undo(...)
-       ├── rollback()
-       │       ↓
-       │   ROLLED_BACK
-       │
-       └── commit()
-               ↓
-           COMMITTED
-
-A transaction can be committed or rolled back exactly once.
-
-Committed Undo Journal
-----------------------
-
-``commit()`` returns an immutable tuple containing the registered
-undo operations.
-
-This is the explicit boundary between Transaction and History:
-
-    Transaction
-        ↓
-    committed UndoJournal
-        ↓
-    CommandManager
-        ↓
-    CommandHistory
-
-Transaction itself does not retain the committed journal after
-commit.
-
-Headless Requirement
---------------------
-
-No dependency on:
-
-    * Qt
-    * PySide6
-    * UI
-    * SLD
-    * Canvas
-    * Network
-    * Core model
-"""
+"""Atomic Application transaction boundary."""
 
 from __future__ import annotations
 
@@ -84,247 +12,112 @@ from enum import Enum, auto
 from typing import Callable, Tuple
 
 
-# ============================================================
-# TYPE DEFINITIONS
-# ============================================================
-
 UndoOperation = Callable[[], None]
-
 UndoJournal = Tuple[UndoOperation, ...]
 
 
-# ============================================================
-# TRANSACTION STATE
-# ============================================================
-
 class TransactionState(Enum):
-    """
-    Lifecycle state of an Application transaction.
-    """
+    """Lifecycle state of an Application transaction."""
 
-    ACTIVE = auto()
+    OPEN = auto()
+    COMMITTING = auto()
     COMMITTED = auto()
+    ROLLING_BACK = auto()
     ROLLED_BACK = auto()
+    ROLLBACK_FAILED = auto()
 
-
-# ============================================================
-# TRANSACTION
-# ============================================================
 
 class Transaction:
-    """
-    Atomic Application execution scope.
+    """Atomic Application execution scope.
 
-    A Transaction collects inverse operations while an Application
-    command executes.
-
-    The registered operations are executed in reverse registration
-    order during rollback.
-
-    On successful commit, the operations are returned as an immutable
-    UndoJournal for CommandManager/CommandHistory.
-
-    Transaction does not know what the operations do.
+    Transaction owns lifecycle, inverse-operation registration, rollback,
+    commit, and committed undo-journal handoff. It has no knowledge of Core,
+    Network, commands, history, UI, or Qt.
     """
 
     def __init__(self) -> None:
-
-        self._state = TransactionState.ACTIVE
-
+        self._state = TransactionState.OPEN
         self._undo_operations: list[UndoOperation] = []
-
-    # ========================================================
-    # STATE
-    # ========================================================
 
     @property
     def state(self) -> TransactionState:
-        """
-        Return the current transaction lifecycle state.
-        """
-
         return self._state
 
     @property
     def active(self) -> bool:
-        """
-        Return True when the transaction is active.
-        """
-
-        return self._state is TransactionState.ACTIVE
+        return self._state is TransactionState.OPEN
 
     @property
     def committed(self) -> bool:
-        """
-        Return True when the transaction has been committed.
-        """
-
         return self._state is TransactionState.COMMITTED
 
     @property
     def rolled_back(self) -> bool:
-        """
-        Return True when the transaction has been rolled back.
-        """
-
         return self._state is TransactionState.ROLLED_BACK
 
-    # ========================================================
-    # UNDO REGISTRATION
-    # ========================================================
-
-    def record_undo(
-        self,
-        operation: UndoOperation,
-    ) -> None:
-        """
-        Register an inverse operation.
-
-        Operations execute in reverse registration order during
-        rollback.
-
-        The transaction must still be ACTIVE.
-        """
-
-        self._require_active(
-            operation="record_undo",
-        )
-
-        if not callable(operation):
-            raise TypeError(
-                "Undo operation must be callable."
-            )
-
-        self._undo_operations.append(operation)
-
-    # ========================================================
-    # INSPECTION
-    # ========================================================
+    @property
+    def rollback_failed(self) -> bool:
+        return self._state is TransactionState.ROLLBACK_FAILED
 
     @property
     def undo_count(self) -> int:
-        """
-        Return the number of currently registered undo operations.
-
-        This is meaningful only while the transaction is ACTIVE.
-        """
-
         return len(self._undo_operations)
 
+    def record_undo(self, operation: UndoOperation) -> None:
+        """Register an inverse operation while the transaction is OPEN."""
+        self._require_open("record_undo")
+        if not callable(operation):
+            raise TypeError("Undo operation must be callable.")
+        self._undo_operations.append(operation)
+
     def undo_journal(self) -> UndoJournal:
-        """
-        Return an immutable snapshot of the currently registered
-        undo operations.
-
-        This method does not change transaction state.
-        """
-
+        """Return an immutable snapshot of registered inverse operations."""
         return tuple(self._undo_operations)
 
-    # ========================================================
-    # COMMIT
-    # ========================================================
-
     def commit(self) -> UndoJournal:
-        """
-        Commit the transaction.
-
-        Returns
-        -------
-        UndoJournal
-            Immutable tuple containing the registered inverse
-            operations.
-
-        The journal is captured before internal transaction state
-        is cleared.
-
-        After commit, the transaction cannot be modified.
-        """
-
-        self._require_active(
-            operation="commit",
-        )
-
-        journal = tuple(
-            self._undo_operations
-        )
-
+        """Commit and return the immutable committed undo journal."""
+        self._require_open("commit")
+        self._state = TransactionState.COMMITTING
+        journal = tuple(self._undo_operations)
         self._undo_operations.clear()
-
         self._state = TransactionState.COMMITTED
-
         return journal
 
-    # ========================================================
-    # ROLLBACK
-    # ========================================================
-
     def rollback(self) -> None:
+        """Execute inverse operations and record rollback success/failure.
+
+        Rollback enters ROLLING_BACK before inverse operations are attempted.
+        All registered operations are attempted in reverse order. A failure
+        leaves the transaction in ROLLBACK_FAILED and the first failure is
+        re-raised after all rollback operations have been attempted.
         """
-        Roll back the transaction.
-
-        Undo operations execute in reverse registration order.
-
-        If an undo operation fails, rollback continues attempting
-        remaining operations. The first failure is re-raised after
-        all rollback operations have been attempted.
-
-        After rollback, the transaction is permanently closed.
-        """
-
-        self._require_active(
-            operation="rollback",
-        )
-
-        operations = tuple(
-            reversed(self._undo_operations)
-        )
-
+        self._require_open("rollback")
+        self._state = TransactionState.ROLLING_BACK
+        operations = tuple(reversed(self._undo_operations))
         self._undo_operations.clear()
 
-        self._state = TransactionState.ROLLED_BACK
-
         first_error: BaseException | None = None
-
         for operation in operations:
-
             try:
                 operation()
-
             except BaseException as exc:
-
                 if first_error is None:
                     first_error = exc
 
-        if first_error is not None:
-            raise first_error
+        if first_error is None:
+            self._state = TransactionState.ROLLED_BACK
+            return
 
-    # ========================================================
-    # INTERNAL VALIDATION
-    # ========================================================
+        self._state = TransactionState.ROLLBACK_FAILED
+        raise first_error
 
-    def _require_active(
-        self,
-        *,
-        operation: str,
-    ) -> None:
-        """
-        Ensure the transaction is still active.
-        """
-
-        if self._state is not TransactionState.ACTIVE:
-
+    def _require_open(self, operation: str) -> None:
+        if self._state is not TransactionState.OPEN:
             raise RuntimeError(
-                f"Cannot {operation}: transaction is "
-                f"{self._state.name.lower()}."
+                f"Cannot {operation}: transaction is {self._state.name.lower()}."
             )
 
-    # ========================================================
-    # REPRESENTATION
-    # ========================================================
-
     def __repr__(self) -> str:
-
         return (
             "Transaction("
             f"state={self._state.name}, "
@@ -332,10 +125,6 @@ class Transaction:
             ")"
         )
 
-
-# ============================================================
-# PUBLIC API
-# ============================================================
 
 __all__ = [
     "UndoOperation",
