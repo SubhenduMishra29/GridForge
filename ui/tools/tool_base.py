@@ -7,9 +7,9 @@
 
 Architectural role
 ------------------
-Tools translate UI interaction into intent. They may use the
-application command boundary, SelectionManager, and SnapSystem, but
-never own electrical truth or rendering.
+Tools translate UI interaction into intent. They use the Application
+command boundary, SelectionManager, and SnapSystem, but never own
+CommandManager, history, undo/redo, electrical truth, or rendering.
 
 SLD rendering is intentionally outside this contract. Projection and
 graphics realization are owned by the unified SLD projection path.
@@ -28,16 +28,16 @@ class ToolBase(ABC):
         self,
         controller: Any,
         *,
-        command_manager: Optional[Any] = None,
+        application: Optional[Any] = None,
         selection_manager: Optional[Any] = None,
         snap_system: Optional[Any] = None,
     ) -> None:
-        """Initialize injected interaction/application dependencies."""
+        """Initialize presentation-only interaction dependencies."""
         if controller is None:
             raise ValueError("controller must not be None.")
 
         self.controller = controller
-        self.command_manager = command_manager
+        self.application = application
         self.selection_manager = selection_manager
         self.snap_system = snap_system
         self._active = False
@@ -177,15 +177,15 @@ class ToolBase(ABC):
         """Concrete-tool reset hook."""
 
     def execute_command(self, command: Any) -> Any:
-        """Submit a command through the configured CommandManager."""
+        """Submit a command through the Application facade."""
         self._ensure_active()
         if command is None:
             raise ValueError("command must not be None.")
-        if self.command_manager is None:
-            raise RuntimeError("command_manager is not configured.")
-        execute = getattr(self.command_manager, "execute", None)
+        if self.application is None:
+            raise RuntimeError("application is not configured.")
+        execute = getattr(self.application, "execute", None)
         if not callable(execute):
-            raise TypeError("command_manager must provide execute().")
+            raise TypeError("application must provide execute().")
         return execute(command)
 
     def get_selection_manager(self) -> Any:
@@ -203,7 +203,7 @@ class ToolBase(ABC):
         return self.snap_system
 
     def get_controller(self) -> Any:
-        """Return the authoritative application controller."""
+        """Return the presentation controller."""
         self._ensure_not_disposed()
         return self.controller
 
@@ -244,7 +244,7 @@ class ToolBase(ABC):
             "description": self.description,
             "active": self._active,
             "disposed": self._disposed,
-            "has_command_manager": self.command_manager is not None,
+            "has_application": self.application is not None,
             "has_selection_manager": self.selection_manager is not None,
             "has_snap_system": self.snap_system is not None,
         }
