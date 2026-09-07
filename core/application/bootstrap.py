@@ -15,7 +15,7 @@ from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
 from .read_service import NetworkReadService
-from .services.bus_model_service import ModelService
+from .services.model_service import ModelService
 
 
 def create_application(network: Any) -> Application:
