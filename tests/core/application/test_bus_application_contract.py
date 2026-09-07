@@ -96,6 +96,14 @@ class CreateBusApplicationContractTests(unittest.TestCase):
             },
         )
 
+    def test_model_service_is_canonical_concrete_service(self) -> None:
+        service = ModelService(Network())
+        self.assertIs(type(service), ModelService)
+        self.assertEqual(
+            type(service).__module__,
+            "core.application.services.model_service",
+        )
+
     def test_model_service_creates_authoritative_bus(self) -> None:
         network = Network()
         transaction = Transaction()
