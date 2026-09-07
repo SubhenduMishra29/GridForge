@@ -34,13 +34,13 @@ class LineTool(ToolBase):
     def __init__(
         self,
         controller: Any,
-        command_manager: Any,
+        application: Any,
         selection_manager: Any,
         snap_system: Any,
     ) -> None:
         super().__init__(
             controller=controller,
-            command_manager=command_manager,
+            application=application,
             selection_manager=selection_manager,
             snap_system=snap_system,
         )
@@ -140,9 +140,7 @@ class LineTool(ToolBase):
             return float(position.x()), float(position.y())
         if isinstance(position, (tuple, list)) and len(position) >= 2:
             return float(position[0]), float(position[1])
-        raise TypeError(
-            "SnapResult.position must provide x/y coordinates or a two-element position."
-        )
+        raise TypeError("SnapResult.position must provide x/y coordinates or a two-element position.")
 
     @staticmethod
     def _is_escape_event(event: Any) -> bool:
@@ -158,15 +156,11 @@ class LineTool(ToolBase):
     def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
         parameters = getattr(self.controller, "line_parameters", None)
         if not isinstance(parameters, dict):
-            raise RuntimeError(
-                "Line engineering parameters are not configured. The UI must not invent R/X/B/rating values."
-            )
+            raise RuntimeError("Line engineering parameters are not configured. The UI must not invent R/X/B/rating values.")
         required = ("r", "x", "rate_mva")
         missing = [name for name in required if name not in parameters]
         if missing:
-            raise RuntimeError(
-                "Line engineering parameters are incomplete: " + ", ".join(missing)
-            )
+            raise RuntimeError("Line engineering parameters are incomplete: " + ", ".join(missing))
         command = CreateLineCommand(
             line_id=f"line-{uuid4().hex}",
             endpoint_from=endpoint_from,
@@ -188,15 +182,13 @@ class LineTool(ToolBase):
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
-        state.update(
-            {
-                "start_position": self._start_position,
-                "current_position": self._current_position,
-                "start_endpoint": self._start_endpoint,
-                "current_endpoint": self._current_endpoint,
-                "preview_active": self._preview_active,
-            }
-        )
+        state.update({
+            "start_position": self._start_position,
+            "current_position": self._current_position,
+            "start_endpoint": self._start_endpoint,
+            "current_endpoint": self._current_endpoint,
+            "preview_active": self._preview_active,
+        })
         return state
 
 

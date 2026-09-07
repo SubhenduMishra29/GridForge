@@ -11,7 +11,7 @@ from core.application.commands.model_commands import CreateBusCommand
 from ui.tools.bus_tool import BusTool
 
 
-class _CommandManager:
+class _Application:
     def __init__(self) -> None:
         self.commands = []
 
@@ -47,11 +47,11 @@ def test_create_bus_command_matches_authoritative_bus_contract():
     }
 
 
-def test_bus_tool_submits_authoritative_create_bus_command_on_release():
-    command_manager = _CommandManager()
+def test_bus_tool_submits_authoritative_create_bus_command_through_application():
+    application = _Application()
     tool = BusTool(
         controller=object(),
-        command_manager=command_manager,
+        application=application,
         selection_manager=object(),
         snap_system=_SnapSystem(),
     )
@@ -60,9 +60,9 @@ def test_bus_tool_submits_authoritative_create_bus_command_on_release():
     handled = tool.on_mouse_release({"position": (100.0, 200.0)})
 
     assert handled is True
-    assert len(command_manager.commands) == 1
+    assert len(application.commands) == 1
 
-    command = command_manager.commands[0]
+    command = application.commands[0]
     assert isinstance(command, CreateBusCommand)
     assert command.command_type == "model.create_bus"
     assert command.payload["bus_id"]

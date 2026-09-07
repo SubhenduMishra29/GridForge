@@ -27,8 +27,8 @@ class SelectTool(ToolBase):
     CTRL_MODIFIER = 0x04000000
     META_MODIFIER = 0x10000000
 
-    def __init__(self, controller: Any, command_manager: Any, selection_manager: Any, snap_system: Any) -> None:
-        super().__init__(controller=controller, command_manager=command_manager, selection_manager=selection_manager, snap_system=snap_system)
+    def __init__(self, controller: Any, application: Any, selection_manager: Any, snap_system: Any) -> None:
+        super().__init__(controller=controller, application=application, selection_manager=selection_manager, snap_system=snap_system)
         self._pressed_object_id: Any = None
         self._pressed_position: Optional[Tuple[float, float]] = None
         self._dragging = False
