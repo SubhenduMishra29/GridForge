@@ -1,5 +1,3 @@
-import pytest
-
 from core.application.services.model_service import ModelService
 from core.network.network import Network
 
