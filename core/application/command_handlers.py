@@ -13,7 +13,7 @@ from .command import Command
 from .endpoint_resolver import EndpointResolver
 from .results import ApplicationResult
 from .transaction import Transaction
-from .services.bus_model_service import ModelService
+from .services.model_service import ModelService
 
 from .commands.model_commands import (
     CREATE_BUS,
