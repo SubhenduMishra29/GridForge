@@ -23,13 +23,7 @@ from .results import ApplicationResult
 
 
 class Application:
-    """Public headless GridForge Application facade.
-
-    Mutation remains exclusively command-driven. Optional read access exposes
-    immutable Application snapshots and never returns Core model objects.
-    Command history remains owned by the Application command manager; these
-    methods expose that state only through this canonical Application boundary.
-    """
+    """Public headless GridForge Application facade."""
 
     _TOPOLOGY_COMMANDS = frozenset({
         "model.create_line", "model.delete_line",
@@ -64,11 +58,12 @@ class Application:
         return self._event_bus
 
     def execute(self, command: Command) -> ApplicationResult:
-        """Execute a command and publish semantic events only after commit."""
+        """Execute a command and publish semantic events only after success/commit."""
         if not isinstance(command, Command):
             raise TypeError("Application.execute requires a Command.")
         result = self._command_manager.execute(command)
-        self._publish_semantic_events(command, result, operation="execute")
+        if result.success:
+            self._publish_semantic_events(command, result, operation="execute")
         return result
 
     def supports(self, command_type: str) -> bool:
