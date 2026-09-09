@@ -1,13 +1,3 @@
-# ============================================================
-
-# File: core/network/network.py
-
-# GridForge V2 — Network Aggregate
-
-# Author: Subhendu Mishra
-
-# ============================================================
-
 """Authoritative electrical Network aggregate."""
 
 from __future__ import annotations
@@ -27,140 +17,125 @@ class Network:
         self.registry = registry or NetworkRegistry()
         self.state = state or NetworkState()
         self.index = index or BusIndex()
-        if topology is None:
-            self.topology = TopologyManager(self)
-        else:
-            owner = getattr(topology, "network", None)
-            if owner is not None and owner is not self:
-                raise ValueError("TopologyManager belongs to another Network.")
-            self.topology = topology
+        self.topology = topology or TopologyManager(self)
+        if getattr(self.topology, "network", self) is not self: raise ValueError("TopologyManager belongs to another Network.")
 
     @property
-    def buses(self) -> tuple[Any, ...]: return self.registry.buses
+    def buses(self): return self.registry.buses
     @property
-    def grids(self) -> tuple[Any, ...]: return self.registry.grids
+    def grids(self): return self.registry.grids
     @property
-    def generators(self) -> tuple[Any, ...]: return self.registry.generators
+    def generators(self): return self.registry.generators
     @property
-    def synchronous_machines(self) -> tuple[Any, ...]: return self.registry.synchronous_machines
+    def synchronous_machines(self): return self.registry.synchronous_machines
     @property
-    def loads(self) -> tuple[Any, ...]: return self.registry.loads
+    def loads(self): return self.registry.loads
     @property
-    def motors(self) -> tuple[Any, ...]: return self.registry.motors
+    def motors(self): return self.registry.motors
     @property
-    def shunts(self) -> tuple[Any, ...]: return self.registry.shunts
+    def shunts(self): return self.registry.shunts
     @property
-    def capacitors(self) -> tuple[Any, ...]: return self.registry.capacitors
+    def capacitors(self): return self.registry.capacitors
     @property
-    def reactors(self) -> tuple[Any, ...]: return self.registry.reactors
+    def reactors(self): return self.registry.reactors
     @property
-    def solar(self) -> tuple[Any, ...]: return self.registry.solar
+    def solar(self): return self.registry.solar
     @property
-    def batteries(self) -> tuple[Any, ...]: return self.registry.batteries
+    def batteries(self): return self.registry.batteries
     @property
-    def current_transformers(self) -> tuple[Any, ...]: return self.registry.current_transformers
+    def current_transformers(self): return self.registry.current_transformers
     @property
-    def capacitive_voltage_transformers(self) -> tuple[Any, ...]: return self.registry.capacitive_voltage_transformers
+    def potential_transformers(self): return self.registry.potential_transformers
     @property
-    def lines(self) -> tuple[Any, ...]: return self.registry.lines
+    def capacitive_voltage_transformers(self): return self.registry.capacitive_voltage_transformers
     @property
-    def cables(self) -> tuple[Any, ...]: return self.registry.cables
+    def lines(self): return self.registry.lines
     @property
-    def transformers(self) -> tuple[Any, ...]: return self.registry.transformers
+    def cables(self): return self.registry.cables
     @property
-    def branches(self) -> tuple[Any, ...]: return self.registry.branches
+    def transformers(self): return self.registry.transformers
     @property
-    def breakers(self) -> tuple[Any, ...]: return self.registry.breakers
+    def branches(self): return self.registry.branches
     @property
-    def switches(self) -> tuple[Any, ...]: return self.registry.switches
+    def breakers(self): return self.registry.breakers
     @property
-    def disconnectors(self) -> tuple[Any, ...]: return self.registry.disconnectors
+    def switches(self): return self.registry.switches
     @property
-    def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
+    def disconnectors(self): return self.registry.disconnectors
+    @property
+    def fuses(self): return self.registry.fuses
 
-    def get_by_id(self, element_type: str, object_id: str) -> Any:
-        return self.registry.get_by_id(element_type, object_id)
+    def get_by_id(self, element_type: str, object_id: str) -> Any: return self.registry.get_by_id(element_type, object_id)
 
     def _invalidate_topology(self, *, bus_membership: bool = False) -> None:
-        self.state.invalidate_topology()
-        self.topology.invalidate()
-        if bus_membership:
-            self.index.invalidate()
+        self.state.invalidate_topology(); self.topology.invalidate()
+        if bus_membership: self.index.invalidate()
 
-    def invalidate_topology(self) -> None:
-        """Invalidate derived topology after topology-affecting Core state changes."""
-        self._invalidate_topology()
+    def invalidate_topology(self) -> None: self._invalidate_topology()
 
     def _add(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
         method(element)
-        if affects_topology:
-            self._invalidate_topology(bus_membership=affects_bus_index)
+        if affects_topology: self._invalidate_topology(bus_membership=affects_bus_index)
 
     def _remove(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
         method(element)
-        if affects_topology:
-            self._invalidate_topology(bus_membership=affects_bus_index)
+        if affects_topology: self._invalidate_topology(bus_membership=affects_bus_index)
 
-    def add_bus(self, bus: Any) -> None: self._add(self.registry.add_bus, bus, affects_topology=True, affects_bus_index=True)
-    def remove_bus(self, bus: Any) -> None: self._remove(self.registry.remove_bus, bus, affects_topology=True, affects_bus_index=True)
-    def add_grid(self, grid: Any) -> None: self._add(self.registry.add_grid, grid)
-    def remove_grid(self, grid: Any) -> None: self._remove(self.registry.remove_grid, grid)
-    def add_generator(self, generator: Any) -> None: self._add(self.registry.add_generator, generator)
-    def remove_generator(self, generator: Any) -> None: self._remove(self.registry.remove_generator, generator)
-    def add_synchronous_machine(self, machine: Any) -> None: self._add(self.registry.add_synchronous_machine, machine)
-    def remove_synchronous_machine(self, machine: Any) -> None: self._remove(self.registry.remove_synchronous_machine, machine)
-    def add_load(self, load: Any) -> None: self._add(self.registry.add_load, load)
-    def remove_load(self, load: Any) -> None: self._remove(self.registry.remove_load, load)
-    def add_motor(self, motor: Any) -> None: self._add(self.registry.add_motor, motor)
-    def remove_motor(self, motor: Any) -> None: self._remove(self.registry.remove_motor, motor)
-    def add_shunt(self, shunt: Any) -> None: self._add(self.registry.add_shunt, shunt)
-    def remove_shunt(self, shunt: Any) -> None: self._remove(self.registry.remove_shunt, shunt)
-    def add_capacitor(self, capacitor: Any) -> None: self._add(self.registry.add_capacitor, capacitor)
-    def remove_capacitor(self, capacitor: Any) -> None: self._remove(self.registry.remove_capacitor, capacitor)
-    def add_reactor(self, reactor: Any) -> None: self._add(self.registry.add_reactor, reactor)
-    def remove_reactor(self, reactor: Any) -> None: self._remove(self.registry.remove_reactor, reactor)
-    def add_solar(self, solar: Any) -> None: self._add(self.registry.add_solar, solar)
-    def remove_solar(self, solar: Any) -> None: self._remove(self.registry.remove_solar, solar)
-    def add_battery(self, battery: Any) -> None: self._add(self.registry.add_battery, battery)
-    def remove_battery(self, battery: Any) -> None: self._remove(self.registry.remove_battery, battery)
-    def add_current_transformer(self, transformer: Any) -> None: self._add(self.registry.add_current_transformer, transformer)
-    def remove_current_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_current_transformer, transformer)
-    def add_capacitive_voltage_transformer(self, transformer: Any) -> None: self._add(self.registry.add_capacitive_voltage_transformer, transformer)
-    def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer)
-    def add_line(self, line: Any) -> None: self._add(self.registry.add_line, line, affects_topology=True)
-    def remove_line(self, line: Any) -> None: self._remove(self.registry.remove_line, line, affects_topology=True)
-    def add_cable(self, cable: Any) -> None: self._add(self.registry.add_cable, cable, affects_topology=True)
-    def remove_cable(self, cable: Any) -> None: self._remove(self.registry.remove_cable, cable, affects_topology=True)
-    def add_transformer(self, transformer: Any) -> None: self._add(self.registry.add_transformer, transformer, affects_topology=True)
-    def remove_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_transformer, transformer, affects_topology=True)
-    def add_breaker(self, breaker: Any) -> None: self._add(self.registry.add_breaker, breaker, affects_topology=True)
-    def remove_breaker(self, breaker: Any) -> None: self._remove(self.registry.remove_breaker, breaker, affects_topology=True)
-    def add_switch(self, switch: Any) -> None: self._add(self.registry.add_switch, switch, affects_topology=True)
-    def remove_switch(self, switch: Any) -> None: self._remove(self.registry.remove_switch, switch, affects_topology=True)
-    def add_disconnector(self, disconnector: Any) -> None: self._add(self.registry.add_disconnector, disconnector, affects_topology=True)
-    def remove_disconnector(self, disconnector: Any) -> None: self._remove(self.registry.remove_disconnector, disconnector, affects_topology=True)
-    def add_fuse(self, fuse: Any) -> None: self._add(self.registry.add_fuse, fuse, affects_topology=True)
-    def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
+    def add_bus(self, bus): self._add(self.registry.add_bus, bus, affects_topology=True, affects_bus_index=True)
+    def remove_bus(self, bus): self._remove(self.registry.remove_bus, bus, affects_topology=True, affects_bus_index=True)
+    def add_grid(self, grid): self._add(self.registry.add_grid, grid)
+    def remove_grid(self, grid): self._remove(self.registry.remove_grid, grid)
+    def add_generator(self, generator): self._add(self.registry.add_generator, generator)
+    def remove_generator(self, generator): self._remove(self.registry.remove_generator, generator)
+    def add_synchronous_machine(self, machine): self._add(self.registry.add_synchronous_machine, machine)
+    def remove_synchronous_machine(self, machine): self._remove(self.registry.remove_synchronous_machine, machine)
+    def add_load(self, load): self._add(self.registry.add_load, load)
+    def remove_load(self, load): self._remove(self.registry.remove_load, load)
+    def add_motor(self, motor): self._add(self.registry.add_motor, motor)
+    def remove_motor(self, motor): self._remove(self.registry.remove_motor, motor)
+    def add_shunt(self, shunt): self._add(self.registry.add_shunt, shunt)
+    def remove_shunt(self, shunt): self._remove(self.registry.remove_shunt, shunt)
+    def add_capacitor(self, capacitor): self._add(self.registry.add_capacitor, capacitor)
+    def remove_capacitor(self, capacitor): self._remove(self.registry.remove_capacitor, capacitor)
+    def add_reactor(self, reactor): self._add(self.registry.add_reactor, reactor)
+    def remove_reactor(self, reactor): self._remove(self.registry.remove_reactor, reactor)
+    def add_solar(self, solar): self._add(self.registry.add_solar, solar)
+    def remove_solar(self, solar): self._remove(self.registry.remove_solar, solar)
+    def add_battery(self, battery): self._add(self.registry.add_battery, battery)
+    def remove_battery(self, battery): self._remove(self.registry.remove_battery, battery)
+    def add_current_transformer(self, transformer): self._add(self.registry.add_current_transformer, transformer)
+    def remove_current_transformer(self, transformer): self._remove(self.registry.remove_current_transformer, transformer)
+    def add_potential_transformer(self, transformer): self._add(self.registry.add_potential_transformer, transformer)
+    def remove_potential_transformer(self, transformer): self._remove(self.registry.remove_potential_transformer, transformer)
+    def add_capacitive_voltage_transformer(self, transformer): self._add(self.registry.add_capacitive_voltage_transformer, transformer)
+    def remove_capacitive_voltage_transformer(self, transformer): self._remove(self.registry.remove_capacitive_voltage_transformer, transformer)
+    def add_line(self, line): self._add(self.registry.add_line, line, affects_topology=True)
+    def remove_line(self, line): self._remove(self.registry.remove_line, line, affects_topology=True)
+    def add_cable(self, cable): self._add(self.registry.add_cable, cable, affects_topology=True)
+    def remove_cable(self, cable): self._remove(self.registry.remove_cable, cable, affects_topology=True)
+    def add_transformer(self, transformer): self._add(self.registry.add_transformer, transformer, affects_topology=True)
+    def remove_transformer(self, transformer): self._remove(self.registry.remove_transformer, transformer, affects_topology=True)
+    def add_breaker(self, breaker): self._add(self.registry.add_breaker, breaker, affects_topology=True)
+    def remove_breaker(self, breaker): self._remove(self.registry.remove_breaker, breaker, affects_topology=True)
+    def add_switch(self, switch): self._add(self.registry.add_switch, switch, affects_topology=True)
+    def remove_switch(self, switch): self._remove(self.registry.remove_switch, switch, affects_topology=True)
+    def add_disconnector(self, disconnector): self._add(self.registry.add_disconnector, disconnector, affects_topology=True)
+    def remove_disconnector(self, disconnector): self._remove(self.registry.remove_disconnector, disconnector, affects_topology=True)
+    def add_fuse(self, fuse): self._add(self.registry.add_fuse, fuse, affects_topology=True)
+    def remove_fuse(self, fuse): self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
 
-    def rebuild_topology(self) -> dict[Any, set[Any]]:
-        graph = self.topology.build()
-        self.state.topology_rebuilt()
-        return graph
-
-    def ensure_bus_index(self) -> None:
-        self.index.ensure(self.buses)
-
+    def rebuild_topology(self):
+        graph = self.topology.build(); self.state.topology_rebuilt(); return graph
+    def ensure_bus_index(self): self.index.ensure(self.buses)
     @property
-    def topology_revision(self) -> int: return self.state.topology_revision
+    def topology_revision(self): return self.state.topology_revision
     @property
-    def topology_valid(self) -> bool: return self.state.topology_valid
+    def topology_valid(self): return self.state.topology_valid
     @property
-    def topology_dirty(self) -> bool: return self.state.topology_dirty
+    def topology_dirty(self): return self.state.topology_dirty
     @property
-    def index_valid(self) -> bool: return self.index.valid
-
-    def __repr__(self) -> str:
-        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
+    def index_valid(self): return self.index.valid
+    def __repr__(self) -> str: return f"Network(buses={len(self.buses)}, branches={len(self.branches)}, topology_revision={self.topology_revision}, topology_valid={self.topology_valid}, index_valid={self.index_valid})"
 
 
 __all__ = ["Network"]
