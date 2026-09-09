@@ -25,6 +25,10 @@ from .commands.model_commands import (
     CREATE_FUSE, UPDATE_FUSE, DELETE_FUSE,
     BLOW_FUSE, RESET_FUSE, PUT_FUSE_IN_SERVICE, TAKE_FUSE_OUT_OF_SERVICE,
 )
+from .commands.breaker_commands import (
+    CREATE_BREAKER, UPDATE_BREAKER, DELETE_BREAKER,
+    OPEN_BREAKER, CLOSE_BREAKER, PUT_BREAKER_IN_SERVICE, TAKE_BREAKER_OUT_OF_SERVICE,
+)
 from .commands.capacitor_commands import (
     CREATE_CAPACITOR, UPDATE_CAPACITOR, DELETE_CAPACITOR,
     PUT_CAPACITOR_IN_SERVICE, TAKE_CAPACITOR_OUT_OF_SERVICE,
@@ -66,6 +70,9 @@ class ModelCommandHandlers:
             CREATE_SWITCH: self.create_switch, UPDATE_SWITCH: self.update_switch, DELETE_SWITCH: self.delete_switch,
             OPEN_SWITCH: self.open_switch, CLOSE_SWITCH: self.close_switch,
             PUT_SWITCH_IN_SERVICE: self.put_switch_in_service, TAKE_SWITCH_OUT_OF_SERVICE: self.take_switch_out_of_service,
+            CREATE_BREAKER: self.create_breaker, UPDATE_BREAKER: self.update_breaker, DELETE_BREAKER: self.delete_breaker,
+            OPEN_BREAKER: self.open_breaker, CLOSE_BREAKER: self.close_breaker,
+            PUT_BREAKER_IN_SERVICE: self.put_breaker_in_service, TAKE_BREAKER_OUT_OF_SERVICE: self.take_breaker_out_of_service,
             CREATE_DISCONNECTOR: self.create_disconnector, UPDATE_DISCONNECTOR: self.update_disconnector,
             DELETE_DISCONNECTOR: self.delete_disconnector, OPEN_DISCONNECTOR: self.open_disconnector,
             CLOSE_DISCONNECTOR: self.close_disconnector,
@@ -205,6 +212,27 @@ class ModelCommandHandlers:
 
     def take_switch_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         return self._switching_service().take_switch_out_of_service(transaction=transaction, **command.payload)
+
+    def create_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().create_breaker(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
+
+    def update_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().update_breaker(transaction=transaction, **command.payload)
+
+    def delete_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().delete_breaker(transaction=transaction, **command.payload)
+
+    def open_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().open_breaker(transaction=transaction, **command.payload)
+
+    def close_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().close_breaker(transaction=transaction, **command.payload)
+
+    def put_breaker_in_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().put_breaker_in_service(transaction=transaction, **command.payload)
+
+    def take_breaker_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().take_breaker_out_of_service(transaction=transaction, **command.payload)
 
     def create_disconnector(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         return self._switching_service().create_disconnector(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
