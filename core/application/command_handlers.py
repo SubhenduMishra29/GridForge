@@ -159,7 +159,7 @@ class ModelCommandHandlers:
     def close_disconnector(self, command, context, transaction): return self._model_service.switching_service.close_disconnector(transaction=transaction, **command.payload)
     def put_disconnector_in_service(self, command, context, transaction): return self._model_service.switching_service.put_disconnector_in_service(transaction=transaction, **command.payload)
     def take_disconnector_out_of_service(self, command, context, transaction): return self._model_service.switching_service.take_disconnector_out_of_service(transaction=transaction, **command.payload)
-    def create_fuse(self, command, context, transaction): return self._model_service.switching_service.create_fuse(transaction=transaction, **command.payload)
+    def create_fuse(self, command, context, transaction): return self._model_service.switching_service.create_fuse(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
     def update_fuse(self, command, context, transaction): return self._model_service.switching_service.update_fuse(transaction=transaction, **command.payload)
     def delete_fuse(self, command, context, transaction): return self._model_service.switching_service.delete_fuse(transaction=transaction, **command.payload)
     def blow_fuse(self, command, context, transaction): return self._model_service.switching_service.blow_fuse(transaction=transaction, **command.payload)

@@ -306,13 +306,21 @@ class SwitchingModelService(ModelServiceSupport):
         return self._success(disconnector, "disconnector", disconnector_id, f"Disconnector {'put in service' if in_service else 'taken out of service'}: {disconnector_id}")
 
     def create_fuse(
-        self, *, fuse_id: str, name: str = "", rated_current_a: float = 1.0,
+        self, *, fuse_id: str,
+        endpoint_from: Bus | Terminal | None = None,
+        endpoint_to: Bus | Terminal | None = None,
+        name: str = "", rated_current_a: float = 1.0,
         rated_voltage_v: float = 1.0, interrupting_rating_ka: float = 0.0,
         in_service: bool = True, blown: bool = False, transaction: Transaction,
     ) -> ApplicationResult[Fuse]:
         self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id")
+        if endpoint_from is not None: self._validate_endpoint(endpoint_from, "endpoint_from")
+        if endpoint_to is not None: self._validate_endpoint(endpoint_to, "endpoint_to")
+        if endpoint_from is not None and endpoint_to is not None:
+            self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_FUSE_ENDPOINTS", "Fuse", fuse_id)
         self._ensure_not_exists("fuse", fuse_id, "Fuse")
-        fuse = Fuse(id=fuse_id, name=name, rated_current_a=rated_current_a, rated_voltage_v=rated_voltage_v,
+        fuse = Fuse(id=fuse_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name,
+                    rated_current_a=rated_current_a, rated_voltage_v=rated_voltage_v,
                     interrupting_rating_ka=interrupting_rating_ka, in_service=in_service, blown=blown)
         self._network.add_fuse(fuse)
         transaction.record_undo(lambda fuse=fuse: self._network.remove_fuse(fuse))
