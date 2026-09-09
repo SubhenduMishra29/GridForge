@@ -24,6 +24,7 @@ from core.application.transaction import Transaction
 from core.model.branch import Branch
 from core.model.bus import Bus
 from core.model.cable import Cable
+from core.model.capacitor import Capacitor
 from core.model.disconnector import Disconnector
 from core.model.fuse import Fuse
 from core.model.generator import Generator
@@ -140,6 +141,21 @@ class ModelService(ModelServiceSupport):
     def delete_shunt(self, *, shunt_id: str, transaction: Transaction) -> ApplicationResult[Shunt]:
         return self._shunt_service.delete_shunt(shunt_id=shunt_id, transaction=transaction)
 
+    def create_capacitor(self, *, capacitor_id: str, endpoint: Bus | Terminal | None = None, name: str = "", q_mvar: float = 0.0, in_service: bool = True, transaction: Transaction) -> ApplicationResult[Capacitor]:
+        return self._shunt_service.create_capacitor(capacitor_id=capacitor_id, endpoint=endpoint, name=name, q_mvar=q_mvar, in_service=in_service, transaction=transaction)
+
+    def update_capacitor(self, *, capacitor_id: str, endpoint: Bus | Terminal | None = None, name: str | None = None, q_mvar: float | None = None, in_service: bool | None = None, transaction: Transaction) -> ApplicationResult[Capacitor]:
+        return self._shunt_service.update_capacitor(capacitor_id=capacitor_id, endpoint=endpoint, name=name, q_mvar=q_mvar, in_service=in_service, transaction=transaction)
+
+    def delete_capacitor(self, *, capacitor_id: str, transaction: Transaction) -> ApplicationResult[Capacitor]:
+        return self._shunt_service.delete_capacitor(capacitor_id=capacitor_id, transaction=transaction)
+
+    def put_capacitor_in_service(self, *, capacitor_id: str, transaction: Transaction) -> ApplicationResult[Capacitor]:
+        return self._shunt_service.put_capacitor_in_service(capacitor_id=capacitor_id, transaction=transaction)
+
+    def take_capacitor_out_of_service(self, *, capacitor_id: str, transaction: Transaction) -> ApplicationResult[Capacitor]:
+        return self._shunt_service.take_capacitor_out_of_service(capacitor_id=capacitor_id, transaction=transaction)
+
     def create_line(self, *, line_id: str, endpoint_from: Bus | Terminal, endpoint_to: Bus | Terminal, r: float = 0.0, x: float = 0.0, b: float = 0.0, name: str | None = None, rate_mva: float | None = None, transaction: Transaction) -> ApplicationResult[Line]:
         return self._line_service.create_line(line_id=line_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, r=r, x=x, b=b, name=name, rate_mva=rate_mva, transaction=transaction)
 
@@ -165,7 +181,7 @@ class ModelService(ModelServiceSupport):
         return self._cable_service.create_cable(cable_id=cable_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, length_km=length_km, rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a, r1_ohm_per_km=r1_ohm_per_km, x1_ohm_per_km=x1_ohm_per_km, b1_us_per_km=b1_us_per_km, r0_ohm_per_km=r0_ohm_per_km, x0_ohm_per_km=x0_ohm_per_km, b0_us_per_km=b0_us_per_km, in_service=in_service, transaction=transaction)
 
     def update_cable(self, *, cable_id: str, name: str | None = None, length_km: float | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float | None = None, x1_ohm_per_km: float | None = None, b1_us_per_km: float | None = None, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool | None = None, transaction: Transaction) -> ApplicationResult[Cable]:
-        return self._cable_service.update_cable(cable_id=cable_id, name=name, length_km=length_km, rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a, r1_ohm_per_km=r1_ohm_per_km, x1_ohm_per_km=x1_ohm_per_km, b1_us_per_km=b1_us_per_km, r0_ohm_per_km=r0_ohm_per_km, x0_ohm_per_km=x0_ohm_per_km, b0_us_per_km=b0_us_per_km, in_service=in_service, transaction=transaction)
+        return self._cable_service.update_cable(cable_id=cable_id, name=name, length_km=length_km, rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a, r1_ohm_per_km=r1_ohm_per_km, x1_ohm_per_km=x1_ohm_per_km, b1_us_per_km=b1_ohm_per_km if False else b1_us_per_km, r0_ohm_per_km=r0_ohm_per_km, x0_ohm_per_km=x0_ohm_per_km, b0_us_per_km=b0_us_per_km, in_service=in_service, transaction=transaction)
 
     def delete_cable(self, *, cable_id: str, transaction: Transaction) -> ApplicationResult[Cable]:
         return self._cable_service.delete_cable(cable_id=cable_id, transaction=transaction)
