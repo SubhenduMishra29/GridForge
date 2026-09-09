@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
+from core.application.services.battery_model_service import BatteryModelService
 from core.application.services.branch_model_service import BranchModelService
 from core.application.services.bus_model_service import BusModelService
 from core.application.services.cable_model_service import CableModelService
@@ -22,6 +23,7 @@ from core.application.services.shunt_model_service import ShuntModelService
 from core.application.services.switching_model_service import SwitchingModelService
 from core.application.services.transformer_model_service import TransformerModelService
 from core.application.transaction import Transaction
+from core.model.battery import Battery
 from core.model.branch import Branch
 from core.model.bus import Bus
 from core.model.cable import Cable
@@ -57,6 +59,7 @@ class ModelService(ModelServiceSupport):
         self._cable_service = CableModelService(network)
         self._switching_service = SwitchingModelService(network)
         self._measurement_service = MeasurementModelService(network)
+        self._battery_service = BatteryModelService(network)
 
     @property
     def bus_service(self) -> BusModelService:
@@ -81,6 +84,10 @@ class ModelService(ModelServiceSupport):
     @property
     def measurement_service(self) -> MeasurementModelService:
         return self._measurement_service
+
+    @property
+    def battery_service(self) -> BatteryModelService:
+        return self._battery_service
 
     @property
     def line_service(self) -> LineModelService:
@@ -184,7 +191,7 @@ class ModelService(ModelServiceSupport):
         return self._branch_service.delete_branch(branch_id=branch_id, transaction=transaction)
 
     def create_cable(self, *, cable_id: str, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, name: str = "", length_km: float = 0.0, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float = 0.0, x1_ohm_per_km: float = 0.0, b1_us_per_km: float = 0.0, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool = True, transaction: Transaction) -> ApplicationResult[Cable]:
-        return self._cable_service.create_cable(cable_id=cable_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, length_km=length_km, rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a, r1_ohm_per_km=r1_ohm_per_km, x1_ohm_per_km=x1_ohm_per_km, b1_us_per_km=b1_us_per_km, r0_ohm_per_km=r0_ohm_per_km, x0_ohm_per_km=x0_ohm_per_km, b0_us_per_km=b0_us_per_km, in_service=in_service, transaction=transaction)
+        return self._cable_service.create_cable(line_id=cable_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, length_km=length_km, rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a, r1_ohm_per_km=r1_ohm_per_km, x1_ohm_per_km=x1_ohm_per_km, b1_us_per_km=b1_us_per_km, r0_ohm_per_km=r0_ohm_per_km, x0_ohm_per_km=x0_ohm_per_km, b0_us_per_km=b0_us_per_km, in_service=in_service, transaction=transaction)
 
     def update_cable(self, *, cable_id: str, name: str | None = None, length_km: float | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float | None = None, x1_ohm_per_km: float | None = None, b1_us_per_km: float | None = None, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool | None = None, transaction: Transaction) -> ApplicationResult[Cable]:
         return self._cable_service.update_cable(cable_id=cable_id, name=name, length_km=length_km, rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a, r1_ohm_per_km=r1_ohm_per_km, x1_ohm_per_km=x1_ohm_per_km, b1_us_per_km=b1_us_per_km, r0_ohm_per_km=r0_ohm_per_km, x0_ohm_per_km=x0_ohm_per_km, b0_us_per_km=b0_us_per_km, in_service=in_service, transaction=transaction)
@@ -254,6 +261,21 @@ class ModelService(ModelServiceSupport):
 
     def take_fuse_out_of_service(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]:
         return self._switching_service.take_fuse_out_of_service(fuse_id=fuse_id, transaction=transaction)
+
+    def create_battery(self, *, battery_id: str, name: str = "", endpoint: Bus | Terminal | None = None, p_mw: float = 0.0, q_mvar: float = 0.0, max_charge_mw: float = 0.0, max_discharge_mw: float = 0.0, energy_capacity_mwh: float = 0.0, soc: float = 1.0, soc_min: float = 0.0, soc_max: float = 1.0, in_service: bool = True, transaction: Transaction) -> ApplicationResult[Battery]:
+        return self._battery_service.create_battery(battery_id=battery_id, name=name, endpoint=endpoint, p_mw=p_mw, q_mvar=q_mvar, max_charge_mw=max_charge_mw, max_discharge_mw=max_discharge_mw, energy_capacity_mwh=energy_capacity_mwh, soc=soc, soc_min=soc_min, soc_max=soc_max, in_service=in_service, transaction=transaction)
+
+    def update_battery(self, *, battery_id: str, name: str | None = None, p_mw: float | None = None, q_mvar: float | None = None, max_charge_mw: float | None = None, max_discharge_mw: float | None = None, energy_capacity_mwh: float | None = None, soc: float | None = None, soc_min: float | None = None, soc_max: float | None = None, in_service: bool | None = None, transaction: Transaction) -> ApplicationResult[Battery]:
+        return self._battery_service.update_battery(battery_id=battery_id, name=name, p_mw=p_mw, q_mvar=q_mvar, max_charge_mw=max_charge_mw, max_discharge_mw=max_discharge_mw, energy_capacity_mwh=energy_capacity_mwh, soc=soc, soc_min=soc_min, soc_max=soc_max, in_service=in_service, transaction=transaction)
+
+    def delete_battery(self, *, battery_id: str, transaction: Transaction) -> ApplicationResult[Battery]:
+        return self._battery_service.delete_battery(battery_id=battery_id, transaction=transaction)
+
+    def put_battery_in_service(self, *, battery_id: str, transaction: Transaction) -> ApplicationResult[Battery]:
+        return self._battery_service.put_battery_in_service(battery_id=battery_id, transaction=transaction)
+
+    def take_battery_out_of_service(self, *, battery_id: str, transaction: Transaction) -> ApplicationResult[Battery]:
+        return self._battery_service.take_battery_out_of_service(battery_id=battery_id, transaction=transaction)
 
 
 __all__ = ["ModelService"]
