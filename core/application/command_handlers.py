@@ -1,9 +1,3 @@
-# ============================================================
-# File: core/application/command_handlers.py
-# GridForge V2 — Application Command Handlers
-# Author: Subhendu Mishra
-# ============================================================
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -17,10 +11,6 @@ from .commands.model_commands import (
     CREATE_BUS, UPDATE_BUS, DELETE_BUS, CREATE_LINE, DELETE_LINE,
     CREATE_TRANSFORMER, DELETE_TRANSFORMER, CREATE_LOAD, UPDATE_LOAD, DELETE_LOAD,
     CREATE_GRID, UPDATE_GRID, DELETE_GRID,
-)
-from .commands.breaker_commands import (
-    CREATE_BREAKER, UPDATE_BREAKER, DELETE_BREAKER, OPEN_BREAKER, CLOSE_BREAKER,
-    PUT_BREAKER_IN_SERVICE, TAKE_BREAKER_OUT_OF_SERVICE,
 )
 from .commands.capacitor_commands import (
     CREATE_CAPACITOR, UPDATE_CAPACITOR, DELETE_CAPACITOR,
@@ -45,10 +35,6 @@ class ModelCommandHandlers:
             CREATE_TRANSFORMER: self.create_transformer, DELETE_TRANSFORMER: self.delete_transformer,
             CREATE_LOAD: self.create_load, UPDATE_LOAD: self.update_load, DELETE_LOAD: self.delete_load,
             CREATE_GRID: self.create_grid, UPDATE_GRID: self.update_grid, DELETE_GRID: self.delete_grid,
-            CREATE_BREAKER: self.create_breaker, UPDATE_BREAKER: self.update_breaker,
-            DELETE_BREAKER: self.delete_breaker, OPEN_BREAKER: self.open_breaker,
-            CLOSE_BREAKER: self.close_breaker, PUT_BREAKER_IN_SERVICE: self.put_breaker_in_service,
-            TAKE_BREAKER_OUT_OF_SERVICE: self.take_breaker_out_of_service,
             CREATE_CAPACITOR: self.create_capacitor, UPDATE_CAPACITOR: self.update_capacitor,
             DELETE_CAPACITOR: self.delete_capacitor, PUT_CAPACITOR_IN_SERVICE: self.put_capacitor_in_service,
             TAKE_CAPACITOR_OUT_OF_SERVICE: self.take_capacitor_out_of_service,
@@ -100,34 +86,6 @@ class ModelCommandHandlers:
 
     def delete_grid(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         return self._model_service.delete_grid(grid_id=command.payload["grid_id"], transaction=transaction)
-
-    def _switching_service(self) -> Any:
-        return self._model_service.switching_service
-
-    def create_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        p = command.payload
-        a = EndpointResolver.resolve(context, p["endpoint_from"]) if p["endpoint_from"] is not None else None
-        b = EndpointResolver.resolve(context, p["endpoint_to"]) if p["endpoint_to"] is not None else None
-        return self._switching_service().create_breaker(breaker_id=p["breaker_id"], endpoint_from=a, endpoint_to=b, name=p["name"], in_service=p["in_service"], closed=p["closed"], failed=p["failed"], voltage_kv=p["voltage_kv"], current_a=p["current_a"], interrupting_ka=p["interrupting_ka"], transaction=transaction)
-
-    def update_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        p = command.payload
-        return self._switching_service().update_breaker(breaker_id=p["breaker_id"], name=p["name"], in_service=p["in_service"], closed=p["closed"], failed=p["failed"], voltage_kv=p["voltage_kv"], current_a=p["current_a"], interrupting_ka=p["interrupting_ka"], transaction=transaction)
-
-    def delete_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._switching_service().delete_breaker(breaker_id=command.payload["breaker_id"], transaction=transaction)
-
-    def open_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._switching_service().open_breaker(breaker_id=command.payload["breaker_id"], transaction=transaction)
-
-    def close_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._switching_service().close_breaker(breaker_id=command.payload["breaker_id"], transaction=transaction)
-
-    def put_breaker_in_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._switching_service().put_breaker_in_service(breaker_id=command.payload["breaker_id"], transaction=transaction)
-
-    def take_breaker_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._switching_service().take_breaker_out_of_service(breaker_id=command.payload["breaker_id"], transaction=transaction)
 
     def _shunt_service(self) -> Any:
         return self._model_service.shunt_service
