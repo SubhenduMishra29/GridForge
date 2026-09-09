@@ -1,5 +1,7 @@
 """Regression tests for CT/CVT application command contracts."""
 
+import pytest
+
 from core.application.commands.measurement_commands import (
     CreateCapacitiveVoltageTransformerCommand,
     CreateCurrentTransformerCommand,
@@ -15,15 +17,39 @@ from core.application.commands.measurement_commands import (
 from core.application.endpoint_reference import EndpointReference
 
 
-def test_measurement_commands_keep_endpoints_as_references():
+def test_create_commands_keep_endpoint_references_and_domain_ids():
     endpoint = EndpointReference(element_type="bus", element_id="B1")
-    command = CreateCurrentTransformerCommand(
-        transformer_id="CT1", endpoint=endpoint
+    ct = CreateCurrentTransformerCommand(transformer_id="CT1", p1_endpoint=endpoint)
+    cvt = CreateCapacitiveVoltageTransformerCommand(transformer_id="CVT1", h1_endpoint=endpoint)
+
+    assert ct.payload["transformer_id"] == "CT1"
+    assert ct.payload["p1_endpoint"] == endpoint
+    assert cvt.payload["transformer_id"] == "CVT1"
+    assert cvt.payload["h1_endpoint"] == endpoint
+
+
+def test_update_commands_match_measurement_service_mutable_fields():
+    ct = UpdateCurrentTransformerCommand(
+        transformer_id="CT1", primary_rated_current_a=200.0
     )
-    assert command.payload["endpoint"] == endpoint
+    cvt = UpdateCapacitiveVoltageTransformerCommand(
+        transformer_id="CVT1", rated_primary_voltage_kv=245.0
+    )
+
+    assert ct.payload["transformer_id"] == "CT1"
+    assert ct.payload["primary_rated_current_a"] == 200.0
+    assert "p1_endpoint" not in ct.payload
+    assert cvt.payload["transformer_id"] == "CVT1"
+    assert cvt.payload["rated_primary_voltage_kv"] == 245.0
+    assert "h1_endpoint" not in cvt.payload
+
+    with pytest.raises(ValueError):
+        UpdateCurrentTransformerCommand(transformer_id="CT1")
+    with pytest.raises(ValueError):
+        UpdateCapacitiveVoltageTransformerCommand(transformer_id="CVT1")
 
 
-def test_measurement_lifecycle_commands_are_immutable_intents():
+def test_measurement_lifecycle_commands_use_domain_specific_ids():
     commands = [
         DeleteCurrentTransformerCommand(transformer_id="CT1"),
         PutCurrentTransformerInServiceCommand(transformer_id="CT1"),
@@ -33,19 +59,4 @@ def test_measurement_lifecycle_commands_are_immutable_intents():
         TakeCapacitiveVoltageTransformerOutOfServiceCommand(transformer_id="CVT1"),
     ]
     assert all(command.command_id is not None for command in commands)
-
-
-def test_update_commands_require_a_mutable_field():
-    try:
-        UpdateCurrentTransformerCommand(transformer_id="CT1")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("CT update command must require a mutable field")
-
-    try:
-        UpdateCapacitiveVoltageTransformerCommand(transformer_id="CVT1")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("CVT update command must require a mutable field")
+    assert all("transformer_id" in command.payload for command in commands)
