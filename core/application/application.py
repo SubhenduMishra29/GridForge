@@ -28,7 +28,6 @@ class Application:
     _TOPOLOGY_COMMANDS = frozenset({
         "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
-        "model.create_branch", "model.update_branch", "model.delete_branch",
         "model.create_cable", "model.update_cable", "model.delete_cable",
         "model.create_switch", "model.update_switch", "model.delete_switch",
         "model.open_switch", "model.close_switch",
