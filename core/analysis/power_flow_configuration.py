@@ -71,9 +71,44 @@ class PowerFlowStudyConfiguration:
 
         object.__setattr__(self, "bus_types", MappingProxyType(normalized))
 
+    @classmethod
+    def from_mapping(
+        cls,
+        bus_types: Mapping[str, PowerFlowBusType | str],
+        *,
+        slack_bus_id: str,
+        base_mva: float,
+    ) -> "PowerFlowStudyConfiguration":
+        """Create a configuration from an explicit bus-ID/type mapping."""
+        if not isinstance(slack_bus_id, str) or not slack_bus_id:
+            raise ValueError("slack_bus_id must be a non-empty string.")
+        return cls(bus_types=bus_types, base_mva=base_mva)
+
+    @property
+    def slack_bus_id(self) -> str:
+        """Return the configured SLACK bus ID."""
+        for bus_id, bus_type in self.bus_types.items():
+            if bus_type is PowerFlowBusType.SLACK:
+                return bus_id
+        raise RuntimeError("Power Flow configuration has no SLACK bus.")
+
+    @property
+    def bus_type_mapping(self) -> dict[str, PowerFlowBusType]:
+        """Return a detached mapping of configured bus operating modes."""
+        return dict(self.bus_types)
+
     def type_of(self, bus_id: str) -> PowerFlowBusType:
         """Return the configured study classification for a bus ID."""
         return self.bus_types[bus_id]
+
+    def __repr__(self) -> str:
+        return (
+            "PowerFlowStudyConfiguration("
+            f"buses={len(self.bus_types)}, "
+            f"slack_bus_id={self.slack_bus_id!r}, "
+            f"base_mva={self.base_mva:g}"
+            ")"
+        )
 
 
 __all__ = ["PowerFlowStudyConfiguration"]
