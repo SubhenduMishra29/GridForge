@@ -33,6 +33,9 @@ from .commands.measurement_commands import (
     DELETE_CAPACITIVE_VOLTAGE_TRANSFORMER, PUT_CAPACITIVE_VOLTAGE_TRANSFORMER_IN_SERVICE,
     TAKE_CAPACITIVE_VOLTAGE_TRANSFORMER_OUT_OF_SERVICE,
 )
+from .commands.pt_commands import (
+    CREATE_PT, UPDATE_PT, DELETE_PT, PUT_PT_IN_SERVICE, TAKE_PT_OUT_OF_SERVICE,
+)
 from .commands.battery_commands import (
     CREATE_BATTERY, UPDATE_BATTERY, DELETE_BATTERY,
     PUT_BATTERY_IN_SERVICE, TAKE_BATTERY_OUT_OF_SERVICE,
@@ -45,8 +48,7 @@ class ModelCommandHandlers:
     """Application handlers for supported model commands."""
 
     def __init__(self, model_service: Any) -> None:
-        if model_service is None:
-            raise ValueError("model_service is required.")
+        if model_service is None: raise ValueError("model_service is required.")
         self._model_service = model_service
 
     def handlers(self) -> Mapping[str, Handler]:
@@ -60,21 +62,16 @@ class ModelCommandHandlers:
             CREATE_TRANSFORMER: self.create_transformer, DELETE_TRANSFORMER: self.delete_transformer,
             CREATE_CABLE: self.create_cable, UPDATE_CABLE: self.update_cable, DELETE_CABLE: self.delete_cable,
             CREATE_SWITCH: self.create_switch, UPDATE_SWITCH: self.update_switch, DELETE_SWITCH: self.delete_switch,
-            OPEN_SWITCH: self.open_switch, CLOSE_SWITCH: self.close_switch,
-            PUT_SWITCH_IN_SERVICE: self.put_switch_in_service, TAKE_SWITCH_OUT_OF_SERVICE: self.take_switch_out_of_service,
+            OPEN_SWITCH: self.open_switch, CLOSE_SWITCH: self.close_switch, PUT_SWITCH_IN_SERVICE: self.put_switch_in_service, TAKE_SWITCH_OUT_OF_SERVICE: self.take_switch_out_of_service,
             CREATE_BREAKER: self.create_breaker, UPDATE_BREAKER: self.update_breaker, DELETE_BREAKER: self.delete_breaker,
             OPEN_BREAKER: self.open_breaker, CLOSE_BREAKER: self.close_breaker, TRIP_BREAKER: self.trip_breaker,
             PUT_BREAKER_IN_SERVICE: self.put_breaker_in_service, TAKE_BREAKER_OUT_OF_SERVICE: self.take_breaker_out_of_service,
-            CREATE_DISCONNECTOR: self.create_disconnector, UPDATE_DISCONNECTOR: self.update_disconnector,
-            DELETE_DISCONNECTOR: self.delete_disconnector, OPEN_DISCONNECTOR: self.open_disconnector,
-            CLOSE_DISCONNECTOR: self.close_disconnector, PUT_DISCONNECTOR_IN_SERVICE: self.put_disconnector_in_service,
-            TAKE_DISCONNECTOR_OUT_OF_SERVICE: self.take_disconnector_out_of_service,
+            CREATE_DISCONNECTOR: self.create_disconnector, UPDATE_DISCONNECTOR: self.update_disconnector, DELETE_DISCONNECTOR: self.delete_disconnector,
+            OPEN_DISCONNECTOR: self.open_disconnector, CLOSE_DISCONNECTOR: self.close_disconnector, PUT_DISCONNECTOR_IN_SERVICE: self.put_disconnector_in_service, TAKE_DISCONNECTOR_OUT_OF_SERVICE: self.take_disconnector_out_of_service,
             CREATE_FUSE: self.create_fuse, UPDATE_FUSE: self.update_fuse, DELETE_FUSE: self.delete_fuse,
-            BLOW_FUSE: self.blow_fuse, RESET_FUSE: self.reset_fuse,
-            PUT_FUSE_IN_SERVICE: self.put_fuse_in_service, TAKE_FUSE_OUT_OF_SERVICE: self.take_fuse_out_of_service,
-            CREATE_CAPACITOR: self.create_capacitor, UPDATE_CAPACITOR: self.update_capacitor,
-            DELETE_CAPACITOR: self.delete_capacitor, PUT_CAPACITOR_IN_SERVICE: self.put_capacitor_in_service,
-            TAKE_CAPACITOR_OUT_OF_SERVICE: self.take_capacitor_out_of_service,
+            BLOW_FUSE: self.blow_fuse, RESET_FUSE: self.reset_fuse, PUT_FUSE_IN_SERVICE: self.put_fuse_in_service, TAKE_FUSE_OUT_OF_SERVICE: self.take_fuse_out_of_service,
+            CREATE_CAPACITOR: self.create_capacitor, UPDATE_CAPACITOR: self.update_capacitor, DELETE_CAPACITOR: self.delete_capacitor,
+            PUT_CAPACITOR_IN_SERVICE: self.put_capacitor_in_service, TAKE_CAPACITOR_OUT_OF_SERVICE: self.take_capacitor_out_of_service,
             CREATE_CURRENT_TRANSFORMER: self.create_current_transformer, UPDATE_CURRENT_TRANSFORMER: self.update_current_transformer,
             DELETE_CURRENT_TRANSFORMER: self.delete_current_transformer, PUT_CURRENT_TRANSFORMER_IN_SERVICE: self.put_current_transformer_in_service,
             TAKE_CURRENT_TRANSFORMER_OUT_OF_SERVICE: self.take_current_transformer_out_of_service,
@@ -83,6 +80,8 @@ class ModelCommandHandlers:
             DELETE_CAPACITIVE_VOLTAGE_TRANSFORMER: self.delete_capacitive_voltage_transformer,
             PUT_CAPACITIVE_VOLTAGE_TRANSFORMER_IN_SERVICE: self.put_capacitive_voltage_transformer_in_service,
             TAKE_CAPACITIVE_VOLTAGE_TRANSFORMER_OUT_OF_SERVICE: self.take_capacitive_voltage_transformer_out_of_service,
+            CREATE_PT: self.create_pt, UPDATE_PT: self.update_pt, DELETE_PT: self.delete_pt,
+            PUT_PT_IN_SERVICE: self.put_pt_in_service, TAKE_PT_OUT_OF_SERVICE: self.take_pt_out_of_service,
             CREATE_BATTERY: self.create_battery, UPDATE_BATTERY: self.update_battery, DELETE_BATTERY: self.delete_battery,
             PUT_BATTERY_IN_SERVICE: self.put_battery_in_service, TAKE_BATTERY_OUT_OF_SERVICE: self.take_battery_out_of_service,
         }
@@ -91,16 +90,8 @@ class ModelCommandHandlers:
     def _resolve(payload: dict[str, Any], context: Any, *keys: str) -> dict[str, Any]:
         resolved = dict(payload)
         for key in keys:
-            if resolved.get(key) is not None:
-                resolved[key] = EndpointResolver.resolve(context, resolved[key])
+            if resolved.get(key) is not None: resolved[key] = EndpointResolver.resolve(context, resolved[key])
         return resolved
-
-    @staticmethod
-    def _without(payload: dict[str, Any], *keys: str) -> dict[str, Any]:
-        result = dict(payload)
-        for key in keys:
-            result.pop(key, None)
-        return result
 
     def create_bus(self, command, context, transaction): return self._model_service.create_bus(transaction=transaction, **command.payload)
     def update_bus(self, command, context, transaction): return self._model_service.update_bus(transaction=transaction, **command.payload)
@@ -124,7 +115,6 @@ class ModelCommandHandlers:
     def create_cable(self, command, context, transaction): return self._model_service.create_cable(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
     def update_cable(self, command, context, transaction): return self._model_service.update_cable(transaction=transaction, **command.payload)
     def delete_cable(self, command, context, transaction): return self._model_service.delete_cable(transaction=transaction, **command.payload)
-
     def create_switch(self, command, context, transaction): return self._model_service.switching_service.create_switch(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_a", "endpoint_b"))
     def update_switch(self, command, context, transaction): return self._model_service.switching_service.update_switch(transaction=transaction, **command.payload)
     def delete_switch(self, command, context, transaction): return self._model_service.switching_service.delete_switch(transaction=transaction, **command.payload)
@@ -132,7 +122,6 @@ class ModelCommandHandlers:
     def close_switch(self, command, context, transaction): return self._model_service.switching_service.close_switch(transaction=transaction, **command.payload)
     def put_switch_in_service(self, command, context, transaction): return self._model_service.switching_service.put_switch_in_service(transaction=transaction, **command.payload)
     def take_switch_out_of_service(self, command, context, transaction): return self._model_service.switching_service.take_switch_out_of_service(transaction=transaction, **command.payload)
-
     def create_breaker(self, command, context, transaction): return self._model_service.switching_service.create_breaker(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
     def update_breaker(self, command, context, transaction): return self._model_service.switching_service.update_breaker(transaction=transaction, **command.payload)
     def delete_breaker(self, command, context, transaction): return self._model_service.switching_service.delete_breaker(transaction=transaction, **command.payload)
@@ -141,7 +130,6 @@ class ModelCommandHandlers:
     def trip_breaker(self, command, context, transaction): return self._model_service.switching_service.trip_breaker(transaction=transaction, **command.payload)
     def put_breaker_in_service(self, command, context, transaction): return self._model_service.switching_service.put_breaker_in_service(transaction=transaction, **command.payload)
     def take_breaker_out_of_service(self, command, context, transaction): return self._model_service.switching_service.take_breaker_out_of_service(transaction=transaction, **command.payload)
-
     def create_disconnector(self, command, context, transaction): return self._model_service.switching_service.create_disconnector(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
     def update_disconnector(self, command, context, transaction): return self._model_service.switching_service.update_disconnector(transaction=transaction, **command.payload)
     def delete_disconnector(self, command, context, transaction): return self._model_service.switching_service.delete_disconnector(transaction=transaction, **command.payload)
@@ -156,13 +144,11 @@ class ModelCommandHandlers:
     def reset_fuse(self, command, context, transaction): return self._model_service.switching_service.reset_fuse(transaction=transaction, **command.payload)
     def put_fuse_in_service(self, command, context, transaction): return self._model_service.switching_service.put_fuse_in_service(transaction=transaction, **command.payload)
     def take_fuse_out_of_service(self, command, context, transaction): return self._model_service.switching_service.take_fuse_out_of_service(transaction=transaction, **command.payload)
-
     def create_capacitor(self, command, context, transaction): return self._model_service.shunt_service.create_capacitor(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
     def update_capacitor(self, command, context, transaction): return self._model_service.shunt_service.update_capacitor(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
     def delete_capacitor(self, command, context, transaction): return self._model_service.shunt_service.delete_capacitor(transaction=transaction, **command.payload)
     def put_capacitor_in_service(self, command, context, transaction): return self._model_service.shunt_service.put_capacitor_in_service(transaction=transaction, **command.payload)
     def take_capacitor_out_of_service(self, command, context, transaction): return self._model_service.shunt_service.take_capacitor_out_of_service(transaction=transaction, **command.payload)
-
     def create_current_transformer(self, command, context, transaction):
         p = dict(command.payload)
         for key in ("p1_endpoint", "p2_endpoint", "s1_endpoint", "s2_endpoint"):
@@ -187,7 +173,11 @@ class ModelCommandHandlers:
     def delete_capacitive_voltage_transformer(self, command, context, transaction): return self._model_service.measurement_service.delete_capacitive_voltage_transformer(cvt_id=command.payload["transformer_id"], transaction=transaction)
     def put_capacitive_voltage_transformer_in_service(self, command, context, transaction): return self._model_service.measurement_service.put_capacitive_voltage_transformer_in_service(cvt_id=command.payload["transformer_id"], transaction=transaction)
     def take_capacitive_voltage_transformer_out_of_service(self, command, context, transaction): return self._model_service.measurement_service.take_capacitive_voltage_transformer_out_of_service(cvt_id=command.payload["transformer_id"], transaction=transaction)
-
+    def create_pt(self, command, context, transaction): return self._model_service.pt_service.create_pt(transaction=transaction, **self._resolve(dict(command.payload), context, "primary_a", "primary_b", "secondary_a", "secondary_b"))
+    def update_pt(self, command, context, transaction): return self._model_service.pt_service.update_pt(transaction=transaction, **command.payload)
+    def delete_pt(self, command, context, transaction): return self._model_service.pt_service.delete_pt(transaction=transaction, **command.payload)
+    def put_pt_in_service(self, command, context, transaction): return self._model_service.pt_service.put_pt_in_service(transaction=transaction, **command.payload)
+    def take_pt_out_of_service(self, command, context, transaction): return self._model_service.pt_service.take_pt_out_of_service(transaction=transaction, **command.payload)
     def create_battery(self, command, context, transaction): return self._model_service.battery_service.create_battery(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
     def update_battery(self, command, context, transaction): return self._model_service.battery_service.update_battery(transaction=transaction, **command.payload)
     def delete_battery(self, command, context, transaction): return self._model_service.battery_service.delete_battery(transaction=transaction, **command.payload)
@@ -195,8 +185,7 @@ class ModelCommandHandlers:
     def take_battery_out_of_service(self, command, context, transaction): return self._model_service.battery_service.take_battery_out_of_service(transaction=transaction, **command.payload)
 
 
-def build_model_command_handlers(model_service: Any) -> Mapping[str, Handler]:
-    return ModelCommandHandlers(model_service).handlers()
+def build_model_command_handlers(model_service: Any) -> Mapping[str, Handler]: return ModelCommandHandlers(model_service).handlers()
 
 
 __all__ = ["ModelCommandHandlers", "build_model_command_handlers"]
