@@ -284,6 +284,14 @@ class MeasurementGeneration:
             raise ValueError(
                 f"Prepared source_id {context.source_id!r} does not match authoritative source id {source.id!r}."
             )
+        terminals = getattr(source, "terminals", None)
+        if terminals is not None:
+            roles = {getattr(terminal, "role", None) for terminal in terminals}
+            if context.source_terminal not in roles:
+                raise UnsupportedMeasurementQuantity(
+                    f"Prepared source_terminal={context.source_terminal!r} is not an authoritative "
+                    f"terminal of source_id={context.source_id!r}."
+                )
 
     @staticmethod
     def _validate_channel(channel: MeasurementChannel) -> None:
