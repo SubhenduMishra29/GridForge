@@ -94,13 +94,20 @@ class PowerFlowPreparation:
 
         for bus in buses:
             p, q, minimum_q, maximum_q = self._bus_power_spec(bus)
-            p_pu, q_pu = self._per_unit.to_pu_power(p, q).real, self._per_unit.to_pu_power(p, q).imag
-            p_spec.append(p_pu)
-            q_spec.append(q_pu)
-            q_min.append(None if minimum_q is None else minimum_q / self.power_flow_configuration.base_mva)
-            q_max.append(None if maximum_q is None else maximum_q / self.power_flow_configuration.base_mva)
+            s_pu = self._per_unit.to_pu_power(p, q)
+            p_spec.append(s_pu.real)
+            q_spec.append(s_pu.imag)
+            q_min.append(self._to_pu_reactive_power(minimum_q))
+            q_max.append(self._to_pu_reactive_power(maximum_q))
             initial_vm.append(self._initial_voltage_pu(bus))
-            initial_va.append(math.radians(self._finite(getattr(bus, "angle_deg", 0.0), f"Bus '{bus.id}' angle_deg")))
+            initial_va.append(
+                math.radians(
+                    self._finite(
+                        getattr(bus, "angle_deg", 0.0),
+                        f"Bus '{bus.id}' angle_deg",
+                    )
+                )
+            )
 
         input_data = PowerFlowInput(
             bus_ids=bus_ids,
@@ -117,6 +124,11 @@ class PowerFlowPreparation:
         ybus = YBusBuilder(self.network).build()
         return PreparedPowerFlow(input=input_data, ybus=ybus)
 
+    def _to_pu_reactive_power(self, value: float | None) -> float | None:
+        if value is None:
+            return None
+        return self._per_unit.to_pu_power(0.0, value).imag
+
     def _prepare_bus_types(self, bus_ids: tuple[str, ...]) -> tuple[PowerFlowBusType, ...]:
         configured = self.power_flow_configuration.bus_types
         expected = set(bus_ids)
@@ -131,7 +143,10 @@ class PowerFlowPreparation:
         return tuple(configured[bus_id] for bus_id in bus_ids)
 
     def _initial_voltage_pu(self, bus: Any) -> float:
-        value = self._finite_positive(getattr(bus, "voltage_pu", 1.0), f"Bus '{bus.id}' voltage_pu")
+        value = self._finite_positive(
+            getattr(bus, "voltage_pu", 1.0),
+            f"Bus '{bus.id}' voltage_pu",
+        )
         return value
 
     def _bus_power_spec(self, bus: Any) -> tuple[float, float, float | None, float | None]:
