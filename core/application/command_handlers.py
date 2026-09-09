@@ -27,7 +27,8 @@ from .commands.model_commands import (
 )
 from .commands.breaker_commands import (
     CREATE_BREAKER, UPDATE_BREAKER, DELETE_BREAKER,
-    OPEN_BREAKER, CLOSE_BREAKER, PUT_BREAKER_IN_SERVICE, TAKE_BREAKER_OUT_OF_SERVICE,
+    OPEN_BREAKER, CLOSE_BREAKER, TRIP_BREAKER,
+    PUT_BREAKER_IN_SERVICE, TAKE_BREAKER_OUT_OF_SERVICE,
 )
 from .commands.capacitor_commands import (
     CREATE_CAPACITOR, UPDATE_CAPACITOR, DELETE_CAPACITOR,
@@ -71,7 +72,7 @@ class ModelCommandHandlers:
             OPEN_SWITCH: self.open_switch, CLOSE_SWITCH: self.close_switch,
             PUT_SWITCH_IN_SERVICE: self.put_switch_in_service, TAKE_SWITCH_OUT_OF_SERVICE: self.take_switch_out_of_service,
             CREATE_BREAKER: self.create_breaker, UPDATE_BREAKER: self.update_breaker, DELETE_BREAKER: self.delete_breaker,
-            OPEN_BREAKER: self.open_breaker, CLOSE_BREAKER: self.close_breaker,
+            OPEN_BREAKER: self.open_breaker, CLOSE_BREAKER: self.close_breaker, TRIP_BREAKER: self.trip_breaker,
             PUT_BREAKER_IN_SERVICE: self.put_breaker_in_service, TAKE_BREAKER_OUT_OF_SERVICE: self.take_breaker_out_of_service,
             CREATE_DISCONNECTOR: self.create_disconnector, UPDATE_DISCONNECTOR: self.update_disconnector,
             DELETE_DISCONNECTOR: self.delete_disconnector, OPEN_DISCONNECTOR: self.open_disconnector,
@@ -227,6 +228,9 @@ class ModelCommandHandlers:
 
     def close_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         return self._switching_service().close_breaker(transaction=transaction, **command.payload)
+
+    def trip_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().trip_breaker(transaction=transaction, **command.payload)
 
     def put_breaker_in_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         return self._switching_service().put_breaker_in_service(transaction=transaction, **command.payload)
