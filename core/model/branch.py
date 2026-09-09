@@ -364,11 +364,16 @@ class Branch(ElectricalObject):
         to_endpoint: Any,
     ) -> None:
         """
-        Attach both Branch endpoints.
+        Attach both Branch endpoints atomically with respect to
+        Terminal endpoint validation.
 
-        Only Terminal.attach() performs the actual endpoint state
-        mutation.
+        Both endpoint references are validated before either
+        Terminal is mutated. Terminal.attach() remains the sole
+        endpoint-state mutation operation.
         """
+        Terminal._validate_endpoint(from_endpoint)
+        Terminal._validate_endpoint(to_endpoint)
+
         self._from_terminal.attach(
             from_endpoint
         )
@@ -480,12 +485,20 @@ class Branch(ElectricalObject):
         """
         return self._in_service
 
-    @in_service.setter
-    def in_service(
+    def set_in_service(
         self,
         value: bool,
     ) -> None:
-        self._in_service = bool(value)
+        """
+        Set Branch service state through the canonical Core
+        mutation method used by the Application layer.
+        """
+        if not isinstance(value, bool):
+            raise TypeError(
+                "in_service must be a bool."
+            )
+
+        self._in_service = value
 
     # ============================================================
     # ELECTRICAL HELPERS
