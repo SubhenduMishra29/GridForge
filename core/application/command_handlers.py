@@ -40,6 +40,12 @@ from .commands.battery_commands import (
     CREATE_BATTERY, UPDATE_BATTERY, DELETE_BATTERY,
     PUT_BATTERY_IN_SERVICE, TAKE_BATTERY_OUT_OF_SERVICE,
 )
+from .commands.synchronous_machine_commands import (
+    CREATE_SYNCHRONOUS_MACHINE, UPDATE_SYNCHRONOUS_MACHINE, DELETE_SYNCHRONOUS_MACHINE,
+)
+from .commands.motor_commands import CREATE_MOTOR, UPDATE_MOTOR, DELETE_MOTOR
+from .commands.reactor_commands import CREATE_REACTOR, UPDATE_REACTOR, DELETE_REACTOR
+from .commands.solar_commands import CREATE_SOLAR, UPDATE_SOLAR, DELETE_SOLAR
 
 Handler = Callable[[Command, Any, Transaction], ApplicationResult[Any]]
 
@@ -56,8 +62,12 @@ class ModelCommandHandlers:
             CREATE_BUS: self.create_bus, UPDATE_BUS: self.update_bus, DELETE_BUS: self.delete_bus,
             CREATE_GRID: self.create_grid, UPDATE_GRID: self.update_grid, DELETE_GRID: self.delete_grid,
             CREATE_GENERATOR: self.create_generator, UPDATE_GENERATOR: self.update_generator, DELETE_GENERATOR: self.delete_generator,
+            CREATE_SYNCHRONOUS_MACHINE: self.create_synchronous_machine, UPDATE_SYNCHRONOUS_MACHINE: self.update_synchronous_machine, DELETE_SYNCHRONOUS_MACHINE: self.delete_synchronous_machine,
             CREATE_LOAD: self.create_load, UPDATE_LOAD: self.update_load, DELETE_LOAD: self.delete_load,
+            CREATE_MOTOR: self.create_motor, UPDATE_MOTOR: self.update_motor, DELETE_MOTOR: self.delete_motor,
             CREATE_SHUNT: self.create_shunt, UPDATE_SHUNT: self.update_shunt, DELETE_SHUNT: self.delete_shunt,
+            CREATE_REACTOR: self.create_reactor, UPDATE_REACTOR: self.update_reactor, DELETE_REACTOR: self.delete_reactor,
+            CREATE_SOLAR: self.create_solar, UPDATE_SOLAR: self.update_solar, DELETE_SOLAR: self.delete_solar,
             CREATE_LINE: self.create_line, DELETE_LINE: self.delete_line,
             CREATE_TRANSFORMER: self.create_transformer, DELETE_TRANSFORMER: self.delete_transformer,
             CREATE_CABLE: self.create_cable, UPDATE_CABLE: self.update_cable, DELETE_CABLE: self.delete_cable,
@@ -102,12 +112,24 @@ class ModelCommandHandlers:
     def create_generator(self, command, context, transaction): return self._model_service.create_generator(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
     def update_generator(self, command, context, transaction): return self._model_service.update_generator(transaction=transaction, **command.payload)
     def delete_generator(self, command, context, transaction): return self._model_service.delete_generator(transaction=transaction, **command.payload)
+    def create_synchronous_machine(self, command, context, transaction): return self._model_service.create_synchronous_machine(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
+    def update_synchronous_machine(self, command, context, transaction): return self._model_service.update_synchronous_machine(transaction=transaction, **command.payload)
+    def delete_synchronous_machine(self, command, context, transaction): return self._model_service.delete_synchronous_machine(transaction=transaction, **command.payload)
     def create_load(self, command, context, transaction): return self._model_service.create_load(transaction=transaction, **command.payload)
     def update_load(self, command, context, transaction): return self._model_service.update_load(transaction=transaction, **command.payload)
     def delete_load(self, command, context, transaction): return self._model_service.delete_load(transaction=transaction, **command.payload)
+    def create_motor(self, command, context, transaction): return self._model_service.create_motor(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
+    def update_motor(self, command, context, transaction): return self._model_service.update_motor(transaction=transaction, **command.payload)
+    def delete_motor(self, command, context, transaction): return self._model_service.delete_motor(transaction=transaction, **command.payload)
     def create_shunt(self, command, context, transaction): return self._model_service.create_shunt(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
     def update_shunt(self, command, context, transaction): return self._model_service.update_shunt(transaction=transaction, **command.payload)
     def delete_shunt(self, command, context, transaction): return self._model_service.delete_shunt(transaction=transaction, **command.payload)
+    def create_reactor(self, command, context, transaction): return self._model_service.create_reactor(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
+    def update_reactor(self, command, context, transaction): return self._model_service.update_reactor(transaction=transaction, **command.payload)
+    def delete_reactor(self, command, context, transaction): return self._model_service.delete_reactor(transaction=transaction, **command.payload)
+    def create_solar(self, command, context, transaction): return self._model_service.create_solar(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint"))
+    def update_solar(self, command, context, transaction): return self._model_service.update_solar(transaction=transaction, **command.payload)
+    def delete_solar(self, command, context, transaction): return self._model_service.delete_solar(transaction=transaction, **command.payload)
     def create_line(self, command, context, transaction): return self._model_service.create_line(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
     def delete_line(self, command, context, transaction): return self._model_service.delete_line(transaction=transaction, **command.payload)
     def create_transformer(self, command, context, transaction): return self._model_service.create_transformer(transaction=transaction, **self._resolve(dict(command.payload), context, "endpoint_from", "endpoint_to"))
