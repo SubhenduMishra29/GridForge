@@ -17,6 +17,8 @@ from __future__ import annotations
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.services.bus_model_service import BusModelService
+from core.application.services.grid_model_service import GridModelService
+from core.application.services.generator_model_service import GeneratorModelService
 from core.application.transaction import Transaction
 from core.errors import DomainError
 from core.model.branch import Branch
@@ -43,10 +45,20 @@ class ModelService(ModelServiceSupport):
             raise TypeError("network must be a Network.")
         self._network = network
         self._bus_service = BusModelService(network)
+        self._grid_service = GridModelService(network)
+        self._generator_service = GeneratorModelService(network)
 
     @property
     def bus_service(self) -> BusModelService:
         return self._bus_service
+
+    @property
+    def grid_service(self) -> GridModelService:
+        return self._grid_service
+
+    @property
+    def generator_service(self) -> GeneratorModelService:
+        return self._generator_service
 
     # ============================================================
     # BUS — compatibility facade
@@ -62,62 +74,30 @@ class ModelService(ModelServiceSupport):
         return self._bus_service.delete_bus(bus_id=bus_id, transaction=transaction)
 
     # ============================================================
-    # GRID
+    # GRID — compatibility facade
     # ============================================================
 
     def create_grid(self, *, grid_id: str, endpoint: Bus | Terminal | None = None, name: str | None = None, nominal_voltage_kv: float = 0.0, frequency_hz: float = 50.0, voltage_pu: float = 1.0, angle_deg: float = 0.0, p_mw: float = 0.0, q_mvar: float = 0.0, short_circuit_mva: float = 0.0, x_over_r: float = 0.0, z1_pu: complex = 0j, z2_pu: complex = 0j, z0_pu: complex = 0j, in_service: bool = True, grounded: bool = True, transaction: Transaction) -> ApplicationResult[Grid]:
-        self._require_transaction(transaction); self._require_id(grid_id, "grid_id")
-        if endpoint is not None: self._validate_endpoint(endpoint, "endpoint")
-        self._ensure_not_exists("grid", grid_id, "Grid")
-        grid = Grid(id=grid_id, name="" if name is None else name, endpoint=endpoint, nominal_voltage_kv=nominal_voltage_kv, frequency_hz=frequency_hz, voltage_pu=voltage_pu, angle_deg=angle_deg, p_mw=p_mw, q_mvar=q_mvar, short_circuit_mva=short_circuit_mva, x_over_r=x_over_r, z1_pu=z1_pu, z2_pu=z2_pu, z0_pu=z0_pu, in_service=in_service, grounded=grounded)
-        self._network.add_grid(grid); transaction.record_undo(lambda grid=grid: self._network.remove_grid(grid)); return self._success(grid, "grid", grid_id, f"Grid created: {grid_id}")
+        return self._grid_service.create_grid(grid_id=grid_id, endpoint=endpoint, name=name, nominal_voltage_kv=nominal_voltage_kv, frequency_hz=frequency_hz, voltage_pu=voltage_pu, angle_deg=angle_deg, p_mw=p_mw, q_mvar=q_mvar, short_circuit_mva=short_circuit_mva, x_over_r=x_over_r, z1_pu=z1_pu, z2_pu=z2_pu, z0_pu=z0_pu, in_service=in_service, grounded=grounded, transaction=transaction)
 
     def update_grid(self, *, grid_id: str, name: str | None = None, nominal_voltage_kv: float | None = None, frequency_hz: float | None = None, voltage_pu: float | None = None, angle_deg: float | None = None, p_mw: float | None = None, q_mvar: float | None = None, short_circuit_mva: float | None = None, x_over_r: float | None = None, z1_pu: complex | None = None, z2_pu: complex | None = None, z0_pu: complex | None = None, in_service: bool | None = None, grounded: bool | None = None, transaction: Transaction) -> ApplicationResult[Grid]:
-        self._require_transaction(transaction); self._require_id(grid_id, "grid_id"); grid = self._get_required("grid", grid_id, "Grid"); self._require_type(grid, Grid, grid_id, "Grid")
-        if all(v is None for v in (name, nominal_voltage_kv, frequency_hz, voltage_pu, angle_deg, p_mw, q_mvar, short_circuit_mva, x_over_r, z1_pu, z2_pu, z0_pu, in_service, grounded)): raise DomainError(code="NO_GRID_UPDATE", message="At least one mutable Grid property must be specified.", details={"grid_id": grid_id})
-        old = {"name": grid.name, "nominal_voltage_kv": grid.nominal_voltage_kv, "frequency_hz": grid.frequency_hz, "voltage_pu": grid.voltage_pu, "angle_deg": grid.angle_deg, "p_mw": grid.p_mw, "q_mvar": grid.q_mvar, "short_circuit_mva": grid.short_circuit_mva, "x_over_r": grid.x_over_r, "z1_pu": grid.z1_pu, "z2_pu": grid.z2_pu, "z0_pu": grid.z0_pu, "in_service": grid.in_service, "grounded": grid.grounded}
-        if name is not None: grid.name = name
-        if nominal_voltage_kv is not None: grid.nominal_voltage_kv = nominal_voltage_kv
-        if frequency_hz is not None: grid.frequency_hz = frequency_hz
-        if short_circuit_mva is not None: grid.short_circuit_mva = short_circuit_mva
-        if x_over_r is not None: grid.x_over_r = x_over_r
-        if grounded is not None: grid.grounded = grounded
-        if voltage_pu is not None or angle_deg is not None: grid.set_voltage(grid.voltage_pu if voltage_pu is None else voltage_pu, grid.angle_deg if angle_deg is None else angle_deg)
-        if p_mw is not None or q_mvar is not None: grid.set_power(grid.p_mw if p_mw is None else p_mw, grid.q_mvar if q_mvar is None else q_mvar)
-        if z1_pu is not None or z2_pu is not None or z0_pu is not None: grid.set_sequence_impedances(grid.z1_pu if z1_pu is None else z1_pu, grid.z2_pu if z2_pu is None else z2_pu, grid.z0_pu if z0_pu is None else z0_pu)
-        if in_service is not None: grid.put_in_service() if in_service else grid.take_out_of_service()
-        def restore() -> None:
-            grid.name = old["name"]; grid.nominal_voltage_kv = old["nominal_voltage_kv"]; grid.frequency_hz = old["frequency_hz"]; grid.short_circuit_mva = old["short_circuit_mva"]; grid.x_over_r = old["x_over_r"]; grid.grounded = old["grounded"]; grid.set_voltage(old["voltage_pu"], old["angle_deg"]); grid.set_power(old["p_mw"], old["q_mvar"]); grid.set_sequence_impedances(old["z1_pu"], old["z2_pu"], old["z0_pu"]); grid.put_in_service() if old["in_service"] else grid.take_out_of_service()
-        transaction.record_undo(restore); return self._success(grid, "grid", grid_id, f"Grid updated: {grid_id}")
+        return self._grid_service.update_grid(grid_id=grid_id, name=name, nominal_voltage_kv=nominal_voltage_kv, frequency_hz=frequency_hz, voltage_pu=voltage_pu, angle_deg=angle_deg, p_mw=p_mw, q_mvar=q_mvar, short_circuit_mva=short_circuit_mva, x_over_r=x_over_r, z1_pu=z1_pu, z2_pu=z2_pu, z0_pu=z0_pu, in_service=in_service, grounded=grounded, transaction=transaction)
 
     def delete_grid(self, *, grid_id: str, transaction: Transaction) -> ApplicationResult[Grid]:
-        self._require_transaction(transaction); self._require_id(grid_id, "grid_id"); grid = self._get_required("grid", grid_id, "Grid"); self._require_type(grid, Grid, grid_id, "Grid"); self._network.remove_grid(grid); transaction.record_undo(lambda grid=grid: self._network.add_grid(grid)); return self._success(grid, "grid", grid_id, f"Grid deleted: {grid_id}")
+        return self._grid_service.delete_grid(grid_id=grid_id, transaction=transaction)
 
     # ============================================================
-    # GENERATOR
+    # GENERATOR — compatibility facade
     # ============================================================
 
     def create_generator(self, *, generator_id: str, endpoint: Bus | Terminal | None = None, p: float = 0.0, q: float = 0.0, V_setpoint: float = 1.0, q_limits: tuple[float, float] = (-float("inf"), float("inf")), name: str = "", in_service: bool = True, transaction: Transaction) -> ApplicationResult[Generator]:
-        self._require_transaction(transaction); self._require_id(generator_id, "generator_id")
-        if endpoint is not None: self._validate_endpoint(endpoint, "endpoint")
-        self._ensure_not_exists("generator", generator_id, "Generator"); generator = Generator(id=generator_id, endpoint=endpoint, p=p, q=q, V_setpoint=V_setpoint, q_limits=q_limits, name=name, in_service=in_service); self._network.add_generator(generator); transaction.record_undo(lambda generator=generator: self._network.remove_generator(generator)); return self._success(generator, "generator", generator_id, f"Generator created: {generator_id}")
+        return self._generator_service.create_generator(generator_id=generator_id, endpoint=endpoint, p=p, q=q, V_setpoint=V_setpoint, q_limits=q_limits, name=name, in_service=in_service, transaction=transaction)
 
     def update_generator(self, *, generator_id: str, name: str | None = None, p: float | None = None, q: float | None = None, V_setpoint: float | None = None, q_limits: tuple[float, float] | None = None, in_service: bool | None = None, transaction: Transaction) -> ApplicationResult[Generator]:
-        self._require_transaction(transaction); self._require_id(generator_id, "generator_id"); generator = self._get_required("generator", generator_id, "Generator"); self._require_type(generator, Generator, generator_id, "Generator")
-        if all(v is None for v in (name, p, q, V_setpoint, q_limits, in_service)): raise DomainError(code="NO_GENERATOR_UPDATE", message="At least one mutable Generator property must be specified.", details={"generator_id": generator_id})
-        old={"name":generator.name,"p":generator.p,"q":generator.q,"V_setpoint":generator.V_setpoint,"q_limits":generator.q_limits,"in_service":generator.in_service}
-        if name is not None: generator.name=name
-        if p is not None: generator.set_active_power(p)
-        if q is not None: generator.set_reactive_power(q)
-        if p is not None and q is not None: generator.set_power(p,q)
-        if V_setpoint is not None: generator.set_voltage_setpoint(V_setpoint)
-        if q_limits is not None: generator.set_q_limits(q_limits[0],q_limits[1])
-        if in_service is not None: generator.put_in_service() if in_service else generator.take_out_of_service()
-        def restore(): generator.name=old["name"]; generator.set_power(old["p"],old["q"]); generator.set_voltage_setpoint(old["V_setpoint"]); generator.set_q_limits(old["q_limits"][0],old["q_limits"][1]); generator.put_in_service() if old["in_service"] else generator.take_out_of_service()
-        transaction.record_undo(restore); return self._success(generator,"generator",generator_id,f"Generator updated: {generator_id}")
+        return self._generator_service.update_generator(generator_id=generator_id, name=name, p=p, q=q, V_setpoint=V_setpoint, q_limits=q_limits, in_service=in_service, transaction=transaction)
 
     def delete_generator(self, *, generator_id: str, transaction: Transaction) -> ApplicationResult[Generator]:
-        self._require_transaction(transaction); self._require_id(generator_id,"generator_id"); generator=self._get_required("generator",generator_id,"Generator"); self._require_type(generator,Generator,generator_id,"Generator"); self._network.remove_generator(generator); transaction.record_undo(lambda generator=generator:self._network.add_generator(generator)); return self._success(generator,"generator",generator_id,f"Generator deleted: {generator_id}")
+        return self._generator_service.delete_generator(generator_id=generator_id, transaction=transaction)
 
     # ============================================================
     # LOAD / SHUNT
@@ -150,8 +130,8 @@ class ModelService(ModelServiceSupport):
         if g_pu is not None: shunt.g_pu=g_pu
         if b_pu is not None: shunt.b_pu=b_pu
         if in_service is not None: shunt.set_in_service(in_service)
-        def restore(): shunt.name=old["name"]; shunt.g_pu=old["g_pu"]; shunt.b_pu=old["b_pu"]; shunt.set_in_service(old["in_service"])
-        transaction.record_undo(restore); return self._success(shunt,"shunt",shunt_id,f"Shunt updated: {shunt_id}")
+        def restore(): shunt.name=old["name"];shunt.g_pu=old["g_pu"];shunt.b_pu=old["b_pu"];shunt.set_in_service(old["in_service"])
+        transaction.record_undo(restore);return self._success(shunt,"shunt",shunt_id,f"Shunt updated: {shunt_id}")
     def delete_shunt(self, *, shunt_id: str, transaction: Transaction) -> ApplicationResult[Shunt]:
         self._require_transaction(transaction); self._require_id(shunt_id,"shunt_id"); shunt=self._get_required("shunt",shunt_id,"Shunt"); self._require_type(shunt,Shunt,shunt_id,"Shunt"); self._network.remove_shunt(shunt); transaction.record_undo(lambda shunt=shunt:self._network.add_shunt(shunt)); return self._success(shunt,"shunt",shunt_id,f"Shunt deleted: {shunt_id}")
 
@@ -160,21 +140,21 @@ class ModelService(ModelServiceSupport):
     # ============================================================
 
     def create_line(self, *, line_id: str, endpoint_from: Bus | Terminal, endpoint_to: Bus | Terminal, r: float = 0.0, x: float = 0.0, b: float = 0.0, name: str | None = None, rate_mva: float | None = None, transaction: Transaction) -> ApplicationResult[Line]:
-        self._require_transaction(transaction); self._require_id(line_id,"line_id"); self._validate_endpoint(endpoint_from,"endpoint_from"); self._validate_endpoint(endpoint_to,"endpoint_to"); self._require_distinct_endpoints(endpoint_from,endpoint_to,"INVALID_LINE_ENDPOINTS","Line",line_id); self._ensure_not_exists("line",line_id,"Line"); line=Line(id=line_id,endpoint_from=endpoint_from,endpoint_to=endpoint_to,r=r,x=x,b=b,name="" if name is None else name,rate_mva=rate_mva); self._network.add_line(line); transaction.record_undo(lambda line=line:self._network.remove_line(line)); return self._success(line,"line",line_id,f"Line created: {line_id}")
+        self._require_transaction(transaction);self._require_id(line_id,"line_id");self._validate_endpoint(endpoint_from,"endpoint_from");self._validate_endpoint(endpoint_to,"endpoint_to");self._require_distinct_endpoints(endpoint_from,endpoint_to,"INVALID_LINE_ENDPOINTS","Line",line_id);self._ensure_not_exists("line",line_id,"Line");line=Line(id=line_id,endpoint_from=endpoint_from,endpoint_to=endpoint_to,r=r,x=x,b=b,name="" if name is None else name,rate_mva=rate_mva);self._network.add_line(line);transaction.record_undo(lambda line=line:self._network.remove_line(line));return self._success(line,"line",line_id,f"Line created: {line_id}")
     def delete_line(self, *, line_id: str, transaction: Transaction) -> ApplicationResult[Line]:
-        self._require_transaction(transaction); self._require_id(line_id,"line_id"); line=self._get_required("line",line_id,"Line"); self._require_type(line,Line,line_id,"Line"); self._network.remove_line(line); transaction.record_undo(lambda line=line:self._network.add_line(line)); return self._success(line,"line",line_id,f"Line deleted: {line_id}")
+        self._require_transaction(transaction);self._require_id(line_id,"line_id");line=self._get_required("line",line_id,"Line");self._require_type(line,Line,line_id,"Line");self._network.remove_line(line);transaction.record_undo(lambda line=line:self._network.add_line(line));return self._success(line,"line",line_id,f"Line deleted: {line_id}")
     def create_transformer(self, *, transformer_id: str, endpoint_from: Bus | Terminal, endpoint_to: Bus | Terminal, r: float = 0.0, x: float = 0.0, tap: float = 1.0, shift: float = 0.0, name: str | None = None, rate_mva: float | None = None, transaction: Transaction) -> ApplicationResult[Transformer]:
-        self._require_transaction(transaction); self._require_id(transformer_id,"transformer_id"); self._validate_endpoint(endpoint_from,"endpoint_from"); self._validate_endpoint(endpoint_to,"endpoint_to"); self._require_distinct_endpoints(endpoint_from,endpoint_to,"INVALID_TRANSFORMER_ENDPOINTS","Transformer",transformer_id); self._ensure_not_exists("transformer",transformer_id,"Transformer"); transformer=Transformer(id=transformer_id,endpoint_from=endpoint_from,endpoint_to=endpoint_to,r=r,x=x,tap=tap,shift=shift,name="" if name is None else name,rate_mva=rate_mva); self._network.add_transformer(transformer); transaction.record_undo(lambda transformer=transformer:self._network.remove_transformer(transformer)); return self._success(transformer,"transformer",transformer_id,f"Transformer created: {transformer_id}")
+        self._require_transaction(transaction);self._require_id(transformer_id,"transformer_id");self._validate_endpoint(endpoint_from,"endpoint_from");self._validate_endpoint(endpoint_to,"endpoint_to");self._require_distinct_endpoints(endpoint_from,endpoint_to,"INVALID_TRANSFORMER_ENDPOINTS","Transformer",transformer_id);self._ensure_not_exists("transformer",transformer_id,"Transformer");transformer=Transformer(id=transformer_id,endpoint_from=endpoint_from,endpoint_to=endpoint_to,r=r,x=x,tap=tap,shift=shift,name="" if name is None else name,rate_mva=rate_mva);self._network.add_transformer(transformer);transaction.record_undo(lambda transformer=transformer:self._network.remove_transformer(transformer));return self._success(transformer,"transformer",transformer_id,f"Transformer created: {transformer_id}")
     def delete_transformer(self, *, transformer_id: str, transaction: Transaction) -> ApplicationResult[Transformer]:
-        self._require_transaction(transaction); self._require_id(transformer_id,"transformer_id"); transformer=self._get_required("transformer",transformer_id,"Transformer"); self._require_type(transformer,Transformer,transformer_id,"Transformer"); self._network.remove_transformer(transformer); transaction.record_undo(lambda transformer=transformer:self._network.add_transformer(transformer)); return self._success(transformer,"transformer",transformer_id,f"Transformer deleted: {transformer_id}")
+        self._require_transaction(transaction);self._require_id(transformer_id,"transformer_id");transformer=self._get_required("transformer",transformer_id,"Transformer");self._require_type(transformer,Transformer,transformer_id,"Transformer");self._network.remove_transformer(transformer);transaction.record_undo(lambda transformer=transformer:self._network.add_transformer(transformer));return self._success(transformer,"transformer",transformer_id,f"Transformer deleted: {transformer_id}")
     def create_branch(self, *, branch_id: str, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, r: float | None = None, x: float | None = None, b: float | None = None, name: str = "", rate_mva: float | None = None, tap: float = 1.0, shift: float = 0.0, in_service: bool = True, transaction: Transaction) -> ApplicationResult[Branch]:
-        self._require_transaction(transaction); self._require_id(branch_id,"branch_id");
+        self._require_transaction(transaction);self._require_id(branch_id,"branch_id");
         if endpoint_from is not None:self._validate_endpoint(endpoint_from,"endpoint_from")
         if endpoint_to is not None:self._validate_endpoint(endpoint_to,"endpoint_to")
         if endpoint_from is not None and endpoint_to is not None:self._require_distinct_endpoints(endpoint_from,endpoint_to,"INVALID_BRANCH_ENDPOINTS","Branch",branch_id)
-        self._ensure_not_exists("branch",branch_id,"Branch"); branch=Branch(id=branch_id,endpoint_from=endpoint_from,endpoint_to=endpoint_to,r=r,x=x,b=b,name=name,rate_mva=rate_mva,tap=tap,shift=shift,in_service=in_service); self._network.add_branch(branch); transaction.record_undo(lambda branch=branch:self._network.remove_branch(branch)); return self._success(branch,"branch",branch_id,f"Branch created: {branch_id}")
+        self._ensure_not_exists("branch",branch_id,"Branch");branch=Branch(id=branch_id,endpoint_from=endpoint_from,endpoint_to=endpoint_to,r=r,x=x,b=b,name=name,rate_mva=rate_mva,tap=tap,shift=shift,in_service=in_service);self._network.add_branch(branch);transaction.record_undo(lambda branch=branch:self._network.remove_branch(branch));return self._success(branch,"branch",branch_id,f"Branch created: {branch_id}")
     def update_branch(self, *, branch_id: str, name: str | None = None, r: float | None = None, x: float | None = None, b: float | None = None, rate_mva: float | None = None, tap: float | None = None, shift: float | None = None, in_service: bool | None = None, transaction: Transaction) -> ApplicationResult[Branch]:
-        self._require_transaction(transaction); self._require_id(branch_id,"branch_id"); branch=self._get_required("branch",branch_id,"Branch"); self._require_type(branch,Branch,branch_id,"Branch")
+        self._require_transaction(transaction);self._require_id(branch_id,"branch_id");branch=self._get_required("branch",branch_id,"Branch");self._require_type(branch,Branch,branch_id,"Branch")
         if all(v is None for v in (name,r,x,b,rate_mva,tap,shift,in_service)):raise DomainError(code="NO_BRANCH_UPDATE",message="At least one mutable Branch property must be specified.",details={"branch_id":branch_id})
         old={"name":branch.name,"r":branch.r,"x":branch.x,"b":branch.b,"rate_mva":branch.rate_mva,"tap":branch.tap,"shift":branch.shift,"in_service":branch.in_service}
         if name is not None:branch.name=name
