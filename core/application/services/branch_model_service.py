@@ -193,9 +193,9 @@ class BranchModelService(ModelServiceSupport):
             id=line_id,
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
-            r=r,
-            x=x,
-            b=b,
+            resistance=r,
+            reactance=x,
+            shunt_susceptance=b,
             name="" if name is None else name,
             rate_mva=rate_mva,
         )
