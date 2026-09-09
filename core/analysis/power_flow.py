@@ -1,21 +1,29 @@
-"""Analysis-level orchestration for prepared numerical power-flow studies."""
+"""
+GridForge - Power Flow Analysis
+================================
+
+Analysis-level orchestration for prepared numerical Power Flow studies.
+Numerical execution remains PU-only; engineering result conversion is
+performed explicitly at the Analysis boundary.
+
+Author: Subhendu Mishra
+"""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Iterable, Optional
 
 from core.solver.power_flow.input import PowerFlowInput
 from core.solver.power_flow.nr_solver import NewtonRaphsonSolver
 from core.solver.power_flow.result import PowerFlowResult
+from core.analysis.power_flow_result_conversion import (
+    EngineeringPowerFlowResult,
+    PowerFlowResultConverter,
+)
 
 
 class PowerFlowAnalysis:
-    """Coordinate a power-flow execution without exposing live Core objects to it.
-
-    The caller prepares the immutable numerical snapshot and derived YBus at
-    the Core/Application boundary. Numerical execution receives only those
-    prepared contracts.
-    """
+    """Coordinate numerical Power Flow execution and result conversion."""
 
     def __init__(self, input_data: PowerFlowInput, ybus, options: Optional[object] = None) -> None:
         if not isinstance(input_data, PowerFlowInput):
@@ -36,14 +44,30 @@ class PowerFlowAnalysis:
         self._result: PowerFlowResult | None = None
 
     def solve(self) -> PowerFlowResult:
-        """Execute the numerical study and retain the result at analysis scope."""
+        """Execute the numerical study and retain the numerical PU result."""
         self._result = self.solver.solve()
         return self._result
 
+    def to_engineering_result(
+        self,
+        buses: Iterable[Any],
+    ) -> EngineeringPowerFlowResult:
+        """Convert the latest numerical result into structured engineering quantities."""
+        if self._result is None:
+            raise RuntimeError("Power Flow must be solved before converting its result.")
+        return PowerFlowResultConverter.to_engineering(
+            self._result,
+            buses,
+        )
+
     @property
     def result(self) -> PowerFlowResult | None:
-        """Return the latest result without consulting Core state."""
+        """Return the latest numerical result without consulting Core state."""
         return self._result
 
 
-__all__ = ["PowerFlowAnalysis"]
+__all__ = [
+    "PowerFlowAnalysis",
+    "EngineeringPowerFlowResult",
+    "PowerFlowResultConverter",
+]

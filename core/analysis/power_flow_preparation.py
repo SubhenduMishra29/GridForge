@@ -9,14 +9,18 @@ The preparation boundary is shared by normal and contingency studies.
 It is the only layer here that reads the live Network in order to build
 PowerFlowInput and YBus. Numerical Power Flow execution receives only the
 prepared result.
+
+Author: Subhendu Mishra
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+from core.base.per_unit import PerUnitSystem
 from core.model.injection import Injection
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
@@ -35,13 +39,11 @@ class PreparedPowerFlow:
         if not isinstance(self.ybus, YBus):
             raise TypeError("ybus must be a YBus instance.")
         if self.input.bus_ids != self.ybus.bus_ids:
-            raise ValueError(
-                "PowerFlowInput and YBus must use identical bus ordering."
-            )
+            raise ValueError("PowerFlowInput and YBus must use identical bus ordering.")
 
 
 class PowerFlowPreparation:
-    """Prepare Power Flow numerical contracts from Core state."""
+    """Prepare Power Flow numerical contracts from authoritative Core state."""
 
     _INJECTION_COLLECTIONS = (
         "grids",
@@ -58,12 +60,8 @@ class PowerFlowPreparation:
         network: Any,
         power_flow_configuration: PowerFlowStudyConfiguration,
     ) -> PreparedPowerFlow:
-        """Build immutable Power Flow input and matching YBus."""
-        preparation = PowerFlowPreparation(
-            network,
-            power_flow_configuration,
-        )
-        return preparation._prepare()
+        """Build immutable PU-only Power Flow input and matching YBus."""
+        return PowerFlowPreparation(network, power_flow_configuration)._prepare()
 
     def __init__(
         self,
@@ -73,20 +71,18 @@ class PowerFlowPreparation:
         self.network = network
         self.power_flow_configuration = power_flow_configuration
         self._validate_network()
-        if not isinstance(
-            power_flow_configuration,
-            PowerFlowStudyConfiguration,
-        ):
+        if not isinstance(power_flow_configuration, PowerFlowStudyConfiguration):
             raise TypeError(
                 "power_flow_configuration must be a PowerFlowStudyConfiguration."
             )
+        self._per_unit = PerUnitSystem(power_flow_configuration.base_mva)
 
     def _prepare(self) -> PreparedPowerFlow:
         buses = tuple(self.network.buses)
         if not buses:
             raise ValueError("Power Flow preparation requires at least one bus.")
 
-        bus_ids = tuple(bus.id for bus in buses)
+        bus_ids = tuple(str(bus.id) for bus in buses)
         classification = self._prepare_bus_types(bus_ids)
 
         p_spec: list[float] = []
@@ -98,12 +94,20 @@ class PowerFlowPreparation:
 
         for bus in buses:
             p, q, minimum_q, maximum_q = self._bus_power_spec(bus)
-            p_spec.append(p)
-            q_spec.append(q)
-            q_min.append(minimum_q)
-            q_max.append(maximum_q)
-            initial_vm.append(float(getattr(bus, "voltage_pu")))
-            initial_va.append(float(getattr(bus, "angle_deg")))
+            s_pu = self._per_unit.to_pu_power(p, q)
+            p_spec.append(s_pu.real)
+            q_spec.append(s_pu.imag)
+            q_min.append(self._to_pu_reactive_power(minimum_q))
+            q_max.append(self._to_pu_reactive_power(maximum_q))
+            initial_vm.append(self._initial_voltage_pu(bus))
+            initial_va.append(
+                math.radians(
+                    self._finite(
+                        getattr(bus, "angle_deg", 0.0),
+                        f"Bus '{bus.id}' angle_deg",
+                    )
+                )
+            )
 
         input_data = PowerFlowInput(
             bus_ids=bus_ids,
@@ -118,33 +122,35 @@ class PowerFlowPreparation:
 
         self.network.ensure_bus_index()
         ybus = YBusBuilder(self.network).build()
-
         return PreparedPowerFlow(input=input_data, ybus=ybus)
 
-    def _prepare_bus_types(
-        self,
-        bus_ids: tuple[Any, ...],
-    ) -> tuple[PowerFlowBusType, ...]:
+    def _to_pu_reactive_power(self, value: float | None) -> float | None:
+        if value is None:
+            return None
+        return self._per_unit.to_pu_power(0.0, value).imag
+
+    def _prepare_bus_types(self, bus_ids: tuple[str, ...]) -> tuple[PowerFlowBusType, ...]:
         configured = self.power_flow_configuration.bus_types
         expected = set(bus_ids)
         supplied = set(configured)
-
         missing = expected - supplied
         extra = supplied - expected
         if missing or extra:
             raise ValueError(
                 "Power Flow study configuration must match the case Network buses; "
-                f"missing={sorted(missing, key=str)!r}, "
-                f"extra={sorted(extra, key=str)!r}."
+                f"missing={sorted(missing)!r}, extra={sorted(extra)!r}."
             )
-
         return tuple(configured[bus_id] for bus_id in bus_ids)
 
-    def _bus_power_spec(
-        self,
-        bus: Any,
-    ) -> tuple[float, float, float | None, float | None]:
-        """Aggregate physical injection models attached to one bus."""
+    def _initial_voltage_pu(self, bus: Any) -> float:
+        value = self._finite_positive(
+            getattr(bus, "voltage_pu", 1.0),
+            f"Bus '{bus.id}' voltage_pu",
+        )
+        return value
+
+    def _bus_power_spec(self, bus: Any) -> tuple[float, float, float | None, float | None]:
+        """Aggregate engineering MW/MVAr injection models attached to one bus."""
         p = 0.0
         q = 0.0
         q_min: float | None = None
@@ -152,28 +158,44 @@ class PowerFlowPreparation:
 
         for collection_name in self._INJECTION_COLLECTIONS:
             for equipment in getattr(self.network, collection_name, ()):
-                if not isinstance(equipment, Injection):
+                if not isinstance(equipment, Injection) or not getattr(equipment, "in_service", True):
                     continue
-                if not getattr(equipment, "in_service", True):
-                    continue
-
                 terminal = getattr(equipment, "terminal", None)
                 endpoint = getattr(terminal, "endpoint", None)
                 if endpoint is not bus and getattr(endpoint, "id", None) != getattr(bus, "id", None):
                     continue
 
                 ep, eq = equipment.get_power()
-                p += float(ep)
-                q += float(eq)
+                p += self._finite(ep, f"Injection '{getattr(equipment, 'id', equipment)}' active power")
+                q += self._finite(eq, f"Injection '{getattr(equipment, 'id', equipment)}' reactive power")
 
                 if hasattr(equipment, "q_min"):
-                    value = float(equipment.q_min)
+                    value = self._finite(getattr(equipment, "q_min"), f"Injection '{getattr(equipment, 'id', equipment)}' q_min")
                     q_min = value if q_min is None else q_min + value
                 if hasattr(equipment, "q_max"):
-                    value = float(equipment.q_max)
+                    value = self._finite(getattr(equipment, "q_max"), f"Injection '{getattr(equipment, 'id', equipment)}' q_max")
                     q_max = value if q_max is None else q_max + value
 
+        if q_min is not None and q_max is not None and q_min > q_max:
+            raise ValueError(f"Aggregated reactive limits at bus '{bus.id}' are invalid.")
         return p, q, q_min, q_max
+
+    @staticmethod
+    def _finite(value: Any, name: str) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be numeric.") from exc
+        if not math.isfinite(numeric):
+            raise ValueError(f"{name} must be finite.")
+        return numeric
+
+    @classmethod
+    def _finite_positive(cls, value: Any, name: str) -> float:
+        numeric = cls._finite(value, name)
+        if numeric <= 0.0:
+            raise ValueError(f"{name} must be greater than zero.")
+        return numeric
 
     def _validate_network(self) -> None:
         if self.network is None:
