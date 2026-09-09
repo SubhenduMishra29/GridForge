@@ -1,13 +1,3 @@
-# ============================================================
-
-# File: core/network/registry.py
-
-# GridForge V2 — Network Registry
-
-# Author: Subhendu Mishra
-
-# ============================================================
-
 """Typed registry for canonical electrical Network equipment."""
 
 from __future__ import annotations
@@ -31,6 +21,7 @@ class NetworkRegistry:
         self._solar: dict[str, Any] = {}
         self._batteries: dict[str, Any] = {}
         self._current_transformers: dict[str, Any] = {}
+        self._potential_transformers: dict[str, Any] = {}
         self._capacitive_voltage_transformers: dict[str, Any] = {}
         self._lines: dict[str, Any] = {}
         self._cables: dict[str, Any] = {}
@@ -41,8 +32,7 @@ class NetworkRegistry:
         self._fuses: dict[str, Any] = {}
 
     @staticmethod
-    def _values(collection: dict[str, Any]) -> tuple[Any, ...]:
-        return tuple(collection.values())
+    def _values(collection: dict[str, Any]) -> tuple[Any, ...]: return tuple(collection.values())
 
     @property
     def buses(self) -> tuple[Any, ...]: return self._values(self._buses)
@@ -69,6 +59,8 @@ class NetworkRegistry:
     @property
     def current_transformers(self) -> tuple[Any, ...]: return self._values(self._current_transformers)
     @property
+    def potential_transformers(self) -> tuple[Any, ...]: return self._values(self._potential_transformers)
+    @property
     def capacitive_voltage_transformers(self) -> tuple[Any, ...]: return self._values(self._capacitive_voltage_transformers)
     @property
     def lines(self) -> tuple[Any, ...]: return self._values(self._lines)
@@ -76,11 +68,8 @@ class NetworkRegistry:
     def cables(self) -> tuple[Any, ...]: return self._values(self._cables)
     @property
     def transformers(self) -> tuple[Any, ...]: return self._values(self._transformers)
-
     @property
-    def branches(self) -> tuple[Any, ...]:
-        return (*self.lines, *self.cables, *self.transformers)
-
+    def branches(self) -> tuple[Any, ...]: return (*self.lines, *self.cables, *self.transformers)
     @property
     def breakers(self) -> tuple[Any, ...]: return self._values(self._breakers)
     @property
@@ -93,22 +82,19 @@ class NetworkRegistry:
     @staticmethod
     def _id(element: Any) -> str:
         value = getattr(element, "id", None)
-        if value is None:
-            raise ValueError("Network elements must provide an 'id'.")
+        if value is None: raise ValueError("Network elements must provide an 'id'.")
         return str(value)
 
     @classmethod
     def _add(cls, collection: dict[str, Any], element: Any) -> None:
         object_id = cls._id(element)
-        if object_id in collection:
-            raise ValueError(f"Duplicate network element ID: {object_id}")
+        if object_id in collection: raise ValueError(f"Duplicate network element ID: {object_id}")
         collection[object_id] = element
 
     @classmethod
     def _remove(cls, collection: dict[str, Any], element: Any) -> None:
         object_id = cls._id(element)
-        if object_id not in collection:
-            raise KeyError(f"Network element is not registered: {object_id}")
+        if object_id not in collection: raise KeyError(f"Network element is not registered: {object_id}")
         del collection[object_id]
 
     def add_bus(self, element: Any) -> None: self._add(self._buses, element)
@@ -135,6 +121,8 @@ class NetworkRegistry:
     def remove_battery(self, element: Any) -> None: self._remove(self._batteries, element)
     def add_current_transformer(self, element: Any) -> None: self._add(self._current_transformers, element)
     def remove_current_transformer(self, element: Any) -> None: self._remove(self._current_transformers, element)
+    def add_potential_transformer(self, element: Any) -> None: self._add(self._potential_transformers, element)
+    def remove_potential_transformer(self, element: Any) -> None: self._remove(self._potential_transformers, element)
     def add_capacitive_voltage_transformer(self, element: Any) -> None: self._add(self._capacitive_voltage_transformers, element)
     def remove_capacitive_voltage_transformer(self, element: Any) -> None: self._remove(self._capacitive_voltage_transformers, element)
     def add_line(self, element: Any) -> None: self._add(self._lines, element)
@@ -155,28 +143,22 @@ class NetworkRegistry:
     def get_by_id(self, element_type: str, object_id: str) -> Any:
         collections = {
             "bus": self._buses, "grid": self._grids, "generator": self._generators,
-            "synchronous_machine": self._synchronous_machines, "load": self._loads,
-            "motor": self._motors, "shunt": self._shunts, "capacitor": self._capacitors,
-            "reactor": self._reactors, "solar": self._solar, "battery": self._batteries,
-            "ct": self._current_transformers, "current_transformer": self._current_transformers,
-            "cvt": self._capacitive_voltage_transformers,
-            "capacitive_voltage_transformer": self._capacitive_voltage_transformers,
+            "synchronous_machine": self._synchronous_machines, "load": self._loads, "motor": self._motors,
+            "shunt": self._shunts, "capacitor": self._capacitors, "reactor": self._reactors, "solar": self._solar,
+            "battery": self._batteries, "ct": self._current_transformers, "current_transformer": self._current_transformers,
+            "pt": self._potential_transformers, "potential_transformer": self._potential_transformers,
+            "cvt": self._capacitive_voltage_transformers, "capacitive_voltage_transformer": self._capacitive_voltage_transformers,
             "line": self._lines, "cable": self._cables, "transformer": self._transformers,
-            "breaker": self._breakers, "switch": self._switches,
-            "disconnector": self._disconnectors, "fuse": self._fuses,
+            "breaker": self._breakers, "switch": self._switches, "disconnector": self._disconnectors, "fuse": self._fuses,
         }
         key = element_type.strip().lower()
         if key == "branch":
             for branch in self.branches:
-                if self._id(branch) == str(object_id):
-                    return branch
+                if self._id(branch) == str(object_id): return branch
             raise KeyError(f"Network element is not registered: branch:{object_id}")
-        if key not in collections:
-            raise KeyError(f"Unknown network element type: {element_type}")
-        try:
-            return collections[key][str(object_id)]
-        except KeyError as exc:
-            raise KeyError(f"Network element is not registered: {element_type}:{object_id}") from exc
+        if key not in collections: raise KeyError(f"Unknown network element type: {element_type}")
+        try: return collections[key][str(object_id)]
+        except KeyError as exc: raise KeyError(f"Network element is not registered: {element_type}:{object_id}") from exc
 
 
 __all__ = ["NetworkRegistry"]
