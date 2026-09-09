@@ -35,22 +35,24 @@ from .model_commands import (
     UPDATE_LOAD, CreateLoadCommand, DeleteLoadCommand, UpdateLoadCommand,
     CREATE_GRID, DELETE_GRID, UPDATE_GRID, CreateGridCommand, DeleteGridCommand,
     UpdateGridCommand, CREATE_BRANCH, UPDATE_BRANCH, DELETE_BRANCH,
-    CreateBranchCommand, UpdateBranchCommand, DeleteBranchCommand,
-    CREATE_CABLE, UPDATE_CABLE, DELETE_CABLE, CreateCableCommand,
+    DeleteBranchCommand, CREATE_CABLE, UPDATE_CABLE, DELETE_CABLE,
     UpdateCableCommand, DeleteCableCommand, CREATE_SWITCH, UPDATE_SWITCH,
     DELETE_SWITCH, OPEN_SWITCH, CLOSE_SWITCH, PUT_SWITCH_IN_SERVICE,
-    TAKE_SWITCH_OUT_OF_SERVICE, CreateSwitchCommand, UpdateSwitchCommand,
-    DeleteSwitchCommand, OpenSwitchCommand, CloseSwitchCommand,
-    PutSwitchInServiceCommand, TakeSwitchOutOfServiceCommand,
-    CREATE_DISCONNECTOR, UPDATE_DISCONNECTOR, DELETE_DISCONNECTOR,
-    OPEN_DISCONNECTOR, CLOSE_DISCONNECTOR, PUT_DISCONNECTOR_IN_SERVICE,
-    TAKE_DISCONNECTOR_OUT_OF_SERVICE, CreateDisconnectorCommand,
+    TAKE_SWITCH_OUT_OF_SERVICE, UpdateSwitchCommand, DeleteSwitchCommand,
+    OpenSwitchCommand, CloseSwitchCommand, PutSwitchInServiceCommand,
+    TakeSwitchOutOfServiceCommand, CREATE_DISCONNECTOR, UPDATE_DISCONNECTOR,
+    DELETE_DISCONNECTOR, OPEN_DISCONNECTOR, CLOSE_DISCONNECTOR,
+    PUT_DISCONNECTOR_IN_SERVICE, TAKE_DISCONNECTOR_OUT_OF_SERVICE,
     UpdateDisconnectorCommand, DeleteDisconnectorCommand, OpenDisconnectorCommand,
     CloseDisconnectorCommand, PutDisconnectorInServiceCommand,
     TakeDisconnectorOutOfServiceCommand, CREATE_FUSE, UPDATE_FUSE, DELETE_FUSE,
     BLOW_FUSE, RESET_FUSE, PUT_FUSE_IN_SERVICE, TAKE_FUSE_OUT_OF_SERVICE,
     CreateFuseCommand, UpdateFuseCommand, DeleteFuseCommand, BlowFuseCommand,
     ResetFuseCommand, PutFuseInServiceCommand, TakeFuseOutOfServiceCommand,
+)
+from .payload_contracts import (
+    CreateBranchCommand, CreateCableCommand, CreateSwitchCommand,
+    CreateDisconnectorCommand, UpdateGeneratorCommand, UpdateShuntCommand,
 )
 
 __all__ = [
