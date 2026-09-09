@@ -17,6 +17,7 @@ from core.application.services.generator_model_service import GeneratorModelServ
 from core.application.services.grid_model_service import GridModelService
 from core.application.services.line_model_service import LineModelService
 from core.application.services.load_model_service import LoadModelService
+from core.application.services.measurement_model_service import MeasurementModelService
 from core.application.services.shunt_model_service import ShuntModelService
 from core.application.services.switching_model_service import SwitchingModelService
 from core.application.services.transformer_model_service import TransformerModelService
@@ -55,6 +56,7 @@ class ModelService(ModelServiceSupport):
         self._branch_service = BranchModelService(network)
         self._cable_service = CableModelService(network)
         self._switching_service = SwitchingModelService(network)
+        self._measurement_service = MeasurementModelService(network)
 
     @property
     def bus_service(self) -> BusModelService:
@@ -75,6 +77,10 @@ class ModelService(ModelServiceSupport):
     @property
     def shunt_service(self) -> ShuntModelService:
         return self._shunt_service
+
+    @property
+    def measurement_service(self) -> MeasurementModelService:
+        return self._measurement_service
 
     @property
     def line_service(self) -> LineModelService:
