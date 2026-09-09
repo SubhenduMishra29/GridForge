@@ -65,6 +65,20 @@ class UpdateShuntCommand(Command):
         super().__init__(command_type=UPDATE_SHUNT, payload={"shunt_id": shunt_id, "name": name, "g_pu": g_pu, "b_pu": b_pu, "in_service": in_service}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
+# Canonicalize direct imports from model_commands as well as the package API.
+# The model_commands module is fully initialized before this module is imported
+# by core.application.commands.__init__, so these assignments are safe and keep
+# one authoritative command class for each corrected contract.
+from . import model_commands as _model_commands
+
+_model_commands.CreateBranchCommand = CreateBranchCommand
+_model_commands.CreateCableCommand = CreateCableCommand
+_model_commands.CreateSwitchCommand = CreateSwitchCommand
+_model_commands.CreateDisconnectorCommand = CreateDisconnectorCommand
+_model_commands.UpdateGeneratorCommand = UpdateGeneratorCommand
+_model_commands.UpdateShuntCommand = UpdateShuntCommand
+
+
 __all__ = [
     "CreateBranchCommand", "CreateCableCommand", "CreateSwitchCommand",
     "CreateDisconnectorCommand", "UpdateGeneratorCommand", "UpdateShuntCommand",
