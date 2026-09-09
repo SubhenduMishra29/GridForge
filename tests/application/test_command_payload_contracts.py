@@ -1,5 +1,4 @@
 from core.application.commands.model_commands import (
-    CreateBranchCommand,
     CreateCableCommand,
     CreateDisconnectorCommand,
     CreateSwitchCommand,
@@ -13,7 +12,6 @@ def test_two_terminal_create_commands_carry_endpoint_references():
     endpoint_from = EndpointReference("bus", "B1")
     endpoint_to = EndpointReference("bus", "B2")
 
-    branch = CreateBranchCommand(branch_id="BR1", endpoint_from=endpoint_from, endpoint_to=endpoint_to)
     cable = CreateCableCommand(cable_id="C1", endpoint_from=endpoint_from, endpoint_to=endpoint_to)
     switch = CreateSwitchCommand(switch_id="SW1", endpoint_a=endpoint_from, endpoint_b=endpoint_to)
     disconnector = CreateDisconnectorCommand(
@@ -21,8 +19,6 @@ def test_two_terminal_create_commands_carry_endpoint_references():
         endpoint_from=endpoint_from, endpoint_to=endpoint_to,
     )
 
-    assert branch.payload["endpoint_from"] is endpoint_from
-    assert branch.payload["endpoint_to"] is endpoint_to
     assert cable.payload["endpoint_from"] is endpoint_from
     assert cable.payload["endpoint_to"] is endpoint_to
     assert switch.payload["endpoint_a"] is endpoint_from

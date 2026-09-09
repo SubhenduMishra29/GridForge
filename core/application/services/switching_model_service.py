@@ -46,9 +46,17 @@ class SwitchingModelService(ModelServiceSupport):
         if endpoint_a is not None and endpoint_b is not None:
             self._require_distinct_endpoints(endpoint_a, endpoint_b, "INVALID_SWITCH_ENDPOINTS", "Switch", switch_id)
         self._ensure_not_exists("switch", switch_id, "Switch")
-        switch = Switch(id=switch_id, name=name, endpoint_a=endpoint_a, endpoint_b=endpoint_b,
-                        closed=closed, in_service=in_service, normally_closed=normally_closed,
-                        rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a)
+        switch = Switch(
+            id=switch_id,
+            name=name,
+            endpoint_from=endpoint_a,
+            endpoint_to=endpoint_b,
+            closed=closed,
+            in_service=in_service,
+            normally_closed=normally_closed,
+            rated_voltage_kv=rated_voltage_kv,
+            rated_current_a=rated_current_a,
+        )
         self._network.add_switch(switch)
         transaction.record_undo(lambda switch=switch: self._network.remove_switch(switch))
         return self._success(switch, "switch", switch_id, f"Switch created: {switch_id}")
@@ -59,8 +67,10 @@ class SwitchingModelService(ModelServiceSupport):
         normally_closed: bool | None = None, rated_voltage_kv: float | None = None,
         rated_current_a: float | None = None, transaction: Transaction,
     ) -> ApplicationResult[Switch]:
-        self._require_transaction(transaction); self._require_id(switch_id, "switch_id")
-        switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch")
+        self._require_transaction(transaction)
+        self._require_id(switch_id, "switch_id")
+        switch = self._get_required("switch", switch_id, "Switch")
+        self._require_type(switch, Switch, switch_id, "Switch")
         if all(v is None for v in (name, closed, in_service, normally_closed, rated_voltage_kv, rated_current_a)):
             raise DomainError(code="NO_SWITCH_UPDATE", message="At least one mutable Switch property must be specified.", details={"switch_id": switch_id})
         old = {"name": switch.name, "closed": switch.closed, "in_service": switch.in_service,
@@ -72,10 +82,12 @@ class SwitchingModelService(ModelServiceSupport):
         if normally_closed is not None: switch.set_normally_closed(normally_closed)
         if rated_voltage_kv is not None: switch.rated_voltage_kv = rated_voltage_kv
         if rated_current_a is not None: switch.rated_current_a = rated_current_a
+        self._network.invalidate_topology()
         def restore() -> None:
             switch.name = old["name"]; switch.set_closed(old["closed"]); switch.set_in_service(old["in_service"])
             switch.set_normally_closed(old["normally_closed"]); switch.rated_voltage_kv = old["rated_voltage_kv"]
             switch.rated_current_a = old["rated_current_a"]
+            self._network.invalidate_topology()
         transaction.record_undo(restore)
         return self._success(switch, "switch", switch_id, f"Switch updated: {switch_id}")
 
@@ -102,19 +114,17 @@ class SwitchingModelService(ModelServiceSupport):
         self._require_transaction(transaction); self._require_id(switch_id, "switch_id")
         switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch")
         old = switch.closed; switch.set_closed(closed)
-        transaction.record_undo(lambda switch=switch, old=old: switch.set_closed(old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda switch=switch, old=old: (switch.set_closed(old), self._network.invalidate_topology()))
         return self._success(switch, "switch", switch_id, f"Switch {'closed' if closed else 'opened'}: {switch_id}")
 
     def _set_switch_service(self, *, switch_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Switch]:
         self._require_transaction(transaction); self._require_id(switch_id, "switch_id")
         switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch")
         old = switch.in_service; switch.set_in_service(in_service)
-        transaction.record_undo(lambda switch=switch, old=old: switch.set_in_service(old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda switch=switch, old=old: (switch.set_in_service(old), self._network.invalidate_topology()))
         return self._success(switch, "switch", switch_id, f"Switch {'put in service' if in_service else 'taken out of service'}: {switch_id}")
-
-    # ------------------------------------------------------------------
-    # Breaker
-    # ------------------------------------------------------------------
 
     def create_breaker(
         self, *, breaker_id: str, endpoint_from: Bus | Terminal | None = None,
@@ -157,11 +167,13 @@ class SwitchingModelService(ModelServiceSupport):
         if voltage_kv is not None: breaker.voltage_kv = voltage_kv
         if current_a is not None: breaker.current_a = current_a
         if interrupting_ka is not None: breaker.interrupting_ka = interrupting_ka
+        self._network.invalidate_topology()
         def restore() -> None:
             breaker.name = old["name"]; breaker.in_service = old["in_service"]
             breaker.closed = old["closed"]; breaker.failed = old["failed"]
             breaker.voltage_kv = old["voltage_kv"]; breaker.current_a = old["current_a"]
             breaker.interrupting_ka = old["interrupting_ka"]
+            self._network.invalidate_topology()
         transaction.record_undo(restore)
         return self._success(breaker, "breaker", breaker_id, f"Breaker updated: {breaker_id}")
 
@@ -188,7 +200,8 @@ class SwitchingModelService(ModelServiceSupport):
         self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
         breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker")
         old = breaker.closed; breaker.trip()
-        transaction.record_undo(lambda breaker=breaker, old=old: breaker.close() if old else breaker.open())
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda breaker=breaker, old=old: (breaker.close() if old else breaker.open(), self._network.invalidate_topology()))
         return self._success(breaker, "breaker", breaker_id, f"Breaker tripped: {breaker_id}")
 
     def _set_breaker_closed(self, *, breaker_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
@@ -197,14 +210,16 @@ class SwitchingModelService(ModelServiceSupport):
         old = breaker.closed
         if closed: breaker.close()
         else: breaker.open()
-        transaction.record_undo(lambda breaker=breaker, old=old: breaker.close() if old else breaker.open())
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda breaker=breaker, old=old: (breaker.close() if old else breaker.open(), self._network.invalidate_topology()))
         return self._success(breaker, "breaker", breaker_id, f"Breaker {'closed' if closed else 'opened'}: {breaker_id}")
 
     def _set_breaker_service(self, *, breaker_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
         self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
         breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker")
         old = breaker.in_service; breaker.in_service = in_service
-        transaction.record_undo(lambda breaker=breaker, old=old: setattr(breaker, "in_service", old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda breaker=breaker, old=old: (setattr(breaker, "in_service", old), self._network.invalidate_topology()))
         return self._success(breaker, "breaker", breaker_id, f"Breaker {'put in service' if in_service else 'taken out of service'}: {breaker_id}")
 
     def create_disconnector(
@@ -245,10 +260,12 @@ class SwitchingModelService(ModelServiceSupport):
             if value is not None: setattr(disconnector, key, value)
         if closed is not None: disconnector.set_closed(closed)
         if in_service is not None: disconnector.set_in_service(in_service)
+        self._network.invalidate_topology()
         def restore() -> None:
             disconnector.voltage_kv = old["voltage_kv"]; disconnector.rated_current_a = old["rated_current_a"]
             disconnector.operating_time = old["operating_time"]; disconnector.set_closed(old["closed"])
             disconnector.set_in_service(old["in_service"]); disconnector.name = old["name"]
+            self._network.invalidate_topology()
         transaction.record_undo(restore)
         return self._success(disconnector, "disconnector", disconnector_id, f"Disconnector updated: {disconnector_id}")
 
@@ -276,14 +293,16 @@ class SwitchingModelService(ModelServiceSupport):
         self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id")
         disconnector = self._get_required("disconnector", disconnector_id, "Disconnector"); self._require_type(disconnector, Disconnector, disconnector_id, "Disconnector")
         old = disconnector.closed; disconnector.set_closed(closed)
-        transaction.record_undo(lambda disconnector=disconnector, old=old: disconnector.set_closed(old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda disconnector=disconnector, old=old: (disconnector.set_closed(old), self._network.invalidate_topology()))
         return self._success(disconnector, "disconnector", disconnector_id, f"Disconnector {'closed' if closed else 'opened'}: {disconnector_id}")
 
     def _set_disconnector_service(self, *, disconnector_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Disconnector]:
         self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id")
         disconnector = self._get_required("disconnector", disconnector_id, "Disconnector"); self._require_type(disconnector, Disconnector, disconnector_id, "Disconnector")
         old = disconnector.in_service; disconnector.set_in_service(in_service)
-        transaction.record_undo(lambda disconnector=disconnector, old=old: disconnector.set_in_service(old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda disconnector=disconnector, old=old: (disconnector.set_in_service(old), self._network.invalidate_topology()))
         return self._success(disconnector, "disconnector", disconnector_id, f"Disconnector {'put in service' if in_service else 'taken out of service'}: {disconnector_id}")
 
     def create_fuse(
@@ -315,10 +334,12 @@ class SwitchingModelService(ModelServiceSupport):
             if value is not None: setattr(fuse, key, value)
         if in_service is not None: fuse.set_in_service(in_service)
         if blown is not None: fuse.blow() if blown else fuse.reset()
+        self._network.invalidate_topology()
         def restore() -> None:
             fuse.name = old["name"]; fuse.rated_current_a = old["rated_current_a"]
             fuse.rated_voltage_v = old["rated_voltage_v"]; fuse.interrupting_rating_ka = old["interrupting_rating_ka"]
             fuse.set_in_service(old["in_service"]); fuse.blow() if old["blown"] else fuse.reset()
+            self._network.invalidate_topology()
         transaction.record_undo(restore)
         return self._success(fuse, "fuse", fuse_id, f"Fuse updated: {fuse_id}")
 
@@ -333,14 +354,16 @@ class SwitchingModelService(ModelServiceSupport):
         self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id")
         fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse")
         old = fuse.blown; fuse.blow()
-        transaction.record_undo(lambda fuse=fuse, old=old: fuse.reset() if not old else fuse.blow())
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda fuse=fuse, old=old: (fuse.reset() if not old else fuse.blow(), self._network.invalidate_topology()))
         return self._success(fuse, "fuse", fuse_id, f"Fuse blown: {fuse_id}")
 
     def reset_fuse(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]:
         self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id")
         fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse")
         old = fuse.blown; fuse.reset()
-        transaction.record_undo(lambda fuse=fuse, old=old: fuse.blow() if old else fuse.reset())
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda fuse=fuse, old=old: (fuse.blow() if old else fuse.reset(), self._network.invalidate_topology()))
         return self._success(fuse, "fuse", fuse_id, f"Fuse reset: {fuse_id}")
 
     def put_fuse_in_service(self, *, fuse_id: str, transaction: Transaction) -> ApplicationResult[Fuse]:
@@ -353,7 +376,8 @@ class SwitchingModelService(ModelServiceSupport):
         self._require_transaction(transaction); self._require_id(fuse_id, "fuse_id")
         fuse = self._get_required("fuse", fuse_id, "Fuse"); self._require_type(fuse, Fuse, fuse_id, "Fuse")
         old = fuse.in_service; fuse.set_in_service(in_service)
-        transaction.record_undo(lambda fuse=fuse, old=old: fuse.set_in_service(old))
+        self._network.invalidate_topology()
+        transaction.record_undo(lambda fuse=fuse, old=old: (fuse.set_in_service(old), self._network.invalidate_topology()))
         return self._success(fuse, "fuse", fuse_id, f"Fuse {'put in service' if in_service else 'taken out of service'}: {fuse_id}")
 
 

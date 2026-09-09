@@ -62,6 +62,8 @@ class Network:
     @property
     def capacitive_voltage_transformers(self) -> tuple[Any, ...]: return self.registry.capacitive_voltage_transformers
     @property
+    def potential_transformers(self) -> tuple[Any, ...]: return self.registry.potential_transformers
+    @property
     def lines(self) -> tuple[Any, ...]: return self.registry.lines
     @property
     def cables(self) -> tuple[Any, ...]: return self.registry.cables
@@ -86,6 +88,10 @@ class Network:
         self.topology.invalidate()
         if bus_membership:
             self.index.invalidate()
+
+    def invalidate_topology(self) -> None:
+        """Invalidate derived topology after a topology-affecting state mutation."""
+        self._invalidate_topology()
 
     def _add(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
         method(element)
@@ -123,6 +129,8 @@ class Network:
     def remove_current_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_current_transformer, transformer)
     def add_capacitive_voltage_transformer(self, transformer: Any) -> None: self._add(self.registry.add_capacitive_voltage_transformer, transformer)
     def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer)
+    def add_potential_transformer(self, transformer: Any) -> None: self._add(self.registry.add_potential_transformer, transformer)
+    def remove_potential_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_potential_transformer, transformer)
     def add_line(self, line: Any) -> None: self._add(self.registry.add_line, line, affects_topology=True)
     def remove_line(self, line: Any) -> None: self._remove(self.registry.remove_line, line, affects_topology=True)
     def add_cable(self, cable: Any) -> None: self._add(self.registry.add_cable, cable, affects_topology=True)

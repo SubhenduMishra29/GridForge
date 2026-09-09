@@ -1,7 +1,10 @@
-# Command-handler registration contract (static checkpoint)
+# Command-handler registration contract
 
-This checkpoint records the required Application registrations before the production handler map is extended.
+The Application handler map registers only command families backed by canonical
+Core lifecycle APIs.
 
-Required existing command families: Generator, Shunt, Branch, Cable, Switch, Disconnector, Fuse.
+Required supported families include Generator, Shunt, Line, Cable, Transformer,
+Switch, Breaker, Disconnector, Fuse, Capacitor, CT, CVT, Battery, and PT.
 
-Implementation remains blocked until the existing command constants and corresponding ModelService façade methods are verified on the current HEAD.
+`Branch` is a common Core abstraction, not an independently registered equipment
+family; there is no generic Branch command or handler lifecycle.
