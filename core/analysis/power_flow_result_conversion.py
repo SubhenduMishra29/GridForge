@@ -57,7 +57,12 @@ class PowerFlowResultConverter:
             raise ValueError(
                 "Power Flow result voltage count must match the supplied Bus count."
             )
+        if len(result.voltage_angles) != len(bus_sequence):
+            raise ValueError(
+                "Power Flow result angle count must match the supplied Bus count."
+            )
 
+        per_unit = PerUnitSystem(1.0)
         converted: list[EngineeringPowerFlowBusResult] = []
         for bus, voltage_pu, angle_rad in zip(
             bus_sequence,
@@ -91,7 +96,6 @@ class PowerFlowResultConverter:
                     f"Power Flow result angle for Bus '{bus_id}' must be finite."
                 )
 
-            per_unit = PerUnitSystem(1.0)
             voltage_kv = per_unit.from_pu_voltage(
                 voltage_pu,
                 nominal_voltage_kv,
