@@ -1,10 +1,4 @@
-"""Application-layer compatibility facade for model mutation.
-
-ModelService preserves the public application mutation API while routing each
-owned domain to its dedicated model service. The facade contains no domain
-mutation logic; it preserves valid public method signatures and forwards calls
-to the owning service.
-"""
+"""Thin Application compatibility facade over domain-specific model services."""
 
 from __future__ import annotations
 
@@ -18,22 +12,22 @@ from core.application.services.grid_model_service import GridModelService
 from core.application.services.line_model_service import LineModelService
 from core.application.services.load_model_service import LoadModelService
 from core.application.services.measurement_model_service import MeasurementModelService
+from core.application.services.pt_model_service import PTModelService
 from core.application.services.shunt_model_service import ShuntModelService
 from core.application.services.switching_model_service import SwitchingModelService
 from core.application.services.transformer_model_service import TransformerModelService
 from core.application.transaction import Transaction
 from core.model.breaker import Breaker
 from core.model.bus import Bus
-from core.model.transformer import Transformer
+from core.model.terminal import Terminal
 from core.network.network import Network
 
 
 class ModelService(ModelServiceSupport):
-    """Thin compatibility facade over domain-specific model services."""
+    """Compatibility facade; all mutation logic remains in domain services."""
 
     def __init__(self, network: Network) -> None:
-        if not isinstance(network, Network):
-            raise TypeError("network must be a Network.")
+        if not isinstance(network, Network): raise TypeError("network must be a Network.")
         self._network = network
         self._bus_service = BusModelService(network)
         self._grid_service = GridModelService(network)
@@ -45,30 +39,33 @@ class ModelService(ModelServiceSupport):
         self._cable_service = CableModelService(network)
         self._switching_service = SwitchingModelService(network)
         self._measurement_service = MeasurementModelService(network)
+        self._pt_service = PTModelService(network)
         self._battery_service = BatteryModelService(network)
 
     @property
-    def bus_service(self) -> BusModelService: return self._bus_service
+    def bus_service(self): return self._bus_service
     @property
-    def grid_service(self) -> GridModelService: return self._grid_service
+    def grid_service(self): return self._grid_service
     @property
-    def generator_service(self) -> GeneratorModelService: return self._generator_service
+    def generator_service(self): return self._generator_service
     @property
-    def load_service(self) -> LoadModelService: return self._load_service
+    def load_service(self): return self._load_service
     @property
-    def shunt_service(self) -> ShuntModelService: return self._shunt_service
+    def shunt_service(self): return self._shunt_service
     @property
-    def measurement_service(self) -> MeasurementModelService: return self._measurement_service
+    def measurement_service(self): return self._measurement_service
     @property
-    def battery_service(self) -> BatteryModelService: return self._battery_service
+    def pt_service(self): return self._pt_service
     @property
-    def line_service(self) -> LineModelService: return self._line_service
+    def battery_service(self): return self._battery_service
     @property
-    def transformer_service(self) -> TransformerModelService: return self._transformer_service
+    def line_service(self): return self._line_service
     @property
-    def cable_service(self) -> CableModelService: return self._cable_service
+    def transformer_service(self): return self._transformer_service
     @property
-    def switching_service(self) -> SwitchingModelService: return self._switching_service
+    def cable_service(self): return self._cable_service
+    @property
+    def switching_service(self): return self._switching_service
 
     def create_bus(self, **kwargs): return self._bus_service.create_bus(**kwargs)
     def update_bus(self, **kwargs): return self._bus_service.update_bus(**kwargs)
@@ -97,6 +94,11 @@ class ModelService(ModelServiceSupport):
     def create_cable(self, **kwargs): return self._cable_service.create_cable(**kwargs)
     def update_cable(self, **kwargs): return self._cable_service.update_cable(**kwargs)
     def delete_cable(self, **kwargs): return self._cable_service.delete_cable(**kwargs)
+    def create_pt(self, **kwargs): return self._pt_service.create_pt(**kwargs)
+    def update_pt(self, **kwargs): return self._pt_service.update_pt(**kwargs)
+    def delete_pt(self, **kwargs): return self._pt_service.delete_pt(**kwargs)
+    def put_pt_in_service(self, **kwargs): return self._pt_service.put_pt_in_service(**kwargs)
+    def take_pt_out_of_service(self, **kwargs): return self._pt_service.take_pt_out_of_service(**kwargs)
 
     def create_switch(self, **kwargs): return self._switching_service.create_switch(**kwargs)
     def update_switch(self, **kwargs): return self._switching_service.update_switch(**kwargs)
@@ -106,29 +108,16 @@ class ModelService(ModelServiceSupport):
     def put_switch_in_service(self, **kwargs): return self._switching_service.put_switch_in_service(**kwargs)
     def take_switch_out_of_service(self, **kwargs): return self._switching_service.take_switch_out_of_service(**kwargs)
 
-    def create_breaker(self, *, breaker_id: str, endpoint_from: Bus | None = None, endpoint_to: Bus | None = None, name: str = "", in_service: bool = True, closed: bool = True, failed: bool = False, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
+    def create_breaker(self, *, breaker_id: str, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, name: str = "", in_service: bool = True, closed: bool = True, failed: bool = False, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
         return self._switching_service.create_breaker(breaker_id=breaker_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, in_service=in_service, closed=closed, failed=failed, voltage_kv=voltage_kv, current_a=current_a, interrupting_ka=interrupting_ka, transaction=transaction)
-
     def update_breaker(self, *, breaker_id: str, name: str | None = None, in_service: bool | None = None, closed: bool | None = None, failed: bool | None = None, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
         return self._switching_service.update_breaker(breaker_id=breaker_id, name=name, in_service=in_service, closed=closed, failed=failed, voltage_kv=voltage_kv, current_a=current_a, interrupting_ka=interrupting_ka, transaction=transaction)
-
-    def delete_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        return self._switching_service.delete_breaker(breaker_id=breaker_id, transaction=transaction)
-
-    def open_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        return self._switching_service.open_breaker(breaker_id=breaker_id, transaction=transaction)
-
-    def close_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        return self._switching_service.close_breaker(breaker_id=breaker_id, transaction=transaction)
-
-    def put_breaker_in_service(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        return self._switching_service.put_breaker_in_service(breaker_id=breaker_id, transaction=transaction)
-
-    def take_breaker_out_of_service(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        return self._switching_service.take_breaker_out_of_service(breaker_id=breaker_id, transaction=transaction)
-
-    def trip_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
-        return self._switching_service.trip_breaker(breaker_id=breaker_id, transaction=transaction)
+    def delete_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._switching_service.delete_breaker(breaker_id=breaker_id, transaction=transaction)
+    def open_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._switching_service.open_breaker(breaker_id=breaker_id, transaction=transaction)
+    def close_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._switching_service.close_breaker(breaker_id=breaker_id, transaction=transaction)
+    def put_breaker_in_service(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._switching_service.put_breaker_in_service(breaker_id=breaker_id, transaction=transaction)
+    def take_breaker_out_of_service(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._switching_service.take_breaker_out_of_service(breaker_id=breaker_id, transaction=transaction)
+    def trip_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]: return self._switching_service.trip_breaker(breaker_id=breaker_id, transaction=transaction)
 
     def create_disconnector(self, **kwargs): return self._switching_service.create_disconnector(**kwargs)
     def update_disconnector(self, **kwargs): return self._switching_service.update_disconnector(**kwargs)
