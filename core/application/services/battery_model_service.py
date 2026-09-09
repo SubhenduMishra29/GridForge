@@ -24,88 +24,23 @@ class BatteryModelService(ModelServiceSupport):
     def network(self) -> Network:
         return self._network
 
-    def create_battery(
-        self,
-        *,
-        battery_id: str,
-        name: str = "",
-        endpoint: Bus | Terminal | None = None,
-        p_mw: float = 0.0,
-        q_mvar: float = 0.0,
-        max_charge_mw: float = 0.0,
-        max_discharge_mw: float = 0.0,
-        energy_capacity_mwh: float = 0.0,
-        soc: float = 1.0,
-        soc_min: float = 0.0,
-        soc_max: float = 1.0,
-        in_service: bool = True,
-        transaction: Transaction,
-    ) -> ApplicationResult[Battery]:
+    def create_battery(self, *, battery_id: str, name: str = "", endpoint: Bus | Terminal | None = None, p_mw: float = 0.0, q_mvar: float = 0.0, max_charge_mw: float = 0.0, max_discharge_mw: float = 0.0, energy_capacity_mwh: float = 0.0, soc: float = 1.0, soc_min: float = 0.0, soc_max: float = 1.0, in_service: bool = True, transaction: Transaction) -> ApplicationResult[Battery]:
         self._require_transaction(transaction)
         self._require_id(battery_id, "battery_id")
-        if endpoint is not None:
-            self._validate_endpoint(endpoint, "endpoint")
+        if endpoint is not None: self._validate_endpoint(endpoint, "endpoint")
         self._ensure_not_exists("battery", battery_id, "Battery")
-        battery = Battery(
-            id=battery_id,
-            name=name,
-            endpoint=endpoint,
-            p_mw=p_mw,
-            q_mvar=q_mvar,
-            max_charge_mw=max_charge_mw,
-            max_discharge_mw=max_discharge_mw,
-            energy_capacity_mwh=energy_capacity_mwh,
-            soc=soc,
-            soc_min=soc_min,
-            soc_max=soc_max,
-            in_service=in_service,
-        )
+        battery = Battery(id=battery_id, name=name, endpoint=endpoint, p_mw=p_mw, q_mvar=q_mvar, max_charge_mw=max_charge_mw, max_discharge_mw=max_discharge_mw, energy_capacity_mwh=energy_capacity_mwh, soc=soc, soc_min=soc_min, soc_max=soc_max, in_service=in_service)
         self._network.add_battery(battery)
         transaction.record_undo(lambda battery=battery: self._network.remove_battery(battery))
         return self._success(battery, "battery", battery_id, f"Battery created: {battery_id}")
 
-    def update_battery(
-        self,
-        *,
-        battery_id: str,
-        name: str | None = None,
-        p_mw: float | None = None,
-        q_mvar: float | None = None,
-        max_charge_mw: float | None = None,
-        max_discharge_mw: float | None = None,
-        energy_capacity_mwh: float | None = None,
-        soc: float | None = None,
-        soc_min: float | None = None,
-        soc_max: float | None = None,
-        in_service: bool | None = None,
-        transaction: Transaction,
-    ) -> ApplicationResult[Battery]:
-        self._require_transaction(transaction)
-        self._require_id(battery_id, "battery_id")
-        battery = self._get_required("battery", battery_id, "Battery")
-        self._require_type(battery, Battery, battery_id, "Battery")
-        values = (
-            name, p_mw, q_mvar, max_charge_mw, max_discharge_mw,
-            energy_capacity_mwh, soc, soc_min, soc_max, in_service,
-        )
+    def update_battery(self, *, battery_id: str, name: str | None = None, p_mw: float | None = None, q_mvar: float | None = None, max_charge_mw: float | None = None, max_discharge_mw: float | None = None, energy_capacity_mwh: float | None = None, soc: float | None = None, soc_min: float | None = None, soc_max: float | None = None, in_service: bool | None = None, transaction: Transaction) -> ApplicationResult[Battery]:
+        self._require_transaction(transaction); self._require_id(battery_id, "battery_id")
+        battery = self._get_required("battery", battery_id, "Battery"); self._require_type(battery, Battery, battery_id, "Battery")
+        values = (name, p_mw, q_mvar, max_charge_mw, max_discharge_mw, energy_capacity_mwh, soc, soc_min, soc_max, in_service)
         if all(value is None for value in values):
-            raise DomainError(
-                code="NO_BATTERY_UPDATE",
-                message="At least one mutable Battery property must be specified.",
-                details={"battery_id": battery_id},
-            )
-        old = {
-            "name": battery.name,
-            "p_mw": battery.p_mw,
-            "q_mvar": battery.q_mvar,
-            "max_charge_mw": battery.max_charge_mw,
-            "max_discharge_mw": battery.max_discharge_mw,
-            "energy_capacity_mwh": battery.energy_capacity_mwh,
-            "soc": battery.soc,
-            "soc_min": battery.soc_min,
-            "soc_max": battery.soc_max,
-            "in_service": battery.in_service,
-        }
+            raise DomainError(code="NO_BATTERY_UPDATE", message="At least one mutable Battery property must be specified.", details={"battery_id": battery_id})
+        old = {"name": battery.name, "p_mw": battery.p_mw, "q_mvar": battery.q_mvar, "max_charge_mw": battery.max_charge_mw, "max_discharge_mw": battery.max_discharge_mw, "energy_capacity_mwh": battery.energy_capacity_mwh, "soc": battery.soc, "soc_min": battery.soc_min, "soc_max": battery.soc_max, "in_service": battery.in_service}
         if name is not None: battery.name = name
         if p_mw is not None: battery.p_mw = p_mw
         if q_mvar is not None: battery.q_mvar = q_mvar
@@ -119,24 +54,22 @@ class BatteryModelService(ModelServiceSupport):
 
         def restore() -> None:
             battery.name = old["name"]
-            battery._p_mw = old["p_mw"]
-            battery._q_mvar = old["q_mvar"]
-            battery._max_charge_mw = old["max_charge_mw"]
-            battery._max_discharge_mw = old["max_discharge_mw"]
-            battery._energy_capacity_mwh = old["energy_capacity_mwh"]
-            battery._soc_min = old["soc_min"]
-            battery._soc_max = old["soc_max"]
-            battery._soc = old["soc"]
+            battery.max_charge_mw = old["max_charge_mw"]
+            battery.max_discharge_mw = old["max_discharge_mw"]
+            battery.p_mw = old["p_mw"]
+            battery.q_mvar = old["q_mvar"]
+            battery.energy_capacity_mwh = old["energy_capacity_mwh"]
+            battery.soc_min = old["soc_min"]
+            battery.soc_max = old["soc_max"]
+            battery.soc = old["soc"]
             battery.in_service = old["in_service"]
 
         transaction.record_undo(restore)
         return self._success(battery, "battery", battery_id, f"Battery updated: {battery_id}")
 
     def delete_battery(self, *, battery_id: str, transaction: Transaction) -> ApplicationResult[Battery]:
-        self._require_transaction(transaction)
-        self._require_id(battery_id, "battery_id")
-        battery = self._get_required("battery", battery_id, "Battery")
-        self._require_type(battery, Battery, battery_id, "Battery")
+        self._require_transaction(transaction); self._require_id(battery_id, "battery_id")
+        battery = self._get_required("battery", battery_id, "Battery"); self._require_type(battery, Battery, battery_id, "Battery")
         self._network.remove_battery(battery)
         transaction.record_undo(lambda battery=battery: self._network.add_battery(battery))
         return self._success(battery, "battery", battery_id, f"Battery deleted: {battery_id}")
@@ -147,17 +80,9 @@ class BatteryModelService(ModelServiceSupport):
     def take_battery_out_of_service(self, *, battery_id: str, transaction: Transaction) -> ApplicationResult[Battery]:
         return self._set_battery_service(battery_id=battery_id, in_service=False, transaction=transaction)
 
-    def _set_battery_service(
-        self,
-        *,
-        battery_id: str,
-        in_service: bool,
-        transaction: Transaction,
-    ) -> ApplicationResult[Battery]:
-        self._require_transaction(transaction)
-        self._require_id(battery_id, "battery_id")
-        battery = self._get_required("battery", battery_id, "Battery")
-        self._require_type(battery, Battery, battery_id, "Battery")
+    def _set_battery_service(self, *, battery_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Battery]:
+        self._require_transaction(transaction); self._require_id(battery_id, "battery_id")
+        battery = self._get_required("battery", battery_id, "Battery"); self._require_type(battery, Battery, battery_id, "Battery")
         old = battery.in_service
         battery.in_service = in_service
         transaction.record_undo(lambda battery=battery, old=old: setattr(battery, "in_service", old))
