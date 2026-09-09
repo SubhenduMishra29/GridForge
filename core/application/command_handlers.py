@@ -16,6 +16,13 @@ from .commands.capacitor_commands import (
     CREATE_CAPACITOR, UPDATE_CAPACITOR, DELETE_CAPACITOR,
     PUT_CAPACITOR_IN_SERVICE, TAKE_CAPACITOR_OUT_OF_SERVICE,
 )
+from .commands.measurement_commands import (
+    CREATE_CURRENT_TRANSFORMER, UPDATE_CURRENT_TRANSFORMER, DELETE_CURRENT_TRANSFORMER,
+    PUT_CURRENT_TRANSFORMER_IN_SERVICE, TAKE_CURRENT_TRANSFORMER_OUT_OF_SERVICE,
+    CREATE_CAPACITIVE_VOLTAGE_TRANSFORMER, UPDATE_CAPACITIVE_VOLTAGE_TRANSFORMER,
+    DELETE_CAPACITIVE_VOLTAGE_TRANSFORMER, PUT_CAPACITIVE_VOLTAGE_TRANSFORMER_IN_SERVICE,
+    TAKE_CAPACITIVE_VOLTAGE_TRANSFORMER_OUT_OF_SERVICE,
+)
 
 Handler = Callable[[Command, Any, Transaction], ApplicationResult[Any]]
 
@@ -38,6 +45,16 @@ class ModelCommandHandlers:
             CREATE_CAPACITOR: self.create_capacitor, UPDATE_CAPACITOR: self.update_capacitor,
             DELETE_CAPACITOR: self.delete_capacitor, PUT_CAPACITOR_IN_SERVICE: self.put_capacitor_in_service,
             TAKE_CAPACITOR_OUT_OF_SERVICE: self.take_capacitor_out_of_service,
+            CREATE_CURRENT_TRANSFORMER: self.create_current_transformer,
+            UPDATE_CURRENT_TRANSFORMER: self.update_current_transformer,
+            DELETE_CURRENT_TRANSFORMER: self.delete_current_transformer,
+            PUT_CURRENT_TRANSFORMER_IN_SERVICE: self.put_current_transformer_in_service,
+            TAKE_CURRENT_TRANSFORMER_OUT_OF_SERVICE: self.take_current_transformer_out_of_service,
+            CREATE_CAPACITIVE_VOLTAGE_TRANSFORMER: self.create_capacitive_voltage_transformer,
+            UPDATE_CAPACITIVE_VOLTAGE_TRANSFORMER: self.update_capacitive_voltage_transformer,
+            DELETE_CAPACITIVE_VOLTAGE_TRANSFORMER: self.delete_capacitive_voltage_transformer,
+            PUT_CAPACITIVE_VOLTAGE_TRANSFORMER_IN_SERVICE: self.put_capacitive_voltage_transformer_in_service,
+            TAKE_CAPACITIVE_VOLTAGE_TRANSFORMER_OUT_OF_SERVICE: self.take_capacitive_voltage_transformer_out_of_service,
         }
 
     def create_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
@@ -108,6 +125,45 @@ class ModelCommandHandlers:
 
     def take_capacitor_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         return self._shunt_service().take_capacitor_out_of_service(capacitor_id=command.payload["capacitor_id"], transaction=transaction)
+
+    def _measurement_service(self) -> Any:
+        return self._model_service.measurement_service
+
+    def create_current_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        p = command.payload
+        resolve = lambda key: EndpointResolver.resolve(context, p[key]) if p[key] is not None else None
+        return self._measurement_service().create_current_transformer(ct_id=p["transformer_id"], name=p["name"], primary_rated_current_a=p["primary_rated_current_a"], secondary_rated_current_a=p["secondary_rated_current_a"], burden_va=p["burden_va"], accuracy_class=p["accuracy_class"], frequency_hz=p["frequency_hz"], polarity=p["polarity"], in_service=p["in_service"], p1_endpoint=resolve("p1_endpoint"), p2_endpoint=resolve("p2_endpoint"), s1_endpoint=resolve("s1_endpoint"), s2_endpoint=resolve("s2_endpoint"), transaction=transaction)
+
+    def update_current_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        p = command.payload
+        return self._measurement_service().update_current_transformer(ct_id=p["transformer_id"], name=p["name"], primary_rated_current_a=p["primary_rated_current_a"], secondary_rated_current_a=p["secondary_rated_current_a"], burden_va=p["burden_va"], accuracy_class=p["accuracy_class"], frequency_hz=p["frequency_hz"], polarity=p["polarity"], in_service=p["in_service"], transaction=transaction)
+
+    def delete_current_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._measurement_service().delete_current_transformer(ct_id=command.payload["transformer_id"], transaction=transaction)
+
+    def put_current_transformer_in_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._measurement_service().put_current_transformer_in_service(ct_id=command.payload["transformer_id"], transaction=transaction)
+
+    def take_current_transformer_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._measurement_service().take_current_transformer_out_of_service(ct_id=command.payload["transformer_id"], transaction=transaction)
+
+    def create_capacitive_voltage_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        p = command.payload
+        resolve = lambda key: EndpointResolver.resolve(context, p[key]) if p[key] is not None else None
+        return self._measurement_service().create_capacitive_voltage_transformer(cvt_id=p["transformer_id"], name=p["name"], rated_primary_voltage_kv=p["rated_primary_voltage_kv"], rated_secondary_voltage_v=p["rated_secondary_voltage_v"], accuracy_class=p["accuracy_class"], rated_burden_va=p["rated_burden_va"], polarity=p["polarity"], frequency_hz=p["frequency_hz"], in_service=p["in_service"], h1_endpoint=resolve("h1_endpoint"), h2_endpoint=resolve("h2_endpoint"), x1_endpoint=resolve("x1_endpoint"), x2_endpoint=resolve("x2_endpoint"), transaction=transaction)
+
+    def update_capacitive_voltage_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        p = command.payload
+        return self._measurement_service().update_capacitive_voltage_transformer(cvt_id=p["transformer_id"], name=p["name"], rated_primary_voltage_kv=p["rated_primary_voltage_kv"], rated_secondary_voltage_v=p["rated_secondary_voltage_v"], accuracy_class=p["accuracy_class"], rated_burden_va=p["rated_burden_va"], polarity=p["polarity"], frequency_hz=p["frequency_hz"], in_service=p["in_service"], transaction=transaction)
+
+    def delete_capacitive_voltage_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._measurement_service().delete_capacitive_voltage_transformer(cvt_id=command.payload["transformer_id"], transaction=transaction)
+
+    def put_capacitive_voltage_transformer_in_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._measurement_service().put_capacitive_voltage_transformer_in_service(cvt_id=command.payload["transformer_id"], transaction=transaction)
+
+    def take_capacitive_voltage_transformer_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._measurement_service().take_capacitive_voltage_transformer_out_of_service(cvt_id=command.payload["transformer_id"], transaction=transaction)
 
 
 def build_model_command_handlers(model_service: Any) -> Mapping[str, Handler]:
