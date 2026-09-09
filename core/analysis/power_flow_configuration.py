@@ -76,12 +76,9 @@ class PowerFlowStudyConfiguration:
         cls,
         bus_types: Mapping[str, PowerFlowBusType | str],
         *,
-        slack_bus_id: str,
         base_mva: float,
     ) -> "PowerFlowStudyConfiguration":
         """Create a configuration from an explicit bus-ID/type mapping."""
-        if not isinstance(slack_bus_id, str) or not slack_bus_id:
-            raise ValueError("slack_bus_id must be a non-empty string.")
         return cls(bus_types=bus_types, base_mva=base_mva)
 
     @property
