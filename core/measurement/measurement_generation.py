@@ -11,8 +11,8 @@ transforms them through authoritative physical measurement-source
 characteristics before updating a logical ``MeasurementChannel``.
 
 The boundary deliberately does not calculate power flow, line flow,
-transformer flow, or short circuit quantities.  It also does not resolve
-network topology.  Correlation is prepared before this boundary and a
+transformer flow, or short circuit quantities. It also does not resolve
+network topology. Correlation is prepared before this boundary and a
 Power Flow numerical index is obtained only from ``PowerFlowInput`` at
 execution time.
 """
@@ -34,7 +34,7 @@ class PreparedMeasurementContext:
     """Immutable, correlation-complete input to Measurement Generation.
 
     ``quantity`` deliberately retains the concrete existing analysis result
-    object.  No generic electrical-quantity abstraction is introduced.
+    object. No generic electrical-quantity abstraction is introduced.
     ``bus_index`` is intentionally absent because numerical indices are an
     execution-time concern of the numerical analysis boundary.
     """
@@ -141,14 +141,16 @@ class MeasurementGeneration:
         channel: MeasurementChannel,
         quantity_key: str,
     ) -> float | complex:
-        """Consume an established short-circuit fault quantity only at its fault location."""
+        """Consume an established short-circuit fault quantity at its fault location."""
         self._validate_source(context, source)
         self._validate_channel(channel)
         if not isinstance(context.quantity, ShortCircuitResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit fault quantity")
             )
-        if quantity_key not in self._SHORT_CIRCUIT_KEYS:
+
+        root_key, member_key = self._split_short_circuit_key(quantity_key)
+        if root_key not in self._SHORT_CIRCUIT_KEYS:
             raise UnsupportedMeasurementQuantity(
                 f"Unsupported short-circuit mapping for source_id={context.source_id!r}, "
                 f"source_terminal={context.source_terminal!r}, quantity family={quantity_key!r}: "
@@ -162,16 +164,44 @@ class MeasurementGeneration:
                 f"source_terminal={context.source_terminal!r}: physical measurement source bus "
                 f"{context.bus_id!r} does not correspond to fault location {result.fault_bus_id!r}."
             )
-        if quantity_key not in result.values:
+        if root_key not in result.values:
             raise UnsupportedMeasurementQuantity(
-                f"Short-circuit quantity {quantity_key!r} is not present in the existing result for "
+                f"Short-circuit quantity {root_key!r} is not present in the existing result for "
                 f"source_id={context.source_id!r}, source_terminal={context.source_terminal!r}."
             )
 
-        raw = result.values[quantity_key]
-        value = self._transform_short_circuit_value(raw, source)
+        raw = result.values[root_key]
+        if isinstance(raw, dict):
+            if member_key is None:
+                raise UnsupportedMeasurementQuantity(
+                    f"Short-circuit quantity family {root_key!r} is aggregate; a specific existing "
+                    "phase/sequence member is required by MeasurementChannel."
+                )
+            if member_key not in raw:
+                raise UnsupportedMeasurementQuantity(
+                    f"Short-circuit quantity {quantity_key!r} is not present in the existing result for "
+                    f"source_id={context.source_id!r}, source_terminal={context.source_terminal!r}."
+                )
+            raw = raw[member_key]
+        elif member_key is not None:
+            raise UnsupportedMeasurementQuantity(
+                f"Short-circuit quantity {quantity_key!r} does not identify an existing scalar result."
+            )
+
+        value = raw / self._ratio(source, "current")
+        value = self._apply_ct_polarity(value, source)
         channel.update(value, available=bool(getattr(source, "in_service", True)))
         return value
+
+    @staticmethod
+    def _split_short_circuit_key(quantity_key: str) -> tuple[str, str | None]:
+        if not isinstance(quantity_key, str) or not quantity_key.strip():
+            raise ValueError("quantity_key must be a non-empty string.")
+        normalized = quantity_key.strip()
+        if "." not in normalized:
+            return normalized, None
+        root, member = normalized.split(".", 1)
+        return root, member
 
     @staticmethod
     def _line_current(
@@ -231,13 +261,6 @@ class MeasurementGeneration:
         raise ValueError(
             "Authoritative CT source must expose a supported physical polarity convention."
         )
-
-    @staticmethod
-    def _transform_short_circuit_value(raw: Any, source: Any) -> float | complex:
-        ratio = MeasurementGeneration._ratio(source, "current")
-        if isinstance(raw, dict):
-            return {key: value / ratio for key, value in raw.items()}  # type: ignore[return-value]
-        return raw / ratio
 
     @staticmethod
     def _validate_source(context: PreparedMeasurementContext, source: Any) -> None:
