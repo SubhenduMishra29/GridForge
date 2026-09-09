@@ -6,6 +6,7 @@ from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
 from core.errors import DomainError
+from core.model.breaker import Breaker
 from core.model.bus import Bus
 from core.model.disconnector import Disconnector
 from core.model.fuse import Fuse
@@ -43,15 +44,11 @@ class SwitchingModelService(ModelServiceSupport):
         if endpoint_b is not None:
             self._validate_endpoint(endpoint_b, "endpoint_b")
         if endpoint_a is not None and endpoint_b is not None:
-            self._require_distinct_endpoints(
-                endpoint_a, endpoint_b, "INVALID_SWITCH_ENDPOINTS", "Switch", switch_id
-            )
+            self._require_distinct_endpoints(endpoint_a, endpoint_b, "INVALID_SWITCH_ENDPOINTS", "Switch", switch_id)
         self._ensure_not_exists("switch", switch_id, "Switch")
-        switch = Switch(
-            id=switch_id, name=name, endpoint_a=endpoint_a, endpoint_b=endpoint_b,
-            closed=closed, in_service=in_service, normally_closed=normally_closed,
-            rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a,
-        )
+        switch = Switch(id=switch_id, name=name, endpoint_a=endpoint_a, endpoint_b=endpoint_b,
+                        closed=closed, in_service=in_service, normally_closed=normally_closed,
+                        rated_voltage_kv=rated_voltage_kv, rated_current_a=rated_current_a)
         self._network.add_switch(switch)
         transaction.record_undo(lambda switch=switch: self._network.remove_switch(switch))
         return self._success(switch, "switch", switch_id, f"Switch created: {switch_id}")
@@ -62,10 +59,8 @@ class SwitchingModelService(ModelServiceSupport):
         normally_closed: bool | None = None, rated_voltage_kv: float | None = None,
         rated_current_a: float | None = None, transaction: Transaction,
     ) -> ApplicationResult[Switch]:
-        self._require_transaction(transaction)
-        self._require_id(switch_id, "switch_id")
-        switch = self._get_required("switch", switch_id, "Switch")
-        self._require_type(switch, Switch, switch_id, "Switch")
+        self._require_transaction(transaction); self._require_id(switch_id, "switch_id")
+        switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch")
         if all(v is None for v in (name, closed, in_service, normally_closed, rated_voltage_kv, rated_current_a)):
             raise DomainError(code="NO_SWITCH_UPDATE", message="At least one mutable Switch property must be specified.", details={"switch_id": switch_id})
         old = {"name": switch.name, "closed": switch.closed, "in_service": switch.in_service,
@@ -86,8 +81,7 @@ class SwitchingModelService(ModelServiceSupport):
 
     def delete_switch(self, *, switch_id: str, transaction: Transaction) -> ApplicationResult[Switch]:
         self._require_transaction(transaction); self._require_id(switch_id, "switch_id")
-        switch = self._get_required("switch", switch_id, "Switch")
-        self._require_type(switch, Switch, switch_id, "Switch")
+        switch = self._get_required("switch", switch_id, "Switch"); self._require_type(switch, Switch, switch_id, "Switch")
         self._network.remove_switch(switch)
         transaction.record_undo(lambda switch=switch: self._network.add_switch(switch))
         return self._success(switch, "switch", switch_id, f"Switch deleted: {switch_id}")
@@ -117,6 +111,101 @@ class SwitchingModelService(ModelServiceSupport):
         old = switch.in_service; switch.set_in_service(in_service)
         transaction.record_undo(lambda switch=switch, old=old: switch.set_in_service(old))
         return self._success(switch, "switch", switch_id, f"Switch {'put in service' if in_service else 'taken out of service'}: {switch_id}")
+
+    # ------------------------------------------------------------------
+    # Breaker
+    # ------------------------------------------------------------------
+
+    def create_breaker(
+        self, *, breaker_id: str, endpoint_from: Bus | Terminal | None = None,
+        endpoint_to: Bus | Terminal | None = None, name: str = "",
+        in_service: bool = True, closed: bool = True, failed: bool = False,
+        voltage_kv: float | None = None, current_a: float | None = None,
+        interrupting_ka: float | None = None, transaction: Transaction,
+    ) -> ApplicationResult[Breaker]:
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
+        if endpoint_from is not None: self._validate_endpoint(endpoint_from, "endpoint_from")
+        if endpoint_to is not None: self._validate_endpoint(endpoint_to, "endpoint_to")
+        if endpoint_from is not None and endpoint_to is not None:
+            self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_BREAKER_ENDPOINTS", "Breaker", breaker_id)
+        self._ensure_not_exists("breaker", breaker_id, "Breaker")
+        breaker = Breaker(id=breaker_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to,
+                          name=name, in_service=in_service, closed=closed, failed=failed,
+                          voltage_kv=voltage_kv, current_a=current_a, interrupting_ka=interrupting_ka)
+        self._network.add_breaker(breaker)
+        transaction.record_undo(lambda breaker=breaker: self._network.remove_breaker(breaker))
+        return self._success(breaker, "breaker", breaker_id, f"Breaker created: {breaker_id}")
+
+    def update_breaker(
+        self, *, breaker_id: str, name: str | None = None,
+        in_service: bool | None = None, closed: bool | None = None,
+        failed: bool | None = None, voltage_kv: float | None = None,
+        current_a: float | None = None, interrupting_ka: float | None = None,
+        transaction: Transaction,
+    ) -> ApplicationResult[Breaker]:
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
+        breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker")
+        if all(v is None for v in (name, in_service, closed, failed, voltage_kv, current_a, interrupting_ka)):
+            raise DomainError(code="NO_BREAKER_UPDATE", message="At least one mutable Breaker property must be specified.", details={"breaker_id": breaker_id})
+        old = {"name": breaker.name, "in_service": breaker.in_service, "closed": breaker.closed,
+               "failed": breaker.failed, "voltage_kv": breaker.voltage_kv,
+               "current_a": breaker.current_a, "interrupting_ka": breaker.interrupting_ka}
+        if name is not None: breaker.name = name
+        if in_service is not None: breaker.in_service = in_service
+        if closed is not None: breaker.closed = closed
+        if failed is not None: breaker.failed = failed
+        if voltage_kv is not None: breaker.voltage_kv = voltage_kv
+        if current_a is not None: breaker.current_a = current_a
+        if interrupting_ka is not None: breaker.interrupting_ka = interrupting_ka
+        def restore() -> None:
+            breaker.name = old["name"]; breaker.in_service = old["in_service"]
+            breaker.closed = old["closed"]; breaker.failed = old["failed"]
+            breaker.voltage_kv = old["voltage_kv"]; breaker.current_a = old["current_a"]
+            breaker.interrupting_ka = old["interrupting_ka"]
+        transaction.record_undo(restore)
+        return self._success(breaker, "breaker", breaker_id, f"Breaker updated: {breaker_id}")
+
+    def delete_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
+        breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker")
+        self._network.remove_breaker(breaker)
+        transaction.record_undo(lambda breaker=breaker: self._network.add_breaker(breaker))
+        return self._success(breaker, "breaker", breaker_id, f"Breaker deleted: {breaker_id}")
+
+    def open_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
+        return self._set_breaker_closed(breaker_id=breaker_id, closed=False, transaction=transaction)
+
+    def close_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
+        return self._set_breaker_closed(breaker_id=breaker_id, closed=True, transaction=transaction)
+
+    def put_breaker_in_service(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
+        return self._set_breaker_service(breaker_id=breaker_id, in_service=True, transaction=transaction)
+
+    def take_breaker_out_of_service(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
+        return self._set_breaker_service(breaker_id=breaker_id, in_service=False, transaction=transaction)
+
+    def trip_breaker(self, *, breaker_id: str, transaction: Transaction) -> ApplicationResult[Breaker]:
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
+        breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker")
+        old = breaker.closed; breaker.trip()
+        transaction.record_undo(lambda breaker=breaker, old=old: breaker.close() if old else breaker.open())
+        return self._success(breaker, "breaker", breaker_id, f"Breaker tripped: {breaker_id}")
+
+    def _set_breaker_closed(self, *, breaker_id: str, closed: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
+        breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker")
+        old = breaker.closed
+        if closed: breaker.close()
+        else: breaker.open()
+        transaction.record_undo(lambda breaker=breaker, old=old: breaker.close() if old else breaker.open())
+        return self._success(breaker, "breaker", breaker_id, f"Breaker {'closed' if closed else 'opened'}: {breaker_id}")
+
+    def _set_breaker_service(self, *, breaker_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Breaker]:
+        self._require_transaction(transaction); self._require_id(breaker_id, "breaker_id")
+        breaker = self._get_required("breaker", breaker_id, "Breaker"); self._require_type(breaker, Breaker, breaker_id, "Breaker")
+        old = breaker.in_service; breaker.in_service = in_service
+        transaction.record_undo(lambda breaker=breaker, old=old: setattr(breaker, "in_service", old))
+        return self._success(breaker, "breaker", breaker_id, f"Breaker {'put in service' if in_service else 'taken out of service'}: {breaker_id}")
 
     def create_disconnector(
         self, *, disconnector_id: str, voltage_kv: float, rated_current_a: float,
