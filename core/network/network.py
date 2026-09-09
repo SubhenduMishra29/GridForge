@@ -87,6 +87,10 @@ class Network:
         if bus_membership:
             self.index.invalidate()
 
+    def invalidate_topology(self) -> None:
+        """Invalidate derived topology after topology-affecting Core state changes."""
+        self._invalidate_topology()
+
     def _add(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
         method(element)
         if affects_topology:
