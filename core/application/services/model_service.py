@@ -12,8 +12,12 @@ from core.application.services.grid_model_service import GridModelService
 from core.application.services.line_model_service import LineModelService
 from core.application.services.load_model_service import LoadModelService
 from core.application.services.measurement_model_service import MeasurementModelService
+from core.application.services.motor_model_service import MotorModelService
 from core.application.services.pt_model_service import PTModelService
+from core.application.services.reactor_model_service import ReactorModelService
 from core.application.services.shunt_model_service import ShuntModelService
+from core.application.services.solar_model_service import SolarModelService
+from core.application.services.synchronous_machine_model_service import SynchronousMachineModelService
 from core.application.services.switching_model_service import SwitchingModelService
 from core.application.services.transformer_model_service import TransformerModelService
 from core.application.transaction import Transaction
@@ -32,8 +36,12 @@ class ModelService(ModelServiceSupport):
         self._bus_service = BusModelService(network)
         self._grid_service = GridModelService(network)
         self._generator_service = GeneratorModelService(network)
+        self._synchronous_machine_service = SynchronousMachineModelService(network)
         self._load_service = LoadModelService(network)
+        self._motor_service = MotorModelService(network)
         self._shunt_service = ShuntModelService(network)
+        self._reactor_service = ReactorModelService(network)
+        self._solar_service = SolarModelService(network)
         self._line_service = LineModelService(network)
         self._transformer_service = TransformerModelService(network)
         self._cable_service = CableModelService(network)
@@ -49,9 +57,17 @@ class ModelService(ModelServiceSupport):
     @property
     def generator_service(self): return self._generator_service
     @property
+    def synchronous_machine_service(self): return self._synchronous_machine_service
+    @property
     def load_service(self): return self._load_service
     @property
+    def motor_service(self): return self._motor_service
+    @property
     def shunt_service(self): return self._shunt_service
+    @property
+    def reactor_service(self): return self._reactor_service
+    @property
+    def solar_service(self): return self._solar_service
     @property
     def measurement_service(self): return self._measurement_service
     @property
@@ -76,12 +92,24 @@ class ModelService(ModelServiceSupport):
     def create_generator(self, **kwargs): return self._generator_service.create_generator(**kwargs)
     def update_generator(self, **kwargs): return self._generator_service.update_generator(**kwargs)
     def delete_generator(self, **kwargs): return self._generator_service.delete_generator(**kwargs)
+    def create_synchronous_machine(self, **kwargs): return self._synchronous_machine_service.create_synchronous_machine(**kwargs)
+    def update_synchronous_machine(self, **kwargs): return self._synchronous_machine_service.update_synchronous_machine(**kwargs)
+    def delete_synchronous_machine(self, **kwargs): return self._synchronous_machine_service.delete_synchronous_machine(**kwargs)
     def create_load(self, **kwargs): return self._load_service.create_load(**kwargs)
     def update_load(self, **kwargs): return self._load_service.update_load(**kwargs)
     def delete_load(self, **kwargs): return self._load_service.delete_load(**kwargs)
+    def create_motor(self, **kwargs): return self._motor_service.create_motor(**kwargs)
+    def update_motor(self, **kwargs): return self._motor_service.update_motor(**kwargs)
+    def delete_motor(self, **kwargs): return self._motor_service.delete_motor(**kwargs)
     def create_shunt(self, **kwargs): return self._shunt_service.create_shunt(**kwargs)
     def update_shunt(self, **kwargs): return self._shunt_service.update_shunt(**kwargs)
     def delete_shunt(self, **kwargs): return self._shunt_service.delete_shunt(**kwargs)
+    def create_reactor(self, **kwargs): return self._reactor_service.create_reactor(**kwargs)
+    def update_reactor(self, **kwargs): return self._reactor_service.update_reactor(**kwargs)
+    def delete_reactor(self, **kwargs): return self._reactor_service.delete_reactor(**kwargs)
+    def create_solar(self, **kwargs): return self._solar_service.create_solar(**kwargs)
+    def update_solar(self, **kwargs): return self._solar_service.update_solar(**kwargs)
+    def delete_solar(self, **kwargs): return self._solar_service.delete_solar(**kwargs)
     def create_capacitor(self, **kwargs): return self._shunt_service.create_capacitor(**kwargs)
     def update_capacitor(self, **kwargs): return self._shunt_service.update_capacitor(**kwargs)
     def delete_capacitor(self, **kwargs): return self._shunt_service.delete_capacitor(**kwargs)
