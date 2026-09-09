@@ -20,7 +20,7 @@ execution time.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
@@ -29,12 +29,20 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.result import ShortCircuitResult
 
 
+MeasurementQuantity: TypeAlias = (
+    LineFlowResult
+    | TransformerFlowResult
+    | PowerFlowResult
+    | ShortCircuitResult
+)
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedMeasurementContext:
     """Immutable, correlation-complete input to Measurement Generation.
 
-    ``quantity`` deliberately retains the concrete existing analysis result
-    object. No generic electrical-quantity abstraction is introduced.
+    ``quantity`` retains one of the repository's existing analysis/result
+    contracts. No generic electrical-quantity object is introduced.
     ``bus_index`` is intentionally absent because numerical indices are an
     execution-time concern of the numerical analysis boundary.
     """
@@ -43,7 +51,7 @@ class PreparedMeasurementContext:
     source_terminal: str
     bus_id: str
     electrical_side: str | None
-    quantity: Any
+    quantity: MeasurementQuantity
 
     def __post_init__(self) -> None:
         for name in ("source_id", "source_terminal", "bus_id"):
@@ -53,8 +61,14 @@ class PreparedMeasurementContext:
         if self.electrical_side is not None:
             if not isinstance(self.electrical_side, str) or not self.electrical_side.strip():
                 raise ValueError("electrical_side must be None or a non-empty string.")
-        if self.quantity is None:
-            raise ValueError("quantity must contain an existing analysis-domain result.")
+        if not isinstance(
+            self.quantity,
+            (LineFlowResult, TransformerFlowResult, PowerFlowResult, ShortCircuitResult),
+        ):
+            raise TypeError(
+                "quantity must be an existing LineFlowResult, TransformerFlowResult, "
+                "PowerFlowResult, or ShortCircuitResult."
+            )
 
 
 class UnsupportedMeasurementQuantity(ValueError):
@@ -290,6 +304,7 @@ class MeasurementGeneration:
 
 __all__ = [
     "MeasurementGeneration",
+    "MeasurementQuantity",
     "PreparedMeasurementContext",
     "UnsupportedMeasurementQuantity",
 ]
