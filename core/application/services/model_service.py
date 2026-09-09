@@ -2,8 +2,8 @@
 
 ModelService preserves the public application mutation API while routing each
 owned domain to its dedicated model service. The facade contains no domain
-mutation logic; it preserves the existing public method signatures and
-forwards calls to the owning service.
+mutation logic; it preserves valid public method signatures and forwards calls
+to the owning service.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from __future__ import annotations
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.services.battery_model_service import BatteryModelService
-from core.application.services.branch_model_service import BranchModelService
 from core.application.services.bus_model_service import BusModelService
 from core.application.services.cable_model_service import CableModelService
 from core.application.services.generator_model_service import GeneratorModelService
@@ -23,21 +22,8 @@ from core.application.services.shunt_model_service import ShuntModelService
 from core.application.services.switching_model_service import SwitchingModelService
 from core.application.services.transformer_model_service import TransformerModelService
 from core.application.transaction import Transaction
-from core.model.battery import Battery
-from core.model.branch import Branch
 from core.model.breaker import Breaker
 from core.model.bus import Bus
-from core.model.cable import Cable
-from core.model.capacitor import Capacitor
-from core.model.disconnector import Disconnector
-from core.model.fuse import Fuse
-from core.model.generator import Generator
-from core.model.grid import Grid
-from core.model.line import Line
-from core.model.load import Load
-from core.model.shunt import Shunt
-from core.model.switch import Switch
-from core.model.terminal import Terminal
 from core.model.transformer import Transformer
 from core.network.network import Network
 
@@ -56,7 +42,6 @@ class ModelService(ModelServiceSupport):
         self._shunt_service = ShuntModelService(network)
         self._line_service = LineModelService(network)
         self._transformer_service = TransformerModelService(network)
-        self._branch_service = BranchModelService(network)
         self._cable_service = CableModelService(network)
         self._switching_service = SwitchingModelService(network)
         self._measurement_service = MeasurementModelService(network)
@@ -80,8 +65,6 @@ class ModelService(ModelServiceSupport):
     def line_service(self) -> LineModelService: return self._line_service
     @property
     def transformer_service(self) -> TransformerModelService: return self._transformer_service
-    @property
-    def branch_service(self) -> BranchModelService: return self._branch_service
     @property
     def cable_service(self) -> CableModelService: return self._cable_service
     @property
@@ -111,9 +94,6 @@ class ModelService(ModelServiceSupport):
     def delete_line(self, **kwargs): return self._line_service.delete_line(**kwargs)
     def create_transformer(self, **kwargs): return self._transformer_service.create_transformer(**kwargs)
     def delete_transformer(self, **kwargs): return self._transformer_service.delete_transformer(**kwargs)
-    def create_branch(self, **kwargs): return self._branch_service.create_branch(**kwargs)
-    def update_branch(self, **kwargs): return self._branch_service.update_branch(**kwargs)
-    def delete_branch(self, **kwargs): return self._branch_service.delete_branch(**kwargs)
     def create_cable(self, **kwargs): return self._cable_service.create_cable(**kwargs)
     def update_cable(self, **kwargs): return self._cable_service.update_cable(**kwargs)
     def delete_cable(self, **kwargs): return self._cable_service.delete_cable(**kwargs)
@@ -126,7 +106,7 @@ class ModelService(ModelServiceSupport):
     def put_switch_in_service(self, **kwargs): return self._switching_service.put_switch_in_service(**kwargs)
     def take_switch_out_of_service(self, **kwargs): return self._switching_service.take_switch_out_of_service(**kwargs)
 
-    def create_breaker(self, *, breaker_id: str, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, name: str = "", in_service: bool = True, closed: bool = True, failed: bool = False, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
+    def create_breaker(self, *, breaker_id: str, endpoint_from: Bus | None = None, endpoint_to: Bus | None = None, name: str = "", in_service: bool = True, closed: bool = True, failed: bool = False, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
         return self._switching_service.create_breaker(breaker_id=breaker_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, in_service=in_service, closed=closed, failed=failed, voltage_kv=voltage_kv, current_a=current_a, interrupting_ka=interrupting_ka, transaction=transaction)
 
     def update_breaker(self, *, breaker_id: str, name: str | None = None, in_service: bool | None = None, closed: bool | None = None, failed: bool | None = None, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
