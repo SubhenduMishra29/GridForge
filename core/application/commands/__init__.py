@@ -19,6 +19,10 @@ from .measurement_commands import (
     PutCapacitiveVoltageTransformerInServiceCommand,
     TakeCapacitiveVoltageTransformerOutOfServiceCommand,
 )
+from .pt_commands import (
+    CREATE_PT, UPDATE_PT, DELETE_PT, PUT_PT_IN_SERVICE, TAKE_PT_OUT_OF_SERVICE,
+    CreatePTCommand, UpdatePTCommand, DeletePTCommand, PutPTInServiceCommand, TakePTOutOfServiceCommand,
+)
 from .model_commands import *
 
 __all__ = [name for name in globals() if not name.startswith("_")]
