@@ -16,19 +16,16 @@ from .transaction import Transaction
 from .services.model_service import ModelService
 
 from .commands.model_commands import (
-    CREATE_BUS,
-    UPDATE_BUS,
-    DELETE_BUS,
-    CREATE_LINE,
-    DELETE_LINE,
-    CREATE_TRANSFORMER,
-    DELETE_TRANSFORMER,
-    CREATE_LOAD,
-    UPDATE_LOAD,
-    DELETE_LOAD,
-    CREATE_GRID,
-    UPDATE_GRID,
-    DELETE_GRID,
+    CREATE_BUS, UPDATE_BUS, DELETE_BUS,
+    CREATE_LINE, DELETE_LINE,
+    CREATE_TRANSFORMER, DELETE_TRANSFORMER,
+    CREATE_LOAD, UPDATE_LOAD, DELETE_LOAD,
+    CREATE_GRID, UPDATE_GRID, DELETE_GRID,
+)
+from .commands.breaker_commands import (
+    CREATE_BREAKER, UPDATE_BREAKER, DELETE_BREAKER,
+    OPEN_BREAKER, CLOSE_BREAKER,
+    PUT_BREAKER_IN_SERVICE, TAKE_BREAKER_OUT_OF_SERVICE,
 )
 
 Handler = Callable[[Command, Any, Transaction], ApplicationResult[Any]]
@@ -57,127 +54,132 @@ class ModelCommandHandlers:
             CREATE_GRID: self.create_grid,
             UPDATE_GRID: self.update_grid,
             DELETE_GRID: self.delete_grid,
+            CREATE_BREAKER: self.create_breaker,
+            UPDATE_BREAKER: self.update_breaker,
+            DELETE_BREAKER: self.delete_breaker,
+            OPEN_BREAKER: self.open_breaker,
+            CLOSE_BREAKER: self.close_breaker,
+            PUT_BREAKER_IN_SERVICE: self.put_breaker_in_service,
+            TAKE_BREAKER_OUT_OF_SERVICE: self.take_breaker_out_of_service,
         }
 
     def create_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        """Create a Core Bus using the authoritative Bus contract."""
         payload = command.payload
         return self._model_service.create_bus(
-            bus_id=payload["bus_id"],
-            name=payload["name"],
-            nominal_voltage_kv=payload["nominal_voltage_kv"],
-            voltage_pu=payload["voltage_pu"],
-            angle_deg=payload["angle_deg"],
-            frequency_hz=payload["frequency_hz"],
-            in_service=payload["in_service"],
-            transaction=transaction,
+            bus_id=payload["bus_id"], name=payload["name"],
+            nominal_voltage_kv=payload["nominal_voltage_kv"], voltage_pu=payload["voltage_pu"],
+            angle_deg=payload["angle_deg"], frequency_hz=payload["frequency_hz"],
+            in_service=payload["in_service"], transaction=transaction,
         )
 
     def update_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         payload = command.payload
         return self._model_service.update_bus(
-            bus_id=payload["bus_id"],
-            name=payload["name"],
-            nominal_voltage_kv=payload["nominal_voltage_kv"],
-            voltage_pu=payload["voltage_pu"],
-            angle_deg=payload["angle_deg"],
-            frequency_hz=payload["frequency_hz"],
-            in_service=payload["in_service"],
-            transaction=transaction,
+            bus_id=payload["bus_id"], name=payload["name"],
+            nominal_voltage_kv=payload["nominal_voltage_kv"], voltage_pu=payload["voltage_pu"],
+            angle_deg=payload["angle_deg"], frequency_hz=payload["frequency_hz"],
+            in_service=payload["in_service"], transaction=transaction,
         )
 
     def delete_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._model_service.delete_bus(
-            bus_id=command.payload["bus_id"], transaction=transaction
-        )
+        return self._model_service.delete_bus(bus_id=command.payload["bus_id"], transaction=transaction)
 
     def create_line(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         payload = command.payload
         endpoint_from = EndpointResolver.resolve(context, payload["endpoint_from"])
         endpoint_to = EndpointResolver.resolve(context, payload["endpoint_to"])
         return self._model_service.create_line(
-            line_id=payload["line_id"], endpoint_from=endpoint_from,
-            endpoint_to=endpoint_to, r=payload["r"], x=payload["x"],
-            b=payload["b"], name=payload["name"],
+            line_id=payload["line_id"], endpoint_from=endpoint_from, endpoint_to=endpoint_to,
+            r=payload["r"], x=payload["x"], b=payload["b"], name=payload["name"],
             rate_mva=payload["rate_mva"], transaction=transaction,
         )
 
     def delete_line(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._model_service.delete_line(
-            line_id=command.payload["line_id"], transaction=transaction
-        )
+        return self._model_service.delete_line(line_id=command.payload["line_id"], transaction=transaction)
 
     def create_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         payload = command.payload
         endpoint_from = EndpointResolver.resolve(context, payload["endpoint_from"])
         endpoint_to = EndpointResolver.resolve(context, payload["endpoint_to"])
         return self._model_service.create_transformer(
-            transformer_id=payload["transformer_id"],
-            endpoint_from=endpoint_from, endpoint_to=endpoint_to,
-            r=payload["r"], x=payload["x"], tap=payload["tap"],
-            shift=payload["shift"], name=payload["name"],
-            rate_mva=payload["rate_mva"], transaction=transaction,
+            transformer_id=payload["transformer_id"], endpoint_from=endpoint_from, endpoint_to=endpoint_to,
+            r=payload["r"], x=payload["x"], tap=payload["tap"], shift=payload["shift"],
+            name=payload["name"], rate_mva=payload["rate_mva"], transaction=transaction,
         )
 
     def delete_transformer(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._model_service.delete_transformer(
-            transformer_id=command.payload["transformer_id"],
-            transaction=transaction,
-        )
+        return self._model_service.delete_transformer(transformer_id=command.payload["transformer_id"], transaction=transaction)
 
     def create_load(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         payload = command.payload
-        return self._model_service.create_load(
-            load_id=payload["load_id"], p=payload["p"], q=payload["q"],
-            name=payload["name"], in_service=payload["in_service"],
-            transaction=transaction,
-        )
+        return self._model_service.create_load(load_id=payload["load_id"], p=payload["p"], q=payload["q"], name=payload["name"], in_service=payload["in_service"], transaction=transaction)
 
     def update_load(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         payload = command.payload
-        return self._model_service.update_load(
-            load_id=payload["load_id"], name=payload["name"],
-            p=payload["p"], q=payload["q"],
-            in_service=payload["in_service"], transaction=transaction,
-        )
+        return self._model_service.update_load(load_id=payload["load_id"], name=payload["name"], p=payload["p"], q=payload["q"], in_service=payload["in_service"], transaction=transaction)
 
     def delete_load(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._model_service.delete_load(
-            load_id=command.payload["load_id"], transaction=transaction
-        )
+        return self._model_service.delete_load(load_id=command.payload["load_id"], transaction=transaction)
 
     def create_grid(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         payload = command.payload
         return self._model_service.create_grid(
-            grid_id=payload["grid_id"], name=payload["name"],
-            nominal_voltage_kv=payload["nominal_voltage_kv"],
-            frequency_hz=payload["frequency_hz"], voltage_pu=payload["voltage_pu"],
-            angle_deg=payload["angle_deg"], p_mw=payload["p_mw"],
-            q_mvar=payload["q_mvar"], short_circuit_mva=payload["short_circuit_mva"],
-            x_over_r=payload["x_over_r"], z1_pu=payload["z1_pu"],
-            z2_pu=payload["z2_pu"], z0_pu=payload["z0_pu"],
-            in_service=payload["in_service"], grounded=payload["grounded"],
-            transaction=transaction,
+            grid_id=payload["grid_id"], name=payload["name"], nominal_voltage_kv=payload["nominal_voltage_kv"],
+            frequency_hz=payload["frequency_hz"], voltage_pu=payload["voltage_pu"], angle_deg=payload["angle_deg"],
+            p_mw=payload["p_mw"], q_mvar=payload["q_mvar"], short_circuit_mva=payload["short_circuit_mva"],
+            x_over_r=payload["x_over_r"], z1_pu=payload["z1_pu"], z2_pu=payload["z2_pu"], z0_pu=payload["z0_pu"],
+            in_service=payload["in_service"], grounded=payload["grounded"], transaction=transaction,
         )
 
     def update_grid(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         payload = command.payload
         return self._model_service.update_grid(
-            grid_id=payload["grid_id"], name=payload["name"],
-            nominal_voltage_kv=payload["nominal_voltage_kv"],
-            frequency_hz=payload["frequency_hz"], voltage_pu=payload["voltage_pu"],
-            angle_deg=payload["angle_deg"], p_mw=payload["p_mw"],
-            q_mvar=payload["q_mvar"], short_circuit_mva=payload["short_circuit_mva"],
-            x_over_r=payload["x_over_r"], z1_pu=payload["z1_pu"],
-            z2_pu=payload["z2_pu"], z0_pu=payload["z0_pu"],
-            in_service=payload["in_service"], grounded=payload["grounded"],
-            transaction=transaction,
+            grid_id=payload["grid_id"], name=payload["name"], nominal_voltage_kv=payload["nominal_voltage_kv"],
+            frequency_hz=payload["frequency_hz"], voltage_pu=payload["voltage_pu"], angle_deg=payload["angle_deg"],
+            p_mw=payload["p_mw"], q_mvar=payload["q_mvar"], short_circuit_mva=payload["short_circuit_mva"],
+            x_over_r=payload["x_over_r"], z1_pu=payload["z1_pu"], z2_pu=payload["z2_pu"], z0_pu=payload["z0_pu"],
+            in_service=payload["in_service"], grounded=payload["grounded"], transaction=transaction,
         )
 
     def delete_grid(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
-        return self._model_service.delete_grid(
-            grid_id=command.payload["grid_id"], transaction=transaction
+        return self._model_service.delete_grid(grid_id=command.payload["grid_id"], transaction=transaction)
+
+    def _switching_service(self) -> Any:
+        return self._model_service.switching_service
+
+    def create_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        payload = command.payload
+        endpoint_from = EndpointResolver.resolve(context, payload["endpoint_from"]) if payload["endpoint_from"] is not None else None
+        endpoint_to = EndpointResolver.resolve(context, payload["endpoint_to"]) if payload["endpoint_to"] is not None else None
+        return self._switching_service().create_breaker(
+            breaker_id=payload["breaker_id"], endpoint_from=endpoint_from, endpoint_to=endpoint_to,
+            name=payload["name"], in_service=payload["in_service"], closed=payload["closed"],
+            failed=payload["failed"], voltage_kv=payload["voltage_kv"], current_a=payload["current_a"],
+            interrupting_ka=payload["interrupting_ka"], transaction=transaction,
         )
+
+    def update_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        payload = command.payload
+        return self._switching_service().update_breaker(
+            breaker_id=payload["breaker_id"], name=payload["name"], in_service=payload["in_service"],
+            closed=payload["closed"], failed=payload["failed"], voltage_kv=payload["voltage_kv"],
+            current_a=payload["current_a"], interrupting_ka=payload["interrupting_ka"], transaction=transaction,
+        )
+
+    def delete_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().delete_breaker(breaker_id=command.payload["breaker_id"], transaction=transaction)
+
+    def open_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().open_breaker(breaker_id=command.payload["breaker_id"], transaction=transaction)
+
+    def close_breaker(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().close_breaker(breaker_id=command.payload["breaker_id"], transaction=transaction)
+
+    def put_breaker_in_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().put_breaker_in_service(breaker_id=command.payload["breaker_id"], transaction=transaction)
+
+    def take_breaker_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._switching_service().take_breaker_out_of_service(breaker_id=command.payload["breaker_id"], transaction=transaction)
 
 
 def build_model_command_handlers(model_service: Any) -> Mapping[str, Handler]:
