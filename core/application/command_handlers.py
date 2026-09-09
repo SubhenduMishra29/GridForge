@@ -23,6 +23,10 @@ from .commands.measurement_commands import (
     DELETE_CAPACITIVE_VOLTAGE_TRANSFORMER, PUT_CAPACITIVE_VOLTAGE_TRANSFORMER_IN_SERVICE,
     TAKE_CAPACITIVE_VOLTAGE_TRANSFORMER_OUT_OF_SERVICE,
 )
+from .commands.battery_commands import (
+    CREATE_BATTERY, UPDATE_BATTERY, DELETE_BATTERY,
+    PUT_BATTERY_IN_SERVICE, TAKE_BATTERY_OUT_OF_SERVICE,
+)
 
 Handler = Callable[[Command, Any, Transaction], ApplicationResult[Any]]
 
@@ -55,6 +59,11 @@ class ModelCommandHandlers:
             DELETE_CAPACITIVE_VOLTAGE_TRANSFORMER: self.delete_capacitive_voltage_transformer,
             PUT_CAPACITIVE_VOLTAGE_TRANSFORMER_IN_SERVICE: self.put_capacitive_voltage_transformer_in_service,
             TAKE_CAPACITIVE_VOLTAGE_TRANSFORMER_OUT_OF_SERVICE: self.take_capacitive_voltage_transformer_out_of_service,
+            CREATE_BATTERY: self.create_battery,
+            UPDATE_BATTERY: self.update_battery,
+            DELETE_BATTERY: self.delete_battery,
+            PUT_BATTERY_IN_SERVICE: self.put_battery_in_service,
+            TAKE_BATTERY_OUT_OF_SERVICE: self.take_battery_out_of_service,
         }
 
     def create_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
@@ -164,6 +173,38 @@ class ModelCommandHandlers:
 
     def take_capacitive_voltage_transformer_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
         return self._measurement_service().take_capacitive_voltage_transformer_out_of_service(cvt_id=command.payload["transformer_id"], transaction=transaction)
+
+    def _battery_service(self) -> Any:
+        return self._model_service.battery_service
+
+    def create_battery(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        p = command.payload
+        endpoint = EndpointResolver.resolve(context, p["endpoint"]) if p["endpoint"] is not None else None
+        return self._battery_service().create_battery(
+            battery_id=p["battery_id"], name=p["name"], endpoint=endpoint,
+            p_mw=p["p_mw"], q_mvar=p["q_mvar"], max_charge_mw=p["max_charge_mw"],
+            max_discharge_mw=p["max_discharge_mw"], energy_capacity_mwh=p["energy_capacity_mwh"],
+            soc=p["soc"], soc_min=p["soc_min"], soc_max=p["soc_max"],
+            in_service=p["in_service"], transaction=transaction,
+        )
+
+    def update_battery(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        p = command.payload
+        return self._battery_service().update_battery(
+            battery_id=p["battery_id"], name=p["name"], p_mw=p["p_mw"], q_mvar=p["q_mvar"],
+            max_charge_mw=p["max_charge_mw"], max_discharge_mw=p["max_discharge_mw"],
+            energy_capacity_mwh=p["energy_capacity_mwh"], soc=p["soc"], soc_min=p["soc_min"],
+            soc_max=p["soc_max"], in_service=p["in_service"], transaction=transaction,
+        )
+
+    def delete_battery(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._battery_service().delete_battery(battery_id=command.payload["battery_id"], transaction=transaction)
+
+    def put_battery_in_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._battery_service().put_battery_in_service(battery_id=command.payload["battery_id"], transaction=transaction)
+
+    def take_battery_out_of_service(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult[Any]:
+        return self._battery_service().take_battery_out_of_service(battery_id=command.payload["battery_id"], transaction=transaction)
 
 
 def build_model_command_handlers(model_service: Any) -> Mapping[str, Handler]:
