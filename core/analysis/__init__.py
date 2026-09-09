@@ -10,6 +10,11 @@ from __future__ import annotations
 from core.analysis.power_flow import PowerFlowAnalysis
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PowerFlowPreparation, PreparedPowerFlow
+from core.analysis.power_flow_result_conversion import (
+    EngineeringPowerFlowBusResult,
+    EngineeringPowerFlowResult,
+    PowerFlowResultConverter,
+)
 
 from core.analysis.line_flow import LineFlowCalculator, LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowCalculator
@@ -26,6 +31,9 @@ __all__ = [
     "PowerFlowStudyConfiguration",
     "PowerFlowPreparation",
     "PreparedPowerFlow",
+    "EngineeringPowerFlowBusResult",
+    "EngineeringPowerFlowResult",
+    "PowerFlowResultConverter",
     "LineFlowCalculator",
     "LineFlowResult",
     "TransformerFlowCalculator",
