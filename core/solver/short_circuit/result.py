@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import cmath
 import math
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -134,6 +133,13 @@ class ShortCircuitResult:
     fault_bus_id: Any
     success: bool
     values: Mapping[str, Any]
+    fault_current: complex | None = None
+    fault_current_magnitude: float | None = None
+    fault_current_angle_deg: float | None = None
+    sequence_currents: Mapping[str, complex] = field(default_factory=dict)
+    phase_currents: Mapping[str, complex] = field(default_factory=dict)
+    ground_current: complex | None = None
+    ground_current_magnitude: float | None = None
     source_contributions: Mapping[str, ShortCircuitSourceContribution] = field(default_factory=dict)
     equipment_currents: Mapping[str, ShortCircuitEquipmentCurrent] = field(default_factory=dict)
     branch_currents: Mapping[str, ShortCircuitBranchCurrent] = field(default_factory=dict)
@@ -142,6 +148,19 @@ class ShortCircuitResult:
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
             raise TypeError("fault_bus_index must be an integer.")
+        if self.fault_current is not None:
+            object.__setattr__(self, "fault_current", _validate_current(self.fault_current, "fault_current"))
+        if self.ground_current is not None:
+            object.__setattr__(self, "ground_current", _validate_current(self.ground_current, "ground_current"))
+        if self.fault_current is not None and self.fault_current_magnitude is not None:
+            magnitude, _ = _validate_polar(self.fault_current, self.fault_current_magnitude, self.fault_current_angle_deg if self.fault_current_angle_deg is not None else 0.0, "fault current")
+            object.__setattr__(self, "fault_current_magnitude", magnitude)
+        if self.ground_current is not None and self.ground_current_magnitude is not None:
+            supplied = float(self.ground_current_magnitude)
+            if not math.isfinite(supplied) or not math.isclose(supplied, abs(self.ground_current), rel_tol=1e-9, abs_tol=1e-12):
+                raise ValueError("ground_current_magnitude is inconsistent with ground_current.")
+        object.__setattr__(self, "sequence_currents", _freeze_complex_mapping(self.sequence_currents))
+        object.__setattr__(self, "phase_currents", _freeze_complex_mapping(self.phase_currents))
         object.__setattr__(self, "source_contributions", self._freeze_records(self.source_contributions, ShortCircuitSourceContribution, "source_contributions"))
         object.__setattr__(self, "equipment_currents", self._freeze_records(self.equipment_currents, ShortCircuitEquipmentCurrent, "equipment_currents"))
         object.__setattr__(self, "branch_currents", self._freeze_records(self.branch_currents, ShortCircuitBranchCurrent, "branch_currents"))
@@ -154,46 +173,33 @@ class ShortCircuitResult:
                 raise ValueError(f"{name} keys must be non-empty engineering identifiers.")
             if not isinstance(value, expected_type):
                 raise TypeError(f"{name} values must be {expected_type.__name__} records.")
-            if key != getattr(value, "source_id", getattr(value, "equipment_id", getattr(value, "branch_id", None))):
+            identity = getattr(value, "source_id", None) or getattr(value, "equipment_id", None) or getattr(value, "branch_id", None)
+            if key != identity:
                 raise ValueError(f"{name} key must match the record engineering identifier.")
             frozen[key] = value
         return MappingProxyType(frozen)
-
-    @property
-    def fault_current(self) -> complex | None:
-        return self._complex_value("fault_current")
-
-    @property
-    def fault_current_magnitude(self) -> float | None:
-        value = self.values.get("fault_current_magnitude")
-        return None if value is None else float(value)
-
-    @property
-    def fault_current_angle_deg(self) -> float | None:
-        value = self.values.get("fault_current_angle_deg")
-        return None if value is None else float(value)
-
-    @staticmethod
-    def _as_complex(value: Any) -> complex | None:
-        if value is None:
-            return None
-        return _validate_current(value, "fault_current")
-
-    def _complex_value(self, key: str) -> complex | None:
-        return self._as_complex(self.values.get(key))
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)
 
     def as_dict(self) -> dict[str, Any]:
         result = dict(self.values)
-        result.setdefault("fault_type", self.fault_type)
-        result.setdefault("bus_index", self.fault_bus_index)
-        result.setdefault("bus_id", self.fault_bus_id)
-        result.setdefault("success", self.success)
-        result["source_contributions"] = dict(self.source_contributions)
-        result["equipment_currents"] = dict(self.equipment_currents)
-        result["branch_currents"] = dict(self.branch_currents)
+        result.update({
+            "fault_type": self.fault_type,
+            "bus_index": self.fault_bus_index,
+            "bus_id": self.fault_bus_id,
+            "success": self.success,
+            "fault_current": self.fault_current,
+            "fault_current_magnitude": self.fault_current_magnitude,
+            "fault_current_angle_deg": self.fault_current_angle_deg,
+            "sequence_currents": dict(self.sequence_currents),
+            "phase_currents": dict(self.phase_currents),
+            "ground_current": self.ground_current,
+            "ground_current_magnitude": self.ground_current_magnitude,
+            "source_contributions": dict(self.source_contributions),
+            "equipment_currents": dict(self.equipment_currents),
+            "branch_currents": dict(self.branch_currents),
+        })
         return result
 
 
