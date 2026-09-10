@@ -7,7 +7,9 @@
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
+from scipy.sparse import csr_matrix
 
 from core.analysis.power_flow_preparation import (
     PreparedBranch,
@@ -15,7 +17,7 @@ from core.analysis.power_flow_preparation import (
     PreparedShunt,
     PreparedTransformer,
 )
-from core.numerical.ybus import YBusBuilder
+from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.power_flow.input import PowerFlowInput
 
 
@@ -33,38 +35,17 @@ def _input() -> PowerFlowInput:
 
 
 def test_prepared_branch_is_immutable_and_detached():
-    branch = PreparedBranch(
-        branch_id="L1",
-        from_bus_id="B1",
-        to_bus_id="B2",
-        r_pu=0.01,
-        x_pu=0.05,
-        b_pu=0.001,
-        in_service=True,
-    )
-
+    branch = PreparedBranch("L1", "B1", "B2", 0.01, 0.05, 0.001, True)
     assert branch.branch_id == "L1"
     assert branch.from_bus_id == "B1"
     assert branch.to_bus_id == "B2"
     assert branch.r_pu == pytest.approx(0.01)
-
     with pytest.raises(FrozenInstanceError):
         branch.r_pu = 0.02
 
 
 def test_prepared_transformer_preserves_tap_and_shift_in_numerical_snapshot():
-    transformer = PreparedTransformer(
-        branch_id="T1",
-        from_bus_id="B1",
-        to_bus_id="B2",
-        r_pu=0.01,
-        x_pu=0.08,
-        b_pu=0.0,
-        tap=1.05,
-        shift=0.125,
-        in_service=True,
-    )
-
+    transformer = PreparedTransformer("T1", "B1", "B2", 0.01, 0.08, 0.0, 1.05, 0.125, True)
     assert transformer.tap == pytest.approx(1.05)
     assert transformer.shift == pytest.approx(0.125)
 
@@ -73,11 +54,11 @@ def test_prepared_power_flow_contains_detached_branch_and_transformer_snapshots(
     branch = PreparedBranch("L1", "B1", "B2", 0.01, 0.05, 0.001, True)
     transformer = PreparedTransformer("T1", "B1", "B2", 0.02, 0.08, 0.0, 1.0, 0.0, True)
     shunt = PreparedShunt("S1", "B2", 0.0, 0.01, True)
-    placeholder_ybus = SimpleNamespace(bus_ids=("B1", "B2"))
+    ybus = YBus(csr_matrix(np.zeros((2, 2), dtype=complex)), ("B1", "B2"))
 
     prepared = PreparedPowerFlow(
         input=_input(),
-        ybus=placeholder_ybus,
+        ybus=ybus,
         base_mva=100.0,
         bus_voltage_bases={"B1": 11.0, "B2": 11.0},
         branches=(branch,),
@@ -89,6 +70,7 @@ def test_prepared_power_flow_contains_detached_branch_and_transformer_snapshots(
     assert prepared.transformers == (transformer,)
     assert prepared.shunts == (shunt,)
     assert prepared.base_mva == pytest.approx(100.0)
+    assert prepared.bus_ids == ("B1", "B2")
 
 
 def test_ybus_builder_consumes_only_prepared_pu_snapshot():
