@@ -34,7 +34,7 @@ class Project:
 
 
 class GridForgePackage:
-    """Save/load the canonical ``project.gridforge`` package."""
+    """Save/load the canonical ``.gridforge`` project package."""
 
     MANIFEST = "manifest.json"
     PROJECT = "project.json"
@@ -107,6 +107,14 @@ class GridForgePackage:
             state = cls._decode_state(spec.get("state", {}), objects)
             cls._restore_state(objects[str(object_id)], state)
 
+        for object_id, element in objects.items():
+            validate = getattr(element, "validate", None)
+            if callable(validate):
+                try:
+                    validate()
+                except Exception as exc:
+                    raise ValueError(f"Persisted object '{object_id}' failed model validation.") from exc
+
         network = Network()
         collections = payload.get("network", {}).get("collections", {})
         for element_type, ids in collections.items():
@@ -163,11 +171,14 @@ class GridForgePackage:
         names = (
             "bus", "grid", "generator", "synchronous_machine", "load", "motor",
             "shunt", "capacitor", "reactor", "solar", "battery", "current_transformer",
-            "potential_transformer", "capacitive_voltage_transformer", "line", "cable",
+            "potential_voltage_transformer", "capacitive_voltage_transformer", "line", "cable",
             "transformer", "breaker", "switch", "disconnector", "fuse",
         )
         for name in names:
-            yield name, getattr(network, f"{name}s", ())
+            if name == "potential_voltage_transformer":
+                yield "potential_transformer", network.potential_transformers
+            else:
+                yield name, getattr(network, f"{name}s", ())
 
     @classmethod
     def _encode_state(cls, value: Any) -> Any:
