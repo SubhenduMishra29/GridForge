@@ -12,18 +12,104 @@ from .control_execution import ControlExecutionResult, ControlExecutionService
 
 
 @dataclass(frozen=True, slots=True)
+class ControlDiagnostic:
+    """Structured diagnostic retaining its Control-cycle provenance."""
+
+    stage: str
+    message: str
+    control_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.stage not in {"evaluation", "blocked", "execution"}:
+            raise ValueError("stage must be evaluation, blocked, or execution.")
+        if not self.message:
+            raise ValueError("message must not be empty.")
+        if self.control_id is not None and not self.control_id:
+            raise ValueError("control_id must not be empty when provided.")
+
+
+@dataclass(frozen=True, slots=True)
 class ControlCycleResult:
     """Immutable combined report for one evaluate-and-execute cycle."""
 
     evaluation: ControlEvaluationResult
     execution: ControlExecutionResult
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.evaluation, ControlEvaluationResult):
+            raise TypeError("evaluation must be a ControlEvaluationResult.")
+        if not isinstance(self.execution, ControlExecutionResult):
+            raise TypeError("execution must be a ControlExecutionResult.")
+
+        evaluation_blocked = tuple(
+            decision.control_id for decision in self.evaluation.blocked_actions
+        )
+        execution_blocked = tuple(
+            decision.control_id for decision in self.execution.blocked_decisions
+        )
+        if evaluation_blocked != execution_blocked:
+            raise ValueError(
+                "blocked_decisions must match evaluation.blocked_actions in order."
+            )
+
     @property
     def simulation_time(self) -> float:
         return self.evaluation.simulation_time
 
     @property
+    def evaluation_diagnostics(self) -> tuple[str, ...]:
+        """Diagnostics produced while evaluating Control intent."""
+        return self.evaluation.diagnostics
+
+    @property
+    def blocked_diagnostics(self) -> tuple[tuple[str, str], ...]:
+        """Blocked/interlock diagnostics keyed to their originating Control ID."""
+        return tuple(
+            (decision.control_id, decision.diagnostic)
+            for decision in self.execution.blocked_decisions
+            if decision.diagnostic
+        )
+
+    @property
+    def execution_diagnostics(self) -> tuple[str, ...]:
+        """Diagnostics produced while dispatching commands through Application."""
+        return self.execution.diagnostics
+
+    @property
+    def execution_failure_diagnostics(self) -> tuple[tuple[str, str], ...]:
+        """Application execution failures keyed to their originating Control ID."""
+        failed_ids = tuple(decision.control_id for decision in self.execution.failed_decisions)
+        diagnostics = self.execution.diagnostics
+        return tuple(zip(failed_ids, diagnostics, strict=False))
+
+    @property
+    def diagnostic_records(self) -> tuple[ControlDiagnostic, ...]:
+        """Return all cycle diagnostics with explicit provenance."""
+        records = [
+            ControlDiagnostic(stage="evaluation", message=message)
+            for message in self.evaluation.diagnostics
+        ]
+        records.extend(
+            ControlDiagnostic(
+                stage="blocked",
+                control_id=control_id,
+                message=message,
+            )
+            for control_id, message in self.blocked_diagnostics
+        )
+        records.extend(
+            ControlDiagnostic(
+                stage="execution",
+                control_id=control_id,
+                message=message,
+            )
+            for control_id, message in self.execution_failure_diagnostics
+        )
+        return tuple(records)
+
+    @property
     def diagnostics(self) -> tuple[str, ...]:
+        """Backward-compatible flattened diagnostics view."""
         return self.evaluation.diagnostics + self.execution.diagnostics
 
 
@@ -69,4 +155,4 @@ class ControlCycleService:
         return ControlCycleResult(evaluation=evaluation, execution=execution)
 
 
-__all__ = ["ControlCycleResult", "ControlCycleService"]
+__all__ = ["ControlDiagnostic", "ControlCycleResult", "ControlCycleService"]
