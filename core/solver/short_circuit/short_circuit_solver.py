@@ -72,7 +72,8 @@ class ShortCircuitSolver:
         if self.input.fault_type is FaultType.THREE_PHASE:
             fault = complex(values["fault_current"])
             sequence = {"I1": fault, "I2": 0.0j, "I0": 0.0j}
-            phase = {"Ia": fault, "Ib": fault * cmath.exp(-1j * 2.0 * math.pi / 3.0), "Ic": fault * cmath.exp(1j * 2.0 * math.pi / 3.0)}
+            a = cmath.exp(1j * 2.0 * math.pi / 3.0)
+            phase = {"Ia": fault, "Ib": fault * a ** 2, "Ic": fault * a}
             ground = 0.0j
         else:
             ground = complex(values.get("ground_current", sum(phase.values())))
@@ -86,31 +87,27 @@ class ShortCircuitSolver:
             "ground_current_magnitude": float(abs(ground)),
         }
 
-    def _sequence_fault_currents(self, typed: dict[str, Any]) -> dict[str, complex]:
-        return dict(typed["sequence_currents"])
-
     def _bus_voltages(self, typed: dict[str, Any]) -> dict[str, np.ndarray] | None:
         snapshot = self.input.sequence_snapshot
         prefault = self.input.prefault_voltages
         if snapshot is None or prefault is None:
             return None
         prefault_vector = np.asarray(prefault, dtype=complex)
+        if len(prefault_vector) != len(self.input.bus_ids):
+            return None
         fault_index = self.input.fault_bus_index
         voltages: dict[str, np.ndarray] = {}
         sequences = ("positive",) if self.input.fault_type is FaultType.THREE_PHASE else ("positive", "negative", "zero")
-        fault_currents = self._sequence_fault_currents(typed)
+        fault_currents = typed["sequence_currents"]
+        names = {"positive": "I1", "negative": "I2", "zero": "I0"}
         for sequence in sequences:
             if not snapshot.has_matrix(sequence):
                 return None
             matrix = snapshot.get_matrix(sequence)
             base = prefault_vector if sequence == "positive" else np.zeros(len(prefault_vector), dtype=complex)
-            current = fault_currents.get({"positive": "I1", "negative": "I2", "zero": "I0"}[sequence], 0.0j)
+            current = complex(fault_currents.get(names[sequence], 0.0j))
             voltages[sequence] = base - matrix[:, fault_index] * current
         return voltages
-
-    @staticmethod
-    def _required_sequences() -> tuple[str, ...]:
-        return ("positive",) if False else ()
 
     def _required_for_fault(self) -> tuple[str, ...]:
         if self.input.fault_type is FaultType.THREE_PHASE:
@@ -122,27 +119,29 @@ class ShortCircuitSolver:
     def _source_current_sequences(self, source: SequenceSourceSnapshot, voltages: dict[str, np.ndarray]) -> dict[str, complex] | None:
         required = self._required_for_fault()
         result: dict[str, complex] = {}
+        names = {"positive": "I1", "negative": "I2", "zero": "I0"}
         for sequence in required:
             impedance = getattr(source, sequence)
             if impedance is None:
                 return None
             voltage = voltages[sequence][source.bus_index]
             internal = source.internal_voltage if sequence == "positive" else 0.0j
-            result[{"positive": "I1", "negative": "I2", "zero": "I0"}[sequence]] = (internal - voltage) / impedance
+            result[names[sequence]] = (internal - voltage) / impedance
         return result
 
     def _branch_current_sequences(self, branch: SequenceBranchSnapshot, voltages: dict[str, np.ndarray]) -> dict[str, complex] | None:
         required = self._required_for_fault()
         result: dict[str, complex] = {}
+        names = {"positive": "I1", "negative": "I2", "zero": "I0"}
         for sequence in required:
             impedance = getattr(branch, sequence)
             if impedance is None:
                 return None
-            current = (voltages[sequence][branch.from_bus_index] - voltages[sequence][branch.to_bus_index]) / impedance
-            result[{"positive": "I1", "negative": "I2", "zero": "I0"}[sequence]] = current
+            result[names[sequence]] = (voltages[sequence][branch.from_bus_index] - voltages[sequence][branch.to_bus_index]) / impedance
         return result
 
-    def _polar(self, current: complex) -> tuple[float, float]:
+    @staticmethod
+    def _polar(current: complex) -> tuple[float, float]:
         return float(abs(current)), float(math.degrees(cmath.phase(current)))
 
     def _calculate_contributions(self, typed: dict[str, Any]) -> tuple[dict[str, ShortCircuitSourceContribution], dict[str, ShortCircuitEquipmentCurrent], dict[str, ShortCircuitBranchCurrent]]:
@@ -222,6 +221,21 @@ class ShortCircuitSolver:
         values = self._execute()
         typed = self._fault_typed_quantities(values)
         source_contributions, equipment_currents, branch_currents = self._calculate_contributions(typed)
+        provenance = {
+            "input_contract": "ShortCircuitInput",
+            "fault_bus_id": self.input.fault_bus_id,
+            "bus_ids": tuple(self.input.bus_ids),
+            "sequence_snapshot": self.input.sequence_snapshot is not None,
+            "source_ids": tuple(source_contributions.keys()),
+            "equipment_ids": tuple(equipment_currents.keys()),
+            "branch_ids": tuple(branch_currents.keys()),
+        }
+        values = dict(values)
+        values.update({
+            "source_contributions": source_contributions,
+            "equipment_currents": equipment_currents,
+            "branch_currents": branch_currents,
+        })
         result = ShortCircuitResult(
             fault_type=self.input.fault_type,
             fault_bus_index=self.input.fault_bus_index,
@@ -238,6 +252,7 @@ class ShortCircuitSolver:
             source_contributions=source_contributions,
             equipment_currents=equipment_currents,
             branch_currents=branch_currents,
+            provenance=provenance,
         )
         self.last_result = result
         return result
