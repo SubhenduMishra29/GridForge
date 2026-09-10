@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.analysis.power_flow import PowerFlowAnalysis
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PowerFlowPreparation
@@ -56,6 +58,31 @@ def test_analysis_from_network_prepares_before_solver_and_preserves_input_result
     assert len(result.voltage_magnitudes) == analysis.input.bus_count
     assert len(result.voltage_angles) == analysis.input.bus_count
     assert isinstance(result.message, str)
+
+
+def test_line_engineering_values_are_converted_once_at_power_flow_preparation() -> None:
+    network = Network()
+    network.add_bus(Bus(id="B1", name="B1", nominal_voltage_kv=11.0, voltage_pu=1.0))
+    network.add_bus(Bus(id="B2", name="B2", nominal_voltage_kv=11.0, voltage_pu=1.0))
+    network.add_line(
+        Line(
+            id="L1",
+            name="L1",
+            from_terminal=Terminal(bus_id="B1"),
+            to_terminal=Terminal(bus_id="B2"),
+            resistance_ohm=0.2,
+            reactance_ohm=0.4,
+            shunt_susceptance_siemens=0.001,
+        )
+    )
+
+    prepared = PowerFlowPreparation.prepare(network, _configuration("B1", "B2"))
+    branch = prepared.branches[0]
+
+    # Zbase = 11^2 / 100 = 1.21 ohm; Ybase = 1 / 1.21 S.
+    assert branch.r_pu == pytest.approx(0.2 / 1.21)
+    assert branch.x_pu == pytest.approx(0.4 / 1.21)
+    assert branch.b_pu == pytest.approx(0.001 * 1.21)
 
 
 def test_analysis_from_prepared_uses_detached_ybus_without_rebuilding_from_live_network() -> None:
