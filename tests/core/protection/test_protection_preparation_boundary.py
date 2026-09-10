@@ -58,9 +58,9 @@ def test_measurement_current_uses_pu_to_primary_to_secondary_chain():
         prepared_power_flow=prepared_power_flow,
     )
 
-    # Ibase = 100 MVA / (sqrt(3) * 10 kV) = 5.7735 kA.
-    # Iprimary = 2 pu * Ibase = 11.547 kA; secondary = / 10.
-    assert abs(value - 1.154700538) < 1.0e-9
+    # Ibase = 100 MVA / (sqrt(3) * 10 kV) = 5773.5 A.
+    # Iprimary = 2 pu * Ibase = 11547 A; secondary = / 10.
+    assert abs(value - 1154.700538) < 1.0e-6
 
 
 def test_protection_preparation_detaches_measurement_values_and_settings():
