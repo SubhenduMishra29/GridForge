@@ -8,7 +8,7 @@ Audited remediation baseline: `029ffc9e153d980ee03e7ce2671325cd116b256a`
 
 Remediation branch: `remediation/final-open-partial-2026-09-10`
 
-Current remediation HEAD: `342d17f33e0bb54d179d9e19e0048c24d4ae9d8`
+Current remediation HEAD: `724d11bd1e125fefe3eb995c69e90c43b1ebb257`
 
 ## Status rule
 
