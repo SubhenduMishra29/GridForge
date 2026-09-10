@@ -26,6 +26,7 @@ class ControlDecision:
     target_equipment_id: str
     reason: str
     simulation_time: float
+    target_equipment_type: str = "breaker"
     triggered_by: str | None = None
     valid: bool = True
     diagnostic: str | None = None
@@ -33,11 +34,16 @@ class ControlDecision:
     def __post_init__(self) -> None:
         control_id = str(self.control_id).strip()
         target = str(self.target_equipment_id).strip()
+        target_type = str(self.target_equipment_type).strip().lower()
         reason = str(self.reason).strip()
         if not control_id:
             raise ValueError("control_id must be a non-empty string.")
         if not target:
             raise ValueError("target_equipment_id must be a non-empty string.")
+        if not target_type:
+            raise ValueError("target_equipment_type must be a non-empty string.")
+        if target_type != "breaker":
+            raise ValueError("target_equipment_type must be 'breaker' for Control actions.")
         if not reason:
             raise ValueError("reason must be a non-empty string.")
         if not isinstance(self.action_type, ControlActionType):
@@ -47,6 +53,7 @@ class ControlDecision:
             raise ValueError("simulation_time must be finite.")
         object.__setattr__(self, "control_id", control_id)
         object.__setattr__(self, "target_equipment_id", target)
+        object.__setattr__(self, "target_equipment_type", target_type)
         object.__setattr__(self, "reason", reason)
         object.__setattr__(self, "simulation_time", simulation_time)
         if self.triggered_by is not None:
@@ -64,7 +71,7 @@ class ControlDecision:
         simulation_time: float,
         triggered_by: str | None = None,
     ) -> "ControlDecision":
-        """Create a breaker/equipment trip intent."""
+        """Create a breaker trip intent."""
         return cls(
             control_id=control_id,
             action_type=ControlActionType.TRIP,
