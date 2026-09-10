@@ -6,6 +6,7 @@ from .limits import ControlLimits
 from .controller import Controller
 from .decision import ControlActionType, ControlDecision
 from .action import ControlActionBinding
+from .context import ControlExecutionContext
 from .engine import ControlEngine, ControlEvaluationResult
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "ControlActionType",
     "ControlDecision",
     "ControlActionBinding",
+    "ControlExecutionContext",
     "ControlEngine",
     "ControlEvaluationResult",
 ]
