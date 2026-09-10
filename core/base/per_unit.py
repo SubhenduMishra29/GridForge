@@ -91,6 +91,13 @@ For an impedance specified on an original base:
         × (MVA_new / MVA_old)
         × (kV_old / kV_new)²
 
+For an admittance specified on an original base:
+
+    Ypu_new =
+        Ypu_old
+        × (MVA_old / MVA_new)
+        × (kV_new / kV_old)²
+
 The GridForge global system MVA base is used as MVA_new.
 
 Responsibilities
@@ -103,7 +110,7 @@ This module:
 - Converts scalar physical quantities to per-unit.
 - Converts scalar per-unit quantities to physical units.
 - Provides selected vectorized conversions.
-- Supports impedance-base conversion.
+- Supports impedance- and admittance-base conversion.
 
 This module does NOT:
 
@@ -642,6 +649,67 @@ class PerUnitSystem:
             z_pu
             * (self.base_mva / old_mva)
             * (old_kv / new_kv) ** 2
+        )
+
+    # =================================================================
+    # ADMITTANCE BASE CONVERSION
+    # =================================================================
+
+    def convert_admittance_base(
+        self,
+        y_pu: complex,
+        old_mva: float,
+        old_kv: float,
+        new_kv: float,
+    ) -> complex:
+        """
+        Convert per-unit admittance from an old base to the
+        GridForge system MVA base and a specified new voltage base.
+
+        Formula
+        -------
+        Ypu_new =
+            Ypu_old
+            × (MVA_old / MVA_new)
+            × (kV_new / kV_old)²
+
+        Parameters
+        ----------
+        y_pu : complex
+            Admittance in per unit on the original base.
+
+        old_mva : float
+            Original MVA base.
+
+        old_kv : float
+            Original voltage base in kV.
+
+        new_kv : float
+            New voltage base in kV.
+
+        Returns
+        -------
+        complex
+            Admittance in per unit on the GridForge system base.
+
+        Notes
+        -----
+        The method changes the reference base only. It does not
+        alter the physical admittance represented by the quantity.
+        """
+
+        old_mva = self._validate_mva_base(
+            old_mva,
+            "Old MVA base",
+        )
+
+        old_kv = self._validate_voltage_base(old_kv)
+        new_kv = self._validate_voltage_base(new_kv)
+
+        return (
+            y_pu
+            * (old_mva / self.base_mva)
+            * (new_kv / old_kv) ** 2
         )
 
     # =================================================================
