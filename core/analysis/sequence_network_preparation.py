@@ -66,7 +66,21 @@ class SequenceNetworkPreparation:
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
             branch_data.append((index[bus], index[bus], data, str(element_id)))
 
-        self._validate_rotating_machines(requested)
+        for collection_name in ("generators", "synchronous_machines", "motors"):
+            for machine in getattr(self.network, collection_name, ()):
+                if not bool(getattr(machine, "in_service", True)):
+                    continue
+                bus = self._single_bus(machine)
+                if bus is None:
+                    continue
+                names = {"positive": "z1_pu", "negative": "z2_pu", "zero": "z0_pu"}
+                data = {name: self._source_impedance(machine, names[name]) for name in requested}
+                for name in requested:
+                    if data[name] is None:
+                        raise ValueError(f"{type(machine).__name__} '{getattr(machine, 'id', machine)}' lacks explicit {name}-sequence impedance.")
+                element_id = getattr(machine, "id", machine)
+                sequence.add_element(element_id, data["positive"], data.get("negative"), data.get("zero"))
+                branch_data.append((index[bus], index[bus], data, str(element_id)))
 
         for name in requested:
             sequence.set_matrix(name, self._build_matrix(len(bus_ids), branch_data, name))
@@ -107,8 +121,7 @@ class SequenceNetworkPreparation:
     def _ohm_to_pu(self, z_ohm: complex, voltage_kv: float) -> complex:
         if voltage_kv <= 0.0:
             raise ValueError("A positive nominal voltage is required for engineering sequence conversion.")
-        zbase = voltage_kv * voltage_kv / self._require_base()
-        return complex(z_ohm) / zbase
+        return complex(z_ohm) / (voltage_kv * voltage_kv / self._require_base())
 
     def _branch_sequence_impedances(self, element: Any, bus: Any) -> dict[str, complex | None]:
         voltage = float(bus.nominal_voltage_kv)
@@ -120,11 +133,10 @@ class SequenceNetworkPreparation:
             z1 = self._ohm_to_pu(element.series_impedance, voltage)
             return {"positive": z1, "negative": z1, "zero": None}
         if isinstance(element, Transformer):
-            study_mva = self._require_base()
             study_kv = voltage
             if study_kv <= 0.0:
                 raise ValueError(f"Bus '{bus.id}' requires nominal_voltage_kv for transformer preparation.")
-            scale = (study_mva / element.impedance_base_mva) * (element.impedance_base_voltage_kv / study_kv) ** 2
+            scale = (self._require_base() / element.impedance_base_mva) * (element.impedance_base_voltage_kv / study_kv) ** 2
             z1 = complex(element.r, element.x) * scale if element.impedance_basis == "pu" else self._ohm_to_pu(complex(element.r, element.x), study_kv)
             return {"positive": z1, "negative": None, "zero": None}
         raise ValueError(f"Unsupported sequence-network branch type: {type(element).__name__}.")
@@ -136,18 +148,8 @@ class SequenceNetworkPreparation:
             return None
         result = complex(value)
         if not np.isfinite(result.real) or not np.isfinite(result.imag) or abs(result) == 0.0:
-            raise ValueError(f"Grid '{getattr(source, 'id', source)}' has invalid {name}.")
+            raise ValueError(f"'{getattr(source, 'id', source)}' has invalid {name}.")
         return result
-
-    def _validate_rotating_machines(self, requested: tuple[str, ...]) -> None:
-        names = {"positive": "z1_pu", "negative": "z2_pu", "zero": "z0_pu"}
-        for collection_name in ("generators", "synchronous_machines", "motors"):
-            for machine in getattr(self.network, collection_name, ()):
-                if not bool(getattr(machine, "in_service", True)) or self._single_bus(machine) is None:
-                    continue
-                missing = [name for name in requested if getattr(machine, names[name], None) is None]
-                if missing:
-                    raise ValueError(f"{type(machine).__name__} '{getattr(machine, 'id', machine)}' is connected and in service but lacks explicit short-circuit sequence data: {', '.join(missing)}.")
 
     @staticmethod
     def _build_matrix(size: int, branches: list[tuple[int, int, dict[str, complex | None], str]], sequence: str) -> np.ndarray:
