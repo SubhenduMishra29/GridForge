@@ -1,9 +1,9 @@
 """Immutable sequence-network data prepared for short-circuit execution.
 
 The snapshot is deliberately detached from ``SequenceNetwork``. It contains
-only defensive, immutable copies of sequence element impedances and optional
-sequence impedance matrices, so numerical execution cannot observe later
-mutations of the preparation container.
+only defensive, immutable copies of sequence element impedances, sequence
+impedance matrices, and optional prepared topology/source metadata required for
+engineering current interpretation.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import numpy as np
 ComplexMatrix = tuple[tuple[complex, ...], ...]
 
 
-def _freeze_mapping(values: Mapping[Any, complex | None]) -> Mapping[Any, complex | None]:
+def _freeze_mapping(values: Mapping[Any, Any]) -> Mapping[Any, Any]:
     return MappingProxyType(dict(values))
 
 
@@ -26,11 +26,80 @@ def _freeze_matrix(matrix: Any) -> ComplexMatrix | None:
     if matrix is None:
         return None
     array = np.asarray(matrix, dtype=complex)
+    if array.ndim != 2 or array.shape[0] != array.shape[1] or array.size == 0:
+        raise ValueError("Sequence matrix must be a non-empty square matrix.")
     return tuple(tuple(complex(value) for value in row) for row in array.tolist())
 
 
 def _matrix_from_snapshot(matrix: ComplexMatrix) -> np.ndarray:
     return np.asarray(matrix, dtype=complex)
+
+
+@dataclass(frozen=True, slots=True)
+class SequenceBranchSnapshot:
+    """Prepared branch identity and sequence impedances."""
+
+    branch_id: str
+    from_bus_id: str
+    to_bus_id: str
+    from_bus_index: int
+    to_bus_index: int
+    positive: complex
+    negative: complex | None
+    zero: complex | None
+    equipment_type: str
+
+    def __post_init__(self) -> None:
+        for name in ("branch_id", "from_bus_id", "to_bus_id", "equipment_type"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty engineering identifier.")
+        for name in ("from_bus_index", "to_bus_index"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer.")
+        if self.from_bus_id == self.to_bus_id or self.from_bus_index == self.to_bus_index:
+            raise ValueError("A branch snapshot requires distinct endpoints.")
+        for name in ("positive", "negative", "zero"):
+            value = getattr(self, name)
+            if value is not None:
+                value = complex(value)
+                if not np.isfinite(value.real) or not np.isfinite(value.imag) or abs(value) == 0.0:
+                    raise ValueError(f"{name}-sequence branch impedance must be finite and non-zero.")
+                object.__setattr__(self, name, value)
+
+
+@dataclass(frozen=True, slots=True)
+class SequenceSourceSnapshot:
+    """Prepared source identity, bus, sequence impedances and internal voltage."""
+
+    source_id: str
+    source_type: str
+    bus_id: str
+    bus_index: int
+    positive: complex
+    negative: complex | None
+    zero: complex | None
+    internal_voltage: complex
+
+    def __post_init__(self) -> None:
+        for name in ("source_id", "source_type", "bus_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty engineering identifier.")
+        if isinstance(self.bus_index, bool) or not isinstance(self.bus_index, int) or self.bus_index < 0:
+            raise ValueError("bus_index must be a non-negative integer.")
+        voltage = complex(self.internal_voltage)
+        if not np.isfinite(voltage.real) or not np.isfinite(voltage.imag):
+            raise ValueError("internal_voltage must be finite.")
+        object.__setattr__(self, "internal_voltage", voltage)
+        for name in ("positive", "negative", "zero"):
+            value = getattr(self, name)
+            if value is not None:
+                value = complex(value)
+                if not np.isfinite(value.real) or not np.isfinite(value.imag) or abs(value) == 0.0:
+                    raise ValueError(f"{name}-sequence source impedance must be finite and non-zero.")
+                object.__setattr__(self, name, value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +112,9 @@ class SequenceNetworkSnapshot:
     positive_matrix: ComplexMatrix | None = None
     negative_matrix: ComplexMatrix | None = None
     zero_matrix: ComplexMatrix | None = None
+    bus_ids: tuple[str, ...] = ()
+    branches: tuple[SequenceBranchSnapshot, ...] = ()
+    sources: tuple[SequenceSourceSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "positive", _freeze_mapping(self.positive))
@@ -51,9 +123,30 @@ class SequenceNetworkSnapshot:
         object.__setattr__(self, "positive_matrix", _freeze_matrix(self.positive_matrix))
         object.__setattr__(self, "negative_matrix", _freeze_matrix(self.negative_matrix))
         object.__setattr__(self, "zero_matrix", _freeze_matrix(self.zero_matrix))
+        object.__setattr__(self, "bus_ids", tuple(str(bus_id) for bus_id in self.bus_ids))
+        if self.bus_ids and len(set(self.bus_ids)) != len(self.bus_ids):
+            raise ValueError("Sequence snapshot bus IDs must be unique.")
+        object.__setattr__(self, "branches", tuple(self.branches))
+        object.__setattr__(self, "sources", tuple(self.sources))
+        for record in self.branches:
+            if not isinstance(record, SequenceBranchSnapshot):
+                raise TypeError("branches must contain SequenceBranchSnapshot records.")
+        for record in self.sources:
+            if not isinstance(record, SequenceSourceSnapshot):
+                raise TypeError("sources must contain SequenceSourceSnapshot records.")
+        if self.bus_ids:
+            size = len(self.bus_ids)
+            for branch in self.branches:
+                if branch.from_bus_index >= size or branch.to_bus_index >= size:
+                    raise ValueError("Branch snapshot bus index is outside bus_ids.")
+                if self.bus_ids[branch.from_bus_index] != branch.from_bus_id or self.bus_ids[branch.to_bus_index] != branch.to_bus_id:
+                    raise ValueError("Branch snapshot bus identity does not match bus_ids.")
+            for source in self.sources:
+                if source.bus_index >= size or self.bus_ids[source.bus_index] != source.bus_id:
+                    raise ValueError("Source snapshot bus identity does not match bus_ids.")
 
     @classmethod
-    def from_sequence_network(cls, sequence_network: Any) -> "SequenceNetworkSnapshot":
+    def from_sequence_network(cls, sequence_network: Any, *, bus_ids: tuple[str, ...] = (), branches: tuple[SequenceBranchSnapshot, ...] = (), sources: tuple[SequenceSourceSnapshot, ...] = ()) -> "SequenceNetworkSnapshot":
         """Detach all supported sequence data from a preparation container."""
         if sequence_network is None:
             raise ValueError("Sequence network cannot be None.")
@@ -64,6 +157,9 @@ class SequenceNetworkSnapshot:
             positive_matrix=sequence_network.get_matrix("positive") if sequence_network.has_matrix("positive") else None,
             negative_matrix=sequence_network.get_matrix("negative") if sequence_network.has_matrix("negative") else None,
             zero_matrix=sequence_network.get_matrix("zero") if sequence_network.has_matrix("zero") else None,
+            bus_ids=bus_ids,
+            branches=branches,
+            sources=sources,
         )
 
     @staticmethod
@@ -125,3 +221,10 @@ class SequenceNetworkSnapshot:
             if not 0 <= int(index) < matrix.shape[0]:
                 raise IndexError(f"{name} index is outside the valid matrix range.")
         return complex(matrix[int(from_bus), int(to_bus)])
+
+
+__all__ = [
+    "SequenceBranchSnapshot",
+    "SequenceSourceSnapshot",
+    "SequenceNetworkSnapshot",
+]
