@@ -6,8 +6,18 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .action import ControlActionBinding
-from .decision import ControlDecision
+from .context import ControlExecutionContext
+from .decision import ControlActionType, ControlDecision
 from .logic.engine import LogicEngine, LogicEngineResult
+
+
+_ACTION_PRIORITY = {
+    ControlActionType.TRIP: 400,
+    ControlActionType.OPEN: 300,
+    ControlActionType.CLOSE: 200,
+    ControlActionType.TAKE_OUT_OF_SERVICE: 100,
+    ControlActionType.PUT_IN_SERVICE: 50,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +42,8 @@ class ControlEvaluationResult:
 class ControlEngine:
     """Coordinate logic evaluation and produce equipment-action intents.
 
-    This class deliberately does not own time, mutate Core, access Network,
-    execute commands, or touch UI. Simulation supplies the evaluation time.
+    This class does not own time, mutate Core, access Network, execute
+    commands, or touch UI. The Simulation layer supplies a context snapshot.
     """
 
     def __init__(self, logic_engine: LogicEngine) -> None:
@@ -51,35 +61,90 @@ class ControlEngine:
         return self._bindings
 
     def bind_action(self, binding: ControlActionBinding) -> None:
-        """Register one output-to-action binding."""
+        """Register one output-to-action binding and validate its source."""
         if not isinstance(binding, ControlActionBinding):
             raise TypeError("binding must be a ControlActionBinding.")
         if binding in self._bindings:
             return
+        component = self._logic_engine.get(binding.source_component)
+        output_names = set(component.output_names)
+        if binding.source_output not in output_names:
+            raise ValueError(
+                f"Unknown Control output '{binding.source_component}.{binding.source_output}'."
+            )
         self._bindings = (*self._bindings, binding)
 
     def evaluate(
         self,
         *,
-        simulation_time: float,
+        simulation_time: float | None = None,
         external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
+        context: ControlExecutionContext | None = None,
     ) -> ControlEvaluationResult:
-        """Evaluate logic once and convert asserted action bindings to intent."""
+        """Evaluate logic at supplied simulation time and emit deterministic intents."""
+        if context is not None:
+            if simulation_time is not None or external_inputs is not None:
+                raise ValueError("context cannot be combined with simulation_time or external_inputs.")
+        else:
+            if simulation_time is None:
+                raise ValueError("simulation_time or context is required.")
+            context = ControlExecutionContext(
+                simulation_time=simulation_time,
+                external_inputs=external_inputs or {},
+            )
+
         logic_result = self._logic_engine.evaluate(
-            time=simulation_time,
-            external_inputs=external_inputs,
+            time=context.simulation_time,
+            external_inputs=context.external_inputs,
         )
-        decisions: list[ControlDecision] = []
-        diagnostics: list[str] = []
+        candidates: list[ControlDecision] = []
         for binding in self._bindings:
             outputs = logic_result.signals.get(binding.source_component, {})
             if outputs.get(binding.source_output) is True:
-                decisions.append(binding.decision(simulation_time=simulation_time))
+                candidates.append(binding.decision(simulation_time=context.simulation_time))
+
+        decisions: list[ControlDecision] = []
+        blocked: list[ControlDecision] = []
+        diagnostics: list[str] = []
+        winners: dict[str, ControlDecision] = {}
+        for decision in sorted(
+            candidates,
+            key=lambda item: (
+                -_ACTION_PRIORITY[item.action_type],
+                item.control_id,
+                item.triggered_by or "",
+            ),
+        ):
+            current = winners.get(decision.target_equipment_id)
+            if current is None:
+                winners[decision.target_equipment_id] = decision
+                decisions.append(decision)
+                continue
+            blocked.append(
+                ControlDecision.blocked(
+                    control_id=decision.control_id,
+                    action_type=decision.action_type,
+                    target_equipment_id=decision.target_equipment_id,
+                    reason=decision.reason,
+                    simulation_time=context.simulation_time,
+                    diagnostic=(
+                        f"Action conflicts with {current.control_id}; "
+                        f"{current.action_type.value} has higher priority."
+                    ),
+                )
+            )
+            diagnostics.append(
+                f"{decision.target_equipment_id}: {decision.action_type.value} "
+                f"blocked by {current.action_type.value} from {current.control_id}."
+            )
+
         return ControlEvaluationResult(
-            simulation_time=simulation_time,
+            simulation_time=context.simulation_time,
             decisions=tuple(decisions),
+            blocked_actions=tuple(blocked),
             diagnostics=tuple(diagnostics),
             logic_result=logic_result,
+            metadata=context.metadata,
         )
 
 
