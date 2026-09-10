@@ -2,6 +2,8 @@
 
 Commands carry intent and value objects only. Endpoint resolution is owned by
 handlers through the canonical Application endpoint resolver.
+
+Author: Subhendu Mishra
 """
 
 from __future__ import annotations
@@ -191,10 +193,27 @@ class DeleteLineCommand(Command):
         super().__init__(**_command(DELETE_LINE, {"line_id": line_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateTransformerCommand(Command):
-    def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference, r: float, x: float, tap: float = 1.0, shift: float = 0.0, name: str = "", rate_mva: float = 100.0,
+    def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
+                 r: float, x: float, impedance_basis: str, tap: float = 1.0, shift: float = 0.0,
+                 name: str = "", rate_mva: float = 100.0,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference): raise TypeError("Transformer endpoints must be EndpointReference values.")
-        super().__init__(**_command(CREATE_TRANSFORMER, {"transformer_id": transformer_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "r": r, "x": x, "tap": tap, "shift": shift, "name": name, "rate_mva": rate_mva}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
+            raise TypeError("Transformer endpoints must be EndpointReference values.")
+        if not isinstance(impedance_basis, str) or not impedance_basis.strip():
+            raise ValueError("Transformer impedance_basis is required and must be a non-empty string.")
+        super().__init__(**_command(CREATE_TRANSFORMER, {
+            "transformer_id": transformer_id,
+            "endpoint_from": endpoint_from,
+            "endpoint_to": endpoint_to,
+            "r": r,
+            "x": x,
+            "impedance_basis": impedance_basis,
+            "tap": tap,
+            "shift": shift,
+            "name": name,
+            "rate_mva": rate_mva,
+        }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_TRANSFORMER, {"transformer_id": transformer_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
