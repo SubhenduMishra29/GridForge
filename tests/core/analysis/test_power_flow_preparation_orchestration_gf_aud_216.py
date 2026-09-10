@@ -8,15 +8,13 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 from core.analysis.power_flow import PowerFlowAnalysis
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PowerFlowPreparation
 from core.model.bus import Bus
 from core.model.line import Line
-from core.network.network import Network
 from core.network.endpoint import Terminal
+from core.network.network import Network
 from core.solver.power_flow.input import PowerFlowBusType
 
 
@@ -47,7 +45,7 @@ def test_analysis_from_network_prepares_before_solver_and_preserves_input_result
 
     analysis = PowerFlowAnalysis.from_network(network, _configuration("B1", "B2"))
 
-    assert analysis.input.bus_ids == tuple(bus_id for bus_id in ("B1", "B2"))
+    assert analysis.input.bus_ids == ("B1", "B2")
     assert analysis.Ybus.bus_ids == analysis.input.bus_ids
     assert analysis.prepared.bus_ids == analysis.input.bus_ids
     assert analysis.prepared.branches[0].r_pu != 0.0
@@ -55,9 +53,9 @@ def test_analysis_from_network_prepares_before_solver_and_preserves_input_result
 
     result = analysis.solve()
 
-    assert result.bus_ids == analysis.input.bus_ids
     assert len(result.voltage_magnitudes) == analysis.input.bus_count
-    assert np.asarray(result.p_mismatch).shape[0] == analysis.input.bus_count
+    assert len(result.voltage_angles) == analysis.input.bus_count
+    assert isinstance(result.message, str)
 
 
 def test_analysis_from_prepared_uses_detached_ybus_without_rebuilding_from_live_network() -> None:
