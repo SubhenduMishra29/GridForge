@@ -10,10 +10,6 @@ from typing import Any, Mapping
 from .fault_types import FaultType
 
 
-def _freeze_complex_mapping(values: Mapping[str, complex]) -> Mapping[str, complex]:
-    return MappingProxyType({str(key): complex(value) for key, value in values.items()})
-
-
 def _validate_current(value: Any, name: str) -> complex:
     try:
         current = complex(value)
@@ -22,6 +18,10 @@ def _validate_current(value: Any, name: str) -> complex:
     if not math.isfinite(current.real) or not math.isfinite(current.imag):
         raise ValueError(f"{name} must be finite.")
     return current
+
+
+def _freeze_complex_mapping(values: Mapping[str, complex]) -> Mapping[str, complex]:
+    return MappingProxyType({str(key): _validate_current(value, f"current[{key!r}]") for key, value in values.items()})
 
 
 def _validate_identity(value: Any, name: str) -> str:
