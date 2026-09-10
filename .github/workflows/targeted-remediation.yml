@@ -23,6 +23,7 @@ jobs:
           tests/core/analysis/test_short_circuit_preparation_contract.py
           tests/core/application/test_measurement_command_authority.py
           tests/core/application/test_measurement_command_contract.py
+          tests/core/application/test_protection_trip_boundary.py
           tests/core/measurement/test_measurement_conversion_contract.py
           tests/core/model/test_transformer_impedance_basis.py
           tests/core/test_measurement_generation.py
