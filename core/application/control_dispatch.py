@@ -6,6 +6,9 @@ that intent to the existing Application command system.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+from core.application.command import Command
 from core.application.command_manager import CommandManager
 from core.application.commands.breaker_commands import (
     CloseBreakerCommand,
@@ -40,12 +43,23 @@ class ControlCommandTranslator:
 
 
 class ControlCommandDispatcher:
-    """Execute Control intent using the existing CommandManager only."""
+    """Execute Control intent using the existing Application command boundary.
 
-    def __init__(self, command_manager: CommandManager) -> None:
+    An optional command executor lets the Application facade remain the owner
+    of semantic event publication while preserving CommandManager as the
+    authoritative mutation/undo path.
+    """
+
+    def __init__(
+        self,
+        command_manager: CommandManager,
+        *,
+        command_executor: Callable[[Command], ApplicationResult] | None = None,
+    ) -> None:
         if not isinstance(command_manager, CommandManager):
             raise TypeError("command_manager must be a CommandManager.")
         self._command_manager = command_manager
+        self._command_executor = command_executor or command_manager.execute
 
     @property
     def command_manager(self) -> CommandManager:
@@ -53,9 +67,7 @@ class ControlCommandDispatcher:
 
     def execute(self, decision: ControlDecision) -> ApplicationResult:
         """Translate and execute one valid Control decision."""
-        return self._command_manager.execute(
-            ControlCommandTranslator.to_command(decision)
-        )
+        return self._command_executor(ControlCommandTranslator.to_command(decision))
 
 
 __all__ = ["ControlCommandTranslator", "ControlCommandDispatcher"]
