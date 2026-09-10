@@ -64,6 +64,7 @@ from .protection_element import (
     ProtectionElementState,
 )
 from .protection_system import ProtectionSystem
+from .protection_measurement_binding import ProtectionMeasurementBinding
 
 
 __all__ = [
@@ -74,4 +75,5 @@ __all__ = [
     "ProtectionElement",
     "ProtectionElementState",
     "ProtectionSystem",
+    "ProtectionMeasurementBinding",
 ]

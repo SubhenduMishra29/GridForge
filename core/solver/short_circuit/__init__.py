@@ -20,6 +20,8 @@ from .symmetrical_fault import SymmetricalFault
 from .unsymmetrical_fault import UnsymmetricalFault
 from .input import ShortCircuitInput
 from .result import (
+    ContributionStatus,
+    ShortCircuitStatus,
     ShortCircuitBranchCurrent,
     ShortCircuitEquipmentCurrent,
     ShortCircuitResult,
@@ -38,6 +40,8 @@ __all__ = [
     "SymmetricalFault",
     "UnsymmetricalFault",
     "ShortCircuitInput",
+    "ShortCircuitStatus",
+    "ContributionStatus",
     "ShortCircuitSourceContribution",
     "ShortCircuitEquipmentCurrent",
     "ShortCircuitBranchCurrent",

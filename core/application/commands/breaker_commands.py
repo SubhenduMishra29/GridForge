@@ -47,8 +47,12 @@ class CloseBreakerCommand(Command):
 
 
 class TripBreakerCommand(Command):
+    """Immutable Application intent to trip a breaker."""
+
     def __init__(self, *, breaker_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(command_type=TRIP_BREAKER, payload={"breaker_id": breaker_id}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+        if not isinstance(breaker_id, str) or not breaker_id.strip():
+            raise ValueError("breaker_id must be a non-empty string.")
+        super().__init__(command_type=TRIP_BREAKER, payload={"breaker_id": breaker_id.strip()}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
 class PutBreakerInServiceCommand(Command):
