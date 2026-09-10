@@ -33,9 +33,25 @@ class ControlEvaluationResult:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "simulation_time", float(self.simulation_time))
-        object.__setattr__(self, "decisions", tuple(self.decisions))
-        object.__setattr__(self, "blocked_actions", tuple(self.blocked_actions))
+        simulation_time = float(self.simulation_time)
+        if not __import__("math").isfinite(simulation_time):
+            raise ValueError("simulation_time must be finite.")
+
+        decisions = tuple(self.decisions)
+        blocked_actions = tuple(self.blocked_actions)
+        if any(not decision.valid for decision in decisions):
+            raise ValueError("decisions must contain only valid ControlDecision instances.")
+        if any(decision.valid for decision in blocked_actions):
+            raise ValueError("blocked_actions must contain only invalid ControlDecision instances.")
+
+        decision_ids = {decision.control_id for decision in decisions}
+        blocked_ids = {decision.control_id for decision in blocked_actions}
+        if decision_ids & blocked_ids:
+            raise ValueError("A ControlDecision control_id cannot appear in both decisions and blocked_actions.")
+
+        object.__setattr__(self, "simulation_time", simulation_time)
+        object.__setattr__(self, "decisions", decisions)
+        object.__setattr__(self, "blocked_actions", blocked_actions)
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
         object.__setattr__(self, "metadata", dict(self.metadata))
 
