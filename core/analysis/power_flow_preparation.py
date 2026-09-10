@@ -69,13 +69,7 @@ class PreparedTransformer:
     def __post_init__(self) -> None:
         if not self.branch_id or not self.from_bus_id or not self.to_bus_id:
             raise ValueError("Prepared transformer identifiers must be non-empty.")
-        for value, name in (
-            (self.r_pu, "r_pu"),
-            (self.x_pu, "x_pu"),
-            (self.b_pu, "b_pu"),
-            (self.tap, "tap"),
-            (self.shift, "shift"),
-        ):
+        for value, name in ((self.r_pu, "r_pu"), (self.x_pu, "x_pu"), (self.b_pu, "b_pu"), (self.tap, "tap"), (self.shift, "shift")):
             if not math.isfinite(float(value)):
                 raise ValueError(f"Prepared transformer {name} must be finite.")
         if float(self.r_pu) == 0.0 and float(self.x_pu) == 0.0:
@@ -134,25 +128,19 @@ class PreparedPowerFlow:
         object.__setattr__(self, "transformers", tuple(self.transformers))
         object.__setattr__(self, "shunts", tuple(self.shunts))
 
+    @property
+    def bus_ids(self) -> tuple[str, ...]:
+        """Return the detached authoritative numerical bus ordering."""
+        return self.input.bus_ids
+
 
 class PowerFlowPreparation:
     """Own the live-model to detached numerical Power Flow boundary."""
 
-    _INJECTION_COLLECTIONS = (
-        "grids",
-        "generators",
-        "synchronous_machines",
-        "loads",
-        "motors",
-        "solar",
-        "batteries",
-    )
+    _INJECTION_COLLECTIONS = ("grids", "generators", "synchronous_machines", "loads", "motors", "solar", "batteries")
 
     @staticmethod
-    def prepare(
-        network: Any,
-        power_flow_configuration: PowerFlowStudyConfiguration,
-    ) -> PreparedPowerFlow:
+    def prepare(network: Any, power_flow_configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
         return PowerFlowPreparation(network, power_flow_configuration)._prepare()
 
     def __init__(self, network: Any, power_flow_configuration: PowerFlowStudyConfiguration) -> None:
@@ -167,7 +155,6 @@ class PowerFlowPreparation:
         buses = tuple(self.network.buses)
         if not buses:
             raise ValueError("Power Flow preparation requires at least one bus.")
-
         bus_ids = tuple(str(bus.id) for bus in buses)
         classification = self._prepare_bus_types(bus_ids)
         voltage_bases = self._prepare_voltage_bases(buses)
@@ -178,7 +165,6 @@ class PowerFlowPreparation:
         q_max: list[float | None] = []
         initial_vm: list[float] = []
         initial_va: list[float] = []
-
         for bus in buses:
             p, q, minimum_q, maximum_q = self._bus_power_spec(bus)
             s_pu = self._per_unit.to_pu_power(p, q)
@@ -204,14 +190,9 @@ class PowerFlowPreparation:
         branches = self._prepare_branches(voltage_bases)
         transformers = self._prepare_transformers(voltage_bases)
         shunts = self._prepare_shunts()
-
         snapshot = PreparedPowerFlow(
             input=input_data,
-            ybus=YBus(
-                matrix=self._empty_ybus_matrix(len(bus_ids)),
-                bus_ids=bus_ids,
-                topology_revision=getattr(self.network, "topology_revision", None),
-            ),
+            ybus=YBus(matrix=self._empty_ybus_matrix(len(bus_ids)), bus_ids=bus_ids, topology_revision=getattr(self.network, "topology_revision", None)),
             base_mva=self._per_unit.base_mva,
             bus_voltage_bases=voltage_bases,
             branches=branches,
@@ -238,27 +219,19 @@ class PowerFlowPreparation:
         return csr_matrix((size, size), dtype=np.complex128)
 
     def _prepare_voltage_bases(self, buses: tuple[Any, ...]) -> dict[str, float]:
-        bases: dict[str, float] = {}
-        for bus in buses:
-            bases[str(bus.id)] = self._finite_positive(
-                getattr(bus, "nominal_voltage_kv", 0.0),
-                f"Bus '{bus.id}' nominal_voltage_kv",
-            )
-        return bases
+        return {str(bus.id): self._finite_positive(getattr(bus, "nominal_voltage_kv", 0.0), f"Bus '{bus.id}' nominal_voltage_kv") for bus in buses}
 
     def _prepare_branches(self, voltage_bases: Mapping[str, float]) -> tuple[PreparedBranch, ...]:
         prepared: list[PreparedBranch] = []
         for branch in getattr(self.network, "lines", ()):
             if not getattr(branch, "in_service", True):
                 continue
-            from_bus, to_bus = self._resolve_branch_endpoints(branch)
             if not isinstance(branch, Line):
                 raise TypeError(f"Network line '{getattr(branch, 'id', branch)}' is not a Line model.")
+            from_bus, to_bus = self._resolve_branch_endpoints(branch)
             kv = self._common_branch_voltage(from_bus, to_bus, voltage_bases, branch)
             z_pu = self._per_unit.to_pu_impedance(branch.series_impedance, kv)
-            b_pu = self._per_unit.to_pu_admittance(
-                complex(0.0, branch.shunt_susceptance_siemens), kv
-            ).imag
+            b_pu = self._per_unit.to_pu_admittance(complex(0.0, branch.shunt_susceptance_siemens), kv).imag
             prepared.append(PreparedBranch(str(branch.id), str(from_bus.id), str(to_bus.id), z_pu.real, z_pu.imag, b_pu, True))
 
         for cable in getattr(self.network, "cables", ()):
@@ -268,16 +241,13 @@ class PowerFlowPreparation:
                 raise TypeError(f"Network cable '{getattr(cable, 'id', cable)}' is not a Cable model.")
             from_bus, to_bus = self._resolve_branch_endpoints(cable)
             kv = self._common_branch_voltage(from_bus, to_bus, voltage_bases, cable)
-            z_pu = self._per_unit.to_pu_impedance(
-                complex(cable.resistance_ohm, cable.reactance_ohm), kv
-            )
-            b_pu = self._per_unit.to_pu_admittance(
-                complex(0.0, cable.shunt_susceptance_siemens), kv
-            ).imag
+            z_pu = self._per_unit.to_pu_impedance(complex(cable.resistance_ohm, cable.reactance_ohm), kv)
+            b_pu = self._per_unit.to_pu_admittance(complex(0.0, cable.shunt_susceptance_siemens), kv).imag
             prepared.append(PreparedBranch(str(cable.id), str(from_bus.id), str(to_bus.id), z_pu.real, z_pu.imag, b_pu, True))
         return tuple(prepared)
 
     def _prepare_transformers(self, voltage_bases: Mapping[str, float]) -> tuple[PreparedTransformer, ...]:
+        del voltage_bases
         prepared: list[PreparedTransformer] = []
         for transformer in getattr(self.network, "transformers", ()):
             if not getattr(transformer, "in_service", True):
@@ -292,19 +262,7 @@ class PowerFlowPreparation:
                     f"Transformer '{transformer.id}' uses an engineering impedance basis, "
                     "but the repository has no authoritative transformer engineering-unit basis."
                 )
-            prepared.append(
-                PreparedTransformer(
-                    str(transformer.id),
-                    str(from_bus.id),
-                    str(to_bus.id),
-                    r_pu,
-                    x_pu,
-                    b_pu,
-                    transformer.tap,
-                    transformer.shift,
-                    True,
-                )
-            )
+            prepared.append(PreparedTransformer(str(transformer.id), str(from_bus.id), str(to_bus.id), r_pu, x_pu, b_pu, transformer.tap, transformer.shift, True))
         return tuple(prepared)
 
     def _prepare_shunts(self) -> tuple[PreparedShunt, ...]:
@@ -337,26 +295,15 @@ class PowerFlowPreparation:
             raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal.")
         return bus
 
-    def _common_branch_voltage(
-        self,
-        from_bus: Any,
-        to_bus: Any,
-        voltage_bases: Mapping[str, float],
-        branch: Any,
-    ) -> float:
+    def _common_branch_voltage(self, from_bus: Any, to_bus: Any, voltage_bases: Mapping[str, float], branch: Any) -> float:
         from_kv = voltage_bases[str(from_bus.id)]
         to_kv = voltage_bases[str(to_bus.id)]
         if not math.isclose(from_kv, to_kv, rel_tol=0.0, abs_tol=1e-9):
-            raise ValueError(
-                f"Branch '{getattr(branch, 'id', branch)}' connects incompatible voltage bases "
-                f"({from_kv:g} kV and {to_kv:g} kV); use a Transformer for a voltage change."
-            )
+            raise ValueError(f"Branch '{getattr(branch, 'id', branch)}' connects incompatible voltage bases ({from_kv:g} kV and {to_kv:g} kV); use a Transformer for a voltage change.")
         return from_kv
 
     def _to_pu_reactive_power(self, value: float | None) -> float | None:
-        if value is None:
-            return None
-        return self._per_unit.to_pu_power(0.0, value).imag
+        return None if value is None else self._per_unit.to_pu_power(0.0, value).imag
 
     def _prepare_bus_types(self, bus_ids: tuple[str, ...]) -> tuple[PowerFlowBusType, ...]:
         configured = self.power_flow_configuration.bus_types
@@ -365,18 +312,14 @@ class PowerFlowPreparation:
         missing = expected - supplied
         extra = supplied - expected
         if missing or extra:
-            raise ValueError(
-                "Power Flow study configuration must match the case Network buses; "
-                f"missing={sorted(missing)!r}, extra={sorted(extra)!r}."
-            )
+            raise ValueError("Power Flow study configuration must match the case Network buses; " f"missing={sorted(missing)!r}, extra={sorted(extra)!r}.")
         return tuple(configured[bus_id] for bus_id in bus_ids)
 
     def _initial_voltage_pu(self, bus: Any) -> float:
         return self._finite_positive(getattr(bus, "voltage_pu", 1.0), f"Bus '{bus.id}' voltage_pu")
 
     def _bus_power_spec(self, bus: Any) -> tuple[float, float, float | None, float | None]:
-        p = 0.0
-        q = 0.0
+        p = q = 0.0
         q_min: float | None = None
         q_max: float | None = None
         for collection_name in self._INJECTION_COLLECTIONS:
@@ -426,10 +369,4 @@ class PowerFlowPreparation:
             raise TypeError("network must expose ensure_bus_index().")
 
 
-__all__ = [
-    "PowerFlowPreparation",
-    "PreparedBranch",
-    "PreparedTransformer",
-    "PreparedShunt",
-    "PreparedPowerFlow",
-]
+__all__ = ["PowerFlowPreparation", "PreparedBranch", "PreparedTransformer", "PreparedShunt", "PreparedPowerFlow"]
