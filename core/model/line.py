@@ -4,103 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""
-GridForge V2 — Transmission Line Model
-=======================================
-
-Concrete two-terminal transmission-line model.
-
-Architecture
-------------
-
-    ElectricalObject
-          │
-          ▼
-        Branch
-          │
-          ▼
-         Line
-       /      \
-      ▼        ▼
- FROM Terminal  TO Terminal
-      │              │
-      ▼              ▼
- endpoint         endpoint
-
-Line inherits the complete terminal and endpoint contract from
-Branch.
-
-Authoritative endpoint state is owned exclusively by:
-
-    Branch.from_terminal
-    Branch.to_terminal
-
-Line does not maintain a second endpoint representation.
-
-Electrical responsibility
--------------------------
-
-Line owns line-specific electrical parameters and provides the
-local π-model representation:
-
-    Z = R + jX
-
-    Yseries = 1 / Z
-
-    Yshunt = jB
-
-    Yhalf = jB / 2
-
-Line does NOT:
-
-    - resolve endpoints into buses;
-    - mutate Network topology;
-    - construct a global Y-bus;
-    - assign numerical indices;
-    - perform power-flow calculations;
-    - perform short-circuit calculations;
-    - perform protection calculations;
-    - maintain UI/SLD state.
-
-Validation
-----------
-
-Public validation is inherited from ElectricalObject.
-
-Line-specific validation is implemented through:
-
-    validate_parameters()
-
-which delegates first to:
-
-    Branch.validate_parameters()
-
-and then validates Line-specific electrical invariants.
-
-Parameter contract
-------------------
-
-The frozen Branch contract requires:
-
-    r : float
-    x : float
-    b : float
-
-Line therefore exposes its engineering-facing names as
-properties delegating to those canonical Branch values:
-
-    resistance
-    reactance
-    shunt_susceptance
-
-These values are always numeric.
-
-A physically invalid zero series impedance is rejected by
-Line.validate_parameters().
-
-Copyright © 2026 Subhendu Mishra
-All Rights Reserved.
-"""
+"""Authoritative two-terminal transmission-line engineering model."""
 
 from __future__ import annotations
 
@@ -111,45 +15,18 @@ from .branch import Branch
 
 
 class Line(Branch):
-    """
-    Two-terminal transmission-line model.
+    """Two-terminal transmission line with explicit engineering electrical quantities.
 
-    Parameters
-    ----------
-    id:
-        Stable GridForge object identifier.
+    The authoritative Line electrical contract is:
 
-    endpoint_from:
-        Optional endpoint for the FROM terminal.
+        resistance_ohm
+        reactance_ohm
+        shunt_susceptance_siemens
 
-    endpoint_to:
-        Optional endpoint for the TO terminal.
+    These are engineering quantities. Engineering-to-per-unit conversion is
+    owned by PowerFlowPreparation, not by this model and not by YBusBuilder.
 
-    resistance:
-        Series resistance R.
-
-    reactance:
-        Series reactance X.
-
-    shunt_susceptance:
-        Total line shunt susceptance B.
-
-    name:
-        Human-readable line name.
-
-    rate_mva:
-        Optional continuous apparent-power rating.
-
-    in_service:
-        Whether the line is in service.
-
-    Notes
-    -----
-    ``resistance``, ``reactance`` and ``shunt_susceptance`` are
-    engineering-facing aliases over the canonical Branch
-    parameters ``r``, ``x`` and ``b``.
-
-    The endpoints are owned by the inherited Terminal objects.
+    Branch terminals remain the sole authoritative endpoint state.
     """
 
     __slots__ = ()
@@ -160,137 +37,75 @@ class Line(Branch):
         id: str,
         endpoint_from: Any | None = None,
         endpoint_to: Any | None = None,
-        resistance: float = 0.0,
-        reactance: float = 0.0,
-        shunt_susceptance: float = 0.0,
+        resistance_ohm: float = 0.0,
+        reactance_ohm: float = 0.0,
+        shunt_susceptance_siemens: float = 0.0,
         name: str | None = None,
         rate_mva: float | None = None,
         in_service: bool = True,
     ) -> None:
-        """
-        Construct a transmission line.
-
-        Endpoint references are passed to Branch, which attaches
-        them through the authoritative Terminal objects.
-        """
-
+        """Construct a Line from explicit engineering electrical quantities."""
         super().__init__(
             id=id,
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
-            r=resistance,
-            x=reactance,
-            b=shunt_susceptance,
+            r=resistance_ohm,
+            x=reactance_ohm,
+            b=shunt_susceptance_siemens,
             name=name,
             rate_mva=rate_mva,
             in_service=in_service,
         )
 
-    # ============================================================
-    # ENGINEERING PARAMETER ALIASES
-    # ============================================================
-
     @property
-    def resistance(self) -> float:
-        """
-        Return series resistance R.
-
-        Canonical storage is Branch.r.
-        """
+    def resistance_ohm(self) -> float:
+        """Series resistance in ohms."""
         return self.r
 
-    @resistance.setter
-    def resistance(self, value: float) -> None:
+    @resistance_ohm.setter
+    def resistance_ohm(self, value: float) -> None:
         self.r = value
 
     @property
-    def reactance(self) -> float:
-        """
-        Return series reactance X.
-
-        Canonical storage is Branch.x.
-        """
+    def reactance_ohm(self) -> float:
+        """Series reactance in ohms."""
         return self.x
 
-    @reactance.setter
-    def reactance(self, value: float) -> None:
+    @reactance_ohm.setter
+    def reactance_ohm(self, value: float) -> None:
         self.x = value
 
     @property
-    def shunt_susceptance(self) -> float:
-        """
-        Return total shunt susceptance B.
-
-        Canonical storage is Branch.b.
-        """
+    def shunt_susceptance_siemens(self) -> float:
+        """Total line shunt susceptance in siemens."""
         return self.b
 
-    @shunt_susceptance.setter
-    def shunt_susceptance(self, value: float) -> None:
+    @shunt_susceptance_siemens.setter
+    def shunt_susceptance_siemens(self, value: float) -> None:
         self.b = value
-
-    # ============================================================
-    # π-MODEL ELECTRICAL PROPERTIES
-    # ============================================================
 
     @property
     def series_impedance(self) -> complex:
-        """
-        Return the series impedance:
-
-            Z = R + jX
-        """
-        return self.impedance
+        """Return Z = R + jX using the engineering Line quantities."""
+        return complex(self.resistance_ohm, self.reactance_ohm)
 
     @property
     def series_admittance(self) -> complex:
-        """
-        Return the series admittance:
-
-            Yseries = 1 / Z
-        """
+        """Return the local series admittance 1/Z."""
         return self.admittance
 
     @property
     def total_shunt_admittance(self) -> complex:
-        """
-        Return the total shunt admittance:
-
-            Ysh = jB
-        """
-        return self.shunt_admittance
+        """Return the total shunt admittance jB."""
+        return complex(0.0, self.shunt_susceptance_siemens)
 
     @property
     def half_shunt_admittance(self) -> complex:
-        """
-        Return the shunt admittance assigned to either end of
-        the nominal π model:
-
-            Yhalf = jB / 2
-        """
-        return self.shunt_admittance / 2.0
-
-    # ============================================================
-    # π-MODEL REPRESENTATION
-    # ============================================================
+        """Return half of the total nominal-pi shunt admittance."""
+        return self.total_shunt_admittance / 2.0
 
     def pi_parameters(self) -> dict[str, complex]:
-        """
-        Return the local nominal π-model parameters.
-
-        Returns
-        -------
-        dict
-            Keys:
-
-                series_impedance
-                series_admittance
-                shunt_admittance
-                half_shunt_admittance
-
-        This method returns local electrical parameters only.
-        It does not construct or mutate a global Network matrix.
-        """
+        """Return local nominal-pi parameters without creating a global Y-bus."""
         return {
             "series_impedance": self.series_impedance,
             "series_admittance": self.series_admittance,
@@ -298,48 +113,22 @@ class Line(Branch):
             "half_shunt_admittance": self.half_shunt_admittance,
         }
 
-    # ============================================================
-    # VALIDATION
-    # ============================================================
-
     def validate_parameters(self) -> bool:
-        """
-        Validate Branch and Line invariants.
-
-        Validation hierarchy:
-
-            Line.validate_parameters()
-                ↓
-            Branch.validate_parameters()
-                ↓
-            ElectricalObject.validate_parameters()
-        """
-
+        """Validate Branch invariants and Line engineering quantities."""
         Branch.validate_parameters(self)
 
-        if not math.isfinite(self.r):
-            raise ValueError(
-                "Line resistance must be finite."
-            )
+        for value, name in (
+            (self.resistance_ohm, "resistance_ohm"),
+            (self.reactance_ohm, "reactance_ohm"),
+            (self.shunt_susceptance_siemens, "shunt_susceptance_siemens"),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"Line {name} must be finite.")
 
-        if not math.isfinite(self.x):
-            raise ValueError(
-                "Line reactance must be finite."
-            )
-
-        if not math.isfinite(self.b):
-            raise ValueError(
-                "Line shunt susceptance must be finite."
-            )
-
-        if self.impedance == 0.0 + 0.0j:
-            raise ValueError(
-                "Line series impedance cannot be zero."
-            )
+        if self.series_impedance == 0.0 + 0.0j:
+            raise ValueError("Line series impedance cannot be zero.")
 
         return True
 
 
-__all__ = [
-    "Line",
-]
+__all__ = ["Line"]
