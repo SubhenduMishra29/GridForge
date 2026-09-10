@@ -41,6 +41,40 @@ class ControlCycleResult:
         if not isinstance(self.execution, ControlExecutionResult):
             raise TypeError("execution must be a ControlExecutionResult.")
 
+        evaluation_by_id = {
+            decision.control_id: decision for decision in self.evaluation.decisions
+        }
+        for decision in self.evaluation.blocked_actions:
+            evaluation_by_id[decision.control_id] = decision
+
+        outcome_sets = (
+            self.execution.executed_decisions,
+            self.execution.failed_decisions,
+            self.execution.invalid_decisions,
+            self.execution.blocked_decisions,
+        )
+        seen_outcomes: dict[str, str] = {}
+        outcome_names = ("executed", "failed", "invalid", "blocked")
+
+        for name, decisions in zip(outcome_names, outcome_sets, strict=True):
+            for decision in decisions:
+                originating = evaluation_by_id.get(decision.control_id)
+                if originating is None or originating != decision:
+                    raise ValueError(
+                        f"{name} decisions must originate from evaluation."
+                    )
+                if decision.simulation_time != self.evaluation.simulation_time:
+                    raise ValueError(
+                        "execution decision simulation_time must match evaluation simulation_time."
+                    )
+                previous = seen_outcomes.get(decision.control_id)
+                if previous is not None:
+                    raise ValueError(
+                        f"Control decision cannot appear in multiple execution outcome "
+                        f"categories: {previous}, {name}."
+                    )
+                seen_outcomes[decision.control_id] = name
+
         evaluation_blocked = tuple(
             decision.control_id for decision in self.evaluation.blocked_actions
         )
