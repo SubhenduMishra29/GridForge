@@ -1,4 +1,7 @@
-"""Application service boundary for Transformer mutations."""
+"""Application service boundary for Transformer mutations.
+
+Author: Subhendu Mishra
+"""
 
 from __future__ import annotations
 
@@ -31,6 +34,8 @@ class TransformerModelService(ModelServiceSupport):
         endpoint_to: Bus | Terminal,
         r: float = 0.0,
         x: float = 0.0,
+        b: float = 0.0,
+        impedance_basis: str,
         tap: float = 1.0,
         shift: float = 0.0,
         name: str | None = None,
@@ -55,6 +60,8 @@ class TransformerModelService(ModelServiceSupport):
             endpoint_to=endpoint_to,
             r=r,
             x=x,
+            b=b,
+            impedance_basis=impedance_basis,
             tap=tap,
             shift=shift,
             name="" if name is None else name,

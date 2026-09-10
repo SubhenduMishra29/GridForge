@@ -2,6 +2,8 @@
 
 Commands carry intent and value objects only. Endpoint resolution is owned by
 handlers through the canonical Application endpoint resolver.
+
+Author: Subhendu Mishra
 """
 
 from __future__ import annotations
@@ -169,18 +171,49 @@ class DeleteShuntCommand(Command):
         super().__init__(**_command(DELETE_SHUNT, {"shunt_id": shunt_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateLineCommand(Command):
-    def __init__(self, *, line_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference, r: float, x: float, b: float = 0.0, name: str = "", rate_mva: float = 100.0,
+    def __init__(self, *, line_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
+                 resistance_ohm: float, reactance_ohm: float, shunt_susceptance_siemens: float = 0.0,
+                 name: str = "", rate_mva: float = 100.0,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference): raise TypeError("Line endpoints must be EndpointReference values.")
-        super().__init__(**_command(CREATE_LINE, {"line_id": line_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "r": r, "x": x, "b": b, "name": name, "rate_mva": rate_mva}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
+            raise TypeError("Line endpoints must be EndpointReference values.")
+        super().__init__(**_command(CREATE_LINE, {
+            "line_id": line_id,
+            "endpoint_from": endpoint_from,
+            "endpoint_to": endpoint_to,
+            "resistance_ohm": resistance_ohm,
+            "reactance_ohm": reactance_ohm,
+            "shunt_susceptance_siemens": shunt_susceptance_siemens,
+            "name": name,
+            "rate_mva": rate_mva,
+        }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
 class DeleteLineCommand(Command):
     def __init__(self, *, line_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_LINE, {"line_id": line_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
 class CreateTransformerCommand(Command):
-    def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference, r: float, x: float, tap: float = 1.0, shift: float = 0.0, name: str = "", rate_mva: float = 100.0,
+    def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
+                 r: float, x: float, impedance_basis: str, tap: float = 1.0, shift: float = 0.0,
+                 name: str = "", rate_mva: float = 100.0,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference): raise TypeError("Transformer endpoints must be EndpointReference values.")
-        super().__init__(**_command(CREATE_TRANSFORMER, {"transformer_id": transformer_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "r": r, "x": x, "tap": tap, "shift": shift, "name": name, "rate_mva": rate_mva}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
+            raise TypeError("Transformer endpoints must be EndpointReference values.")
+        if not isinstance(impedance_basis, str) or not impedance_basis.strip():
+            raise ValueError("Transformer impedance_basis is required and must be a non-empty string.")
+        super().__init__(**_command(CREATE_TRANSFORMER, {
+            "transformer_id": transformer_id,
+            "endpoint_from": endpoint_from,
+            "endpoint_to": endpoint_to,
+            "r": r,
+            "x": x,
+            "impedance_basis": impedance_basis,
+            "tap": tap,
+            "shift": shift,
+            "name": name,
+            "rate_mva": rate_mva,
+        }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_TRANSFORMER, {"transformer_id": transformer_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
@@ -188,7 +221,7 @@ class DeleteTransformerCommand(Command):
 class CreateCableCommand(Command):
     def __init__(self, *, cable_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", length_km: float = 0.0, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float = 0.0, x1_ohm_per_km: float = 0.0, b1_us_per_km: float = 0.0, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool = True, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from"); _endpoint(endpoint_to, "endpoint_to")
-        super().__init__(**_command(CREATE_CABLE, {"cable_id": cable_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_CABLE, {"cable_id": cable_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class UpdateCableCommand(Command):
     def __init__(self, *, cable_id: str, name: str | None = None, length_km: float | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float | None = None, x1_ohm_per_km: float | None = None, b1_us_per_km: float | None = None, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if all(v is None for v in (name, length_km, rated_voltage_kv, rated_current_a, r1_ohm_per_km, x1_ohm_per_km, b1_us_per_km, r0_ohm_per_km, x0_ohm_per_km, b0_us_per_km, in_service)): raise ValueError("UpdateCableCommand requires at least one mutable Cable field.")
