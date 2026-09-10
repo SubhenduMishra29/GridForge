@@ -8,6 +8,7 @@ from .decision import ControlActionType, ControlDecision
 from .action import ControlActionBinding
 from .context import ControlExecutionContext
 from .engine import ControlEngine, ControlEvaluationResult
+from .interlock import ControlInterlock, InterlockResult
 from .measurement_input import ControlInput
 
 __all__ = [
@@ -21,5 +22,7 @@ __all__ = [
     "ControlExecutionContext",
     "ControlEngine",
     "ControlEvaluationResult",
+    "ControlInterlock",
+    "InterlockResult",
     "ControlInput",
 ]
