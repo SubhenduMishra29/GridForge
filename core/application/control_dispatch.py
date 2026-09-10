@@ -32,6 +32,8 @@ class ControlCommandTranslator:
             raise ValueError(
                 decision.diagnostic or "Control decision is not valid for execution."
             )
+        if decision.target_equipment_type != "breaker":
+            raise ValueError("Control actions currently require a breaker target.")
 
         target = decision.target_equipment_id
         action = decision.action_type
