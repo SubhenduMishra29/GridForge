@@ -168,17 +168,30 @@ class GridForgePackage:
 
     @staticmethod
     def _network_collections(network: Network):
-        names = (
-            "bus", "grid", "generator", "synchronous_machine", "load", "motor",
-            "shunt", "capacitor", "reactor", "solar", "battery", "current_transformer",
-            "potential_voltage_transformer", "capacitive_voltage_transformer", "line", "cable",
-            "transformer", "breaker", "switch", "disconnector", "fuse",
+        collections = (
+            ("bus", network.buses),
+            ("grid", network.grids),
+            ("generator", network.generators),
+            ("synchronous_machine", network.synchronous_machines),
+            ("load", network.loads),
+            ("motor", network.motors),
+            ("shunt", network.shunts),
+            ("capacitor", network.capacitors),
+            ("reactor", network.reactors),
+            ("solar", network.solar),
+            ("battery", network.batteries),
+            ("current_transformer", network.current_transformers),
+            ("potential_transformer", network.potential_transformers),
+            ("capacitive_voltage_transformer", network.capacitive_voltage_transformers),
+            ("line", network.lines),
+            ("cable", network.cables),
+            ("transformer", network.transformers),
+            ("breaker", network.breakers),
+            ("switch", network.switches),
+            ("disconnector", network.disconnectors),
+            ("fuse", network.fuses),
         )
-        for name in names:
-            if name == "potential_voltage_transformer":
-                yield "potential_transformer", network.potential_transformers
-            else:
-                yield name, getattr(network, f"{name}s", ())
+        return collections
 
     @classmethod
     def _encode_state(cls, value: Any) -> Any:
