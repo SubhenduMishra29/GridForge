@@ -32,12 +32,12 @@ def test_evaluation_result_requires_blocked_actions_to_be_invalid() -> None:
         )
 
 
-def test_evaluation_result_rejects_decision_present_in_both_outcome_sets() -> None:
-    blocked = _decision("blocked", valid=False)
+def test_evaluation_result_rejects_duplicate_control_id_across_outcome_sets() -> None:
+    accepted = _decision("same-id")
+    blocked = _decision("same-id", valid=False)
     with pytest.raises(ValueError, match="cannot appear in both"):
         ControlEvaluationResult(
             simulation_time=1.0,
-            decisions=(),
+            decisions=(accepted,),
             blocked_actions=(blocked,),
-            diagnostics=("blocked",),
         )
