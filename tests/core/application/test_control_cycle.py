@@ -3,6 +3,7 @@ from core.application.command_manager import CommandManager
 from core.application.control_dispatch import ControlCommandDispatcher
 from core.application.control_execution import ControlExecutionService
 from core.application.control_cycle import ControlCycleService
+from core.application.events import ElementUpdated, NetworkChanged
 from core.application.results import ApplicationResult
 from core.control.decision import ControlActionType, ControlDecision
 from core.control.engine import ControlEngine, ControlEvaluationResult
@@ -71,3 +72,21 @@ def test_application_facade_owns_control_cycle_orchestration() -> None:
     assert result.simulation_time == 2.0
     assert result.execution.executed_decisions == (evaluation.decisions[0],)
     assert calls == ["trip"]
+
+
+def test_application_control_cycle_uses_application_event_publication_path() -> None:
+    evaluation = ControlEvaluationResult(
+        simulation_time=3.0,
+        decisions=(_decision("trip"),),
+    )
+    manager = CommandManager(context=object())
+    application = Application(manager)
+    observed: list[object] = []
+    application.event_bus.subscribe(ElementUpdated, observed.append)
+    application.event_bus.subscribe(NetworkChanged, observed.append)
+
+    result = application.execute_control_cycle(_StubEngine(evaluation), simulation_time=3.0)
+
+    assert result.execution.application_results[0].success is True
+    assert any(isinstance(event, ElementUpdated) for event in observed)
+    assert any(isinstance(event, NetworkChanged) for event in observed)
