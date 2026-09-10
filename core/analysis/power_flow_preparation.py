@@ -19,8 +19,10 @@ from typing import Any, Mapping
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.base.per_unit import PerUnitSystem
 from core.model.cable import Cable
+from core.model.capacitor import Capacitor
 from core.model.injection import Injection
 from core.model.line import Line
+from core.model.reactor import Reactor
 from core.model.transformer import Transformer
 from core.network.endpoint import resolve_terminal_bus
 from core.numerical.ybus import YBus, YBusBuilder
@@ -85,13 +87,22 @@ class PreparedTransformer:
 
 @dataclass(frozen=True, slots=True)
 class PreparedShunt:
-    """Detached PU representation of a shunt."""
+    """Detached PU representation of a shunt admittance."""
 
     shunt_id: str
     bus_id: str
     g_pu: float
     b_pu: float
     in_service: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.shunt_id or not self.bus_id:
+            raise ValueError("Prepared shunt identifiers must be non-empty.")
+        for value, name in ((self.g_pu, "g_pu"), (self.b_pu, "b_pu")):
+            if not math.isfinite(float(value)):
+                raise ValueError(f"Prepared shunt {name} must be finite.")
+        object.__setattr__(self, "g_pu", float(self.g_pu))
+        object.__setattr__(self, "b_pu", float(self.b_pu))
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +148,9 @@ class PreparedPowerFlow:
 class PowerFlowPreparation:
     """Own the live-model to detached numerical Power Flow boundary."""
 
+    # Fixed-P/Q injections belong in the nodal power specification.
+    # Capacitors and reactors are voltage-dependent admittances and are
+    # therefore prepared as numerical shunts instead of fixed injections.
     _INJECTION_COLLECTIONS = (
         "grids",
         "generators",
@@ -145,8 +159,6 @@ class PowerFlowPreparation:
         "motors",
         "solar",
         "batteries",
-        "capacitors",
-        "reactors",
     )
 
     @staticmethod
@@ -198,7 +210,7 @@ class PowerFlowPreparation:
 
         branches = self._prepare_branches(voltage_bases)
         transformers = self._prepare_transformers(voltage_bases)
-        shunts = self._prepare_shunts()
+        shunts = self._prepare_shunts(voltage_bases)
         topology_revision = getattr(self.network, "topology_revision", None)
         snapshot = PreparedPowerFlow(
             input=input_data,
@@ -257,7 +269,6 @@ class PowerFlowPreparation:
         return tuple(prepared)
 
     def _prepare_transformers(self, voltage_bases: Mapping[str, float]) -> tuple[PreparedTransformer, ...]:
-        del voltage_bases
         prepared: list[PreparedTransformer] = []
         for transformer in getattr(self.network, "transformers", ()):
             if not getattr(transformer, "in_service", True):
@@ -265,23 +276,106 @@ class PowerFlowPreparation:
             if not isinstance(transformer, Transformer):
                 raise TypeError(f"Network transformer '{getattr(transformer, 'id', transformer)}' is not a Transformer model.")
             from_bus, to_bus = self._resolve_branch_endpoints(transformer)
+            reference_kv = transformer.impedance_base_voltage_kv
             if transformer.impedance_basis == "pu":
-                r_pu, x_pu, b_pu = float(transformer.r), float(transformer.x), float(transformer.b)
+                z_pu = self._per_unit.convert_impedance_base(
+                    complex(transformer.r, transformer.x),
+                    transformer.impedance_base_mva,
+                    reference_kv,
+                    reference_kv,
+                )
+                # Transformer shunt susceptance, when supplied, is already
+                # expressed on the same declared original PU basis.
+                b_pu = float(transformer.b)
+            elif transformer.impedance_basis == "engineering":
+                z_pu = self._per_unit.to_pu_impedance(
+                    complex(transformer.r, transformer.x),
+                    reference_kv,
+                )
+                b_pu = self._per_unit.to_pu_admittance(
+                    complex(0.0, transformer.b),
+                    reference_kv,
+                ).imag
             else:
                 raise ValueError(
-                    f"Transformer '{transformer.id}' uses an engineering impedance basis, "
-                    "but the repository has no authoritative transformer engineering-unit basis."
+                    f"Transformer '{transformer.id}' has unsupported impedance basis {transformer.impedance_basis!r}."
                 )
-            prepared.append(PreparedTransformer(str(transformer.id), str(from_bus.id), str(to_bus.id), r_pu, x_pu, b_pu, transformer.tap, transformer.shift, True))
+
+            if not math.isclose(reference_kv, voltage_bases[str(from_bus.id)], rel_tol=0.0, abs_tol=1e-9):
+                raise ValueError(
+                    f"Transformer '{transformer.id}' impedance reference voltage {reference_kv:g} kV "
+                    f"does not match FROM bus voltage base {voltage_bases[str(from_bus.id)]:g} kV. "
+                    "Declare engineering/PU impedance on the actual transformer-side voltage base."
+                )
+
+            prepared.append(
+                PreparedTransformer(
+                    str(transformer.id),
+                    str(from_bus.id),
+                    str(to_bus.id),
+                    z_pu.real,
+                    z_pu.imag,
+                    b_pu,
+                    transformer.tap,
+                    transformer.shift,
+                    True,
+                )
+            )
         return tuple(prepared)
 
-    def _prepare_shunts(self) -> tuple[PreparedShunt, ...]:
+    def _prepare_shunts(self, voltage_bases: Mapping[str, float]) -> tuple[PreparedShunt, ...]:
         prepared: list[PreparedShunt] = []
+
+        # Existing generic Shunt values are already PU numerical values.
         for shunt in getattr(self.network, "shunts", ()):
             if not getattr(shunt, "in_service", True):
                 continue
             bus = self._resolve_shunt_bus(shunt)
-            prepared.append(PreparedShunt(str(shunt.id), str(bus.id), float(shunt.g_pu), float(shunt.b_pu), True))
+            prepared.append(
+                PreparedShunt(
+                    str(shunt.id),
+                    str(bus.id),
+                    float(shunt.g_pu),
+                    float(shunt.b_pu),
+                    True,
+                )
+            )
+
+        # Capacitor/reactor engineering state is MVAr injection. At 1.0 PU
+        # voltage, Q_pu = -B_pu, so B_pu = -Q_pu. The solver then applies
+        # the voltage-squared behaviour through the Y-bus shunt.
+        for equipment in (
+            *getattr(self.network, "capacitors", ()),
+            *getattr(self.network, "reactors", ()),
+        ):
+            if not getattr(equipment, "in_service", True):
+                continue
+            if not isinstance(equipment, (Capacitor, Reactor)):
+                raise TypeError(
+                    f"Reactive shunt '{getattr(equipment, 'id', equipment)}' is not a supported Capacitor/Reactor model."
+                )
+            bus = self._resolve_shunt_bus(equipment)
+            bus_kv = voltage_bases[str(bus.id)]
+            q_mvar = self._finite(
+                equipment.get_power()[1],
+                f"Reactive shunt '{equipment.id}' reactive power",
+            )
+            q_pu = self._per_unit.to_pu_power(0.0, q_mvar).imag
+            # Voltage basis is validated explicitly even though MVAr -> PU
+            # uses the common system MVA base; it is part of the engineering
+            # contract and prevents an unqualified shunt from entering the
+            # numerical snapshot.
+            if bus_kv <= 0.0:
+                raise ValueError(f"Reactive shunt '{equipment.id}' has invalid bus voltage base.")
+            prepared.append(
+                PreparedShunt(
+                    str(equipment.id),
+                    str(bus.id),
+                    0.0,
+                    -q_pu,
+                    True,
+                )
+            )
         return tuple(prepared)
 
     @staticmethod

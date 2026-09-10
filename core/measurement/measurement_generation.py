@@ -1,4 +1,18 @@
-"""GridForge V2 measurement-generation transformation boundary."""
+"""GridForge V2 measurement-generation transformation boundary.
+
+Author: Subhendu Mishra
+
+The canonical conversion chain is:
+
+    numerical PU quantity
+        -> engineering physical quantity
+        -> CT/PT/CVT ratio
+        -> secondary measurement channel
+
+MeasurementGeneration is the sole conversion boundary. MeasurementChannel
+stores the logical signal and its authoritative source reference; it does not
+re-interpret instrument ratios.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +22,7 @@ from typing import Any, TypeAlias
 
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
-from core.measurement.measurement_channel import MeasurementChannel
+from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.result import ShortCircuitResult
 
@@ -73,9 +87,9 @@ class MeasurementGeneration:
         *,
         prepared_power_flow: Any,
     ) -> float | complex:
-        """Convert PU current through Ibase, primary CT current, then CT secondary."""
+        """Convert PU current -> physical primary A -> CT secondary A."""
         self._validate_source(context, source)
-        self._validate_channel(channel)
+        self._validate_channel(channel, MeasurementSignalType.CURRENT)
         quantity = context.quantity
         if isinstance(quantity, LineFlowResult):
             raw = self._line_current(quantity, context)
@@ -98,9 +112,9 @@ class MeasurementGeneration:
         channel: MeasurementChannel,
         prepared_power_flow: Any,
     ) -> float:
-        """Convert PU voltage through the declared bus base and PT/CVT ratio."""
+        """Convert PU voltage -> physical primary kV -> PT/CVT secondary V."""
         self._validate_source(context, source)
-        self._validate_channel(channel)
+        self._validate_channel(channel, MeasurementSignalType.VOLTAGE)
         if not isinstance(context.quantity, PowerFlowResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "power-flow voltage")
@@ -117,7 +131,7 @@ class MeasurementGeneration:
 
         base_voltage_kv = self._voltage_base_kv(prepared_power_flow, context.bus_id)
         primary_voltage_kv = result.voltage_magnitudes[index] * base_voltage_kv
-        value = primary_voltage_kv / self._ratio(source, "voltage")
+        value = primary_voltage_kv * 1000.0 / self._ratio(source, "voltage")
         channel.update(value, available=bool(getattr(source, "in_service", True)))
         return value
 
@@ -127,10 +141,17 @@ class MeasurementGeneration:
         source: Any,
         channel: MeasurementChannel,
         quantity_key: str,
+        *,
+        prepared_power_flow: Any,
     ) -> float | complex:
-        """Consume an established short-circuit fault quantity at its fault location."""
+        """Convert PU short-circuit current -> primary A -> CT secondary A.
+
+        The short-circuit solver result is numerical PU data because its fault
+        current is produced from PU prefault voltage and PU fault impedance.
+        Applying a CT ratio directly to that value is therefore prohibited.
+        """
         self._validate_source(context, source)
-        self._validate_channel(channel)
+        self._validate_channel(channel, MeasurementSignalType.CURRENT)
         if not isinstance(context.quantity, ShortCircuitResult):
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit fault quantity")
@@ -171,7 +192,8 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity(
                 f"Short-circuit quantity {quantity_key!r} does not identify an existing scalar result."
             )
-        value = raw / self._ratio(source, "current")
+        primary_current_a = raw * self._current_base_a(prepared_power_flow, context.bus_id)
+        value = primary_current_a / self._ratio(source, "current")
         value = self._apply_ct_polarity(value, source)
         channel.update(value, available=bool(getattr(source, "in_service", True)))
         return value
@@ -279,9 +301,13 @@ class MeasurementGeneration:
                 )
 
     @staticmethod
-    def _validate_channel(channel: MeasurementChannel) -> None:
+    def _validate_channel(channel: MeasurementChannel, expected: MeasurementSignalType) -> None:
         if not isinstance(channel, MeasurementChannel):
             raise TypeError("channel must be a MeasurementChannel.")
+        if channel.signal_type is not expected:
+            raise ValueError(
+                f"MeasurementChannel signal_type must be {expected.value!r} for this conversion."
+            )
 
     @staticmethod
     def _unsupported_message(context: PreparedMeasurementContext, family: str) -> str:
