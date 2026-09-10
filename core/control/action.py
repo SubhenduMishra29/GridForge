@@ -9,7 +9,7 @@ from .decision import ControlActionType, ControlDecision
 
 @dataclass(frozen=True, slots=True)
 class ControlActionBinding:
-    """Configuration connecting a logic output to an equipment action."""
+    """Configuration connecting a logic output to a breaker action."""
 
     control_id: str
     source_component: str
@@ -17,6 +17,7 @@ class ControlActionBinding:
     target_equipment_id: str
     action_type: ControlActionType
     reason: str
+    target_equipment_type: str = "breaker"
     interlock_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -31,6 +32,10 @@ class ControlActionBinding:
             if not value:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value)
+        target_type = str(self.target_equipment_type).strip().lower()
+        if target_type != "breaker":
+            raise ValueError("target_equipment_type must be 'breaker' for Control actions.")
+        object.__setattr__(self, "target_equipment_type", target_type)
         if self.interlock_id is not None:
             value = str(self.interlock_id).strip()
             object.__setattr__(self, "interlock_id", value or None)
@@ -43,6 +48,7 @@ class ControlActionBinding:
             control_id=self.control_id,
             action_type=self.action_type,
             target_equipment_id=self.target_equipment_id,
+            target_equipment_type=self.target_equipment_type,
             reason=self.reason,
             simulation_time=simulation_time,
             triggered_by=f"{self.source_component}.{self.source_output}",
