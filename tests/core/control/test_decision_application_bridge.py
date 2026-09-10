@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from core.application.commands.breaker_commands import TripBreakerCommand
-from core.control.decision import ControlActionType, ControlDecision
 from core.application.control_dispatch import ControlCommandTranslator
+from core.control.decision import ControlActionType, ControlDecision
 
 
 def test_trip_decision_translates_to_canonical_breaker_command() -> None:
@@ -33,18 +35,15 @@ def test_control_decision_contains_intent_only() -> None:
     assert not hasattr(decision, "network")
 
 
-def test_invalid_target_action_is_rejected_before_command_translation() -> None:
-    decision = ControlDecision(
+def test_blocked_decision_cannot_be_translated_to_command() -> None:
+    decision = ControlDecision.blocked(
         control_id="UV-101",
         action_type=ControlActionType.TRIP,
-        target_equipment_id="",
-        reason="invalid target",
+        target_equipment_id="BRK-101",
+        reason="undervoltage request",
         simulation_time=1.0,
+        diagnostic="Target is out of service.",
     )
 
-    try:
+    with pytest.raises(ValueError, match="out of service"):
         ControlCommandTranslator.to_command(decision)
-    except ValueError as exc:
-        assert "target_equipment_id" in str(exc)
-    else:
-        raise AssertionError("invalid control target must be rejected")
