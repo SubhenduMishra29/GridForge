@@ -143,6 +143,7 @@ class ShortCircuitResult:
     source_contributions: Mapping[str, ShortCircuitSourceContribution] = field(default_factory=dict)
     equipment_currents: Mapping[str, ShortCircuitEquipmentCurrent] = field(default_factory=dict)
     branch_currents: Mapping[str, ShortCircuitBranchCurrent] = field(default_factory=dict)
+    provenance: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
@@ -164,6 +165,7 @@ class ShortCircuitResult:
         object.__setattr__(self, "source_contributions", self._freeze_records(self.source_contributions, ShortCircuitSourceContribution, "source_contributions"))
         object.__setattr__(self, "equipment_currents", self._freeze_records(self.equipment_currents, ShortCircuitEquipmentCurrent, "equipment_currents"))
         object.__setattr__(self, "branch_currents", self._freeze_records(self.branch_currents, ShortCircuitBranchCurrent, "branch_currents"))
+        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
     @staticmethod
     def _freeze_records(values: Mapping[str, Any], expected_type: type, name: str) -> Mapping[str, Any]:
@@ -199,6 +201,7 @@ class ShortCircuitResult:
             "source_contributions": dict(self.source_contributions),
             "equipment_currents": dict(self.equipment_currents),
             "branch_currents": dict(self.branch_currents),
+            "provenance": dict(self.provenance),
         })
         return result
 
