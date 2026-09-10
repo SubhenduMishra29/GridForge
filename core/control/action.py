@@ -17,6 +17,7 @@ class ControlActionBinding:
     target_equipment_id: str
     action_type: ControlActionType
     reason: str
+    interlock_id: str | None = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -30,6 +31,9 @@ class ControlActionBinding:
             if not value:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value)
+        if self.interlock_id is not None:
+            value = str(self.interlock_id).strip()
+            object.__setattr__(self, "interlock_id", value or None)
         if not isinstance(self.action_type, ControlActionType):
             object.__setattr__(self, "action_type", ControlActionType(self.action_type))
 
