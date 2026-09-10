@@ -3,12 +3,20 @@
 # GridForge V2 — Headless Application Facade
 # ============================================================
 
-"""Stable public Application facade for commands, reads, events, and history."""
+"""Stable public Application facade for commands, reads, events, history, and Control lifecycle."""
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
+from core.control.context import ControlExecutionContext
+from core.control.engine import ControlEngine
+
 from .command import Command
 from .command_manager import CommandManager
+from .control_cycle import ControlCycleResult, ControlCycleService
+from .control_dispatch import ControlCommandDispatcher
+from .control_execution import ControlExecutionService
 from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated,
@@ -51,10 +59,34 @@ class Application:
         self._command_manager = command_manager
         self._read_service = read_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
+        self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager))
 
     @property
     def event_bus(self) -> ApplicationEventBus:
         return self._event_bus
+
+    @property
+    def control_execution(self) -> ControlExecutionService:
+        """Return the Application-owned Control execution boundary."""
+        return self._control_execution
+
+    def execute_control_cycle(
+        self,
+        control_engine: ControlEngine,
+        *,
+        simulation_time: float | None = None,
+        external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
+        context: ControlExecutionContext | None = None,
+        interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None,
+    ) -> ControlCycleResult:
+        """Evaluate Control intent and execute permitted decisions through Application."""
+        cycle = ControlCycleService(control_engine, self._control_execution)
+        return cycle.execute(
+            simulation_time=simulation_time,
+            external_inputs=external_inputs,
+            context=context,
+            interlock_inputs=interlock_inputs,
+        )
 
     def execute(self, command: Command) -> ApplicationResult:
         """Execute a command and publish semantic events only after success/commit."""
