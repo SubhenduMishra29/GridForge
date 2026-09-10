@@ -28,13 +28,12 @@ class ShortCircuitSolver:
                 Vprefault=data.prefault_voltage,
                 Zf=data.fault_impedance,
             )
-
         if data.sequence_snapshot is None:
             raise ValueError("Unsymmetrical short-circuit input requires a sequence snapshot.")
-        if not data.sequence_elements:
-            raise ValueError("Unsymmetrical short-circuit input requires sequence elements.")
-
-        return UnsymmetricalFault(data.sequence_snapshot).calculate(
+        return UnsymmetricalFault(
+            data.sequence_snapshot,
+            fault_bus_index=data.fault_bus_index,
+        ).calculate(
             fault_type=data.fault_type,
             elements=data.sequence_elements,
             Vprefault=data.prefault_voltage,
@@ -55,7 +54,6 @@ class ShortCircuitSolver:
         return result
 
     def calculate(self) -> ShortCircuitResult:
-        """Explicit alias for the solver execution operation."""
         return self.solve()
 
     def reset(self) -> None:
@@ -72,12 +70,7 @@ class ShortCircuitSolver:
         }
 
     def __repr__(self) -> str:
-        return (
-            "ShortCircuitSolver("
-            f"fault_type={self.input.fault_type.value}, "
-            f"bus_index={self.input.fault_bus_index}"
-            ")"
-        )
+        return f"ShortCircuitSolver(fault_type={self.input.fault_type.value}, bus_index={self.input.fault_bus_index})"
 
 
 __all__ = ["ShortCircuitSolver"]
