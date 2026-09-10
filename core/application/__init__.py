@@ -14,11 +14,14 @@ state, Qt objects, canvas objects, or renderers.
 from __future__ import annotations
 
 from .application import Application
+from .control_execution import ControlExecutionResult, ControlExecutionService
 from .read_models import ElementReadModel, NetworkReadModel
 from .read_service import NetworkReadService, ReadService
 
 __all__ = [
     "Application",
+    "ControlExecutionResult",
+    "ControlExecutionService",
     "ElementReadModel",
     "NetworkReadModel",
     "NetworkReadService",
