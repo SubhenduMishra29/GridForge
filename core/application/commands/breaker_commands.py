@@ -47,8 +47,39 @@ class CloseBreakerCommand(Command):
 
 
 class TripBreakerCommand(Command):
-    def __init__(self, *, breaker_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(command_type=TRIP_BREAKER, payload={"breaker_id": breaker_id}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+    """Protection-originated breaker-trip intent; construction never mutates Core."""
+
+    def __init__(
+        self,
+        *,
+        breaker_id: str,
+        protection_element_id: str | None = None,
+        relay_id: str | None = None,
+        decision_id: str | None = None,
+        reason: str = "",
+        timestamp: float | None = None,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(breaker_id, str) or not breaker_id.strip():
+            raise ValueError("breaker_id must be a non-empty string.")
+        for name, value in (("protection_element_id", protection_element_id), ("relay_id", relay_id), ("decision_id", decision_id)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be None or a non-empty string.")
+        if not isinstance(reason, str):
+            raise TypeError("reason must be a string.")
+        if timestamp is not None:
+            timestamp = float(timestamp)
+        payload = {
+            "breaker_id": breaker_id.strip(),
+            "protection_element_id": protection_element_id.strip() if protection_element_id else None,
+            "relay_id": relay_id.strip() if relay_id else None,
+            "decision_id": decision_id.strip() if decision_id else None,
+            "reason": reason.strip(),
+            "timestamp": timestamp,
+        }
+        super().__init__(command_type=TRIP_BREAKER, payload=payload, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
 class PutBreakerInServiceCommand(Command):
