@@ -13,6 +13,8 @@ from core.application.command_manager import CommandManager
 from core.application.commands.breaker_commands import (
     CloseBreakerCommand,
     OpenBreakerCommand,
+    PutBreakerInServiceCommand,
+    TakeBreakerOutOfServiceCommand,
     TripBreakerCommand,
 )
 from core.application.results import ApplicationResult
@@ -39,6 +41,10 @@ class ControlCommandTranslator:
             return OpenBreakerCommand(breaker_id=target)
         if action is ControlActionType.CLOSE:
             return CloseBreakerCommand(breaker_id=target)
+        if action is ControlActionType.PUT_IN_SERVICE:
+            return PutBreakerInServiceCommand(breaker_id=target)
+        if action is ControlActionType.TAKE_OUT_OF_SERVICE:
+            return TakeBreakerOutOfServiceCommand(breaker_id=target)
         raise ValueError(f"Unsupported Control action: {action.value}")
 
 
