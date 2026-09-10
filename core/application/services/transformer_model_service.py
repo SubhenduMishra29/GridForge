@@ -1,6 +1,11 @@
 """Application service boundary for Transformer mutations.
 
 Author: Subhendu Mishra
+
+Transformer impedance entered through the existing application contract is
+explicitly referred to the FROM-side nominal voltage. This is a contract,
+not an inferred electrical value, and is persisted on the Transformer as
+``impedance_base_voltage_kv`` for deterministic study preparation.
 """
 
 from __future__ import annotations
@@ -26,6 +31,18 @@ class TransformerModelService(ModelServiceSupport):
     def network(self) -> Network:
         return self._network
 
+    @staticmethod
+    def _endpoint_nominal_voltage_kv(endpoint: Bus | Terminal, parameter_name: str) -> float:
+        bus = endpoint if isinstance(endpoint, Bus) else endpoint.endpoint
+        if not isinstance(bus, Bus):
+            raise ValueError(
+                f"{parameter_name} must resolve to a Bus with nominal_voltage_kv before a Transformer can declare its impedance basis."
+            )
+        voltage_kv = float(bus.nominal_voltage_kv)
+        if voltage_kv <= 0.0:
+            raise ValueError(f"{parameter_name} bus nominal_voltage_kv must be greater than zero.")
+        return voltage_kv
+
     def create_transformer(
         self,
         *,
@@ -46,14 +63,14 @@ class TransformerModelService(ModelServiceSupport):
         self._require_id(transformer_id, "transformer_id")
         self._validate_endpoint(endpoint_from, "endpoint_from")
         self._validate_endpoint(endpoint_to, "endpoint_to")
-        self._require_distinct_endpoints(
-            endpoint_from,
-            endpoint_to,
-            "INVALID_TRANSFORMER_ENDPOINTS",
-            "Transformer",
-            transformer_id,
-        )
+        self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_TRANSFORMER_ENDPOINTS", "Transformer", transformer_id)
         self._ensure_not_exists("transformer", transformer_id, "Transformer")
+
+        # Frozen application contract: transformer r/x/b is referred to the
+        # explicitly named FROM side. The value is captured in the Core model
+        # so preparation never has to infer which voltage base was intended.
+        impedance_base_voltage_kv = self._endpoint_nominal_voltage_kv(endpoint_from, "endpoint_from")
+
         transformer = Transformer(
             id=transformer_id,
             endpoint_from=endpoint_from,
@@ -62,42 +79,24 @@ class TransformerModelService(ModelServiceSupport):
             x=x,
             b=b,
             impedance_basis=impedance_basis,
+            impedance_base_voltage_kv=impedance_base_voltage_kv,
             tap=tap,
             shift=shift,
             name="" if name is None else name,
             rate_mva=rate_mva,
         )
         self._network.add_transformer(transformer)
-        transaction.record_undo(
-            lambda transformer=transformer: self._network.remove_transformer(transformer)
-        )
-        return self._success(
-            transformer,
-            "transformer",
-            transformer_id,
-            f"Transformer created: {transformer_id}",
-        )
+        transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
+        return self._success(transformer, "transformer", transformer_id, f"Transformer created: {transformer_id}")
 
-    def delete_transformer(
-        self,
-        *,
-        transformer_id: str,
-        transaction: Transaction,
-    ) -> ApplicationResult[Transformer]:
+    def delete_transformer(self, *, transformer_id: str, transaction: Transaction) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
         self._require_id(transformer_id, "transformer_id")
         transformer = self._get_required("transformer", transformer_id, "Transformer")
         self._require_type(transformer, Transformer, transformer_id, "Transformer")
         self._network.remove_transformer(transformer)
-        transaction.record_undo(
-            lambda transformer=transformer: self._network.add_transformer(transformer)
-        )
-        return self._success(
-            transformer,
-            "transformer",
-            transformer_id,
-            f"Transformer deleted: {transformer_id}",
-        )
+        transaction.record_undo(lambda transformer=transformer: self._network.add_transformer(transformer))
+        return self._success(transformer, "transformer", transformer_id, f"Transformer deleted: {transformer_id}")
 
 
 __all__ = ["TransformerModelService"]
