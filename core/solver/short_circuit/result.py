@@ -4,10 +4,29 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .fault_types import FaultType
+
+
+class ShortCircuitStatus(str, Enum):
+    """Status of the fault calculation itself."""
+
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    UNAVAILABLE = "UNAVAILABLE"
+    FAILED = "FAILED"
+
+
+class ContributionStatus(str, Enum):
+    """Independent status of source/branch/equipment contribution data."""
+
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    UNAVAILABLE = "UNAVAILABLE"
+    FAILED = "FAILED"
 
 
 def _validate_current(value: Any, name: str) -> complex:
@@ -37,7 +56,7 @@ def _freeze_complex_mapping(values: Mapping[str, complex]) -> Mapping[str, compl
 def _validate_identity(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty engineering identifier.")
-    return value
+    return value.strip()
 
 
 def _validate_polar(current: complex, magnitude: Any, angle_deg: Any, name: str) -> tuple[float, float]:
@@ -55,7 +74,7 @@ def _validate_polar(current: complex, magnitude: Any, angle_deg: Any, name: str)
 
 @dataclass(frozen=True, slots=True)
 class ShortCircuitSourceContribution:
-    """Current injected into the prepared network by one source."""
+    """Current injected by one explicitly identified short-circuit source."""
 
     source_id: str
     source_type: str
@@ -65,6 +84,11 @@ class ShortCircuitSourceContribution:
     angle_deg: float
     sequence_currents: Mapping[str, complex] = field(default_factory=dict)
     phase_currents: Mapping[str, complex] = field(default_factory=dict)
+    Z1: complex | None = None
+    Z2: complex | None = None
+    Z0: complex | None = None
+    internal_voltage: complex | None = None
+    operating_state: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_id", _validate_identity(self.source_id, "source_id"))
@@ -77,6 +101,13 @@ class ShortCircuitSourceContribution:
         object.__setattr__(self, "angle_deg", angle)
         object.__setattr__(self, "sequence_currents", _freeze_complex_mapping(self.sequence_currents))
         object.__setattr__(self, "phase_currents", _freeze_complex_mapping(self.phase_currents))
+        for name in ("Z1", "Z2", "Z0", "internal_voltage"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, complex(value))
+        if not isinstance(self.operating_state, str):
+            raise TypeError("operating_state must be a string.")
+        object.__setattr__(self, "operating_state", self.operating_state.strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +185,9 @@ class ShortCircuitResult:
     equipment_currents: Mapping[str, ShortCircuitEquipmentCurrent] = field(default_factory=dict)
     branch_currents: Mapping[str, ShortCircuitBranchCurrent] = field(default_factory=dict)
     provenance: Mapping[str, Any] = field(default_factory=dict)
+    status: ShortCircuitStatus | str | None = None
+    contribution_status: ContributionStatus | str = ContributionStatus.UNAVAILABLE
+    diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", _freeze_value(self.values))
@@ -164,7 +198,7 @@ class ShortCircuitResult:
         if self.ground_current is not None:
             object.__setattr__(self, "ground_current", _validate_current(self.ground_current, "ground_current"))
         if self.fault_current is not None and self.fault_current_magnitude is not None:
-            magnitude, _ = _validate_polar(self.fault_current, self.fault_current_magnitude, self.fault_current_angle_deg if self.fault_current_angle_deg is not None else 0.0, "fault current")
+            magnitude, _ = _validate_polar(self.fault_current, self.fault_current_magnitude, self.fault_current_angle_deg if self.fault_current_angle_deg is not None else math.degrees(math.atan2(self.fault_current.imag, self.fault_current.real)), "fault current")
             object.__setattr__(self, "fault_current_magnitude", magnitude)
         if self.ground_current is not None and self.ground_current_magnitude is not None:
             supplied = float(self.ground_current_magnitude)
@@ -176,6 +210,21 @@ class ShortCircuitResult:
         object.__setattr__(self, "equipment_currents", self._freeze_records(self.equipment_currents, ShortCircuitEquipmentCurrent, "equipment_currents"))
         object.__setattr__(self, "branch_currents", self._freeze_records(self.branch_currents, ShortCircuitBranchCurrent, "branch_currents"))
         object.__setattr__(self, "provenance", _freeze_value(self.provenance))
+        status = self.status
+        if status is None:
+            status = ShortCircuitStatus.COMPLETE if self.success else ShortCircuitStatus.FAILED
+        try:
+            status = ShortCircuitStatus(status)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported short-circuit status: {status!r}.") from exc
+        object.__setattr__(self, "status", status)
+        try:
+            contribution_status = ContributionStatus(self.contribution_status)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported contribution status: {self.contribution_status!r}.") from exc
+        object.__setattr__(self, "contribution_status", contribution_status)
+        diagnostics = tuple(str(item) for item in self.diagnostics)
+        object.__setattr__(self, "diagnostics", diagnostics)
 
     @staticmethod
     def _freeze_records(values: Mapping[str, Any], expected_type: type, name: str) -> Mapping[str, Any]:
@@ -201,6 +250,9 @@ class ShortCircuitResult:
             "bus_index": self.fault_bus_index,
             "bus_id": self.fault_bus_id,
             "success": self.success,
+            "status": self.status,
+            "contribution_status": self.contribution_status,
+            "diagnostics": self.diagnostics,
             "fault_current": self.fault_current,
             "fault_current_magnitude": self.fault_current_magnitude,
             "fault_current_angle_deg": self.fault_current_angle_deg,
@@ -217,6 +269,8 @@ class ShortCircuitResult:
 
 
 __all__ = [
+    "ShortCircuitStatus",
+    "ContributionStatus",
     "ShortCircuitSourceContribution",
     "ShortCircuitBranchCurrent",
     "ShortCircuitEquipmentCurrent",
