@@ -59,7 +59,9 @@ class Application:
         self._command_manager = command_manager
         self._read_service = read_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
-        self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager))
+        self._control_execution = ControlExecutionService(
+            ControlCommandDispatcher(command_manager, command_executor=self.execute)
+        )
 
     @property
     def event_bus(self) -> ApplicationEventBus:
