@@ -12,7 +12,7 @@ class InterlockResult:
 
 
 class ControlInterlock:
-    """Headless gate evaluated before a control decision becomes executable."""
+    """Headless permissive gate evaluated before a control action is emitted."""
 
     def __init__(self, interlock_id: str, *, required_inputs: tuple[str, ...] = ()) -> None:
         interlock_id = str(interlock_id).strip()
@@ -24,9 +24,13 @@ class ControlInterlock:
             raise ValueError("required_inputs cannot contain empty names.")
 
     def evaluate(self, inputs: Mapping[str, bool], simulation_time: float) -> InterlockResult:
+        """Return a deterministic permissive/blocked result without mutating Core."""
         if not isfinite(float(simulation_time)):
             raise ValueError("simulation_time must be finite.")
-        blocked = tuple(name for name in self.required_inputs if not bool(inputs.get(name, False)))
+        blocked = tuple(name for name in self.required_inputs if inputs.get(name) is not True)
         if blocked:
             return InterlockResult(False, f"Interlock '{self.interlock_id}' blocked by: {', '.join(blocked)}")
         return InterlockResult(True, f"Interlock '{self.interlock_id}' permissive")
+
+
+__all__ = ["ControlInterlock", "InterlockResult"]
