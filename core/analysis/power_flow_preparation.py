@@ -148,9 +148,6 @@ class PreparedPowerFlow:
 class PowerFlowPreparation:
     """Own the live-model to detached numerical Power Flow boundary."""
 
-    # Fixed-P/Q injections belong in the nodal power specification.
-    # Capacitors and reactors are voltage-dependent admittances and are
-    # therefore prepared as numerical shunts instead of fixed injections.
     _INJECTION_COLLECTIONS = (
         "grids",
         "generators",
@@ -277,16 +274,30 @@ class PowerFlowPreparation:
                 raise TypeError(f"Network transformer '{getattr(transformer, 'id', transformer)}' is not a Transformer model.")
             from_bus, to_bus = self._resolve_branch_endpoints(transformer)
             reference_kv = transformer.impedance_base_voltage_kv
+            from_kv = voltage_bases[str(from_bus.id)]
+            if not math.isclose(reference_kv, from_kv, rel_tol=0.0, abs_tol=1e-9):
+                raise ValueError(
+                    f"Transformer '{transformer.id}' impedance reference voltage {reference_kv:g} kV "
+                    f"does not match FROM bus voltage base {from_kv:g} kV. "
+                    "Declare engineering/PU impedance on the actual transformer-side voltage base."
+                )
+
             if transformer.impedance_basis == "pu":
                 z_pu = self._per_unit.convert_impedance_base(
                     complex(transformer.r, transformer.x),
                     transformer.impedance_base_mva,
                     reference_kv,
-                    reference_kv,
+                    from_kv,
                 )
-                # Transformer shunt susceptance, when supplied, is already
-                # expressed on the same declared original PU basis.
-                b_pu = float(transformer.b)
+                # Transformer b is an admittance quantity, not an impedance.
+                # Convert it from the declared original PU basis using the
+                # inverse MVA and corresponding voltage-base relationship.
+                b_pu = self._per_unit.convert_admittance_base(
+                    complex(0.0, transformer.b),
+                    transformer.impedance_base_mva,
+                    reference_kv,
+                    from_kv,
+                ).imag
             elif transformer.impedance_basis == "engineering":
                 z_pu = self._per_unit.to_pu_impedance(
                     complex(transformer.r, transformer.x),
@@ -299,13 +310,6 @@ class PowerFlowPreparation:
             else:
                 raise ValueError(
                     f"Transformer '{transformer.id}' has unsupported impedance basis {transformer.impedance_basis!r}."
-                )
-
-            if not math.isclose(reference_kv, voltage_bases[str(from_bus.id)], rel_tol=0.0, abs_tol=1e-9):
-                raise ValueError(
-                    f"Transformer '{transformer.id}' impedance reference voltage {reference_kv:g} kV "
-                    f"does not match FROM bus voltage base {voltage_bases[str(from_bus.id)]:g} kV. "
-                    "Declare engineering/PU impedance on the actual transformer-side voltage base."
                 )
 
             prepared.append(
@@ -326,7 +330,6 @@ class PowerFlowPreparation:
     def _prepare_shunts(self, voltage_bases: Mapping[str, float]) -> tuple[PreparedShunt, ...]:
         prepared: list[PreparedShunt] = []
 
-        # Existing generic Shunt values are already PU numerical values.
         for shunt in getattr(self.network, "shunts", ()):
             if not getattr(shunt, "in_service", True):
                 continue
@@ -341,9 +344,6 @@ class PowerFlowPreparation:
                 )
             )
 
-        # Capacitor/reactor engineering state is MVAr injection. At 1.0 PU
-        # voltage, Q_pu = -B_pu, so B_pu = -Q_pu. The solver then applies
-        # the voltage-squared behaviour through the Y-bus shunt.
         for equipment in (
             *getattr(self.network, "capacitors", ()),
             *getattr(self.network, "reactors", ()),
@@ -361,10 +361,6 @@ class PowerFlowPreparation:
                 f"Reactive shunt '{equipment.id}' reactive power",
             )
             q_pu = self._per_unit.to_pu_power(0.0, q_mvar).imag
-            # Voltage basis is validated explicitly even though MVAr -> PU
-            # uses the common system MVA base; it is part of the engineering
-            # contract and prevents an unqualified shunt from entering the
-            # numerical snapshot.
             if bus_kv <= 0.0:
                 raise ValueError(f"Reactive shunt '{equipment.id}' has invalid bus voltage base.")
             prepared.append(
