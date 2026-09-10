@@ -1,7 +1,5 @@
 """Public Short-Circuit study facade.
 
-Author: Subhendu Mishra
-
 The facade owns study orchestration only. Numerical input preparation is
 performed by ``ShortCircuitPreparation`` and solver execution consumes its
 detached ``ShortCircuitInput``.
@@ -20,31 +18,19 @@ from .short_circuit_preparation import ShortCircuitPreparation
 class ShortCircuitAnalysis:
     """Canonical study facade: prepare detached data, then invoke the solver."""
 
-    def __init__(self, network: Any, sequence_network: Optional[Any] = None) -> None:
+    def __init__(self, network: Any, sequence_network: Optional[Any] = None, *, base_mva: float | None = None) -> None:
         self.network = network
         self.sequence_network = sequence_network
-        self.preparation = ShortCircuitPreparation(network, sequence_network)
+        self.base_mva = base_mva
+        self.preparation = ShortCircuitPreparation(network, sequence_network, base_mva=base_mva)
         self.result: ShortCircuitResult | None = None
 
-    def run(
-        self,
-        fault_type: FaultType,
-        fault_bus: Any,
-        Zf: complex = 0.0,
-        elements: Any | None = None,
-    ) -> ShortCircuitResult:
+    def run(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, elements: Any | None = None) -> ShortCircuitResult:
         input_data = self.prepare_input(fault_type, fault_bus, Zf, elements=elements)
         self.result = ShortCircuitSolver(input_data).solve()
         return self.result
 
-    def prepare_input(
-        self,
-        fault_type: FaultType,
-        fault_bus: Any,
-        Zf: complex = 0.0,
-        *,
-        elements: Any | None = None,
-    ) -> ShortCircuitInput:
+    def prepare_input(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None) -> ShortCircuitInput:
         """Return detached solver input produced by the canonical preparation boundary."""
         return self.preparation.prepare(fault_type, fault_bus, Zf, elements=elements)
 
