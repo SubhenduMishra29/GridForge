@@ -1,0 +1,19 @@
+name: GridForge targeted remediation
+
+on:
+  push:
+    branches:
+      - 'remediation/**'
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install targeted dependencies
+        run: python -m pip install --upgrade pip pytest numpy scipy
+      - name: Run targeted remediation tests
+        run: python -m pytest -q tests/core/analysis/test_open_partial_preparation_contracts.py tests/core/application/test_measurement_command_authority.py tests/core/application/test_measurement_command_contract.py tests/core/measurement/test_measurement_conversion_contract.py tests/core/model/test_transformer_impedance_basis.py tests/core/test_measurement_generation.py
