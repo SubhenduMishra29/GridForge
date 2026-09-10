@@ -7,8 +7,8 @@ from core.model.bus import Bus
 from core.model.grid import Grid
 from core.model.generator import Generator
 from core.network.network import Network
-from core.solver.short_circuit.short_circuit_solver import ShortCircuitSolver
 from core.solver.short_circuit.fault_types import FaultType
+from core.solver.short_circuit.short_circuit_solver import ShortCircuitSolver
 
 
 def _single_source_network():
@@ -36,7 +36,8 @@ def test_short_circuit_preparation_creates_network_driving_point_data():
     assert input_data.fault_bus_id == "B1"
     assert input_data.fault_bus_index == 0
     assert input_data.thevenin_impedance == pytest.approx(0.1j)
-    assert input_data.zbus == ((pytest.approx(0.1j),),)
+    assert input_data.zbus is not None
+    assert input_data.zbus[0][0] == pytest.approx(0.1j)
 
 
 def test_unsymmetrical_solver_uses_fault_bus_sequence_matrices():
@@ -65,10 +66,20 @@ def test_connected_rotating_machine_requires_explicit_sequence_data():
         SequenceNetworkPreparation(network).prepare(("positive",))
 
 
+def test_solver_boundary_does_not_require_live_network():
+    network, bus = _single_source_network()
+    input_data = ShortCircuitPreparation(network).prepare(FaultType.THREE_PHASE, bus)
+    network.remove_grid(network.grids[0])
+    result = ShortCircuitSolver(input_data).solve()
+    assert result.success
+    assert result.fault_bus_id == "B1"
+
+
 def test_snapshot_is_detached_from_sequence_network():
     network, _ = _single_source_network()
     sequence = SequenceNetworkPreparation(network).prepare(("positive",))
-    snapshot = __import__("core.solver.short_circuit.sequence_snapshot", fromlist=["SequenceNetworkSnapshot"]).SequenceNetworkSnapshot.from_sequence_network(sequence)
+    from core.solver.short_circuit.sequence_snapshot import SequenceNetworkSnapshot
+    snapshot = SequenceNetworkSnapshot.from_sequence_network(sequence)
     before = snapshot.get_driving_point_impedance("positive", 0)
     sequence.set_matrix("positive", np.array([[0.25j]], dtype=complex))
     assert snapshot.get_driving_point_impedance("positive", 0) == before
