@@ -20,6 +20,16 @@ def _validate_current(value: Any, name: str) -> complex:
     return current
 
 
+def _freeze_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze_value(item) for item in value)
+    return value
+
+
 def _freeze_complex_mapping(values: Mapping[str, complex]) -> Mapping[str, complex]:
     return MappingProxyType({str(key): _validate_current(value, f"current[{key!r}]") for key, value in values.items()})
 
@@ -146,7 +156,7 @@ class ShortCircuitResult:
     provenance: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+        object.__setattr__(self, "values", _freeze_value(self.values))
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
             raise TypeError("fault_bus_index must be an integer.")
         if self.fault_current is not None:
@@ -165,7 +175,7 @@ class ShortCircuitResult:
         object.__setattr__(self, "source_contributions", self._freeze_records(self.source_contributions, ShortCircuitSourceContribution, "source_contributions"))
         object.__setattr__(self, "equipment_currents", self._freeze_records(self.equipment_currents, ShortCircuitEquipmentCurrent, "equipment_currents"))
         object.__setattr__(self, "branch_currents", self._freeze_records(self.branch_currents, ShortCircuitBranchCurrent, "branch_currents"))
-        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+        object.__setattr__(self, "provenance", _freeze_value(self.provenance))
 
     @staticmethod
     def _freeze_records(values: Mapping[str, Any], expected_type: type, name: str) -> Mapping[str, Any]:
