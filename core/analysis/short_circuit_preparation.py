@@ -164,8 +164,6 @@ class ShortCircuitPreparation:
             return None
         magnitude = getattr(source, "voltage_pu", None)
         angle_deg = getattr(source, "angle_deg", None)
-        if magnitude is None and hasattr(source, "V_setpoint"):
-            magnitude = getattr(source, "V_setpoint")
         if magnitude is None:
             return None
         try:
