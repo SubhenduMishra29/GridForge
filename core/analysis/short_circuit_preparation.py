@@ -36,13 +36,16 @@ class ShortCircuitPreparation:
         bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
         prefault_voltages = tuple(self._prepare_prefault_voltage(index) for index in range(len(bus_ids)))
         prefault_voltage = prefault_voltages[bus_index]
-        snapshot = self._prepare_sequence_snapshot(normalized_type, bus_ids, prefault_voltages)
+        snapshot = self._prepare_sequence_snapshot(normalized_type, bus_ids)
 
         positive_matrix = snapshot.get_matrix("positive")
         zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
         thevenin_impedance = complex(positive_matrix[bus_index, bus_index])
 
-        sequence_elements = tuple(elements) if elements is not None else tuple(snapshot.positive.keys())
+        if elements is None:
+            sequence_elements = tuple(str(element_id) for element_id in snapshot.positive.keys())
+        else:
+            sequence_elements = tuple(str(getattr(element, "id", element)) for element in elements)
         if normalized_type.is_unbalanced:
             for name in ("positive", "negative", "zero"):
                 if not snapshot.has_matrix(name):
@@ -64,7 +67,7 @@ class ShortCircuitPreparation:
             prefault_voltages=prefault_voltages,
         )
 
-    def _prepare_sequence_snapshot(self, fault_type: FaultType, bus_ids: tuple[str, ...], prefault_voltages: tuple[complex, ...]) -> SequenceNetworkSnapshot:
+    def _prepare_sequence_snapshot(self, fault_type: FaultType, bus_ids: tuple[str, ...]) -> SequenceNetworkSnapshot:
         if self.sequence_network is not None:
             sequence_network = self.sequence_network
         else:
@@ -125,7 +128,7 @@ class ShortCircuitPreparation:
             bus_id = str(getattr(bus, "id", bus))
             source_id = str(getattr(source, "id", source))
             positive = self._sequence_value(sequence_network, source_id, source, "positive")
-            internal_voltage = self._source_internal_voltage(source, bus_id, bus_ids)
+            internal_voltage = self._source_internal_voltage(source)
             if positive is None or internal_voltage is None:
                 continue
             records.append(
@@ -152,7 +155,7 @@ class ShortCircuitPreparation:
         return None if value is None else complex(value)
 
     @staticmethod
-    def _source_internal_voltage(source: Any, bus_id: str, bus_ids: tuple[str, ...]) -> complex | None:
+    def _source_internal_voltage(source: Any) -> complex | None:
         explicit = getattr(source, "internal_voltage", None)
         if explicit is not None:
             value = complex(explicit)
