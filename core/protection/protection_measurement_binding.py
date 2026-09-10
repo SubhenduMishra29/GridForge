@@ -2,13 +2,13 @@
 
 The binding is the explicit correlation point between an analysis result,
 physical measurement instrumentation, a logical MeasurementChannel, and a
-protection RelayInput.  It owns no electrical state and performs no
-conversion or equipment mutation.
+protection RelayInput. It owns no electrical state and performs no conversion
+or equipment mutation.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -28,20 +28,13 @@ class ProtectionMeasurementBinding:
     instrument_ratio: float
     channel_id: str
     relay_input_id: str
-    metadata: Mapping[str, Any] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
-            "binding_id",
-            "source_equipment_id",
-            "source_terminal_id",
-            "electrical_side",
-            "measurement_type",
-            "phase_or_sequence",
-            "result_quantity",
-            "instrument_id",
-            "channel_id",
-            "relay_input_id",
+            "binding_id", "source_equipment_id", "source_terminal_id",
+            "electrical_side", "measurement_type", "phase_or_sequence",
+            "result_quantity", "instrument_id", "channel_id", "relay_input_id",
         ):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
@@ -53,12 +46,9 @@ class ProtectionMeasurementBinding:
             raise ValueError("instrument_ratio must be positive.")
         object.__setattr__(self, "instrument_ratio", ratio)
 
-        metadata = self.metadata
-        if metadata == ():
-            metadata = {}
-        if not isinstance(metadata, Mapping):
+        if not isinstance(self.metadata, Mapping):
             raise TypeError("metadata must be a mapping.")
-        object.__setattr__(self, "metadata", MappingProxyType(dict(metadata)))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     @classmethod
     def from_explicit_references(
@@ -74,12 +64,14 @@ class ProtectionMeasurementBinding:
         instrument: Any,
         channel: Any,
         relay_input: Any,
+        instrument_ratio: float | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> "ProtectionMeasurementBinding":
-        """Build a binding only from explicitly identified objects.
+        """Build a binding from explicitly supplied identities and ratio.
 
-        No collection position, terminal ordering, or instrument ratio is
-        inferred.  Every referenced object must expose a stable ``id``.
+        The ratio is an explicit input to the binding factory. It is never
+        inferred from CT/PT/CVT class names, terminal ordering, or collection
+        position.
         """
         refs = {
             "source_equipment": source_equipment,
@@ -95,13 +87,8 @@ class ProtectionMeasurementBinding:
                 raise ValueError(f"{name} must expose a non-empty stable id.")
             ids[name] = object_id.strip()
 
-        ratio = getattr(instrument, "ratio", None)
-        if ratio is None:
-            ratio = getattr(instrument, "ct_ratio", None)
-        if ratio is None:
-            ratio = getattr(instrument, "pt_ratio", None)
-        if ratio is None:
-            raise ValueError("instrument ratio must be explicitly declared; inference is not permitted.")
+        if instrument_ratio is None:
+            raise ValueError("instrument_ratio must be explicitly supplied; inference is not permitted.")
 
         return cls(
             binding_id=binding_id,
@@ -112,7 +99,7 @@ class ProtectionMeasurementBinding:
             phase_or_sequence=phase_or_sequence,
             result_quantity=result_quantity,
             instrument_id=ids["instrument"],
-            instrument_ratio=float(ratio),
+            instrument_ratio=instrument_ratio,
             channel_id=ids["channel"],
             relay_input_id=ids["relay_input"],
             metadata=metadata or {},
