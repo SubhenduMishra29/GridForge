@@ -1,55 +1,28 @@
-"""
-GridForge V2 - Control Module
-=============================
+"""Public package boundary for the headless GridForge Control subsystem."""
 
-Author:
-    Subhendu Mishra
-
-File:
-    core/control/__init__.py
-
-Purpose
--------
-Public package boundary for the headless GridForge Control subsystem.
-
-The Control package owns control-state, signal, limit, controller,
-dynamic-control, and logic-control contracts.
-
-This module intentionally contains no runtime initialization,
-registration, UI imports, or application-shell behavior.
-
-Architecture
-------------
-    UI / Application
-           |
-           v
-    Control public contracts
-           |
-           v
-    Headless Control implementation
-
-The package exports only stable public Control interfaces.
-"""
-
-from .state import (
-    ControlState,
-)
-
-from .signals import (
-    ControlSignal,
-)
-
-from .limits import (
-    ControlLimits,
-)
-
-from .controller import (
-    Controller,
-)
+from .state import ControlState
+from .signals import ControlSignal
+from .limits import ControlLimits
+from .controller import Controller
+from .decision import ControlActionType, ControlDecision
+from .action import ControlActionBinding
+from .context import ControlExecutionContext
+from .engine import ControlEngine, ControlEvaluationResult
+from .interlock import ControlInterlock, InterlockResult
+from .measurement_input import ControlInput
 
 __all__ = [
     "ControlState",
     "ControlSignal",
     "ControlLimits",
     "Controller",
+    "ControlActionType",
+    "ControlDecision",
+    "ControlActionBinding",
+    "ControlExecutionContext",
+    "ControlEngine",
+    "ControlEvaluationResult",
+    "ControlInterlock",
+    "InterlockResult",
+    "ControlInput",
 ]

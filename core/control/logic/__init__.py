@@ -31,6 +31,7 @@ from .base import (
     LogicStateDefinition,
     LogicStateError,
 )
+from .comparators import UndervoltageComparator
 
 __all__ = [
     "LogicControlComponent",
@@ -45,4 +46,5 @@ __all__ = [
     "LogicOutputError",
     "LogicStateDefinition",
     "LogicStateError",
+    "UndervoltageComparator",
 ]
