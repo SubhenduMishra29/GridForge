@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import cmath
+import math
 from typing import Any, Optional
 
 from core.solver.short_circuit.fault_types import FaultType
-from core.solver.short_circuit.impedance_matrix import ImpedanceMatrix
 from core.solver.short_circuit.input import ShortCircuitInput
 from core.solver.short_circuit.sequence_snapshot import SequenceNetworkSnapshot
 from .sequence_network_preparation import SequenceNetworkPreparation
@@ -31,18 +31,11 @@ class ShortCircuitPreparation:
             raise ValueError("Network bus IDs must be unique for Short Circuit preparation.")
         bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
         prefault_voltage = self._prepare_prefault_voltage(bus_index)
-
         snapshot = self._prepare_sequence_snapshot(normalized_type)
-        if snapshot is None:
-            raise ValueError("Short Circuit preparation requires a prepared sequence network.")
 
-        zbus = None
-        thevenin_impedance = None
-        if snapshot.has_matrix("positive"):
-            impedance = ImpedanceMatrix(snapshot.get_matrix("positive"), bus_ids)
-            zbus_array = impedance.build()
-            zbus = tuple(tuple(complex(value) for value in row) for row in zbus_array.tolist())
-            thevenin_impedance = impedance.get_thevenin_impedance(bus_index)
+        positive_matrix = snapshot.get_matrix("positive")
+        zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
+        thevenin_impedance = complex(positive_matrix[bus_index, bus_index])
 
         sequence_elements = tuple(elements) if elements is not None else tuple(snapshot.positive.keys())
         if normalized_type.is_unbalanced:
@@ -79,8 +72,8 @@ class ShortCircuitPreparation:
             angle = float(bus.theta)
         except (AttributeError, TypeError, ValueError):
             magnitude = float(getattr(bus, "voltage_pu", 1.0))
-            angle = float(getattr(bus, "angle_deg", 0.0)) * 3.141592653589793 / 180.0
-        if not (magnitude == magnitude and angle == angle) or magnitude < 0.0:
+            angle = math.radians(float(getattr(bus, "angle_deg", 0.0)))
+        if not math.isfinite(magnitude) or not math.isfinite(angle) or magnitude < 0.0:
             raise ValueError("Bus prefault voltage state must contain finite, non-negative values.")
         return magnitude * cmath.exp(1j * angle)
 
