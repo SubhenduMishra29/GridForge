@@ -1,25 +1,9 @@
-# ============================================================
-# File: core/measurement/measurement_generation.py
-# GridForge V2 — GF-AUD-204 Measurement Generation Boundary
-# Author: Subhendu Mishra
-# ============================================================
-
-"""GridForge V2 measurement-generation transformation boundary.
-
-This module consumes already-correlated analysis-domain quantities and
-transforms them through authoritative physical measurement-source
-characteristics before updating a logical ``MeasurementChannel``.
-
-The boundary deliberately does not calculate power flow, line flow,
-transformer flow, or short circuit quantities. It also does not resolve
-network topology. Correlation is prepared before this boundary and a
-Power Flow numerical index is obtained only from ``PowerFlowInput`` at
-execution time.
-"""
+"""GridForge V2 measurement-generation transformation boundary."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import sqrt
 from typing import Any, TypeAlias
 
 from core.analysis.line_flow import LineFlowResult
@@ -30,22 +14,13 @@ from core.solver.short_circuit.result import ShortCircuitResult
 
 
 MeasurementQuantity: TypeAlias = (
-    LineFlowResult
-    | TransformerFlowResult
-    | PowerFlowResult
-    | ShortCircuitResult
+    LineFlowResult | TransformerFlowResult | PowerFlowResult | ShortCircuitResult
 )
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedMeasurementContext:
-    """Immutable, correlation-complete input to Measurement Generation.
-
-    ``quantity`` retains one of the repository's existing analysis/result
-    contracts. No generic electrical-quantity object is introduced.
-    ``bus_index`` is intentionally absent because numerical indices are an
-    execution-time concern of the numerical analysis boundary.
-    """
+    """Immutable correlation-complete input to Measurement Generation."""
 
     source_id: str
     source_terminal: str
@@ -58,21 +33,19 @@ class PreparedMeasurementContext:
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string.")
-        if self.electrical_side is not None:
-            if not isinstance(self.electrical_side, str) or not self.electrical_side.strip():
-                raise ValueError("electrical_side must be None or a non-empty string.")
+        if self.electrical_side is not None and (
+            not isinstance(self.electrical_side, str) or not self.electrical_side.strip()
+        ):
+            raise ValueError("electrical_side must be None or a non-empty string.")
         if not isinstance(
             self.quantity,
             (LineFlowResult, TransformerFlowResult, PowerFlowResult, ShortCircuitResult),
         ):
-            raise TypeError(
-                "quantity must be an existing LineFlowResult, TransformerFlowResult, "
-                "PowerFlowResult, or ShortCircuitResult."
-            )
+            raise TypeError("quantity must be an existing analysis/result contract.")
 
 
 class UnsupportedMeasurementQuantity(ValueError):
-    """Raised when an analysis quantity has no frozen measurement mapping."""
+    """Raised when an analysis quantity has no established measurement mapping."""
 
 
 class MeasurementGeneration:
@@ -97,22 +70,23 @@ class MeasurementGeneration:
         context: PreparedMeasurementContext,
         source: Any,
         channel: MeasurementChannel,
+        *,
+        prepared_power_flow: Any,
     ) -> float | complex:
-        """Consume a Line/Transformer current and apply authoritative CT data."""
+        """Convert PU current through Ibase, primary CT current, then CT secondary."""
         self._validate_source(context, source)
         self._validate_channel(channel)
         quantity = context.quantity
-
         if isinstance(quantity, LineFlowResult):
             raw = self._line_current(quantity, context)
         elif isinstance(quantity, TransformerFlowResult):
             raw = self._transformer_current(quantity, context)
         else:
-            raise UnsupportedMeasurementQuantity(
-                self._unsupported_message(context, "current")
-            )
+            raise UnsupportedMeasurementQuantity(self._unsupported_message(context, "current"))
 
-        value = raw / self._ratio(source, "current")
+        base_current_a = self._current_base_a(prepared_power_flow, context.bus_id)
+        primary_current_a = raw * base_current_a
+        value = primary_current_a / self._ratio(source, "current")
         value = self._apply_ct_polarity(value, source)
         channel.update(value, available=bool(getattr(source, "in_service", True)))
         return value
@@ -124,7 +98,7 @@ class MeasurementGeneration:
         channel: MeasurementChannel,
         prepared_power_flow: Any,
     ) -> float:
-        """Consume an existing Power Flow voltage using bus-id correlation."""
+        """Convert PU voltage through the declared bus base and PT/CVT ratio."""
         self._validate_source(context, source)
         self._validate_channel(channel)
         if not isinstance(context.quantity, PowerFlowResult):
@@ -136,15 +110,14 @@ class MeasurementGeneration:
         input_data = prepared_power_flow.input
         if not hasattr(input_data, "index_of"):
             raise TypeError("prepared_power_flow.input must expose index_of(bus_id).")
-
         index = input_data.index_of(context.bus_id)
         result = context.quantity
         if index >= len(result.voltage_magnitudes):
-            raise KeyError(
-                f"Power Flow result has no voltage for canonical bus_id {context.bus_id!r}."
-            )
+            raise KeyError(f"Power Flow result has no voltage for canonical bus_id {context.bus_id!r}.")
 
-        value = result.voltage_magnitudes[index] / self._ratio(source, "voltage")
+        base_voltage_kv = self._voltage_base_kv(prepared_power_flow, context.bus_id)
+        primary_voltage_kv = result.voltage_magnitudes[index] * base_voltage_kv
+        value = primary_voltage_kv / self._ratio(source, "voltage")
         channel.update(value, available=bool(getattr(source, "in_service", True)))
         return value
 
@@ -162,7 +135,6 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity(
                 self._unsupported_message(context, "short-circuit fault quantity")
             )
-
         root_key, member_key = self._split_short_circuit_key(quantity_key)
         if root_key not in self._SHORT_CIRCUIT_KEYS:
             raise UnsupportedMeasurementQuantity(
@@ -170,7 +142,6 @@ class MeasurementGeneration:
                 f"source_terminal={context.source_terminal!r}, quantity family={quantity_key!r}: "
                 "arbitrary branch current or calculated post-fault voltage is not established."
             )
-
         result = context.quantity
         if context.bus_id != result.fault_bus_id:
             raise UnsupportedMeasurementQuantity(
@@ -183,12 +154,11 @@ class MeasurementGeneration:
                 f"Short-circuit quantity {root_key!r} is not present in the existing result for "
                 f"source_id={context.source_id!r}, source_terminal={context.source_terminal!r}."
             )
-
         raw = result.values[root_key]
         if isinstance(raw, dict):
             if member_key is None:
                 raise UnsupportedMeasurementQuantity(
-                    f"Short-circuit quantity family {root_key!r} is aggregate; a specific existing "
+                    f"Short-circuit quantity family {root_key!r} is aggregate; a specific "
                     "phase/sequence member is required by MeasurementChannel."
                 )
             if member_key not in raw:
@@ -201,11 +171,37 @@ class MeasurementGeneration:
             raise UnsupportedMeasurementQuantity(
                 f"Short-circuit quantity {quantity_key!r} does not identify an existing scalar result."
             )
-
         value = raw / self._ratio(source, "current")
         value = self._apply_ct_polarity(value, source)
         channel.update(value, available=bool(getattr(source, "in_service", True)))
         return value
+
+    @staticmethod
+    def _current_base_a(prepared_power_flow: Any, bus_id: str) -> float:
+        if prepared_power_flow is None:
+            raise TypeError("prepared_power_flow is required for PU current conversion.")
+        try:
+            base_mva = float(prepared_power_flow.base_mva)
+            voltage_kv = float(prepared_power_flow.bus_voltage_bases[bus_id])
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Prepared Power Flow must declare base_mva and voltage base for bus {bus_id!r}."
+            ) from exc
+        if base_mva <= 0.0 or voltage_kv <= 0.0:
+            raise ValueError("Power Flow base MVA and bus voltage base must be positive.")
+        return base_mva * 1000.0 / (sqrt(3.0) * voltage_kv)
+
+    @staticmethod
+    def _voltage_base_kv(prepared_power_flow: Any, bus_id: str) -> float:
+        try:
+            voltage_kv = float(prepared_power_flow.bus_voltage_bases[bus_id])
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Prepared Power Flow must declare a voltage base for bus {bus_id!r}."
+            ) from exc
+        if voltage_kv <= 0.0:
+            raise ValueError("Bus voltage base must be positive.")
+        return voltage_kv
 
     @staticmethod
     def _split_short_circuit_key(quantity_key: str) -> tuple[str, str | None]:
@@ -214,14 +210,10 @@ class MeasurementGeneration:
         normalized = quantity_key.strip()
         if "." not in normalized:
             return normalized, None
-        root, member = normalized.split(".", 1)
-        return root, member
+        return tuple(normalized.split(".", 1))  # type: ignore[return-value]
 
     @staticmethod
-    def _line_current(
-        result: LineFlowResult,
-        context: PreparedMeasurementContext,
-    ) -> complex:
+    def _line_current(result: LineFlowResult, context: PreparedMeasurementContext) -> complex:
         side = MeasurementGeneration._side(context)
         expected_bus = result.from_bus if side == "from" else result.to_bus
         if context.bus_id != expected_bus:
@@ -231,10 +223,7 @@ class MeasurementGeneration:
         return result.current_from if side == "from" else result.current_to
 
     @staticmethod
-    def _transformer_current(
-        result: TransformerFlowResult,
-        context: PreparedMeasurementContext,
-    ) -> float:
+    def _transformer_current(result: TransformerFlowResult, context: PreparedMeasurementContext) -> float:
         side = MeasurementGeneration._side(context)
         expected_bus = result.from_bus if side == "from" else result.to_bus
         if context.bus_id != expected_bus:
@@ -257,9 +246,7 @@ class MeasurementGeneration:
         try:
             ratio = float(getattr(source, attribute))
         except (AttributeError, TypeError, ValueError) as exc:
-            raise TypeError(
-                f"Authoritative physical source must expose {attribute!r}."
-            ) from exc
+            raise TypeError(f"Authoritative physical source must expose {attribute!r}.") from exc
         if ratio <= 0.0:
             raise ValueError(f"Authoritative physical source {attribute} must be positive.")
         return ratio
@@ -272,9 +259,7 @@ class MeasurementGeneration:
             return value
         if polarity_value == "P2_P1":
             return -value
-        raise ValueError(
-            "Authoritative CT source must expose a supported physical polarity convention."
-        )
+        raise ValueError("Authoritative CT source must expose a supported physical polarity convention.")
 
     @staticmethod
     def _validate_source(context: PreparedMeasurementContext, source: Any) -> None:
@@ -299,10 +284,7 @@ class MeasurementGeneration:
             raise TypeError("channel must be a MeasurementChannel.")
 
     @staticmethod
-    def _unsupported_message(
-        context: PreparedMeasurementContext,
-        family: str,
-    ) -> str:
+    def _unsupported_message(context: PreparedMeasurementContext, family: str) -> str:
         return (
             f"Unsupported measurement quantity for source_id={context.source_id!r}, "
             f"source_terminal={context.source_terminal!r}, quantity family={family!r}, "

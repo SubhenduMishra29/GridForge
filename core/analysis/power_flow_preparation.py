@@ -137,7 +137,17 @@ class PreparedPowerFlow:
 class PowerFlowPreparation:
     """Own the live-model to detached numerical Power Flow boundary."""
 
-    _INJECTION_COLLECTIONS = ("grids", "generators", "synchronous_machines", "loads", "motors", "solar", "batteries")
+    _INJECTION_COLLECTIONS = (
+        "grids",
+        "generators",
+        "synchronous_machines",
+        "loads",
+        "motors",
+        "solar",
+        "batteries",
+        "capacitors",
+        "reactors",
+    )
 
     @staticmethod
     def prepare(network: Any, power_flow_configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
@@ -186,19 +196,19 @@ class PowerFlowPreparation:
             initial_va=tuple(initial_va),
         )
 
-        self.network.ensure_bus_index()
         branches = self._prepare_branches(voltage_bases)
         transformers = self._prepare_transformers(voltage_bases)
         shunts = self._prepare_shunts()
+        topology_revision = getattr(self.network, "topology_revision", None)
         snapshot = PreparedPowerFlow(
             input=input_data,
-            ybus=YBus(matrix=self._empty_ybus_matrix(len(bus_ids)), bus_ids=bus_ids, topology_revision=getattr(self.network, "topology_revision", None)),
+            ybus=YBus(matrix=self._empty_ybus_matrix(len(bus_ids)), bus_ids=bus_ids, topology_revision=topology_revision),
             base_mva=self._per_unit.base_mva,
             bus_voltage_bases=voltage_bases,
             branches=branches,
             transformers=transformers,
             shunts=shunts,
-            topology_revision=getattr(self.network, "topology_revision", None),
+            topology_revision=topology_revision,
         )
         ybus = YBusBuilder().build(snapshot)
         return PreparedPowerFlow(
@@ -365,8 +375,6 @@ class PowerFlowPreparation:
             raise ValueError("network is required for Power Flow preparation.")
         if not hasattr(self.network, "buses"):
             raise TypeError("network must expose buses.")
-        if not hasattr(self.network, "ensure_bus_index"):
-            raise TypeError("network must expose ensure_bus_index().")
 
 
 __all__ = ["PowerFlowPreparation", "PreparedBranch", "PreparedTransformer", "PreparedShunt", "PreparedPowerFlow"]
