@@ -2,10 +2,10 @@
 
 Author: Subhendu Mishra
 
-Persistence is deliberately outside the authoritative Core model.  The
-package stores a semantic project envelope plus the authoritative Network
-engineering objects.  Object references are encoded by stable IDs so a load
-never makes collection position an engineering identity.
+Persistence is deliberately outside the authoritative Core model. The package
+stores a semantic project envelope plus authoritative Network engineering
+objects. Object references are encoded by stable IDs so collection position
+never becomes an engineering identity.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ FORMAT_VERSION = 1
 
 @dataclass
 class Project:
-    """Minimal persistence root: metadata, authoritative Network and SLD data."""
+    """Persistence root: metadata, authoritative Network and SLD data."""
 
     network: Network
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -57,7 +57,7 @@ class GridForgePackage:
                 objects[object_id] = {
                     "type": element_type,
                     "class": f"{type(element).__module__}:{type(element).__qualname__}",
-                    "state": cls._encode_state(vars(element)),
+                    "state": cls._encode_state(cls._attributes(element)),
                 }
                 ids.append(object_id)
             collections[element_type] = ids
@@ -105,7 +105,7 @@ class GridForgePackage:
 
         for object_id, spec in object_specs.items():
             state = cls._decode_state(spec.get("state", {}), objects)
-            objects[str(object_id)].__dict__.update(state)
+            cls._restore_state(objects[str(object_id)], state)
 
         network = Network()
         collections = payload.get("network", {}).get("collections", {})
@@ -114,13 +114,12 @@ class GridForgePackage:
             if add_method is None:
                 raise ValueError(f"Unsupported persisted Network collection: {element_type}")
             for object_id in ids:
-                try:
-                    add_method(objects[str(object_id)])
-                except KeyError as exc:
-                    raise ValueError(f"Persisted object reference is missing: {object_id}") from exc
+                if str(object_id) not in objects:
+                    raise ValueError(f"Persisted object reference is missing: {object_id}")
+                add_method(objects[str(object_id)])
 
-        # Topology/index are derived from authoritative objects and must not be
-        # restored as a second source of truth.
+        # Topology and indexing are derived from authoritative objects and are
+        # deliberately rebuilt rather than persisted as another source of truth.
         network.rebuild_topology()
         network.ensure_bus_index()
         return Project(
@@ -128,6 +127,29 @@ class GridForgePackage:
             metadata=dict(payload.get("metadata", {})),
             sld_layout=dict(payload.get("sld_layout", {})),
         )
+
+    @staticmethod
+    def _attributes(value: Any) -> dict[str, Any]:
+        attributes: dict[str, Any] = {}
+        if hasattr(value, "__dict__"):
+            attributes.update(vars(value))
+        for base in type(value).__mro__:
+            slots = getattr(base, "__slots__", ())
+            if isinstance(slots, str):
+                slots = (slots,)
+            for name in slots:
+                if name in {"__dict__", "__weakref__"}:
+                    continue
+                try:
+                    attributes[name] = getattr(value, name)
+                except AttributeError:
+                    pass
+        return attributes
+
+    @staticmethod
+    def _restore_state(value: Any, state: Mapping[str, Any]) -> None:
+        for name, item in state.items():
+            setattr(value, name, item)
 
     @staticmethod
     def _require_id(element: Any) -> str:
@@ -161,10 +183,10 @@ class GridForgePackage:
             return {"$set": [cls._encode_state(v) for v in sorted(value, key=str)]}
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
-        if hasattr(value, "__dict__"):
+        if hasattr(value, "__dict__") or hasattr(type(value), "__slots__"):
             return {
                 "$object": f"{type(value).__module__}:{type(value).__qualname__}",
-                "state": cls._encode_state(vars(value)),
+                "state": cls._encode_state(cls._attributes(value)),
             }
         raise TypeError(f"Unsupported persisted value type: {type(value)!r}")
 
@@ -172,7 +194,10 @@ class GridForgePackage:
     def _decode_state(cls, value: Any, objects: Mapping[str, Any]) -> Any:
         if isinstance(value, dict):
             if "$ref" in value:
-                return objects[str(value["$ref"])]
+                try:
+                    return objects[str(value["$ref"])]
+                except KeyError as exc:
+                    raise ValueError(f"Unknown persisted object reference: {value['$ref']}") from exc
             if "$enum" in value:
                 enum_type = cls._resolve_type(value["$enum"])
                 return enum_type(value["value"])
@@ -184,7 +209,7 @@ class GridForgePackage:
                 return set(cls._decode_state(v, objects) for v in value["$set"])
             if "$object" in value:
                 obj = cls._allocate(value["$object"])
-                obj.__dict__.update(cls._decode_state(value.get("state", {}), objects))
+                cls._restore_state(obj, cls._decode_state(value.get("state", {}), objects))
                 return obj
             return {k: cls._decode_state(v, objects) for k, v in value.items()}
         return value
