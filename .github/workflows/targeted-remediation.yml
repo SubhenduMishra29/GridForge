@@ -15,6 +15,16 @@ jobs:
           python-version: '3.12'
       - name: Install targeted dependencies
         run: python -m pip install --upgrade pip pytest numpy scipy
+      - name: Verify C9 source syntax
+        run: >-
+          python -m py_compile
+          core/application/read_models.py
+          core/application/read_service.py
+          core/application/application.py
+          ui/sld/sld_read_adapter.py
+          tests/application/test_c9_application_read_contract.py
+          tests/application/test_c9_protection_read_contract.py
+          tests/application/test_c9_sld_read_adapter.py
       - name: Run targeted remediation tests
         run: >-
           python -m pytest -q
