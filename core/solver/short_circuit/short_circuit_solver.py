@@ -227,14 +227,21 @@ class ShortCircuitSolver:
             return ContributionStatus.UNAVAILABLE, ("Sequence-network contribution snapshot is unavailable.",)
         expected_sources = {record.source_id for record in snapshot.sources}
         expected_branches = {record.branch_id for record in snapshot.branches}
+        prepared_ids = expected_sources | expected_branches
+        expected_ids = {str(element_id) for element_id in self.input.sequence_elements}
         diagnostics: list[str] = []
         missing_sources = sorted(expected_sources - set(sources))
         missing_branches = sorted(expected_branches - set(branches))
+        omitted_inputs = sorted(expected_ids - prepared_ids)
         if missing_sources:
             diagnostics.append(f"Source contribution unavailable for: {', '.join(missing_sources)}.")
         if missing_branches:
             diagnostics.append(f"Branch contribution unavailable for: {', '.join(missing_branches)}.")
+        if omitted_inputs:
+            diagnostics.append(f"Prepared contribution input omitted from the snapshot: {', '.join(omitted_inputs)}.")
         if not expected_sources and not expected_branches:
+            if omitted_inputs:
+                return ContributionStatus.PARTIAL, tuple(diagnostics)
             return ContributionStatus.UNAVAILABLE, ("No prepared source or branch contribution records are available.",)
         if diagnostics:
             return ContributionStatus.PARTIAL, tuple(diagnostics)
@@ -245,11 +252,7 @@ class ShortCircuitSolver:
         values = self._execute()
         typed = self._fault_typed_quantities(values)
         source_contributions, equipment_currents, branch_currents = self._calculate_contributions(typed)
-        contribution_status, contribution_diagnostics = self._contribution_status(
-            source_contributions,
-            equipment_currents,
-            branch_currents,
-        )
+        contribution_status, contribution_diagnostics = self._contribution_status(source_contributions, equipment_currents, branch_currents)
         provenance = {
             "input_contract": "ShortCircuitInput",
             "fault_bus_id": self.input.fault_bus_id,
