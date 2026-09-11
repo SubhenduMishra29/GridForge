@@ -32,6 +32,15 @@ from .base import (
     LogicStateError,
 )
 from .comparators import UndervoltageComparator
+from .ladder import LadderElementRef, LadderModelError, LadderProgram, LadderRung
+
+# Existing coil/latch/timer implementations reference OUTPUT_CHANGED while
+# the frozen base enum predates that member. Until the canonical enum is
+# expanded in a compatibility-safe change, expose the established semantic
+# as an alias of STATE_CHANGED so those components remain executable rather
+# than failing at runtime during event construction.
+if not hasattr(LogicEventType, "OUTPUT_CHANGED"):
+    setattr(LogicEventType, "OUTPUT_CHANGED", LogicEventType.STATE_CHANGED)
 
 __all__ = [
     "LogicControlComponent",
@@ -46,5 +55,9 @@ __all__ = [
     "LogicOutputError",
     "LogicStateDefinition",
     "LogicStateError",
+    "LadderElementRef",
+    "LadderModelError",
+    "LadderProgram",
+    "LadderRung",
     "UndervoltageComparator",
 ]

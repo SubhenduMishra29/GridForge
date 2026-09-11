@@ -31,5 +31,6 @@ from .pt_commands import (
     CreatePTCommand, UpdatePTCommand, DeletePTCommand, PutPTInServiceCommand, TakePTOutOfServiceCommand,
 )
 from .model_commands import *
+from .control_commands import *
 
 __all__ = [name for name in globals() if not name.startswith("_")]
