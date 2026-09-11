@@ -1,16 +1,12 @@
-"""Targeted protection decision -> application -> breaker integration test.
+"""Protection decision -> Application -> breaker integration specification."""
 
-Author: Subhendu Mishra
-"""
-
+from core.application.bootstrap import create_application
 from core.application.commands.breaker_commands import TripBreakerCommand
-from core.application.services.model_service import ModelService
-from core.application.transaction import Transaction
+from core.application.services.protection_output_service import ProtectionOutputService
 from core.model.breaker import Breaker
 from core.model.bus import Bus
 from core.network.network import Network
 from core.protection.decision import ProtectionDecision
-from core.application.services.protection_output_service import ProtectionOutputService
 
 
 def test_actionable_protection_decision_trips_breaker_through_application_boundary():
@@ -23,6 +19,8 @@ def test_actionable_protection_decision_trips_breaker_through_application_bounda
     network.add_breaker(breaker)
     network.rebuild_topology()
 
+    application = create_application(network)
+    service = ProtectionOutputService(application)
     decision = ProtectionDecision(
         relay_id="R1",
         element_id="R1-50",
@@ -33,15 +31,36 @@ def test_actionable_protection_decision_trips_breaker_through_application_bounda
         timestamp=1.25,
     )
     command = TripBreakerCommand(breaker_id="CB1")
-    assert command.payload["breaker_id"] == "CB1"
 
-    transaction = Transaction()
-    result = ProtectionOutputService(ModelService(network)).trip_from_decision(
+    result = service.trip_from_decision(
         decision=decision,
         breaker_id=command.payload["breaker_id"],
-        transaction=transaction,
     )
 
     assert result.value is breaker
     assert breaker.is_open
     assert network.topology_dirty
+    assert application.can_undo()
+    assert application.undo_commands()[-1].command.command_type == "model.trip_breaker"
+
+
+def test_non_actionable_protection_decision_cannot_request_trip():
+    network = Network()
+    application = create_application(network)
+    service = ProtectionOutputService(application)
+    decision = ProtectionDecision(
+        relay_id="R1",
+        element_id="R1-50",
+        function_code="50",
+        pickup=False,
+        operate=False,
+        trip_request=False,
+        timestamp=1.25,
+    )
+
+    try:
+        service.trip_from_decision(decision=decision, breaker_id="CB1")
+    except ValueError as exc:
+        assert "actionable" in str(exc)
+    else:
+        raise AssertionError("Non-actionable protection decision must be rejected.")
