@@ -120,13 +120,20 @@ class Application:
         return self.project_lifecycle.open_project(path)
 
     def save_project(self, path: str | None = None) -> ProjectContext:
-        return self.project_lifecycle.save_project(path)
+        context = self.project_lifecycle.save_project(path)
+        self._revision_service.mark_persisted()
+        return context
 
     def save_project_as(self, path: str) -> ProjectContext:
-        return self.project_lifecycle.save_project_as(path)
+        context = self.project_lifecycle.save_project_as(path)
+        self._revision_service.mark_persisted()
+        return context
 
     def close_project(self) -> ProjectContext | None:
-        return self.project_lifecycle.close_project()
+        context = self.project_lifecycle.close_project()
+        if context is not None:
+            self._revision_service.reset_for_project()
+        return context
 
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService) -> None:
         """Replace command/read runtime when a project Network becomes active."""
