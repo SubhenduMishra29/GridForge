@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from core.model import (
     Battery,
@@ -65,17 +65,13 @@ _MODEL_TYPES: dict[str, type[Any]] = {
         Fuse,
     )
 }
-
-# Stable persisted aliases are deliberately explicit rather than derived from
-# module paths, so refactoring Python modules does not silently change files.
-_MODEL_ALIASES = {
-    "CT": CurrentTransformer,
-    "PT": PT,
-    "PotentialTransformer": PT,
-    "CVT": CVT,
-    "SyncMachine": SynchronousMachine,
-}
-_MODEL_TYPES.update(_MODEL_ALIASES)
+_MODEL_TYPES.update(
+    {
+        "CT": CurrentTransformer,
+        "PotentialTransformer": PT,
+        "SyncMachine": SynchronousMachine,
+    }
+)
 
 
 class ModelTypeRegistry:
@@ -131,18 +127,8 @@ _NETWORK_ADDERS: dict[type[Any], str] = {
 }
 
 
-def network_adder(model_type: type[Any]) -> Callable[[Any], None]:
-    """Return the explicit Network registration operation for a model class."""
-    try:
-        method_name = _NETWORK_ADDERS[model_type]
-    except KeyError as exc:
-        raise UnknownModelTypeError(
-            f"No Network registration contract exists for {model_type.__name__}."
-        ) from exc
-    return getattr
-
-
 def network_adder_name(model_type: type[Any]) -> str:
+    """Return the explicit Network registration operation for a model class."""
     try:
         return _NETWORK_ADDERS[model_type]
     except KeyError as exc:
