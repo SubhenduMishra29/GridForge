@@ -27,6 +27,8 @@ Outputs:
 Persistent state:
     elapsed
     active
+    input_previous
+    evaluation_time
 
 The Core owns timer state and semantics. The UI logic-layout/editing
 canvas only represents and edits the component and its connections.
@@ -53,11 +55,6 @@ from .base import (
 )
 
 
-# ============================================================================
-# TIMER MODE
-# ============================================================================
-
-
 class TimerMode(str, Enum):
     """Supported deterministic timer modes."""
 
@@ -66,33 +63,17 @@ class TimerMode(str, Enum):
     TP = "tp"
 
 
-# ============================================================================
-# TIMER
-# ============================================================================
-
-
-class LogicTimer(
-    LogicControlComponent,
-):
+class LogicTimer(LogicControlComponent):
     """
     Generic deterministic Logic timer.
 
-    TON
-        Q becomes true after IN remains true for the preset duration.
+    TON: Q becomes true after IN remains true for the preset duration.
+    TOF: Q remains true for the preset duration after IN becomes false.
+    TP: A rising edge on IN starts a pulse of the preset duration.
 
-    TOF
-        Q remains true for the preset duration after IN becomes false.
-
-    TP
-        A rising edge on IN starts a pulse of the preset duration.
-
-    The timer uses the supplied ``time`` value and therefore remains
-    deterministic under simulation, replay, testing, and time stepping.
+    ``evaluation_time`` is part of the Core timer state so elapsed time is
+    derived exclusively from the supplied simulation time sequence.
     """
-
-    # ========================================================================
-    # IDENTITY
-    # ========================================================================
 
     @property
     def component_id(self) -> str:
@@ -102,10 +83,6 @@ class LogicTimer(
     def component_type(self) -> str:
         return "timer"
 
-    # ========================================================================
-    # INITIALIZATION
-    # ========================================================================
-
     def __init__(
         self,
         component_id: str,
@@ -113,156 +90,72 @@ class LogicTimer(
         preset: float,
         mode: TimerMode = TimerMode.TON,
     ) -> None:
-        component_id = str(
-            component_id
-        ).strip()
-
+        component_id = str(component_id).strip()
         if not component_id:
-            raise ValueError(
-                "LogicTimer component_id cannot be empty."
-            )
+            raise ValueError("LogicTimer component_id cannot be empty.")
 
-        preset = float(
-            preset
-        )
-
-        if not math.isfinite(
-            preset
-        ):
-            raise ValueError(
-                "LogicTimer preset must be finite."
-            )
-
+        preset = float(preset)
+        if not math.isfinite(preset):
+            raise ValueError("LogicTimer preset must be finite.")
         if preset < 0.0:
-            raise ValueError(
-                "LogicTimer preset cannot be negative."
-            )
+            raise ValueError("LogicTimer preset cannot be negative.")
 
         try:
-            normalized_mode = (
-                mode
-                if isinstance(
-                    mode,
-                    TimerMode,
-                )
-                else TimerMode(
-                    mode
-                )
-            )
+            normalized_mode = mode if isinstance(mode, TimerMode) else TimerMode(mode)
         except ValueError as exc:
-            raise ValueError(
-                f"Unsupported timer mode: {mode!r}."
-            ) from exc
+            raise ValueError(f"Unsupported timer mode: {mode!r}.") from exc
 
         self._component_id = component_id
         self._preset = preset
         self._mode = normalized_mode
 
-    # ========================================================================
-    # CONFIGURATION
-    # ========================================================================
-
     @property
     def preset(self) -> float:
-        """Preset duration in simulation-time units."""
-
         return self._preset
 
     @property
     def mode(self) -> TimerMode:
-        """Timer operating mode."""
-
         return self._mode
 
-    # ========================================================================
-    # SIGNAL CONTRACT
-    # ========================================================================
-
-    def input_definition(
-        self,
-    ) -> Sequence[ControlSignal]:
+    def input_definition(self) -> Sequence[ControlSignal]:
         return (
             ControlSignal(
                 name="IN",
                 role=SignalRole.INPUT,
-                description=(
-                    "Boolean timer input."
-                ),
+                description="Boolean timer input.",
                 value_type=bool,
             ),
         )
 
-    def output_definition(
-        self,
-    ) -> Sequence[ControlSignal]:
+    def output_definition(self) -> Sequence[ControlSignal]:
         return (
             ControlSignal(
                 name="Q",
                 role=SignalRole.OUTPUT,
-                description=(
-                    "Boolean timer output."
-                ),
+                description="Boolean timer output.",
                 value_type=bool,
             ),
         )
 
-    # ========================================================================
-    # STATE CONTRACT
-    # ========================================================================
-
-    def logic_state_definition(
-        self,
-    ) -> Sequence[LogicStateDefinition]:
+    def logic_state_definition(self) -> Sequence[LogicStateDefinition]:
         return (
-            LogicStateDefinition(
-                name="elapsed",
-                value_type=float,
-                default=0.0,
-                description=(
-                    "Accumulated timer duration."
-                ),
-            ),
-            LogicStateDefinition(
-                name="active",
-                value_type=bool,
-                default=False,
-                description=(
-                    "Whether the timer is currently timing."
-                ),
-            ),
-            LogicStateDefinition(
-                name="input_previous",
-                value_type=bool,
-                default=False,
-                description=(
-                    "Previous sampled input used for edge detection."
-                ),
-            ),
+            LogicStateDefinition("elapsed", float, 0.0, "Accumulated timer duration."),
+            LogicStateDefinition("active", bool, False, "Whether the timer is currently timing."),
+            LogicStateDefinition("input_previous", bool, False, "Previous sampled input used for edge detection."),
+            LogicStateDefinition("evaluation_time", float, 0.0, "Previous simulation evaluation time."),
         )
 
-    # ========================================================================
-    # RESET
-    # ========================================================================
-
-    def reset_logic(
-        self,
-    ) -> State:
+    def reset_logic(self) -> State:
         return {
             "elapsed": 0.0,
             "active": False,
             "input_previous": False,
+            "evaluation_time": 0.0,
         }
 
-    def reset(
-        self,
-        inputs: Inputs | None = None,
-    ) -> State:
+    def reset(self, inputs: Inputs | None = None) -> State:
         del inputs
         return self.reset_logic()
-
-    # ========================================================================
-    # EVALUATION
-    # ========================================================================
 
     def evaluate_logic(
         self,
@@ -270,90 +163,32 @@ class LogicTimer(
         inputs: Inputs,
         time: float,
     ) -> LogicControlResult:
-        time = _finite_time(
-            time
-        )
+        time = _finite_time(time)
+        normalized_inputs = self.validate_logic_inputs(inputs)
+        normalized_state = self.validate_logic_state(state)
 
-        normalized_inputs = (
-            self.validate_logic_inputs(
-                inputs
-            )
-        )
+        input_active = bool(normalized_inputs["IN"])
+        previous_input = bool(normalized_state["input_previous"])
+        previous_elapsed = float(normalized_state["elapsed"])
+        previous_active = bool(normalized_state["active"])
+        previous_time = float(normalized_state["evaluation_time"])
 
-        normalized_state = (
-            self.validate_logic_state(
-                state
-            )
-        )
-
-        input_active = bool(
-            normalized_inputs[
-                "IN"
-            ]
-        )
-
-        previous_input = bool(
-            normalized_state[
-                "input_previous"
-            ]
-        )
-
-        previous_elapsed = float(
-            normalized_state[
-                "elapsed"
-            ]
-        )
-
-        previous_active = bool(
-            normalized_state[
-                "active"
-            ]
-        )
-
-        # --------------------------------------------------------------------
-        # INITIAL / REPEATED SAMPLE
-        # --------------------------------------------------------------------
-
-        elapsed = max(
-            0.0,
-            previous_elapsed,
-        )
-
+        delta = _sample_delta(time, previous_time)
+        elapsed = max(0.0, previous_elapsed)
         active = previous_active
         output = False
-
-        # --------------------------------------------------------------------
-        # TON
-        # --------------------------------------------------------------------
 
         if self.mode is TimerMode.TON:
             if input_active:
                 if not previous_active:
                     elapsed = 0.0
-
-                elapsed = min(
-                    self.preset,
-                    elapsed
-                    + _sample_delta(
-                        time,
-                        normalized_state,
-                    ),
-                )
-
+                elapsed = min(self.preset, elapsed + delta)
                 active = True
-
-                output = (
-                    elapsed
-                    >= self.preset
-                )
+                output = elapsed >= self.preset
             else:
                 elapsed = 0.0
                 active = False
                 output = False
-
-        # --------------------------------------------------------------------
-        # TOF
-        # --------------------------------------------------------------------
 
         elif self.mode is TimerMode.TOF:
             if input_active:
@@ -364,108 +199,49 @@ class LogicTimer(
                 if previous_input:
                     elapsed = 0.0
                     active = True
-
                 if active:
-                    elapsed = min(
-                        self.preset,
-                        elapsed
-                        + _sample_delta(
-                            time,
-                            normalized_state,
-                        ),
-                    )
-
-                    output = (
-                        elapsed
-                        < self.preset
-                    )
-
-                    if (
-                        elapsed
-                        >= self.preset
-                    ):
+                    elapsed = min(self.preset, elapsed + delta)
+                    output = elapsed < self.preset
+                    if elapsed >= self.preset:
                         active = False
                         output = False
                 else:
                     output = False
 
-        # --------------------------------------------------------------------
-        # TP
-        # --------------------------------------------------------------------
-
-        elif self.mode is TimerMode.TP:
-            rising_edge = (
-                input_active
-                and not previous_input
-            )
-
+        else:  # TimerMode.TP
+            rising_edge = input_active and not previous_input
             if rising_edge:
                 elapsed = 0.0
                 active = True
-
             if active:
-                elapsed = min(
-                    self.preset,
-                    elapsed
-                    + _sample_delta(
-                        time,
-                        normalized_state,
-                    ),
-                )
-
-                output = (
-                    elapsed
-                    < self.preset
-                )
-
-                if (
-                    elapsed
-                    >= self.preset
-                ):
+                elapsed = min(self.preset, elapsed + delta)
+                output = elapsed < self.preset
+                if elapsed >= self.preset:
                     active = False
                     output = False
             else:
                 output = False
 
-        # --------------------------------------------------------------------
-        # STATE / EVENTS
-        # --------------------------------------------------------------------
-
-        events: list[
-            LogicEvent
-        ] = []
+        events: list[LogicEvent] = []
 
         if previous_active != active:
             events.append(
                 LogicEvent(
-                    event_type=(
-                        LogicEventType.STATE_CHANGED
-                    ),
+                    event_type=LogicEventType.STATE_CHANGED,
                     component_id=self.component_id,
                     signal_name="active",
                     previous_value=previous_active,
                     current_value=active,
                     time=time,
-                    data={
-                        "mode": self.mode.value,
-                    },
+                    data={"mode": self.mode.value},
                 )
             )
 
-        previous_output = (
-            previous_active
-            and (
-                previous_elapsed
-                < self.preset
-            )
-        )
-
+        previous_output = previous_active and previous_elapsed < self.preset
         if previous_output != output:
             events.append(
                 LogicEvent(
-                    event_type=(
-                        LogicEventType.OUTPUT_CHANGED
-                    ),
+                    event_type=LogicEventType.OUTPUT_CHANGED,
                     component_id=self.component_id,
                     signal_name="Q",
                     previous_value=previous_output,
@@ -479,40 +255,29 @@ class LogicTimer(
                 )
             )
 
-        if (
-            not previous_active
-            and active
-        ):
+        if not previous_active and active:
             events.append(
                 LogicEvent(
-                    event_type=(
-                        LogicEventType.TRIGGERED
-                    ),
+                    event_type=LogicEventType.TRIGGERED,
                     component_id=self.component_id,
                     signal_name="IN",
                     previous_value=previous_input,
                     current_value=input_active,
                     time=time,
-                    data={
-                        "mode": self.mode.value,
-                        "preset": self.preset,
-                    },
+                    data={"mode": self.mode.value, "preset": self.preset},
                 )
             )
 
         return LogicControlResult(
-            outputs={
-                "Q": output,
-            },
+            outputs={"Q": output},
             state={
                 "elapsed": elapsed,
                 "active": active,
                 "input_previous": input_active,
+                "evaluation_time": time,
             },
             time=time,
-            events=tuple(
-                events
-            ),
+            events=tuple(events),
             diagnostics={
                 "mode": self.mode.value,
                 "preset": self.preset,
@@ -522,141 +287,41 @@ class LogicTimer(
         )
 
 
-# ============================================================================
-# SPECIALIZED TIMERS
-# ============================================================================
-
-
-class LogicTONTimer(
-    LogicTimer,
-):
+class LogicTONTimer(LogicTimer):
     """IEC-style on-delay timer."""
 
-    def __init__(
-        self,
-        component_id: str,
-        *,
-        preset: float,
-    ) -> None:
-        super().__init__(
-            component_id,
-            preset=preset,
-            mode=TimerMode.TON,
-        )
+    def __init__(self, component_id: str, *, preset: float) -> None:
+        super().__init__(component_id, preset=preset, mode=TimerMode.TON)
 
 
-class LogicTOFTimer(
-    LogicTimer,
-):
+class LogicTOFTimer(LogicTimer):
     """IEC-style off-delay timer."""
 
-    def __init__(
-        self,
-        component_id: str,
-        *,
-        preset: float,
-    ) -> None:
-        super().__init__(
-            component_id,
-            preset=preset,
-            mode=TimerMode.TOF,
-        )
+    def __init__(self, component_id: str, *, preset: float) -> None:
+        super().__init__(component_id, preset=preset, mode=TimerMode.TOF)
 
 
-class LogicTPTimer(
-    LogicTimer,
-):
+class LogicTPTimer(LogicTimer):
     """IEC-style pulse timer."""
 
-    def __init__(
-        self,
-        component_id: str,
-        *,
-        preset: float,
-    ) -> None:
-        super().__init__(
-            component_id,
-            preset=preset,
-            mode=TimerMode.TP,
-        )
+    def __init__(self, component_id: str, *, preset: float) -> None:
+        super().__init__(component_id, preset=preset, mode=TimerMode.TP)
 
 
-# ============================================================================
-# HELPERS
-# ============================================================================
-
-
-def _finite_time(
-    value: float,
-) -> float:
+def _finite_time(value: float) -> float:
     try:
-        result = float(
-            value
-        )
-    except (
-        TypeError,
-        ValueError,
-    ) as exc:
-        raise ValueError(
-            "Timer evaluation time must be numeric."
-        ) from exc
-
-    if not math.isfinite(
-        result
-    ):
-        raise ValueError(
-            "Timer evaluation time must be finite."
-        )
-
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Timer evaluation time must be numeric.") from exc
+    if not math.isfinite(result):
+        raise ValueError("Timer evaluation time must be finite.")
     return result
 
 
-def _sample_delta(
-    current_time: float,
-    state: State,
-) -> float:
-    """
-    Obtain the deterministic sample interval.
-
-    The Logic component state contract intentionally stores only the timer's
-    logical state. If the base component supplies a previous evaluation time,
-    use it; otherwise the current invocation is treated as a zero-duration
-    first sample.
-
-    No wall-clock source is consulted.
-    """
-
-    previous_time = state.get(
-        "_evaluation_time"
-    )
-
-    if previous_time is None:
-        return 0.0
-
-    try:
-        previous_time = float(
-            previous_time
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return 0.0
-
-    if not math.isfinite(
-        previous_time
-    ):
-        return 0.0
-
-    delta = (
-        current_time
-        - previous_time
-    )
-
-    if delta < 0.0:
-        return 0.0
-
-    return delta
+def _sample_delta(current_time: float, previous_time: float) -> float:
+    """Return a deterministic non-negative simulation-time delta."""
+    delta = current_time - previous_time
+    return max(0.0, delta)
 
 
 __all__ = [
