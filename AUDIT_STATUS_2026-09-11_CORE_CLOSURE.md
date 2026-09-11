@@ -2,7 +2,7 @@
 
 Date: 2026-09-11
 Implementation repository: `madhuri196mishra-cpu/GridForge`
-Current implementation HEAD: `d46e56ec36272b88086a430755c013d02ac698bc`
+Current implementation HEAD: `49b229b808160c092e2df1e4e695e58f0c537686`
 
 ## Closure rule
 
@@ -44,7 +44,7 @@ This register reconciles the historical Core/Application findings against the cu
 | GF-EDM-051 | Short-circuit supported execution | Supported sequence inputs are explicit | Do not invent unsupported source data | Existing short-circuit preparation/solver retained | REMEDIATED — VERIFICATION DEFERRED |
 | GF-EDM-052 | Short-circuit preparation | Detached `ShortCircuitPreparation` exists | Preparation owns numerical input creation | Existing boundary retained | REMEDIATED — VERIFICATION DEFERRED |
 | GF-EDM-053 | Fault-type execution | 3-phase and unbalanced studies consume prepared input | Solver must not build engineering state | Existing solver boundary retained | REMEDIATED — VERIFICATION DEFERRED |
-| GF-EDM-054 | Short-circuit result contribution identity | Result types carry explicit source/equipment/branch identities | Missing contribution data must not disappear | `ShortCircuitSolver` now classifies contribution coverage as COMPLETE/PARTIAL/UNAVAILABLE and emits diagnostics | REMEDIATED — VERIFICATION DEFERRED |
+| GF-EDM-054 | Short-circuit result contribution identity | Result types carry explicit source/equipment/branch identities | Missing contribution data must not disappear | `ShortCircuitSolver` now classifies contribution coverage as COMPLETE/PARTIAL/UNAVAILABLE and emits diagnostics, including omitted prepared IDs | REMEDIATED — VERIFICATION DEFERRED |
 | GF-EDM-055–057 | Protection study/execution preparation | Detached protection preparation exists | Preserve study/execution separation | Existing boundary retained | REMEDIATED — VERIFICATION DEFERRED |
 | GF-EDM-058 | Dynamic preparation | No implemented dynamic preparation engine | Do not invent future capability | Explicitly deferred | DEFERRED — CAPABILITY NOT IN CURRENT SCOPE |
 | GF-EDM-059 | Power-flow → dynamic bridge | No current dynamic execution boundary | Do not invent future bridge | Explicitly deferred with dynamics | DEFERRED — CAPABILITY NOT IN CURRENT SCOPE |
@@ -68,6 +68,7 @@ This register reconciles the historical Core/Application findings against the cu
 2. `core/solver/short_circuit/short_circuit_solver.py`
    - contribution coverage is now explicitly classified;
    - unavailable source/branch contribution records produce diagnostics instead of disappearing silently;
+   - omitted contribution IDs are also diagnosed from the prepared `sequence_elements` contract;
    - result `contribution_status` is populated from actual contribution coverage.
 
 3. Tests
