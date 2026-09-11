@@ -56,7 +56,7 @@ def test_canvas_preparation_creates_single_shared_selection_and_snap_instances()
     assert preparation.grid_system is not None
 
 
-def test_canvas_composition_uses_prepared_selection_and_snap_instances(monkeypatch):
+def test_canvas_composition_uses_prepared_selection_and_snap_instances():
     application = _application()
     controller = Controller(application=application)
     composer = CanvasComposer()
