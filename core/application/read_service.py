@@ -30,6 +30,30 @@ _ELEMENT_COLLECTIONS = (
     "disconnectors", "fuses",
 )
 
+_ELEMENT_TYPE_ALIASES = {
+    "bus": "buses", "buses": "buses",
+    "grid": "grids", "grids": "grids",
+    "generator": "generators", "generators": "generators",
+    "synchronous_machine": "synchronous_machines", "synchronous_machines": "synchronous_machines",
+    "load": "loads", "loads": "loads",
+    "motor": "motors", "motors": "motors",
+    "shunt": "shunts", "shunts": "shunts",
+    "capacitor": "capacitors", "capacitors": "capacitors",
+    "reactor": "reactors", "reactors": "reactors",
+    "solar": "solar",
+    "battery": "batteries", "batteries": "batteries",
+    "ct": "current_transformers", "current_transformer": "current_transformers", "current_transformers": "current_transformers",
+    "pt": "potential_transformers", "potential_transformer": "potential_transformers", "potential_transformers": "potential_transformers",
+    "cvt": "capacitive_voltage_transformers", "capacitive_voltage_transformer": "capacitive_voltage_transformers", "capacitive_voltage_transformers": "capacitive_voltage_transformers",
+    "line": "lines", "lines": "lines",
+    "cable": "cables", "cables": "cables",
+    "transformer": "transformers", "transformers": "transformers",
+    "breaker": "breakers", "breakers": "breakers",
+    "switch": "switches", "switches": "switches",
+    "disconnector": "disconnectors", "disconnectors": "disconnectors",
+    "fuse": "fuses", "fuses": "fuses",
+}
+
 _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "buses": (
         ("nominal_voltage_kv", ("nominal_voltage_kv",)), ("voltage_pu", ("voltage_pu",)),
@@ -42,10 +66,10 @@ _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     ),
     "cables": (
         ("length_km", ("length_km",)), ("rated_voltage_kv", ("rated_voltage_kv",)),
-        ("rated_current_a", ("rated_current_a",)), ("r1_ohm_per_km", ("r1_ohm_per_km",)),
-        ("x1_ohm_per_km", ("x1_ohm_per_km",)), ("b1_us_per_km", ("b1_us_per_km",)),
-        ("r0_ohm_per_km", ("r0_ohm_per_km",)), ("x0_ohm_per_km", ("x0_ohm_per_km",)),
-        ("b0_us_per_km", ("b0_us_per_km",)), ("thermal_limit_mva", ("thermal_limit_mva",)),
+        ("rated_current_a", ("rated_current_a",)), ("r1", ("r1", "r1_ohm_per_km")),
+        ("x1", ("x1", "x1_ohm_per_km")), ("b1", ("b1", "b1_us_per_km")),
+        ("r0", ("r0", "r0_ohm_per_km")), ("x0", ("x0", "x0_ohm_per_km")),
+        ("b0", ("b0", "b0_us_per_km")), ("thermal_limit_mva", ("thermal_limit_mva",)),
         ("conductor_count", ("conductor_count",)), ("in_service", ("in_service",)),
     ),
     "transformers": (
@@ -157,7 +181,8 @@ class NetworkReadService(ReadService):
         return NetworkReadModel(elements=tuple(elements))
 
     def element(self, element_type: str, object_id: str) -> ElementReadModel:
-        key = element_type.strip().lower()
+        requested = element_type.strip().lower()
+        key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
         model = self._network.get_by_id(key, object_id)
         return self._to_read_model(key, model)
 
@@ -243,7 +268,10 @@ class NetworkReadService(ReadService):
                 return None
             endpoint = getattr(terminal, "endpoint", None)
             value = getattr(endpoint, "id", None)
-            return None if value is None else str(value)
+            if value is not None:
+                return str(value)
+            terminal_value = getattr(terminal, "id", None)
+            return None if terminal_value is None else str(terminal_value)
         return endpoint_id(getattr(model, "from_terminal", None)), endpoint_id(getattr(model, "to_terminal", None))
 
 
