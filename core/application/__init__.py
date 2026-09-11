@@ -4,19 +4,20 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Headless Application boundary between consumers and GridForge Core.
-
-The Application layer owns commands, mutation orchestration, transactions,
-and read-side snapshot contracts. It does not own electrical truth, SLD/UI
-state, Qt objects, canvas objects, or renderers.
-"""
+"""Headless Application boundary between consumers and GridForge Core."""
 
 from __future__ import annotations
 
 from .application import Application
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_execution import ControlExecutionResult, ControlExecutionService
-from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
+from .read_models import (
+    ElementReadModel,
+    NetworkReadModel,
+    ProtectionReadModel,
+    RelayInputBindingReadModel,
+    RelayReadModel,
+)
 from .read_service import NetworkReadService, ProtectionReadService, ReadService
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "ElementReadModel",
     "NetworkReadModel",
     "ProtectionReadModel",
+    "RelayInputBindingReadModel",
     "RelayReadModel",
     "NetworkReadService",
     "ProtectionReadService",
