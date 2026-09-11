@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from typing import Any
 
 from core.network.network import Network
 from core.protection.protection_system import ProtectionSystem
@@ -30,8 +30,6 @@ _ELEMENT_COLLECTIONS = (
     "disconnectors", "fuses",
 )
 
-# Each entry is an explicit read contract. Tuple values are Core attribute
-# aliases, in priority order, followed by the canonical Application key.
 _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "buses": (
         ("nominal_voltage_kv", ("nominal_voltage_kv",)), ("voltage_pu", ("voltage_pu",)),
@@ -178,7 +176,6 @@ class NetworkReadService(ReadService):
             value = cls._value(model, aliases)
             if value is not None and isinstance(value, (str, int, float, bool)):
                 attributes[canonical] = value
-
         if element_type == "fuses" and "in_service" in attributes and "blown" in attributes:
             attributes["conducts"] = bool(attributes["in_service"] and not attributes["blown"])
         if element_type == "disconnectors" and "closed" in attributes:
@@ -202,7 +199,6 @@ class NetworkReadService(ReadService):
         labels = {"name": str(name)} if name is not None else {}
         connectivity_refs, terminal_connectivity = NetworkReadService._connectivity(model)
         attributes = NetworkReadService._project_attributes(element_type, model)
-
         endpoint_from_id, endpoint_to_id = NetworkReadService._branch_endpoint_ids(model)
         if endpoint_from_id is not None:
             attributes["from_endpoint"] = endpoint_from_id
@@ -212,14 +208,8 @@ class NetworkReadService(ReadService):
             attributes["endpoint_to_id"] = endpoint_to_id
         if terminal_connectivity:
             attributes["terminal_connectivity"] = terminal_connectivity
-
-        return ElementReadModel(
-            object_id=object_id,
-            element_type=element_type,
-            labels=labels,
-            connectivity_refs=connectivity_refs,
-            attributes=attributes,
-        )
+        return ElementReadModel(object_id=object_id, element_type=element_type, labels=labels,
+                                 connectivity_refs=connectivity_refs, attributes=attributes)
 
     @staticmethod
     def _connectivity(model: Any) -> tuple[tuple[str, ...], tuple[tuple[str, str | None], ...]]:
@@ -282,17 +272,10 @@ class ProtectionReadService:
             for name, channel in sorted(relay.input_channels.items())
         )
         return RelayReadModel(
-            object_id=str(relay.id),
-            name=str(relay.name),
-            relay_type=str(relay.type),
-            function_type=str(relay.function_type),
-            plugin_id=None if relay.plugin_id is None else str(relay.plugin_id),
-            settings=relay.settings,
-            in_service=bool(relay.in_service),
-            enabled=bool(relay.enabled),
-            blocked=bool(relay.blocked),
-            picked_up=bool(relay.picked_up),
-            tripped=bool(relay.tripped),
+            object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type),
+            function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id),
+            settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled),
+            blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped),
             input_channel_bindings=bindings,
         )
 
