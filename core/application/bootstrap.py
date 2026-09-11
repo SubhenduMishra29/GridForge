@@ -37,10 +37,17 @@ def create_application(network: Any) -> Application:
 
     read_service = NetworkReadService(network)
 
-    return Application(
+    application = Application(
         command_manager=command_manager,
         read_service=read_service,
     )
+    # Composition-root injection keeps the Control service behind the
+    # Application boundary without introducing another command manager or
+    # service locator. UI consumers use these public callables rather than
+    # reaching into Core Control directly.
+    application.control_service = control_service
+    application.read_control = control_service.read
+    return application
 
 
 __all__ = ["create_application"]
