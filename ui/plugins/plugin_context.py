@@ -28,7 +28,6 @@ class PluginContext:
 
     project: Any = None
     project_controller: Any = None
-    command_manager: Any = None
     event_bus: Any = None
 
     # Active presentation document supplied by application composition.
