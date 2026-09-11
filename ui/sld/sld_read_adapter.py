@@ -34,22 +34,31 @@ class SLDReadAdapter:
     def protection(self, read_model: ProtectionReadModel) -> NetworkReadModel:
         if not isinstance(read_model, ProtectionReadModel):
             raise TypeError("read_model must be a ProtectionReadModel")
-        return NetworkReadModel(elements=tuple(
-            ElementReadModel(
+        elements = []
+        for relay in read_model.relays:
+            binding_refs = tuple(
+                binding.channel_id for binding in relay.input_channel_bindings if binding.channel_id is not None
+            )
+            bindings = tuple((binding.input_name, binding.channel_id) for binding in relay.input_channel_bindings)
+            elements.append(ElementReadModel(
                 object_id=relay.object_id,
                 element_type="RELAY",
                 labels={"name": relay.name},
-                connectivity_refs=(),
+                connectivity_refs=binding_refs,
                 attributes={
                     "relay_type": relay.relay_type,
                     "function_type": relay.function_type,
+                    "plugin_id": relay.plugin_id,
+                    "settings": relay.settings,
                     "in_service": relay.in_service,
                     "enabled": relay.enabled,
                     "blocked": relay.blocked,
+                    "picked_up": relay.picked_up,
+                    "tripped": relay.tripped,
+                    "input_channel_bindings": bindings,
                 },
-            )
-            for relay in read_model.relays
-        ))
+            ))
+        return NetworkReadModel(elements=tuple(elements))
 
 
 __all__ = ["SLDReadAdapter"]
