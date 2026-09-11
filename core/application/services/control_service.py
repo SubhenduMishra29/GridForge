@@ -115,11 +115,7 @@ class ControlApplicationService:
                 self._program.remove_rung(rung_id)
 
         transaction.record_undo(undo)
-        return ApplicationResult.success_result(
-            value=component,
-            message=f"Control component '{component_id}' created.",
-            metadata={"component_id": component_id, "component_type": component_type},
-        )
+        return ApplicationResult.success_result(value=component, message=f"Control component '{component_id}' created.", metadata={"component_id": component_id, "component_type": component_type})
 
     def remove_component(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
         component_id = str(payload["component_id"]).strip()
@@ -152,8 +148,13 @@ class ControlApplicationService:
         self._program.remove_component(component_id)
 
         def undo() -> None:
-            engine.register(component, order=order, initial_state=previous_state)
-            self._program.add_component(component, rung_id=source_rung.rung_id, position=position)
+            self._program.restore_component(
+                component,
+                rung_id=source_rung.rung_id,
+                position=position,
+                order=order,
+                state=previous_state,
+            )
             for connection in affected_connections:
                 if engine.contains(connection.source_component) and engine.contains(connection.target_component):
                     engine.connect(
@@ -167,22 +168,11 @@ class ControlApplicationService:
                     engine.add_dependency(dependency.source_component, dependency.target_component)
 
         transaction.record_undo(undo)
-        return ApplicationResult.success_result(
-            value=component,
-            message=f"Control component '{component_id}' removed.",
-            metadata={"component_id": component_id},
-        )
+        return ApplicationResult.success_result(value=component, message=f"Control component '{component_id}' removed.", metadata={"component_id": component_id})
 
     def connect_signals(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
         connection = self._program.engine.connect(**payload)
-        transaction.record_undo(
-            lambda: self._program.engine.disconnect(
-                connection.source_component,
-                connection.source_output,
-                connection.target_component,
-                connection.target_input,
-            )
-        )
+        transaction.record_undo(lambda: self._program.engine.disconnect(connection.source_component, connection.source_output, connection.target_component, connection.target_input))
         return ApplicationResult.success_result(value=connection, message="Control signal connection created.", metadata={"connection": connection})
 
     def disconnect_signals(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
