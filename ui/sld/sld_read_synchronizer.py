@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.application.read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel
 
 from .sld_document import SLDDocument
@@ -23,15 +25,55 @@ _BRANCH_TYPES = frozenset({"LINE", "CABLE", "TRANSFORMER"})
 class SLDReadSynchronizer:
     """Reconcile Application read data with an SLD document."""
 
-    def __init__(self, projection_manager: SLDProjectionManager) -> None:
+    def __init__(
+        self,
+        projection_manager: SLDProjectionManager,
+        application: Any = None,
+    ) -> None:
         if not isinstance(projection_manager, SLDProjectionManager):
             raise TypeError("projection_manager must be an SLDProjectionManager")
         self._projection_manager = projection_manager
         self._read_adapter = SLDReadAdapter()
+        self._application = application
 
     @property
     def projection_manager(self) -> SLDProjectionManager:
         return self._projection_manager
+
+    @property
+    def application(self) -> Any:
+        """Return the injected Application read facade."""
+        return self._application
+
+    def attach_application(self, application: Any) -> None:
+        """Attach the Application facade used for authoritative reads."""
+        if application is None:
+            raise TypeError("application must not be None")
+        self._application = application
+
+    def detach_application(self) -> Any:
+        """Detach and return the Application facade."""
+        application = self._application
+        self._application = None
+        return application
+
+    def synchronize_network_from_application(self, document: SLDDocument) -> tuple[SLDNode, ...]:
+        """Read the network only through the Application facade, then project it."""
+        return self.synchronize_network(document, self._require_application().read_network())
+
+    def synchronize_protection_from_application(self, document: SLDDocument) -> tuple[SLDNode, ...]:
+        """Read protection data only through the Application facade, then project it."""
+        return self.synchronize_protection(document, self._require_application().read_protection())
+
+    def synchronize_element_from_application(
+        self,
+        document: SLDDocument,
+        element_type: str,
+        object_id: str,
+    ) -> SLDNode:
+        """Read one element only through the Application facade, then project it."""
+        read_model = self._require_application().read_element(element_type, object_id)
+        return self.synchronize_element(document, read_model)
 
     def synchronize_network(self, document: SLDDocument, read_model: NetworkReadModel) -> tuple[SLDNode, ...]:
         """Reconcile network read data and branch connectivity."""
@@ -72,6 +114,11 @@ class SLDReadSynchronizer:
         adapted = self._read_adapter.element(read_model)
         self._projection_manager.project(adapted)
         return self._synchronize_element(document, adapted)
+
+    def _require_application(self) -> Any:
+        if self._application is None:
+            raise RuntimeError("SLD Application read facade is not configured")
+        return self._application
 
     def _synchronize_element(self, document: SLDDocument, read_model: ElementReadModel) -> SLDNode:
         node = document.model.get_node_optional(read_model.object_id)
