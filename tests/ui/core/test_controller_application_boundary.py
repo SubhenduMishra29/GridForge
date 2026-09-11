@@ -6,8 +6,7 @@
 
 from __future__ import annotations
 
-import pytest
-
+from core.application import Application
 from ui.core.controller import Controller
 
 
@@ -36,8 +35,20 @@ class FakeApplication:
         return self.redo_calls == 0
 
 
+def application_double() -> Application:
+    application = object.__new__(Application)
+    fake = FakeApplication()
+    application.execute = fake.execute
+    application.undo = fake.undo
+    application.redo = fake.redo
+    application.can_undo = fake.can_undo
+    application.can_redo = fake.can_redo
+    application._test_double = fake
+    return application
+
+
 def test_controller_has_no_core_dependency_or_accessor():
-    controller = Controller(application=FakeApplication())
+    controller = Controller(application=application_double())
 
     try:
         assert not hasattr(controller, "core")
@@ -49,25 +60,25 @@ def test_controller_has_no_core_dependency_or_accessor():
 
 
 def test_controller_delegates_command_execution_to_application():
-    application = FakeApplication()
+    application = application_double()
     controller = Controller(application=application)
 
     try:
         assert controller.execute_command("command") == "executed"
-        assert application.executed == ["command"]
+        assert application._test_double.executed == ["command"]
     finally:
         controller.dispose()
 
 
 def test_controller_delegates_undo_and_redo_to_application():
-    application = FakeApplication()
+    application = application_double()
     controller = Controller(application=application)
 
     try:
         assert controller.undo() == "undo"
         assert controller.redo() == "redo"
-        assert application.undo_calls == 1
-        assert application.redo_calls == 1
+        assert application._test_double.undo_calls == 1
+        assert application._test_double.redo_calls == 1
     finally:
         controller.dispose()
 
@@ -76,11 +87,25 @@ def test_controller_requires_application_for_mutation_delegation():
     controller = Controller()
 
     try:
-        with pytest.raises(RuntimeError):
+        try:
             controller.execute_command("command")
-        with pytest.raises(RuntimeError):
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("execute_command must require Application")
+
+        try:
             controller.undo()
-        with pytest.raises(RuntimeError):
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("undo must require Application")
+
+        try:
             controller.redo()
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("redo must require Application")
     finally:
         controller.dispose()
