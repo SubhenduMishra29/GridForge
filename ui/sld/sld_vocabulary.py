@@ -1,5 +1,4 @@
 # ============================================================
-# File: ui/sld/sld_vocabulary.py
 # GridForge V2 — Canonical SLD Semantic Vocabulary
 # Author: Subhendu Mishra
 # ============================================================
@@ -41,28 +40,54 @@ SLD_SEMANTIC_TYPES = (
 
 SLD_SUPPORTED_TYPES = frozenset(SLD_SEMANTIC_TYPES)
 
+# Application collection names, canonical singular names, and instrument
+# abbreviations all resolve to the same frozen SLD semantic vocabulary.
 _PRODUCER_ALIASES = {
+    "bus": "BUS",
     "buses": "BUS",
+    "line": "LINE",
     "lines": "LINE",
+    "cable": "CABLE",
     "cables": "CABLE",
+    "transformer": "TRANSFORMER",
     "transformers": "TRANSFORMER",
+    "switch": "SWITCH",
     "switches": "SWITCH",
+    "breaker": "BREAKER",
     "breakers": "BREAKER",
+    "disconnector": "DISCONNECTOR",
     "disconnectors": "DISCONNECTOR",
+    "fuse": "FUSE",
     "fuses": "FUSE",
+    "load": "LOAD",
     "loads": "LOAD",
+    "generator": "GENERATOR",
     "generators": "GENERATOR",
+    "synchronous_machine": "SYNCHRONOUS_MACHINE",
     "synchronous_machines": "SYNCHRONOUS_MACHINE",
+    "motor": "MOTOR",
     "motors": "MOTOR",
+    "shunt": "SHUNT",
     "shunts": "SHUNT",
+    "capacitor": "CAPACITOR",
     "capacitors": "CAPACITOR",
+    "reactor": "REACTOR",
     "reactors": "REACTOR",
     "solar": "SOLAR",
+    "battery": "BATTERY",
     "batteries": "BATTERY",
+    "grid": "GRID",
     "grids": "GRID",
+    "ct": "CT",
+    "current_transformer": "CT",
     "current_transformers": "CT",
+    "pt": "PT",
+    "potential_transformer": "PT",
     "potential_transformers": "PT",
+    "cvt": "CVT",
+    "capacitive_voltage_transformer": "CVT",
     "capacitive_voltage_transformers": "CVT",
+    "relay": "RELAY",
     "CT": "CT",
     "PT": "PT",
     "CVT": "CVT",
