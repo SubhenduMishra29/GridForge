@@ -127,7 +127,6 @@ class OperationCompleted(ApplicationEvent):
 
 class _OperationEvent(ApplicationEvent):
     """Base for lifecycle/study semantic events with stable operation payload."""
-
     _EVENT_TYPE = ""
 
     def __init__(self, *, metadata: Mapping[str, Any] | None = None,
@@ -138,33 +137,45 @@ class _OperationEvent(ApplicationEvent):
 
 
 class ProjectLoaded(_OperationEvent):
-    """Fact that a project was successfully reconstructed/opened."""
     _EVENT_TYPE = "project.loaded"
 
 
 class ProjectSaved(_OperationEvent):
-    """Fact that the current project was successfully persisted."""
     _EVENT_TYPE = "project.saved"
 
 
 class ProjectClosed(_OperationEvent):
-    """Fact that the current project was successfully closed."""
     _EVENT_TYPE = "project.closed"
 
 
 class StudyStarted(_OperationEvent):
-    """Fact that an Application study execution started."""
     _EVENT_TYPE = "study.started"
 
 
 class StudyCompleted(_OperationEvent):
-    """Fact that an Application study execution completed."""
     _EVENT_TYPE = "study.completed"
 
 
 class ValidationChanged(_OperationEvent):
-    """Fact that Application-visible validation state changed."""
     _EVENT_TYPE = "validation.changed"
+
+
+# Control/Ladder semantic events are defined in their own module to keep the
+# control vocabulary isolated while exposing one Application event contract.
+from .control_events import (
+    ControlComponentCreated,
+    ControlComponentUpdated,
+    ControlComponentRemoved,
+    ControlConnectionCreated,
+    ControlConnectionRemoved,
+    ControlDependencyCreated,
+    ControlDependencyRemoved,
+    ControlProgramChanged,
+    ControlStateChanged,
+    ControlExecutionStarted,
+    ControlExecutionCompleted,
+    ControlExecutionFailed,
+)
 
 
 __all__ = [
@@ -172,4 +183,9 @@ __all__ = [
     "TopologyChanged", "NetworkChanged", "OperationCompleted",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed",
     "StudyStarted", "StudyCompleted", "ValidationChanged",
+    "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
+    "ControlConnectionCreated", "ControlConnectionRemoved",
+    "ControlDependencyCreated", "ControlDependencyRemoved", "ControlProgramChanged",
+    "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
+    "ControlExecutionFailed",
 ]
