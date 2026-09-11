@@ -19,7 +19,7 @@ from ui.core.qt import QObject, Signal
 
 
 class Controller(QObject):
-    """Coordinate UI state while delegating mutation/history to Application."""
+    """Coordinate UI state while delegating mutation/history actions to Application."""
 
     tool_changed = Signal(object, object)
     state_changed = Signal()
@@ -27,12 +27,7 @@ class Controller(QObject):
     reset_requested = Signal()
 
     _SIGNAL_NAMES = frozenset(
-        {
-            "tool_changed",
-            "state_changed",
-            "project_changed",
-            "reset_requested",
-        }
+        {"tool_changed", "state_changed", "project_changed", "reset_requested"}
     )
 
     def __init__(
@@ -110,7 +105,7 @@ class Controller(QObject):
         self.state_changed.emit()
 
     def execute_command(self, command: Any) -> Any:
-        """Delegate command execution to Application; Controller never owns Core authority."""
+        """Delegate command execution to Application."""
         application = self._require_application()
         if command is None:
             raise ValueError("command must not be None.")
@@ -142,36 +137,8 @@ class Controller(QObject):
     def redo_count(self) -> int:
         return self._require_application().redo_count()
 
-    def get_undo_commands(self) -> tuple:
-        return self._require_application().undo_commands()
-
-    def get_redo_commands(self) -> tuple:
-        return self._require_application().redo_commands()
-
-    def get_undo_name(self) -> str | None:
-        commands = self.get_undo_commands()
-        if not commands:
-            return None
-        return getattr(commands[-1], "name", None)
-
-    def get_redo_name(self) -> str | None:
-        commands = self.get_redo_commands()
-        if not commands:
-            return None
-        return getattr(commands[-1], "name", None)
-
-    def clear_history(self) -> None:
-        self._require_application().clear_history()
-        self.state_changed.emit()
-
-    def clear_redo(self) -> None:
-        # Application owns history. There is deliberately no UI-side redo store.
-        self.clear_history()
-
-    def reset_command_history(self) -> None:
-        self.clear_history()
-
-    def get_command_state(self) -> dict[str, Any]:
+    def get_command_state(self) -> dict[str, int | bool]:
+        """Expose UI-relevant history state without exposing the history implementation."""
         application = self._require_application()
         return {
             "can_undo": application.can_undo(),
