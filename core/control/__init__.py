@@ -1,6 +1,12 @@
 """Public package boundary for the headless GridForge Control subsystem."""
 
+from . import base as _base
 from .state import ControlState
+
+# Compatibility export for legacy controller imports.  The canonical
+# implementation remains core.control.state.ControlState.
+_base.ControlState = ControlState
+
 from .signals import ControlSignal
 from .limits import Limit as ControlLimits
 from .controller import Controller
