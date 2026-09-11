@@ -12,7 +12,6 @@ from core.network.network import Network
 from ui.canvas.canvas_composition import CanvasComposer
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
-from ui.core.command_manager import CommandManager as UICommandManager
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
 from ui.core.qt import QApplication
@@ -48,7 +47,6 @@ def build_application() -> tuple[
 
     network = Network()
     gridforge_application = create_application(network)
-    command_manager = UICommandManager(application=gridforge_application)
 
     project = Project(
         project_id="gridforge-project",
@@ -94,22 +92,26 @@ def build_application() -> tuple[
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
 
-    controller = Controller()
-    # Compatibility for the already-migrated LineTool. BusTool does not use
-    # this path; its mutation dispatch is exclusively through command_manager.
-    controller.gridforge_application = gridforge_application
+    controller = Controller(
+        application=gridforge_application,
+    )
+
+    canvas_composer = CanvasComposer()
+    canvas_preparation = canvas_composer.prepare(
+        controller=controller,
+    )
 
     tool_manager = ToolManager(
         controller=controller,
-        interaction_manager=None,
-        preview=None,
-        tool_registry=None,
+        application=gridforge_application,
+        selection_manager=canvas_preparation.selection_manager,
+        snap_system=canvas_preparation.snap_system,
     )
 
-    canvas_composition = CanvasComposer().compose(
+    canvas_composition = canvas_composer.compose(
         controller=controller,
         tool_manager=tool_manager,
-        command_manager=command_manager,
+        preparation=canvas_preparation,
         parent=None,
     )
 
@@ -167,7 +169,6 @@ def build_application() -> tuple[
         gridforge_application=gridforge_application,
         root_widget=root_widget,
         controller=controller,
-        command_manager=command_manager,
         sld_document=sld_document,
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
