@@ -24,7 +24,9 @@ jobs:
           tests/core/application/test_measurement_command_authority.py
           tests/core/application/test_measurement_command_contract.py
           tests/core/application/test_protection_trip_boundary.py
+          tests/core/application/test_c9_read_services.py
           tests/core/measurement/test_measurement_conversion_contract.py
           tests/core/model/test_transformer_impedance_basis.py
           tests/core/test_measurement_generation.py
           tests/projects/test_gridforge_package.py
+          tests/ui/sld/test_c9_sld_read_path.py
