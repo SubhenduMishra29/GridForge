@@ -22,9 +22,6 @@ def application_double() -> tuple[Application, dict[str, int], list[object]]:
     application.can_redo = lambda: False
     application.undo_count = lambda: 1
     application.redo_count = lambda: 0
-    application.undo_commands = lambda: ("undo-command",)
-    application.redo_commands = lambda: ()
-    application.clear_history = lambda: None
     return application, counters, executed
 
 
@@ -83,8 +80,12 @@ def test_mutation_and_history_delegate_to_application():
         assert controller.can_redo() is False
         assert controller.undo_count() == 1
         assert controller.redo_count() == 0
-        assert controller.get_undo_commands() == ("undo-command",)
-        assert controller.get_redo_commands() == ()
+        assert controller.get_command_state() == {
+            "can_undo": True,
+            "can_redo": False,
+            "undo_count": 1,
+            "redo_count": 0,
+        }
     finally:
         controller.dispose()
 
