@@ -9,8 +9,8 @@ signals, dependencies, state and evaluation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Iterable
+from dataclasses import dataclass
+from typing import Iterable, Mapping, Any
 
 from .base import LogicControlComponent
 from .engine import LogicConnection, LogicDependency, LogicEngine
@@ -63,6 +63,7 @@ class LadderRung:
         object.__setattr__(self, "rung_id", rung_id)
         object.__setattr__(self, "order", int(self.order))
         object.__setattr__(self, "elements", elements)
+        object.__setattr__(self, "enabled", bool(self.enabled))
 
 
 class LadderProgram:
@@ -127,6 +128,29 @@ class LadderProgram:
         if position < 0 or position > len(rung.elements):
             raise LadderModelError("Component position is outside the rung.")
         self._engine.register(component)
+        elements = list(rung.elements)
+        elements.insert(position, LadderElementRef(component.component_id, position))
+        self._replace_rung(rung, elements)
+
+    def restore_component(
+        self,
+        component: LogicControlComponent,
+        *,
+        rung_id: str,
+        position: int,
+        order: int,
+        state: Mapping[str, Any],
+    ) -> None:
+        """Restore one component with its original execution order and state."""
+        rung = self.rung(rung_id)
+        if self._engine.contains(component.component_id):
+            raise LadderModelError(f"Component '{component.component_id}' already exists.")
+        if any(e.component_id == component.component_id for r in self._rungs.values() for e in r.elements):
+            raise LadderModelError(f"Component '{component.component_id}' is already placed in the program.")
+        position = int(position)
+        if position < 0 or position > len(rung.elements):
+            raise LadderModelError("Component position is outside the rung.")
+        self._engine.register(component, order=int(order), initial_state=dict(state))
         elements = list(rung.elements)
         elements.insert(position, LadderElementRef(component.component_id, position))
         self._replace_rung(rung, elements)
