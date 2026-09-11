@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from core.persistence.project_package import normalize_package_path
+
 from .project import ProjectContext
 
 
@@ -24,10 +26,8 @@ NetworkActivator = Callable[[Any], None]
 class ProjectLifecycleService:
     """Own the active project's lifecycle at the Application boundary.
 
-    Persistence is deliberately injected as a capability. The service does not
-    implement a second persistence system; the canonical persistence service
-    will be supplied by the Application composition root in the persistence
-    workstream.
+    Persistence is injected as one canonical capability. The lifecycle service
+    coordinates it but does not implement a second persistence authority.
     """
 
     def __init__(
@@ -145,12 +145,7 @@ class ProjectLifecycleService:
 
     @staticmethod
     def _normalize_path(path: str | Path) -> Path:
-        if not isinstance(path, (str, Path)):
-            raise TypeError("path must be a string or Path.")
-        target = Path(path)
-        if not str(target):
-            raise ValueError("path must not be empty.")
-        return target
+        return normalize_package_path(path)
 
     def _require_context(self) -> ProjectContext:
         if self._context is None:
