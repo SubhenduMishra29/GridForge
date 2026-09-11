@@ -2,7 +2,7 @@
 
 from .state import ControlState
 from .signals import ControlSignal
-from .limits import ControlLimits
+from .limits import Limit as ControlLimits
 from .controller import Controller
 from .decision import ControlActionType, ControlDecision
 from .action import ControlActionBinding
