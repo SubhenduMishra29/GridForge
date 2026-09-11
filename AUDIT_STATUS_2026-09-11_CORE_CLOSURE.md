@@ -2,7 +2,7 @@
 
 Date: 2026-09-11
 Implementation repository: `madhuri196mishra-cpu/GridForge`
-Current implementation HEAD: `49b229b808160c092e2df1e4e695e58f0c537686`
+Current implementation HEAD: `506af8d7ebb01669da536687a4a0761d84cfce4d`
 
 ## Closure rule
 
@@ -55,7 +55,20 @@ This register reconciles the historical Core/Application findings against the cu
 | GF-EDM-065 | Stable prepared identities | Prepared snapshots preserve stable IDs | No collection-position semantics at result boundary | Existing `PreparedPowerFlow`/Short Circuit snapshot identities retained | REMEDIATED — VERIFICATION DEFERRED |
 | GF-EDM-067 | Reactive equipment numerical representation | Prepared shunt susceptance is explicit | Preserve identity, service state and sign convention | Existing `PreparedShunt` contract retained | REMEDIATED — VERIFICATION DEFERRED |
 | GF-EDM-068 | Engineering → dynamic bridge | No current dynamic engine | Do not invent dynamic bridge | Explicitly deferred | DEFERRED — CAPABILITY NOT IN CURRENT SCOPE |
-| GF-EDM-069 | Protection decision → breaker mutation | Existing `ProtectionOutputService` translates decision to `TripBreakerCommand` and Application path | Protection must not mutate breaker directly | Existing Application-owned switching path retained | REMEDIATED — VERIFICATION DEFERRED |
+| GF-EDM-069 | Protection decision → breaker mutation | Protection decision is translated to `TripBreakerCommand` and routed through `Application.execute()` | Protection must not mutate breaker directly | `ProtectionOutputService` owns translation only; Application remains mutation/event boundary | REMEDIATED — VERIFICATION DEFERRED |
+
+## Control boundary reconciliation
+
+The current Control subsystem was inspected after the historical closure matrix was created. No production correction is required.
+
+- `Application.execute_control_cycle()` owns Control-cycle orchestration.
+- `ControlCycleService` evaluates intent and delegates execution to the Application-owned execution service.
+- `ControlCommandTranslator` maps typed `ControlDecision` values to existing breaker commands rather than introducing a second command system.
+- `ControlCommandDispatcher` can be configured with `Application.execute`; the `Application` facade does exactly that, preserving semantic event publication after successful command execution.
+- `ControlExecutionService` records executed, invalid, blocked, and failed decisions without directly mutating Core state.
+- Existing `test_control_cycle.py` provides the corresponding boundary specifications.
+
+Control therefore remains within the frozen Application mutation boundary and introduces no additional OPEN finding.
 
 ## Targeted corrections made in this closure pass
 
@@ -71,9 +84,14 @@ This register reconciles the historical Core/Application findings against the cu
    - omitted contribution IDs are also diagnosed from the prepared `sequence_elements` contract;
    - result `contribution_status` is populated from actual contribution coverage.
 
-3. Tests
+3. `core/application/services/protection_output_service.py`
+   - protection trips now translate through the immutable `TripBreakerCommand` and `Application.execute()`;
+   - direct breaker mutation and local transaction ownership are absent from the protection output service.
+
+4. Tests
    - added `tests/core/analysis/test_contingency_result_contract.py`;
-   - added `tests/core/analysis/test_short_circuit_contribution_status.py`.
+   - added `tests/core/analysis/test_short_circuit_contribution_status.py`;
+   - existing `tests/core/application/test_protection_trip_boundary.py` and `tests/core/application/test_control_cycle.py` specify the protection/control mutation boundaries.
 
 ## Verification
 
