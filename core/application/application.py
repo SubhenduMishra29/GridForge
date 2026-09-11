@@ -4,7 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Stable public Application facade for commands, reads, events, history, and Control lifecycle."""
+"""Stable public Application facade for commands, reads, events, history, and project lifecycle."""
 
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ from .events import (
     NetworkChanged,
     TopologyChanged,
 )
+from .project import ProjectContext
+from .project_lifecycle import ProjectLifecycleService
 from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
@@ -64,6 +66,7 @@ class Application:
         self._read_service = read_service
         self._protection_read_service = protection_read_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
+        self._project_lifecycle: ProjectLifecycleService | None = None
         self._control_execution = ControlExecutionService(
             ControlCommandDispatcher(command_manager, command_executor=self.execute)
         )
@@ -76,6 +79,48 @@ class Application:
     def control_execution(self) -> ControlExecutionService:
         """Return the Application-owned Control execution boundary."""
         return self._control_execution
+
+    @property
+    def project_lifecycle(self) -> ProjectLifecycleService:
+        """Return the Application-owned project lifecycle service."""
+        if self._project_lifecycle is None:
+            raise RuntimeError("Application project lifecycle is not configured.")
+        return self._project_lifecycle
+
+    def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
+        """Attach the single Application-owned project lifecycle authority."""
+        if not isinstance(service, ProjectLifecycleService):
+            raise TypeError("service must be a ProjectLifecycleService.")
+        if self._project_lifecycle is not None and self._project_lifecycle is not service:
+            raise RuntimeError("Application project lifecycle is already configured.")
+        self._project_lifecycle = service
+
+    def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+        return self.project_lifecycle.new_project(name, project_id=project_id)
+
+    def open_project(self, path: str) -> ProjectContext:
+        return self.project_lifecycle.open_project(path)
+
+    def save_project(self, path: str | None = None) -> ProjectContext:
+        return self.project_lifecycle.save_project(path)
+
+    def save_project_as(self, path: str) -> ProjectContext:
+        return self.project_lifecycle.save_project_as(path)
+
+    def close_project(self) -> ProjectContext | None:
+        return self.project_lifecycle.close_project()
+
+    def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService) -> None:
+        """Replace command/read runtime when a project Network becomes active."""
+        if not isinstance(command_manager, CommandManager):
+            raise TypeError("command_manager must be a CommandManager.")
+        if not isinstance(read_service, ReadService):
+            raise TypeError("read_service must implement ReadService.")
+        self._command_manager = command_manager
+        self._read_service = read_service
+        self._control_execution = ControlExecutionService(
+            ControlCommandDispatcher(command_manager, command_executor=self.execute)
+        )
 
     def execute_control_cycle(
         self,
