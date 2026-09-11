@@ -49,7 +49,29 @@ class NetworkReadModel:
     elements: tuple[ElementReadModel, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RelayReadModel:
+    """Immutable presentation snapshot of one authoritative physical Relay."""
+
+    object_id: str
+    name: str
+    relay_type: str
+    function_type: str
+    in_service: bool
+    enabled: bool
+    blocked: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionReadModel:
+    """Immutable collection snapshot of protection-domain read data."""
+
+    relays: tuple[RelayReadModel, ...]
+
+
 __all__ = [
     "ElementReadModel",
     "NetworkReadModel",
+    "ProtectionReadModel",
+    "RelayReadModel",
 ]
