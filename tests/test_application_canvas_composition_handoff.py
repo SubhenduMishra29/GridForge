@@ -8,35 +8,43 @@ from main import build_application
 def test_application_bootstrap_hands_canvas_composition_to_plugin() -> None:
     source = inspect.getsource(build_application)
     assert "CanvasComposer" in source
+    assert "canvas_composer.prepare" in source
     assert "canvas_composition" in source
     assert "set_composition" in source
     assert source.index("CanvasComposer") < source.index("initialize_all")
     assert source.index("set_composition") < source.index("initialize_all")
 
 
-def test_application_bootstrap_injects_render_system_for_composed_canvas_scene() -> None:
+def test_application_bootstrap_binds_controller_to_canonical_application() -> None:
     source = inspect.getsource(build_application)
-    assert "SLDCanvasRenderSystem" in source
-    assert "canvas_composition.scene" in source
-    assert "sld_canvas_render_system" in source
-    assert source.index("SLDCanvasRenderSystem") < source.index("initialize_all")
+    assert "Controller(" in source
+    assert "application=gridforge_application" in source
+    assert "controller.gridforge_application" not in source
 
 
-def test_canvas_composition_requires_and_forwards_ui_command_manager() -> None:
+def test_application_bootstrap_constructs_tool_manager_with_canvas_dependencies() -> None:
+    source = inspect.getsource(build_application)
+    assert "ToolManager(" in source
+    assert "application=gridforge_application" in source
+    assert "selection_manager=canvas_preparation.selection_manager" in source
+    assert "snap_system=canvas_preparation.snap_system" in source
+
+
+def test_application_bootstrap_uses_current_canvas_composer_contract() -> None:
     from ui.canvas.canvas_composition import CanvasComposer
 
     signature = inspect.signature(CanvasComposer.compose)
-    assert "command_manager" in signature.parameters
+    assert "command_manager" not in signature.parameters
+    assert "preparation" in signature.parameters
     source = inspect.getsource(CanvasComposer.compose)
-    assert "command_manager=command_manager" in source
-    assert "command_manager=None" not in source
+    assert "create_default_tool_factories" in source
+    assert "command_manager" not in source
 
 
-def test_application_bootstrap_creates_one_ui_command_facade_for_canvas_tools() -> None:
+def test_application_bootstrap_has_no_legacy_ui_command_manager_path() -> None:
     source = inspect.getsource(build_application)
-    assert "UICommandManager" in source
-    assert "command_manager = UICommandManager" in source
-    assert "command_manager=command_manager" in source
+    assert "UICommandManager" not in source
+    assert "command_manager" not in source
 
 
 def test_canvas_composition_does_not_construct_legacy_renderer_stack() -> None:
