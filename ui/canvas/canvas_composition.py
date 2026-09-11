@@ -1,9 +1,14 @@
+# ============================================================
+# File: ui/canvas/canvas_composition.py
+# GridForge V2 — Canvas Composition
+# Author: Subhendu Mishra
+# ============================================================
 """GridForge V2 application-owned Canvas composition boundary."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from ui.canvas.coordinate_system import CoordinateSystem
 from ui.canvas.grid_scene import GridScene
@@ -47,7 +52,6 @@ class CanvasComposer:
         *,
         controller: Controller,
         tool_manager: ToolManager,
-        command_manager: Any,
         parent: Optional[QWidget] = None,
     ) -> CanvasComposition:
         """Construct and wire one complete Canvas service graph."""
@@ -55,11 +59,7 @@ class CanvasComposer:
             raise ValueError("controller must not be None.")
         if tool_manager is None:
             raise ValueError("tool_manager must not be None.")
-        if command_manager is None:
-            raise ValueError("command_manager must not be None.")
 
-        # Selection is UI-Core interaction state. Controller is deliberately
-        # not the selection authority.
         selection_manager = SelectionManager()
         grid_system = GridSystem()
         scene = GridScene()
@@ -96,13 +96,12 @@ class CanvasComposer:
             interaction_manager=interaction_manager,
             navigation_controller=navigation_controller,
         )
-
         selection_manager.set_scene(scene)
 
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
-                command_manager=command_manager,
+                application=tool_manager.application,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
             )

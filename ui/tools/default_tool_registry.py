@@ -1,23 +1,13 @@
 # ============================================================
+# File: ui/tools/default_tool_registry.py
 # GridForge V2 — Default UI Tool Registry
 # Author: Subhendu Mishra
 # ============================================================
 """Default concrete UI tool factories for GridForge V2.
 
-Architectural role
-------------------
-This module owns only the default mapping from stable tool IDs to
-factory callables. ToolManager remains the lifecycle owner, while the
-application/UI composition boundary supplies the shared interaction
-services.
-
-The registry contains interaction tools for concrete Core model types.
-It does not create Core objects, execute commands, render graphics, or
-own electrical truth.
-
-SLD rendering is deliberately outside the tool factory contract. The
-unified SLD projection/rendering path is owned by SLD projection and
-Canvas realization services.
+The registry provides definitions/factories only. ToolManager owns runtime
+instances and lifecycle. Every concrete tool receives the same canonical
+Application dependency contract.
 """
 
 from __future__ import annotations
@@ -55,21 +45,20 @@ ToolFactory = Callable[..., Any]
 def create_default_tool_factories(
     *,
     controller: Any,
-    command_manager: Any = None,
+    application: Any,
     selection_manager: Any,
     snap_system: Any,
 ) -> dict[str, ToolFactory]:
     """Return the standard concrete-tool factory mapping.
 
-    Dependencies are captured by factories but concrete tools are not
-    instantiated here. ToolManager therefore retains lazy construction
-    and lifecycle ownership.
+    Tools are not instantiated here. ToolManager remains the sole runtime
+    owner and supplies the same dependency contract to every factory.
     """
 
     def factory(tool_class: type[Any]) -> ToolFactory:
         return lambda **_ignored: tool_class(
             controller=controller,
-            command_manager=command_manager,
+            application=application,
             selection_manager=selection_manager,
             snap_system=snap_system,
         )

@@ -12,8 +12,8 @@ UI Core belongs to the Presentation layer. It may own UI state and
 UI infrastructure, but it does not own Application or Core/domain
 truth.
 
-Current architectural position
-------------------------------
+Application boundary
+--------------------
 
     Presentation UI
         │
@@ -30,16 +30,15 @@ Current architectural position
     Presentation Controllers / UI Services
                 │
                 ▼
-    [future explicit UI ↔ Application interface]
-                │
-                ▼
-            Application
+          core.application
                 │
                 ▼
                Core
 
-The future UI↔Application interface is intentionally not implemented
-in this package during the current UI-focused development phase.
+The Application layer is the sole controlled bridge between
+presentation intent and Core mutation. UI Core does not contain a
+command manager, history implementation, transaction implementation,
+or engineering mutation service.
 
 Responsibilities
 ----------------
@@ -47,7 +46,6 @@ Responsibilities
 UI Core provides stable UI infrastructure and contracts for:
 
     - Presentation/UI controller access
-    - UI command infrastructure
     - selection management
     - plugin infrastructure
     - panel registration
@@ -75,7 +73,6 @@ UI Core may own or coordinate UI state such as:
 
     - active tool
     - selection projection/state
-    - UI command history
     - plugin lifecycle
     - renderer registration
     - panel registration
@@ -96,48 +93,22 @@ UI Core must never become the authoritative owner of:
     - simulation state
     - persistent engineering state
 
-The Application layer will provide the future controlled bridge
-between Presentation intent and Core mutation.
-
-Qt Boundary
------------
-
-GridForge V2 uses PySide6.
-
-All Qt dependencies used by the UI subsystem must pass through:
-
-    ui.core.qt
-
-Concrete UI modules must not directly import PySide6, PyQt5,
-PyQt6, or PySide2.
-
-Public Service Boundary
------------------------
-
-Current UI infrastructure services include:
-
-    CommandManager
-    SelectionManager
-
-Additional infrastructure remains exposed through dedicated
-modules and focused registries rather than a universal manager.
-
 Design Principles
 -----------------
 
 1. Core remains authoritative for engineering truth.
 2. UI state must not become engineering state.
-3. Application is the future controlled Core↔UI bridge.
+3. Application is the controlled Core↔UI mutation bridge.
 4. Qt remains behind the UI Qt abstraction boundary.
 5. Registries remain focused on their responsibilities.
 6. Plugin loading remains explicit.
 7. Concrete plugins and renderers are not implicitly imported here.
-8. UI command infrastructure remains independent of Qt.
-9. Selection is a UI projection of authoritative state.
-10. UI infrastructure remains lightweight.
-11. Dependencies remain acyclic.
-12. No engineering computation belongs in ``ui.core``.
-13. No duplicate engineering truth belongs in ``ui.core``.
+8. Selection is a UI projection of authoritative state.
+9. UI infrastructure remains lightweight.
+10. Dependencies remain acyclic.
+11. No engineering computation belongs in ``ui.core``.
+12. No duplicate engineering truth belongs in ``ui.core``.
+13. No UI-side command manager or history implementation exists.
 """
 
 __all__: list[str] = []

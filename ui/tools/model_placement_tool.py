@@ -1,19 +1,9 @@
 # ============================================================
-# GridForge V2
+# File: ui/tools/model_placement_tool.py
+# GridForge V2 — Model Placement Tool
+# Author: Subhendu Mishra
 # ============================================================
-# File:
-#     ui/tools/model_placement_tool.py
-#
-# Purpose:
-#     Shared UI-only placement behavior for concrete model tools.
-#
-# Architectural Role:
-#     Captures snapped scene-space placement intent and stops at the
-#     Application command boundary. It never mutates Core directly.
-#
-# Author:
-#     Subhendu Mishra
-# ============================================================
+"""Shared UI-only placement behavior for concrete model tools."""
 
 from __future__ import annotations
 
@@ -31,13 +21,13 @@ class ModelPlacementTool(ToolBase):
     def __init__(
         self,
         controller: Any,
-        command_manager: Any,
+        application: Any,
         selection_manager: Any,
         snap_system: Any,
     ) -> None:
         super().__init__(
             controller=controller,
-            command_manager=command_manager,
+            application=application,
             selection_manager=selection_manager,
             snap_system=snap_system,
         )
@@ -122,9 +112,7 @@ class ModelPlacementTool(ToolBase):
 
     def _require_command_boundary(self) -> None:
         raise RuntimeError(
-            f"{self.MODEL_NAME} placement requires a confirmed Core "
-            f"{self.MODEL_NAME} creation command. No such command is "
-            "currently exposed by the GridForge Core command API."
+            f"{self.MODEL_NAME} placement requires its canonical Application command path."
         )
 
     @staticmethod

@@ -1,34 +1,25 @@
 # ============================================================
 # File: ui/core/controller.py
 # GridForge V2 — UI Controller
+# Author: Subhendu Mishra
 # ============================================================
-"""
-Central application/UI controller for GridForge V2.
+"""UI coordination controller for GridForge V2.
 
-Controller owns application-level coordination state such as the
-requested tool identifier and project/application context. It does
-not own user selection; UI-Core SelectionManager is the sole selection
-authority.
-
-Core command execution/history remains a legacy compatibility boundary
-for this controller and is intentionally unchanged by the selection
-migration.
+The Controller owns presentation/interaction coordination only. Core
+authority, command execution, transactions, and history remain behind the
+headless ``core.application.Application`` boundary.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
+from core.application import Application
 from ui.core.qt import QObject, Signal
 
 
 class Controller(QObject):
-    """Central GridForge UI/application controller.
-
-    Selection is owned exclusively by ``ui.core.SelectionManager``.
-    This Controller intentionally contains no selection state or
-    selection signal.
-    """
+    """Coordinate UI state while delegating mutation/history actions to Application."""
 
     tool_changed = Signal(object, object)
     state_changed = Signal()
@@ -36,65 +27,50 @@ class Controller(QObject):
     reset_requested = Signal()
 
     _SIGNAL_NAMES = frozenset(
-        {
-            "tool_changed",
-            "state_changed",
-            "project_changed",
-            "reset_requested",
-        }
+        {"tool_changed", "state_changed", "project_changed", "reset_requested"}
     )
 
     def __init__(
         self,
-        core: Optional[Any] = None,
-        parent: Optional[QObject] = None,
-        application: Optional[Any] = None,
+        application: Application | None = None,
+        parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._core = core
-        self._tool_id: Optional[str] = None
-        self._project: Optional[Any] = None
+        if application is not None and not isinstance(application, Application):
+            raise TypeError("application must be a core.application.Application.")
+        self.application = application
+        self._tool_id: str | None = None
+        self._project: Any | None = None
         self._disposed = False
         self._subscriptions: dict[str, list[Any]] = {
             signal_name: [] for signal_name in self._SIGNAL_NAMES
         }
 
-    @property
-    def core(self) -> Optional[Any]:
-        return self._core
-
-    def get_core(self) -> Optional[Any]:
-        return self._core
-
-    def set_core(self, core: Optional[Any]) -> None:
-        self._ensure_active()
-        if self._core is core:
-            return
-        self._core = core
-        self.state_changed.emit()
-
-    def get_application(self) -> Optional[Any]:
+    def get_application(self) -> Application | None:
+        """Return the configured Application boundary."""
         return self.application
 
-    def set_application(self, application: Optional[Any]) -> None:
+    def set_application(self, application: Application | None) -> None:
+        """Set the Application boundary used for mutation/history delegation."""
         self._ensure_active()
+        if application is not None and not isinstance(application, Application):
+            raise TypeError("application must be a core.application.Application.")
         if self.application is application:
             return
         self.application = application
-        self.gridforge_application = application
         self.state_changed.emit()
 
     @property
-    def tool_id(self) -> Optional[str]:
+    def tool_id(self) -> str | None:
         return self._tool_id
 
-    def get_tool_id(self) -> Optional[str]:
+    def get_tool_id(self) -> str | None:
         return self._tool_id
 
-    def get_current_tool_id(self) -> Optional[str]:
+    def get_current_tool_id(self) -> str | None:
         return self._tool_id
 
-    def set_tool(self, tool_id: Optional[str]) -> None:
+    def set_tool(self, tool_id: str | None) -> None:
         self._ensure_active()
         if tool_id is not None:
             if not isinstance(tool_id, str):
@@ -113,18 +89,14 @@ class Controller(QObject):
     def clear_tool(self) -> None:
         self.set_tool(None)
 
-    # ========================================================
-    # PROJECT CONTEXT
-    # ========================================================
-
     @property
-    def project(self) -> Optional[Any]:
+    def project(self) -> Any | None:
         return self._project
 
-    def get_project(self) -> Optional[Any]:
+    def get_project(self) -> Any | None:
         return self._project
 
-    def set_project(self, project: Optional[Any]) -> None:
+    def set_project(self, project: Any | None) -> None:
         self._ensure_active()
         if self._project is project:
             return
@@ -132,167 +104,53 @@ class Controller(QObject):
         self.project_changed.emit(project)
         self.state_changed.emit()
 
-    # ========================================================
-    # CORE COMMAND BOUNDARY
-    # ========================================================
-
-    def _get_command_manager(self) -> Any:
-        self._ensure_active()
-        core = self._core
-        if core is None:
-            raise RuntimeError("Cannot access command manager without a Core.")
-        command_manager = getattr(core, "command_manager", None)
-        if command_manager is None:
-            raise TypeError("Core must provide command_manager.")
-        return command_manager
-
-    def _get_command_manager_method(self, method_name: str) -> Any:
-        if method_name not in self._COMMAND_MANAGER_METHODS:
-            raise ValueError(f"Unknown command-manager method: {method_name!r}")
-        method = getattr(self._get_command_manager(), method_name, None)
-        if not callable(method):
-            raise TypeError(
-                "Core.command_manager must provide "
-                f"{method_name}()."
-            )
-        return method
-
     def execute_command(self, command: Any) -> Any:
-        self._ensure_active()
+        """Delegate command execution to Application."""
+        application = self._require_application()
         if command is None:
             raise ValueError("command must not be None.")
-        result = self._get_command_manager_method("execute")(command)
+        result = application.execute(command)
         self.state_changed.emit()
         return result
 
-    # ========================================================
-    # UNDO / REDO
-    # ========================================================
-
     def undo(self) -> Any:
-        self._ensure_active()
-        result = self._get_command_manager_method("undo")()
+        """Delegate undo to Application."""
+        result = self._require_application().undo()
         self.state_changed.emit()
         return result
 
     def redo(self) -> Any:
-        self._ensure_active()
-        result = self._get_command_manager_method("redo")()
+        """Delegate redo to Application."""
+        result = self._require_application().redo()
         self.state_changed.emit()
         return result
-
-    # ========================================================
-    # COMMAND AVAILABILITY
-    # ========================================================
 
     def can_undo(self) -> bool:
-        result = self._get_command_manager_method("can_undo")()
-        if not isinstance(result, bool):
-            raise TypeError("Core.command_manager.can_undo() must return a bool.")
-        return result
+        return self._require_application().can_undo()
 
     def can_redo(self) -> bool:
-        result = self._get_command_manager_method("can_redo")()
-        if not isinstance(result, bool):
-            raise TypeError("Core.command_manager.can_redo() must return a bool.")
-        return result
-
-    # ========================================================
-    # COMMAND HISTORY COUNTS
-    # ========================================================
+        return self._require_application().can_redo()
 
     def undo_count(self) -> int:
-        result = self._get_command_manager_method("undo_count")()
-        if isinstance(result, bool) or not isinstance(result, int):
-            raise TypeError("Core.command_manager.undo_count() must return an integer.")
-        return result
+        return self._require_application().undo_count()
 
     def redo_count(self) -> int:
-        result = self._get_command_manager_method("redo_count")()
-        if isinstance(result, bool) or not isinstance(result, int):
-            raise TypeError("Core.command_manager.redo_count() must return an integer.")
-        return result
+        return self._require_application().redo_count()
 
-    # ========================================================
-    # COMMAND HISTORY ACCESS
-    # ========================================================
-
-    def get_undo_commands(self) -> tuple[Any, ...]:
-        try:
-            return tuple(self._get_command_manager_method("get_undo_commands")())
-        except TypeError as exc:
-            raise TypeError(
-                "Core.command_manager.get_undo_commands() must return an iterable."
-            ) from exc
-
-    def get_redo_commands(self) -> tuple[Any, ...]:
-        try:
-            return tuple(self._get_command_manager_method("get_redo_commands")())
-        except TypeError as exc:
-            raise TypeError(
-                "Core.command_manager.get_redo_commands() must return an iterable."
-            ) from exc
-
-    # ========================================================
-    # COMMAND HISTORY LABELS
-    # ========================================================
-
-    def get_undo_name(self) -> Optional[str]:
-        result = self._get_command_manager_method("get_undo_name")()
-        if result is not None and not isinstance(result, str):
-            raise TypeError(
-                "Core.command_manager.get_undo_name() must return a string or None."
-            )
-        return result
-
-    def get_redo_name(self) -> Optional[str]:
-        result = self._get_command_manager_method("get_redo_name")()
-        if result is not None and not isinstance(result, str):
-            raise TypeError(
-                "Core.command_manager.get_redo_name() must return a string or None."
-            )
-        return result
-
-    # ========================================================
-    # COMMAND HISTORY MANAGEMENT
-    # ========================================================
-
-    def clear_history(self) -> Any:
-        result = self._get_command_manager_method("clear_history")()
-        self.state_changed.emit()
-        return result
-
-    def clear_redo(self) -> Any:
-        result = self._get_command_manager_method("clear_redo")()
-        self.state_changed.emit()
-        return result
-
-    def reset_command_history(self) -> Any:
-        result = self._get_command_manager_method("reset")()
-        self.state_changed.emit()
-        return result
-
-    # ========================================================
-    # COMMAND STATE
-    # ========================================================
-
-    def get_command_state(self) -> dict[str, Any]:
-        state = self._get_command_manager_method("get_state")()
-        if not isinstance(state, dict):
-            raise TypeError(
-                "Core.command_manager.get_state() must return a dictionary."
-            )
-        return dict(state)
-
-    # ========================================================
-    # CONTROLLER STATE RESET
-    # ========================================================
+    def get_command_state(self) -> dict[str, int | bool]:
+        """Expose UI-relevant history state without exposing the history implementation."""
+        application = self._require_application()
+        return {
+            "can_undo": application.can_undo(),
+            "can_redo": application.can_redo(),
+            "undo_count": application.undo_count(),
+            "redo_count": application.redo_count(),
+        }
 
     def reset_state(self) -> None:
         self._ensure_active()
         previous_tool_id = self._tool_id
         had_project = self._project is not None
-
         self._tool_id = None
         self._project = None
 
@@ -300,13 +158,8 @@ class Controller(QObject):
             self.tool_changed.emit(None, previous_tool_id)
         if had_project:
             self.project_changed.emit(None)
-
         self.reset_requested.emit()
         self.state_changed.emit()
-
-    # ========================================================
-    # SUBSCRIPTION API
-    # ========================================================
 
     def subscribe(self, signal_name: str, callback: Any) -> None:
         self._ensure_active()
@@ -341,35 +194,17 @@ class Controller(QObject):
         if not callable(callback):
             raise TypeError("callback must be callable.")
 
-    # ========================================================
-    # DIAGNOSTICS
-    # ========================================================
-
     def get_state(self) -> dict[str, Any]:
         return {
             "tool_id": self._tool_id,
-            "has_core": self._core is not None,
+            "has_application": self.application is not None,
             "has_project": self._project is not None,
             "disposed": self._disposed,
         }
 
-    def __repr__(self) -> str:
-        return (
-            "Controller("
-            f"tool={self._tool_id!r}, "
-            f"core={self._core is not None}, "
-            f"disposed={self._disposed}"
-            ")"
-        )
-
-    # ========================================================
-    # LIFECYCLE
-    # ========================================================
-
     def dispose(self) -> None:
         if self._disposed:
             return
-
         for signal_name, callbacks in self._subscriptions.items():
             signal = getattr(self, signal_name)
             for callback in tuple(callbacks):
@@ -378,14 +213,16 @@ class Controller(QObject):
                 except (RuntimeError, TypeError):
                     pass
             callbacks.clear()
-
         self._tool_id = None
         self._project = None
+        self.application = None
         self._disposed = True
 
-    # ========================================================
-    # INTERNAL VALIDATION
-    # ========================================================
+    def _require_application(self) -> Application:
+        self._ensure_active()
+        if self.application is None:
+            raise RuntimeError("Application is required for mutation/history operations.")
+        return self.application
 
     def _ensure_active(self) -> None:
         if self._disposed:
