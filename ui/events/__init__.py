@@ -5,7 +5,8 @@
 # ============================================================
 """Presentation-facing Application event infrastructure."""
 
+from .control_update_coordinator import ControlUpdateCoordinator
 from .sld_update_coordinator import SLDUpdateCoordinator
 from .update_boundary import UIUpdateBoundary
 
-__all__ = ["UIUpdateBoundary", "SLDUpdateCoordinator"]
+__all__ = ["UIUpdateBoundary", "SLDUpdateCoordinator", "ControlUpdateCoordinator"]
