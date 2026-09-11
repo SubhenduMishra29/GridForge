@@ -55,102 +55,32 @@ _ELEMENT_TYPE_ALIASES = {
 }
 
 _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
-    "buses": (
-        ("nominal_voltage_kv", ("nominal_voltage_kv",)), ("voltage_pu", ("voltage_pu",)),
-        ("angle_deg", ("angle_deg",)), ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",)),
-    ),
-    "lines": (
-        ("resistance_ohm", ("resistance_ohm", "r")), ("reactance_ohm", ("reactance_ohm", "x")),
-        ("shunt_susceptance_siemens", ("shunt_susceptance_siemens", "b")), ("rate_mva", ("rate_mva", "rated_power")),
-        ("in_service", ("in_service",)),
-    ),
-    "cables": (
-        ("length_km", ("length_km",)), ("rated_voltage_kv", ("rated_voltage_kv",)),
-        ("rated_current_a", ("rated_current_a",)), ("r1", ("r1", "r1_ohm_per_km")),
-        ("x1", ("x1", "x1_ohm_per_km")), ("b1", ("b1", "b1_us_per_km")),
-        ("r0", ("r0", "r0_ohm_per_km")), ("x0", ("x0", "x0_ohm_per_km")),
-        ("b0", ("b0", "b0_us_per_km")), ("thermal_limit_mva", ("thermal_limit_mva",)),
-        ("conductor_count", ("conductor_count",)), ("in_service", ("in_service",)),
-    ),
-    "transformers": (
-        ("r", ("r",)), ("x", ("x",)), ("b", ("b",)), ("impedance_basis", ("impedance_basis",)),
-        ("impedance_base_mva", ("impedance_base_mva",)), ("impedance_base_voltage_kv", ("impedance_base_voltage_kv",)),
-        ("rate_mva", ("rate_mva", "rated_power")), ("tap", ("tap",)), ("tap_ratio", ("tap_ratio",)),
-        ("turns_ratio", ("turns_ratio",)), ("shift", ("shift",)), ("phase_shift_rad", ("phase_shift_rad",)),
-        ("phase_shift_deg", ("phase_shift_deg",)), ("in_service", ("in_service",)),
-    ),
-    "switches": (
-        ("closed", ("closed",)), ("in_service", ("in_service",)), ("normally_closed", ("normally_closed",)),
-        ("rated_voltage_kv", ("rated_voltage_kv",)), ("rated_current_a", ("rated_current_a",)),
-    ),
-    "breakers": (
-        ("closed", ("closed",)), ("failed", ("failed",)), ("in_service", ("in_service",)),
-        ("voltage_kv", ("voltage_kv", "rated_voltage_kv")), ("current_a", ("current_a", "rated_current_a")),
-        ("interrupting_ka", ("interrupting_ka",)),
-    ),
-    "disconnectors": (
-        ("closed", ("closed",)), ("in_service", ("in_service",)), ("normally_closed", ("normally_closed",)),
-        ("voltage_kv", ("voltage_kv", "rated_voltage_kv")), ("rated_current_a", ("rated_current_a",)),
-        ("operating_time", ("operating_time",)),
-    ),
-    "fuses": (
-        ("in_service", ("in_service",)), ("blown", ("blown",)), ("rated_current_a", ("rated_current_a",)),
-        ("rated_voltage_v", ("rated_voltage_v",)), ("interrupting_rating_ka", ("interrupting_rating_ka",)),
-    ),
+    "buses": (("nominal_voltage_kv", ("nominal_voltage_kv",)), ("voltage_pu", ("voltage_pu",)), ("angle_deg", ("angle_deg",)), ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",))),
+    "lines": (("resistance_ohm", ("resistance_ohm", "r")), ("reactance_ohm", ("reactance_ohm", "x")), ("shunt_susceptance_siemens", ("shunt_susceptance_siemens", "b")), ("rate_mva", ("rate_mva", "rated_power")), ("in_service", ("in_service",))),
+    "cables": (("length_km", ("length_km",)), ("rated_voltage_kv", ("rated_voltage_kv",)), ("rated_current_a", ("rated_current_a",)), ("r1_ohm_per_km", ("r1_ohm_per_km", "r1")), ("x1_ohm_per_km", ("x1_ohm_per_km", "x1")), ("b1_us_per_km", ("b1_us_per_km", "b1")), ("r0_ohm_per_km", ("r0_ohm_per_km", "r0")), ("x0_ohm_per_km", ("x0_ohm_per_km", "x0")), ("b0_us_per_km", ("b0_us_per_km", "b0")), ("thermal_limit_mva", ("thermal_limit_mva",)), ("conductor_count", ("conductor_count",)), ("in_service", ("in_service",))),
+    "transformers": (("r", ("r",)), ("x", ("x",)), ("b", ("b",)), ("impedance_basis", ("impedance_basis",)), ("impedance_base_mva", ("impedance_base_mva",)), ("impedance_base_voltage_kv", ("impedance_base_voltage_kv",)), ("rate_mva", ("rate_mva", "rated_power")), ("tap", ("tap",)), ("tap_ratio", ("tap_ratio",)), ("turns_ratio", ("turns_ratio",)), ("shift", ("shift",)), ("phase_shift_rad", ("phase_shift_rad",)), ("phase_shift_deg", ("phase_shift_deg",)), ("in_service", ("in_service",))),
+    "switches": (("closed", ("closed",)), ("in_service", ("in_service",)), ("normally_closed", ("normally_closed",)), ("rated_voltage_kv", ("rated_voltage_kv",)), ("rated_current_a", ("rated_current_a",))),
+    "breakers": (("closed", ("closed",)), ("failed", ("failed",)), ("in_service", ("in_service",)), ("voltage_kv", ("voltage_kv", "rated_voltage_kv")), ("current_a", ("current_a", "rated_current_a")), ("interrupting_ka", ("interrupting_ka",))),
+    "disconnectors": (("closed", ("closed",)), ("in_service", ("in_service",)), ("normally_closed", ("normally_closed",)), ("voltage_kv", ("voltage_kv", "rated_voltage_kv")), ("rated_current_a", ("rated_current_a",)), ("operating_time", ("operating_time",))),
+    "fuses": (("in_service", ("in_service",)), ("blown", ("blown",)), ("rated_current_a", ("rated_current_a",)), ("rated_voltage_v", ("rated_voltage_v",)), ("interrupting_rating_ka", ("interrupting_rating_ka",))),
     "loads": (("p", ("p",)), ("q", ("q",)), ("in_service", ("in_service",))),
-    "generators": (
-        ("p", ("p", "active_power_injection_mw")), ("q", ("q", "reactive_power_injection_mvar")),
-        ("V_setpoint", ("V_setpoint", "v_setpoint")), ("q_min", ("q_min",)), ("q_max", ("q_max",)),
-        ("in_service", ("in_service",)),
-    ),
-    "synchronous_machines": (
-        ("active_power_injection_mw", ("active_power_injection_mw",)),
-        ("reactive_power_injection_mvar", ("reactive_power_injection_mvar",)),
-        ("rated_power_mva", ("rated_power_mva",)), ("rated_voltage_kv", ("rated_voltage_kv",)),
-        ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",)),
-    ),
-    "motors": (
-        ("rated_mva", ("rated_mva",)), ("rated_kv", ("rated_kv",)), ("power_factor", ("power_factor",)),
-        ("p", ("p",)), ("q", ("q",)), ("efficiency", ("efficiency",)), ("slip", ("slip",)),
-        ("starting_current_pu", ("starting_current_pu",)), ("running", ("running",)), ("in_service", ("in_service",)),
-    ),
+    "generators": (("p", ("p", "active_power_injection_mw")), ("q", ("q", "reactive_power_injection_mvar")), ("V_setpoint", ("V_setpoint", "v_setpoint")), ("q_min", ("q_min",)), ("q_max", ("q_max",)), ("in_service", ("in_service",))),
+    "synchronous_machines": (("active_power_injection_mw", ("active_power_injection_mw",)), ("reactive_power_injection_mvar", ("reactive_power_injection_mvar",)), ("rated_power_mva", ("rated_power_mva",)), ("rated_voltage_kv", ("rated_voltage_kv",)), ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",))),
+    "motors": (("rated_mva", ("rated_mva",)), ("rated_kv", ("rated_kv",)), ("power_factor", ("power_factor",)), ("p", ("p",)), ("q", ("q",)), ("efficiency", ("efficiency",)), ("slip", ("slip",)), ("starting_current_pu", ("starting_current_pu",)), ("running", ("running",)), ("in_service", ("in_service",))),
     "shunts": (("g_pu", ("g_pu",)), ("b_pu", ("b_pu",)), ("in_service", ("in_service",))),
     "capacitors": (("reactive_power_injection_mvar", ("reactive_power_injection_mvar", "q")), ("in_service", ("in_service",))),
     "reactors": (("reactive_power_injection_mvar", ("reactive_power_injection_mvar", "q")), ("in_service", ("in_service",))),
-    "solar": (
-        ("p_mw", ("p_mw", "p")), ("q_mvar", ("q_mvar", "q")), ("p_min_mw", ("p_min_mw",)),
-        ("p_max_mw", ("p_max_mw",)), ("q_min_mvar", ("q_min_mvar",)), ("q_max_mvar", ("q_max_mvar",)),
-        ("in_service", ("in_service",)),
-    ),
-    "batteries": (
-        ("p_mw", ("p_mw", "p")), ("q_mvar", ("q_mvar", "q")), ("max_charge_mw", ("max_charge_mw",)),
-        ("max_discharge_mw", ("max_discharge_mw",)), ("energy_capacity_mwh", ("energy_capacity_mwh",)),
-        ("soc", ("soc",)), ("soc_min", ("soc_min",)), ("soc_max", ("soc_max",)), ("in_service", ("in_service",)),
-    ),
-    "grids": (
-        ("nominal_voltage_kv", ("nominal_voltage_kv",)), ("frequency_hz", ("frequency_hz",)),
-        ("voltage_pu", ("voltage_pu",)), ("angle_deg", ("angle_deg",)), ("p_mw", ("p_mw", "p")),
-        ("q_mvar", ("q_mvar", "q")), ("short_circuit_mva", ("short_circuit_mva",)),
-        ("x_over_r", ("x_over_r",)), ("z1_pu", ("z1_pu",)), ("z2_pu", ("z2_pu",)), ("z0_pu", ("z0_pu",)),
-        ("in_service", ("in_service",)), ("grounded", ("grounded",)),
-    ),
-    "current_transformers": (
-        ("primary_rated_current_a", ("primary_rated_current_a",)), ("secondary_rated_current_a", ("secondary_rated_current_a",)),
-        ("ratio", ("ratio",)), ("burden_va", ("burden_va",)), ("accuracy_class", ("accuracy_class",)),
-        ("frequency_hz", ("frequency_hz",)), ("polarity", ("polarity",)), ("in_service", ("in_service",)),
-    ),
-    "potential_transformers": (
-        ("primary_voltage_kv", ("primary_voltage_kv",)), ("secondary_voltage_v", ("secondary_voltage_v",)),
-        ("voltage_ratio", ("voltage_ratio", "ratio")), ("accuracy_class", ("accuracy_class",)),
-        ("burden_va", ("burden_va",)), ("phase_displacement_deg", ("phase_displacement_deg",)), ("in_service", ("in_service",)),
-    ),
-    "capacitive_voltage_transformers": (
-        ("rated_primary_voltage_kv", ("rated_primary_voltage_kv",)), ("rated_secondary_voltage_v", ("rated_secondary_voltage_v",)),
-        ("voltage_ratio", ("voltage_ratio", "ratio")), ("accuracy_class", ("accuracy_class",)),
-        ("rated_burden_va", ("rated_burden_va",)), ("polarity", ("polarity",)), ("frequency_hz", ("frequency_hz",)),
-        ("in_service", ("in_service",)),
-    ),
+    "solar": (("p_mw", ("p_mw", "p")), ("q_mvar", ("q_mvar", "q")), ("p_min_mw", ("p_min_mw",)), ("p_max_mw", ("p_max_mw",)), ("q_min_mvar", ("q_min_mvar",)), ("q_max_mvar", ("q_max_mvar",)), ("in_service", ("in_service",))),
+    "batteries": (("p_mw", ("p_mw", "p")), ("q_mvar", ("q_mvar", "q")), ("max_charge_mw", ("max_charge_mw",)), ("max_discharge_mw", ("max_discharge_mw",)), ("energy_capacity_mwh", ("energy_capacity_mwh",)), ("soc", ("soc",)), ("soc_min", ("soc_min",)), ("soc_max", ("soc_max",)), ("in_service", ("in_service",))),
+    "grids": (("nominal_voltage_kv", ("nominal_voltage_kv",)), ("frequency_hz", ("frequency_hz",)), ("voltage_pu", ("voltage_pu",)), ("angle_deg", ("angle_deg",)), ("p_mw", ("p_mw", "p")), ("q_mvar", ("q_mvar", "q")), ("short_circuit_mva", ("short_circuit_mva",)), ("x_over_r", ("x_over_r",)), ("z1_pu", ("z1_pu",)), ("z2_pu", ("z2_pu",)), ("z0_pu", ("z0_pu",)), ("in_service", ("in_service",)), ("grounded", ("grounded",))),
+    "current_transformers": (("primary_rated_current_a", ("primary_rated_current_a",)), ("secondary_rated_current_a", ("secondary_rated_current_a",)), ("ratio", ("ratio",)), ("burden_va", ("burden_va",)), ("accuracy_class", ("accuracy_class",)), ("frequency_hz", ("frequency_hz",)), ("polarity", ("polarity",)), ("in_service", ("in_service",))),
+    "potential_transformers": (("primary_voltage_kv", ("primary_voltage_kv",)), ("secondary_voltage_v", ("secondary_voltage_v",)), ("voltage_ratio", ("voltage_ratio", "ratio")), ("accuracy_class", ("accuracy_class",)), ("burden_va", ("burden_va",)), ("phase_displacement_deg", ("phase_displacement_deg",)), ("in_service", ("in_service",))),
+    "capacitive_voltage_transformers": (("rated_primary_voltage_kv", ("rated_primary_voltage_kv",)), ("rated_secondary_voltage_v", ("rated_secondary_voltage_v",)), ("voltage_ratio", ("voltage_ratio", "ratio")), ("accuracy_class", ("accuracy_class",)), ("rated_burden_va", ("rated_burden_va",)), ("polarity", ("polarity",)), ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",))),
 }
+
+# Every field declared in the C9 contract is required. Optional Core properties are
+# deliberately excluded from this projection contract; they are never fabricated.
+_REQUIRED_FIELDS = {element_type: frozenset(canonical for canonical, _ in fields) for element_type, fields in _FIELD_CONTRACTS.items()}
 
 
 class ReadService(ABC):
@@ -197,10 +127,21 @@ class NetworkReadService(ReadService):
     @classmethod
     def _project_attributes(cls, element_type: str, model: Any) -> dict[str, Any]:
         attributes: dict[str, Any] = {}
+        missing_required: list[str] = []
         for canonical, aliases in _FIELD_CONTRACTS.get(element_type, ()):
             value = cls._value(model, aliases)
-            if value is not None and isinstance(value, (str, int, float, bool)):
+            if value is None:
+                if canonical in _REQUIRED_FIELDS.get(element_type, ()):
+                    missing_required.append(canonical)
+                continue
+            if isinstance(value, (str, int, float, bool)):
                 attributes[canonical] = value
+            elif canonical in _REQUIRED_FIELDS.get(element_type, ()):
+                missing_required.append(canonical)
+        if missing_required:
+            raise ValueError(
+                f"Missing required Application field(s) for {element_type}: {', '.join(missing_required)}"
+            )
         if element_type == "fuses" and "in_service" in attributes and "blown" in attributes:
             attributes["conducts"] = bool(attributes["in_service"] and not attributes["blown"])
         if element_type == "disconnectors" and "closed" in attributes:
