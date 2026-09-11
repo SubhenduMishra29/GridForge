@@ -32,6 +32,13 @@ from .base import (
     LogicStateError,
 )
 from .comparators import UndervoltageComparator
+from .ladder import LadderElementRef, LadderModelError, LadderProgram, LadderRung
+
+# Existing Logic components use OUTPUT_CHANGED as the signal-transition
+# vocabulary. Keep that established contract available without changing the
+# meaning of the existing STATE_CHANGED event.
+if not hasattr(LogicEventType, "OUTPUT_CHANGED"):
+    setattr(LogicEventType, "OUTPUT_CHANGED", "output_changed")
 
 __all__ = [
     "LogicControlComponent",
@@ -46,5 +53,9 @@ __all__ = [
     "LogicOutputError",
     "LogicStateDefinition",
     "LogicStateError",
+    "LadderElementRef",
+    "LadderModelError",
+    "LadderProgram",
+    "LadderRung",
     "UndervoltageComparator",
 ]
