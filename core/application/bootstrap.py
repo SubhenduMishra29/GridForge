@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from core.network import Network
+from core.persistence import ProjectPersistenceService
 
 from .application import Application
 from .command_handlers import build_model_command_handlers
@@ -48,6 +49,7 @@ def create_application(network: Any) -> Application:
         next_command_manager, next_read_service = build_runtime(active_network)
         application._replace_runtime(next_command_manager, next_read_service)
 
+    persistence = ProjectPersistenceService()
     lifecycle = ProjectLifecycleService(
         network=network,
         network_factory=Network,
@@ -57,6 +59,8 @@ def create_application(network: Any) -> Application:
             name="Untitled Project",
             path=None,
         ),
+        loader=persistence.load,
+        saver=persistence.save,
     )
     application.attach_project_lifecycle(lifecycle)
     return application
