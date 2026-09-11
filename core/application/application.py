@@ -31,6 +31,8 @@ from .project_lifecycle import ProjectLifecycleService
 from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
+from .revision import ProjectRevision
+from .revision_service import RevisionService
 
 
 class Application:
@@ -67,6 +69,7 @@ class Application:
         self._protection_read_service = protection_read_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
+        self._revision_service = RevisionService()
         self._control_execution = ControlExecutionService(
             ControlCommandDispatcher(command_manager, command_executor=self.execute)
         )
@@ -86,6 +89,21 @@ class Application:
         if self._project_lifecycle is None:
             raise RuntimeError("Application project lifecycle is not configured.")
         return self._project_lifecycle
+
+    @property
+    def revision(self) -> ProjectRevision:
+        """Return the immutable current project revision snapshot."""
+        return self._revision_service.revision
+
+    @property
+    def is_dirty(self) -> bool:
+        """Return whether the active project has unsaved persistent changes."""
+        return self._revision_service.is_dirty
+
+    @property
+    def revision_service(self) -> RevisionService:
+        """Return the single Application-owned revision authority."""
+        return self._revision_service
 
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
         """Attach the single Application-owned project lifecycle authority."""
@@ -118,9 +136,18 @@ class Application:
             raise TypeError("read_service must implement ReadService.")
         self._command_manager = command_manager
         self._read_service = read_service
+        self._revision_service.reset_for_project()
         self._control_execution = ControlExecutionService(
             ControlCommandDispatcher(command_manager, command_executor=self.execute)
         )
+
+    def mark_project_persisted(self) -> ProjectRevision:
+        """Mark the active project clean after a successful persistence operation."""
+        return self._revision_service.mark_persisted()
+
+    def record_presentation_change(self) -> ProjectRevision:
+        """Record a successful persistent SLD/presentation edit."""
+        return self._revision_service.record_presentation_change()
 
     def execute_control_cycle(
         self,
@@ -146,6 +173,7 @@ class Application:
             raise TypeError("Application.execute requires a Command.")
         result = self._command_manager.execute(command)
         if result.success:
+            self._revision_service.record_command_success(command)
             self._publish_semantic_events(command, result, operation="execute")
         return result
 
@@ -163,6 +191,7 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.undo()
         if result is not None and result.success:
+            self._revision_service.record_undo()
             self._publish_history_events(command, result, operation="undo")
         return result
 
@@ -172,6 +201,7 @@ class Application:
         command = records[-1].command if records else None
         result = self._command_manager.redo()
         if result is not None and result.success and command is not None:
+            self._revision_service.record_redo()
             self._publish_semantic_events(command, result, operation="redo")
         return result
 
