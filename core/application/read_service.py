@@ -203,9 +203,11 @@ class NetworkReadService(ReadService):
         if endpoint_from_id is not None:
             attributes["from_endpoint"] = endpoint_from_id
             attributes["endpoint_from_id"] = endpoint_from_id
+            attributes["from_terminal"] = endpoint_from_id
         if endpoint_to_id is not None:
             attributes["to_endpoint"] = endpoint_to_id
             attributes["endpoint_to_id"] = endpoint_to_id
+            attributes["to_terminal"] = endpoint_to_id
         if terminal_connectivity:
             attributes["terminal_connectivity"] = terminal_connectivity
         return ElementReadModel(object_id=object_id, element_type=element_type, labels=labels,
@@ -280,4 +282,19 @@ class ProtectionReadService:
         )
 
 
-__all__ = ["NetworkReadService", "ProtectionReadService", "ReadService"]
+class StudyReadService:
+    """Placeholder study read boundary retained for Application consumers."""
+
+    def __init__(self, studies: Any) -> None:
+        self._studies = studies
+
+    def snapshot(self) -> Any:
+        return self._studies
+
+
+__all__ = [
+    "NetworkReadService",
+    "ProtectionReadService",
+    "ReadService",
+    "StudyReadService",
+]
