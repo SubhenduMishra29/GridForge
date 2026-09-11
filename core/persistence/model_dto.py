@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -104,8 +105,12 @@ def _encode(value: Any, *, terminal_attributes: dict[str, Terminal], path: str) 
         return {"$ref": {"type": type(value).__name__, "id": value.id}}
     if isinstance(value, Enum):
         return {"$enum": f"{type(value).__module__}:{type(value).__qualname__}", "name": value.name}
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, int, bool)):
         return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        return {"$float": "nan" if math.isnan(value) else ("inf" if value > 0 else "-inf")}
     if isinstance(value, tuple):
         return {"$tuple": [_encode(item, terminal_attributes=terminal_attributes, path=f"{path}[]") for item in value]}
     if isinstance(value, list):
@@ -166,6 +171,8 @@ def _decode(value: Any) -> Any:
     if isinstance(value, dict):
         if "$tuple" in value:
             return tuple(_decode(item) for item in value["$tuple"])
+        if "$float" in value:
+            return float(value["$float"])
         if "$ref" in value:
             return value
         if "$enum" in value:
