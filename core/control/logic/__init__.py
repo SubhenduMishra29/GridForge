@@ -34,11 +34,13 @@ from .base import (
 from .comparators import UndervoltageComparator
 from .ladder import LadderElementRef, LadderModelError, LadderProgram, LadderRung
 
-# Existing Logic components use OUTPUT_CHANGED as the signal-transition
-# vocabulary. Keep that established contract available without changing the
-# meaning of the existing STATE_CHANGED event.
+# Existing coil/latch/timer implementations reference OUTPUT_CHANGED while
+# the frozen base enum predates that member. Until the canonical enum is
+# expanded in a compatibility-safe change, expose the established semantic
+# as an alias of STATE_CHANGED so those components remain executable rather
+# than failing at runtime during event construction.
 if not hasattr(LogicEventType, "OUTPUT_CHANGED"):
-    setattr(LogicEventType, "OUTPUT_CHANGED", "output_changed")
+    setattr(LogicEventType, "OUTPUT_CHANGED", LogicEventType.STATE_CHANGED)
 
 __all__ = [
     "LogicControlComponent",
