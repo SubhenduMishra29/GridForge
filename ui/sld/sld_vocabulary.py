@@ -13,8 +13,8 @@ names while the SLD boundary resolves them to stable semantic names.
 from __future__ import annotations
 
 
-# Canonical semantic vocabulary requested for SLD presentation.
-SLD_SUPPORTED_TYPES = frozenset({
+# Frozen semantic vocabulary for the SLD projection boundary.
+SLD_SEMANTIC_TYPES = (
     "BUS",
     "LINE",
     "CABLE",
@@ -37,8 +37,9 @@ SLD_SUPPORTED_TYPES = frozenset({
     "PT",
     "CVT",
     "RELAY",
-})
+)
 
+SLD_SUPPORTED_TYPES = frozenset(SLD_SEMANTIC_TYPES)
 
 _PRODUCER_ALIASES = {
     "buses": "BUS",
@@ -70,7 +71,7 @@ _PRODUCER_ALIASES = {
 
 
 def semantic_type(element_type: str) -> str:
-    """Resolve one Application producer type to the canonical SLD semantic type."""
+    """Resolve one Application producer type to a canonical SLD semantic type."""
     if not isinstance(element_type, str) or not element_type.strip():
         raise ValueError("element_type must be a non-empty string")
     key = element_type.strip()
@@ -82,4 +83,4 @@ def semantic_type(element_type: str) -> str:
     return value
 
 
-__all__ = ["SLD_SUPPORTED_TYPES", "semantic_type"]
+__all__ = ["SLD_SEMANTIC_TYPES", "SLD_SUPPORTED_TYPES", "semantic_type"]
