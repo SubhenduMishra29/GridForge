@@ -26,6 +26,16 @@ from ui.tools.default_tool_registry import create_default_tool_factories
 
 
 @dataclass(frozen=True)
+class CanvasCompositionPreparation:
+    """Canvas services that must exist before ToolManager construction."""
+
+    selection_manager: SelectionManager
+    grid_system: GridSystem
+    scene: GridScene
+    snap_system: SnapSystem
+
+
+@dataclass(frozen=True)
 class CanvasComposition:
     """Fully composed Canvas viewport and interaction services."""
 
@@ -47,22 +57,57 @@ class CanvasComposition:
 class CanvasComposer:
     """Application-level constructor for the Canvas service graph."""
 
+    def prepare(
+        self,
+        *,
+        controller: Controller,
+    ) -> CanvasCompositionPreparation:
+        """Create the shared Canvas interaction dependencies.
+
+        ToolManager requires SelectionManager and SnapSystem at construction
+        time, while SnapSystem itself depends on the Canvas grid and scene.
+        Preparation makes that dependency ordering explicit without creating a
+        second Canvas service graph.
+        """
+        if controller is None:
+            raise ValueError("controller must not be None.")
+
+        selection_manager = SelectionManager()
+        grid_system = GridSystem()
+        scene = GridScene()
+        snap_system = SnapSystem(
+            controller=controller,
+            grid_system=grid_system,
+            scene=scene,
+        )
+
+        return CanvasCompositionPreparation(
+            selection_manager=selection_manager,
+            grid_system=grid_system,
+            scene=scene,
+            snap_system=snap_system,
+        )
+
     def compose(
         self,
         *,
         controller: Controller,
         tool_manager: ToolManager,
         parent: Optional[QWidget] = None,
+        preparation: CanvasCompositionPreparation | None = None,
     ) -> CanvasComposition:
         """Construct and wire one complete Canvas service graph."""
         if controller is None:
             raise ValueError("controller must not be None.")
         if tool_manager is None:
             raise ValueError("tool_manager must not be None.")
+        if preparation is None:
+            preparation = self.prepare(controller=controller)
 
-        selection_manager = SelectionManager()
-        grid_system = GridSystem()
-        scene = GridScene()
+        selection_manager = preparation.selection_manager
+        grid_system = preparation.grid_system
+        scene = preparation.scene
+        snap_system = preparation.snap_system
 
         view = GraphicsView(
             controller=controller,
@@ -74,11 +119,6 @@ class CanvasComposer:
         coordinate_system = CoordinateSystem(
             view=view,
             grid_system=grid_system,
-        )
-        snap_system = SnapSystem(
-            controller=controller,
-            grid_system=grid_system,
-            scene=scene,
         )
         preview_layer = PreviewLayer(scene=scene)
         interaction_manager = InteractionManager(
@@ -120,4 +160,8 @@ class CanvasComposer:
         )
 
 
-__all__ = ["CanvasComposition", "CanvasComposer"]
+__all__ = [
+    "CanvasCompositionPreparation",
+    "CanvasComposition",
+    "CanvasComposer",
+]
