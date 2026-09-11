@@ -14,24 +14,7 @@ Deterministic timer components for the Logic Control branch.
 
 Timers are simulation-time driven. They never use wall-clock time.
 
-Architecture
-------------
-The timer is a LogicControlComponent.
-
-Inputs:
-    IN
-
-Outputs:
-    Q
-
-Persistent state:
-    elapsed
-    active
-    input_previous
-    evaluation_time
-
-The Core owns timer state and semantics. The UI logic-layout/editing
-canvas only represents and edits the component and its connections.
+Authoritative timer state is maintained entirely by Core.
 """
 
 from __future__ import annotations
@@ -40,19 +23,8 @@ from enum import Enum
 import math
 from typing import Sequence
 
-from ...base import (
-    ControlSignal,
-    SignalRole,
-    State,
-    Inputs,
-)
-from .base import (
-    LogicControlComponent,
-    LogicControlResult,
-    LogicEvent,
-    LogicEventType,
-    LogicStateDefinition,
-)
+from ...base import ControlSignal, SignalRole, State, Inputs
+from .base import LogicControlComponent, LogicControlResult, LogicEvent, LogicEventType, LogicStateDefinition
 
 
 class TimerMode(str, Enum):
@@ -64,16 +36,7 @@ class TimerMode(str, Enum):
 
 
 class LogicTimer(LogicControlComponent):
-    """
-    Generic deterministic Logic timer.
-
-    TON: Q becomes true after IN remains true for the preset duration.
-    TOF: Q remains true for the preset duration after IN becomes false.
-    TP: A rising edge on IN starts a pulse of the preset duration.
-
-    ``evaluation_time`` is part of the Core timer state so elapsed time is
-    derived exclusively from the supplied simulation time sequence.
-    """
+    """Generic deterministic TON/TOF/TP Logic timer."""
 
     @property
     def component_id(self) -> str:
@@ -83,28 +46,19 @@ class LogicTimer(LogicControlComponent):
     def component_type(self) -> str:
         return "timer"
 
-    def __init__(
-        self,
-        component_id: str,
-        *,
-        preset: float,
-        mode: TimerMode = TimerMode.TON,
-    ) -> None:
+    def __init__(self, component_id: str, *, preset: float, mode: TimerMode = TimerMode.TON) -> None:
         component_id = str(component_id).strip()
         if not component_id:
             raise ValueError("LogicTimer component_id cannot be empty.")
-
         preset = float(preset)
         if not math.isfinite(preset):
             raise ValueError("LogicTimer preset must be finite.")
         if preset < 0.0:
             raise ValueError("LogicTimer preset cannot be negative.")
-
         try:
             normalized_mode = mode if isinstance(mode, TimerMode) else TimerMode(mode)
         except ValueError as exc:
             raise ValueError(f"Unsupported timer mode: {mode!r}.") from exc
-
         self._component_id = component_id
         self._preset = preset
         self._mode = normalized_mode
@@ -118,51 +72,28 @@ class LogicTimer(LogicControlComponent):
         return self._mode
 
     def input_definition(self) -> Sequence[ControlSignal]:
-        return (
-            ControlSignal(
-                name="IN",
-                role=SignalRole.INPUT,
-                description="Boolean timer input.",
-                value_type=bool,
-            ),
-        )
+        return (ControlSignal(name="IN", role=SignalRole.INPUT, description="Boolean timer input.", value_type=bool),)
 
     def output_definition(self) -> Sequence[ControlSignal]:
-        return (
-            ControlSignal(
-                name="Q",
-                role=SignalRole.OUTPUT,
-                description="Boolean timer output.",
-                value_type=bool,
-            ),
-        )
+        return (ControlSignal(name="Q", role=SignalRole.OUTPUT, description="Boolean timer output.", value_type=bool),)
 
     def logic_state_definition(self) -> Sequence[LogicStateDefinition]:
         return (
             LogicStateDefinition("elapsed", float, 0.0, "Accumulated timer duration."),
             LogicStateDefinition("active", bool, False, "Whether the timer is currently timing."),
             LogicStateDefinition("input_previous", bool, False, "Previous sampled input used for edge detection."),
+            LogicStateDefinition("output", bool, False, "Previous timer output."),
             LogicStateDefinition("evaluation_time", float, 0.0, "Previous simulation evaluation time."),
         )
 
     def reset_logic(self) -> State:
-        return {
-            "elapsed": 0.0,
-            "active": False,
-            "input_previous": False,
-            "evaluation_time": 0.0,
-        }
+        return {"elapsed": 0.0, "active": False, "input_previous": False, "output": False, "evaluation_time": 0.0}
 
     def reset(self, inputs: Inputs | None = None) -> State:
         del inputs
         return self.reset_logic()
 
-    def evaluate_logic(
-        self,
-        state: State,
-        inputs: Inputs,
-        time: float,
-    ) -> LogicControlResult:
+    def evaluate_logic(self, state: State, inputs: Inputs, time: float) -> LogicControlResult:
         time = _finite_time(time)
         normalized_inputs = self.validate_logic_inputs(inputs)
         normalized_state = self.validate_logic_state(state)
@@ -171,12 +102,13 @@ class LogicTimer(LogicControlComponent):
         previous_input = bool(normalized_state["input_previous"])
         previous_elapsed = float(normalized_state["elapsed"])
         previous_active = bool(normalized_state["active"])
+        previous_output = bool(normalized_state["output"])
         previous_time = float(normalized_state["evaluation_time"])
-
         delta = _sample_delta(time, previous_time)
+
         elapsed = max(0.0, previous_elapsed)
         active = previous_active
-        output = False
+        output = previous_output
 
         if self.mode is TimerMode.TON:
             if input_active:
@@ -208,7 +140,7 @@ class LogicTimer(LogicControlComponent):
                 else:
                     output = False
 
-        else:  # TimerMode.TP
+        else:
             rising_edge = input_active and not previous_input
             if rising_edge:
                 elapsed = 0.0
@@ -223,50 +155,38 @@ class LogicTimer(LogicControlComponent):
                 output = False
 
         events: list[LogicEvent] = []
-
         if previous_active != active:
-            events.append(
-                LogicEvent(
-                    event_type=LogicEventType.STATE_CHANGED,
-                    component_id=self.component_id,
-                    signal_name="active",
-                    previous_value=previous_active,
-                    current_value=active,
-                    time=time,
-                    data={"mode": self.mode.value},
-                )
-            )
+            events.append(LogicEvent(
+                event_type=LogicEventType.STATE_CHANGED,
+                component_id=self.component_id,
+                signal_name="active",
+                previous_value=previous_active,
+                current_value=active,
+                time=time,
+                data={"mode": self.mode.value},
+            ))
 
-        previous_output = previous_active and previous_elapsed < self.preset
         if previous_output != output:
-            events.append(
-                LogicEvent(
-                    event_type=LogicEventType.OUTPUT_CHANGED,
-                    component_id=self.component_id,
-                    signal_name="Q",
-                    previous_value=previous_output,
-                    current_value=output,
-                    time=time,
-                    data={
-                        "mode": self.mode.value,
-                        "elapsed": elapsed,
-                        "preset": self.preset,
-                    },
-                )
-            )
+            events.append(LogicEvent(
+                event_type=LogicEventType.OUTPUT_CHANGED,
+                component_id=self.component_id,
+                signal_name="Q",
+                previous_value=previous_output,
+                current_value=output,
+                time=time,
+                data={"mode": self.mode.value, "elapsed": elapsed, "preset": self.preset},
+            ))
 
         if not previous_active and active:
-            events.append(
-                LogicEvent(
-                    event_type=LogicEventType.TRIGGERED,
-                    component_id=self.component_id,
-                    signal_name="IN",
-                    previous_value=previous_input,
-                    current_value=input_active,
-                    time=time,
-                    data={"mode": self.mode.value, "preset": self.preset},
-                )
-            )
+            events.append(LogicEvent(
+                event_type=LogicEventType.TRIGGERED,
+                component_id=self.component_id,
+                signal_name="IN",
+                previous_value=previous_input,
+                current_value=input_active,
+                time=time,
+                data={"mode": self.mode.value, "preset": self.preset},
+            ))
 
         return LogicControlResult(
             outputs={"Q": output},
@@ -274,16 +194,12 @@ class LogicTimer(LogicControlComponent):
                 "elapsed": elapsed,
                 "active": active,
                 "input_previous": input_active,
+                "output": output,
                 "evaluation_time": time,
             },
             time=time,
             events=tuple(events),
-            diagnostics={
-                "mode": self.mode.value,
-                "preset": self.preset,
-                "elapsed": elapsed,
-                "active": active,
-            },
+            diagnostics={"mode": self.mode.value, "preset": self.preset, "elapsed": elapsed, "active": active},
         )
 
 
@@ -319,15 +235,7 @@ def _finite_time(value: float) -> float:
 
 
 def _sample_delta(current_time: float, previous_time: float) -> float:
-    """Return a deterministic non-negative simulation-time delta."""
-    delta = current_time - previous_time
-    return max(0.0, delta)
+    return max(0.0, current_time - previous_time)
 
 
-__all__ = [
-    "TimerMode",
-    "LogicTimer",
-    "LogicTONTimer",
-    "LogicTOFTimer",
-    "LogicTPTimer",
-]
+__all__ = ["TimerMode", "LogicTimer", "LogicTONTimer", "LogicTOFTimer", "LogicTPTimer"]
