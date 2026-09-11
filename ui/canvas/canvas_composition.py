@@ -93,21 +93,26 @@ class CanvasComposer:
         *,
         controller: Controller,
         tool_manager: ToolManager,
+        preparation: CanvasCompositionPreparation,
         parent: Optional[QWidget] = None,
-        preparation: CanvasCompositionPreparation | None = None,
     ) -> CanvasComposition:
         """Construct and wire one complete Canvas service graph."""
         if controller is None:
             raise ValueError("controller must not be None.")
         if tool_manager is None:
             raise ValueError("tool_manager must not be None.")
-        if preparation is None:
-            preparation = self.prepare(controller=controller)
+        if not isinstance(preparation, CanvasCompositionPreparation):
+            raise TypeError("preparation must be CanvasCompositionPreparation.")
 
         selection_manager = preparation.selection_manager
         grid_system = preparation.grid_system
         scene = preparation.scene
         snap_system = preparation.snap_system
+
+        if tool_manager.selection_manager is not selection_manager:
+            raise ValueError("ToolManager must use the prepared SelectionManager.")
+        if tool_manager.snap_system is not snap_system:
+            raise ValueError("ToolManager must use the prepared SnapSystem.")
 
         view = GraphicsView(
             controller=controller,
