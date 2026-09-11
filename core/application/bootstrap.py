@@ -14,7 +14,9 @@ from .application import Application
 from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
+from .control_command_handlers import ControlCommandHandlers
 from .read_service import NetworkReadService
+from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 
 
@@ -25,7 +27,9 @@ def create_application(network: Any) -> Application:
 
     context = ApplicationContext(network=network)
     model_service = ModelService(network=network)
-    handlers = build_model_command_handlers(model_service)
+    control_service = ControlApplicationService()
+    handlers = dict(build_model_command_handlers(model_service))
+    handlers.update(ControlCommandHandlers(control_service).handlers())
     command_manager = CommandManager(
         context=context,
         handlers=handlers,
