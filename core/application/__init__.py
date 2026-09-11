@@ -19,6 +19,8 @@ from .read_models import (
     RelayReadModel,
 )
 from .read_service import NetworkReadService, ProtectionReadService, ReadService
+from .revision import ProjectRevision
+from .revision_service import RevisionService
 
 __all__ = [
     "Application",
@@ -35,4 +37,6 @@ __all__ = [
     "NetworkReadService",
     "ProtectionReadService",
     "ReadService",
+    "ProjectRevision",
+    "RevisionService",
 ]
