@@ -11,6 +11,7 @@ import numpy as np
 from .fault_types import FaultType
 from .input import ShortCircuitInput
 from .result import (
+    ContributionStatus,
     ShortCircuitBranchCurrent,
     ShortCircuitEquipmentCurrent,
     ShortCircuitResult,
@@ -163,7 +164,7 @@ class ShortCircuitSolver:
             phase = self._phase_from_sequence(sequence_currents)
             current = phase["Ia"]
             magnitude, angle = self._polar(current)
-            record = ShortCircuitSourceContribution(
+            sources[source.source_id] = ShortCircuitSourceContribution(
                 source_id=source.source_id,
                 source_type=source.source_type,
                 bus_id=source.bus_id,
@@ -173,7 +174,6 @@ class ShortCircuitSolver:
                 sequence_currents=sequence_currents,
                 phase_currents=phase,
             )
-            sources[source.source_id] = record
             equipment[source.source_id] = ShortCircuitEquipmentCurrent(
                 equipment_id=source.source_id,
                 equipment_type=source.source_type,
@@ -192,7 +192,7 @@ class ShortCircuitSolver:
             phase = self._phase_from_sequence(sequence_currents)
             current = phase["Ia"]
             magnitude, angle = self._polar(current)
-            record = ShortCircuitBranchCurrent(
+            branches[branch.branch_id] = ShortCircuitBranchCurrent(
                 branch_id=branch.branch_id,
                 from_bus_id=branch.from_bus_id,
                 to_bus_id=branch.to_bus_id,
@@ -204,7 +204,6 @@ class ShortCircuitSolver:
             )
             if branch.branch_id in equipment:
                 raise ValueError(f"Duplicate equipment identity '{branch.branch_id}' in short-circuit contribution data.")
-            branches[branch.branch_id] = record
             equipment[branch.branch_id] = ShortCircuitEquipmentCurrent(
                 equipment_id=branch.branch_id,
                 equipment_type=branch.equipment_type,
@@ -216,11 +215,41 @@ class ShortCircuitSolver:
             )
         return sources, equipment, branches
 
+    def _contribution_status(
+        self,
+        sources: dict[str, ShortCircuitSourceContribution],
+        equipment: dict[str, ShortCircuitEquipmentCurrent],
+        branches: dict[str, ShortCircuitBranchCurrent],
+    ) -> tuple[ContributionStatus, tuple[str, ...]]:
+        """Classify contribution coverage without silently dropping unavailable records."""
+        snapshot = self.input.sequence_snapshot
+        if snapshot is None:
+            return ContributionStatus.UNAVAILABLE, ("Sequence-network contribution snapshot is unavailable.",)
+        expected_sources = {record.source_id for record in snapshot.sources}
+        expected_branches = {record.branch_id for record in snapshot.branches}
+        diagnostics: list[str] = []
+        missing_sources = sorted(expected_sources - set(sources))
+        missing_branches = sorted(expected_branches - set(branches))
+        if missing_sources:
+            diagnostics.append(f"Source contribution unavailable for: {', '.join(missing_sources)}.")
+        if missing_branches:
+            diagnostics.append(f"Branch contribution unavailable for: {', '.join(missing_branches)}.")
+        if not expected_sources and not expected_branches:
+            return ContributionStatus.UNAVAILABLE, ("No prepared source or branch contribution records are available.",)
+        if diagnostics:
+            return ContributionStatus.PARTIAL, tuple(diagnostics)
+        return ContributionStatus.COMPLETE, ()
+
     def solve(self) -> ShortCircuitResult:
         """Execute exactly once from the immutable input contract."""
         values = self._execute()
         typed = self._fault_typed_quantities(values)
         source_contributions, equipment_currents, branch_currents = self._calculate_contributions(typed)
+        contribution_status, contribution_diagnostics = self._contribution_status(
+            source_contributions,
+            equipment_currents,
+            branch_currents,
+        )
         provenance = {
             "input_contract": "ShortCircuitInput",
             "fault_bus_id": self.input.fault_bus_id,
@@ -235,6 +264,8 @@ class ShortCircuitSolver:
             "source_contributions": source_contributions,
             "equipment_currents": equipment_currents,
             "branch_currents": branch_currents,
+            "contribution_status": contribution_status,
+            "contribution_diagnostics": contribution_diagnostics,
         })
         result = ShortCircuitResult(
             fault_type=self.input.fault_type,
@@ -253,6 +284,8 @@ class ShortCircuitSolver:
             equipment_currents=equipment_currents,
             branch_currents=branch_currents,
             provenance=provenance,
+            contribution_status=contribution_status,
+            diagnostics=contribution_diagnostics,
         )
         self.last_result = result
         return result
