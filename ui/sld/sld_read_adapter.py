@@ -48,6 +48,10 @@ class SLDReadAdapter:
                 (binding.input_name, binding.channel_id)
                 for binding in relay.input_channel_bindings
             )
+            association_map = {
+                binding.input_name: binding.channel_id
+                for binding in relay.input_channel_bindings
+            }
             elements.append(ElementReadModel(
                 object_id=relay.object_id,
                 element_type=semantic_type("RELAY"),
@@ -55,6 +59,7 @@ class SLDReadAdapter:
                 connectivity_refs=binding_refs,
                 attributes={
                     "association_domain": "protection",
+                    "protection_associations": association_map,
                     "relay_type": relay.relay_type,
                     "function_type": relay.function_type,
                     "plugin_id": relay.plugin_id,
