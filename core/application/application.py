@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/application.py
 # GridForge V2 — Headless Application Facade
+# Author: Subhendu Mishra
 # ============================================================
 
 """Stable public Application facade for commands, reads, events, history, and Control lifecycle."""
@@ -25,8 +26,8 @@ from .events import (
     NetworkChanged,
     TopologyChanged,
 )
-from .read_models import ElementReadModel, NetworkReadModel
-from .read_service import ReadService
+from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
+from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
 
 
@@ -49,15 +50,19 @@ class Application:
     })
 
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
-                 event_bus: ApplicationEventBus | None = None) -> None:
+                 event_bus: ApplicationEventBus | None = None,
+                 protection_read_service: ProtectionReadService | None = None) -> None:
         if not isinstance(command_manager, CommandManager):
             raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService):
             raise TypeError("Application read_service must implement ReadService.")
         if event_bus is not None and not isinstance(event_bus, ApplicationEventBus):
             raise TypeError("Application event_bus must be an ApplicationEventBus.")
+        if protection_read_service is not None and not isinstance(protection_read_service, ProtectionReadService):
+            raise TypeError("Application protection_read_service must be a ProtectionReadService.")
         self._command_manager = command_manager
         self._read_service = read_service
+        self._protection_read_service = protection_read_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._control_execution = ControlExecutionService(
             ControlCommandDispatcher(command_manager, command_executor=self.execute)
@@ -153,6 +158,16 @@ class Application:
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
         self._require_read_service()
         return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
+
+    def read_protection(self) -> ProtectionReadModel:
+        """Return the immutable Application protection snapshot."""
+        self._require_protection_read_service()
+        return self._protection_read_service.protection()  # type: ignore[union-attr]
+
+    def read_relay(self, relay_id: str) -> RelayReadModel:
+        """Return one immutable Application Relay snapshot."""
+        self._require_protection_read_service()
+        return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {
@@ -259,6 +274,10 @@ class Application:
     def _require_read_service(self) -> None:
         if self._read_service is None:
             raise RuntimeError("Application read service is not configured.")
+
+    def _require_protection_read_service(self) -> None:
+        if self._protection_read_service is None:
+            raise RuntimeError("Application protection read service is not configured.")
 
 
 __all__ = ["Application"]

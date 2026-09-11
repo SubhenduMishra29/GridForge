@@ -32,9 +32,10 @@
 #     - Workspace construction;
 #     - Application/Core state.
 #
-# Workspace orchestration is supplied by the Presentation
-# composition boundary. The Application layer is a future
-# integration boundary and is intentionally not owned here.
+# Workspace orchestration and the Application read boundary are
+# supplied by the Presentation composition boundary. MainWindow
+# remains a mechanical Qt host and does not construct Core or
+# Application read services.
 #
 # ============================================================
 
