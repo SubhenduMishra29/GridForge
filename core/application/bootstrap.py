@@ -9,11 +9,16 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
+
+from core.network import Network
 
 from .application import Application
 from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
+from .project import ProjectContext
+from .project_lifecycle import ProjectLifecycleService
 from .read_service import NetworkReadService
 from .services.model_service import ModelService
 
@@ -23,20 +28,38 @@ def create_application(network: Any) -> Application:
     if network is None:
         raise ValueError("network is required.")
 
-    context = ApplicationContext(network=network)
-    model_service = ModelService(network=network)
-    handlers = build_model_command_handlers(model_service)
-    command_manager = CommandManager(
-        context=context,
-        handlers=handlers,
-    )
+    def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService]:
+        context = ApplicationContext(network=active_network)
+        model_service = ModelService(network=active_network)
+        handlers = build_model_command_handlers(model_service)
+        command_manager = CommandManager(
+            context=context,
+            handlers=handlers,
+        )
+        return command_manager, NetworkReadService(active_network)
 
-    read_service = NetworkReadService(network)
-
-    return Application(
+    command_manager, read_service = build_runtime(network)
+    application = Application(
         command_manager=command_manager,
         read_service=read_service,
     )
+
+    def activate_network(active_network: Any) -> None:
+        next_command_manager, next_read_service = build_runtime(active_network)
+        application._replace_runtime(next_command_manager, next_read_service)
+
+    lifecycle = ProjectLifecycleService(
+        network=network,
+        network_factory=Network,
+        activate_network=activate_network,
+        context=ProjectContext(
+            project_id=str(uuid4()),
+            name="Untitled Project",
+            path=None,
+        ),
+    )
+    application.attach_project_lifecycle(lifecycle)
+    return application
 
 
 __all__ = ["create_application"]
