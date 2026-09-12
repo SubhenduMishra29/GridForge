@@ -1,21 +1,12 @@
-# ============================================================
-# GridForge V2 — Project Workspace Application Adapter
-# ============================================================
-"""Thin UI adapter joining Application project lifecycle to workspace state.
-
-Application remains the engineering lifecycle authority. This adapter is the
-UI update boundary: a successful Application transition is translated into a
-single Project/Document/Workspace presentation transition.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from core.application import Application
 from core.application.project import ProjectContext
+
+from ui.sld.sld_document import SLDDocument
 
 from .document import Document
 from .project import Project
@@ -81,8 +72,9 @@ class ProjectWorkspaceApplicationAdapter:
         context = self._application.new_project(name, project_id=project_id)
         if document is not None and document.project_id not in (None, context.project_id):
             raise ValueError("document belongs to a different project.")
-        if document is not None:
-            self._attach_presentation(document)
+        if document is None:
+            document = self._new_sld_document(context)
+        self._attach_presentation(document)
         state = self._lifecycle.new_project(
             self._to_ui_project(context),
             document=document,
@@ -95,8 +87,9 @@ class ProjectWorkspaceApplicationAdapter:
         context = self._application.open_project(path)
         presentation = self._application.presentation
         document = presentation if isinstance(presentation, Document) else None
-        if document is not None:
-            self._attach_presentation(document)
+        if document is None:
+            document = self._new_sld_document(context)
+        self._attach_presentation(document)
         state = self._lifecycle.open_project(
             self._to_ui_project(context),
             document=document,
@@ -122,6 +115,15 @@ class ProjectWorkspaceApplicationAdapter:
             presentation=document,
             serializer=serializer,
             deserializer=deserializer,
+        )
+
+    @staticmethod
+    def _new_sld_document(context: ProjectContext) -> SLDDocument:
+        """Create the canonical SLD presentation document for a project."""
+        return SLDDocument(
+            document_id=f"{context.project_id}:sld",
+            name=f"{context.name} SLD",
+            project_id=context.project_id,
         )
 
     def _ensure_sld_view(self, state: ProjectWorkspaceState) -> ProjectWorkspaceState:
