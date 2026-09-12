@@ -35,7 +35,11 @@ def test_new_project_uses_supplied_document_without_replacement():
         name="GridForge SLD",
     )
 
-    adapter.new_project(name="GridForge Project", project_id="project-1", document=document)
+    adapter.new_project(
+        name="GridForge Project",
+        project_id="project-1",
+        document=document,
+    )
 
     assert lifecycle.document is document
     assert lifecycle.document.project_id == "project-1"
