@@ -46,9 +46,7 @@ class SLDService:
     def execute(self, command: Command) -> ApplicationResult:
         """Apply one validated SLD command to the presentation document."""
         if not self.supports(command):
-            return ApplicationResult.failure(
-                f"Unsupported SLD command: {command.command_type}"
-            )
+            return ApplicationResult.failure(f"Unsupported SLD command: {command.command_type}")
         handler = {
             "sld.set_node_position": self._set_node_position,
             "sld.add_node": self._add_node,
@@ -65,22 +63,33 @@ class SLDService:
 
     def _add_node(self, command: Command) -> ApplicationResult:
         p = command.payload
-        self._document.add_node(p["node_id"], p["equipment_id"], float(p["x"]), float(p["y"]))
+        self._document.model.create_node(
+            node_id=p["node_id"],
+            equipment_id=p.get("equipment_id"),
+            x=float(p["x"]),
+            y=float(p["y"]),
+        )
+        self._document.mark_modified()
         return ApplicationResult.success("SLD node added.")
 
     def _remove_node(self, command: Command) -> ApplicationResult:
-        self._document.remove_node(command.payload["node_id"])
+        self._document.model.remove_node(command.payload["node_id"])
+        self._document.mark_modified()
         return ApplicationResult.success("SLD node removed.")
 
     def _add_connection(self, command: Command) -> ApplicationResult:
         p = command.payload
-        self._document.add_connection(
-            p["connection_id"], p["source_node_id"], p["target_node_id"]
+        self._document.model.create_connection(
+            connection_id=p["connection_id"],
+            source_node_id=p["source_node_id"],
+            target_node_id=p["target_node_id"],
         )
+        self._document.mark_modified()
         return ApplicationResult.success("SLD connection added.")
 
     def _remove_connection(self, command: Command) -> ApplicationResult:
-        self._document.remove_connection(command.payload["connection_id"])
+        self._document.model.remove_connection(command.payload["connection_id"])
+        self._document.mark_modified()
         return ApplicationResult.success("SLD connection removed.")
 
 
