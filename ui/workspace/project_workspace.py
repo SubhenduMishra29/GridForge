@@ -1,5 +1,6 @@
 # ============================================================
 # GridForge V2 — Project Workspace Lifecycle
+# Author: Subhendu Mishra
 # ============================================================
 """UI-only lifecycle boundary between project identity and workspace state.
 
@@ -14,7 +15,7 @@ from uuid import uuid4
 
 from .document import Document
 from .project import Project
-from .workspace_manager import WorkspaceManager
+from .workspace_controller import WorkspaceController
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,10 +30,10 @@ class ProjectWorkspaceState:
 class ProjectWorkspaceLifecycle:
     """Coordinate UI project/document/workspace transitions."""
 
-    def __init__(self, workspace_manager: WorkspaceManager) -> None:
-        if not isinstance(workspace_manager, WorkspaceManager):
-            raise TypeError("workspace_manager must be a WorkspaceManager.")
-        self._workspace_manager = workspace_manager
+    def __init__(self, workspace_controller: WorkspaceController) -> None:
+        if not isinstance(workspace_controller, WorkspaceController):
+            raise TypeError("workspace_controller must be a WorkspaceController.")
+        self._workspace_controller = workspace_controller
         self._project: Project | None = None
         self._document: Document | None = None
 
@@ -45,15 +46,15 @@ class ProjectWorkspaceLifecycle:
         return self._document
 
     @property
-    def workspace_manager(self) -> WorkspaceManager:
-        return self._workspace_manager
+    def workspace_controller(self) -> WorkspaceController:
+        return self._workspace_controller
 
     @property
     def state(self) -> ProjectWorkspaceState:
         return ProjectWorkspaceState(
             project=self._project,
             document=self._document,
-            workspace_id=self._workspace_manager.active_workspace_id,
+            workspace_id=self._workspace_controller.active_workspace_id,
         )
 
     def new_project(
@@ -77,8 +78,7 @@ class ProjectWorkspaceLifecycle:
             document_type=document_type,
             name=document_name,
         )
-        if workspace_id is not None:
-            self._workspace_manager.activate(workspace_id)
+        self._activate_workspace(workspace_id)
         return self.state
 
     def open_project(
@@ -98,8 +98,7 @@ class ProjectWorkspaceLifecycle:
         self._clear_active_presentation()
         self._project = project
         self._document = document
-        if workspace_id is not None:
-            self._workspace_manager.activate(workspace_id)
+        self._activate_workspace(workspace_id)
         return self.state
 
     def close_project(self) -> ProjectWorkspaceState:
@@ -120,9 +119,15 @@ class ProjectWorkspaceLifecycle:
         self._document = document
         return self.state
 
+    def _activate_workspace(self, workspace_id: str | None) -> None:
+        if workspace_id is None:
+            self._workspace_controller.activate_default()
+        else:
+            self._workspace_controller.activate(workspace_id)
+
     def _clear_active_presentation(self) -> None:
         self._document = None
-        self._workspace_manager.clear_active()
+        self._workspace_controller.deactivate()
 
 
 __all__ = ["ProjectWorkspaceLifecycle", "ProjectWorkspaceState"]
