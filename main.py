@@ -1,6 +1,8 @@
 # ============================================================
 # GridForge V2 — Application Composition Root
 # ============================================================
+# Author: Subhendu Mishra
+# ============================================================
 
 from __future__ import annotations
 
@@ -27,7 +29,7 @@ from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project import Project
 from ui.workspace.workspace import Workspace
 from ui.workspace.workspace_controller import WorkspaceController
-from ui.workspace.workspace_defaults import default_workspaces, get_initial_workspace
+from ui.workspace.workspace_defaults import default_workspaces, get_initial_workspace, SLD_WORKSPACE_ID
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 
@@ -231,7 +233,8 @@ def build_application() -> tuple[
         definitions={
             definition.workspace_id: definition
             for definition in default_workspaces()
-        }
+        },
+        default_workspace_id=SLD_WORKSPACE_ID,
     )
     workspace_realizer = WorkspaceRealizer(main_window=window)
 
@@ -253,7 +256,7 @@ def build_application() -> tuple[
         manager=workspace_manager,
         realizer=workspace_realizer,
     )
-    workspace_controller.activate(workspace_definition.workspace_id)
+    workspace_controller.activate_default()
 
     window.show()
     return app, window, plugin_manager, workspace_controller, ui_update_boundary
