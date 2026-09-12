@@ -3,13 +3,12 @@
 from . import base as _base
 from .state import ControlState
 
-# Compatibility export for legacy controller imports.  The canonical
-# implementation remains core.control.state.ControlState.
+# The canonical implementation is ControlController in controller.py.
 _base.ControlState = ControlState
 
 from .signals import ControlSignal
 from .limits import Limit as ControlLimits
-from .controller import Controller
+from .controller import ControlController
 from .decision import ControlActionType, ControlDecision
 from .action import ControlActionBinding
 from .context import ControlExecutionContext
@@ -21,7 +20,7 @@ __all__ = [
     "ControlState",
     "ControlSignal",
     "ControlLimits",
-    "Controller",
+    "ControlController",
     "ControlActionType",
     "ControlDecision",
     "ControlActionBinding",
