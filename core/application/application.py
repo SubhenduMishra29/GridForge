@@ -4,7 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Stable public Application facade for commands, reads, events, history, and project lifecycle."""
+"""Stable public Application facade for commands, reads, events, history, project lifecycle, and studies."""
 
 from __future__ import annotations
 
@@ -49,6 +49,7 @@ from .revision import ProjectRevision
 from .revision_service import RevisionService
 from .services.sld_service import SLDService
 from .services.validation_service import ValidationService
+from .study import StudyRequest, StudyResult, StudyService
 from .validation import ValidationResult
 
 
@@ -93,6 +94,7 @@ class Application:
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._revision_service = RevisionService()
+        self._study_service = StudyService(self._event_bus)
         self._control_execution = ControlExecutionService(
             ControlCommandDispatcher(command_manager, command_executor=self.execute)
         )
@@ -104,6 +106,11 @@ class Application:
     @property
     def control_execution(self) -> ControlExecutionService:
         return self._control_execution
+
+    @property
+    def study_service(self) -> StudyService:
+        """Return the single Application-owned study orchestration service."""
+        return self._study_service
 
     @property
     def project_lifecycle(self) -> ProjectLifecycleService:
@@ -182,12 +189,24 @@ class Application:
             self._revision_service.reset_for_project()
         return context
 
+    def execute_study(self, request: StudyRequest) -> StudyResult:
+        """Execute an immutable study request through the Application boundary."""
+        return self._study_service.execute(request)
+
+    def study_result(self, study_id) -> StudyResult | None:
+        """Return a previously registered immutable study result."""
+        return self._study_service.get_result(study_id)
+
+    def cancel_study(self, study_id) -> bool:
+        """Request cooperative cancellation of an active study."""
+        return self._study_service.cancel(study_id)
+
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService,
                          validation_service: ValidationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager):
             raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService):
-            raise TypeError("read_service must implement ReadService.")
+            raise TypeError("Application read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService):
             raise TypeError("validation_service must be a ValidationService.")
         self._command_manager = command_manager
@@ -410,4 +429,4 @@ class Application:
         return str(value) if value is not None else None
 
 
-__all__ = ["Application"]
+__all__ = ["Application", "StudyRequest", "StudyResult", "StudyService"]
