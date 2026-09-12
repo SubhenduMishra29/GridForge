@@ -128,5 +128,48 @@ def test_open_without_saved_presentation_creates_canonical_sld_document():
     assert context.project_id == "project-2"
     assert isinstance(adapter.state.document, SLDDocument)
     assert adapter.state.document.project_id == context.project_id
-    assert adapter.state.view_id == f"{context.project_id}:sld-document:sld"
+    assert adapter.state.view_id == f"{context.project_id}:sld:sld"
     assert application.presentation is adapter.state.document
+
+
+def test_ui_activation_failure_closes_new_application_project():
+    class StubWorkspaceController(WorkspaceController):
+        @property
+        def active_workspace_id(self):
+            return None
+
+        def deactivate(self):
+            return None
+
+        def activate_default(self):
+            raise RuntimeError("workspace activation failed")
+
+    workspace = object.__new__(StubWorkspaceController)
+    lifecycle = ProjectWorkspaceLifecycle(workspace)
+
+    class StubApplication:
+        presentation = None
+        closed = False
+
+        def new_project(self, name, *, project_id=None):
+            return ProjectContext(project_id=project_id or "project-3", name=name, path=None)
+
+        def configure_project_presentation(self, *, presentation, serializer, deserializer):
+            self.presentation = presentation
+
+        def close_project(self):
+            self.closed = True
+            self.presentation = None
+
+    application = StubApplication()
+    adapter = object.__new__(ProjectWorkspaceApplicationAdapter)
+    adapter._application = application
+    adapter._lifecycle = lifecycle
+    adapter._handlers = []
+
+    with pytest.raises(RuntimeError, match="workspace activation failed"):
+        adapter.new_project("New")
+
+    assert application.closed is True
+    assert lifecycle.project is None
+    assert lifecycle.document is None
