@@ -75,11 +75,15 @@ class ProjectWorkspaceApplicationAdapter:
         if document is None:
             document = self._new_sld_document(context)
         self._attach_presentation(document)
-        state = self._lifecycle.new_project(
-            self._to_ui_project(context),
-            document=document,
-        )
-        state = self._ensure_sld_view(state)
+        try:
+            state = self._lifecycle.new_project(
+                self._to_ui_project(context),
+                document=document,
+            )
+            state = self._ensure_sld_view(state)
+        except BaseException:
+            self._rollback_application_transition()
+            raise
         self._publish("new", state, context.project_id)
         return context
 
@@ -90,11 +94,15 @@ class ProjectWorkspaceApplicationAdapter:
         if document is None:
             document = self._new_sld_document(context)
         self._attach_presentation(document)
-        state = self._lifecycle.open_project(
-            self._to_ui_project(context),
-            document=document,
-        )
-        state = self._ensure_sld_view(state)
+        try:
+            state = self._lifecycle.open_project(
+                self._to_ui_project(context),
+                document=document,
+            )
+            state = self._ensure_sld_view(state)
+        except BaseException:
+            self._rollback_application_transition()
+            raise
         self._publish("open", state, context.project_id)
         return context
 
@@ -116,6 +124,15 @@ class ProjectWorkspaceApplicationAdapter:
             serializer=serializer,
             deserializer=deserializer,
         )
+
+    def _rollback_application_transition(self) -> None:
+        """Close a newly activated Application project after UI activation fails."""
+        try:
+            self._application.close_project()
+        except BaseException:
+            # Preserve the original UI activation failure. The composition
+            # root owns broader failure isolation when startup is involved.
+            pass
 
     @staticmethod
     def _new_sld_document(context: ProjectContext) -> SLDDocument:
