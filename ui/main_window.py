@@ -119,19 +119,23 @@ class MainWindow(QMainWindow):
         self._central_widget = central
         self.setCentralWidget(central)
 
+    # ========================================================
+    # Mechanical Dock Host Contract
+    # ========================================================
+
     def add_dock_widget(
         self,
         area: Qt.DockWidgetArea,
         dock: QDockWidget,
     ) -> None:
-        """Host an already-created dock widget."""
+        """Host an already-created dock widget in a Qt dock area."""
         self.addDockWidget(area, dock)
 
     def remove_dock_widget(
         self,
         dock: QDockWidget,
     ) -> None:
-        """Remove a dock widget from the host."""
+        """Remove a dock widget from the Qt host."""
         self.removeDockWidget(dock)
 
     def set_dock_visible(
@@ -141,6 +145,22 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Set dock visibility without owning workspace policy."""
         dock.setVisible(visible)
+
+    def set_dock_floating(
+        self,
+        dock: QDockWidget,
+        floating: bool,
+    ) -> None:
+        """Set the Qt floating state of an existing dock."""
+        dock.setFloating(floating)
+
+    def tabify_dock_widgets(
+        self,
+        first: QDockWidget,
+        second: QDockWidget,
+    ) -> None:
+        """Tabify two existing docks through the Qt host API."""
+        self.tabifyDockWidget(first, second)
 
 
 __all__ = ["MainWindow"]
