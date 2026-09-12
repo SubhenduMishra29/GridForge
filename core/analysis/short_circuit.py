@@ -24,6 +24,11 @@ class ShortCircuitAnalysis:
         self.result: ShortCircuitResult | None = None
 
     @classmethod
+    def from_prepared(cls, input_data: ShortCircuitInput) -> "ShortCircuitAnalysis":
+        """Create analysis directly from one detached solver snapshot."""
+        return cls(input_data)
+
+    @classmethod
     def from_network(
         cls,
         network,
@@ -41,7 +46,7 @@ class ShortCircuitAnalysis:
             configuration.fault_impedance,
             elements=configuration.element_ids or None,
         )
-        return cls(input_data)
+        return cls.from_prepared(input_data)
 
     def run(self) -> ShortCircuitResult:
         """Execute the detached Short-Circuit study."""
