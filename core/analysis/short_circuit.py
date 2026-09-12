@@ -1,55 +1,62 @@
-"""Public Short-Circuit study facade.
-
-The facade owns study orchestration only. Numerical input preparation is
-performed by ``ShortCircuitPreparation`` and solver execution consumes its
-detached ``ShortCircuitInput``.
-"""
+# ============================================================
+# File: core/analysis/short_circuit.py
+# GridForge V2 — Short Circuit Analysis
+# Author: Subhendu Mishra
+# ============================================================
+"""Public Short-Circuit study facade over detached solver input."""
 
 from __future__ import annotations
-
-from typing import Any, Optional
 
 from core.solver.short_circuit import FaultType, ShortCircuitSolver
 from core.solver.short_circuit.input import ShortCircuitInput
 from core.solver.short_circuit.result import ShortCircuitResult
+from .short_circuit_configuration import ShortCircuitStudyConfiguration
 from .short_circuit_preparation import ShortCircuitPreparation
 
 
 class ShortCircuitAnalysis:
-    """Canonical study facade: prepare detached data, then invoke the solver."""
+    """Canonical study facade: consume prepared immutable solver input only."""
 
-    def __init__(self, network: Any, sequence_network: Optional[Any] = None, *, base_mva: float | None = None) -> None:
-        self.network = network
-        self.sequence_network = sequence_network
-        self.base_mva = base_mva
-        self.preparation = ShortCircuitPreparation(network, sequence_network, base_mva=base_mva)
+    def __init__(self, input_data: ShortCircuitInput) -> None:
+        if not isinstance(input_data, ShortCircuitInput):
+            raise TypeError("input_data must be ShortCircuitInput.")
+        self.input = input_data
         self.result: ShortCircuitResult | None = None
 
-    def run(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, elements: Any | None = None) -> ShortCircuitResult:
-        input_data = self.prepare_input(fault_type, fault_bus, Zf, elements=elements)
-        self.result = ShortCircuitSolver(input_data).solve()
+    @classmethod
+    def from_network(
+        cls,
+        network,
+        configuration: ShortCircuitStudyConfiguration,
+        *,
+        sequence_network=None,
+        base_mva: float | None = None,
+    ) -> "ShortCircuitAnalysis":
+        if not isinstance(configuration, ShortCircuitStudyConfiguration):
+            raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
+        preparation = ShortCircuitPreparation(network, sequence_network, base_mva=base_mva)
+        input_data = preparation.prepare(
+            configuration.fault_type,
+            configuration.fault_bus_id,
+            configuration.fault_impedance,
+            elements=configuration.element_ids or None,
+        )
+        return cls(input_data)
+
+    def run(self) -> ShortCircuitResult:
+        """Execute the detached Short-Circuit study."""
+        self.result = ShortCircuitSolver(self.input).solve()
         return self.result
 
-    def prepare_input(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None) -> ShortCircuitInput:
-        """Return detached solver input produced by the canonical preparation boundary."""
-        return self.preparation.prepare(fault_type, fault_bus, Zf, elements=elements)
-
-    def run_three_phase_fault(self, fault_bus: Any, Zf: complex = 0.0) -> ShortCircuitResult:
-        return self.run(FaultType.THREE_PHASE, fault_bus, Zf)
-
-    def run_lg_fault(self, fault_bus: Any, Zf: complex = 0.0, elements: Any | None = None) -> ShortCircuitResult:
-        return self.run(FaultType.SINGLE_LINE_GROUND, fault_bus, Zf, elements=elements)
-
-    def run_ll_fault(self, fault_bus: Any, Zf: complex = 0.0, elements: Any | None = None) -> ShortCircuitResult:
-        return self.run(FaultType.LINE_LINE, fault_bus, Zf, elements=elements)
-
-    def run_llg_fault(self, fault_bus: Any, Zf: complex = 0.0, elements: Any | None = None) -> ShortCircuitResult:
-        return self.run(FaultType.DOUBLE_LINE_GROUND, fault_bus, Zf, elements=elements)
-
-    def summary(self) -> Any:
+    def summary(self):
         return {"status": "NOT_RUN"} if self.result is None else self.result
 
 
 ShortCircuitAnalyzer = ShortCircuitAnalysis
 
-__all__ = ["ShortCircuitAnalysis", "ShortCircuitAnalyzer", "FaultType"]
+__all__ = [
+    "ShortCircuitAnalysis",
+    "ShortCircuitAnalyzer",
+    "ShortCircuitStudyConfiguration",
+    "FaultType",
+]
