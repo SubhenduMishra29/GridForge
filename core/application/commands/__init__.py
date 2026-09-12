@@ -37,5 +37,6 @@ from .sld_commands import (
     AddSLDConnectionCommand, RemoveSLDConnectionCommand,
 )
 from .model_commands import *
+from .control_commands import *
 
 __all__ = [name for name in globals() if not name.startswith("_")]

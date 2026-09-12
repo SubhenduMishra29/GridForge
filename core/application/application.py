@@ -15,6 +15,12 @@ from core.control.engine import ControlEngine
 
 from .command import Command
 from .command_manager import CommandManager
+from .commands.control_commands import (
+    ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
+    CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
+    ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT,
+    ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY,
+)
 from .control_cycle import ControlCycleResult, ControlCycleService
 from .control_dispatch import ControlCommandDispatcher
 from .control_execution import ControlExecutionService
@@ -43,17 +49,13 @@ class Application:
     """Public headless GridForge Application facade."""
 
     _TOPOLOGY_COMMANDS = frozenset({
-        "model.create_line", "model.delete_line",
-        "model.create_transformer", "model.delete_transformer",
-        "model.create_cable", "model.update_cable", "model.delete_cable",
-        "model.create_switch", "model.update_switch", "model.delete_switch",
-        "model.open_switch", "model.close_switch",
-        "model.put_switch_in_service", "model.take_switch_out_of_service",
-        "model.create_disconnector", "model.update_disconnector", "model.delete_disconnector",
-        "model.open_disconnector", "model.close_disconnector",
-        "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
-        "model.create_fuse", "model.update_fuse", "model.delete_fuse",
-        "model.blow_fuse", "model.reset_fuse",
+        "model.create_line", "model.delete_line", "model.create_transformer", "model.delete_transformer",
+        "model.create_cable", "model.update_cable", "model.delete_cable", "model.create_switch",
+        "model.update_switch", "model.delete_switch", "model.open_switch", "model.close_switch",
+        "model.put_switch_in_service", "model.take_switch_out_of_service", "model.create_disconnector",
+        "model.update_disconnector", "model.delete_disconnector", "model.open_disconnector",
+        "model.close_disconnector", "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
+        "model.create_fuse", "model.update_fuse", "model.delete_fuse", "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
     })
 
@@ -92,7 +94,6 @@ class Application:
 
     @property
     def control_execution(self) -> ControlExecutionService:
-        """Return the Application-owned Control execution boundary."""
         return self._control_execution
 
     @property
@@ -251,7 +252,6 @@ class Application:
         return tuple(model_commands) + tuple(sorted(SLDService.COMMAND_TYPES))
 
     def undo(self) -> ApplicationResult | None:
-        """Undo and publish the semantic inverse of the original command."""
         records = self._command_manager.undo_commands()
         command = records[-1].command if records else None
         result = self._command_manager.undo()
@@ -264,7 +264,6 @@ class Application:
         return result
 
     def redo(self) -> ApplicationResult | None:
-        """Redo and publish semantic events for the re-executed command."""
         records = self._command_manager.redo_commands()
         command = records[-1].command if records else None
         result = self._command_manager.redo()
@@ -276,60 +275,63 @@ class Application:
             self._publish_semantic_events(command, result, operation="redo")
         return result
 
-    def can_undo(self) -> bool:
-        return self._command_manager.can_undo()
-
-    def can_redo(self) -> bool:
-        return self._command_manager.can_redo()
-
-    def undo_count(self) -> int:
-        return self._command_manager.undo_count()
-
-    def redo_count(self) -> int:
-        return self._command_manager.redo_count()
-
-    def undo_commands(self) -> tuple:
-        return self._command_manager.undo_commands()
-
-    def redo_commands(self) -> tuple:
-        return self._command_manager.redo_commands()
-
-    def clear_history(self) -> None:
-        self._command_manager.clear_history()
+    def can_undo(self) -> bool: return self._command_manager.can_undo()
+    def can_redo(self) -> bool: return self._command_manager.can_redo()
+    def undo_count(self) -> int: return self._command_manager.undo_count()
+    def redo_count(self) -> int: return self._command_manager.redo_count()
+    def undo_commands(self) -> tuple: return self._command_manager.undo_commands()
+    def redo_commands(self) -> tuple: return self._command_manager.redo_commands()
+    def clear_history(self) -> None: self._command_manager.clear_history()
 
     def read_network(self) -> NetworkReadModel:
-        self._require_read_service()
-        return self._read_service.network()  # type: ignore[union-attr]
-
+        self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
-        self._require_read_service()
-        return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
-
+        self._require_read_service(); return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
     def read_protection(self) -> ProtectionReadModel:
-        """Return the immutable Application protection snapshot."""
-        self._require_protection_read_service()
-        return self._protection_read_service.protection()  # type: ignore[union-attr]
-
+        self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
     def read_relay(self, relay_id: str) -> RelayReadModel:
-        """Return one immutable Application Relay snapshot."""
-        self._require_protection_read_service()
-        return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
+        self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation}
         self._publish_model_event(command, metadata, operation=operation)
         self._publish_network_changed(command, metadata)
 
+    def _publish_control_event(self, command: Command, result: ApplicationResult,
+                               metadata: dict[str, object], *, operation: str) -> None:
+        command_type = command.command_type
+        payload = dict(result.metadata)
+        payload.update(metadata)
+        cid, caid = command.correlation_id, command.causation_id
+        if command_type == ADD_CONTROL_COMPONENT:
+            self._event_bus.publish(ControlComponentCreated(
+                component_id=str(payload["component_id"]), component_type=str(payload["component_type"]),
+                metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type == REMOVE_CONTROL_COMPONENT:
+            self._event_bus.publish(ControlComponentRemoved(
+                component_id=str(payload["component_id"]), metadata=payload,
+                correlation_id=cid, causation_id=caid))
+        elif command_type == CONNECT_CONTROL_SIGNALS:
+            self._event_bus.publish(ControlConnectionCreated(
+                source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]),
+                metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type == DISCONNECT_CONTROL_SIGNALS:
+            self._event_bus.publish(ControlConnectionRemoved(
+                source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]),
+                metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type in {ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT,
+                              ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY}:
+            self._event_bus.publish(ControlProgramChanged(
+                metadata={**payload, "command_type": command_type}, correlation_id=cid, causation_id=caid))
+
     def _publish_history_events(self, command: Command | None, result: ApplicationResult, *, operation: str) -> None:
         if command is None:
-            self._publish_network_only_result(result, operation=operation)
-            return
+            self._publish_network_only_result(result, operation=operation); return
         self._publish_semantic_events(command, result, operation=operation)
 
     def _publish_model_event(self, command: Command, metadata: dict[str, object], *, operation: str) -> None:
         parts = command.command_type.split(".", 1)
-        if len(parts) != 2 or parts[0] != "model":
-            return
+        if len(parts) != 2 or parts[0] != "model": return
         action = self._action_from_command_type(command.command_type)
         element_type = self._element_type(command)
         element_id = self._element_id(command)
@@ -376,8 +378,7 @@ class Application:
     def _element_type(command: Command) -> str | None:
         operation_name = command.command_type.split(".", 1)[-1]
         for prefix in ("create_", "update_", "delete_", "open_", "close_", "put_", "take_", "blow_", "reset_"):
-            if operation_name.startswith(prefix):
-                return operation_name[len(prefix):]
+            if operation_name.startswith(prefix): return operation_name[len(prefix):]
         return None
 
     @staticmethod
@@ -388,17 +389,13 @@ class Application:
 
     @staticmethod
     def _element_id(command: Command) -> str | None:
-        key = Application._id_key(command)
-        value = command.payload.get(key) if key else None
+        key = Application._id_key(command); value = command.payload.get(key) if key else None
         return value if isinstance(value, str) and value else None
 
     def _require_read_service(self) -> None:
-        if self._read_service is None:
-            raise RuntimeError("Application read service is not configured.")
-
+        if self._read_service is None: raise RuntimeError("Application read service is not configured.")
     def _require_protection_read_service(self) -> None:
-        if self._protection_read_service is None:
-            raise RuntimeError("Application protection read service is not configured.")
+        if self._protection_read_service is None: raise RuntimeError("Application protection read service is not configured.")
 
 
 __all__ = ["Application"]

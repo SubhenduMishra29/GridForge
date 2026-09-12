@@ -21,6 +21,7 @@ from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
 from .read_service import NetworkReadService
+from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.validation_service import ValidationService
 
