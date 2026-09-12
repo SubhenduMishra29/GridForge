@@ -14,8 +14,9 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
+from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.application.project import ProjectContext
 from core.network import Network
 
@@ -29,6 +30,7 @@ class LoadedProject:
     context: ProjectContext
     network: Network
     presentation: Mapping[str, Any] | None = None
+    dynamic_models: tuple[DynamicMachineModelAssociation, ...] = ()
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -61,13 +63,31 @@ class ProjectPersistenceService:
         presentation = project.get("sld")
         if presentation is not None and not isinstance(presentation, dict):
             raise ProjectPersistenceError("project.json sld payload must be a JSON object.")
+
+        dynamic_models_data = project.get("dynamic_models", ())
+        if not isinstance(dynamic_models_data, list):
+            raise ProjectPersistenceError("project.json dynamic_models payload must be an array.")
+        try:
+            dynamic_models = tuple(
+                DynamicMachineModelAssociation.from_dict(item)
+                for item in dynamic_models_data
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ProjectPersistenceError(f"Invalid dynamic machine model association: {exc}") from exc
+
         context = ProjectContext(project_id=project_id, name=name, path=package)
-        return LoadedProject(context=context, network=network, presentation=presentation)
+        return LoadedProject(
+            context=context,
+            network=network,
+            presentation=presentation,
+            dynamic_models=dynamic_models,
+        )
 
     def save(self, context: ProjectContext, network: Network,
              presentation: Mapping[str, Any] | str | Path | None = None,
-             path: str | Path | None = None) -> None:
-        """Save a project with optional generic persistent presentation state."""
+             path: str | Path | None = None,
+             *, dynamic_models: Sequence[DynamicMachineModelAssociation] = ()) -> None:
+        """Save a project with optional persistent presentation and dynamic-model state."""
         if path is None:
             path = presentation
             presentation = None
@@ -79,12 +99,17 @@ class ProjectPersistenceService:
             raise TypeError("network must be a Network.")
         if presentation is not None and not isinstance(presentation, Mapping):
             raise TypeError("presentation must be a mapping or None.")
+        if not isinstance(dynamic_models, Sequence):
+            raise TypeError("dynamic_models must be a sequence.")
+        if any(not isinstance(item, DynamicMachineModelAssociation) for item in dynamic_models):
+            raise TypeError("dynamic_models contains an invalid association.")
 
         target = normalize_package_path(path)
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
         network_data = serialize_network(network)
         presentation_data = None if presentation is None else dict(presentation)
+        dynamic_models_data = [item.to_dict() for item in dynamic_models]
         manifest = {
             "format": "GridForgeProject",
             "package_version": PACKAGE_VERSION,
@@ -96,6 +121,7 @@ class ProjectPersistenceService:
             "schema": 1,
             "project": {"project_id": context.project_id, "name": context.name},
             "network": network_data,
+            "dynamic_models": dynamic_models_data,
         }
         if presentation_data is not None:
             project["sld"] = presentation_data
