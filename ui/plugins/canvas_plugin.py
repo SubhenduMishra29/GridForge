@@ -32,6 +32,7 @@ from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.plugins.plugin_context import PluginContext
+from ui.sld.sld_document import SLDDocument
 
 
 class CanvasPlugin:
@@ -109,15 +110,26 @@ class CanvasPlugin:
         if self._context.sld_canvas_render_system is None:
             raise RuntimeError("CanvasPlugin requires an SLD canvas render system.")
 
+    def _active_sld_document(self) -> SLDDocument:
+        """Resolve the current presentation document from the Application boundary."""
+        application = self._context.application
+        document = getattr(application, "presentation", None)
+        if isinstance(document, SLDDocument):
+            return document
+        document = self._context.sld_document
+        if isinstance(document, SLDDocument):
+            return document
+        raise RuntimeError("CanvasPlugin has no active SLD document.")
+
     def synchronize_sld(self) -> SLDCanvasSnapshot:
-        """Project and realize the active SLD document in the composed Canvas."""
+        """Project and realize the current application presentation in Canvas."""
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
-        document = self._context.sld_document
         projection = self._context.sld_canvas_projection
         render_system = self._context.sld_canvas_render_system
-        if document is None or projection is None or render_system is None:
+        if projection is None or render_system is None:
             raise RuntimeError("SLD canvas projection dependencies are unavailable.")
+        document = self._active_sld_document()
         if not isinstance(projection, SLDCanvasProjection):
             raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
         if not isinstance(render_system, SLDCanvasRenderSystem):
