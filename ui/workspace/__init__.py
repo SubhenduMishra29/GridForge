@@ -19,6 +19,11 @@ from .workspace_state import WorkspaceState
 from .workspace_realizer import DockBinding, WorkspaceRealizationError, WorkspaceRealizer
 from .workspace_controller import WorkspaceController
 from .project_workspace import ProjectWorkspaceLifecycle, ProjectWorkspaceState
+from .project_workspace_adapter import (
+    ProjectWorkspaceApplicationAdapter,
+    ProjectWorkspaceChanged,
+    WorkspaceUpdateHandler,
+)
 
 __all__ = [
     "Project", "Document", "DocumentManager", "PanelArea",
@@ -26,5 +31,6 @@ __all__ = [
     "WorkspaceDefinition", "WorkspacePlacement", "WorkspaceLayout",
     "WorkspaceManager", "WorkspaceState", "WorkspaceController",
     "ProjectWorkspaceLifecycle", "ProjectWorkspaceState",
+    "ProjectWorkspaceApplicationAdapter", "ProjectWorkspaceChanged", "WorkspaceUpdateHandler",
     "DockBinding", "WorkspaceRealizationError", "WorkspaceRealizer",
 ]
