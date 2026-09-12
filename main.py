@@ -27,11 +27,15 @@ from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project import Project
-from ui.workspace.workspace import Workspace
+from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
 from ui.workspace.workspace_controller import WorkspaceController
-from ui.workspace.workspace_defaults import default_workspaces, get_initial_workspace, SLD_WORKSPACE_ID
+from ui.workspace.workspace_defaults import (
+    SLD_WORKSPACE_ID,
+    default_workspaces,
+)
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
+from ui.workspace.view_manager import ViewRecord
 
 
 def build_application() -> tuple[
@@ -55,19 +59,11 @@ def build_application() -> tuple[
         name="GridForge Project",
     )
 
-    workspace_definition = get_initial_workspace()
-    workspace = Workspace(
-        workspace_id=workspace_definition.workspace_id,
-        name=workspace_definition.title,
-        project_id=project.project_id,
-    )
-
     sld_document = SLDDocument(
         document_id="sld-document",
         name="GridForge SLD",
         project_id=project.project_id,
     )
-    workspace.add_document(sld_document)
 
     sld_projection_manager = SLDProjectionManager()
     sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
@@ -83,6 +79,10 @@ def build_application() -> tuple[
     sld_controller.register_document(sld_document)
     sld_controller.activate_document(sld_document.document_id)
 
+    # The presentation deserializer is bound to the canonical
+    # Project -> Document -> View -> Workspace lifecycle below.
+    project_workspace_lifecycle: ProjectWorkspaceLifecycle | None = None
+
     def serialize_sld(document: SLDDocument) -> dict:
         """Use the existing SLDDocument persistence contract."""
         if not isinstance(document, SLDDocument):
@@ -90,17 +90,13 @@ def build_application() -> tuple[
         return document.to_dict()
 
     def deserialize_sld(data: dict) -> SLDDocument:
-        """Restore the SLD document and replace the active UI document."""
+        """Restore the SLD document through the canonical presentation lifecycle."""
+        if project_workspace_lifecycle is None:
+            raise RuntimeError("Project workspace lifecycle is not initialized.")
         document = SLDDocument.from_dict(data)
         if document.project_id not in (None, project.project_id):
             raise ValueError("Loaded SLD document belongs to a different project")
-        old_document = sld_controller.active_document
-        if old_document is not None:
-            try:
-                workspace.remove_document(old_document.document_id)
-            except KeyError:
-                pass
-        workspace.add_document(document)
+        project_workspace_lifecycle.replace_document(document)
         sld_controller.replace_document(document)
         return document
 
@@ -109,15 +105,6 @@ def build_application() -> tuple[
         serializer=serialize_sld,
         deserializer=deserialize_sld,
     )
-
-    from ui.workspace.view_manager import ViewRecord
-
-    sld_view = ViewRecord(
-        view_id="sld-view",
-        document_id=sld_document.document_id,
-        view_type="sld",
-    )
-    workspace.add_view(sld_view)
 
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
@@ -256,7 +243,25 @@ def build_application() -> tuple[
         manager=workspace_manager,
         realizer=workspace_realizer,
     )
-    workspace_controller.activate_default()
+
+    # Canonical composition: Application project lifecycle updates this
+    # presentation lifecycle, which activates WorkspaceController and thus
+    # WorkspaceRealizer. No caller supplies a workspace ID for normal project
+    # activation; the controller owns the canonical default policy.
+    project_workspace_lifecycle = ProjectWorkspaceLifecycle(
+        workspace_controller=workspace_controller,
+    )
+    project_workspace_lifecycle.open_project(
+        project,
+        document=sld_document,
+    )
+    project_workspace_lifecycle.add_view(
+        ViewRecord(
+            view_id="sld-view",
+            document_id=sld_document.document_id,
+            view_type="sld",
+        )
+    )
 
     window.show()
     return app, window, plugin_manager, workspace_controller, ui_update_boundary
