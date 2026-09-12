@@ -19,26 +19,34 @@ class DynamicMachineModelAssociation:
     """Immutable project-owned dynamic model binding for one machine identity."""
 
     machine_id: str
+    bus_id: str
     model_type: str
     parameters: ClassicalMachineParameters
+    mechanical_power: float = 0.0
     metadata: Mapping[str, Any] = MappingProxyType({})
 
     def __post_init__(self) -> None:
         if not isinstance(self.machine_id, str) or not self.machine_id.strip():
             raise ValueError("machine_id must be a non-empty string.")
+        if not isinstance(self.bus_id, str) or not self.bus_id.strip():
+            raise ValueError("bus_id must be a non-empty string.")
         if not isinstance(self.model_type, str) or not self.model_type.strip():
             raise ValueError("model_type must be a non-empty string.")
         if not isinstance(self.parameters, ClassicalMachineParameters):
             raise TypeError("parameters must be ClassicalMachineParameters.")
         object.__setattr__(self, "machine_id", self.machine_id.strip())
+        object.__setattr__(self, "bus_id", self.bus_id.strip())
         object.__setattr__(self, "model_type", self.model_type.strip())
+        object.__setattr__(self, "mechanical_power", float(self.mechanical_power))
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
         p = self.parameters
         return {
             "machine_id": self.machine_id,
+            "bus_id": self.bus_id,
             "model_type": self.model_type,
+            "mechanical_power": self.mechanical_power,
             "parameters": {
                 "H": p.H,
                 "Xd_prime": p.Xd_prime,
@@ -59,7 +67,9 @@ class DynamicMachineModelAssociation:
             raise ValueError("Dynamic machine model parameters are required.")
         return cls(
             machine_id=str(data.get("machine_id", "")),
+            bus_id=str(data.get("bus_id", "")),
             model_type=str(data.get("model_type", "")),
+            mechanical_power=float(data.get("mechanical_power", 0.0)),
             parameters=ClassicalMachineParameters(
                 H=float(parameters["H"]),
                 Xd_prime=float(parameters["Xd_prime"]),
