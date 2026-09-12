@@ -160,18 +160,20 @@ def build_application() -> tuple[
         lifecycle=project_workspace_lifecycle,
     )
 
-    # Application creates the authoritative ProjectContext. The adapter alone
-    # translates that lifecycle into UI presentation state.
-    project_context = project_workspace_adapter.new_project(
-        name="GridForge Project",
-        project_id="gridforge-project",
-    )
+    # The SLD document is the single presentation document for the new project.
+    # It is supplied to the lifecycle at creation time, avoiding a generic
+    # Document followed by replacement with SLDDocument.
+    project_id = "gridforge-project"
     sld_document = SLDDocument(
         document_id="sld-document",
         name="GridForge SLD",
-        project_id=project_context.project_id,
+        project_id=project_id,
     )
-    project_workspace_lifecycle.replace_document(sld_document)
+    project_context = project_workspace_adapter.new_project(
+        name="GridForge Project",
+        project_id=project_id,
+        document=sld_document,
+    )
 
     sld_controller = SLDController(
         projection_manager=sld_projection_manager,
