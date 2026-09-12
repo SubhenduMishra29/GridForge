@@ -53,14 +53,16 @@ def _cleanup_startup_failure(resources: dict[str, object]) -> None:
     errors: list[BaseException] = []
 
     ui_lifecycle = resources.get("ui_lifecycle")
+    workspace_controller = resources.get("workspace_controller")
     if isinstance(ui_lifecycle, UILifecycle):
         _invoke_cleanup(ui_lifecycle.close, errors)
+        if not ui_lifecycle.closed and isinstance(workspace_controller, WorkspaceController):
+            _invoke_cleanup(workspace_controller.close, errors)
     else:
         adapter = resources.get("project_workspace_adapter")
         if isinstance(adapter, ProjectWorkspaceApplicationAdapter):
             _invoke_cleanup(adapter.close_project, errors)
 
-        workspace_controller = resources.get("workspace_controller")
         if isinstance(workspace_controller, WorkspaceController):
             _invoke_cleanup(workspace_controller.close, errors)
 
