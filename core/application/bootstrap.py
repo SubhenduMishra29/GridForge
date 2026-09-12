@@ -29,6 +29,7 @@ from .read_service import NetworkReadService
 from .services.model_service import ModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
+from .study_preparation import StudyPreparationService
 
 
 def create_application(network: Any) -> Application:
@@ -90,6 +91,8 @@ def create_application(network: Any) -> Application:
     )
     application.attach_project_lifecycle(lifecycle)
 
+    study_preparation = StudyPreparationService(lambda: lifecycle.network)
+
     def study_configuration(request: StudyRequest, expected_type: type[Any]) -> Any:
         """Extract one immutable Core study configuration from the request."""
         configuration = request.configuration.get("configuration", request.configuration)
@@ -104,9 +107,10 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         configuration = study_configuration(request, PowerFlowStudyConfiguration)
-        analysis = PowerFlowAnalysis.from_network(lifecycle.network, configuration)
+        prepared = study_preparation.prepare_power_flow(configuration)
         if token.cancelled:
             return None
+        analysis = PowerFlowAnalysis.from_prepared(prepared)
         analysis.solve()
         if token.cancelled:
             return None
@@ -116,9 +120,10 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         configuration = study_configuration(request, ShortCircuitStudyConfiguration)
-        analysis = ShortCircuitAnalysis.from_network(lifecycle.network, configuration)
+        prepared = study_preparation.prepare_short_circuit(configuration)
         if token.cancelled:
             return None
+        analysis = ShortCircuitAnalysis.from_prepared(prepared)
         return analysis.run()
 
     application.study_service.register("power_flow", run_power_flow)
