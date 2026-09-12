@@ -70,9 +70,20 @@ class ProjectWorkspaceApplicationAdapter:
         except ValueError:
             return
 
-    def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+    def new_project(
+        self,
+        name: str = "Untitled Project",
+        *,
+        project_id: str | None = None,
+        document: Document | None = None,
+    ) -> ProjectContext:
         context = self._application.new_project(name, project_id=project_id)
-        state = self._lifecycle.new_project(self._to_ui_project(context))
+        if document is not None and document.project_id not in (None, context.project_id):
+            raise ValueError("document belongs to a different project.")
+        state = self._lifecycle.new_project(
+            self._to_ui_project(context),
+            document=document,
+        )
         self._publish("new", state, context.project_id)
         return context
 
