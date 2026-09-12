@@ -13,10 +13,11 @@ from uuid import uuid4
 
 from core.analysis.power_flow import PowerFlowAnalysis
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+from core.analysis.power_flow_preparation import PreparedPowerFlow
 from core.analysis.short_circuit import ShortCircuitAnalysis
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.dynamic_model_association import DynamicMachineModelRegistry
-from core.analysis.transient_network import PreparedTransientStability, TransientNetworkSolver
+from core.analysis.transient_network import TransientNetworkSolver
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
 from core.persistence import ProjectPersistenceService
@@ -132,7 +133,7 @@ def create_application(network: Any) -> Application:
         configuration = study_configuration(request, TransientStabilityStudyConfiguration)
         prepared_power_flow = request.configuration.get("prepared_power_flow")
         power_flow_result = request.configuration.get("power_flow_result")
-        if not isinstance(prepared_power_flow, object) or not isinstance(power_flow_result, PowerFlowResult):
+        if not isinstance(prepared_power_flow, PreparedPowerFlow) or not isinstance(power_flow_result, PowerFlowResult):
             raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
         prepared = study_preparation.prepare_transient_stability(
             configuration,
