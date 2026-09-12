@@ -81,6 +81,8 @@ class ProjectWorkspaceApplicationAdapter:
         context = self._application.new_project(name, project_id=project_id)
         if document is not None and document.project_id not in (None, context.project_id):
             raise ValueError("document belongs to a different project.")
+        if document is not None:
+            self._attach_presentation(document)
         state = self._lifecycle.new_project(
             self._to_ui_project(context),
             document=document,
@@ -93,6 +95,8 @@ class ProjectWorkspaceApplicationAdapter:
         context = self._application.open_project(path)
         presentation = self._application.presentation
         document = presentation if isinstance(presentation, Document) else None
+        if document is not None:
+            self._attach_presentation(document)
         state = self._lifecycle.open_project(
             self._to_ui_project(context),
             document=document,
@@ -108,6 +112,17 @@ class ProjectWorkspaceApplicationAdapter:
         state = self._lifecycle.close_project()
         self._publish("close", state, context.project_id)
         return context
+
+    def _attach_presentation(self, document: Document) -> None:
+        serializer = getattr(document, "to_dict", None)
+        deserializer = getattr(type(document), "from_dict", None)
+        if not callable(serializer) or not callable(deserializer):
+            raise TypeError("presentation document must provide to_dict() and from_dict().")
+        self._application.configure_project_presentation(
+            presentation=document,
+            serializer=serializer,
+            deserializer=deserializer,
+        )
 
     def _ensure_sld_view(self, state: ProjectWorkspaceState) -> ProjectWorkspaceState:
         document = state.document
