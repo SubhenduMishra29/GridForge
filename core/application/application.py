@@ -37,6 +37,9 @@ from .events import (
     ElementRemoved,
     ElementUpdated,
     NetworkChanged,
+    ProjectClosed,
+    ProjectLoaded,
+    ProjectSaved,
     TopologyChanged,
     ValidationChanged,
 )
@@ -93,7 +96,7 @@ class Application:
         if validation_service is not None and not isinstance(validation_service, ValidationService):
             raise TypeError("Application validation_service must be a ValidationService.")
         if sld_service is not None and not isinstance(sld_service, SLDService):
-            raise TypeError("Application sld_service must be an SLDService.")
+            raise TypeError("Application sld_service must be a SLDService.")
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
@@ -176,25 +179,32 @@ class Application:
         self._sld_service = service
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
-        return self.project_lifecycle.new_project(name, project_id=project_id)
+        context = self.project_lifecycle.new_project(name, project_id=project_id)
+        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new"}))
+        return context
 
     def open_project(self, path: str) -> ProjectContext:
-        return self.project_lifecycle.open_project(path)
+        context = self.project_lifecycle.open_project(path)
+        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open"}))
+        return context
 
     def save_project(self, path: str | None = None) -> ProjectContext:
         context = self.project_lifecycle.save_project(path)
         self._revision_service.mark_persisted()
+        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None}))
         return context
 
     def save_project_as(self, path: str) -> ProjectContext:
         context = self.project_lifecycle.save_project_as(path)
         self._revision_service.mark_persisted()
+        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None}))
         return context
 
     def close_project(self) -> ProjectContext | None:
         context = self.project_lifecycle.close_project()
         if context is not None:
             self._revision_service.reset_for_project()
+            self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name}))
         return context
 
     def execute_study(self, request: StudyRequest) -> StudyResult:
@@ -214,7 +224,7 @@ class Application:
         if not isinstance(command_manager, CommandManager):
             raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService):
-            raise TypeError("Application read_service must implement ReadService.")
+            raise TypeError("read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService):
             raise TypeError("validation_service must be a ValidationService.")
         self._command_manager = command_manager
