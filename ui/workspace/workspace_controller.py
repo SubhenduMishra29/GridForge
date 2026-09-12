@@ -79,12 +79,17 @@ class WorkspaceController:
         self._realizer.realize(candidate.layout)
         return self._manager.commit(candidate)
 
+    def deactivate(self) -> None:
+        """Clear the active project workspace while keeping the controller reusable."""
+        self._ensure_open()
+        self._realizer.clear_realization()
+        self._manager.clear_active()
+
     def close(self) -> None:
         """Release the realized Qt workspace and make this coordinator inert."""
         if self._closed:
             return
-        self._realizer.clear_realization()
-        self._manager.clear_active()
+        self.deactivate()
         self._closed = True
 
     def _ensure_open(self) -> None:
