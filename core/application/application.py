@@ -55,6 +55,10 @@ from .validation import ValidationResult
 class Application:
     """Public headless GridForge Application facade."""
 
+    # Commands in this set are known to alter network topology for every
+    # successful execution. Breaker ``update`` is handled separately because
+    # a name/rating update is not topology-changing while a closed/in-service
+    # state update is.
     _TOPOLOGY_COMMANDS = frozenset({
         "model.create_line", "model.delete_line", "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.update_cable", "model.delete_cable", "model.create_switch",
@@ -62,8 +66,10 @@ class Application:
         "model.put_switch_in_service", "model.take_switch_out_of_service", "model.create_disconnector",
         "model.update_disconnector", "model.delete_disconnector", "model.open_disconnector",
         "model.close_disconnector", "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
-        "model.create_fuse", "model.update_fuse", "model.delete_fuse", "model.blow_fuse", "model.reset_fuse",
+        "model.create_fuse", "model.delete_fuse", "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
+        "model.create_breaker", "model.delete_breaker", "model.open_breaker", "model.close_breaker",
+        "model.trip_breaker", "model.put_breaker_in_service", "model.take_breaker_out_of_service",
     })
 
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
@@ -320,14 +326,18 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation}
-        self._publish_model_event(command, metadata, operation=operation)
-        self._publish_network_changed(command, metadata)
+        if command.command_type.startswith("model."):
+            self._publish_model_event(command, metadata, operation=operation)
+            self._publish_network_changed(command, metadata)
+        elif command.command_type.startswith("control."):
+            self._publish_control_event(command, result, metadata, operation=operation)
 
     def _publish_control_event(self, command: Command, result: ApplicationResult,
                                metadata: dict[str, object], *, operation: str) -> None:
         command_type = command.command_type
         payload = dict(result.metadata)
         payload.update(metadata)
+        payload["operation"] = operation
         cid, caid = command.correlation_id, command.causation_id
         if command_type == ADD_CONTROL_COMPONENT:
             self._event_bus.publish(ControlComponentCreated(
@@ -370,14 +380,13 @@ class Application:
             self._event_bus.publish(ElementCreated(element_id=element_id, element_type=element_type, metadata=metadata))
         elif effective_action == "delete":
             self._event_bus.publish(ElementRemoved(element_id=element_id, element_type=element_type, metadata=metadata))
-        elif effective_action in {"update", "open", "close", "reset", "blow", "put_in_service", "take_out_of_service"}:
+        elif effective_action in {"update", "open", "close", "reset", "blow", "trip", "put_in_service", "take_out_of_service"}:
             self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, metadata=metadata))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
-        if command.command_type in self._TOPOLOGY_COMMANDS:
+        if self._is_topology_command(command):
             self._event_bus.publish(TopologyChanged(metadata=metadata))
-        else:
-            self._event_bus.publish(NetworkChanged(metadata=metadata))
+        self._event_bus.publish(NetworkChanged(metadata=metadata))
 
     def _publish_network_only_result(self, result: ApplicationResult, *, operation: str) -> None:
         self._event_bus.publish(NetworkChanged(metadata={
@@ -392,6 +401,17 @@ class Application:
     def _require_protection_read_service(self) -> None:
         if self._protection_read_service is None:
             raise RuntimeError("Application protection read service is not configured.")
+
+    @classmethod
+    def _is_topology_command(cls, command: Command) -> bool:
+        """Return whether a successful model command changed topology."""
+        command_type = command.command_type
+        if command_type in cls._TOPOLOGY_COMMANDS:
+            return True
+        if command_type == "model.update_breaker":
+            payload = command.payload
+            return payload.get("closed") is not None or payload.get("in_service") is not None
+        return False
 
     @staticmethod
     def _action_from_command_type(command_type: str) -> str:
@@ -408,12 +428,24 @@ class Application:
     def _element_type(command: Command) -> str | None:
         payload = command.payload
         value = payload.get("element_type") or payload.get("equipment_type")
+        if value is None:
+            command_type = command.command_type
+            if command_type.startswith("model."):
+                action = command_type.split(".", 1)[1]
+                for prefix in ("create_", "update_", "delete_", "open_", "close_", "trip_", "put_", "take_", "blow_", "reset_"):
+                    if action.startswith(prefix):
+                        return action[len(prefix):].removesuffix("_in_service").removesuffix("_out_of_service")
         return str(value) if value is not None else None
 
     @staticmethod
     def _element_id(command: Command) -> str | None:
         payload = command.payload
         value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
+        if value is None:
+            for key in ("breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
+                if key in payload:
+                    value = payload[key]
+                    break
         return str(value) if value is not None else None
 
 
