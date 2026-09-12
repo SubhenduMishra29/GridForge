@@ -1,4 +1,3 @@
-```python
 """
 GridForge Multi-Machine Dynamic System
 ======================================
@@ -587,7 +586,7 @@ class MultiMachineSystem:
 
         local_states: dict[
             str,
-            np.ndarray,
+            np.ndarray
         ] = {}
 
         for machine in self._machines:
@@ -641,11 +640,11 @@ class MultiMachineSystem:
         state: np.ndarray,
         terminal_voltages: Mapping[
             str,
-            complex,
+            complex
         ],
     ) -> dict[
         str,
-        MachineElectricalOutput,
+        MachineElectricalOutput
     ]:
         """
         Calculate electrical output of every machine.
@@ -659,7 +658,7 @@ class MultiMachineSystem:
 
         outputs: dict[
             str,
-            MachineElectricalOutput,
+            MachineElectricalOutput
         ] = {}
 
         for machine in self._machines:
@@ -700,11 +699,11 @@ class MultiMachineSystem:
         state: np.ndarray,
         terminal_voltages: Mapping[
             str,
-            complex,
+            complex
         ],
     ) -> dict[
         str,
-        float,
+        float
     ]:
         """
         Return active electrical power Pe for every machine.
@@ -735,31 +734,17 @@ class MultiMachineSystem:
         state: np.ndarray,
         terminal_voltages: Mapping[
             str,
-            complex,
+            complex
         ],
         mechanical_powers: Mapping[
             str,
-            float,
+            float
         ],
         *,
         time: float = 0.0,
     ) -> np.ndarray:
         """
         Evaluate the global machine differential equations.
-
-        Parameters
-        ----------
-        state:
-            Global dynamic-state vector.
-
-        terminal_voltages:
-            Current network terminal-voltage solution.
-
-        mechanical_powers:
-            Current mechanical inputs, supplied externally.
-
-        time:
-            Simulation time.
         """
 
         x = self.validate_global_state(
@@ -973,4 +958,3 @@ __all__ = [
     "MultiMachineSystem",
     "create_multimachine_system",
 ]
-```
