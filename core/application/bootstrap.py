@@ -22,6 +22,7 @@ from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
 from .read_service import NetworkReadService
 from .services.model_service import ModelService
+from .services.validation_service import ValidationService
 
 
 def create_application(network: Any) -> Application:
@@ -29,7 +30,7 @@ def create_application(network: Any) -> Application:
     if network is None:
         raise ValueError("network is required.")
 
-    def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService]:
+    def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
         handlers = build_model_command_handlers(model_service)
@@ -37,17 +38,22 @@ def create_application(network: Any) -> Application:
             context=context,
             handlers=handlers,
         )
-        return command_manager, NetworkReadService(active_network)
+        return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
-    command_manager, read_service = build_runtime(network)
+    command_manager, read_service, validation_service = build_runtime(network)
     application = Application(
         command_manager=command_manager,
         read_service=read_service,
+        validation_service=validation_service,
     )
 
     def activate_network(active_network: Any) -> None:
-        next_command_manager, next_read_service = build_runtime(active_network)
-        application._replace_runtime(next_command_manager, next_read_service)
+        next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
+        application._replace_runtime(
+            next_command_manager,
+            next_read_service,
+            next_validation_service,
+        )
 
     persistence = ProjectPersistenceService()
     lifecycle = ProjectLifecycleService(
