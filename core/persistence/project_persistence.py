@@ -4,11 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Canonical ``.gridforge`` project loader/saver.
-
-Presentation data is carried as a generic serialized mapping so Core
-persistence remains independent of UI, Qt, and SLD implementation types.
-"""
+"""Canonical ``.gridforge`` project loader/saver."""
 
 from __future__ import annotations
 
@@ -51,7 +47,6 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Unsupported GridForge package version: {manifest.get('package_version')!r}")
         if manifest.get("format") != "GridForgeProject":
             raise ProjectPersistenceError("Invalid GridForge project manifest.")
-
         project = self._read_json(project_path(package))
         context_data = project.get("project")
         if not isinstance(context_data, dict):
@@ -62,7 +57,6 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError("project_id must be a non-empty string.")
         if not isinstance(name, str) or not name.strip():
             raise ProjectPersistenceError("project name must be a non-empty string.")
-
         network = deserialize_network(project.get("network", {}))
         presentation = project.get("sld")
         if presentation is not None and not isinstance(presentation, dict):
@@ -70,19 +64,10 @@ class ProjectPersistenceService:
         context = ProjectContext(project_id=project_id, name=name, path=package)
         return LoadedProject(context=context, network=network, presentation=presentation)
 
-    def save(
-        self,
-        context: ProjectContext,
-        network: Network,
-        presentation: Mapping[str, Any] | str | Path | None = None,
-        path: str | Path | None = None,
-    ) -> None:
-        """Save a project, optionally including generic persistent presentation state.
-
-        The ``save(context, network, path)`` form remains supported for existing
-        headless callers; new lifecycle code uses ``save(context, network,
-        presentation, path)``.
-        """
+    def save(self, context: ProjectContext, network: Network,
+             presentation: Mapping[str, Any] | str | Path | None = None,
+             path: str | Path | None = None) -> None:
+        """Save a project with optional generic persistent presentation state."""
         if path is None:
             path = presentation
             presentation = None
@@ -157,7 +142,7 @@ class ProjectPersistenceService:
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             raise ProjectPersistenceError(f"Unable to write {path.name}: {exc}") from exc
 
 
