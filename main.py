@@ -174,6 +174,7 @@ def build_application() -> tuple[
     window = MainWindow(
         controller=controller,
         plugin_registry=plugin_registry,
+        central_surface=canvas_composition.widget,
     )
     root_widget = window.central_surface
     if root_widget is None:
