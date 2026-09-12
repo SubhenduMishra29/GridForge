@@ -19,6 +19,10 @@ from .read_models import (
     RelayReadModel,
 )
 from .read_service import NetworkReadService, ProtectionReadService, ReadService
+from .revision import ProjectRevision
+from .revision_service import RevisionService
+from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
+from .services.validation_service import ValidationService
 
 __all__ = [
     "Application",
@@ -35,4 +39,11 @@ __all__ = [
     "NetworkReadService",
     "ProtectionReadService",
     "ReadService",
+    "ProjectRevision",
+    "RevisionService",
+    "ValidationIssue",
+    "ValidationResult",
+    "ValidationSeverity",
+    "ValidationSummary",
+    "ValidationService",
 ]

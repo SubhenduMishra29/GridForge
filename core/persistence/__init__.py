@@ -9,9 +9,27 @@ from .migration import (
     LegacyElectricalDataMigration,
     MigrationResult,
 )
+from .project_package import (
+    MANIFEST_NAME,
+    PACKAGE_SUFFIX,
+    PACKAGE_VERSION,
+    PROJECT_NAME,
+    normalize_package_path,
+)
+from .project_persistence import ProjectPersistenceError, ProjectPersistenceService
+from .type_registry import ModelTypeRegistry, UnknownModelTypeError
 
 __all__ = [
     "AmbiguousElectricalDataError",
     "LegacyElectricalDataMigration",
     "MigrationResult",
+    "MANIFEST_NAME",
+    "PACKAGE_SUFFIX",
+    "PACKAGE_VERSION",
+    "PROJECT_NAME",
+    "normalize_package_path",
+    "ProjectPersistenceError",
+    "ProjectPersistenceService",
+    "ModelTypeRegistry",
+    "UnknownModelTypeError",
 ]

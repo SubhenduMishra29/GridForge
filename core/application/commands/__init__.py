@@ -30,6 +30,12 @@ from .pt_commands import (
     CREATE_PT, UPDATE_PT, DELETE_PT, PUT_PT_IN_SERVICE, TAKE_PT_OUT_OF_SERVICE,
     CreatePTCommand, UpdatePTCommand, DeletePTCommand, PutPTInServiceCommand, TakePTOutOfServiceCommand,
 )
+from .sld_commands import (
+    SET_SLD_NODE_POSITION, ADD_SLD_NODE, REMOVE_SLD_NODE,
+    ADD_SLD_CONNECTION, REMOVE_SLD_CONNECTION,
+    SetSLDNodePositionCommand, AddSLDNodeCommand, RemoveSLDNodeCommand,
+    AddSLDConnectionCommand, RemoveSLDConnectionCommand,
+)
 from .model_commands import *
 from .control_commands import *
 

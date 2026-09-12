@@ -108,6 +108,11 @@ class WorkspaceManager:
         self._state = state
         return state
 
+    def clear_active(self) -> None:
+        """Clear active workspace state while retaining registered definitions."""
+        self._active_workspace_id = None
+        self._state = None
+
     def activate(self, workspace_id: str) -> WorkspaceState:
         return self.commit(self.prepare_activate(workspace_id))
 
