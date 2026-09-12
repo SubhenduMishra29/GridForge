@@ -129,6 +129,11 @@ class CanvasPlugin:
         render_system = self._context.sld_canvas_render_system
         if projection is None or render_system is None:
             raise RuntimeError("SLD canvas projection dependencies are unavailable.")
+        if getattr(self._context.application, "presentation", None) is None:
+            render_system.clear()
+            snapshot = SLDCanvasSnapshot(nodes=(), connections=())
+            self._sld_canvas_snapshot = snapshot
+            return snapshot
         document = self._active_sld_document()
         if not isinstance(projection, SLDCanvasProjection):
             raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
