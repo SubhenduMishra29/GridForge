@@ -22,6 +22,7 @@ from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
 from .read_service import NetworkReadService
+from .services.model_service import ModelService
 from .services.validation_service import ValidationService
 
 
@@ -32,9 +33,7 @@ def create_application(network: Any) -> Application:
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
-        model_service = __import__(
-            "core.application.services.model_service", fromlist=["ModelService"]
-        ).ModelService(network=active_network)
+        model_service = ModelService(network=active_network)
         handlers = build_model_command_handlers(model_service)
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
@@ -67,14 +66,18 @@ def create_application(network: Any) -> Application:
             dynamic_models=dynamic_models.all(),
         )
 
-    # Keep the project-scoped association store outside Network topology.  The
-    # composition root owns the persistence wiring; Core Network remains purely
-    # electrical truth and the solver receives detached dynamic definitions.
+    def new_network() -> Network:
+        dynamic_models.replace(())
+        return Network()
+
+    # Keep the project-scoped association store outside Network topology. The
+    # composition root owns persistence wiring; the solver receives detached
+    # dynamic definitions and the electrical Network remains authoritative.
     application.dynamic_models = dynamic_models
 
     lifecycle = ProjectLifecycleService(
         network=network,
-        network_factory=Network,
+        network_factory=new_network,
         activate_network=activate_network,
         context=ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None),
         loader=load_project,
