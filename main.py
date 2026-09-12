@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 
 from core.application.bootstrap import create_application
 from core.network.network import Network
@@ -36,7 +37,64 @@ from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 
 
-def build_application() -> tuple[
+Cleanup = Callable[[], None]
+
+
+def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
+    """Run one existing owner cleanup without masking an earlier failure."""
+    try:
+        cleanup()
+    except BaseException as exc:
+        errors.append(exc)
+
+
+def _cleanup_startup_failure(resources: dict[str, object]) -> None:
+    """Rollback resources acquired by a partially completed composition."""
+    errors: list[BaseException] = []
+
+    ui_lifecycle = resources.get("ui_lifecycle")
+    if isinstance(ui_lifecycle, UILifecycle):
+        _invoke_cleanup(ui_lifecycle.close, errors)
+    else:
+        adapter = resources.get("project_workspace_adapter")
+        if isinstance(adapter, ProjectWorkspaceApplicationAdapter):
+            _invoke_cleanup(adapter.close_project, errors)
+
+        workspace_controller = resources.get("workspace_controller")
+        if isinstance(workspace_controller, WorkspaceController):
+            _invoke_cleanup(workspace_controller.close, errors)
+
+    ui_update_boundary = resources.get("ui_update_boundary")
+    if isinstance(ui_update_boundary, UIUpdateBoundary):
+        _invoke_cleanup(ui_update_boundary.dispose, errors)
+
+    plugin_manager = resources.get("plugin_manager")
+    if isinstance(plugin_manager, PluginManager):
+        _invoke_cleanup(plugin_manager.shutdown_all, errors)
+
+
+def _shutdown_components(
+    *,
+    ui_lifecycle: UILifecycle,
+    workspace_controller: WorkspaceController,
+    ui_update_boundary: UIUpdateBoundary,
+    plugin_manager: PluginManager,
+) -> None:
+    """Shutdown all existing owners while preserving the first failure."""
+    errors: list[BaseException] = []
+
+    _invoke_cleanup(ui_lifecycle.close, errors)
+    if not ui_lifecycle.closed:
+        _invoke_cleanup(workspace_controller.close, errors)
+
+    _invoke_cleanup(ui_update_boundary.dispose, errors)
+    _invoke_cleanup(plugin_manager.shutdown_all, errors)
+
+    if errors:
+        raise errors[0]
+
+
+def _build_application_impl(resources: dict[str, object]) -> tuple[
     QApplication,
     MainWindow,
     PluginManager,
@@ -118,6 +176,7 @@ def build_application() -> tuple[
     )
 
     plugin_manager = PluginManager()
+    resources["plugin_manager"] = plugin_manager
     plugin_manager.define_defaults()
     plugin_manager.load_all()
     plugin_registry = plugin_manager.registry
@@ -151,6 +210,8 @@ def build_application() -> tuple[
         manager=workspace_manager,
         realizer=workspace_realizer,
     )
+    resources["workspace_controller"] = workspace_controller
+
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(
         workspace_controller=workspace_controller,
     )
@@ -158,10 +219,8 @@ def build_application() -> tuple[
         application=gridforge_application,
         lifecycle=project_workspace_lifecycle,
     )
+    resources["project_workspace_adapter"] = project_workspace_adapter
 
-    # The SLD document is the single presentation document for the new project.
-    # It is supplied to the lifecycle at creation time, avoiding a generic
-    # Document followed by replacement with SLDDocument.
     project_id = "gridforge-project"
     sld_document = SLDDocument(
         document_id="sld-document",
@@ -246,6 +305,7 @@ def build_application() -> tuple[
         event_bus=gridforge_application.event_bus,
         refresh=sld_update_coordinator.refresh,
     )
+    resources["ui_update_boundary"] = ui_update_boundary
     ui_update_boundary.subscribe()
 
     ui_lifecycle = UILifecycle(
@@ -255,6 +315,7 @@ def build_application() -> tuple[
         workspace_teardown=workspace_controller.close,
         cleanup=lambda: None,
     )
+    resources["ui_lifecycle"] = ui_lifecycle
     ui_lifecycle.start()
     ui_lifecycle.activate_document()
 
@@ -269,22 +330,42 @@ def build_application() -> tuple[
     )
 
 
+def build_application() -> tuple[
+    QApplication,
+    MainWindow,
+    PluginManager,
+    WorkspaceController,
+    UIUpdateBoundary,
+    UILifecycle,
+]:
+    """Build the application and rollback acquired owners on failure."""
+    resources: dict[str, object] = {}
+    try:
+        return _build_application_impl(resources)
+    except BaseException:
+        _cleanup_startup_failure(resources)
+        raise
+
+
 def main() -> int:
     """Start the GridForge application."""
     (
         app,
         _window,
         plugin_manager,
-        _workspace_controller,
+        workspace_controller,
         ui_update_boundary,
         ui_lifecycle,
     ) = build_application()
     try:
         return int(app.exec())
     finally:
-        ui_lifecycle.close()
-        ui_update_boundary.dispose()
-        plugin_manager.shutdown_all()
+        _shutdown_components(
+            ui_lifecycle=ui_lifecycle,
+            workspace_controller=workspace_controller,
+            ui_update_boundary=ui_update_boundary,
+            plugin_manager=plugin_manager,
+        )
 
 
 if __name__ == "__main__":
