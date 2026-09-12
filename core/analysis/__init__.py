@@ -33,6 +33,11 @@ from core.analysis.dynamic_initial_state import (
     DynamicInitialState,
     DynamicInitialStatePreparation,
 )
+from core.analysis.transient_stability import (
+    TransientStabilityStudyConfiguration,
+    TransientStabilityStudyResult,
+    TransientStabilityAnalysis,
+)
 from core.analysis.sequence_network_preparation import SequenceNetworkPreparation
 from core.analysis.contingency import (
     ContingencyAnalysis,
@@ -62,6 +67,9 @@ __all__ = [
     "DynamicMachineModelDefinition",
     "DynamicInitialState",
     "DynamicInitialStatePreparation",
+    "TransientStabilityStudyConfiguration",
+    "TransientStabilityStudyResult",
+    "TransientStabilityAnalysis",
     "SequenceNetworkPreparation",
     "FaultType",
     "ContingencyAnalysis",
