@@ -35,6 +35,7 @@ def test_canvas_plugin_synchronizes_current_application_document_after_replaceme
     plugin.initialize(context)
 
     application.presentation = restored_document
+    plugin.set_sld_document(restored_document)
     plugin.synchronize_sld()
 
     assert projection.models[-1] is restored_document.model
