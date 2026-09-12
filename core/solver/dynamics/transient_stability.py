@@ -1,206 +1,79 @@
-```python
-"""
-GridForge Transient Stability Solver
-====================================
-
-Solver-level engine for time-domain transient-stability simulation.
-
-Purpose
--------
-Coordinates a transient-stability study using the GridForge dynamic
-simulation stack.
-
-Architecture
-------------
-
-    TransientStabilitySolver
-              |
-              v
-          DAESolver
-          /       \
-         v         v
- MultiMachine   Network Solver
-    System
-         |
-         v
- Dynamic Machine Models
-
-Responsibilities
-----------------
-This module:
-
-- configures a transient-stability simulation;
-- initializes the dynamic solver;
-- advances simulation time;
-- respects scheduled event boundaries;
-- collects time-domain results;
-- provides a solver-level result object.
-
-This module does NOT:
-
-- implement swing equations;
-- implement machine models;
-- implement AVR/Governor/PSS equations;
-- implement numerical integration;
-- solve Y-bus directly;
-- implement network topology;
-- provide the public study API.
-
-The public study facade belongs in the GridForge analysis layer.
-"""
+# ============================================================
+# File: core/solver/dynamics/transient_stability.py
+# GridForge V2 — Transient Stability Solver
+# Author: Subhendu Mishra
+# ============================================================
+"""Solver-level transient-stability simulation over the canonical DAE API."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Mapping
 
 import numpy as np
 
-from .dae_solver import (
-    DAESolver,
-    DAEStepResult,
-)
+from .dae_solver import DAESolution, DAESolver
+from .events import EventExecution, EventManager
 
 
-# ======================================================================
-# ERRORS
-# ======================================================================
+class TransientStabilityError(RuntimeError):
+    """Raised when a transient-stability simulation cannot proceed."""
 
 
-class TransientStabilityError(
-    RuntimeError
-):
-    """Raised when a transient-stability simulation fails."""
-
-
-# ======================================================================
-# TIME-DOMAIN RESULT
-# ======================================================================
-
-
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TransientStabilityResult:
-    """
-    Time-domain results from a transient-stability simulation.
-
-    Attributes
-    ----------
-    time:
-        Simulation time samples [s].
-
-    states:
-        Dynamic state vector at every recorded sample.
-
-    terminal_voltages:
-        Bus terminal voltages for every recorded sample.
-
-    electrical_powers:
-        Machine electrical powers for every recorded sample.
-
-    events:
-        Events processed during the simulation.
-    """
+    """Immutable coherent time/state/output samples."""
 
     time: np.ndarray
-
     states: np.ndarray
+    terminal_voltages: tuple[Mapping[str, complex], ...] = ()
+    electrical_powers: tuple[Mapping[str, tuple[float, float]], ...] = ()
+    events: tuple[EventExecution, ...] = ()
 
-    terminal_voltages: list[
-        dict[str, complex]
-    ] = field(
-        default_factory=list
-    )
-
-    electrical_powers: list[
-        dict[
-            str,
-            tuple[float, float],
-        ]
-    ] = field(
-        default_factory=list
-    )
-
-    events: list[Any] = field(
-        default_factory=list
-    )
-
-    @property
-    def final_time(
-        self,
-    ) -> float:
-        """Return the final simulated time."""
-
-        if self.time.size == 0:
-            return 0.0
-
-        return float(
-            self.time[-1]
-        )
+    def __post_init__(self) -> None:
+        time = np.asarray(self.time, dtype=float).copy()
+        states = np.asarray(self.states, dtype=float).copy()
+        if time.ndim != 1:
+            raise ValueError("Transient result time must be one-dimensional.")
+        if states.ndim != 2:
+            raise ValueError("Transient result states must be two-dimensional.")
+        if states.shape[0] != time.shape[0]:
+            raise ValueError("Every recorded time sample must have one state sample.")
+        if len(self.terminal_voltages) != time.shape[0]:
+            raise ValueError("Every recorded time sample must have one terminal-voltage output sample.")
+        if len(self.electrical_powers) != time.shape[0]:
+            raise ValueError("Every recorded time sample must have one electrical-power output sample.")
+        if not np.all(np.isfinite(time)) or not np.all(np.isfinite(states)):
+            raise ValueError("Transient result contains non-finite time/state values.")
+        if time.size and np.any(np.diff(time) <= 0.0):
+            raise ValueError("Transient result time samples must be strictly increasing.")
+        time.setflags(write=False)
+        states.setflags(write=False)
+        object.__setattr__(self, "time", time)
+        object.__setattr__(self, "states", states)
+        object.__setattr__(self, "terminal_voltages", tuple(dict(item) for item in self.terminal_voltages))
+        object.__setattr__(self, "electrical_powers", tuple(dict(item) for item in self.electrical_powers))
+        object.__setattr__(self, "events", tuple(self.events))
 
     @property
-    def final_state(
-        self,
-    ) -> np.ndarray:
-        """Return the final dynamic state."""
-
-        if self.states.size == 0:
-            return np.empty(
-                0,
-                dtype=float,
-            )
-
-        return self.states[-1].copy()
+    def final_time(self) -> float:
+        return float(self.time[-1]) if self.time.size else 0.0
 
     @property
-    def number_of_steps(
-        self,
-    ) -> int:
-        """Return the number of recorded time intervals."""
-
-        return max(
-            0,
-            self.time.size - 1,
-        )
+    def final_state(self) -> np.ndarray:
+        return self.states[-1].copy() if self.states.size else np.empty(0, dtype=float)
 
     @property
-    def number_of_events(
-        self,
-    ) -> int:
-        """Return the number of processed events."""
+    def number_of_steps(self) -> int:
+        return max(0, self.time.size - 1)
 
-        return len(
-            self.events
-        )
-
-
-# ======================================================================
-# SOLVER
-# ======================================================================
+    @property
+    def number_of_events(self) -> int:
+        return len(self.events)
 
 
 class TransientStabilitySolver:
-    """
-    Solver-level transient-stability simulation engine.
-
-    Parameters
-    ----------
-    dae_solver:
-        Configured GridForge DAESolver.
-
-    start_time:
-        Simulation start time [s].
-
-    end_time:
-        Simulation end time [s].
-
-    dt:
-        Default simulation step [s].
-
-    Notes
-    -----
-    The DAE solver must already contain the configured dynamic machine
-    system, algebraic network solver, integrator, and event manager.
-    """
+    """Coordinate a transient-stability run using one configured DAESolver."""
 
     def __init__(
         self,
@@ -209,467 +82,130 @@ class TransientStabilitySolver:
         start_time: float = 0.0,
         end_time: float = 10.0,
         dt: float | None = None,
+        event_manager: EventManager | None = None,
     ) -> None:
-
-        if not isinstance(
-            dae_solver,
-            DAESolver,
-        ):
-            raise TypeError(
-                "dae_solver must be a "
-                "DAESolver instance."
-            )
-
-        if start_time < 0.0:
-            raise ValueError(
-                "start_time cannot be negative."
-            )
-
-        if end_time <= start_time:
-            raise ValueError(
-                "end_time must be greater "
-                "than start_time."
-            )
-
-        if dt is not None and dt <= 0.0:
-            raise ValueError(
-                "dt must be greater "
-                "than zero."
-            )
-
+        if not isinstance(dae_solver, DAESolver):
+            raise TypeError("dae_solver must be a DAESolver instance.")
         self.dae_solver = dae_solver
+        self.start_time = float(start_time)
+        self.end_time = float(end_time)
+        self.dt = float(dt if dt is not None else getattr(dae_solver.integrator, "dt", 0.01))
+        self.event_manager = event_manager or EventManager()
+        if self.start_time < 0.0:
+            raise ValueError("start_time cannot be negative.")
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be greater than start_time.")
+        if self.dt <= 0.0:
+            raise ValueError("dt must be greater than zero.")
+        self._state: np.ndarray | None = None
+        self._time = self.start_time
 
-        self.start_time = float(
-            start_time
-        )
+    @property
+    def initialized(self) -> bool:
+        return self._state is not None
 
-        self.end_time = float(
-            end_time
-        )
+    @property
+    def time(self) -> float:
+        return self._time
 
-        self.dt = (
-            dae_solver.dt
-            if dt is None
-            else float(dt)
-        )
+    def initialize(self, state: np.ndarray, *, time: float | None = None) -> np.ndarray:
+        """Initialize from one detached dynamic state vector."""
+        candidate = self.dae_solver.machine_system.validate_global_state(np.asarray(state, dtype=float)).copy()
+        self._time = self.start_time if time is None else float(time)
+        if self._time < 0.0:
+            raise ValueError("initial time cannot be negative.")
+        self.dae_solver.evaluate(candidate, self._time)
+        self._state = candidate
+        return candidate.copy()
 
-    # ==================================================================
-    # INITIALIZATION
-    # ==================================================================
-
-    def initialize(
-        self,
-        terminal_voltages: Mapping[
-            str,
-            complex,
-        ],
-        electrical_powers: Mapping[
-            str,
-            float,
-        ],
-        mechanical_powers: Mapping[
-            str,
-            float,
-        ],
-    ) -> np.ndarray:
-        """
-        Initialize the transient-stability simulation.
-
-        Returns
-        -------
-        numpy.ndarray
-            Initial dynamic state vector.
-        """
-
-        return self.dae_solver.initialize(
-            terminal_voltages=(
-                terminal_voltages
-            ),
-            electrical_powers=(
-                electrical_powers
-            ),
-            mechanical_powers=(
-                mechanical_powers
-            ),
-            time=self.start_time,
-        )
-
-    # ==================================================================
-    # RUN
-    # ==================================================================
-
-    def run(
-        self,
-        *,
-        record_initial: bool = True,
-    ) -> TransientStabilityResult:
-        """
-        Run the transient-stability simulation.
-
-        Parameters
-        ----------
-        record_initial:
-            If True, record the initial state at the beginning of the
-            result.
-
-        Returns
-        -------
-        TransientStabilityResult
-            Complete time-domain simulation result.
-
-        Raises
-        ------
-        TransientStabilityError
-            If the solver has not been initialized or simulation
-            progress becomes invalid.
-        """
-
-        if not self.dae_solver._initialized:
-            raise TransientStabilityError(
-                "DAESolver must be initialized "
-                "before running the transient-"
-                "stability simulation."
-            )
-
-        # --------------------------------------------------------------
-        # Ensure the solver starts at the requested time.
-        # --------------------------------------------------------------
-
-        if abs(
-            self.dae_solver.time
-            - self.start_time
-        ) > 1e-9:
-
-            raise TransientStabilityError(
-                "DAESolver time does not match "
-                "the configured simulation "
-                "start_time."
-            )
+    def run(self, *, record_initial: bool = True) -> TransientStabilityResult:
+        if self._state is None:
+            raise TransientStabilityError("Transient-stability solver must be initialized before run().")
 
         times: list[float] = []
-
-        states: list[
-            np.ndarray
-        ] = []
-
-        voltages: list[
-            dict[str, complex]
-        ] = []
-
-        powers: list[
-            dict[
-                str,
-                tuple[float, float],
-            ]
-        ] = []
-
-        events: list[Any] = []
-
-        # --------------------------------------------------------------
-        # Initial sample
-        # --------------------------------------------------------------
+        states: list[np.ndarray] = []
+        voltages: list[dict[str, complex]] = []
+        powers: list[dict[str, tuple[float, float]]] = []
+        executions: list[EventExecution] = []
 
         if record_initial:
+            initial = self.dae_solver.evaluate(self._state, self._time)
+            self._record(initial, times, states, voltages, powers)
+            executions.extend(self.event_manager.process(self._time))
 
-            self._record_sample(
-                times=times,
-                states=states,
-                voltages=voltages,
-                powers=powers,
-            )
-
-        # --------------------------------------------------------------
-        # Time-domain simulation
-        # --------------------------------------------------------------
-
-        while (
-            self.dae_solver.time
-            < self.end_time
-            - self.dae_solver.event_manager
-            .time_tolerance
-        ):
-
-            remaining = (
-                self.end_time
-                - self.dae_solver.time
-            )
-
-            step_dt = min(
-                self.dt,
-                remaining,
-            )
-
-            if step_dt <= 0.0:
-                break
-
-            previous_time = (
-                self.dae_solver.time
-            )
-
+        while self._time < self.end_time - self.event_manager.tolerance:
+            step_dt = min(self.dt, self.end_time - self._time)
+            previous_time = self._time
             try:
-
-                result = (
-                    self.dae_solver.step(
-                        dt=step_dt
-                    )
-                )
-
+                solution = self.dae_solver.step(self._state, self._time, step_dt)
             except Exception as exc:
-
                 raise TransientStabilityError(
-                    "Transient-stability "
-                    f"simulation failed at "
-                    f"t={previous_time:.9g} s."
+                    f"Transient-stability simulation failed at t={previous_time:.12g} s."
                 ) from exc
 
-            if (
-                result.time
-                <= previous_time
-            ):
-                raise TransientStabilityError(
-                    "Simulation time failed "
-                    "to advance."
-                )
-
-            if (
-                result.time
-                > self.end_time
-                + self.dae_solver
-                .event_manager
-                .time_tolerance
-            ):
-                raise TransientStabilityError(
-                    "Simulation advanced "
-                    "beyond end_time."
-                )
-
-            # ----------------------------------------------------------
-            # Record sample
-            # ----------------------------------------------------------
-
-            self._record_result(
-                result=result,
-                times=times,
-                states=states,
-                voltages=voltages,
-                powers=powers,
-                events=events,
-            )
-
-        # --------------------------------------------------------------
-        # Assemble result
-        # --------------------------------------------------------------
-
-        return self._build_result(
-            times=times,
-            states=states,
-            voltages=voltages,
-            powers=powers,
-            events=events,
-        )
-
-    # ==================================================================
-    # SINGLE STEP
-    # ==================================================================
-
-    def step(
-        self,
-        dt: float | None = None,
-    ) -> DAEStepResult:
-        """
-        Execute one solver step.
-
-        This method is useful for interactive simulation, debugging,
-        and future real-time/co-simulation workflows.
-        """
-
-        step_dt = (
-            self.dt
-            if dt is None
-            else float(dt)
-        )
-
-        if step_dt <= 0.0:
-            raise ValueError(
-                "dt must be greater "
-                "than zero."
-            )
-
-        if (
-            self.dae_solver.time
-            >= self.end_time
-            - self.dae_solver
-            .event_manager
-            .time_tolerance
-        ):
-            raise TransientStabilityError(
-                "Simulation has reached "
-                "end_time."
-            )
-
-        remaining = (
-            self.end_time
-            - self.dae_solver.time
-        )
-
-        return self.dae_solver.step(
-            dt=min(
-                step_dt,
-                remaining,
-            )
-        )
-
-    # ==================================================================
-    # RESET
-    # ==================================================================
-
-    def reset(
-        self,
-    ) -> None:
-        """
-        Reset the event manager and simulation time.
-
-        A complete physical-state reinitialization should be performed
-        through ``initialize()``.
-        """
-
-        self.dae_solver.time = (
-            self.start_time
-        )
-
-        self.dae_solver.event_manager.reset()
-
-    # ==================================================================
-    # RECORDING
-    # ==================================================================
-
-    @staticmethod
-    def _record_sample(
-        *,
-        times: list[float],
-        states: list[np.ndarray],
-        voltages: list[
-            dict[str, complex]
-        ],
-        powers: list[
-            dict[
-                str,
-                tuple[float, float],
-            ]
-        ],
-    ) -> None:
-        """
-        Record the current DAE solver state.
-        """
-
-        times.append(
-            float(
-                # The caller's DAE solver time is supplied indirectly
-                # through the current state records below.
-                0.0
-            )
-        )
-
-    def _record_result(
-        self,
-        *,
-        result: DAEStepResult,
-        times: list[float],
-        states: list[np.ndarray],
-        voltages: list[
-            dict[str, complex]
-        ],
-        powers: list[
-            dict[
-                str,
-                tuple[float, float],
-            ]
-        ],
-        events: list[Any],
-    ) -> None:
-        """
-        Record one DAE step result.
-        """
-
-        times.append(
-            float(result.time)
-        )
-
-        states.append(
-            result.state.copy()
-        )
-
-        voltages.append(
-            dict(
-                result.terminal_voltages
-            )
-        )
-
-        powers.append(
-            dict(
-                result.electrical_powers
-            )
-        )
-
-        events.extend(
-            result.processed_events
-        )
-
-    # ==================================================================
-    # RESULT ASSEMBLY
-    # ==================================================================
-
-    @staticmethod
-    def _build_result(
-        *,
-        times: Sequence[float],
-        states: Sequence[np.ndarray],
-        voltages: Sequence[
-            dict[str, complex]
-        ],
-        powers: Sequence[
-            dict[
-                str,
-                tuple[float, float],
-            ]
-        ],
-        events: Sequence[Any],
-    ) -> TransientStabilityResult:
-        """
-        Construct the final result object.
-        """
-
-        time_array = np.asarray(
-            times,
-            dtype=float,
-        )
-
-        if states:
-
-            state_array = np.vstack(
-                states
-            )
-
-        else:
-
-            state_array = np.empty(
-                (0, 0),
-                dtype=float,
-            )
+            if solution.time <= previous_time:
+                raise TransientStabilityError("Simulation time failed to advance.")
+            self._state = solution.state.copy()
+            self._time = float(solution.time)
+            self._record(solution, times, states, voltages, powers)
+            executions.extend(self.event_manager.process(self._time))
 
         return TransientStabilityResult(
-            time=time_array,
-            states=state_array,
-            terminal_voltages=[
-                dict(item)
-                for item in voltages
-            ],
-            electrical_powers=[
-                dict(item)
-                for item in powers
-            ],
-            events=list(events),
+            time=np.asarray(times, dtype=float),
+            states=np.vstack(states) if states else np.empty((0, self.dae_solver.state_size), dtype=float),
+            terminal_voltages=tuple(voltages),
+            electrical_powers=tuple(powers),
+            events=tuple(executions),
         )
+
+    def step(self, dt: float | None = None) -> DAESolution:
+        if self._state is None:
+            raise TransientStabilityError("Transient-stability solver must be initialized before step().")
+        step_dt = self.dt if dt is None else float(dt)
+        if step_dt <= 0.0:
+            raise ValueError("dt must be greater than zero.")
+        if self._time >= self.end_time - self.event_manager.tolerance:
+            raise TransientStabilityError("Simulation has reached end_time.")
+        solution = self.dae_solver.step(self._state, self._time, min(step_dt, self.end_time - self._time))
+        self._state = solution.state.copy()
+        self._time = float(solution.time)
+        self.event_manager.process(self._time)
+        return solution
+
+    def reset(self) -> None:
+        self._state = None
+        self._time = self.start_time
+        self.event_manager.reset()
+
+    def _record(
+        self,
+        solution: DAESolution,
+        times: list[float],
+        states: list[np.ndarray],
+        voltages: list[dict[str, complex]],
+        powers: list[dict[str, tuple[float, float]]],
+    ) -> None:
+        times.append(float(solution.time))
+        states.append(np.asarray(solution.state, dtype=float).copy())
+        voltages.append(dict(solution.terminal_voltages))
+        powers.append(self._electrical_powers(solution.state, solution.terminal_voltages))
+
+    def _electrical_powers(
+        self,
+        state: np.ndarray,
+        voltages: Mapping[str, complex],
+    ) -> dict[str, tuple[float, float]]:
+        result: dict[str, tuple[float, float]] = {}
+        offset = 0
+        for machine in self.dae_solver.machines:
+            machine_state = state[offset: offset + machine.state_size]
+            offset += machine.state_size
+            voltage = voltages.get(str(machine.bus_id))
+            if voltage is None:
+                continue
+            output = machine.electrical_output(machine_state, voltage)
+            result[str(machine.machine_id)] = (float(output.active_power), float(output.reactive_power))
+        return result
 
 
 __all__ = [
@@ -677,4 +213,3 @@ __all__ = [
     "TransientStabilityResult",
     "TransientStabilitySolver",
 ]
-```

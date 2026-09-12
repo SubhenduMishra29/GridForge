@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from core.analysis.dynamic_model_association import DynamicMachineModelRegistry
 from core.network import Network
 from core.persistence import ProjectPersistenceService
 
@@ -21,7 +22,6 @@ from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
 from .read_service import NetworkReadService
-from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.validation_service import ValidationService
 
@@ -35,10 +35,7 @@ def create_application(network: Any) -> Application:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
         handlers = build_model_command_handlers(model_service)
-        command_manager = CommandManager(
-            context=context,
-            handlers=handlers,
-        )
+        command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
     command_manager, read_service, validation_service = build_runtime(network)
@@ -50,24 +47,41 @@ def create_application(network: Any) -> Application:
 
     def activate_network(active_network: Any) -> None:
         next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
-        application._replace_runtime(
-            next_command_manager,
-            next_read_service,
-            next_validation_service,
-        )
+        application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
 
     persistence = ProjectPersistenceService()
+    dynamic_models = DynamicMachineModelRegistry()
+
+    def load_project(path):
+        loaded = persistence.load(path)
+        dynamic_models.replace(loaded.dynamic_models)
+        return loaded
+
+    def save_project(context, active_network, presentation, path):
+        persistence.save(
+            context,
+            active_network,
+            presentation,
+            path,
+            dynamic_models=dynamic_models.all(),
+        )
+
+    def new_network() -> Network:
+        dynamic_models.replace(())
+        return Network()
+
+    # Keep the project-scoped association store outside Network topology. The
+    # composition root owns persistence wiring; the solver receives detached
+    # dynamic definitions and the electrical Network remains authoritative.
+    application.dynamic_models = dynamic_models
+
     lifecycle = ProjectLifecycleService(
         network=network,
-        network_factory=Network,
+        network_factory=new_network,
         activate_network=activate_network,
-        context=ProjectContext(
-            project_id=str(uuid4()),
-            name="Untitled Project",
-            path=None,
-        ),
-        loader=persistence.load,
-        saver=persistence.save,
+        context=ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None),
+        loader=load_project,
+        saver=save_project,
     )
     application.attach_project_lifecycle(lifecycle)
     return application

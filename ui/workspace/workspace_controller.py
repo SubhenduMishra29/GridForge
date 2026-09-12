@@ -60,6 +60,13 @@ class WorkspaceController:
         self._realizer.realize(candidate.layout)
         return self._manager.commit(candidate)
 
+    def activate_default(self) -> WorkspaceState:
+        """Realize and activate the canonical project workspace."""
+        self._ensure_open()
+        candidate = self._manager.prepare_activate_default()
+        self._realizer.realize(candidate.layout)
+        return self._manager.commit(candidate)
+
     def apply_layout(self, layout: WorkspaceLayout) -> WorkspaceState:
         self._ensure_open()
         candidate = self._manager.prepare_layout(layout)
@@ -72,11 +79,17 @@ class WorkspaceController:
         self._realizer.realize(candidate.layout)
         return self._manager.commit(candidate)
 
+    def deactivate(self) -> None:
+        """Clear the active project workspace while keeping the controller reusable."""
+        self._ensure_open()
+        self._realizer.clear_realization()
+        self._manager.clear_active()
+
     def close(self) -> None:
-        """Release presentation realization and make this coordinator inert."""
+        """Release the realized Qt workspace and make this coordinator inert."""
         if self._closed:
             return
-        self._realizer.close()
+        self.deactivate()
         self._closed = True
 
     def _ensure_open(self) -> None:

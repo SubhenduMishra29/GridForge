@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/events.py
 # GridForge V2 — Headless Application Events
+# Author: Subhendu Mishra
 # ============================================================
 """Immutable semantic events emitted by the GridForge Application layer."""
 
@@ -156,12 +157,18 @@ class StudyCompleted(_OperationEvent):
     _EVENT_TYPE = "study.completed"
 
 
+class StudyFailed(_OperationEvent):
+    _EVENT_TYPE = "study.failed"
+
+
+class StudyCancelled(_OperationEvent):
+    _EVENT_TYPE = "study.cancelled"
+
+
 class ValidationChanged(_OperationEvent):
     _EVENT_TYPE = "validation.changed"
 
 
-# Control/Ladder semantic events are defined in their own module to keep the
-# control vocabulary isolated while exposing one Application event contract.
 from .control_events import (
     ControlComponentCreated,
     ControlComponentUpdated,
@@ -182,7 +189,7 @@ __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
     "TopologyChanged", "NetworkChanged", "OperationCompleted",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed",
-    "StudyStarted", "StudyCompleted", "ValidationChanged",
+    "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
     "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
     "ControlConnectionCreated", "ControlConnectionRemoved",
     "ControlDependencyCreated", "ControlDependencyRemoved", "ControlProgramChanged",

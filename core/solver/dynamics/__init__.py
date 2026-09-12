@@ -2,104 +2,17 @@
 GridForge Dynamic Solver
 ========================
 
-GridForge V2 dynamic simulation subsystem.
+Public package exports for the current dynamic solver implementation.
 
-Public API
-----------
-
-The dynamics package provides:
-
-    - dynamic state representation;
-    - numerical integration;
-    - synchronous-machine models;
-    - multi-machine coordination;
-    - swing-equation dynamics;
-    - event scheduling;
-    - DAE coordination;
-    - transient-stability study orchestration.
-
-Architecture
-------------
-
-    transient_stability
-            │
-            ▼
-        dae_solver
-            │
-       ┌────┴────┐
-       ▼         ▼
-    multimachine integrator
-       │
-       ▼
- machine_models
-       │
-       ▼
- swing_equation
-
-The package deliberately does not include AVR, governor, or PSS
-implementations. Such control-system models belong to separate
-dynamic-control components/plugins and are not hard-coded into the
-core dynamic solver.
+Author: Subhendu Mishra
 """
 
-
-# ======================================================================
-# STATE
-# ======================================================================
-
-from .state_vector import (
-    DynamicState,
-)
-
-
-# ======================================================================
-# NUMERICAL INTEGRATION
-# ======================================================================
-
-from .integrator import (
-    Integrator,
-    RK4Integrator,
-    TrapezoidalIntegrator,
-)
-
-
-# ======================================================================
-# MACHINE DYNAMICS
-# ======================================================================
-
-from .swing_equation import (
-    SwingEquation,
-)
-
-from .machine_models import (
-    ClassicalMachine,
-)
-
-
-# ======================================================================
-# MULTI-MACHINE SYSTEM
-# ======================================================================
-
-from .multimachine import (
-    MultiMachineSystem,
-)
-
-
-# ======================================================================
-# EVENTS
-# ======================================================================
-
-from .events import (
-    Event,
-    EventExecution,
-    EventManager,
-)
-
-
-# ======================================================================
-# DAE SOLVER
-# ======================================================================
-
+from .state_vector import DynamicState
+from .integrator import Integrator, RK4Integrator, TrapezoidalIntegrator
+from .swing_equation import SwingEquation
+from .machine_models import ClassicalMachine
+from .multimachine import MultiMachineSystem
+from .events import Event, EventExecution, EventManager
 from .dae_solver import (
     NetworkSolver,
     MechanicalPowerMap,
@@ -110,70 +23,23 @@ from .dae_solver import (
     DAESolution,
     DAESolver,
 )
-
-
-# ======================================================================
-# TRANSIENT STABILITY
-# ======================================================================
-
 from .transient_stability import (
-    ComplexVoltageMap,
     TransientStabilityError,
-    SimulationConfigurationError,
-    SimulationNumericalError,
-    TransientStabilityConfig,
-    SimulationSnapshot,
     TransientStabilityResult,
-    TransientStabilityStudy,
-    create_transient_stability_study,
+    TransientStabilitySolver,
 )
 
-
-# ======================================================================
-# PUBLIC API
-# ======================================================================
-
 __all__ = [
-
-    # --------------------------------------------------------------
-    # State
-    # --------------------------------------------------------------
-
     "DynamicState",
-
-    # --------------------------------------------------------------
-    # Integration
-    # --------------------------------------------------------------
-
     "Integrator",
     "RK4Integrator",
     "TrapezoidalIntegrator",
-
-    # --------------------------------------------------------------
-    # Machine dynamics
-    # --------------------------------------------------------------
-
     "SwingEquation",
     "ClassicalMachine",
-
-    # --------------------------------------------------------------
-    # Multi-machine system
-    # --------------------------------------------------------------
-
     "MultiMachineSystem",
-
-    # --------------------------------------------------------------
-    # Events
-    # --------------------------------------------------------------
-
     "Event",
     "EventExecution",
     "EventManager",
-
-    # --------------------------------------------------------------
-    # DAE solver
-    # --------------------------------------------------------------
-
     "NetworkSolver",
     "MechanicalPowerMap",
     "DAESolverError",
@@ -182,19 +48,7 @@ __all__ = [
     "DAENumericalError",
     "DAESolution",
     "DAESolver",
-
-    # --------------------------------------------------------------
-    # Transient stability
-    # --------------------------------------------------------------
-
-    "ComplexVoltageMap",
     "TransientStabilityError",
-    "SimulationConfigurationError",
-    "SimulationNumericalError",
-    "TransientStabilityConfig",
-    "SimulationSnapshot",
     "TransientStabilityResult",
-    "TransientStabilityStudy",
-    "create_transient_stability_study",
+    "TransientStabilitySolver",
 ]
-```

@@ -4,7 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Stable public Application facade for commands, reads, events, history, and project lifecycle."""
+"""Stable public Application facade for commands, reads, events, history, project lifecycle, and studies."""
 
 from __future__ import annotations
 
@@ -49,6 +49,7 @@ from .revision import ProjectRevision
 from .revision_service import RevisionService
 from .services.sld_service import SLDService
 from .services.validation_service import ValidationService
+from .study import StudyRequest, StudyResult, StudyService
 from .validation import ValidationResult
 
 
@@ -62,8 +63,10 @@ class Application:
         "model.put_switch_in_service", "model.take_switch_out_of_service", "model.create_disconnector",
         "model.update_disconnector", "model.delete_disconnector", "model.open_disconnector",
         "model.close_disconnector", "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
-        "model.create_fuse", "model.update_fuse", "model.delete_fuse", "model.blow_fuse", "model.reset_fuse",
+        "model.create_fuse", "model.delete_fuse", "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
+        "model.create_breaker", "model.delete_breaker", "model.open_breaker", "model.close_breaker",
+        "model.trip_breaker", "model.put_breaker_in_service", "model.take_breaker_out_of_service",
     })
 
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
@@ -91,6 +94,7 @@ class Application:
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._revision_service = RevisionService()
+        self._study_service = StudyService(self._event_bus)
         self._control_execution = ControlExecutionService(
             ControlCommandDispatcher(command_manager, command_executor=self.execute)
         )
@@ -104,62 +108,52 @@ class Application:
         return self._control_execution
 
     @property
+    def study_service(self) -> StudyService:
+        """Return the single Application-owned study orchestration service."""
+        return self._study_service
+
+    @property
     def project_lifecycle(self) -> ProjectLifecycleService:
-        """Return the Application-owned project lifecycle service."""
         if self._project_lifecycle is None:
             raise RuntimeError("Application project lifecycle is not configured.")
         return self._project_lifecycle
 
     @property
     def revision(self) -> ProjectRevision:
-        """Return the immutable current project revision snapshot."""
         return self._revision_service.revision
 
     @property
     def is_dirty(self) -> bool:
-        """Return whether the active project has unsaved persistent changes."""
         return self._revision_service.is_dirty
 
     @property
     def revision_service(self) -> RevisionService:
-        """Return the single Application-owned revision authority."""
         return self._revision_service
 
     @property
     def validation_service(self) -> ValidationService:
-        """Return the Application-owned validation authority."""
         if self._validation_service is None:
             raise RuntimeError("Application validation service is not configured.")
         return self._validation_service
 
     @property
     def sld_service(self) -> SLDService:
-        """Return the Application-owned SLD presentation authority."""
         if self._sld_service is None:
             raise RuntimeError("Application SLD service is not configured.")
         return self._sld_service
 
     @property
     def presentation(self) -> Any:
-        """Return the active persistent presentation document/state."""
         return self.project_lifecycle.presentation
 
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
-        """Attach the single Application-owned project lifecycle authority."""
         if not isinstance(service, ProjectLifecycleService):
             raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service:
             raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
 
-    def configure_project_presentation(
-        self,
-        *,
-        presentation: Any,
-        serializer: Any,
-        deserializer: Any,
-    ) -> None:
-        """Bind persistent presentation state without coupling Core to UI types."""
+    def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(
             presentation=presentation,
             serializer=serializer,
@@ -167,7 +161,6 @@ class Application:
         )
 
     def attach_sld_service(self, service: SLDService) -> None:
-        """Attach the single Application-owned SLD presentation authority."""
         if not isinstance(service, SLDService):
             raise TypeError("service must be an SLDService.")
         if self._sld_service is not None and self._sld_service is not service:
@@ -196,13 +189,24 @@ class Application:
             self._revision_service.reset_for_project()
         return context
 
+    def execute_study(self, request: StudyRequest) -> StudyResult:
+        """Execute an immutable study request through the Application boundary."""
+        return self._study_service.execute(request)
+
+    def study_result(self, study_id) -> StudyResult | None:
+        """Return a previously registered immutable study result."""
+        return self._study_service.get_result(study_id)
+
+    def cancel_study(self, study_id) -> bool:
+        """Request cooperative cancellation of an active study."""
+        return self._study_service.cancel(study_id)
+
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService,
                          validation_service: ValidationService | None = None) -> None:
-        """Replace command/read/validation runtime when a project Network becomes active."""
         if not isinstance(command_manager, CommandManager):
-            raise TypeError("command_manager must be a CommandManager.")
+            raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService):
-            raise TypeError("read_service must implement ReadService.")
+            raise TypeError("Application read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService):
             raise TypeError("validation_service must be a ValidationService.")
         self._command_manager = command_manager
@@ -214,15 +218,12 @@ class Application:
         )
 
     def mark_project_persisted(self) -> ProjectRevision:
-        """Mark the active project clean after a successful persistence operation."""
         return self._revision_service.mark_persisted()
 
     def record_presentation_change(self) -> ProjectRevision:
-        """Record a successful persistent SLD/presentation edit."""
         return self._revision_service.record_presentation_change()
 
     def validate_project(self) -> ValidationResult:
-        """Validate authoritative Core state and publish the resulting state."""
         result = self.validation_service.validate_project()
         self._event_bus.publish(ValidationChanged(metadata={
             "valid": result.valid,
@@ -234,20 +235,17 @@ class Application:
         return result
 
     def read_validation(self) -> ValidationResult | None:
-        """Return the latest Application validation snapshot."""
         return self.validation_service.read_validation()
 
     def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None,
                               external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
                               context: ControlExecutionContext | None = None,
                               interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None) -> ControlCycleResult:
-        """Evaluate Control intent and execute permitted decisions through Application."""
         cycle = ControlCycleService(control_engine, self._control_execution)
         return cycle.execute(simulation_time=simulation_time, external_inputs=external_inputs,
                              context=context, interlock_inputs=interlock_inputs)
 
     def execute(self, command: Command) -> ApplicationResult:
-        """Execute an engineering or presentation command through Application."""
         if not isinstance(command, Command):
             raise TypeError("Application.execute requires a Command.")
         if command.command_type.startswith("sld."):
@@ -311,17 +309,23 @@ class Application:
 
     def read_network(self) -> NetworkReadModel:
         self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
+
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
         self._require_read_service(); return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
+
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
+
     def read_relay(self, relay_id: str) -> RelayReadModel:
         self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation}
-        self._publish_model_event(command, metadata, operation=operation)
-        self._publish_network_changed(command, metadata)
+        if command.command_type.startswith("model."):
+            self._publish_model_event(command, metadata, operation=operation)
+            self._publish_network_changed(command, metadata)
+        elif command.command_type.startswith("control."):
+            self._publish_control_event(command, result, metadata, operation=operation)
 
     def _publish_control_event(self, command: Command, result: ApplicationResult,
                                metadata: dict[str, object], *, operation: str) -> None:
@@ -330,34 +334,26 @@ class Application:
         payload.update(metadata)
         cid, caid = command.correlation_id, command.causation_id
         if command_type == ADD_CONTROL_COMPONENT:
-            self._event_bus.publish(ControlComponentCreated(
-                component_id=str(payload["component_id"]), component_type=str(payload["component_type"]),
-                metadata=payload, correlation_id=cid, causation_id=caid))
+            self._event_bus.publish(ControlComponentCreated(component_id=str(payload["component_id"]), component_type=str(payload["component_type"]), metadata=payload, correlation_id=cid, causation_id=caid))
         elif command_type == REMOVE_CONTROL_COMPONENT:
-            self._event_bus.publish(ControlComponentRemoved(
-                component_id=str(payload["component_id"]), metadata=payload,
-                correlation_id=cid, causation_id=caid))
+            self._event_bus.publish(ControlComponentRemoved(component_id=str(payload["component_id"]), metadata=payload, correlation_id=cid, causation_id=caid))
         elif command_type == CONNECT_CONTROL_SIGNALS:
-            self._event_bus.publish(ControlConnectionCreated(
-                source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]),
-                metadata=payload, correlation_id=cid, causation_id=caid))
+            self._event_bus.publish(ControlConnectionCreated(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
         elif command_type == DISCONNECT_CONTROL_SIGNALS:
-            self._event_bus.publish(ControlConnectionRemoved(
-                source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]),
-                metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type in {ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT,
-                              ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY}:
-            self._event_bus.publish(ControlProgramChanged(
-                metadata={**payload, "command_type": command_type}, correlation_id=cid, causation_id=caid))
+            self._event_bus.publish(ControlConnectionRemoved(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type in {ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT, ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY}:
+            self._event_bus.publish(ControlProgramChanged(metadata={**payload, "command_type": command_type}, correlation_id=cid, causation_id=caid))
 
     def _publish_history_events(self, command: Command | None, result: ApplicationResult, *, operation: str) -> None:
         if command is None:
-            self._publish_network_only_result(result, operation=operation); return
+            self._publish_network_only_result(result, operation=operation)
+            return
         self._publish_semantic_events(command, result, operation=operation)
 
     def _publish_model_event(self, command: Command, metadata: dict[str, object], *, operation: str) -> None:
         parts = command.command_type.split(".", 1)
-        if len(parts) != 2 or parts[0] != "model": return
+        if len(parts) != 2 or parts[0] != "model":
+            return
         action = self._action_from_command_type(command.command_type)
         element_type = self._element_type(command)
         element_id = self._element_id(command)
@@ -370,20 +366,17 @@ class Application:
             self._event_bus.publish(ElementCreated(element_id=element_id, element_type=element_type, metadata=metadata))
         elif effective_action == "delete":
             self._event_bus.publish(ElementRemoved(element_id=element_id, element_type=element_type, metadata=metadata))
-        elif effective_action in {"update", "open", "close", "reset", "blow", "put_in_service", "take_out_of_service"}:
-            self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, metadata=metadata))
+        elif effective_action in {"update", "open", "close", "reset", "blow", "trip", "put_in_service", "take_out_of_service"}:
+            self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, changes=metadata))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
-        if command.command_type in self._TOPOLOGY_COMMANDS:
-            self._event_bus.publish(TopologyChanged(metadata=metadata))
-        else:
-            self._event_bus.publish(NetworkChanged(metadata=metadata))
+        operation = str(metadata.get("operation", "execute"))
+        if self._is_topology_command(command):
+            self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata))
+        self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata))
 
     def _publish_network_only_result(self, result: ApplicationResult, *, operation: str) -> None:
-        self._event_bus.publish(NetworkChanged(metadata={
-            "message": result.message,
-            "operation": operation,
-        }))
+        self._event_bus.publish(NetworkChanged(operation=operation, metadata={"message": result.message}))
 
     def _require_read_service(self) -> None:
         if self._read_service is None:
@@ -392,6 +385,15 @@ class Application:
     def _require_protection_read_service(self) -> None:
         if self._protection_read_service is None:
             raise RuntimeError("Application protection read service is not configured.")
+
+    @classmethod
+    def _is_topology_command(cls, command: Command) -> bool:
+        if command.command_type in cls._TOPOLOGY_COMMANDS:
+            return True
+        if command.command_type == "model.update_breaker":
+            payload = command.payload
+            return payload.get("closed") is not None or payload.get("in_service") is not None
+        return False
 
     @staticmethod
     def _action_from_command_type(command_type: str) -> str:
@@ -408,13 +410,23 @@ class Application:
     def _element_type(command: Command) -> str | None:
         payload = command.payload
         value = payload.get("element_type") or payload.get("equipment_type")
+        if value is None and command.command_type.startswith("model."):
+            action = command.command_type.split(".", 1)[1]
+            for prefix in ("create_", "update_", "delete_", "open_", "close_", "trip_", "put_", "take_", "blow_", "reset_"):
+                if action.startswith(prefix):
+                    return action[len(prefix):].removesuffix("_in_service").removesuffix("_out_of_service")
         return str(value) if value is not None else None
 
     @staticmethod
     def _element_id(command: Command) -> str | None:
         payload = command.payload
         value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
+        if value is None:
+            for key in ("breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
+                if key in payload:
+                    value = payload[key]
+                    break
         return str(value) if value is not None else None
 
 
-__all__ = ["Application"]
+__all__ = ["Application", "StudyRequest", "StudyResult", "StudyService"]

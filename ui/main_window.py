@@ -16,7 +16,7 @@
 #
 # MainWindow owns:
 #     - Qt window construction;
-#     - central application surface;
+#     - central application surface hosting;
 #     - dock-host mechanics;
 #     - plugin registry reference;
 #     - Presentation/UI Controller reference.
@@ -48,8 +48,6 @@ into host operations exposed by this class.
 
 from __future__ import annotations
 
-from typing import Any
-
 from ui.core.qt import (
     QDockWidget,
     QMainWindow,
@@ -77,6 +75,7 @@ class MainWindow(QMainWindow):
         self,
         controller: Controller | None = None,
         plugin_registry: PluginRegistry | None = None,
+        central_surface: QWidget | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -87,7 +86,7 @@ class MainWindow(QMainWindow):
         self._central_widget: QWidget | None = None
 
         self._initialize_window()
-        self._initialize_central_surface()
+        self._initialize_central_surface(central_surface)
 
     @property
     def controller(self) -> Controller | None:
@@ -101,7 +100,7 @@ class MainWindow(QMainWindow):
 
     @property
     def central_surface(self) -> QWidget | None:
-        """Return the central presentation surface."""
+        """Return the canonical central presentation surface."""
         return self._central_widget
 
     def _initialize_window(self) -> None:
@@ -112,26 +111,38 @@ class MainWindow(QMainWindow):
             self.WINDOW_MINIMUM_HEIGHT,
         )
 
-    def _initialize_central_surface(self) -> None:
-        """Initialize the central presentation surface."""
-        central = QWidget(self)
-        central.setObjectName("GridForgeCentralSurface")
-        self._central_widget = central
-        self.setCentralWidget(central)
+    def _initialize_central_surface(
+        self,
+        central_surface: QWidget | None,
+    ) -> None:
+        """Install the already-composed central presentation surface."""
+        if central_surface is None:
+            raise ValueError(
+                "MainWindow requires the canonical CanvasComposition widget."
+            )
+        if not isinstance(central_surface, QWidget):
+            raise TypeError("central_surface must be a QWidget.")
+
+        self._central_widget = central_surface
+        self.setCentralWidget(central_surface)
+
+    # ========================================================
+    # Mechanical Dock Host Contract
+    # ========================================================
 
     def add_dock_widget(
         self,
         area: Qt.DockWidgetArea,
         dock: QDockWidget,
     ) -> None:
-        """Host an already-created dock widget."""
+        """Host an already-created dock widget in a Qt dock area."""
         self.addDockWidget(area, dock)
 
     def remove_dock_widget(
         self,
         dock: QDockWidget,
     ) -> None:
-        """Remove a dock widget from the host."""
+        """Remove a dock widget from the Qt host."""
         self.removeDockWidget(dock)
 
     def set_dock_visible(
@@ -141,6 +152,22 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Set dock visibility without owning workspace policy."""
         dock.setVisible(visible)
+
+    def set_dock_floating(
+        self,
+        dock: QDockWidget,
+        floating: bool,
+    ) -> None:
+        """Set the Qt floating state of an existing dock."""
+        dock.setFloating(floating)
+
+    def tabify_dock_widgets(
+        self,
+        first: QDockWidget,
+        second: QDockWidget,
+    ) -> None:
+        """Tabify two existing docks through the Qt host API."""
+        self.tabifyDockWidget(first, second)
 
 
 __all__ = ["MainWindow"]

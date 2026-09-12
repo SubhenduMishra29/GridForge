@@ -22,10 +22,20 @@ from .workspace_state import WorkspaceState
 class WorkspaceManager:
     """Manage named logical workspaces and their active state."""
 
-    def __init__(self, definitions: Mapping[str, WorkspaceDefinition] | None = None) -> None:
+    def __init__(
+        self,
+        definitions: Mapping[str, WorkspaceDefinition] | None = None,
+        *,
+        default_workspace_id: str | None = None,
+    ) -> None:
         self._definitions: dict[str, WorkspaceDefinition] = {}
         self._active_workspace_id: str | None = None
         self._state: WorkspaceState | None = None
+        self._default_workspace_id = default_workspace_id
+
+        if default_workspace_id is not None:
+            self._validate_workspace_id(default_workspace_id)
+
         if definitions is not None:
             if not isinstance(definitions, Mapping):
                 raise TypeError("definitions must be a mapping.")
@@ -38,9 +48,23 @@ class WorkspaceManager:
                     raise ValueError("definition mapping key must match definition.workspace_id.")
                 self.register(definition)
 
+        if (
+            self._default_workspace_id is not None
+            and self._default_workspace_id not in self._definitions
+        ):
+            raise KeyError(
+                "Default workspace is not registered: "
+                f"{self._default_workspace_id!r}"
+            )
+
     @property
     def active_workspace_id(self) -> str | None:
         return self._active_workspace_id
+
+    @property
+    def default_workspace_id(self) -> str | None:
+        """Return the canonical workspace selected for project activation."""
+        return self._default_workspace_id
 
     @property
     def state(self) -> WorkspaceState | None:
@@ -61,6 +85,8 @@ class WorkspaceManager:
         self._validate_workspace_id(workspace_id)
         if workspace_id == self._active_workspace_id:
             raise RuntimeError("Cannot unregister the active workspace.")
+        if workspace_id == self._default_workspace_id:
+            raise RuntimeError("Cannot unregister the default workspace.")
         return self._definitions.pop(workspace_id, None)
 
     def get(self, workspace_id: str) -> WorkspaceDefinition | None:
@@ -80,6 +106,12 @@ class WorkspaceManager:
             workspace_id=definition.workspace_id,
             layout=WorkspaceLayout(placements=definition.placements),
         )
+
+    def prepare_activate_default(self) -> WorkspaceState:
+        """Prepare activation of the canonical default workspace."""
+        if self._default_workspace_id is None:
+            raise RuntimeError("No default workspace is configured.")
+        return self.prepare_activate(self._default_workspace_id)
 
     def prepare_layout(self, layout: WorkspaceLayout) -> WorkspaceState:
         if not isinstance(layout, WorkspaceLayout):
@@ -115,6 +147,10 @@ class WorkspaceManager:
 
     def activate(self, workspace_id: str) -> WorkspaceState:
         return self.commit(self.prepare_activate(workspace_id))
+
+    def activate_default(self) -> WorkspaceState:
+        """Activate the canonical default workspace."""
+        return self.commit(self.prepare_activate_default())
 
     def set_layout(self, layout: WorkspaceLayout) -> WorkspaceState:
         return self.commit(self.prepare_layout(layout))
