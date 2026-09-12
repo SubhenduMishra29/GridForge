@@ -7,14 +7,23 @@
 # ============================================================
 """Controller for the presentation-owned SLD workflow.
 
-The controller coordinates document structure and interaction state. It does
-not create Qt widgets, mutate the Core electrical network, or perform
-engineering calculations.
+The controller coordinates document structure and interaction state. Persistent
+SLD mutations are submitted to the Application command boundary; the
+controller never mutates the SLD document directly.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+
+from core.application.application import Application
+from core.application.commands.sld_commands import (
+    AddSLDConnectionCommand,
+    AddSLDNodeCommand,
+    RemoveSLDConnectionCommand,
+    RemoveSLDNodeCommand,
+    SetSLDNodePositionCommand,
+)
 
 from .sld_document import SLDDocument
 from .sld_model import SLDConnection, SLDNode
@@ -29,6 +38,7 @@ class SLDController:
         self,
         state: Optional[SLDState] = None,
         projection_manager: Optional[SLDProjectionManager] = None,
+        application: Optional[Application] = None,
     ) -> None:
         self._state = state if state is not None else SLDState()
         self._projection_manager = (
@@ -36,11 +46,16 @@ class SLDController:
             if projection_manager is not None
             else SLDProjectionManager()
         )
+        self._application = application
         self._documents: Dict[str, SLDDocument] = {}
 
     @property
     def state(self) -> SLDState:
         return self._state
+
+    @property
+    def application(self) -> Application:
+        return self._require_application()
 
     @property
     def active_document(self) -> Optional[SLDDocument]:
@@ -81,26 +96,31 @@ class SLDController:
 
     def add_node(self, node: SLDNode) -> None:
         document = self._require_active_document()
-        document.model.add_node(node)
-        document.mark_modified()
+        result = self.application.execute(AddSLDNodeCommand(
+            node_id=node.node_id,
+            equipment_id=node.equipment_id or "",
+            x=node.x,
+            y=node.y,
+        ))
+        if not result.success:
+            raise RuntimeError(result.message)
         self._state.mark_dirty()
 
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
-        """Apply a pure graphical edit through the SLD document boundary."""
-        document = self._require_active_document()
-        document.set_node_position(node_id, x, y)
+        """Submit a persistent graphical edit through the Application boundary."""
+        self._require_active_document()
+        result = self.application.execute(SetSLDNodePositionCommand(
+            node_id=node_id, x=x, y=y
+        ))
+        if not result.success:
+            raise RuntimeError(result.message)
         self._state.mark_dirty()
 
     def arrange_nodes(
         self,
         object_ids: tuple[str, ...] | list[str] | None = None,
     ) -> tuple:
-        """Arrange SLD nodes through the layout/projection boundary.
-
-        Layout calculation remains owned by ``SLDProjectionManager`` and its
-        ``SLDLayout`` policy. Persistent graphical geometry is committed only
-        through this controller's document-edit boundary.
-        """
+        """Arrange SLD nodes through the layout/projection boundary."""
         document = self._require_active_document()
         ids = (
             tuple(node.node_id for node in document.model.nodes)
@@ -114,34 +134,41 @@ class SLDController:
 
         placements = self._projection_manager.arrange(ids)
         for placement in placements:
-            self.set_node_position(
-                placement.object_id,
-                placement.x,
-                placement.y,
-            )
+            self.set_node_position(placement.object_id, placement.x, placement.y)
         return placements
 
     def remove_node(self, node_id: str) -> SLDNode:
         document = self._require_active_document()
-        removed = document.model.remove_node(node_id)
+        node = document.model.get_node(node_id)
+        result = self.application.execute(RemoveSLDNodeCommand(node_id=node_id))
+        if not result.success:
+            raise RuntimeError(result.message)
         self._state.deselect_node(node_id)
-        document.mark_modified()
         self._state.mark_dirty()
-        return removed
+        return node
 
     def add_connection(self, connection: SLDConnection) -> None:
-        document = self._require_active_document()
-        document.model.add_connection(connection)
-        document.mark_modified()
+        self._require_active_document()
+        result = self.application.execute(AddSLDConnectionCommand(
+            connection_id=connection.connection_id,
+            source_node_id=connection.source_node_id,
+            target_node_id=connection.target_node_id,
+        ))
+        if not result.success:
+            raise RuntimeError(result.message)
         self._state.mark_dirty()
 
     def remove_connection(self, connection_id: str) -> SLDConnection:
         document = self._require_active_document()
-        removed = document.model.remove_connection(connection_id)
+        connection = document.model.get_connection(connection_id)
+        result = self.application.execute(RemoveSLDConnectionCommand(
+            connection_id=connection_id
+        ))
+        if not result.success:
+            raise RuntimeError(result.message)
         self._state.deselect_connection(connection_id)
-        document.mark_modified()
         self._state.mark_dirty()
-        return removed
+        return connection
 
     def select_node(self, node_id: str, *, additive: bool = False) -> None:
         document = self._require_active_document()
@@ -181,6 +208,11 @@ class SLDController:
             "interaction_mode": self._state.interaction_mode,
             "dirty": self._state.dirty,
         }
+
+    def _require_application(self) -> Application:
+        if self._application is None:
+            raise RuntimeError("SLDController requires an Application for persistent mutations.")
+        return self._application
 
     def _require_active_document(self) -> SLDDocument:
         document = self.active_document
