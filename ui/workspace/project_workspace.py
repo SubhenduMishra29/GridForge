@@ -122,11 +122,7 @@ class ProjectWorkspaceLifecycle:
 
     def _clear_active_presentation(self) -> None:
         self._document = None
-        # WorkspaceManager deliberately has no global 'close' mutation:
-        # clearing the presentation means removing the active project/document
-        # association while retaining registered workspace definitions.
-        self._workspace_manager._active_workspace_id = None
-        self._workspace_manager._state = None
+        self._workspace_manager.clear_active()
 
 
 __all__ = ["ProjectWorkspaceLifecycle", "ProjectWorkspaceState"]
