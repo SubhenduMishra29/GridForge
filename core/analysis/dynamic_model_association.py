@@ -47,14 +47,8 @@ class DynamicMachineModelAssociation:
             "bus_id": self.bus_id,
             "model_type": self.model_type,
             "mechanical_power": self.mechanical_power,
-            "parameters": {
-                "H": p.H,
-                "Xd_prime": p.Xd_prime,
-                "D": p.D,
-                "Efd": p.Efd,
-                "initial_delta": p.initial_delta,
-                "initial_omega": p.initial_omega,
-            },
+            "parameters": {"H": p.H, "Xd_prime": p.Xd_prime, "D": p.D, "Efd": p.Efd,
+                           "initial_delta": p.initial_delta, "initial_omega": p.initial_omega},
             "metadata": dict(self.metadata),
         }
 
@@ -71,10 +65,8 @@ class DynamicMachineModelAssociation:
             model_type=str(data.get("model_type", "")),
             mechanical_power=float(data.get("mechanical_power", 0.0)),
             parameters=ClassicalMachineParameters(
-                H=float(parameters["H"]),
-                Xd_prime=float(parameters["Xd_prime"]),
-                D=float(parameters.get("D", 0.0)),
-                Efd=float(parameters.get("Efd", 1.0)),
+                H=float(parameters["H"]), Xd_prime=float(parameters["Xd_prime"]),
+                D=float(parameters.get("D", 0.0)), Efd=float(parameters.get("Efd", 1.0)),
                 initial_delta=float(parameters.get("initial_delta", 0.0)),
                 initial_omega=float(parameters.get("initial_omega", 0.0)),
             ),
@@ -92,6 +84,11 @@ class DynamicMachineModelRegistry:
         if not isinstance(association, DynamicMachineModelAssociation):
             raise TypeError("association must be DynamicMachineModelAssociation.")
         self._associations[association.machine_id] = association
+
+    def replace(self, associations: tuple[DynamicMachineModelAssociation, ...]) -> None:
+        if any(not isinstance(item, DynamicMachineModelAssociation) for item in associations):
+            raise TypeError("associations contains an invalid dynamic model association.")
+        self._associations = {item.machine_id: item for item in associations}
 
     def remove(self, machine_id: str) -> None:
         self._associations.pop(str(machine_id), None)
