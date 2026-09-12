@@ -1,7 +1,6 @@
 # ============================================================
 # File: core/application/project_lifecycle.py
 # GridForge V2 — Application Project Lifecycle Service
-# Author: Subhendu Mishra
 # ============================================================
 
 """Application-owned project lifecycle coordination."""
@@ -76,7 +75,7 @@ class ProjectLifecycleService:
 
     def configure_presentation(self, *, presentation: Any, serializer: PresentationSerializer,
                                deserializer: PresentationDeserializer) -> None:
-        """Attach the concrete presentation codec at the UI boundary."""
+        """Attach the concrete presentation document and its persistence codec."""
         if presentation is None:
             raise ValueError("presentation is required.")
         if not callable(serializer) or not callable(deserializer):
@@ -85,12 +84,19 @@ class ProjectLifecycleService:
         self._serialize_presentation = serializer
         self._deserialize_presentation = deserializer
 
+    def attach_presentation(self, presentation: Any) -> None:
+        """Attach the active canonical presentation without replacing its codecs."""
+        if presentation is None:
+            raise ValueError("presentation is required.")
+        self._presentation = presentation
+
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
         network = self._network_factory()
         self._activate_network(network)
         self._network = network
         self._context = context
+        self._presentation = None
         return context
 
     def open_project(self, path: str | Path) -> ProjectContext:
@@ -137,9 +143,6 @@ class ProjectLifecycleService:
 
         self._saver(context, self._network, presentation_data, target)
 
-        # A successful package write establishes the persistence boundary. The
-        # presentation document's own modified flag is local metadata and must
-        # not reopen a clean project as dirty after a round trip.
         mark_clean = getattr(self._presentation, "mark_clean", None)
         if callable(mark_clean):
             mark_clean()
