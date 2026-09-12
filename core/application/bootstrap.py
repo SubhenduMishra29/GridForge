@@ -21,7 +21,7 @@ from core.analysis.transient_network import TransientNetworkSolver
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
 from core.persistence import ProjectPersistenceService
-from core.solver.dynamics import DAESolver, MultiMachineSystem, RK4Integrator, TransientStabilitySolver
+from core.solver.dynamics import DAESolver, Integrator, MultiMachineSystem, TransientStabilitySolver
 from core.solver.power_flow.result import PowerFlowResult
 
 from .application import Application
@@ -150,7 +150,7 @@ def create_application(network: Any) -> Application:
             machine_system,
             network_solver.solve,
             prepared.mechanical_powers,
-            integrator=RK4Integrator(),
+            integrator=Integrator("RK4"),
         )
         solver = TransientStabilitySolver(
             dae_solver,
