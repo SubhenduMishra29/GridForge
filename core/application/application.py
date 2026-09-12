@@ -69,6 +69,15 @@ class Application:
         "model.trip_breaker", "model.put_breaker_in_service", "model.take_breaker_out_of_service",
     })
 
+    # NetworkChanged is deliberately narrower than "any model command".
+    # It invalidates aggregate network/topology projections, not every
+    # electrical-data edit. ElementUpdated remains authoritative for those.
+    _NETWORK_ELEMENT_CREATE_DELETE_TYPES = frozenset({
+        "bus", "line", "cable", "transformer", "switch", "breaker",
+        "disconnector", "fuse", "load", "generator", "synchronous_machine",
+        "motor", "shunt", "capacitor", "reactor", "solar", "battery", "grid",
+    })
+
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
                  event_bus: ApplicationEventBus | None = None,
                  protection_read_service: ProtectionReadService | None = None,
@@ -346,7 +355,6 @@ class Application:
 
     def _publish_history_events(self, command: Command | None, result: ApplicationResult, *, operation: str) -> None:
         if command is None:
-            self._publish_network_only_result(result, operation=operation)
             return
         self._publish_semantic_events(command, result, operation=operation)
 
@@ -370,25 +378,36 @@ class Application:
             self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, changes=metadata))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
+        """Publish NetworkChanged only for commands that invalidate network state.
+
+        The event is an aggregate network-projection invalidation. Electrical
+        parameter edits remain ElementUpdated-only unless their command also
+        changes connectivity/state represented by _TOPOLOGY_COMMANDS.
+        Project metadata, persistence operations, and study execution never
+        reach this method because they are not model commands.
+        """
+        if not self._is_network_change_command(command):
+            return
         operation = str(metadata.get("operation", "execute"))
         if self._is_topology_command(command):
             self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata))
         self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata))
 
-    def _publish_network_only_result(self, result: ApplicationResult, *, operation: str) -> None:
-        self._event_bus.publish(NetworkChanged(operation=operation, metadata={"message": result.message}))
-
-    def _require_read_service(self) -> None:
-        if self._read_service is None:
-            raise RuntimeError("Application read service is not configured.")
-
-    def _require_protection_read_service(self) -> None:
-        if self._protection_read_service is None:
-            raise RuntimeError("Application protection read service is not configured.")
-
     @classmethod
-    def _is_topology_command(cls, command: Command) -> bool:
-        if command.command_type in cls._TOPOLOGY_COMMANDS:
+    def _is_network_change_command(cls, command: Command) -> bool:
+        if not command.command_type.startswith("model."):
+            return False
+        if cls._is_topology_command(command):
+            return True
+        action = cls._action_from_command_type(command.command_type)
+        if action not in {"create", "delete"}:
+            return False
+        element_type = cls._element_type(command)
+        return element_type in cls._NETWORK_ELEMENT_CREATE_DELETE_TYPES
+
+    @staticmethod
+    def _is_topology_command(command: Command) -> bool:
+        if command.command_type in Application._TOPOLOGY_COMMANDS:
             return True
         if command.command_type == "model.update_breaker":
             payload = command.payload
@@ -428,5 +447,10 @@ class Application:
                     break
         return str(value) if value is not None else None
 
+    def _require_read_service(self) -> None:
+        if self._read_service is None:
+            raise RuntimeError("Application read service is not configured.")
 
-__all__ = ["Application", "StudyRequest", "StudyResult", "StudyService"]
+    def _require_protection_read_service(self) -> None:
+        if self._protection_read_service is None:
+            raise RuntimeError("Application protection read service is not configured.")
