@@ -60,6 +60,13 @@ class WorkspaceController:
         self._realizer.realize(candidate.layout)
         return self._manager.commit(candidate)
 
+    def activate_default(self) -> WorkspaceState:
+        """Realize and activate the canonical project workspace."""
+        self._ensure_open()
+        candidate = self._manager.prepare_activate_default()
+        self._realizer.realize(candidate.layout)
+        return self._manager.commit(candidate)
+
     def apply_layout(self, layout: WorkspaceLayout) -> WorkspaceState:
         self._ensure_open()
         candidate = self._manager.prepare_layout(layout)
@@ -77,6 +84,7 @@ class WorkspaceController:
         if self._closed:
             return
         self._realizer.clear_realization()
+        self._manager.clear_active()
         self._closed = True
 
     def _ensure_open(self) -> None:
