@@ -13,11 +13,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from uuid import UUID
 
 from core.application import Application
 from core.application.project import ProjectContext
 
+from .document import Document
 from .project import Project
 from .project_workspace import ProjectWorkspaceLifecycle, ProjectWorkspaceState
 
@@ -78,7 +78,12 @@ class ProjectWorkspaceApplicationAdapter:
 
     def open_project(self, path: str) -> ProjectContext:
         context = self._application.open_project(path)
-        state = self._lifecycle.open_project(self._to_ui_project(context))
+        presentation = self._application.presentation
+        document = presentation if isinstance(presentation, Document) else None
+        state = self._lifecycle.open_project(
+            self._to_ui_project(context),
+            document=document,
+        )
         self._publish("open", state, context.project_id)
         return context
 
