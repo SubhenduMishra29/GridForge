@@ -76,9 +76,37 @@ def build_application() -> tuple[
 
     sld_controller = SLDController(
         projection_manager=sld_projection_manager,
+        application=gridforge_application,
     )
     sld_controller.register_document(sld_document)
     sld_controller.activate_document(sld_document.document_id)
+
+    def serialize_sld(document: SLDDocument) -> dict:
+        """Use the existing SLDDocument persistence contract."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Persistent presentation must be an SLDDocument")
+        return document.to_dict()
+
+    def deserialize_sld(data: dict) -> SLDDocument:
+        """Restore the SLD document and replace the active UI document."""
+        document = SLDDocument.from_dict(data)
+        if document.project_id not in (None, project.project_id):
+            raise ValueError("Loaded SLD document belongs to a different project")
+        old_document = sld_controller.active_document
+        if old_document is not None:
+            try:
+                workspace.remove_document(old_document.document_id)
+            except KeyError:
+                pass
+        workspace.add_document(document)
+        sld_controller.replace_document(document)
+        return document
+
+    gridforge_application.configure_project_presentation(
+        presentation=sld_document,
+        serializer=serialize_sld,
+        deserializer=deserialize_sld,
+    )
 
     from ui.workspace.view_manager import ViewRecord
 
