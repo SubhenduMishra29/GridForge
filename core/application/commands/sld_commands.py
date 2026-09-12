@@ -22,12 +22,14 @@ class SetSLDNodePositionCommand(Command):
     def __init__(self, *, node_id: str, x: float, y: float,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
-        super().__init__(command_type=SET_SLD_NODE_POSITION, payload={"node_id": node_id, "x": float(x), "y": float(y)},
+        super().__init__(command_type=SET_SLD_NODE_POSITION,
+                         payload={"node_id": node_id, "x": float(x), "y": float(y)},
                          command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
 class AddSLDNodeCommand(Command):
-    def __init__(self, *, node_id: str, equipment_id: str, x: float = 0.0, y: float = 0.0,
+    def __init__(self, *, node_id: str, equipment_id: str | None = None,
+                 x: float = 0.0, y: float = 0.0,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(command_type=ADD_SLD_NODE,
