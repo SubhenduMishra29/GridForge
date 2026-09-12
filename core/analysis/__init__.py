@@ -26,6 +26,7 @@ from core.analysis.power_flow_result_conversion import (
 from core.analysis.line_flow import LineFlowCalculator, LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowCalculator
 from core.analysis.short_circuit import ShortCircuitAnalysis, ShortCircuitAnalyzer, FaultType
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
 from core.analysis.sequence_network_preparation import SequenceNetworkPreparation
 from core.analysis.contingency import (
@@ -51,6 +52,7 @@ __all__ = [
     "TransformerFlowCalculator",
     "ShortCircuitAnalysis",
     "ShortCircuitAnalyzer",
+    "ShortCircuitStudyConfiguration",
     "ShortCircuitPreparation",
     "SequenceNetworkPreparation",
     "FaultType",
