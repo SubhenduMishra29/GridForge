@@ -34,6 +34,7 @@ from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
 from .revision import ProjectRevision
 from .revision_service import RevisionService
+from .services.sld_service import SLDService
 from .services.validation_service import ValidationService
 from .validation import ValidationResult
 
@@ -59,7 +60,8 @@ class Application:
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
                  event_bus: ApplicationEventBus | None = None,
                  protection_read_service: ProtectionReadService | None = None,
-                 validation_service: ValidationService | None = None) -> None:
+                 validation_service: ValidationService | None = None,
+                 sld_service: SLDService | None = None) -> None:
         if not isinstance(command_manager, CommandManager):
             raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService):
@@ -70,10 +72,13 @@ class Application:
             raise TypeError("Application protection_read_service must be a ProtectionReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService):
             raise TypeError("Application validation_service must be a ValidationService.")
+        if sld_service is not None and not isinstance(sld_service, SLDService):
+            raise TypeError("Application sld_service must be an SLDService.")
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
         self._validation_service = validation_service
+        self._sld_service = sld_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._revision_service = RevisionService()
@@ -119,6 +124,13 @@ class Application:
             raise RuntimeError("Application validation service is not configured.")
         return self._validation_service
 
+    @property
+    def sld_service(self) -> SLDService:
+        """Return the Application-owned SLD presentation authority."""
+        if self._sld_service is None:
+            raise RuntimeError("Application SLD service is not configured.")
+        return self._sld_service
+
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
         """Attach the single Application-owned project lifecycle authority."""
         if not isinstance(service, ProjectLifecycleService):
@@ -126,6 +138,14 @@ class Application:
         if self._project_lifecycle is not None and self._project_lifecycle is not service:
             raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
+
+    def attach_sld_service(self, service: SLDService) -> None:
+        """Attach the single Application-owned SLD presentation authority."""
+        if not isinstance(service, SLDService):
+            raise TypeError("service must be an SLDService.")
+        if self._sld_service is not None and self._sld_service is not service:
+            raise RuntimeError("Application SLD service is already configured.")
+        self._sld_service = service
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         return self.project_lifecycle.new_project(name, project_id=project_id)
@@ -149,12 +169,8 @@ class Application:
             self._revision_service.reset_for_project()
         return context
 
-    def _replace_runtime(
-        self,
-        command_manager: CommandManager,
-        read_service: ReadService,
-        validation_service: ValidationService | None = None,
-    ) -> None:
+    def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService,
+                         validation_service: ValidationService | None = None) -> None:
         """Replace command/read/validation runtime when a project Network becomes active."""
         if not isinstance(command_manager, CommandManager):
             raise TypeError("command_manager must be a CommandManager.")
@@ -181,65 +197,58 @@ class Application:
     def validate_project(self) -> ValidationResult:
         """Validate authoritative Core state and publish the resulting state."""
         result = self.validation_service.validate_project()
-        self._event_bus.publish(
-            ValidationChanged(
-                metadata={
-                    "valid": result.valid,
-                    "errors": result.summary.errors,
-                    "warnings": result.summary.warnings,
-                    "model_revision": result.model_revision,
-                    "topology_revision": result.topology_revision,
-                }
-            )
-        )
+        self._event_bus.publish(ValidationChanged(metadata={
+            "valid": result.valid,
+            "errors": result.summary.errors,
+            "warnings": result.summary.warnings,
+            "model_revision": result.model_revision,
+            "topology_revision": result.topology_revision,
+        }))
         return result
 
     def read_validation(self) -> ValidationResult | None:
         """Return the latest Application validation snapshot."""
         return self.validation_service.read_validation()
 
-    def execute_control_cycle(
-        self,
-        control_engine: ControlEngine,
-        *,
-        simulation_time: float | None = None,
-        external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
-        context: ControlExecutionContext | None = None,
-        interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None,
-    ) -> ControlCycleResult:
+    def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None,
+                              external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
+                              context: ControlExecutionContext | None = None,
+                              interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None) -> ControlCycleResult:
         """Evaluate Control intent and execute permitted decisions through Application."""
         cycle = ControlCycleService(control_engine, self._control_execution)
-        return cycle.execute(
-            simulation_time=simulation_time,
-            external_inputs=external_inputs,
-            context=context,
-            interlock_inputs=interlock_inputs,
-        )
+        return cycle.execute(simulation_time=simulation_time, external_inputs=external_inputs,
+                             context=context, interlock_inputs=interlock_inputs)
 
     def execute(self, command: Command) -> ApplicationResult:
-        """Execute a command and publish semantic events only after success/commit."""
+        """Execute an engineering or presentation command through Application."""
         if not isinstance(command, Command):
             raise TypeError("Application.execute requires a Command.")
+        if command.command_type.startswith("sld."):
+            result = self.sld_service.execute(command)
+            if result.success:
+                self._revision_service.record_presentation_change()
+            return result
         result = self._command_manager.execute(command)
         if result.success:
             self._revision_service.record_command_success(command)
             if self._validation_service is not None:
                 self._validation_service.invalidate()
-                self._event_bus.publish(
-                    ValidationChanged(
-                        metadata={"valid": False, "invalidated": True}
-                    )
-                )
+                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True}))
             self._publish_semantic_events(command, result, operation="execute")
         return result
 
     def supports(self, command_type: str) -> bool:
         if not isinstance(command_type, str):
             return False
+        if self._sld_service is not None and command_type in SLDService.COMMAND_TYPES:
+            return True
         return self._command_manager.is_registered(command_type)
 
     def command_types(self) -> tuple[str, ...]:
-        return self._command_manager.registered_commands
+        model_commands = self._command_manager.registered_commands
+        if self._sld_service is None:
+            return model_commands
+        return tuple(model_commands) + tuple(sorted(SLDService.COMMAND_TYPES))
 
     def undo(self) -> ApplicationResult | None:
         """Undo and publish the semantic inverse of the original command."""
@@ -307,11 +316,7 @@ class Application:
         return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
-        metadata = {
-            "command_id": str(command.command_id),
-            "message": result.message,
-            "operation": operation,
-        }
+        metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation}
         self._publish_model_event(command, metadata, operation=operation)
         self._publish_network_changed(command, metadata)
 
@@ -330,56 +335,37 @@ class Application:
         element_id = self._element_id(command)
         if element_type is None or element_id is None:
             return
-
         effective_action = action
         if operation == "undo":
             effective_action = {"create": "delete", "delete": "create"}.get(action, action)
-
         if effective_action == "create":
-            self._event_bus.publish(ElementCreated(
-                element_id=element_id, element_type=element_type,
-                correlation_id=command.correlation_id,
-                causation_id=command.causation_id, metadata=metadata,
-            ))
+            self._event_bus.publish(ElementCreated(element_id=element_id, element_type=element_type,
+                                                   correlation_id=command.correlation_id,
+                                                   causation_id=command.causation_id, metadata=metadata))
         elif effective_action == "delete":
-            self._event_bus.publish(ElementRemoved(
-                element_id=element_id, element_type=element_type,
-                correlation_id=command.correlation_id,
-                causation_id=command.causation_id, metadata=metadata,
-            ))
+            self._event_bus.publish(ElementRemoved(element_id=element_id, element_type=element_type,
+                                                   correlation_id=command.correlation_id,
+                                                   causation_id=command.causation_id, metadata=metadata))
         elif effective_action in {"update", "open", "close", "put", "take", "blow", "reset"}:
-            changes = {
-                key: value for key, value in command.payload.items()
-                if key != self._id_key(command) and value is not None
-            }
-            self._event_bus.publish(ElementUpdated(
-                element_id=element_id, element_type=element_type,
-                changes=changes, correlation_id=command.correlation_id,
-                causation_id=command.causation_id,
-            ))
-
+            changes = {key: value for key, value in command.payload.items()
+                       if key != self._id_key(command) and value is not None}
+            self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type,
+                                                   changes=changes, correlation_id=command.correlation_id,
+                                                   causation_id=command.causation_id))
         if command.command_type in self._TOPOLOGY_COMMANDS:
-            self._event_bus.publish(TopologyChanged(
-                operation=command.command_type,
-                correlation_id=command.correlation_id,
-                causation_id=command.causation_id, metadata=metadata,
-            ))
+            self._event_bus.publish(TopologyChanged(operation=command.command_type,
+                                                    correlation_id=command.correlation_id,
+                                                    causation_id=command.causation_id, metadata=metadata))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
-        self._event_bus.publish(NetworkChanged(
-            operation=command.command_type,
-            correlation_id=command.correlation_id,
-            causation_id=command.causation_id,
-            metadata=metadata,
-        ))
+        self._event_bus.publish(NetworkChanged(operation=command.command_type,
+                                               correlation_id=command.correlation_id,
+                                               causation_id=command.causation_id, metadata=metadata))
 
     def _publish_network_only_result(self, result: ApplicationResult, *, operation: str) -> None:
         metadata = dict(result.metadata)
         metadata["operation"] = operation
-        self._event_bus.publish(NetworkChanged(
-            operation=str(metadata.get("command_type", operation)),
-            metadata=metadata,
-        ))
+        self._event_bus.publish(NetworkChanged(operation=str(metadata.get("command_type", operation)), metadata=metadata))
 
     @staticmethod
     def _action_from_command_type(command_type: str) -> str:
@@ -396,10 +382,8 @@ class Application:
 
     @staticmethod
     def _id_key(command: Command) -> str | None:
-        candidates = [
-            key for key in command.payload
-            if key.endswith("_id") and key not in {"command_id", "correlation_id", "causation_id"}
-        ]
+        candidates = [key for key in command.payload
+                      if key.endswith("_id") and key not in {"command_id", "correlation_id", "causation_id"}]
         return candidates[0] if candidates else None
 
     @staticmethod
