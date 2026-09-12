@@ -190,6 +190,7 @@ def build_application() -> tuple[
         if isinstance(document, SLDDocument):
             sld_controller.replace_document(document)
             sld_controller.activate_document(document.document_id)
+            synchronize_canvas()
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
 
