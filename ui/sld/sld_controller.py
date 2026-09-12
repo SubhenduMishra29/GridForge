@@ -24,6 +24,7 @@ from core.application.commands.sld_commands import (
     RemoveSLDNodeCommand,
     SetSLDNodePositionCommand,
 )
+from core.application.services.sld_service import SLDService
 
 from .sld_document import SLDDocument
 from .sld_model import SLDConnection, SLDNode
@@ -41,11 +42,7 @@ class SLDController:
         application: Optional[Application] = None,
     ) -> None:
         self._state = state if state is not None else SLDState()
-        self._projection_manager = (
-            projection_manager
-            if projection_manager is not None
-            else SLDProjectionManager()
-        )
+        self._projection_manager = projection_manager if projection_manager is not None else SLDProjectionManager()
         self._application = application
         self._documents: Dict[str, SLDDocument] = {}
 
@@ -88,6 +85,11 @@ class SLDController:
             raise KeyError(document_id)
         self._state.active_document_id = document_id
         self._state.clear_selection()
+        if self._application is not None:
+            try:
+                self._application.sld_service.bind_document(document)
+            except RuntimeError:
+                self._application.attach_sld_service(SLDService(document))
         return document
 
     @property
@@ -95,7 +97,7 @@ class SLDController:
         return len(self._documents)
 
     def add_node(self, node: SLDNode) -> None:
-        document = self._require_active_document()
+        self._require_active_document()
         result = self.application.execute(AddSLDNodeCommand(
             node_id=node.node_id,
             equipment_id=node.equipment_id or "",
@@ -109,29 +111,18 @@ class SLDController:
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
         """Submit a persistent graphical edit through the Application boundary."""
         self._require_active_document()
-        result = self.application.execute(SetSLDNodePositionCommand(
-            node_id=node_id, x=x, y=y
-        ))
+        result = self.application.execute(SetSLDNodePositionCommand(node_id=node_id, x=x, y=y))
         if not result.success:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
 
-    def arrange_nodes(
-        self,
-        object_ids: tuple[str, ...] | list[str] | None = None,
-    ) -> tuple:
+    def arrange_nodes(self, object_ids: tuple[str, ...] | list[str] | None = None) -> tuple:
         """Arrange SLD nodes through the layout/projection boundary."""
         document = self._require_active_document()
-        ids = (
-            tuple(node.node_id for node in document.model.nodes)
-            if object_ids is None
-            else tuple(object_ids)
-        )
-
+        ids = tuple(node.node_id for node in document.model.nodes) if object_ids is None else tuple(object_ids)
         for node_id in ids:
             if not document.model.has_node(node_id):
                 raise KeyError(node_id)
-
         placements = self._projection_manager.arrange(ids)
         for placement in placements:
             self.set_node_position(placement.object_id, placement.x, placement.y)
@@ -161,9 +152,7 @@ class SLDController:
     def remove_connection(self, connection_id: str) -> SLDConnection:
         document = self._require_active_document()
         connection = document.model.get_connection(connection_id)
-        result = self.application.execute(RemoveSLDConnectionCommand(
-            connection_id=connection_id
-        ))
+        result = self.application.execute(RemoveSLDConnectionCommand(connection_id=connection_id))
         if not result.success:
             raise RuntimeError(result.message)
         self._state.deselect_connection(connection_id)
