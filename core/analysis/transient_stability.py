@@ -66,7 +66,10 @@ class TransientStabilityAnalysis:
         self.result: TransientStabilityStudyResult | None = None
 
     def run(self) -> TransientStabilityStudyResult:
-        """Initialize the configured solver and execute the study."""
+        """Apply the immutable study configuration and execute the study."""
+        self.solver.start_time = self.configuration.start_time
+        self.solver.end_time = self.configuration.end_time
+        self.solver.dt = self.configuration.dt
         self.solver.initialize(self.initial_state, time=self.configuration.start_time)
         numerical = self.solver.run(record_initial=True)
         self.result = TransientStabilityStudyResult(numerical)

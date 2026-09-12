@@ -3,16 +3,18 @@ GridForge Dynamic Solver
 ========================
 
 Public package exports for the current dynamic solver implementation.
-
-Author: Subhendu Mishra
 """
 
 from .state_vector import DynamicState
 from .integrator import Integrator, RK4Integrator, TrapezoidalIntegrator
 from .swing_equation import SwingEquation
-from .machine_models import ClassicalMachine
+from .machine_models import (
+    ClassicalMachineParameters,
+    ClassicalSynchronousMachine,
+    MachineElectricalOutput,
+)
 from .multimachine import MultiMachineSystem
-from .events import Event, EventExecution, EventManager
+from .events import EventExecution, EventManager, SimulationEvent
 from .dae_solver import (
     NetworkSolver,
     MechanicalPowerMap,
@@ -35,9 +37,11 @@ __all__ = [
     "RK4Integrator",
     "TrapezoidalIntegrator",
     "SwingEquation",
-    "ClassicalMachine",
+    "ClassicalMachineParameters",
+    "ClassicalSynchronousMachine",
+    "MachineElectricalOutput",
     "MultiMachineSystem",
-    "Event",
+    "SimulationEvent",
     "EventExecution",
     "EventManager",
     "NetworkSolver",

@@ -104,7 +104,10 @@ class DynamicInitialStatePreparation:
         magnitude = float(power_flow_result.voltage_magnitudes[bus_index])
         angle = float(power_flow_result.voltage_angles[bus_index])
         terminal_voltage = cmath.rect(magnitude, angle)
-        electrical_power = complex(machine.mechanical_power, 0.0)
+        electrical_power = complex(
+            power_flow_input.p_spec[bus_index],
+            power_flow_input.q_spec[bus_index],
+        )
 
         params = machine.parameters
         current = (

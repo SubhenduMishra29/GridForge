@@ -17,74 +17,86 @@ from .sequence_network_preparation import SequenceNetworkPreparation
 
 
 class ShortCircuitPreparation:
-    """Prepare a detached Short-Circuit numerical problem from Core."""
+    """Prepare a detached Short-Circuit numerical problem from Core.
+
+    The Network and sequence-network inputs are retained only for the duration
+    of ``prepare`` and are released afterwards so the preparation object cannot
+    become a long-lived holder of live Core state.
+    """
 
     def __init__(self, network: Any, sequence_network: Optional[Any] = None, *, base_mva: float | None = None) -> None:
         if network is None or not hasattr(network, "buses"):
             raise ValueError("Short Circuit preparation requires a Network with buses.")
         if len(network.buses) == 0:
             raise ValueError("Short Circuit preparation requires at least one bus.")
-        self.network = network
-        self.sequence_network = sequence_network
+        self._network = network
+        self._sequence_network = sequence_network
         self.base_mva = base_mva
 
     def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None) -> ShortCircuitInput:
-        normalized_type = FaultType.from_value(fault_type)
-        bus_ids = tuple(str(bus.id) for bus in self.network.buses)
-        if len(set(bus_ids)) != len(bus_ids):
-            raise ValueError("Network bus IDs must be unique for Short Circuit preparation.")
-        bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
-        prefault_voltages = tuple(self._prepare_prefault_voltage(index) for index in range(len(bus_ids)))
-        prefault_voltage = prefault_voltages[bus_index]
-        snapshot = self._prepare_sequence_snapshot(normalized_type, bus_ids)
+        network = self._network
+        if network is None:
+            raise RuntimeError("Short Circuit preparation has already been consumed.")
+        try:
+            normalized_type = FaultType.from_value(fault_type)
+            bus_ids = tuple(str(bus.id) for bus in network.buses)
+            if len(set(bus_ids)) != len(bus_ids):
+                raise ValueError("Network bus IDs must be unique for Short Circuit preparation.")
+            bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
+            prefault_voltages = tuple(self._prepare_prefault_voltage(network, index) for index in range(len(bus_ids)))
+            prefault_voltage = prefault_voltages[bus_index]
+            snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids)
 
-        positive_matrix = snapshot.get_matrix("positive")
-        zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
-        thevenin_impedance = complex(positive_matrix[bus_index, bus_index])
+            positive_matrix = snapshot.get_matrix("positive")
+            zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
+            thevenin_impedance = complex(positive_matrix[bus_index, bus_index])
 
-        if elements is None:
-            sequence_elements = tuple(str(element_id) for element_id in snapshot.positive.keys())
-        else:
-            sequence_elements = tuple(str(getattr(element, "id", element)) for element in elements)
-        if normalized_type.is_unbalanced:
-            for name in ("positive", "negative", "zero"):
-                if not snapshot.has_matrix(name):
-                    raise ValueError(f"{name.capitalize()}-sequence matrix is required for an unsymmetrical fault study.")
-            if not sequence_elements:
-                raise ValueError("At least one sequence-network element is required for an unsymmetrical fault study.")
+            if elements is None:
+                sequence_elements = tuple(str(element_id) for element_id in snapshot.positive.keys())
+            else:
+                sequence_elements = tuple(str(getattr(element, "id", element)) for element in elements)
+            if normalized_type.is_unbalanced:
+                for name in ("positive", "negative", "zero"):
+                    if not snapshot.has_matrix(name):
+                        raise ValueError(f"{name.capitalize()}-sequence matrix is required for an unsymmetrical fault study.")
+                if not sequence_elements:
+                    raise ValueError("At least one sequence-network element is required for an unsymmetrical fault study.")
 
-        return ShortCircuitInput(
-            fault_type=normalized_type,
-            fault_bus_index=bus_index,
-            fault_bus_id=bus_ids[bus_index],
-            prefault_voltage=prefault_voltage,
-            fault_impedance=complex(Zf),
-            bus_ids=bus_ids,
-            thevenin_impedance=thevenin_impedance,
-            zbus=zbus,
-            sequence_snapshot=snapshot,
-            sequence_elements=sequence_elements,
-            prefault_voltages=prefault_voltages,
-        )
+            return ShortCircuitInput(
+                fault_type=normalized_type,
+                fault_bus_index=bus_index,
+                fault_bus_id=bus_ids[bus_index],
+                prefault_voltage=prefault_voltage,
+                fault_impedance=complex(Zf),
+                bus_ids=bus_ids,
+                thevenin_impedance=thevenin_impedance,
+                zbus=zbus,
+                sequence_snapshot=snapshot,
+                sequence_elements=sequence_elements,
+                prefault_voltages=prefault_voltages,
+            )
+        finally:
+            self._network = None
+            self._sequence_network = None
 
-    def _prepare_sequence_snapshot(self, fault_type: FaultType, bus_ids: tuple[str, ...]) -> SequenceNetworkSnapshot:
-        if self.sequence_network is not None:
-            sequence_network = self.sequence_network
+    def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...]) -> SequenceNetworkSnapshot:
+        if self._sequence_network is not None:
+            sequence_network = self._sequence_network
         else:
             required = ("positive", "negative", "zero") if fault_type.is_unbalanced else ("positive",)
-            sequence_network = SequenceNetworkPreparation(self.network, base_mva=self.base_mva).prepare(required)
+            sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva).prepare(required)
         return SequenceNetworkSnapshot.from_sequence_network(
             sequence_network,
             bus_ids=bus_ids,
-            branches=self._prepare_branch_snapshots(sequence_network, bus_ids),
-            sources=self._prepare_source_snapshots(sequence_network, bus_ids),
+            branches=self._prepare_branch_snapshots(network, sequence_network, bus_ids),
+            sources=self._prepare_source_snapshots(network, sequence_network, bus_ids),
         )
 
-    def _prepare_branch_snapshots(self, sequence_network: Any, bus_ids: tuple[str, ...]) -> tuple[SequenceBranchSnapshot, ...]:
+    def _prepare_branch_snapshots(self, network: Any, sequence_network: Any, bus_ids: tuple[str, ...]) -> tuple[SequenceBranchSnapshot, ...]:
         index = {bus_id: position for position, bus_id in enumerate(bus_ids)}
         records: list[SequenceBranchSnapshot] = []
         seen: set[str] = set()
-        for element in self._branch_elements():
+        for element in self._branch_elements(network):
             if not bool(getattr(element, "in_service", True)):
                 continue
             bus_a, bus_b = self._end_buses(element)
@@ -116,10 +128,10 @@ class ShortCircuitPreparation:
             seen.add(branch_id)
         return tuple(records)
 
-    def _prepare_source_snapshots(self, sequence_network: Any, bus_ids: tuple[str, ...]) -> tuple[SequenceSourceSnapshot, ...]:
+    def _prepare_source_snapshots(self, network: Any, sequence_network: Any, bus_ids: tuple[str, ...]) -> tuple[SequenceSourceSnapshot, ...]:
         index = {bus_id: position for position, bus_id in enumerate(bus_ids)}
         records: list[SequenceSourceSnapshot] = []
-        for source in self._source_elements():
+        for source in self._source_elements(network):
             if not bool(getattr(source, "in_service", True)):
                 continue
             bus = self._single_bus(source)
@@ -175,17 +187,19 @@ class ShortCircuitPreparation:
             return None
         return magnitude * cmath.exp(1j * angle)
 
-    def _source_elements(self) -> list[Any]:
+    @staticmethod
+    def _source_elements(network: Any) -> list[Any]:
         result: list[Any] = []
         for collection_name in ("grids", "generators", "synchronous_machines", "motors"):
-            result.extend(getattr(self.network, collection_name, ()) or ())
+            result.extend(getattr(network, collection_name, ()) or ())
         return result
 
-    def _branch_elements(self) -> list[Any]:
+    @staticmethod
+    def _branch_elements(network: Any) -> list[Any]:
         result: list[Any] = []
         seen: set[int] = set()
         for collection_name in ("lines", "cables", "transformers"):
-            for element in getattr(self.network, collection_name, ()) or ():
+            for element in getattr(network, collection_name, ()) or ():
                 if id(element) not in seen:
                     seen.add(id(element))
                     result.append(element)
@@ -203,8 +217,9 @@ class ShortCircuitPreparation:
         terminal = getattr(element, "terminal", None)
         return None if terminal is None else resolve_terminal_bus(terminal)
 
-    def _prepare_prefault_voltage(self, bus_index: int) -> complex:
-        bus = self.network.buses[bus_index]
+    @staticmethod
+    def _prepare_prefault_voltage(network: Any, bus_index: int) -> complex:
+        bus = network.buses[bus_index]
         try:
             magnitude = float(bus.V)
             angle = float(bus.theta)

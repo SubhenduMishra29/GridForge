@@ -1,6 +1,6 @@
 # ============================================================
-# File: core/application/bootstrap.py
 # GridForge V2 — Application Composition Root
+# ============================================================
 # Author: Subhendu Mishra
 # ============================================================
 
@@ -11,6 +11,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from core.analysis.power_flow import PowerFlowAnalysis
+from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+from core.analysis.short_circuit import ShortCircuitAnalysis
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.dynamic_model_association import DynamicMachineModelRegistry
 from core.network import Network
 from core.persistence import ProjectPersistenceService
@@ -24,6 +28,8 @@ from .project_lifecycle import ProjectLifecycleService
 from .read_service import NetworkReadService
 from .services.model_service import ModelService
 from .services.validation_service import ValidationService
+from .study import StudyRequest, StudyCancellationToken
+from .study_preparation import StudyPreparationService
 
 
 def create_application(network: Any) -> Application:
@@ -84,6 +90,44 @@ def create_application(network: Any) -> Application:
         saver=save_project,
     )
     application.attach_project_lifecycle(lifecycle)
+
+    study_preparation = StudyPreparationService(lambda: lifecycle.network)
+
+    def study_configuration(request: StudyRequest, expected_type: type[Any]) -> Any:
+        """Extract one immutable Core study configuration from the request."""
+        configuration = request.configuration.get("configuration", request.configuration)
+        if not isinstance(configuration, expected_type):
+            raise TypeError(
+                f"{request.study_type!r} requires {expected_type.__name__}; "
+                f"received {type(configuration).__name__}."
+            )
+        return configuration
+
+    def run_power_flow(request: StudyRequest, token: StudyCancellationToken) -> Any:
+        if token.cancelled:
+            return None
+        configuration = study_configuration(request, PowerFlowStudyConfiguration)
+        prepared = study_preparation.prepare_power_flow(configuration)
+        if token.cancelled:
+            return None
+        analysis = PowerFlowAnalysis.from_prepared(prepared)
+        analysis.solve()
+        if token.cancelled:
+            return None
+        return analysis.to_engineering_result()
+
+    def run_short_circuit(request: StudyRequest, token: StudyCancellationToken) -> Any:
+        if token.cancelled:
+            return None
+        configuration = study_configuration(request, ShortCircuitStudyConfiguration)
+        prepared = study_preparation.prepare_short_circuit(configuration)
+        if token.cancelled:
+            return None
+        analysis = ShortCircuitAnalysis.from_prepared(prepared)
+        return analysis.run()
+
+    application.study_service.register("power_flow", run_power_flow)
+    application.study_service.register("short_circuit", run_short_circuit)
     return application
 
 
