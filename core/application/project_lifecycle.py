@@ -75,7 +75,7 @@ class ProjectLifecycleService:
 
     def configure_presentation(self, *, presentation: Any, serializer: PresentationSerializer,
                                deserializer: PresentationDeserializer) -> None:
-        """Attach the concrete presentation document and its persistence codec."""
+        """Attach the concrete presentation codec at the UI boundary."""
         if presentation is None:
             raise ValueError("presentation is required.")
         if not callable(serializer) or not callable(deserializer):
@@ -83,12 +83,6 @@ class ProjectLifecycleService:
         self._presentation = presentation
         self._serialize_presentation = serializer
         self._deserialize_presentation = deserializer
-
-    def attach_presentation(self, presentation: Any) -> None:
-        """Attach the active canonical presentation without replacing its codecs."""
-        if presentation is None:
-            raise ValueError("presentation is required.")
-        self._presentation = presentation
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
