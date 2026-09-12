@@ -34,7 +34,6 @@ from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import SLD_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
-from ui.workspace.view_manager import ViewRecord
 
 
 def build_application() -> tuple[
@@ -247,14 +246,6 @@ def build_application() -> tuple[
         refresh=sld_update_coordinator.refresh,
     )
     ui_update_boundary.subscribe()
-
-    project_workspace_lifecycle.add_view(
-        ViewRecord(
-            view_id="sld-view",
-            document_id=sld_document.document_id,
-            view_type="sld",
-        )
-    )
 
     ui_lifecycle = UILifecycle(
         workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
