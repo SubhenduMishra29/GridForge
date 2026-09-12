@@ -3,14 +3,21 @@
 # GridForge V2 — SLD Update Coordinator
 # Author: Subhendu Mishra
 # ============================================================
-"""Coordinate Application read refreshes into the active SLD presentation."""
+"""Coordinate Application semantic events into the active SLD projection."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
 from core.application.application import Application
-from core.application.events import ApplicationEvent, NetworkChanged
+from core.application.events import (
+    ApplicationEvent,
+    ElementCreated,
+    ElementRemoved,
+    ElementUpdated,
+    NetworkChanged,
+    TopologyChanged,
+)
 
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
@@ -19,7 +26,21 @@ CanvasRefresh = Callable[[], None]
 
 
 class SLDUpdateCoordinator:
-    """Apply authoritative Application changes to the active SLD projection."""
+    """Apply authoritative Application semantic facts to the active SLD projection.
+
+    Semantic element/topology events are the authoritative invalidation signal.
+    NetworkChanged is an aggregate network-state invalidation signal and may
+    coalesce several semantic changes, but it is never used to represent an
+    arbitrary successful Application command.
+    """
+
+    _PRESENTATION_EVENTS = (
+        ElementCreated,
+        ElementUpdated,
+        ElementRemoved,
+        TopologyChanged,
+        NetworkChanged,
+    )
 
     def __init__(self, *, application: Application, document: SLDDocument,
                  synchronizer: SLDReadSynchronizer, canvas_refresh: CanvasRefresh) -> None:
@@ -45,11 +66,14 @@ class SLDUpdateCoordinator:
         return self._document
 
     def refresh(self, event: ApplicationEvent) -> None:
-        """Refresh the active presentation after a relevant Application fact."""
+        """Refresh the active presentation after an authoritative Application fact."""
         if not isinstance(event, ApplicationEvent):
             raise TypeError("event must be an ApplicationEvent")
-        if isinstance(event, NetworkChanged):
-            self._synchronizer.synchronize_network(self.document, self._application.read_network())
+        if isinstance(event, self._PRESENTATION_EVENTS):
+            self._synchronizer.synchronize_network(
+                self.document,
+                self._application.read_network(),
+            )
             self._canvas_refresh()
 
     def dispose(self) -> None:
