@@ -1,4 +1,3 @@
-```python
 """
 GridForge Measurement Channel
 =============================
@@ -1198,4 +1197,4 @@ __all__ = [
     "MeasurementValidity",
     "MeasurementChannel",
 ]
-```
+
