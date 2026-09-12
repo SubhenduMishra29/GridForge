@@ -1,5 +1,6 @@
 import pytest
 
+from core.application.project import ProjectContext
 from main import _cleanup_startup_failure, _shutdown_components
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle, UILifecyclePhase
@@ -90,3 +91,42 @@ def test_failed_workspace_activation_clears_partial_document_state():
     assert lifecycle.active_view is None
     assert len(lifecycle.documents) == 0
     assert len(lifecycle.views) == 0
+
+
+def test_open_without_saved_presentation_creates_canonical_sld_document():
+    class StubWorkspaceController(WorkspaceController):
+        @property
+        def active_workspace_id(self):
+            return "sld"
+
+        def deactivate(self):
+            return None
+
+        def activate_default(self):
+            return None
+
+    workspace = object.__new__(StubWorkspaceController)
+    lifecycle = ProjectWorkspaceLifecycle(workspace)
+
+    class StubApplication:
+        presentation = None
+
+        def open_project(self, path):
+            return ProjectContext(project_id="project-2", name="Opened", path=path)
+
+        def configure_project_presentation(self, *, presentation, serializer, deserializer):
+            self.presentation = presentation
+
+    application = StubApplication()
+    adapter = object.__new__(ProjectWorkspaceApplicationAdapter)
+    adapter._application = application
+    adapter._lifecycle = lifecycle
+    adapter._handlers = []
+
+    context = adapter.open_project("project.gf")
+
+    assert context.project_id == "project-2"
+    assert isinstance(adapter.state.document, SLDDocument)
+    assert adapter.state.document.project_id == context.project_id
+    assert adapter.state.view_id == f"{context.project_id}:sld-document:sld"
+    assert application.presentation is adapter.state.document
