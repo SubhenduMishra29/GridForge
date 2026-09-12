@@ -69,7 +69,12 @@ def build_application() -> tuple[
     def deserialize_sld(data: dict) -> SLDDocument:
         """Restore the SLD document through the canonical presentation lifecycle."""
         document = SLDDocument.from_dict(data)
-        if document.project_id not in (None, project_workspace_lifecycle.project.project_id if project_workspace_lifecycle.project else None):
+        active_project_id = (
+            project_workspace_lifecycle.project.project_id
+            if project_workspace_lifecycle.project is not None
+            else None
+        )
+        if document.project_id not in (None, active_project_id):
             raise ValueError("Loaded SLD document belongs to a different project")
         project_workspace_lifecycle.replace_document(document)
         sld_controller.replace_document(document)
@@ -83,26 +88,6 @@ def build_application() -> tuple[
         default_workspace_id=SLD_WORKSPACE_ID,
     )
 
-    # The host is mechanical; WorkspaceController/Realizer own workspace policy.
-    workspace_realizer: WorkspaceRealizer
-    workspace_controller: WorkspaceController
-
-    # Application project lifecycle is the sole project authority. The UI
-    # adapter translates it into the presentation Project/Document/Workspace
-    # lifecycle; main.py never constructs an independent Project authority.
-    workspace_realizer = WorkspaceRealizer(main_window=None)
-
-    plugin_manager = PluginManager()
-    plugin_manager.define_defaults()
-    plugin_manager.load_all()
-    plugin_registry = plugin_manager.registry
-
-    panels_entry = plugin_registry.get_entry("panels")
-    if panels_entry is None:
-        raise RuntimeError("PanelsPlugin is not registered.")
-
-    # MainWindow must exist before WorkspaceRealizer can realize docks.
-    # Canvas composition is also created before the shell is shown.
     controller = Controller(application=gridforge_application)
     canvas_composer = CanvasComposer()
     canvas_preparation = canvas_composer.prepare(controller=controller)
@@ -140,6 +125,11 @@ def build_application() -> tuple[
         on_node_realized=wire_sld_node_movement,
     )
 
+    plugin_manager = PluginManager()
+    plugin_manager.define_defaults()
+    plugin_manager.load_all()
+    plugin_registry = plugin_manager.registry
+
     canvas_entry = plugin_registry.get_entry("canvas")
     if canvas_entry is None:
         raise RuntimeError("CanvasPlugin is not registered.")
@@ -158,15 +148,7 @@ def build_application() -> tuple[
     if root_widget is None:
         raise RuntimeError("MainWindow did not provide a central surface.")
 
-    # WorkspaceRealizer now receives the actual mechanical shell host.
     workspace_realizer = WorkspaceRealizer(main_window=window)
-
-    for panel_id in ("project", "equipment", "properties"):
-        dock = panels_entry.plugin.get_dock(panel_id)
-        if dock is None:
-            raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
-        workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
-
     workspace_controller = WorkspaceController(
         manager=workspace_manager,
         realizer=workspace_realizer,
@@ -212,8 +194,6 @@ def build_application() -> tuple[
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
 
-    panel_presentation_bridge = PanelPresentationBridge(panels_entry.plugin)
-
     context = PluginContext(
         main_window=window,
         parent=window,
@@ -228,7 +208,6 @@ def build_application() -> tuple[
         metadata={
             "sld_canvas_snapshot": sld_canvas_snapshot,
             "project_id": project_context.project_id,
-            "panel_presentation_bridge": panel_presentation_bridge,
             "project_workspace_adapter": project_workspace_adapter,
         },
     )
@@ -237,10 +216,18 @@ def build_application() -> tuple[
     plugin_manager.set_contexts(contexts)
     plugin_manager.initialize_all()
 
-    # PanelPlugin may have been initialized only by initialize_all(); refresh
-    # the bridge against that canonical plugin instance and retain one bridge.
-    panels_plugin = plugin_registry.get_entry("panels").plugin
+    panels_entry = plugin_registry.get_entry("panels")
+    if panels_entry is None:
+        raise RuntimeError("PanelsPlugin is not registered.")
+    panels_plugin = panels_entry.plugin
     panel_presentation_bridge = PanelPresentationBridge(panels_plugin)
+    for panel_id in ("project", "equipment", "properties"):
+        dock = panels_plugin.get_dock(panel_id)
+        if dock is None:
+            raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
+        workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
+
+    context.metadata["panel_presentation_bridge"] = panel_presentation_bridge
 
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas):
@@ -258,8 +245,6 @@ def build_application() -> tuple[
     )
     ui_update_boundary.subscribe()
 
-    # The adapter is the only project lifecycle bridge. Normal activation uses
-    # the canonical default workspace; callers do not provide a workspace ID.
     project_workspace_lifecycle.add_view(
         ViewRecord(
             view_id="sld-view",
@@ -269,12 +254,8 @@ def build_application() -> tuple[
     )
 
     ui_lifecycle = UILifecycle(
-        workspace_ready=lambda: (
-            project_workspace_adapter.state.workspace_id is not None
-        ),
-        document_ready=lambda: (
-            project_workspace_adapter.state.document is not None
-        ),
+        workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
+        document_ready=lambda: project_workspace_adapter.state.document is not None,
         document_close=project_workspace_adapter.close_project,
         workspace_teardown=lambda: None,
         cleanup=lambda: None,
