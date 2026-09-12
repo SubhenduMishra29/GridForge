@@ -4,12 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Canonical ``.gridforge`` project loader/saver.
-
-The persistence service is the sole representation boundary for project
-packages. Presentation data is carried as a generic serialized mapping so
-Core persistence remains independent of UI, Qt, and SLD implementation types.
-"""
+"""Canonical ``.gridforge`` project loader/saver."""
 
 from __future__ import annotations
 
@@ -25,19 +20,12 @@ from core.application.project import ProjectContext
 from core.network import Network
 
 from .network_serializer import deserialize_network, serialize_network
-from .project_package import (
-    MANIFEST_NAME,
-    PACKAGE_VERSION,
-    manifest_path,
-    normalize_package_path,
-    project_path,
-)
+from .project_package import MANIFEST_NAME, PACKAGE_VERSION, manifest_path, normalize_package_path, project_path
 
 
 @dataclass(frozen=True)
 class LoadedProject:
     """Explicit in-memory representation of a loaded project package."""
-
     context: ProjectContext
     network: Network
     presentation: Mapping[str, Any] | None = None
@@ -54,50 +42,37 @@ class ProjectPersistenceService:
         package = normalize_package_path(path)
         if not package.is_dir():
             raise ProjectPersistenceError(f"Project package does not exist: {package}")
-
         manifest = self._read_json(manifest_path(package))
         if manifest.get("package_version") != PACKAGE_VERSION:
-            raise ProjectPersistenceError(
-                f"Unsupported GridForge package version: {manifest.get('package_version')!r}"
-            )
+            raise ProjectPersistenceError(f"Unsupported GridForge package version: {manifest.get('package_version')!r}")
         if manifest.get("format") != "GridForgeProject":
             raise ProjectPersistenceError("Invalid GridForge project manifest.")
-
         project = self._read_json(project_path(package))
         context_data = project.get("project")
         if not isinstance(context_data, dict):
             raise ProjectPersistenceError("project.json is missing project metadata.")
-
         project_id = context_data.get("project_id")
         name = context_data.get("name")
         if not isinstance(project_id, str) or not project_id.strip():
             raise ProjectPersistenceError("project_id must be a non-empty string.")
         if not isinstance(name, str) or not name.strip():
             raise ProjectPersistenceError("project name must be a non-empty string.")
-
         network = deserialize_network(project.get("network", {}))
         presentation = project.get("sld")
         if presentation is not None and not isinstance(presentation, dict):
             raise ProjectPersistenceError("project.json sld payload must be a JSON object.")
+        context = ProjectContext(project_id=project_id, name=name, path=package)
+        return LoadedProject(context=context, network=network, presentation=presentation)
 
-        context = ProjectContext(
-            project_id=project_id,
-            name=name,
-            path=package,
-        )
-        return LoadedProject(
-            context=context,
-            network=network,
-            presentation=presentation,
-        )
-
-    def save(
-        self,
-        context: ProjectContext,
-        network: Network,
-        presentation: Mapping[str, Any] | None,
-        path: str | Path,
-    ) -> None:
+    def save(self, context: ProjectContext, network: Network,
+             presentation: Mapping[str, Any] | str | Path | None = None,
+             path: str | Path | None = None) -> None:
+        """Save a project with optional generic persistent presentation state."""
+        if path is None:
+            path = presentation
+            presentation = None
+        if path is None:
+            raise TypeError("path is required.")
         if not isinstance(context, ProjectContext):
             raise TypeError("context must be a ProjectContext.")
         if not isinstance(network, Network):
@@ -108,10 +83,6 @@ class ProjectPersistenceService:
         target = normalize_package_path(path)
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
-
-        # Serialize completely before touching the destination. Any model,
-        # topology, or presentation serialization failure therefore leaves the
-        # active package untouched.
         network_data = serialize_network(network)
         presentation_data = None if presentation is None else dict(presentation)
         manifest = {
@@ -123,10 +94,7 @@ class ProjectPersistenceService:
         }
         project = {
             "schema": 1,
-            "project": {
-                "project_id": context.project_id,
-                "name": context.name,
-            },
+            "project": {"project_id": context.project_id, "name": context.name},
             "network": network_data,
         }
         if presentation_data is not None:
@@ -137,17 +105,11 @@ class ProjectPersistenceService:
         try:
             self._write_json(temp_dir / MANIFEST_NAME, manifest)
             self._write_json(temp_dir / "project.json", project)
-
-            # Complete the replacement transaction only after the entire temp
-            # package is present and parseable JSON has been written.
             if target.exists():
-                backup_dir = Path(
-                    tempfile.mkdtemp(prefix=f".{target.name}.backup.", dir=parent)
-                )
+                backup_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.backup.", dir=parent))
                 backup_dir.rmdir()
                 os.replace(target, backup_dir)
             os.replace(temp_dir, target)
-
             if backup_dir is not None:
                 shutil.rmtree(backup_dir)
                 backup_dir = None
@@ -157,9 +119,7 @@ class ProjectPersistenceService:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             if backup_dir is not None and backup_dir.exists() and not target.exists():
                 os.replace(backup_dir, target)
-            raise ProjectPersistenceError(
-                f"Unable to save GridForge project to {target}: {exc}"
-            ) from exc
+            raise ProjectPersistenceError(f"Unable to save GridForge project to {target}: {exc}") from exc
 
     @staticmethod
     def _read_json(path: Path) -> dict[str, Any]:
@@ -182,7 +142,7 @@ class ProjectPersistenceService:
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             raise ProjectPersistenceError(f"Unable to write {path.name}: {exc}") from exc
 
 
