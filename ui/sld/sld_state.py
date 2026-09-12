@@ -2,7 +2,9 @@
 """
 GridForge V2 — SLD State.
 
-Stores UI-level SLD interaction state without depending on Qt.
+Stores UI-level SLD interaction state without depending on Qt. Project
+persistence dirtiness is owned by Application; this state only tracks local
+presentation/view workflow dirtiness.
 """
 
 from __future__ import annotations
@@ -13,49 +15,37 @@ from typing import Optional
 
 @dataclass
 class SLDState:
-    """
-    State owned by the SLD workflow.
+    """Transient SLD interaction and local-view state.
 
-    This is intentionally independent of the graphics view.
-
-    Viewport-specific state such as actual zoom matrices remains owned by
-    the canvas/viewport subsystem.
+    ``local_view_dirty`` never means that the GridForge project requires a
+    save. That decision belongs exclusively to ``Application.is_dirty``.
+    ``dirty`` remains a compatibility alias for existing presentation code,
+    but its meaning is explicitly local-view state only.
     """
 
     active_document_id: Optional[str] = None
-
     selected_node_ids: set[str] = field(default_factory=set)
     selected_connection_ids: set[str] = field(default_factory=set)
-
     active_tool_id: Optional[str] = None
-
     interaction_mode: str = "select"
+    local_view_dirty: bool = False
 
-    dirty: bool = False
+    @property
+    def dirty(self) -> bool:
+        """Compatibility alias for transient local-view dirtiness only."""
+        return self.local_view_dirty
 
-    def select_node(
-        self,
-        node_id: str,
-        *,
-        additive: bool = False,
-    ) -> None:
+    def select_node(self, node_id: str, *, additive: bool = False) -> None:
         if not additive:
             self.clear_selection()
-
         self.selected_node_ids.add(node_id)
 
     def deselect_node(self, node_id: str) -> None:
         self.selected_node_ids.discard(node_id)
 
-    def select_connection(
-        self,
-        connection_id: str,
-        *,
-        additive: bool = False,
-    ) -> None:
+    def select_connection(self, connection_id: str, *, additive: bool = False) -> None:
         if not additive:
             self.clear_selection()
-
         self.selected_connection_ids.add(connection_id)
 
     def deselect_connection(self, connection_id: str) -> None:
@@ -67,16 +57,14 @@ class SLDState:
 
     @property
     def has_selection(self) -> bool:
-        return bool(
-            self.selected_node_ids
-            or self.selected_connection_ids
-        )
+        return bool(self.selected_node_ids or self.selected_connection_ids)
 
     def mark_dirty(self) -> None:
-        self.dirty = True
+        """Mark only local UI/view state as changed."""
+        self.local_view_dirty = True
 
     def mark_clean(self) -> None:
-        self.dirty = False
+        self.local_view_dirty = False
 
     def reset(self) -> None:
         self.active_document_id = None
@@ -84,4 +72,4 @@ class SLDState:
         self.selected_connection_ids.clear()
         self.active_tool_id = None
         self.interaction_mode = "select"
-        self.dirty = False
+        self.local_view_dirty = False

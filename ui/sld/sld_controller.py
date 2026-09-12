@@ -35,12 +35,9 @@ from .sld_state import SLDState
 class SLDController:
     """Application-facing controller for SLD document operations."""
 
-    def __init__(
-        self,
-        state: Optional[SLDState] = None,
-        projection_manager: Optional[SLDProjectionManager] = None,
-        application: Optional[Application] = None,
-    ) -> None:
+    def __init__(self, state: Optional[SLDState] = None,
+                 projection_manager: Optional[SLDProjectionManager] = None,
+                 application: Optional[Application] = None) -> None:
         self._state = state if state is not None else SLDState()
         self._projection_manager = projection_manager if projection_manager is not None else SLDProjectionManager()
         self._application = application
@@ -76,6 +73,20 @@ class SLDController:
             self._state.clear_selection()
         return self._documents.pop(document_id)
 
+    def replace_document(self, document: SLDDocument) -> SLDDocument:
+        """Replace the active persistent SLD document after project load."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument")
+        old = self.active_document
+        if old is not None:
+            self._documents.pop(old.document_id, None)
+        self._documents.clear()
+        self._state.reset()
+        self.register_document(document)
+        self.activate_document(document.document_id)
+        self._state.mark_clean()
+        return document
+
     def get_document(self, document_id: str) -> Optional[SLDDocument]:
         return self._documents.get(document_id)
 
@@ -99,17 +110,13 @@ class SLDController:
     def add_node(self, node: SLDNode) -> None:
         self._require_active_document()
         result = self.application.execute(AddSLDNodeCommand(
-            node_id=node.node_id,
-            equipment_id=node.equipment_id,
-            x=node.x,
-            y=node.y,
+            node_id=node.node_id, equipment_id=node.equipment_id, x=node.x, y=node.y,
         ))
         if not result.success:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
 
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
-        """Submit a persistent graphical edit through the Application boundary."""
         self._require_active_document()
         result = self.application.execute(SetSLDNodePositionCommand(node_id=node_id, x=x, y=y))
         if not result.success:
@@ -117,7 +124,6 @@ class SLDController:
         self._state.mark_dirty()
 
     def arrange_nodes(self, object_ids: tuple[str, ...] | list[str] | None = None) -> tuple:
-        """Arrange SLD nodes through the layout/projection boundary."""
         document = self._require_active_document()
         ids = tuple(node.node_id for node in document.model.nodes) if object_ids is None else tuple(object_ids)
         for node_id in ids:
@@ -195,7 +201,7 @@ class SLDController:
             "selected_connection_ids": tuple(sorted(self._state.selected_connection_ids)),
             "active_tool_id": self._state.active_tool_id,
             "interaction_mode": self._state.interaction_mode,
-            "dirty": self._state.dirty,
+            "local_view_dirty": self._state.local_view_dirty,
         }
 
     def _require_application(self) -> Application:

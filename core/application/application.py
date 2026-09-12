@@ -24,6 +24,13 @@ from .commands.control_commands import (
 from .control_cycle import ControlCycleResult, ControlCycleService
 from .control_dispatch import ControlCommandDispatcher
 from .control_execution import ControlExecutionService
+from .control_events import (
+    ControlComponentCreated,
+    ControlComponentRemoved,
+    ControlConnectionCreated,
+    ControlConnectionRemoved,
+    ControlProgramChanged,
+)
 from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated,
@@ -132,6 +139,11 @@ class Application:
             raise RuntimeError("Application SLD service is not configured.")
         return self._sld_service
 
+    @property
+    def presentation(self) -> Any:
+        """Return the active persistent presentation document/state."""
+        return self.project_lifecycle.presentation
+
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
         """Attach the single Application-owned project lifecycle authority."""
         if not isinstance(service, ProjectLifecycleService):
@@ -139,6 +151,20 @@ class Application:
         if self._project_lifecycle is not None and self._project_lifecycle is not service:
             raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
+
+    def configure_project_presentation(
+        self,
+        *,
+        presentation: Any,
+        serializer: Any,
+        deserializer: Any,
+    ) -> None:
+        """Bind persistent presentation state without coupling Core to UI types."""
+        self.project_lifecycle.configure_presentation(
+            presentation=presentation,
+            serializer=serializer,
+            deserializer=deserializer,
+        )
 
     def attach_sld_service(self, service: SLDService) -> None:
         """Attach the single Application-owned SLD presentation authority."""
@@ -341,61 +367,54 @@ class Application:
         if operation == "undo":
             effective_action = {"create": "delete", "delete": "create"}.get(action, action)
         if effective_action == "create":
-            self._event_bus.publish(ElementCreated(element_id=element_id, element_type=element_type,
-                                                   correlation_id=command.correlation_id,
-                                                   causation_id=command.causation_id, metadata=metadata))
+            self._event_bus.publish(ElementCreated(element_id=element_id, element_type=element_type, metadata=metadata))
         elif effective_action == "delete":
-            self._event_bus.publish(ElementRemoved(element_id=element_id, element_type=element_type,
-                                                   correlation_id=command.correlation_id,
-                                                   causation_id=command.causation_id, metadata=metadata))
-        elif effective_action in {"update", "open", "close", "put", "take", "blow", "reset"}:
-            changes = {key: value for key, value in command.payload.items()
-                       if key != self._id_key(command) and value is not None}
-            self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type,
-                                                   changes=changes, correlation_id=command.correlation_id,
-                                                   causation_id=command.causation_id))
-        if command.command_type in self._TOPOLOGY_COMMANDS:
-            self._event_bus.publish(TopologyChanged(operation=command.command_type,
-                                                    correlation_id=command.correlation_id,
-                                                    causation_id=command.causation_id, metadata=metadata))
+            self._event_bus.publish(ElementRemoved(element_id=element_id, element_type=element_type, metadata=metadata))
+        elif effective_action in {"update", "open", "close", "reset", "blow", "put_in_service", "take_out_of_service"}:
+            self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, metadata=metadata))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
-        self._event_bus.publish(NetworkChanged(operation=command.command_type,
-                                               correlation_id=command.correlation_id,
-                                               causation_id=command.causation_id, metadata=metadata))
+        if command.command_type in self._TOPOLOGY_COMMANDS:
+            self._event_bus.publish(TopologyChanged(metadata=metadata))
+        else:
+            self._event_bus.publish(NetworkChanged(metadata=metadata))
 
     def _publish_network_only_result(self, result: ApplicationResult, *, operation: str) -> None:
-        metadata = dict(result.metadata)
-        metadata["operation"] = operation
-        self._event_bus.publish(NetworkChanged(operation=str(metadata.get("command_type", operation)), metadata=metadata))
+        self._event_bus.publish(NetworkChanged(metadata={
+            "message": result.message,
+            "operation": operation,
+        }))
+
+    def _require_read_service(self) -> None:
+        if self._read_service is None:
+            raise RuntimeError("Application read service is not configured.")
+
+    def _require_protection_read_service(self) -> None:
+        if self._protection_read_service is None:
+            raise RuntimeError("Application protection read service is not configured.")
 
     @staticmethod
     def _action_from_command_type(command_type: str) -> str:
-        operation_name = command_type.split(".", 1)[-1]
-        return operation_name.split("_", 1)[0] if "_" in operation_name else operation_name
+        action = command_type.rsplit(".", 1)[-1]
+        if action.startswith("create_"):
+            return "create"
+        if action.startswith("delete_"):
+            return "delete"
+        if action.startswith("update_"):
+            return "update"
+        return action
 
     @staticmethod
     def _element_type(command: Command) -> str | None:
-        operation_name = command.command_type.split(".", 1)[-1]
-        for prefix in ("create_", "update_", "delete_", "open_", "close_", "put_", "take_", "blow_", "reset_"):
-            if operation_name.startswith(prefix): return operation_name[len(prefix):]
-        return None
-
-    @staticmethod
-    def _id_key(command: Command) -> str | None:
-        candidates = [key for key in command.payload
-                      if key.endswith("_id") and key not in {"command_id", "correlation_id", "causation_id"}]
-        return candidates[0] if candidates else None
+        payload = command.payload
+        value = payload.get("element_type") or payload.get("equipment_type")
+        return str(value) if value is not None else None
 
     @staticmethod
     def _element_id(command: Command) -> str | None:
-        key = Application._id_key(command); value = command.payload.get(key) if key else None
-        return value if isinstance(value, str) and value else None
-
-    def _require_read_service(self) -> None:
-        if self._read_service is None: raise RuntimeError("Application read service is not configured.")
-    def _require_protection_read_service(self) -> None:
-        if self._protection_read_service is None: raise RuntimeError("Application protection read service is not configured.")
+        payload = command.payload
+        value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
+        return str(value) if value is not None else None
 
 
 __all__ = ["Application"]
