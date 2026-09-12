@@ -7,11 +7,13 @@ from .result import PowerFlowResult
 from .runtime_state import PowerFlowRuntimeState
 from .solver_options import SolverOptions
 from .sparse_solver import SparseLinearSolver
-from .study_configuration import PowerFlowStudyConfiguration
 
 
 def __getattr__(name: str):
-    """Lazily expose preparation contracts to avoid package import cycles."""
+    """Lazily expose compatibility/preparation contracts to avoid import cycles."""
+    if name == "PowerFlowStudyConfiguration":
+        from .study_configuration import PowerFlowStudyConfiguration
+        return PowerFlowStudyConfiguration
     if name in {"PowerFlowPreparation", "PreparedPowerFlow"}:
         from .preparation import PowerFlowPreparation, PreparedPowerFlow
         return {

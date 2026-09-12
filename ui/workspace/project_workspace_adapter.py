@@ -1,25 +1,17 @@
-# ============================================================
-# GridForge V2 — Project Workspace Application Adapter
-# ============================================================
-"""Thin UI adapter joining Application project lifecycle to workspace state.
-
-Application remains the engineering lifecycle authority. This adapter is the
-UI update boundary: a successful Application transition is translated into a
-single Project/Document/Workspace presentation transition.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from core.application import Application
 from core.application.project import ProjectContext
 
+from ui.sld.sld_document import SLDDocument
+
 from .document import Document
 from .project import Project
 from .project_workspace import ProjectWorkspaceLifecycle, ProjectWorkspaceState
+from .view_manager import ViewRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,9 +62,28 @@ class ProjectWorkspaceApplicationAdapter:
         except ValueError:
             return
 
-    def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+    def new_project(
+        self,
+        name: str = "Untitled Project",
+        *,
+        project_id: str | None = None,
+        document: Document | None = None,
+    ) -> ProjectContext:
         context = self._application.new_project(name, project_id=project_id)
-        state = self._lifecycle.new_project(self._to_ui_project(context))
+        if document is not None and document.project_id not in (None, context.project_id):
+            raise ValueError("document belongs to a different project.")
+        if document is None:
+            document = self._new_sld_document(context)
+        self._attach_presentation(document)
+        try:
+            state = self._lifecycle.new_project(
+                self._to_ui_project(context),
+                document=document,
+            )
+            state = self._ensure_sld_view(state)
+        except BaseException:
+            self._rollback_application_transition()
+            raise
         self._publish("new", state, context.project_id)
         return context
 
@@ -80,10 +91,18 @@ class ProjectWorkspaceApplicationAdapter:
         context = self._application.open_project(path)
         presentation = self._application.presentation
         document = presentation if isinstance(presentation, Document) else None
-        state = self._lifecycle.open_project(
-            self._to_ui_project(context),
-            document=document,
-        )
+        if document is None:
+            document = self._new_sld_document(context)
+        self._attach_presentation(document)
+        try:
+            state = self._lifecycle.open_project(
+                self._to_ui_project(context),
+                document=document,
+            )
+            state = self._ensure_sld_view(state)
+        except BaseException:
+            self._rollback_application_transition()
+            raise
         self._publish("open", state, context.project_id)
         return context
 
@@ -94,6 +113,49 @@ class ProjectWorkspaceApplicationAdapter:
         state = self._lifecycle.close_project()
         self._publish("close", state, context.project_id)
         return context
+
+    def _attach_presentation(self, document: Document) -> None:
+        serializer = getattr(document, "to_dict", None)
+        deserializer = getattr(type(document), "from_dict", None)
+        if not callable(serializer) or not callable(deserializer):
+            raise TypeError("presentation document must provide to_dict() and from_dict().")
+        self._application.configure_project_presentation(
+            presentation=document,
+            serializer=serializer,
+            deserializer=deserializer,
+        )
+
+    def _rollback_application_transition(self) -> None:
+        """Close a newly activated Application project after UI activation fails."""
+        try:
+            self._application.close_project()
+        except BaseException:
+            # Preserve the original UI activation failure. The composition
+            # root owns broader failure isolation when startup is involved.
+            pass
+
+    @staticmethod
+    def _new_sld_document(context: ProjectContext) -> SLDDocument:
+        """Create the canonical SLD presentation document for a project."""
+        return SLDDocument(
+            document_id=f"{context.project_id}:sld",
+            name=f"{context.name} SLD",
+            project_id=context.project_id,
+        )
+
+    def _ensure_sld_view(self, state: ProjectWorkspaceState) -> ProjectWorkspaceState:
+        document = state.document
+        if document is None or document.document_type != "sld":
+            return state
+        if self._lifecycle.active_view is None:
+            self._lifecycle.add_view(
+                ViewRecord(
+                    view_id=f"{document.document_id}:sld",
+                    document_id=document.document_id,
+                    view_type="sld",
+                )
+            )
+        return self._lifecycle.state
 
     def _publish(self, operation: str, state: ProjectWorkspaceState, project_id: str) -> None:
         event = ProjectWorkspaceChanged(operation=operation, state=state, project_id=project_id)
