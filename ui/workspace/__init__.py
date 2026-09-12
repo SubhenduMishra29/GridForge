@@ -11,7 +11,6 @@ from .document_manager import DocumentManager
 from .panel_area import PanelArea
 from .view_manager import ViewManager, ViewRecord
 from .viewport_state import ViewportState
-from .workspace import Workspace
 from .workspace_definition import WorkspaceDefinition, WorkspacePlacement
 from .workspace_layout import WorkspaceLayout
 from .workspace_manager import WorkspaceManager
@@ -27,7 +26,7 @@ from .project_workspace_adapter import (
 
 __all__ = [
     "Project", "Document", "DocumentManager", "PanelArea",
-    "ViewManager", "ViewRecord", "ViewportState", "Workspace",
+    "ViewManager", "ViewRecord", "ViewportState",
     "WorkspaceDefinition", "WorkspacePlacement", "WorkspaceLayout",
     "WorkspaceManager", "WorkspaceState", "WorkspaceController",
     "ProjectWorkspaceLifecycle", "ProjectWorkspaceState",
