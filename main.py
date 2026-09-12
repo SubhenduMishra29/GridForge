@@ -131,13 +131,19 @@ def build_application() -> tuple[
     plugin_registry = plugin_manager.registry
 
     canvas_entry = plugin_registry.get_entry("canvas")
+    panels_entry = plugin_registry.get_entry("panels")
     if canvas_entry is None:
         raise RuntimeError("CanvasPlugin is not registered.")
+    if panels_entry is None:
+        raise RuntimeError("PanelsPlugin is not registered.")
     canvas_plugin = canvas_entry.plugin
+    panels_plugin = panels_entry.plugin
+
     set_composition = getattr(canvas_plugin, "set_composition", None)
     if not callable(set_composition):
         raise RuntimeError("CanvasPlugin does not expose set_composition().")
     set_composition(canvas_composition)
+    panel_presentation_bridge = PanelPresentationBridge(panels_plugin)
 
     window = MainWindow(
         controller=controller,
@@ -209,6 +215,7 @@ def build_application() -> tuple[
             "sld_canvas_snapshot": sld_canvas_snapshot,
             "project_id": project_context.project_id,
             "project_workspace_adapter": project_workspace_adapter,
+            "panel_presentation_bridge": panel_presentation_bridge,
         },
     )
 
@@ -216,18 +223,11 @@ def build_application() -> tuple[
     plugin_manager.set_contexts(contexts)
     plugin_manager.initialize_all()
 
-    panels_entry = plugin_registry.get_entry("panels")
-    if panels_entry is None:
-        raise RuntimeError("PanelsPlugin is not registered.")
-    panels_plugin = panels_entry.plugin
-    panel_presentation_bridge = PanelPresentationBridge(panels_plugin)
     for panel_id in ("project", "equipment", "properties"):
         dock = panels_plugin.get_dock(panel_id)
         if dock is None:
             raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
         workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
-
-    context.metadata["panel_presentation_bridge"] = panel_presentation_bridge
 
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas):
