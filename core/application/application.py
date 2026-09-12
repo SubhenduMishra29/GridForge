@@ -24,6 +24,13 @@ from .commands.control_commands import (
 from .control_cycle import ControlCycleResult, ControlCycleService
 from .control_dispatch import ControlCommandDispatcher
 from .control_execution import ControlExecutionService
+from .control_events import (
+    ControlComponentCreated,
+    ControlComponentRemoved,
+    ControlConnectionCreated,
+    ControlConnectionRemoved,
+    ControlProgramChanged,
+)
 from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated,
@@ -75,7 +82,7 @@ class Application:
         if validation_service is not None and not isinstance(validation_service, ValidationService):
             raise TypeError("Application validation_service must be a ValidationService.")
         if sld_service is not None and not isinstance(sld_service, SLDService):
-            raise TypeError("Application sld_service must be a SLDService.")
+            raise TypeError("Application sld_service must be an SLDService.")
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
