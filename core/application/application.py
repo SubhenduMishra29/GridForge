@@ -58,25 +58,24 @@ class Application:
 
     _TOPOLOGY_COMMANDS = frozenset({
         "model.create_line", "model.delete_line", "model.create_transformer", "model.delete_transformer",
-        "model.create_cable", "model.update_cable", "model.delete_cable", "model.create_switch",
-        "model.update_switch", "model.delete_switch", "model.open_switch", "model.close_switch",
+        "model.create_cable", "model.delete_cable", "model.create_switch",
+        "model.delete_switch", "model.open_switch", "model.close_switch",
         "model.put_switch_in_service", "model.take_switch_out_of_service", "model.create_disconnector",
-        "model.update_disconnector", "model.delete_disconnector", "model.open_disconnector",
-        "model.close_disconnector", "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
+        "model.delete_disconnector", "model.open_disconnector", "model.close_disconnector",
+        "model.put_disconnector_in_service", "model.take_disconnector_out_of_service",
         "model.create_fuse", "model.delete_fuse", "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
         "model.create_breaker", "model.delete_breaker", "model.open_breaker", "model.close_breaker",
         "model.trip_breaker", "model.put_breaker_in_service", "model.take_breaker_out_of_service",
     })
 
-    # NetworkChanged is deliberately narrower than "any model command".
-    # It invalidates aggregate network/topology projections, not every
-    # electrical-data edit. ElementUpdated remains authoritative for those.
     _NETWORK_ELEMENT_CREATE_DELETE_TYPES = frozenset({
         "bus", "line", "cable", "transformer", "switch", "breaker",
         "disconnector", "fuse", "load", "generator", "synchronous_machine",
         "motor", "shunt", "capacitor", "reactor", "solar", "battery", "grid",
     })
+
+    _STATE_CHANGE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
 
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
                  event_bus: ApplicationEventBus | None = None,
@@ -378,14 +377,7 @@ class Application:
             self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, changes=metadata))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
-        """Publish NetworkChanged only for commands that invalidate network state.
-
-        The event is an aggregate network-projection invalidation. Electrical
-        parameter edits remain ElementUpdated-only unless their command also
-        changes connectivity/state represented by _TOPOLOGY_COMMANDS.
-        Project metadata, persistence operations, and study execution never
-        reach this method because they are not model commands.
-        """
+        """Publish aggregate network invalidation only for network mutations."""
         if not self._is_network_change_command(command):
             return
         operation = str(metadata.get("operation", "execute"))
@@ -405,13 +397,15 @@ class Application:
         element_type = cls._element_type(command)
         return element_type in cls._NETWORK_ELEMENT_CREATE_DELETE_TYPES
 
-    @staticmethod
-    def _is_topology_command(command: Command) -> bool:
-        if command.command_type in Application._TOPOLOGY_COMMANDS:
+    @classmethod
+    def _is_topology_command(cls, command: Command) -> bool:
+        if command.command_type in cls._TOPOLOGY_COMMANDS:
             return True
-        if command.command_type == "model.update_breaker":
-            payload = command.payload
-            return payload.get("closed") is not None or payload.get("in_service") is not None
+        if command.command_type in {
+            "model.update_breaker", "model.update_switch", "model.update_disconnector",
+            "model.update_fuse",
+        }:
+            return any(field in command.payload for field in cls._STATE_CHANGE_FIELDS)
         return False
 
     @staticmethod
