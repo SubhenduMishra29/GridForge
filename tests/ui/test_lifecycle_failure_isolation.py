@@ -88,5 +88,5 @@ def test_failed_workspace_activation_clears_partial_document_state():
     assert lifecycle.project is None
     assert lifecycle.document is None
     assert lifecycle.active_view is None
-    assert lifecycle.documents.count == 0
-    assert lifecycle.views.count == 0
+    assert len(lifecycle.documents) == 0
+    assert len(lifecycle.views) == 0
