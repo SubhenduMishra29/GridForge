@@ -25,6 +25,7 @@ from .events import (
     ElementUpdated,
     NetworkChanged,
     TopologyChanged,
+    ValidationChanged,
 )
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
@@ -33,6 +34,8 @@ from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
 from .revision import ProjectRevision
 from .revision_service import RevisionService
+from .services.validation_service import ValidationService
+from .validation import ValidationResult
 
 
 class Application:
@@ -55,7 +58,8 @@ class Application:
 
     def __init__(self, command_manager: CommandManager, read_service: ReadService | None = None,
                  event_bus: ApplicationEventBus | None = None,
-                 protection_read_service: ProtectionReadService | None = None) -> None:
+                 protection_read_service: ProtectionReadService | None = None,
+                 validation_service: ValidationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager):
             raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService):
@@ -64,9 +68,12 @@ class Application:
             raise TypeError("Application event_bus must be an ApplicationEventBus.")
         if protection_read_service is not None and not isinstance(protection_read_service, ProtectionReadService):
             raise TypeError("Application protection_read_service must be a ProtectionReadService.")
+        if validation_service is not None and not isinstance(validation_service, ValidationService):
+            raise TypeError("Application validation_service must be a ValidationService.")
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
+        self._validation_service = validation_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._revision_service = RevisionService()
@@ -105,6 +112,13 @@ class Application:
         """Return the single Application-owned revision authority."""
         return self._revision_service
 
+    @property
+    def validation_service(self) -> ValidationService:
+        """Return the Application-owned validation authority."""
+        if self._validation_service is None:
+            raise RuntimeError("Application validation service is not configured.")
+        return self._validation_service
+
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
         """Attach the single Application-owned project lifecycle authority."""
         if not isinstance(service, ProjectLifecycleService):
@@ -135,14 +149,22 @@ class Application:
             self._revision_service.reset_for_project()
         return context
 
-    def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService) -> None:
-        """Replace command/read runtime when a project Network becomes active."""
+    def _replace_runtime(
+        self,
+        command_manager: CommandManager,
+        read_service: ReadService,
+        validation_service: ValidationService | None = None,
+    ) -> None:
+        """Replace command/read/validation runtime when a project Network becomes active."""
         if not isinstance(command_manager, CommandManager):
             raise TypeError("command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService):
             raise TypeError("read_service must implement ReadService.")
+        if validation_service is not None and not isinstance(validation_service, ValidationService):
+            raise TypeError("validation_service must be a ValidationService.")
         self._command_manager = command_manager
         self._read_service = read_service
+        self._validation_service = validation_service
         self._revision_service.reset_for_project()
         self._control_execution = ControlExecutionService(
             ControlCommandDispatcher(command_manager, command_executor=self.execute)
@@ -155,6 +177,26 @@ class Application:
     def record_presentation_change(self) -> ProjectRevision:
         """Record a successful persistent SLD/presentation edit."""
         return self._revision_service.record_presentation_change()
+
+    def validate_project(self) -> ValidationResult:
+        """Validate authoritative Core state and publish the resulting state."""
+        result = self.validation_service.validate_project()
+        self._event_bus.publish(
+            ValidationChanged(
+                metadata={
+                    "valid": result.valid,
+                    "errors": result.summary.errors,
+                    "warnings": result.summary.warnings,
+                    "model_revision": result.model_revision,
+                    "topology_revision": result.topology_revision,
+                }
+            )
+        )
+        return result
+
+    def read_validation(self) -> ValidationResult | None:
+        """Return the latest Application validation snapshot."""
+        return self.validation_service.read_validation()
 
     def execute_control_cycle(
         self,
@@ -181,6 +223,13 @@ class Application:
         result = self._command_manager.execute(command)
         if result.success:
             self._revision_service.record_command_success(command)
+            if self._validation_service is not None:
+                self._validation_service.invalidate()
+                self._event_bus.publish(
+                    ValidationChanged(
+                        metadata={"valid": False, "invalidated": True}
+                    )
+                )
             self._publish_semantic_events(command, result, operation="execute")
         return result
 
@@ -199,6 +248,9 @@ class Application:
         result = self._command_manager.undo()
         if result is not None and result.success:
             self._revision_service.record_undo()
+            if self._validation_service is not None:
+                self._validation_service.invalidate()
+                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True}))
             self._publish_history_events(command, result, operation="undo")
         return result
 
@@ -209,6 +261,9 @@ class Application:
         result = self._command_manager.redo()
         if result is not None and result.success and command is not None:
             self._revision_service.record_redo()
+            if self._validation_service is not None:
+                self._validation_service.invalidate()
+                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True}))
             self._publish_semantic_events(command, result, operation="redo")
         return result
 
