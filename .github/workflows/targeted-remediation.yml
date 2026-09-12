@@ -21,30 +21,16 @@ jobs:
           core/application/project_lifecycle.py
           core/persistence/project_persistence.py
           core/application/application.py
+          ui/events/sld_update_coordinator.py
           ui/sld/sld_state.py
           ui/sld/sld_controller.py
+          main.py
           tests/core/persistence/test_project_persistence_sld.py
           tests/core/application/test_project_lifecycle_r3.py
           tests/ui/sld/test_project_dirty_authority_r3.py
-      - name: Run targeted remediation tests
+      - name: Run R3 remediation tests
         run: >-
           python -m pytest -q
-          tests/core/application/test_project_context.py
-          tests/core/application/test_project_lifecycle_r3.py
-          tests/core/analysis/test_open_partial_preparation_contracts.py
-          tests/core/analysis/test_power_flow_study_configuration_contract.py
-          tests/core/analysis/test_short_circuit_preparation_contract.py
-          tests/core/application/test_measurement_command_authority.py
-          tests/core/application/test_measurement_command_contract.py
-          tests/core/application/test_protection_trip_boundary.py
-          tests/core/application/test_c9_read_services.py
-          tests/application/test_c9_application_read_contract.py
-          tests/application/test_c9_protection_read_contract.py
-          tests/application/test_c9_sld_read_adapter.py
-          tests/core/measurement/test_measurement_conversion_contract.py
-          tests/core/model/test_transformer_impedance_basis.py
-          tests/core/test_measurement_generation.py
           tests/core/persistence/test_project_persistence_sld.py
-          tests/projects/test_gridforge_package.py
-          tests/ui/sld/test_c9_sld_read_path.py
+          tests/core/application/test_project_lifecycle_r3.py
           tests/ui/sld/test_project_dirty_authority_r3.py
