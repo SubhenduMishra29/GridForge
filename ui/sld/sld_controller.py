@@ -100,7 +100,7 @@ class SLDController:
         self._require_active_document()
         result = self.application.execute(AddSLDNodeCommand(
             node_id=node.node_id,
-            equipment_id=node.equipment_id or "",
+            equipment_id=node.equipment_id,
             x=node.x,
             y=node.y,
         ))
