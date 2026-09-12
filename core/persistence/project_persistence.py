@@ -7,7 +7,8 @@
 """Canonical ``.gridforge`` project loader/saver.
 
 The persistence service is the sole representation boundary for project
-packages. It does not own application lifecycle or revision state.
+packages. Presentation data is carried as a generic serialized mapping so
+Core persistence remains independent of UI, Qt, and SLD implementation types.
 """
 
 from __future__ import annotations
@@ -16,8 +17,9 @@ import json
 import os
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from core.application.project import ProjectContext
 from core.network import Network
@@ -32,6 +34,15 @@ from .project_package import (
 )
 
 
+@dataclass(frozen=True)
+class LoadedProject:
+    """Explicit in-memory representation of a loaded project package."""
+
+    context: ProjectContext
+    network: Network
+    presentation: Mapping[str, Any] | None = None
+
+
 class ProjectPersistenceError(RuntimeError):
     """Raised when a project package is invalid or cannot be persisted."""
 
@@ -39,7 +50,7 @@ class ProjectPersistenceError(RuntimeError):
 class ProjectPersistenceService:
     """Load and save the canonical GridForge engineering project package."""
 
-    def load(self, path: str | Path) -> tuple[ProjectContext, Network]:
+    def load(self, path: str | Path) -> LoadedProject:
         package = normalize_package_path(path)
         if not package.is_dir():
             raise ProjectPersistenceError(f"Project package does not exist: {package}")
@@ -65,27 +76,44 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError("project name must be a non-empty string.")
 
         network = deserialize_network(project.get("network", {}))
+        presentation = project.get("sld")
+        if presentation is not None and not isinstance(presentation, dict):
+            raise ProjectPersistenceError("project.json sld payload must be a JSON object.")
+
         context = ProjectContext(
             project_id=project_id,
             name=name,
             path=package,
         )
-        return context, network
+        return LoadedProject(
+            context=context,
+            network=network,
+            presentation=presentation,
+        )
 
-    def save(self, context: ProjectContext, network: Network, path: str | Path) -> None:
+    def save(
+        self,
+        context: ProjectContext,
+        network: Network,
+        presentation: Mapping[str, Any] | None,
+        path: str | Path,
+    ) -> None:
         if not isinstance(context, ProjectContext):
             raise TypeError("context must be a ProjectContext.")
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
+        if presentation is not None and not isinstance(presentation, Mapping):
+            raise TypeError("presentation must be a mapping or None.")
 
         target = normalize_package_path(path)
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
 
-        # Serialize completely before touching the destination. Any model or
-        # topology serialization failure therefore leaves the active package
-        # untouched.
+        # Serialize completely before touching the destination. Any model,
+        # topology, or presentation serialization failure therefore leaves the
+        # active package untouched.
         network_data = serialize_network(network)
+        presentation_data = None if presentation is None else dict(presentation)
         manifest = {
             "format": "GridForgeProject",
             "package_version": PACKAGE_VERSION,
@@ -101,6 +129,8 @@ class ProjectPersistenceService:
             },
             "network": network_data,
         }
+        if presentation_data is not None:
+            project["sld"] = presentation_data
 
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=parent))
         backup_dir: Path | None = None
@@ -156,4 +186,4 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Unable to write {path.name}: {exc}") from exc
 
 
-__all__ = ["ProjectPersistenceError", "ProjectPersistenceService"]
+__all__ = ["LoadedProject", "ProjectPersistenceError", "ProjectPersistenceService"]
