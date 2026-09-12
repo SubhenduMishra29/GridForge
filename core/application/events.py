@@ -169,20 +169,23 @@ class ValidationChanged(_OperationEvent):
     _EVENT_TYPE = "validation.changed"
 
 
-from .control_events import (
-    ControlComponentCreated,
-    ControlComponentUpdated,
-    ControlComponentRemoved,
-    ControlConnectionCreated,
-    ControlConnectionRemoved,
-    ControlDependencyCreated,
-    ControlDependencyRemoved,
-    ControlProgramChanged,
-    ControlStateChanged,
-    ControlExecutionStarted,
-    ControlExecutionCompleted,
-    ControlExecutionFailed,
-)
+_CONTROL_EVENT_NAMES = frozenset({
+    "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
+    "ControlConnectionCreated", "ControlConnectionRemoved",
+    "ControlDependencyCreated", "ControlDependencyRemoved", "ControlProgramChanged",
+    "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
+    "ControlExecutionFailed",
+})
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily expose control events without creating an import cycle."""
+    if name not in _CONTROL_EVENT_NAMES:
+        raise AttributeError(name)
+    from . import control_events
+    value = getattr(control_events, name)
+    globals()[name] = value
+    return value
 
 
 __all__ = [
