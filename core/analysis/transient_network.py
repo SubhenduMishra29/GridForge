@@ -19,6 +19,7 @@ from core.analysis.power_flow_preparation import (
     PreparedShunt,
     PreparedTransformer,
 )
+from core.analysis.transient_fault import TransientFault
 from core.numerical.ybus import YBusBuilder
 from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 from core.solver.dynamics.multimachine import MultiMachineSystem
@@ -160,6 +161,8 @@ class TransientNetworkSolver:
         matrix = passive.matrix.toarray().astype(np.complex128, copy=True)
         source = np.zeros(len(passive.bus_ids), dtype=np.complex128)
 
+        self._apply_active_fault(matrix, self.network_state.active_fault, passive.bus_ids)
+
         offset = 0
         for machine in self.machine_system.machines:
             local_state = dynamic_state[offset:offset + machine.state_size]
@@ -182,6 +185,21 @@ class TransientNetworkSolver:
         if not np.all(np.isfinite(voltages.real)) or not np.all(np.isfinite(voltages.imag)):
             raise ValueError("Transient algebraic network solution contains non-finite voltages.")
         return {bus_id: complex(voltages[index]) for index, bus_id in enumerate(passive.bus_ids)}
+
+    @staticmethod
+    def _apply_active_fault(matrix: np.ndarray, fault: object | None, bus_ids: tuple[str, ...]) -> None:
+        if fault is None:
+            return
+        if not isinstance(fault, TransientFault):
+            raise TypeError("Detached transient active_fault must be TransientFault.")
+        if fault.bus_id not in bus_ids:
+            raise ValueError(f"Transient fault references unknown bus '{fault.bus_id}'.")
+        impedance = complex(fault.impedance)
+        if abs(impedance) <= 1e-15:
+            admittance = 1e12 + 0.0j
+        else:
+            admittance = 1.0 / impedance
+        matrix[bus_ids.index(fault.bus_id), bus_ids.index(fault.bus_id)] += admittance
 
 
 __all__ = ["DetachedTransientNetworkState", "PreparedTransientStability", "TransientNetworkSolver"]
