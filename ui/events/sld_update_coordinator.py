@@ -1,8 +1,10 @@
 # ============================================================
 # File: ui/events/sld_update_coordinator.py
 # GridForge V2 — SLD Update Coordinator
+# ============================================================
 # Author: Subhendu Mishra
 # ============================================================
+
 """Coordinate Application semantic events into the active SLD projection."""
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from core.application.events import (
     ElementRemoved,
     ElementUpdated,
     NetworkChanged,
+    ProjectLoaded,
+    ProjectClosed,
     TopologyChanged,
 )
 
@@ -28,10 +32,10 @@ CanvasRefresh = Callable[[], None]
 class SLDUpdateCoordinator:
     """Apply authoritative Application semantic facts to the active SLD projection.
 
-    Semantic element/topology events are the authoritative invalidation signal.
-    NetworkChanged is an aggregate network-state invalidation signal and may
-    coalesce several semantic changes, but it is never used to represent an
-    arbitrary successful Application command.
+    Element and topology events are targeted semantic invalidation signals.
+    NetworkChanged is an aggregate network-state invalidation signal. Project
+    lifecycle events establish/clear the presentation context; they are not
+    substitutes for element mutation events.
     """
 
     _PRESENTATION_EVENTS = (
@@ -40,6 +44,8 @@ class SLDUpdateCoordinator:
         ElementRemoved,
         TopologyChanged,
         NetworkChanged,
+        ProjectLoaded,
+        ProjectClosed,
     )
 
     def __init__(self, *, application: Application, document: SLDDocument,
@@ -69,6 +75,9 @@ class SLDUpdateCoordinator:
         """Refresh the active presentation after an authoritative Application fact."""
         if not isinstance(event, ApplicationEvent):
             raise TypeError("event must be an ApplicationEvent")
+        if isinstance(event, ProjectClosed):
+            self._canvas_refresh()
+            return
         if isinstance(event, self._PRESENTATION_EVENTS):
             self._synchronizer.synchronize_network(
                 self.document,
