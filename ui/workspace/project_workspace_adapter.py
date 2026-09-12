@@ -20,6 +20,7 @@ from core.application.project import ProjectContext
 from .document import Document
 from .project import Project
 from .project_workspace import ProjectWorkspaceLifecycle, ProjectWorkspaceState
+from .view_manager import ViewRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +85,7 @@ class ProjectWorkspaceApplicationAdapter:
             self._to_ui_project(context),
             document=document,
         )
+        state = self._ensure_sld_view(state)
         self._publish("new", state, context.project_id)
         return context
 
@@ -95,6 +97,7 @@ class ProjectWorkspaceApplicationAdapter:
             self._to_ui_project(context),
             document=document,
         )
+        state = self._ensure_sld_view(state)
         self._publish("open", state, context.project_id)
         return context
 
@@ -105,6 +108,20 @@ class ProjectWorkspaceApplicationAdapter:
         state = self._lifecycle.close_project()
         self._publish("close", state, context.project_id)
         return context
+
+    def _ensure_sld_view(self, state: ProjectWorkspaceState) -> ProjectWorkspaceState:
+        document = state.document
+        if document is None or document.document_type != "sld":
+            return state
+        if self._lifecycle.active_view is None:
+            self._lifecycle.add_view(
+                ViewRecord(
+                    view_id=f"{document.document_id}:sld",
+                    document_id=document.document_id,
+                    view_type="sld",
+                )
+            )
+        return self._lifecycle.state
 
     def _publish(self, operation: str, state: ProjectWorkspaceState, project_id: str) -> None:
         event = ProjectWorkspaceChanged(operation=operation, state=state, project_id=project_id)
