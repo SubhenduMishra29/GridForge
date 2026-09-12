@@ -9,9 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ..application import ApplicationResult
 from ..command import Command
-from ._model_service_support import ModelServiceSupport
+from ..results import ApplicationResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +23,14 @@ class SLDState:
 class SLDService:
     """Application boundary for persistent SLD presentation state."""
 
+    COMMAND_TYPES = frozenset({
+        "sld.set_node_position",
+        "sld.add_node",
+        "sld.remove_node",
+        "sld.add_connection",
+        "sld.remove_connection",
+    })
+
     def __init__(self, document: Any) -> None:
         if document is None:
             raise TypeError("SLDService requires an SLD document.")
@@ -33,19 +40,22 @@ class SLDService:
     def document(self) -> Any:
         return self._document
 
+    def supports(self, command: Command) -> bool:
+        return command.command_type in self.COMMAND_TYPES
+
     def execute(self, command: Command) -> ApplicationResult:
         """Apply one validated SLD command to the presentation document."""
+        if not self.supports(command):
+            return ApplicationResult.failure(
+                f"Unsupported SLD command: {command.command_type}"
+            )
         handler = {
             "sld.set_node_position": self._set_node_position,
             "sld.add_node": self._add_node,
             "sld.remove_node": self._remove_node,
             "sld.add_connection": self._add_connection,
             "sld.remove_connection": self._remove_connection,
-        }.get(command.command_type)
-        if handler is None:
-            return ApplicationResult.failure(
-                f"Unsupported SLD command: {command.command_type}"
-            )
+        }[command.command_type]
         return handler(command)
 
     def _set_node_position(self, command: Command) -> ApplicationResult:
@@ -64,7 +74,9 @@ class SLDService:
 
     def _add_connection(self, command: Command) -> ApplicationResult:
         p = command.payload
-        self._document.add_connection(p["connection_id"], p["source_node_id"], p["target_node_id"])
+        self._document.add_connection(
+            p["connection_id"], p["source_node_id"], p["target_node_id"]
+        )
         return ApplicationResult.success("SLD connection added.")
 
     def _remove_connection(self, command: Command) -> ApplicationResult:
