@@ -32,13 +32,19 @@ class SLDService:
     })
 
     def __init__(self, document: Any) -> None:
-        if document is None:
-            raise TypeError("SLDService requires an SLD document.")
-        self._document = document
+        self.bind_document(document)
 
     @property
     def document(self) -> Any:
+        if self._document is None:
+            raise RuntimeError("SLD service has no active document.")
         return self._document
+
+    def bind_document(self, document: Any) -> None:
+        """Bind the service to the currently active presentation document."""
+        if document is None:
+            raise TypeError("SLDService requires an SLD document.")
+        self._document = document
 
     def supports(self, command: Command) -> bool:
         return command.command_type in self.COMMAND_TYPES
@@ -58,38 +64,38 @@ class SLDService:
 
     def _set_node_position(self, command: Command) -> ApplicationResult:
         p = command.payload
-        self._document.set_node_position(p["node_id"], float(p["x"]), float(p["y"]))
+        self.document.set_node_position(p["node_id"], float(p["x"]), float(p["y"]))
         return ApplicationResult.success("SLD node position updated.")
 
     def _add_node(self, command: Command) -> ApplicationResult:
         p = command.payload
-        self._document.model.create_node(
+        self.document.model.create_node(
             node_id=p["node_id"],
             equipment_id=p.get("equipment_id"),
             x=float(p["x"]),
             y=float(p["y"]),
         )
-        self._document.mark_modified()
+        self.document.mark_modified()
         return ApplicationResult.success("SLD node added.")
 
     def _remove_node(self, command: Command) -> ApplicationResult:
-        self._document.model.remove_node(command.payload["node_id"])
-        self._document.mark_modified()
+        self.document.model.remove_node(command.payload["node_id"])
+        self.document.mark_modified()
         return ApplicationResult.success("SLD node removed.")
 
     def _add_connection(self, command: Command) -> ApplicationResult:
         p = command.payload
-        self._document.model.create_connection(
+        self.document.model.create_connection(
             connection_id=p["connection_id"],
             source_node_id=p["source_node_id"],
             target_node_id=p["target_node_id"],
         )
-        self._document.mark_modified()
+        self.document.mark_modified()
         return ApplicationResult.success("SLD connection added.")
 
     def _remove_connection(self, command: Command) -> ApplicationResult:
-        self._document.model.remove_connection(command.payload["connection_id"])
-        self._document.mark_modified()
+        self.document.model.remove_connection(command.payload["connection_id"])
+        self.document.mark_modified()
         return ApplicationResult.success("SLD connection removed.")
 
 
