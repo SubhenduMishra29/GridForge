@@ -1,0 +1,107 @@
+# ============================================================
+# GridForge V2 — Project Workspace Application Adapter
+# ============================================================
+"""Thin UI adapter joining Application project lifecycle to workspace state.
+
+Application remains the engineering lifecycle authority. This adapter is the
+UI update boundary: a successful Application transition is translated into a
+single Project/Document/Workspace presentation transition.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+from uuid import UUID
+
+from core.application import Application
+from core.application.project import ProjectContext
+
+from .project import Project
+from .project_workspace import ProjectWorkspaceLifecycle, ProjectWorkspaceState
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectWorkspaceChanged:
+    """Immutable UI update emitted after a successful lifecycle transition."""
+
+    operation: str
+    state: ProjectWorkspaceState
+    project_id: str
+
+
+WorkspaceUpdateHandler = Callable[[ProjectWorkspaceChanged], None]
+
+
+class ProjectWorkspaceApplicationAdapter:
+    """Bridge Application lifecycle success into one UI workspace update path."""
+
+    def __init__(self, application: Application, lifecycle: ProjectWorkspaceLifecycle) -> None:
+        if not isinstance(application, Application):
+            raise TypeError("application must be an Application.")
+        if not isinstance(lifecycle, ProjectWorkspaceLifecycle):
+            raise TypeError("lifecycle must be a ProjectWorkspaceLifecycle.")
+        self._application = application
+        self._lifecycle = lifecycle
+        self._handlers: list[WorkspaceUpdateHandler] = []
+
+    @property
+    def application(self) -> Application:
+        return self._application
+
+    @property
+    def lifecycle(self) -> ProjectWorkspaceLifecycle:
+        return self._lifecycle
+
+    @property
+    def state(self) -> ProjectWorkspaceState:
+        return self._lifecycle.state
+
+    def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
+        if not callable(handler):
+            raise TypeError("handler must be callable.")
+        if handler not in self._handlers:
+            self._handlers.append(handler)
+
+    def unsubscribe(self, handler: WorkspaceUpdateHandler) -> None:
+        try:
+            self._handlers.remove(handler)
+        except ValueError:
+            return
+
+    def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+        context = self._application.new_project(name, project_id=project_id)
+        state = self._lifecycle.new_project(self._to_ui_project(context))
+        self._publish("new", state, context.project_id)
+        return context
+
+    def open_project(self, path: str) -> ProjectContext:
+        context = self._application.open_project(path)
+        state = self._lifecycle.open_project(self._to_ui_project(context))
+        self._publish("open", state, context.project_id)
+        return context
+
+    def close_project(self) -> ProjectContext | None:
+        context = self._application.close_project()
+        if context is None:
+            return None
+        state = self._lifecycle.close_project()
+        self._publish("close", state, context.project_id)
+        return context
+
+    def _publish(self, operation: str, state: ProjectWorkspaceState, project_id: str) -> None:
+        event = ProjectWorkspaceChanged(operation=operation, state=state, project_id=project_id)
+        for handler in tuple(self._handlers):
+            handler(event)
+
+    @staticmethod
+    def _to_ui_project(context: ProjectContext) -> Project:
+        return Project(
+            project_id=context.project_id,
+            name=context.name,
+            metadata={"path": str(context.path) if context.path is not None else None},
+        )
+
+
+__all__ = ["ProjectWorkspaceApplicationAdapter", "ProjectWorkspaceChanged", "WorkspaceUpdateHandler"]
