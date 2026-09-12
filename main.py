@@ -29,7 +29,7 @@ from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
-from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter
+from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter, ProjectWorkspaceChanged
 from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import SLD_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
@@ -67,17 +67,10 @@ def build_application() -> tuple[
         return document.to_dict()
 
     def deserialize_sld(data: dict) -> SLDDocument:
-        """Restore the SLD document through the canonical presentation lifecycle."""
+        """Deserialize presentation only; adapter owns UI activation."""
         document = SLDDocument.from_dict(data)
-        active_project_id = (
-            project_workspace_lifecycle.project.project_id
-            if project_workspace_lifecycle.project is not None
-            else None
-        )
-        if document.project_id not in (None, active_project_id):
-            raise ValueError("Loaded SLD document belongs to a different project")
-        project_workspace_lifecycle.replace_document(document)
-        sld_controller.replace_document(document)
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Persistent presentation must deserialize to SLDDocument")
         return document
 
     workspace_manager = WorkspaceManager(
@@ -191,6 +184,14 @@ def build_application() -> tuple[
         gridforge_application.read_network(),
     )
 
+    def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
+        document = change.state.document
+        if isinstance(document, SLDDocument):
+            sld_controller.replace_document(document)
+            sld_controller.activate_document(document.document_id)
+
+    project_workspace_adapter.subscribe(handle_project_workspace_changed)
+
     gridforge_application.configure_project_presentation(
         presentation=sld_document,
         serializer=serialize_sld,
@@ -257,7 +258,7 @@ def build_application() -> tuple[
         workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
         document_ready=lambda: project_workspace_adapter.state.document is not None,
         document_close=project_workspace_adapter.close_project,
-        workspace_teardown=lambda: None,
+        workspace_teardown=workspace_controller.close,
         cleanup=lambda: None,
     )
     ui_lifecycle.start()
