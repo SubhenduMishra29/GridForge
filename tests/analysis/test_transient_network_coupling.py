@@ -2,7 +2,7 @@ import numpy as np
 
 from core.analysis.power_flow_preparation import PreparedBranch, PreparedShunt
 from core.analysis.transient_network import DetachedTransientNetworkState, TransientNetworkSolver
-from core.solver.dynamics.machine_models import ClassicalMachineParameters, ClassicalSynchronousMachine
+from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 from core.solver.dynamics.multimachine import MultiMachineSystem
 
 
@@ -17,7 +17,7 @@ def test_machine_algebraic_coupling_uses_detached_passive_network():
         topology_revision=7,
     )
     machine = ClassicalSynchronousMachine(
-        "G1", "B1", ClassicalMachineParameters(H=3.0, Xd_prime=0.3, Efd=1.1)
+        "G1", "B1", H=3.0, Xd_prime=0.3, Efd=1.1
     )
     system = MultiMachineSystem((machine,))
     solver = TransientNetworkSolver(state, system)
