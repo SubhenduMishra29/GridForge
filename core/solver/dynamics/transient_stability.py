@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Mapping
 
 import numpy as np
@@ -47,12 +48,20 @@ class TransientStabilityResult:
             raise ValueError("Transient result contains non-finite time/state values.")
         if time.size and np.any(np.diff(time) <= 0.0):
             raise ValueError("Transient result time samples must be strictly increasing.")
+        immutable_voltages = tuple(
+            MappingProxyType({str(bus_id): complex(value) for bus_id, value in sample.items()})
+            for sample in self.terminal_voltages
+        )
+        immutable_powers = tuple(
+            MappingProxyType({str(machine_id): (float(values[0]), float(values[1])) for machine_id, values in sample.items()})
+            for sample in self.electrical_powers
+        )
         time.setflags(write=False)
         states.setflags(write=False)
         object.__setattr__(self, "time", time)
         object.__setattr__(self, "states", states)
-        object.__setattr__(self, "terminal_voltages", tuple(dict(item) for item in self.terminal_voltages))
-        object.__setattr__(self, "electrical_powers", tuple(dict(item) for item in self.electrical_powers))
+        object.__setattr__(self, "terminal_voltages", immutable_voltages)
+        object.__setattr__(self, "electrical_powers", immutable_powers)
         object.__setattr__(self, "events", tuple(self.events))
 
     @property
@@ -85,7 +94,7 @@ class TransientStabilitySolver:
         event_manager: EventManager | None = None,
     ) -> None:
         if not isinstance(dae_solver, DAESolver):
-            raise TypeError("dae_solver must be a DAESolver instance.")
+            raise TypeError("dae_solver must be DAESolver instance.")
         self.dae_solver = dae_solver
         self.start_time = float(start_time)
         self.end_time = float(end_time)
