@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 from core.analysis.transient_network import DetachedTransientNetworkState
 
@@ -21,9 +22,16 @@ class TransientEventState:
     def from_snapshot(cls, snapshot: DetachedTransientNetworkState) -> "TransientEventState":
         return cls(snapshot, dict(snapshot.breaker_states), dict(snapshot.equipment_states), snapshot.active_fault, snapshot.topology_revision)
 
-    def set_breaker(self, breaker_id: str, closed: bool) -> None:
-        self.breaker_states[str(breaker_id)] = bool(closed)
-        self.equipment_states[str(breaker_id)] = bool(closed)
+    def set_breaker(
+        self,
+        breaker_id: str,
+        closed: bool,
+        affected_equipment_ids: Iterable[str] = (),
+    ) -> None:
+        breaker_id = str(breaker_id)
+        self.breaker_states[breaker_id] = bool(closed)
+        for equipment_id in affected_equipment_ids:
+            self.equipment_states[str(equipment_id)] = bool(closed)
         self._advance_revision()
 
     def set_equipment(self, equipment_id: str, conducting: bool) -> None:
