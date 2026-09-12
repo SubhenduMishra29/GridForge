@@ -19,20 +19,19 @@ from ui.core.tool_manager import ToolManager
 from ui.core.qt import QApplication
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
+from ui.lifecycle import UILifecycle
 from ui.main_window import MainWindow
+from ui.panels.panel_presentation_bridge import PanelPresentationBridge
 from ui.plugins.plugin_context import PluginContext
 from ui.plugins.plugin_manager import PluginManager
 from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
-from ui.workspace.project import Project
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
+from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter
 from ui.workspace.workspace_controller import WorkspaceController
-from ui.workspace.workspace_defaults import (
-    SLD_WORKSPACE_ID,
-    default_workspaces,
-)
+from ui.workspace.workspace_defaults import SLD_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.workspace.view_manager import ViewRecord
@@ -44,8 +43,9 @@ def build_application() -> tuple[
     PluginManager,
     WorkspaceController,
     UIUpdateBoundary,
+    UILifecycle,
 ]:
-    """Build the GridForge application graph around one authoritative Network."""
+    """Build the GridForge runtime around one Application project lifecycle."""
 
     app = QApplication.instance()
     if app is None:
@@ -54,34 +54,11 @@ def build_application() -> tuple[
     network = Network()
     gridforge_application = create_application(network)
 
-    project = Project(
-        project_id="gridforge-project",
-        name="GridForge Project",
-    )
-
-    sld_document = SLDDocument(
-        document_id="sld-document",
-        name="GridForge SLD",
-        project_id=project.project_id,
-    )
-
     sld_projection_manager = SLDProjectionManager()
     sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
-    sld_read_synchronizer.synchronize_network(
-        sld_document,
-        gridforge_application.read_network(),
-    )
 
-    sld_controller = SLDController(
-        projection_manager=sld_projection_manager,
-        application=gridforge_application,
-    )
-    sld_controller.register_document(sld_document)
-    sld_controller.activate_document(sld_document.document_id)
-
-    # The presentation deserializer is bound to the canonical
-    # Project -> Document -> View -> Workspace lifecycle below.
-    project_workspace_lifecycle: ProjectWorkspaceLifecycle | None = None
+    sld_controller: SLDController
+    project_workspace_lifecycle: ProjectWorkspaceLifecycle
 
     def serialize_sld(document: SLDDocument) -> dict:
         """Use the existing SLDDocument persistence contract."""
@@ -91,40 +68,50 @@ def build_application() -> tuple[
 
     def deserialize_sld(data: dict) -> SLDDocument:
         """Restore the SLD document through the canonical presentation lifecycle."""
-        if project_workspace_lifecycle is None:
-            raise RuntimeError("Project workspace lifecycle is not initialized.")
         document = SLDDocument.from_dict(data)
-        if document.project_id not in (None, project.project_id):
+        if document.project_id not in (None, project_workspace_lifecycle.project.project_id if project_workspace_lifecycle.project else None):
             raise ValueError("Loaded SLD document belongs to a different project")
         project_workspace_lifecycle.replace_document(document)
         sld_controller.replace_document(document)
         return document
 
-    gridforge_application.configure_project_presentation(
-        presentation=sld_document,
-        serializer=serialize_sld,
-        deserializer=deserialize_sld,
+    workspace_manager = WorkspaceManager(
+        definitions={
+            definition.workspace_id: definition
+            for definition in default_workspaces()
+        },
+        default_workspace_id=SLD_WORKSPACE_ID,
     )
 
-    sld_canvas_projection = SLDCanvasProjection()
-    sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
+    # The host is mechanical; WorkspaceController/Realizer own workspace policy.
+    workspace_realizer: WorkspaceRealizer
+    workspace_controller: WorkspaceController
 
-    controller = Controller(
-        application=gridforge_application,
-    )
+    # Application project lifecycle is the sole project authority. The UI
+    # adapter translates it into the presentation Project/Document/Workspace
+    # lifecycle; main.py never constructs an independent Project authority.
+    workspace_realizer = WorkspaceRealizer(main_window=None)
 
+    plugin_manager = PluginManager()
+    plugin_manager.define_defaults()
+    plugin_manager.load_all()
+    plugin_registry = plugin_manager.registry
+
+    panels_entry = plugin_registry.get_entry("panels")
+    if panels_entry is None:
+        raise RuntimeError("PanelsPlugin is not registered.")
+
+    # MainWindow must exist before WorkspaceRealizer can realize docks.
+    # Canvas composition is also created before the shell is shown.
+    controller = Controller(application=gridforge_application)
     canvas_composer = CanvasComposer()
-    canvas_preparation = canvas_composer.prepare(
-        controller=controller,
-    )
-
+    canvas_preparation = canvas_composer.prepare(controller=controller)
     tool_manager = ToolManager(
         controller=controller,
         application=gridforge_application,
         selection_manager=canvas_preparation.selection_manager,
         snap_system=canvas_preparation.snap_system,
     )
-
     canvas_composition = canvas_composer.compose(
         controller=controller,
         tool_manager=tool_manager,
@@ -144,11 +131,7 @@ def build_application() -> tuple[
             y = getattr(position, "y", None)
             if not callable(x) or not callable(y):
                 raise TypeError("position must provide x() and y()")
-            sld_controller.set_node_position(
-                node_id,
-                float(x()),
-                float(y()),
-            )
+            sld_controller.set_node_position(node_id, float(x()), float(y()))
 
         connect(persist_position)
 
@@ -156,11 +139,6 @@ def build_application() -> tuple[
         scene=canvas_composition.scene,
         on_node_realized=wire_sld_node_movement,
     )
-
-    plugin_manager = PluginManager()
-    plugin_manager.define_defaults()
-    plugin_manager.load_all()
-    plugin_registry = plugin_manager.registry
 
     canvas_entry = plugin_registry.get_entry("canvas")
     if canvas_entry is None:
@@ -180,6 +158,62 @@ def build_application() -> tuple[
     if root_widget is None:
         raise RuntimeError("MainWindow did not provide a central surface.")
 
+    # WorkspaceRealizer now receives the actual mechanical shell host.
+    workspace_realizer = WorkspaceRealizer(main_window=window)
+
+    for panel_id in ("project", "equipment", "properties"):
+        dock = panels_entry.plugin.get_dock(panel_id)
+        if dock is None:
+            raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
+        workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
+
+    workspace_controller = WorkspaceController(
+        manager=workspace_manager,
+        realizer=workspace_realizer,
+    )
+    project_workspace_lifecycle = ProjectWorkspaceLifecycle(
+        workspace_controller=workspace_controller,
+    )
+    project_workspace_adapter = ProjectWorkspaceApplicationAdapter(
+        application=gridforge_application,
+        lifecycle=project_workspace_lifecycle,
+    )
+
+    # Application creates the authoritative ProjectContext. The adapter alone
+    # translates that lifecycle into UI presentation state.
+    project_context = project_workspace_adapter.new_project(
+        name="GridForge Project",
+        project_id="gridforge-project",
+    )
+    sld_document = SLDDocument(
+        document_id="sld-document",
+        name="GridForge SLD",
+        project_id=project_context.project_id,
+    )
+    project_workspace_lifecycle.replace_document(sld_document)
+
+    sld_controller = SLDController(
+        projection_manager=sld_projection_manager,
+        application=gridforge_application,
+    )
+    sld_controller.register_document(sld_document)
+    sld_controller.activate_document(sld_document.document_id)
+    sld_read_synchronizer.synchronize_network(
+        sld_document,
+        gridforge_application.read_network(),
+    )
+
+    gridforge_application.configure_project_presentation(
+        presentation=sld_document,
+        serializer=serialize_sld,
+        deserializer=deserialize_sld,
+    )
+
+    sld_canvas_projection = SLDCanvasProjection()
+    sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
+
+    panel_presentation_bridge = PanelPresentationBridge(panels_entry.plugin)
+
     context = PluginContext(
         main_window=window,
         parent=window,
@@ -193,13 +227,20 @@ def build_application() -> tuple[
         tool_manager=tool_manager,
         metadata={
             "sld_canvas_snapshot": sld_canvas_snapshot,
-            "project_id": project.project_id,
+            "project_id": project_context.project_id,
+            "panel_presentation_bridge": panel_presentation_bridge,
+            "project_workspace_adapter": project_workspace_adapter,
         },
     )
 
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}
     plugin_manager.set_contexts(contexts)
     plugin_manager.initialize_all()
+
+    # PanelPlugin may have been initialized only by initialize_all(); refresh
+    # the bridge against that canonical plugin instance and retain one bridge.
+    panels_plugin = plugin_registry.get_entry("panels").plugin
+    panel_presentation_bridge = PanelPresentationBridge(panels_plugin)
 
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas):
@@ -217,45 +258,8 @@ def build_application() -> tuple[
     )
     ui_update_boundary.subscribe()
 
-    workspace_manager = WorkspaceManager(
-        definitions={
-            definition.workspace_id: definition
-            for definition in default_workspaces()
-        },
-        default_workspace_id=SLD_WORKSPACE_ID,
-    )
-    workspace_realizer = WorkspaceRealizer(main_window=window)
-
-    panels_entry = plugin_registry.get_entry("panels")
-    if panels_entry is None:
-        raise RuntimeError("PanelsPlugin is not registered.")
-
-    panels_plugin = panels_entry.plugin
-    for panel_id in ("project", "equipment", "properties"):
-        dock = panels_plugin.get_dock(panel_id)
-        if dock is None:
-            raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
-        workspace_realizer.register_dock(
-            panel_id=panel_id,
-            dock_widget=dock,
-        )
-
-    workspace_controller = WorkspaceController(
-        manager=workspace_manager,
-        realizer=workspace_realizer,
-    )
-
-    # Canonical composition: Application project lifecycle updates this
-    # presentation lifecycle, which activates WorkspaceController and thus
-    # WorkspaceRealizer. No caller supplies a workspace ID for normal project
-    # activation; the controller owns the canonical default policy.
-    project_workspace_lifecycle = ProjectWorkspaceLifecycle(
-        workspace_controller=workspace_controller,
-    )
-    project_workspace_lifecycle.open_project(
-        project,
-        document=sld_document,
-    )
+    # The adapter is the only project lifecycle bridge. Normal activation uses
+    # the canonical default workspace; callers do not provide a workspace ID.
     project_workspace_lifecycle.add_view(
         ViewRecord(
             view_id="sld-view",
@@ -264,16 +268,45 @@ def build_application() -> tuple[
         )
     )
 
+    ui_lifecycle = UILifecycle(
+        workspace_ready=lambda: (
+            project_workspace_adapter.state.workspace_id is not None
+        ),
+        document_ready=lambda: (
+            project_workspace_adapter.state.document is not None
+        ),
+        document_close=project_workspace_adapter.close_project,
+        workspace_teardown=lambda: None,
+        cleanup=lambda: None,
+    )
+    ui_lifecycle.start()
+    ui_lifecycle.activate_document()
+
     window.show()
-    return app, window, plugin_manager, workspace_controller, ui_update_boundary
+    return (
+        app,
+        window,
+        plugin_manager,
+        workspace_controller,
+        ui_update_boundary,
+        ui_lifecycle,
+    )
 
 
 def main() -> int:
     """Start the GridForge application."""
-    app, _window, plugin_manager, _workspace_controller, ui_update_boundary = build_application()
+    (
+        app,
+        _window,
+        plugin_manager,
+        _workspace_controller,
+        ui_update_boundary,
+        ui_lifecycle,
+    ) = build_application()
     try:
         return int(app.exec())
     finally:
+        ui_lifecycle.close()
         ui_update_boundary.dispose()
         plugin_manager.shutdown_all()
 
