@@ -105,7 +105,11 @@ class ProjectWorkspaceLifecycle:
                 name=document_name,
             )
         self._documents.register(document)
-        self._activate_workspace(workspace_id)
+        try:
+            self._activate_workspace(workspace_id)
+        except BaseException:
+            self._clear_failed_activation_state()
+            raise
         return self.state
 
     def open_project(
@@ -126,7 +130,11 @@ class ProjectWorkspaceLifecycle:
         self._project = project
         if document is not None:
             self._documents.register(document)
-        self._activate_workspace(workspace_id)
+        try:
+            self._activate_workspace(workspace_id)
+        except BaseException:
+            self._clear_failed_activation_state()
+            raise
         return self.state
 
     def close_project(self) -> ProjectWorkspaceState:
@@ -189,6 +197,12 @@ class ProjectWorkspaceLifecycle:
         self._views.clear()
         self._documents.clear()
         self._workspace_controller.deactivate()
+        self._project = None
+
+    def _clear_failed_activation_state(self) -> None:
+        """Leave the UI presentation boundary empty after failed activation."""
+        self._views.clear()
+        self._documents.clear()
         self._project = None
 
 
