@@ -1,41 +1,46 @@
 from types import SimpleNamespace
 
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection, SLDCanvasSnapshot
+from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.plugins.canvas_plugin import CanvasPlugin
 from ui.plugins.plugin_context import PluginContext
 from ui.sld.sld_document import SLDDocument
 
 
-class _Projection:
-    def __init__(self):
-        self.models = []
-
-    def project(self, model):
-        self.models.append(model)
-        return SimpleNamespace(nodes=(), connections=())
-
-
-class _RenderSystem:
-    def synchronize(self, snapshot):
-        self.snapshot = snapshot
-
-
-def test_canvas_plugin_synchronizes_current_application_document_after_replacement():
+def test_canvas_plugin_synchronizes_current_application_document_after_replacement(
+    monkeypatch,
+):
     startup_document = SLDDocument("startup", project_id="project-1")
     restored_document = SLDDocument("restored", project_id="project-1")
-    projection = _Projection()
-    render_system = _RenderSystem()
+
+    projection = object.__new__(SLDCanvasProjection)
+    projected_models = []
+
+    def project(model):
+        projected_models.append(model)
+        return SLDCanvasSnapshot(nodes=(), connections=())
+
+    projection.project = project
+
+    render_system = object.__new__(SLDCanvasRenderSystem)
+    render_system.synchronize = lambda snapshot: None
+
     application = SimpleNamespace(presentation=startup_document)
     context = PluginContext(
         application=application,
+        controller=object(),
+        tool_manager=object(),
         sld_document=startup_document,
         sld_canvas_projection=projection,
         sld_canvas_render_system=render_system,
     )
+
     plugin = CanvasPlugin()
+    plugin._composition = object()
+    monkeypatch.setattr(CanvasPlugin, "require_scene", lambda self: object())
     plugin.initialize(context)
 
     application.presentation = restored_document
-    plugin.set_sld_document(restored_document)
     plugin.synchronize_sld()
 
-    assert projection.models[-1] is restored_document.model
+    assert projected_models[-1] is restored_document.model
