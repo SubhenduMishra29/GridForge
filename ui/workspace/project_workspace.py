@@ -81,23 +81,29 @@ class ProjectWorkspaceLifecycle:
         self,
         project: Project,
         *,
+        document: Document | None = None,
         document_type: str = "sld",
         document_name: str = "Untitled",
         workspace_id: str | None = None,
     ) -> ProjectWorkspaceState:
         if not isinstance(project, Project):
             raise TypeError("project must be a Project.")
+        if document is not None and not isinstance(document, Document):
+            raise TypeError("document must be a Document or None.")
         if not document_type or not document_name:
             raise ValueError("document_type and document_name must not be empty.")
+        if document is not None and document.project_id not in (None, project.project_id):
+            raise ValueError("document belongs to a different project.")
 
         self._clear_active_presentation()
         self._project = project
-        document = Document(
-            document_id=str(uuid4()),
-            project_id=project.project_id,
-            document_type=document_type,
-            name=document_name,
-        )
+        if document is None:
+            document = Document(
+                document_id=str(uuid4()),
+                project_id=project.project_id,
+                document_type=document_type,
+                name=document_name,
+            )
         self._documents.register(document)
         self._activate_workspace(workspace_id)
         return self.state
