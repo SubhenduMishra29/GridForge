@@ -10,31 +10,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Repair accidental Markdown fencing
+      - name: Repair accidental Markdown fencing in workspace
         run: |
           files=(
             "core/measurement/measurement_channel.py"
             "core/solver/dynamics/state_vector.py"
           )
-          changed=0
           for file in "${files[@]}"; do
             if [ "$(head -n 1 "$file")" = '```python' ]; then
               sed -i '1d' "$file"
-              changed=1
             fi
             if [ "$(tail -n 1 "$file")" = '```' ]; then
               sed -i '$d' "$file"
-              changed=1
             fi
           done
-          if [ "$changed" -eq 0 ]; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${files[@]}"
-          git commit -m "fix: remove accidental Python source fences"
-          git push
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
