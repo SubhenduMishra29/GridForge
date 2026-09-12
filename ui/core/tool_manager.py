@@ -5,9 +5,10 @@
 # ============================================================
 """Authoritative runtime lifecycle manager for UI interaction tools.
 
-ToolManager owns concrete tool instances and lifecycle only. The registry
-provides factories; every factory receives the single canonical dependency
-contract: controller, application, selection_manager, and snap_system.
+ToolManager owns concrete tool instances, lifecycle, and input dispatch.
+The registry provides factories; every factory receives the single canonical
+dependency contract: controller, application, selection_manager, and
+snap_system.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ ToolFactory = Callable[..., Any]
 
 
 class ToolManager:
-    """Own registered UI tools and their activation lifecycle."""
+    """Own registered UI tools, activation lifecycle, and input dispatch."""
 
     def __init__(
         self,
@@ -186,6 +187,36 @@ class ToolManager:
         self._active_tool.deactivate()
         self._active_tool = None
         self._active_tool_id = None
+
+    # ========================================================
+    # Canonical Canvas Input Dispatch
+    # ========================================================
+
+    def mouse_press(self, event: Any) -> bool:
+        return self._dispatch_input("mouse_press", event)
+
+    def mouse_move(self, event: Any) -> bool:
+        return self._dispatch_input("mouse_move", event)
+
+    def mouse_release(self, event: Any) -> bool:
+        return self._dispatch_input("mouse_release", event)
+
+    def key_press(self, event: Any) -> bool:
+        return self._dispatch_input("key_press", event)
+
+    def key_release(self, event: Any) -> bool:
+        return self._dispatch_input("key_release", event)
+
+    def _dispatch_input(self, method_name: str, event: Any) -> bool:
+        self._ensure_active()
+        tool = self._active_tool
+        if tool is None:
+            return False
+        handler = getattr(tool, method_name, None)
+        if not callable(handler):
+            return False
+        result = handler(event)
+        return bool(result) if result is not None else True
 
     def cancel(self) -> bool:
         self._ensure_active()
