@@ -37,4 +37,4 @@ def test_local_sld_dirty_does_not_compete_with_application_dirty_authority():
     result = application.execute(SetSLDNodePositionCommand(node_id="SLD-NODE-001", x=30.0, y=40.0))
     assert result.success is True
     assert application.is_dirty is True
-    assert state.local_view_dirty is still_true
+    assert state.local_view_dirty is True
