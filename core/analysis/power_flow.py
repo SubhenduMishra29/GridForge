@@ -11,7 +11,7 @@ Author: Subhendu Mishra
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Optional
 
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PreparedPowerFlow, PowerFlowPreparation
@@ -72,7 +72,7 @@ class PowerFlowAnalysis:
     @classmethod
     def from_network(
         cls,
-        network: Any,
+        network,
         power_flow_configuration: PowerFlowStudyConfiguration,
         options: Optional[object] = None,
     ) -> "PowerFlowAnalysis":
@@ -85,16 +85,16 @@ class PowerFlowAnalysis:
         self._result = self.solver.solve()
         return self._result
 
-    def to_engineering_result(
-        self,
-        buses: Iterable[Any],
-    ) -> EngineeringPowerFlowResult:
-        """Convert the latest numerical result into structured engineering quantities."""
+    def to_engineering_result(self) -> EngineeringPowerFlowResult:
+        """Convert the latest result using only the detached prepared snapshot."""
         if self._result is None:
             raise RuntimeError("Power Flow must be solved before converting its result.")
+        if self.prepared is None:
+            raise RuntimeError("Engineering conversion requires a prepared Power Flow snapshot.")
         return PowerFlowResultConverter.to_engineering(
             self._result,
-            buses,
+            self.prepared.input.bus_ids,
+            self.prepared.bus_voltage_bases,
         )
 
     @property
