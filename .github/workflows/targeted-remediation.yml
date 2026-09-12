@@ -19,7 +19,7 @@ jobs:
         run: >-
           python -m py_compile
           core/application/project_lifecycle.py
-          core/application/project_persistence.py
+          core/persistence/project_persistence.py
           core/application/application.py
           ui/sld/sld_state.py
           ui/sld/sld_controller.py
