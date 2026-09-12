@@ -73,10 +73,10 @@ class WorkspaceController:
         return self._manager.commit(candidate)
 
     def close(self) -> None:
-        """Release presentation realization and make this coordinator inert."""
+        """Release the realized Qt workspace and make this coordinator inert."""
         if self._closed:
             return
-        self._realizer.close()
+        self._realizer.clear_realization()
         self._closed = True
 
     def _ensure_open(self) -> None:
