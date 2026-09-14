@@ -36,6 +36,7 @@ from .sld_commands import (
     SetSLDNodePositionCommand, AddSLDNodeCommand, RemoveSLDNodeCommand,
     AddSLDConnectionCommand, RemoveSLDConnectionCommand,
 )
+from .placement_commands import PLACE_BUS, PlaceBusCommand
 from .model_commands import *
 from .control_commands import *
 
