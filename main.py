@@ -36,12 +36,10 @@ from ui.workspace.workspace_defaults import SLD_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 
-
 Cleanup = Callable[[], None]
 
 
 def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
-    """Run one existing owner cleanup without masking an earlier failure."""
     try:
         cleanup()
     except BaseException as exc:
@@ -49,9 +47,7 @@ def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
 
 
 def _cleanup_startup_failure(resources: dict[str, object]) -> None:
-    """Rollback resources acquired by a partially completed composition."""
     errors: list[BaseException] = []
-
     ui_lifecycle = resources.get("ui_lifecycle")
     workspace_controller = resources.get("workspace_controller")
     if isinstance(ui_lifecycle, UILifecycle):
@@ -62,50 +58,31 @@ def _cleanup_startup_failure(resources: dict[str, object]) -> None:
         adapter = resources.get("project_workspace_adapter")
         if isinstance(adapter, ProjectWorkspaceApplicationAdapter):
             _invoke_cleanup(adapter.close_project, errors)
-
         if isinstance(workspace_controller, WorkspaceController):
             _invoke_cleanup(workspace_controller.close, errors)
-
     ui_update_boundary = resources.get("ui_update_boundary")
     if isinstance(ui_update_boundary, UIUpdateBoundary):
         _invoke_cleanup(ui_update_boundary.dispose, errors)
-
     plugin_manager = resources.get("plugin_manager")
     if isinstance(plugin_manager, PluginManager):
         _invoke_cleanup(plugin_manager.shutdown_all, errors)
 
 
-def _shutdown_components(
-    *,
-    ui_lifecycle: UILifecycle,
-    workspace_controller: WorkspaceController,
-    ui_update_boundary: UIUpdateBoundary,
-    plugin_manager: PluginManager,
-) -> None:
-    """Shutdown all existing owners while preserving the first failure."""
+def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: WorkspaceController,
+                         ui_update_boundary: UIUpdateBoundary, plugin_manager: PluginManager) -> None:
     errors: list[BaseException] = []
-
     _invoke_cleanup(ui_lifecycle.close, errors)
     if not ui_lifecycle.closed:
         _invoke_cleanup(workspace_controller.close, errors)
-
     _invoke_cleanup(ui_update_boundary.dispose, errors)
     _invoke_cleanup(plugin_manager.shutdown_all, errors)
-
     if errors:
         raise errors[0]
 
 
 def _build_application_impl(resources: dict[str, object]) -> tuple[
-    QApplication,
-    MainWindow,
-    PluginManager,
-    WorkspaceController,
-    UIUpdateBoundary,
-    UILifecycle,
+    QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle,
 ]:
-    """Build the GridForge runtime around one Application project lifecycle."""
-
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
@@ -120,23 +97,18 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     project_workspace_lifecycle: ProjectWorkspaceLifecycle
 
     def serialize_sld(document: SLDDocument) -> dict:
-        """Use the existing SLDDocument persistence contract."""
         if not isinstance(document, SLDDocument):
             raise TypeError("Persistent presentation must be an SLDDocument")
         return document.to_dict()
 
     def deserialize_sld(data: dict) -> SLDDocument:
-        """Deserialize presentation only; adapter owns UI activation."""
         document = SLDDocument.from_dict(data)
         if not isinstance(document, SLDDocument):
             raise TypeError("Persistent presentation must deserialize to SLDDocument")
         return document
 
     workspace_manager = WorkspaceManager(
-        definitions={
-            definition.workspace_id: definition
-            for definition in default_workspaces()
-        },
+        definitions={definition.workspace_id: definition for definition in default_workspaces()},
         default_workspace_id=SLD_WORKSPACE_ID,
     )
 
@@ -157,19 +129,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     )
 
     def wire_sld_node_movement(node_id: str, item: object) -> None:
-        """Route graphical node movement through the SLD document boundary."""
         position_changed = getattr(item, "position_changed", None)
         connect = getattr(position_changed, "connect", None)
         if not callable(connect):
             return
-
         def persist_position(position: object) -> None:
             x = getattr(position, "x", None)
             y = getattr(position, "y", None)
             if not callable(x) or not callable(y):
                 raise TypeError("position must provide x() and y()")
             sld_controller.set_node_position(node_id, float(x()), float(y()))
-
         connect(persist_position)
 
     sld_canvas_render_system = SLDCanvasRenderSystem(
@@ -198,42 +167,41 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     set_composition(canvas_composition)
     panel_presentation_bridge = PanelPresentationBridge(panels_plugin)
 
-    window = MainWindow(
-        controller=controller,
-        plugin_registry=plugin_registry,
-        central_surface=canvas_composition.widget,
-    )
+    window = MainWindow(controller=controller, plugin_registry=plugin_registry,
+                        central_surface=canvas_composition.widget)
     root_widget = window.central_surface
     if root_widget is None:
         raise RuntimeError("MainWindow did not provide a central surface.")
 
     workspace_realizer = WorkspaceRealizer(main_window=window)
-    workspace_controller = WorkspaceController(
-        manager=workspace_manager,
-        realizer=workspace_realizer,
-    )
+    workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer)
     resources["workspace_controller"] = workspace_controller
 
-    project_workspace_lifecycle = ProjectWorkspaceLifecycle(
-        workspace_controller=workspace_controller,
-    )
+    project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller)
     project_workspace_adapter = ProjectWorkspaceApplicationAdapter(
         application=gridforge_application,
         lifecycle=project_workspace_lifecycle,
     )
     resources["project_workspace_adapter"] = project_workspace_adapter
 
+    def create_sld_document(context: object) -> SLDDocument:
+        if not hasattr(context, "project_id") or not hasattr(context, "name"):
+            raise TypeError("presentation factory requires a ProjectContext")
+        return SLDDocument(
+            document_id=f"{context.project_id}:sld",
+            name=f"{context.name} SLD",
+            project_id=context.project_id,
+        )
+
+    project_workspace_adapter.application.project_lifecycle.configure_presentation_factory(create_sld_document)
     project_id = "gridforge-project"
-    sld_document = SLDDocument(
-        document_id="sld-document",
-        name="GridForge SLD",
-        project_id=project_id,
-    )
     project_context = project_workspace_adapter.new_project(
         name="GridForge Project",
         project_id=project_id,
-        document=sld_document,
     )
+    sld_document = gridforge_application.presentation
+    if not isinstance(sld_document, SLDDocument):
+        raise RuntimeError("Application did not establish an SLDDocument for the active project.")
 
     sld_controller = SLDController(
         projection_manager=sld_projection_manager,
@@ -241,10 +209,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     )
     sld_controller.register_document(sld_document)
     sld_controller.activate_document(sld_document.document_id)
-    sld_read_synchronizer.synchronize_network(
-        sld_document,
-        gridforge_application.read_network(),
-    )
+    sld_read_synchronizer.synchronize_network(sld_document, gridforge_application.read_network())
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
@@ -254,12 +219,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
             synchronize_canvas()
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
-
-    gridforge_application.configure_project_presentation(
-        presentation=sld_document,
-        serializer=serialize_sld,
-        deserializer=deserialize_sld,
-    )
 
     sld_canvas_projection = SLDCanvasProjection()
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
@@ -322,25 +281,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     ui_lifecycle.activate_document()
 
     window.show()
-    return (
-        app,
-        window,
-        plugin_manager,
-        workspace_controller,
-        ui_update_boundary,
-        ui_lifecycle,
-    )
+    return app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle
 
 
-def build_application() -> tuple[
-    QApplication,
-    MainWindow,
-    PluginManager,
-    WorkspaceController,
-    UIUpdateBoundary,
-    UILifecycle,
-]:
-    """Build the application and rollback acquired owners on failure."""
+def build_application() -> tuple[QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle]:
     resources: dict[str, object] = {}
     try:
         return _build_application_impl(resources)
@@ -350,14 +294,8 @@ def build_application() -> tuple[
 
 
 def main() -> int:
-    """Start the GridForge application."""
     (
-        app,
-        _window,
-        plugin_manager,
-        workspace_controller,
-        ui_update_boundary,
-        ui_lifecycle,
+        app, _window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle,
     ) = build_application()
     try:
         return int(app.exec())

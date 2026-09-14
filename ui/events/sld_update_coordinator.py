@@ -1,5 +1,5 @@
 # ============================================================
-# File: ui/events/sld_update_coordinator.py
+# File: core/ui/events/sld_update_coordinator.py
 # GridForge V2 — SLD Update Coordinator
 # ============================================================
 # Author: Subhendu Mishra
@@ -20,6 +20,7 @@ from core.application.events import (
     NetworkChanged,
     ProjectLoaded,
     ProjectClosed,
+    SLDPresentationChanged,
     TopologyChanged,
 )
 
@@ -30,13 +31,7 @@ CanvasRefresh = Callable[[], None]
 
 
 class SLDUpdateCoordinator:
-    """Apply authoritative Application semantic facts to the active SLD projection.
-
-    Element and topology events are targeted semantic invalidation signals.
-    NetworkChanged is an aggregate network-state invalidation signal. Project
-    lifecycle events establish/clear the presentation context; they are not
-    substitutes for element mutation events.
-    """
+    """Apply authoritative Application semantic facts to the active SLD projection."""
 
     _PRESENTATION_EVENTS = (
         ElementCreated,
@@ -44,8 +39,8 @@ class SLDUpdateCoordinator:
         ElementRemoved,
         TopologyChanged,
         NetworkChanged,
+        SLDPresentationChanged,
         ProjectLoaded,
-        ProjectClosed,
     )
 
     def __init__(self, *, application: Application, document: SLDDocument,
@@ -59,33 +54,52 @@ class SLDUpdateCoordinator:
         if not callable(canvas_refresh):
             raise TypeError("canvas_refresh must be callable")
         self._application = application
-        self._document = document
+        self._document: SLDDocument | None = document
         self._synchronizer = synchronizer
         self._canvas_refresh = canvas_refresh
 
     @property
-    def document(self) -> SLDDocument:
-        """Return the active persistent presentation document."""
+    def document(self) -> SLDDocument | None:
+        """Return the currently bound presentation document."""
         presentation = self._application.presentation
         if isinstance(presentation, SLDDocument):
             self._document = presentation
         return self._document
+
+    def bind_document(self, document: SLDDocument) -> None:
+        """Explicitly bind a newly active SLD document."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument")
+        self._document = document
+
+    def detach_document(self) -> None:
+        """Drop the cached presentation reference during project close."""
+        self._document = None
 
     def refresh(self, event: ApplicationEvent) -> None:
         """Refresh the active presentation after an authoritative Application fact."""
         if not isinstance(event, ApplicationEvent):
             raise TypeError("event must be an ApplicationEvent")
         if isinstance(event, ProjectClosed):
+            self.detach_document()
             self._canvas_refresh()
             return
+        if isinstance(event, ProjectLoaded):
+            presentation = self._application.presentation
+            if isinstance(presentation, SLDDocument):
+                self.bind_document(presentation)
         if isinstance(event, self._PRESENTATION_EVENTS):
+            document = self.document
+            if document is None:
+                return
             self._synchronizer.synchronize_network(
-                self.document,
+                document,
                 self._application.read_network(),
             )
             self._canvas_refresh()
 
     def dispose(self) -> None:
+        self.detach_document()
         self._canvas_refresh = lambda: None
 
 

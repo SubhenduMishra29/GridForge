@@ -72,8 +72,9 @@ class ProjectWorkspaceApplicationAdapter:
         context = self._application.new_project(name, project_id=project_id)
         if document is not None and document.project_id not in (None, context.project_id):
             raise ValueError("document belongs to a different project.")
-        if document is None:
-            document = self._new_sld_document(context)
+        document = document or self._application.presentation
+        if not isinstance(document, Document):
+            raise RuntimeError("Application did not establish a presentation document for the new project.")
         self._attach_presentation(document)
         try:
             state = self._lifecycle.new_project(
@@ -92,7 +93,7 @@ class ProjectWorkspaceApplicationAdapter:
         presentation = self._application.presentation
         document = presentation if isinstance(presentation, Document) else None
         if document is None:
-            document = self._new_sld_document(context)
+            raise RuntimeError("Application did not establish a presentation document for the opened project.")
         self._attach_presentation(document)
         try:
             state = self._lifecycle.open_project(
@@ -126,22 +127,10 @@ class ProjectWorkspaceApplicationAdapter:
         )
 
     def _rollback_application_transition(self) -> None:
-        """Close a newly activated Application project after UI activation fails."""
         try:
             self._application.close_project()
         except BaseException:
-            # Preserve the original UI activation failure. The composition
-            # root owns broader failure isolation when startup is involved.
             pass
-
-    @staticmethod
-    def _new_sld_document(context: ProjectContext) -> SLDDocument:
-        """Create the canonical SLD presentation document for a project."""
-        return SLDDocument(
-            document_id=f"{context.project_id}:sld",
-            name=f"{context.name} SLD",
-            project_id=context.project_id,
-        )
 
     def _ensure_sld_view(self, state: ProjectWorkspaceState) -> ProjectWorkspaceState:
         document = state.document
