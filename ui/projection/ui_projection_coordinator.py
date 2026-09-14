@@ -1,6 +1,8 @@
 # ============================================================
 # GridForge V2 — Central UI Projection Coordinator
 # ============================================================
+# Author: Subhendu Mishra
+# ============================================================
 """Framework-neutral fan-out from the Application event ingress.
 
 The coordinator deliberately contains routing only. Specialized projections
@@ -29,11 +31,11 @@ class UIProjectionCoordinator:
 
     @property
     def projections(self) -> tuple[Any, ...]:
-        """Return the registered projection instances in composition order."""
+        """Return registered projections in composition order."""
         return tuple(self._projections)
 
     def register(self, projection: Any) -> None:
-        """Register one specialized projection by its declared event interests."""
+        """Register one projection by its declared Application event interests."""
         self._ensure_active()
         if projection is None or not callable(getattr(projection, "refresh", None)):
             raise TypeError("projection must provide refresh(event).")
@@ -61,13 +63,18 @@ class UIProjectionCoordinator:
                 self._routes.pop(event_type, None)
 
     def handle(self, event: ApplicationEvent) -> None:
-        """Fan one immutable Application fact out to interested projections."""
+        """Fan one immutable Application fact to each interested projection once."""
         self._ensure_active()
         if not isinstance(event, ApplicationEvent):
             raise TypeError("event must be an ApplicationEvent.")
+        delivered: set[int] = set()
         for event_type, projections in tuple(self._routes.items()):
             if isinstance(event, event_type):
                 for projection in tuple(projections):
+                    marker = id(projection)
+                    if marker in delivered:
+                        continue
+                    delivered.add(marker)
                     projection.refresh(event)
 
     def dispose(self) -> None:
