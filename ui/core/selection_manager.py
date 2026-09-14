@@ -50,9 +50,8 @@ class SelectionManager(QObject):
         if multi:
             if not self.is_selected(object_id):
                 self._selected_ids.append(object_id)
-        else:
-            if self._selected_ids != [object_id]:
-                self._selected_ids = [object_id]
+        elif self._selected_ids != [object_id]:
+            self._selected_ids = [object_id]
         self._emit_if_changed(previous)
 
     def select_single(self, object_id: Any) -> None:
@@ -72,10 +71,11 @@ class SelectionManager(QObject):
         self._emit_if_changed(previous)
 
     def clear(self) -> None:
-        if not self._selected_ids:
+        previous = tuple(self._selected_ids)
+        if not previous:
             return
         self._selected_ids.clear()
-        self._emit_if_changed(())
+        self._emit_if_changed(previous)
 
     def _emit_if_changed(self, previous: tuple[Any, ...]) -> None:
         current = self.get_selected_ids()
