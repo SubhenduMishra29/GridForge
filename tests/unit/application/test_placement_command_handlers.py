@@ -38,7 +38,7 @@ def test_bus_placement_uses_one_transaction_for_model_and_presentation():
     result = handler(command, SimpleNamespace(network=network), transaction)
 
     assert result.success
-    assert network.get_bus("bus-1") is not None
+    assert network.get_by_id("bus", "bus-1") is not None
     assert sld.state == ["bus-1"]
     assert sld.calls == [("bus-1", "bus-1", 120.0, 80.0)]
 
@@ -60,5 +60,5 @@ def test_bus_placement_failure_rolls_back_both_mutations():
         raise AssertionError("expected presentation failure")
 
     transaction.rollback()
-    assert network.get_bus("bus-2") is None
+    assert network.get_by_id("bus", "bus-2") is None
     assert sld.state == []
