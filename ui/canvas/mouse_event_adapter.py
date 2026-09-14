@@ -14,12 +14,7 @@ from ui.core.qt import QPointF
 
 @dataclass(frozen=True, slots=True)
 class CanvasMouseEvent:
-    """Framework-neutral mouse event consumed by Canvas tools.
-
-    ``position`` is in scene coordinates so tools do not need to know about
-    QGraphicsView viewport coordinates. Native Qt button/modifier information
-    is preserved as opaque values and no domain state is introduced here.
-    """
+    """Framework-neutral mouse event consumed by Canvas tools."""
 
     position: QPointF
     scene_position: QPointF
@@ -51,15 +46,12 @@ class MouseEventAdapter:
     def adapt(self, event: Any) -> CanvasMouseEvent:
         if event is None:
             raise ValueError("event must not be None.")
-
         viewport_position = self._event_position(event)
         scene_position = self._map_to_scene(viewport_position)
-        object_id = self._hit_test(scene_position)
-
         return CanvasMouseEvent(
             position=QPointF(scene_position),
             scene_position=QPointF(scene_position),
-            object_id=object_id,
+            object_id=self._hit_test(scene_position),
             button=self._event_value(event, "button"),
             buttons=self._event_value(event, "buttons"),
             modifiers=self._event_modifiers(event),
@@ -69,7 +61,6 @@ class MouseEventAdapter:
         mapper = getattr(self._view, "mapToScene", None)
         if not callable(mapper):
             raise TypeError("view must provide mapToScene().")
-
         try:
             return mapper(position)
         except (TypeError, AttributeError):
@@ -83,12 +74,13 @@ class MouseEventAdapter:
         if not callable(items_method):
             raise TypeError("scene must provide items().")
 
+        # QGraphicsScene.items(point) returns items in stacking order. Walk
+        # each candidate toward its selectable BaseItem so decorative child
+        # graphics do not become independent selection targets.
         for item in tuple(items_method(scene_position)):
-            selectable = self._is_selectable(item)
-            if selectable:
-                candidate = self._selectable_ancestor(item)
-                if candidate is not None:
-                    return getattr(candidate, "object_id", None)
+            candidate = self._selectable_ancestor(item)
+            if candidate is not None:
+                return getattr(candidate, "object_id", None)
         return None
 
     @staticmethod
@@ -99,31 +91,31 @@ class MouseEventAdapter:
             return False
         if getattr(item, "isEnabled", lambda: True)() is False:
             return False
+        if getattr(item, "object_id", None) is None:
+            return False
+
         flags = getattr(item, "flags", None)
-        if callable(flags):
-            try:
-                value = flags()
-                flag_type = getattr(item, "GraphicsItemFlag", None)
-                selectable_flag = getattr(flag_type, "ItemIsSelectable", None)
-                if selectable_flag is not None:
-                    return bool(value & selectable_flag)
-            except (TypeError, AttributeError):
-                pass
-        return getattr(item, "object_id", None) is not None
+        if not callable(flags):
+            return True
+        try:
+            value = flags()
+            flag_type = getattr(item, "GraphicsItemFlag", None)
+            selectable_flag = getattr(flag_type, "ItemIsSelectable", None)
+            if selectable_flag is None:
+                return True
+            return bool(value & selectable_flag)
+        except (TypeError, AttributeError):
+            return True
 
     @classmethod
     def _selectable_ancestor(cls, item: Any) -> Optional[Any]:
         current = item
         while current is not None:
-            if cls._has_stable_object_id(current) and cls._is_selectable(current):
+            if cls._is_selectable(current):
                 return current
             parent_method = getattr(current, "parentItem", None)
             current = parent_method() if callable(parent_method) else None
         return None
-
-    @staticmethod
-    def _has_stable_object_id(item: Any) -> bool:
-        return getattr(item, "object_id", None) is not None
 
     @staticmethod
     def _event_position(event: Any) -> Any:
