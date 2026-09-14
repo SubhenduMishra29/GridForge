@@ -1,14 +1,24 @@
+# ============================================================
+# GridForge V2 — Project Hierarchy Projection
+# ============================================================
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from core.application.events import ProjectClosed, ProjectLoaded
 
 
 class ProjectHierarchyProjection:
+    """Project Application workspace state into the Project Explorer panel."""
+
     event_types = (ProjectLoaded, ProjectClosed)
 
     def __init__(self, *, adapter, panel) -> None:
         if adapter is None or not callable(getattr(adapter, "subscribe", None)):
             raise TypeError("adapter must provide subscribe().")
+        if not callable(getattr(adapter, "unsubscribe", None)):
+            raise TypeError("adapter must provide unsubscribe().")
         if panel is None or not callable(getattr(panel, "set_hierarchy", None)):
             raise TypeError("panel must provide set_hierarchy().")
         self._adapter = adapter
@@ -21,8 +31,7 @@ class ProjectHierarchyProjection:
         if self._disposed:
             return
         if isinstance(event, ProjectClosed):
-            clear = getattr(self._panel, "clear_hierarchy", None)
-            clear() if callable(clear) else self._panel.set_hierarchy(None)
+            self._panel.clear_hierarchy()
         else:
             self.refresh_from_state()
 
@@ -46,14 +55,21 @@ class ProjectHierarchyProjection:
             "name": str(document.name),
             "type": str(document.document_type),
         },)
-        return {"project": {"id": str(project.project_id), "name": str(project.name), "documents": documents}, "workspace_id": state.workspace_id, "view_id": state.view_id}
+        return {
+            "project": {
+                "id": str(project.project_id),
+                "name": str(project.name),
+                "documents": documents,
+            },
+            "workspace_id": state.workspace_id,
+            "view_id": state.view_id,
+        }
 
     def dispose(self) -> None:
         if self._disposed:
             return
         self._adapter.unsubscribe(self._on_workspace_changed)
-        clear = getattr(self._panel, "clear_hierarchy", None)
-        clear() if callable(clear) else self._panel.set_hierarchy(None)
+        self._panel.clear_hierarchy()
         self._disposed = True
 
 
