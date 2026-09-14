@@ -1,7 +1,6 @@
 # ============================================================
 # File: ui/canvas/canvas_composition.py
 # GridForge V2 — Canvas Composition
-# Author: Subhendu Mishra
 # ============================================================
 """GridForge V2 application-owned Canvas composition boundary."""
 
@@ -15,6 +14,7 @@ from ui.canvas.grid_scene import GridScene
 from ui.canvas.grid_system import GridSystem
 from ui.canvas.graphics_view import GraphicsView
 from ui.canvas.interaction_manager import InteractionManager
+from ui.canvas.mouse_event_adapter import MouseEventAdapter
 from ui.canvas.navigation_controller import NavigationController
 from ui.canvas.preview_layer import PreviewLayer
 from ui.core.controller import Controller
@@ -57,18 +57,8 @@ class CanvasComposition:
 class CanvasComposer:
     """Application-level constructor for the Canvas service graph."""
 
-    def prepare(
-        self,
-        *,
-        controller: Controller,
-    ) -> CanvasCompositionPreparation:
-        """Create the shared Canvas interaction dependencies.
-
-        ToolManager requires SelectionManager and SnapSystem at construction
-        time, while SnapSystem itself depends on the Canvas grid and scene.
-        Preparation makes that dependency ordering explicit without creating a
-        second Canvas service graph.
-        """
+    def prepare(self, *, controller: Controller) -> CanvasCompositionPreparation:
+        """Create the shared Canvas interaction dependencies."""
         if controller is None:
             raise ValueError("controller must not be None.")
 
@@ -120,12 +110,9 @@ class CanvasComposer:
             scene=scene,
             parent=parent,
         )
-
-        coordinate_system = CoordinateSystem(
-            view=view,
-            grid_system=grid_system,
-        )
+        coordinate_system = CoordinateSystem(view=view, grid_system=grid_system)
         preview_layer = PreviewLayer(scene=scene)
+        input_adapter = MouseEventAdapter(view=view, scene=scene)
         interaction_manager = InteractionManager(
             view=view,
             controller=controller,
@@ -134,6 +121,7 @@ class CanvasComposer:
             snap_system=snap_system,
             preview_layer=preview_layer,
             selection_manager=selection_manager,
+            input_adapter=input_adapter,
         )
         navigation_controller = NavigationController(view=view)
 
