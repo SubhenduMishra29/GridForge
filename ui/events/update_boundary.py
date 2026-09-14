@@ -22,6 +22,7 @@ class UIUpdateBoundary:
         self._event_bus = event_bus
         self._projection_coordinator = projection_coordinator
         self._subscribed = False
+        self._disposed = False
 
     @property
     def subscribed(self) -> bool:
@@ -32,6 +33,8 @@ class UIUpdateBoundary:
         return self._projection_coordinator
 
     def subscribe(self) -> None:
+        if self._disposed:
+            raise RuntimeError("UIUpdateBoundary has been disposed.")
         if self._subscribed:
             return
         self._event_bus.subscribe(ApplicationEvent, self._on_event)
@@ -44,6 +47,8 @@ class UIUpdateBoundary:
         self._subscribed = False
 
     def handle(self, event: ApplicationEvent) -> None:
+        if self._disposed:
+            return
         if not isinstance(event, ApplicationEvent):
             raise TypeError("event must be an ApplicationEvent.")
         self._projection_coordinator.handle(event)
@@ -52,7 +57,11 @@ class UIUpdateBoundary:
         self.handle(event)
 
     def dispose(self) -> None:
+        if self._disposed:
+            return
         self.unsubscribe()
+        self._projection_coordinator.dispose()
+        self._disposed = True
 
 
 __all__ = ["UIUpdateBoundary"]
