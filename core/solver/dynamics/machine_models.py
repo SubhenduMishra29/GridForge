@@ -1024,4 +1024,3 @@ __all__ = [
     "ClassicalSynchronousMachine",
     "DynamicGenerator",
 ]
-```
