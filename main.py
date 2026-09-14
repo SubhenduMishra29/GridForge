@@ -10,6 +10,7 @@ import sys
 from collections.abc import Callable
 
 from core.application.bootstrap import create_application
+from core.application.events import ProjectLoaded
 from core.network.network import Network
 
 from ui.canvas.canvas_composition import CanvasComposer
@@ -25,6 +26,12 @@ from ui.main_window import MainWindow
 from ui.panels.panel_presentation_bridge import PanelPresentationBridge
 from ui.plugins.plugin_context import PluginContext
 from ui.plugins.plugin_manager import PluginManager
+from ui.projection.element_list_projection import ElementListProjection
+from ui.projection.project_hierarchy_projection import ProjectHierarchyProjection
+from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
+from ui.projection.study_projection import StudyProjection
+from ui.projection.ui_projection_coordinator import UIProjectionCoordinator
+from ui.projection.validation_projection import ValidationProjection
 from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
@@ -122,9 +129,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
         snap_system=canvas_preparation.snap_system,
     )
 
-    # Compose the Canvas viewport first so MainWindow has its canonical central
-    # surface. The PropertiesPanel-dependent selection projection is deferred
-    # until PanelsPlugin has created the real presentation widget below.
     canvas_composition = canvas_composer.compose(
         controller=controller,
         tool_manager=tool_manager,
@@ -251,8 +255,20 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     plugin_manager.initialize_all()
 
     properties_panel = panels_plugin.get_panel("properties")
-    if properties_panel is None:
-        raise RuntimeError("PanelsPlugin did not create the required PropertiesPanel presentation.")
+    project_panel = panels_plugin.get_panel("project")
+    element_list_panel = panels_plugin.get_panel("element_list")
+    messages_panel = panels_plugin.get_panel("messages")
+    study_cases_panel = panels_plugin.get_panel("study_cases")
+    for panel_id, panel in (
+        ("properties", properties_panel),
+        ("project", project_panel),
+        ("element_list", element_list_panel),
+        ("messages", messages_panel),
+        ("study_cases", study_cases_panel),
+    ):
+        if panel is None:
+            raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
+
     canvas_composer.bind_selection_projection(
         composition=canvas_composition,
         properties_panel=properties_panel,
@@ -274,12 +290,56 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
         synchronizer=sld_read_synchronizer,
         canvas_refresh=synchronize_canvas,
     )
+
+    selection_projection = SelectionProjectionCoordinator(
+        selection_manager=canvas_preparation.selection_manager,
+        application=gridforge_application,
+        properties_panel=properties_panel,
+    )
+    element_list_projection = ElementListProjection(
+        application=gridforge_application,
+        panel=element_list_panel,
+    )
+    project_hierarchy_projection = ProjectHierarchyProjection(
+        adapter=project_workspace_adapter,
+        panel=project_panel,
+    )
+    validation_projection = ValidationProjection(
+        application=gridforge_application,
+        panel=messages_panel,
+    )
+    study_projection = StudyProjection(
+        application=gridforge_application,
+        panel=study_cases_panel,
+    )
+
+    projection_coordinator = UIProjectionCoordinator(
+        projections=(
+            sld_update_coordinator,
+            selection_projection,
+            element_list_projection,
+            project_hierarchy_projection,
+            validation_projection,
+            study_projection,
+        )
+    )
+    resources["ui_projection_coordinator"] = projection_coordinator
+
     ui_update_boundary = UIUpdateBoundary(
         event_bus=gridforge_application.event_bus,
-        refresh=sld_update_coordinator.refresh,
+        projection_coordinator=projection_coordinator,
     )
     resources["ui_update_boundary"] = ui_update_boundary
     ui_update_boundary.subscribe()
+
+    # The initial project was created before the UI event ingress was subscribed.
+    # Prime each read-side projection from authoritative current state without
+    # introducing a second ApplicationEventBus subscription.
+    element_list_projection.refresh(
+        ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})
+    )
+    validation_projection.refresh_from_application()
+    selection_projection.refresh()
 
     ui_lifecycle = UILifecycle(
         workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
