@@ -29,24 +29,19 @@ jobs:
           python-version: '3.12'
       - name: Install targeted dependencies
         run: python -m pip install --upgrade pip pytest numpy scipy
-      - name: Verify R3 source syntax
+      - name: Verify source syntax
         run: >-
           python -m py_compile
-          core/application/project_lifecycle.py
-          core/persistence/project_persistence.py
-          core/application/application.py
-          core/measurement/measurement_channel.py
-          core/solver/dynamics/state_vector.py
           ui/events/sld_update_coordinator.py
-          ui/sld/sld_state.py
-          ui/sld/sld_controller.py
+          ui/events/update_boundary.py
+          ui/projection/ui_projection_coordinator.py
+          ui/projection/element_list_projection.py
+          ui/projection/project_hierarchy_projection.py
+          ui/projection/validation_projection.py
+          ui/projection/study_projection.py
           main.py
-          tests/core/persistence/test_project_persistence_sld.py
-          tests/core/application/test_project_lifecycle_r3.py
-          tests/ui/sld/test_project_dirty_authority_r3.py
-      - name: Run R3 remediation tests
+          tests/ui/projection/test_ui_projection_remediation.py
+      - name: Run UI projection remediation tests
         run: >-
           python -m pytest -q
-          tests/core/persistence/test_project_persistence_sld.py
-          tests/core/application/test_project_lifecycle_r3.py
-          tests/ui/sld/test_project_dirty_authority_r3.py
+          tests/ui/projection/test_ui_projection_remediation.py
