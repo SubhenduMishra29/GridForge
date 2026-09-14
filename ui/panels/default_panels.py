@@ -17,12 +17,27 @@ from .study_cases_panel import StudyCasesPanelWidget
 
 
 class ProjectPanelWidget(QWidget):
+    """Presentation surface for the Application project hierarchy projection."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("GridForgePanel_project")
+        self._hierarchy: Any | None = None
+
+    @property
+    def hierarchy(self) -> Any | None:
+        return self._hierarchy
+
+    def set_hierarchy(self, hierarchy: Any | None) -> None:
+        self._hierarchy = hierarchy
+
+    def clear_hierarchy(self) -> None:
+        self._hierarchy = None
 
 
 class EquipmentPanelWidget(QWidget):
+    """Canonical Equipment Browser surface; projection contract remains undefined."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("GridForgePanel_equipment")
