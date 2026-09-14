@@ -49,6 +49,7 @@ class CanvasComposition:
     coordinate_system: CoordinateSystem
     snap_system: SnapSystem
     preview_layer: PreviewLayer
+    application: Any
     selection_projection: SelectionProjectionCoordinator | None = None
 
     @property
@@ -92,7 +93,7 @@ class CanvasComposer:
         """Construct one complete Canvas service graph.
 
         The selection projection is intentionally deferred when the real
-        PropertiesPanel presentation has not yet been composed.  The normal
+        PropertiesPanel presentation has not yet been composed. The normal
         application composition binds it before the Canvas is considered
         fully wired, so a coordinator is never constructed with a missing
         PropertiesPanel dependency.
@@ -103,6 +104,10 @@ class CanvasComposer:
             raise ValueError("tool_manager must not be None.")
         if not isinstance(preparation, CanvasCompositionPreparation):
             raise TypeError("preparation must be CanvasCompositionPreparation.")
+
+        application = tool_manager.application
+        if application is None:
+            raise ValueError("tool_manager must retain the canonical Application.")
 
         selection_manager = preparation.selection_manager
         grid_system = preparation.grid_system
@@ -144,7 +149,7 @@ class CanvasComposer:
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
-                application=tool_manager.application,
+                application=application,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
             )
@@ -154,7 +159,7 @@ class CanvasComposer:
         if properties_panel is not None:
             selection_projection = SelectionProjectionCoordinator(
                 selection_manager=selection_manager,
-                application=tool_manager.application,
+                application=application,
                 properties_panel=properties_panel,
             )
 
@@ -168,6 +173,7 @@ class CanvasComposer:
             coordinate_system=coordinate_system,
             snap_system=snap_system,
             preview_layer=preview_layer,
+            application=application,
             selection_projection=selection_projection,
         )
 
@@ -187,7 +193,7 @@ class CanvasComposer:
 
         coordinator = SelectionProjectionCoordinator(
             selection_manager=composition.selection_manager,
-            application=getattr(composition, "_application", None),
+            application=composition.application,
             properties_panel=properties_panel,
         )
         composition.selection_projection = coordinator
