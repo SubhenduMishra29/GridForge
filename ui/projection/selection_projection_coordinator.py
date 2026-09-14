@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.application.events import (
+    ApplicationEvent,
     ElementRemoved,
     ElementUpdated,
     NetworkChanged,
@@ -20,13 +21,21 @@ from .projection_state import ProjectionState
 
 
 class SelectionProjectionCoordinator:
-    """Coordinate SelectionManager, Application reads, and PropertiesPanel.
+    """Project selection state using Application read models.
 
-    This coordinator is presentation infrastructure. It never accesses Core
-    directly and never publishes transient selection as an Application/Core
-    event. Selected IDs are resolved through ``Application.read_network`` and
-    ``Application.read_element`` before a presentation state is assigned.
+    Application events arrive through ``UIProjectionCoordinator``. The only
+    direct event source retained here is ``SelectionManager.selection_changed``
+    because selection is transient UI interaction state rather than a domain
+    event.
     """
+
+    event_types = (
+        ElementUpdated,
+        ElementRemoved,
+        NetworkChanged,
+        ProjectLoaded,
+        ProjectClosed,
+    )
 
     def __init__(
         self,
@@ -41,12 +50,11 @@ class SelectionProjectionCoordinator:
         self.application = None
         self.properties_panel = properties_panel
         self._disposed = False
-        self._application_event_bus = None
 
-        selection_changed = getattr(selection_manager, "selection_changed", None)
-        if selection_changed is None or not callable(getattr(selection_changed, "connect", None)):
+        signal = getattr(selection_manager, "selection_changed", None)
+        if signal is None or not callable(getattr(signal, "connect", None)):
             raise TypeError("selection_manager must expose a selection_changed signal.")
-        selection_changed.connect(self._on_selection_changed)
+        signal.connect(self._on_selection_changed)
 
         if application is not None:
             self.attach_application(application)
@@ -59,25 +67,12 @@ class SelectionProjectionCoordinator:
             raise TypeError("application must provide read_element().")
         if not callable(getattr(application, "read_network", None)):
             raise TypeError("application must provide read_network().")
-        event_bus = getattr(application, "event_bus", None)
-        if event_bus is None:
-            raise TypeError("application must expose event_bus.")
-
-        self._unsubscribe_application_events()
         self.application = application
-        self._application_event_bus = event_bus
-        event_bus.subscribe(ElementUpdated, self._on_element_updated)
-        event_bus.subscribe(ElementRemoved, self._on_element_removed)
-        event_bus.subscribe(NetworkChanged, self._on_network_changed)
-        event_bus.subscribe(ProjectLoaded, self._on_project_loaded)
-        event_bus.subscribe(ProjectClosed, self._on_project_closed)
         self.refresh()
 
     def detach_application(self) -> Any:
-        self._unsubscribe_application_events()
         application = self.application
         self.application = None
-        self._application_event_bus = None
         self.clear_projection()
         return application
 
@@ -86,18 +81,30 @@ class SelectionProjectionCoordinator:
         self.properties_panel = properties_panel
         self.refresh()
 
-    def refresh(self) -> None:
+    def refresh(self, event: ApplicationEvent | None = None) -> None:
         self._ensure_active()
+        if isinstance(event, (ProjectLoaded, ProjectClosed)):
+            self.selection_manager.clear()
+            self.clear_projection()
+            return
+
         selected_ids = tuple(self.selection_manager.get_selected_ids())
         if not selected_ids or self.application is None:
             self.clear_projection()
             return
 
-        # PropertiesPanel is a singular inspector. Multiple selection remains
-        # authoritative in SelectionManager; the first selected ID is the
-        # deterministic inspection target until a multi-selection inspector is
-        # introduced.
         object_id = selected_ids[0]
+        if isinstance(event, ElementRemoved) and self._selected_event_id(event) == object_id:
+            self.selection_manager.clear()
+            self.clear_projection()
+            return
+
+        if isinstance(event, ElementUpdated) and self._selected_event_id(event) not in selected_ids:
+            return
+
+        if isinstance(event, NetworkChanged) and not self.selection_manager.has_selection():
+            return
+
         element = self._read_selected_element(object_id)
         if element is None:
             self.clear_projection()
@@ -127,7 +134,6 @@ class SelectionProjectionCoordinator:
     def dispose(self) -> None:
         if self._disposed:
             return
-        self._unsubscribe_application_events()
         signal = getattr(self.selection_manager, "selection_changed", None)
         disconnect = getattr(signal, "disconnect", None)
         if callable(disconnect):
@@ -138,7 +144,6 @@ class SelectionProjectionCoordinator:
         self.clear_projection()
         self.application = None
         self.properties_panel = None
-        self._application_event_bus = None
         self._disposed = True
 
     def _on_selection_changed(self, selected_ids: Any) -> None:
@@ -146,38 +151,11 @@ class SelectionProjectionCoordinator:
         if not self._disposed:
             self.refresh()
 
-    def _on_element_updated(self, event: ElementUpdated) -> None:
-        if self._selected_event_id(event) in self.selection_manager.get_selected_ids():
-            self.refresh()
-
-    def _on_element_removed(self, event: ElementRemoved) -> None:
-        object_id = self._selected_event_id(event)
-        if object_id not in self.selection_manager.get_selected_ids():
-            return
-        self.selection_manager.clear()
-        self.clear_projection()
-
-    def _on_network_changed(self, event: NetworkChanged) -> None:
-        del event
-        if self.selection_manager.has_selection():
-            self.refresh()
-
-    def _on_project_loaded(self, event: ProjectLoaded) -> None:
-        del event
-        self.selection_manager.clear()
-        self.clear_projection()
-
-    def _on_project_closed(self, event: ProjectClosed) -> None:
-        del event
-        self.selection_manager.clear()
-        self.clear_projection()
-
     def _read_selected_element(self, object_id: Any) -> Any | None:
         if self.application is None:
             return None
         network = self.application.read_network()
-        elements = getattr(network, "elements", ())
-        for element in elements:
+        for element in getattr(network, "elements", ()):
             if getattr(element, "object_id", None) == object_id:
                 element_type = getattr(element, "element_type", None)
                 if not element_type:
@@ -209,20 +187,6 @@ class SelectionProjectionCoordinator:
     def _selected_event_id(event: Any) -> Any:
         payload = getattr(event, "payload", {})
         return payload.get("element_id")
-
-    def _unsubscribe_application_events(self) -> None:
-        bus = self._application_event_bus
-        if bus is None:
-            return
-        for event_type, handler in (
-            (ElementUpdated, self._on_element_updated),
-            (ElementRemoved, self._on_element_removed),
-            (NetworkChanged, self._on_network_changed),
-            (ProjectLoaded, self._on_project_loaded),
-            (ProjectClosed, self._on_project_closed),
-        ):
-            bus.unsubscribe(event_type, handler)
-        self._application_event_bus = None
 
     def _ensure_active(self) -> None:
         if self._disposed:
