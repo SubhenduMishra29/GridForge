@@ -121,6 +121,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
         selection_manager=canvas_preparation.selection_manager,
         snap_system=canvas_preparation.snap_system,
     )
+
+    # Compose the Canvas viewport first so MainWindow has its canonical central
+    # surface. The PropertiesPanel-dependent selection projection is deferred
+    # until PanelsPlugin has created the real presentation widget below.
     canvas_composition = canvas_composer.compose(
         controller=controller,
         tool_manager=tool_manager,
@@ -245,6 +249,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}
     plugin_manager.set_contexts(contexts)
     plugin_manager.initialize_all()
+
+    properties_panel = panels_plugin.get_panel("properties")
+    if properties_panel is None:
+        raise RuntimeError("PanelsPlugin did not create the required PropertiesPanel presentation.")
+    canvas_composer.bind_selection_projection(
+        composition=canvas_composition,
+        properties_panel=properties_panel,
+    )
 
     for panel_id in ("project", "equipment", "properties"):
         dock = panels_plugin.get_dock(panel_id)
