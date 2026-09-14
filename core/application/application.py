@@ -271,6 +271,12 @@ class Application:
             self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
                                                           correlation_id=command.correlation_id,
                                                           causation_id=command.causation_id))
+        elif command.command_type == "application.place_bus":
+            payload = dict(result.metadata)
+            payload.update(metadata)
+            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
+                                                          correlation_id=command.correlation_id,
+                                                          causation_id=command.causation_id))
 
     def _publish_control_event(self, command: Command, result: ApplicationResult, metadata: dict[str, object], *, operation: str) -> None:
         command_type = command.command_type
