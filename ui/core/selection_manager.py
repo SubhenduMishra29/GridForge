@@ -46,7 +46,6 @@ class SelectionManager(QObject):
             raise ValueError("object_id must not be None.")
         if not isinstance(multi, bool):
             raise TypeError("multi must be a bool.")
-
         previous = tuple(self._selected_ids)
         if multi:
             if not self.is_selected(object_id):
@@ -54,7 +53,6 @@ class SelectionManager(QObject):
         else:
             if self._selected_ids != [object_id]:
                 self._selected_ids = [object_id]
-
         self._emit_if_changed(previous)
 
     def select_single(self, object_id: Any) -> None:
@@ -66,7 +64,6 @@ class SelectionManager(QObject):
     def toggle_selection(self, object_id: Any) -> None:
         if object_id is None:
             raise ValueError("object_id must not be None.")
-
         previous = tuple(self._selected_ids)
         if self.is_selected(object_id):
             self._selected_ids = [selected_id for selected_id in self._selected_ids if selected_id != object_id]
@@ -78,27 +75,24 @@ class SelectionManager(QObject):
         if not self._selected_ids:
             return
         self._selected_ids.clear()
-        self.selection_changed.emit(())
-        self.selection_cleared.emit()
+        self._emit_if_changed(())
 
     def _emit_if_changed(self, previous: tuple[Any, ...]) -> None:
         current = self.get_selected_ids()
         if current == previous:
             return
+        self.sync_graphics()
         self.selection_changed.emit(current)
         if not current:
             self.selection_cleared.emit()
-        self.sync_graphics()
 
     def sync_graphics(self, scene: Optional[QGraphicsScene] = None) -> None:
         target_scene = scene if scene is not None else self.scene
         if target_scene is None:
             return
-
         items_method = getattr(target_scene, "items", None)
         if not callable(items_method):
             raise TypeError("scene must provide items().")
-
         selected_ids = self.get_selected_ids()
         for item in tuple(items_method()):
             set_selected = getattr(item, "setSelected", None)
@@ -136,10 +130,7 @@ class SelectionManager(QObject):
         items_method = getattr(target_scene, "items", None)
         if not callable(items_method):
             raise TypeError("scene must provide items().")
-        return tuple(
-            item for item in tuple(items_method())
-            if any(requested_id == getattr(item, "object_id", None) for requested_id in requested_ids)
-        )
+        return tuple(item for item in tuple(items_method()) if any(requested_id == getattr(item, "object_id", None) for requested_id in requested_ids))
 
     def get_selected_items(self, scene: Optional[QGraphicsScene] = None) -> tuple[Any, ...]:
         return self.get_items_for_ids(self.get_selected_ids(), scene=scene)
