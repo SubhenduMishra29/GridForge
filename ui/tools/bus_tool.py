@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
-from core.application.commands.model_commands import CreateBusCommand
+from core.application.commands.placement_commands import PlaceBusCommand
 
 from .tool_base import ToolBase
 
@@ -83,7 +83,7 @@ class BusTool(ToolBase):
             return False
         self._position = position
 
-        command = CreateBusCommand(
+        command = PlaceBusCommand(
             bus_id=f"bus-{uuid4()}",
             name="Bus",
             nominal_voltage_kv=0.0,
@@ -91,6 +91,8 @@ class BusTool(ToolBase):
             angle_deg=0.0,
             frequency_hz=50.0,
             in_service=True,
+            x=position[0],
+            y=position[1],
         )
         self.execute_command(command)
         self._clear_state()
