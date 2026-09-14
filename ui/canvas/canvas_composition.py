@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from ui.canvas.coordinate_system import CoordinateSystem
 from ui.canvas.grid_scene import GridScene
@@ -22,6 +22,7 @@ from ui.core.qt import QWidget
 from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
+from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
 from ui.tools.default_tool_registry import create_default_tool_factories
 
 
@@ -48,6 +49,7 @@ class CanvasComposition:
     coordinate_system: CoordinateSystem
     snap_system: SnapSystem
     preview_layer: PreviewLayer
+    selection_projection: SelectionProjectionCoordinator
 
     @property
     def widget(self) -> QWidget:
@@ -85,6 +87,7 @@ class CanvasComposer:
         tool_manager: ToolManager,
         preparation: CanvasCompositionPreparation,
         parent: Optional[QWidget] = None,
+        properties_panel: Any = None,
     ) -> CanvasComposition:
         """Construct and wire one complete Canvas service graph."""
         if controller is None:
@@ -140,6 +143,12 @@ class CanvasComposer:
             )
         )
 
+        selection_projection = SelectionProjectionCoordinator(
+            selection_manager=selection_manager,
+            application=tool_manager.application,
+            properties_panel=properties_panel,
+        )
+
         return CanvasComposition(
             view=view,
             scene=scene,
@@ -150,6 +159,7 @@ class CanvasComposer:
             coordinate_system=coordinate_system,
             snap_system=snap_system,
             preview_layer=preview_layer,
+            selection_projection=selection_projection,
         )
 
 
