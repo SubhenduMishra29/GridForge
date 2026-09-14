@@ -16,20 +16,20 @@ from .transaction import Transaction
 class BusPlacementCommandHandler:
     """Create Core Bus state and its SLD node in one Application transaction."""
 
-    def __init__(self, model_service: ModelService, sld_service: SLDService) -> None:
-        if not isinstance(model_service, ModelService):
-            raise TypeError("model_service must be a ModelService")
+    def __init__(self, sld_service: SLDService) -> None:
         if not isinstance(sld_service, SLDService):
             raise TypeError("sld_service must be an SLDService")
-        self._model_service = model_service
         self._sld_service = sld_service
 
     def __call__(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         if command.command_type != PLACE_BUS:
             raise ValueError(f"Unsupported placement command: {command.command_type}")
+        if context is None or not hasattr(context, "network"):
+            raise TypeError("placement handler requires an application context with network")
 
+        model_service = ModelService(context.network)
         p = command.payload
-        model_result = self._model_service.create_bus(
+        model_result = model_service.create_bus(
             bus_id=p["bus_id"],
             name=p["name"],
             nominal_voltage_kv=p["nominal_voltage_kv"],
