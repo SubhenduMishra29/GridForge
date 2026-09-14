@@ -28,7 +28,6 @@ from ui.plugins.plugin_context import PluginContext
 from ui.plugins.plugin_manager import PluginManager
 from ui.projection.element_list_projection import ElementListProjection
 from ui.projection.project_hierarchy_projection import ProjectHierarchyProjection
-from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
 from ui.projection.study_projection import StudyProjection
 from ui.projection.ui_projection_coordinator import UIProjectionCoordinator
 from ui.projection.validation_projection import ValidationProjection
@@ -273,6 +272,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
         composition=canvas_composition,
         properties_panel=properties_panel,
     )
+    selection_projection = canvas_composition.selection_projection
+    if selection_projection is None:
+        raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
 
     for panel_id in ("project", "equipment", "properties"):
         dock = panels_plugin.get_dock(panel_id)
@@ -291,11 +293,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
         canvas_refresh=synchronize_canvas,
     )
 
-    selection_projection = SelectionProjectionCoordinator(
-        selection_manager=canvas_preparation.selection_manager,
-        application=gridforge_application,
-        properties_panel=properties_panel,
-    )
     element_list_projection = ElementListProjection(
         application=gridforge_application,
         panel=element_list_panel,
@@ -332,9 +329,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     resources["ui_update_boundary"] = ui_update_boundary
     ui_update_boundary.subscribe()
 
-    # The initial project was created before the UI event ingress was subscribed.
-    # Prime each read-side projection from authoritative current state without
-    # introducing a second ApplicationEventBus subscription.
     element_list_projection.refresh(
         ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})
     )
