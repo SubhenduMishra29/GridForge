@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.application.events import ValidationChanged
+from core.application.events import ProjectClosed, ProjectLoaded, ValidationChanged
 
 
 class ValidationProjection:
-    event_types = (ValidationChanged,)
+    event_types = (ValidationChanged, ProjectLoaded, ProjectClosed)
 
     def __init__(self, *, application: Any, panel: Any) -> None:
         self._application = application
@@ -25,9 +25,13 @@ class ValidationProjection:
         return self._messages
 
     def refresh(self, event: Any) -> None:
-        del event
-        if not self._disposed:
-            self.refresh_from_application()
+        if self._disposed:
+            return
+        if isinstance(event, (ProjectLoaded, ProjectClosed)):
+            self._messages = ()
+            self._panel.set_messages(())
+            return
+        self.refresh_from_application()
 
     def refresh_from_application(self) -> None:
         if self._disposed:
