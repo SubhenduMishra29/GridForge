@@ -36,7 +36,7 @@ class CanvasCompositionPreparation:
     snap_system: SnapSystem
 
 
-@dataclass(frozen=True)
+@dataclass
 class CanvasComposition:
     """Fully composed Canvas viewport and interaction services."""
 
@@ -49,7 +49,8 @@ class CanvasComposition:
     coordinate_system: CoordinateSystem
     snap_system: SnapSystem
     preview_layer: PreviewLayer
-    selection_projection: SelectionProjectionCoordinator
+    application: Any
+    selection_projection: SelectionProjectionCoordinator | None = None
 
     @property
     def widget(self) -> QWidget:
@@ -89,13 +90,24 @@ class CanvasComposer:
         parent: Optional[QWidget] = None,
         properties_panel: Any = None,
     ) -> CanvasComposition:
-        """Construct and wire one complete Canvas service graph."""
+        """Construct one complete Canvas service graph.
+
+        The selection projection is intentionally deferred when the real
+        PropertiesPanel presentation has not yet been composed. The normal
+        application composition binds it before the Canvas is considered
+        fully wired, so a coordinator is never constructed with a missing
+        PropertiesPanel dependency.
+        """
         if controller is None:
             raise ValueError("controller must not be None.")
         if tool_manager is None:
             raise ValueError("tool_manager must not be None.")
         if not isinstance(preparation, CanvasCompositionPreparation):
             raise TypeError("preparation must be CanvasCompositionPreparation.")
+
+        application = tool_manager.application
+        if application is None:
+            raise ValueError("tool_manager must retain the canonical Application.")
 
         selection_manager = preparation.selection_manager
         grid_system = preparation.grid_system
@@ -137,17 +149,19 @@ class CanvasComposer:
         tool_manager.register_tools(
             create_default_tool_factories(
                 controller=controller,
-                application=tool_manager.application,
+                application=application,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
             )
         )
 
-        selection_projection = SelectionProjectionCoordinator(
-            selection_manager=selection_manager,
-            application=tool_manager.application,
-            properties_panel=properties_panel,
-        )
+        selection_projection = None
+        if properties_panel is not None:
+            selection_projection = SelectionProjectionCoordinator(
+                selection_manager=selection_manager,
+                application=application,
+                properties_panel=properties_panel,
+            )
 
         return CanvasComposition(
             view=view,
@@ -159,8 +173,31 @@ class CanvasComposer:
             coordinate_system=coordinate_system,
             snap_system=snap_system,
             preview_layer=preview_layer,
+            application=application,
             selection_projection=selection_projection,
         )
+
+    def bind_selection_projection(
+        self,
+        *,
+        composition: CanvasComposition,
+        properties_panel: Any,
+    ) -> SelectionProjectionCoordinator:
+        """Bind the real PropertiesPanel after panel plugin composition."""
+        if not isinstance(composition, CanvasComposition):
+            raise TypeError("composition must be CanvasComposition.")
+        if properties_panel is None:
+            raise ValueError("properties_panel must not be None.")
+        if composition.selection_projection is not None:
+            raise RuntimeError("Canvas selection projection is already bound.")
+
+        coordinator = SelectionProjectionCoordinator(
+            selection_manager=composition.selection_manager,
+            application=composition.application,
+            properties_panel=properties_panel,
+        )
+        composition.selection_projection = coordinator
+        return coordinator
 
 
 __all__ = [

@@ -1,3 +1,8 @@
+# ============================================================
+# GridForge V2 — Default Panels
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from collections.abc import Callable
