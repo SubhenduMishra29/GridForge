@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .command import Command
+from .commands.placement_commands import PLACE_BUS
 from .commands.sld_commands import (
     ADD_SLD_CONNECTION,
     ADD_SLD_NODE,
@@ -18,6 +19,7 @@ from .commands.sld_commands import (
     REMOVE_SLD_NODE,
     SET_SLD_NODE_POSITION,
 )
+from .placement_command_handlers import BusPlacementCommandHandler
 from .results import ApplicationResult
 from .services.sld_service import SLDService
 from .transaction import Transaction
@@ -30,6 +32,7 @@ class SLDCommandHandlers:
         if not isinstance(service, SLDService):
             raise TypeError("service must be an SLDService")
         self._service = service
+        self._bus_placement = BusPlacementCommandHandler(service)
 
     def handlers(self) -> Mapping[str, Any]:
         return {
@@ -38,6 +41,7 @@ class SLDCommandHandlers:
             REMOVE_SLD_NODE: self.remove_node,
             ADD_SLD_CONNECTION: self.add_connection,
             REMOVE_SLD_CONNECTION: self.remove_connection,
+            PLACE_BUS: self.place_bus,
         }
 
     def _execute(self, command: Command, _context: Any, transaction: Transaction) -> ApplicationResult:
@@ -57,6 +61,9 @@ class SLDCommandHandlers:
 
     def remove_connection(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         return self._execute(command, context, transaction)
+
+    def place_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._bus_placement(command, context, transaction)
 
 
 __all__ = ["SLDCommandHandlers"]
