@@ -1,7 +1,6 @@
 # ============================================================
 # File: core/application/project_lifecycle.py
 # GridForge V2 — Application Project Lifecycle Service
-# Author: Subhendu Mishra
 # ============================================================
 
 """Application-owned project lifecycle coordination."""
@@ -91,6 +90,7 @@ class ProjectLifecycleService:
         self._activate_network(network)
         self._network = network
         self._context = context
+        self._presentation = None
         return context
 
     def open_project(self, path: str | Path) -> ProjectContext:
@@ -137,9 +137,6 @@ class ProjectLifecycleService:
 
         self._saver(context, self._network, presentation_data, target)
 
-        # A successful package write establishes the persistence boundary. The
-        # presentation document's own modified flag is local metadata and must
-        # not reopen a clean project as dirty after a round trip.
         mark_clean = getattr(self._presentation, "mark_clean", None)
         if callable(mark_clean):
             mark_clean()
