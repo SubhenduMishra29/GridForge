@@ -43,6 +43,11 @@ from .relay_commands import (
     CreateRelayCommand, UpdateRelayCommand, DeleteRelayCommand,
     PutRelayInServiceCommand, TakeRelayOutOfServiceCommand,
 )
+from .protection_configuration_commands import (
+    CREATE_PROTECTION_CONFIGURATION, UPDATE_PROTECTION_CONFIGURATION, DELETE_PROTECTION_CONFIGURATION,
+    CreateProtectionConfigurationCommand, UpdateProtectionConfigurationCommand,
+    DeleteProtectionConfigurationCommand,
+)
 from .model_commands import *
 from .control_commands import *
 
