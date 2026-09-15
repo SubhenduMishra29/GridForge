@@ -21,6 +21,7 @@ from core.protection.overcurrent import (
     IECOvercurrentRelay,
     InstantaneousOvercurrentRelay,
 )
+from core.protection.voltage import UnderVoltageRelay
 
 
 class ProtectionFunctionStatus(str, Enum):
@@ -59,7 +60,7 @@ _SPECS = (
     ProtectionFunctionSpecification("51", "Inverse-time overcurrent", ProtectionFunctionStatus.IMPLEMENTED, IECOvercurrentRelay),
     ProtectionFunctionSpecification("50N", "Instantaneous earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthInstantaneousOvercurrentRelay),
     ProtectionFunctionSpecification("51N", "Inverse-time earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthIECOvercurrentRelay),
-    ProtectionFunctionSpecification("27", "Undervoltage", ProtectionFunctionStatus.NOT_IMPLEMENTED),
+    ProtectionFunctionSpecification("27", "Undervoltage", ProtectionFunctionStatus.IMPLEMENTED, UnderVoltageRelay),
     ProtectionFunctionSpecification("59", "Overvoltage", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.NOT_IMPLEMENTED),
