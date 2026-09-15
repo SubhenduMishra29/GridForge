@@ -30,6 +30,32 @@ Complete the GridForge V2 Relay, Protection, Trip, and Control platforms by reco
 4. Identify/reuse the canonical event publication and read-model mechanism.
 5. Document the exact protection/control integration boundary before changing Core.
 
+**Status: COMPLETE — current-head reconciliation.**
+
+Canonical mutation path confirmed:
+
+```text
+ProtectionDecision
+    ↓
+TripBreakerCommand (model.trip_breaker)
+    ↓
+Application.execute()
+    ↓
+CommandManager
+    ↓
+ModelCommandHandlers.trip_breaker()
+    ↓
+ModelService.trip_breaker()
+    ↓
+SwitchingModelService.trip_breaker()
+    ↓
+Authoritative Core Breaker.trip()
+```
+
+Canonical semantic event path is `Application._publish_semantic_events()` through the single `ApplicationEventBus`. Control already follows the same Application boundary through `ControlCommandDispatcher` and `ControlExecutionService`.
+
+No second command system, event bus, breaker API, or Application layer is required for this platform.
+
 ## Task 2 — Reconcile measurement semantics
 1. Verify CT/PT/CVT associations to current/voltage measurement paths.
 2. Verify `MeasurementChannel` engineering values, units, quality, validity and timestamps.
@@ -37,12 +63,36 @@ Complete the GridForge V2 Relay, Protection, Trip, and Control platforms by reco
 4. Verify per-unit conversion follows existing Core conventions.
 5. Add focused headless tests.
 
+**Status: ARCHITECTURALLY COMPLETE — test coverage already present; no production change required in this pass.**
+
+Confirmed:
+- `MeasurementChannel` is the authoritative logical signal and stores source/source-terminal references without copying physical source state.
+- `engineering_value = raw_value * scale * polarity` is the sole channel-level conversion.
+- CT/PT/CVT physical ratios are applied by `MeasurementGeneration`, not by protection functions.
+- Current conversion follows PU → physical primary current → CT secondary current.
+- Voltage conversion follows PU → physical primary voltage → PT/CVT secondary voltage.
+- `MeasurementChannel` carries unit, quality, availability, timestamp, sample sequence, stale-age configuration and explicit validity semantics.
+- `RelayInput` exposes live read-through access to engineering value, availability, usability, validity, quality, signal type, phase, unit and source metadata.
+- Existing `tests/core/measurement/test_measurement_conversion_contract.py` covers CT, PT, CVT conversion and source-identity binding.
+
+No duplicate measurement abstraction was introduced.
+
 ## Task 3 — Complete ANSI 50
 1. Add tests for below-pickup, exact-pickup and above-pickup cases.
 2. Implement instantaneous overcurrent using the existing `RelayBase`/`ProtectionElement` boundary.
 3. Produce canonical `ProtectionDecision` values.
 4. Validate invalid measurement/settings through existing protection contracts.
 5. Do not inspect arbitrary project/equipment objects from the function.
+
+**Status: IMPLEMENTED — verification deferred.**
+
+Added:
+- `core/protection/overcurrent/instantaneous_relay.py`
+- `tests/core/protection/test_instantaneous_overcurrent.py`
+
+ANSI 50 criterion is explicitly `|I| >= pickup`, with `operating_time=0.0` on operation. The function reads current only through `RelayInput`, rejects unusable measurements without asserting a trip, and returns the canonical `ProtectionDecision` without operating equipment.
+
+Runtime tests were intentionally not executed.
 
 ## Task 4 — Reconcile ANSI 51
 1. Test pickup/non-operation.
@@ -116,11 +166,11 @@ Inventory existing UI protection/control surfaces first. Bind UI only to Applica
 The implementation is not complete until the two end-to-end semantic chains above work through the canonical architecture, ANSI 50 is real, ANSI 51 timing is verifiable, requested function status is explicit, no duplicate responsibility remains, and no new architectural violation exists.
 
 ## Current explicit gaps
-1. Application-level protection orchestration must be located/added using the frozen command architecture.
-2. Application-level control orchestration must be located/added using the frozen command architecture.
-3. ANSI 50 needs a genuine canonical implementation if no equivalent is found.
-4. ANSI 51 needs integration verification, not replacement.
-5. TripCircuit/TripCoil semantics need reconciliation with BreakerManager and Application.
-6. CT/PT/CVT engineering associations/scaling need explicit verification.
-7. 50N/51N/27/59/46/49/67/87/21 require implementation-status mapping and explicit non-fabrication behavior.
+1. Application-level protection orchestration is partially present as `ProtectionOutputService`; remaining work is to expose/compose protection evaluation through the Application facade without bypassing the existing command/event architecture.
+2. Application-level control orchestration is already present as `ControlCycleService` + `ControlExecutionService` + `ControlCommandDispatcher`; it requires reconciliation/tests rather than a parallel service.
+3. ANSI 50 genuine implementation is now present; runtime verification is deferred.
+4. ANSI 51 needs focused integration tests and status verification, not replacement.
+5. TripCircuit/TripCoil semantic abstraction is not present in the repository tree; the existing canonical trip boundary is `ProtectionOutputService` → `TripBreakerCommand` → Application.
+6. CT/PT/CVT engineering associations/scaling are implemented through the existing MeasurementGeneration boundary and covered by existing conversion-contract tests.
+7. `50N/51N/27/59/46/49/67/87/21` still require explicit implementation-status mapping and non-fabrication verification.
 8. UI is deferred until Core/Application boundaries are complete.
