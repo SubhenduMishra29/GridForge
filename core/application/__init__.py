@@ -11,6 +11,7 @@ from __future__ import annotations
 from .application import Application
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_execution import ControlExecutionResult, ControlExecutionService
+from .protection_execution import ProtectionExecutionResult, ProtectionExecutionService
 from .read_models import (
     ElementReadModel,
     NetworkReadModel,
@@ -31,6 +32,8 @@ __all__ = [
     "ControlCycleService",
     "ControlExecutionResult",
     "ControlExecutionService",
+    "ProtectionExecutionResult",
+    "ProtectionExecutionService",
     "ElementReadModel",
     "NetworkReadModel",
     "ProtectionReadModel",
