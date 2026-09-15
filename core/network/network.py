@@ -1,13 +1,3 @@
-# ============================================================
-
-# File: core/network/network.py
-
-# GridForge V2 — Network Aggregate
-
-# Author: Subhendu Mishra
-
-# ============================================================
-
 """Authoritative electrical Network aggregate."""
 
 from __future__ import annotations
@@ -64,6 +54,8 @@ class Network:
     @property
     def potential_transformers(self) -> tuple[Any, ...]: return self.registry.potential_transformers
     @property
+    def relays(self) -> tuple[Any, ...]: return self.registry.relays
+    @property
     def lines(self) -> tuple[Any, ...]: return self.registry.lines
     @property
     def cables(self) -> tuple[Any, ...]: return self.registry.cables
@@ -90,7 +82,6 @@ class Network:
             self.index.invalidate()
 
     def invalidate_topology(self) -> None:
-        """Invalidate derived topology after a topology-affecting state mutation."""
         self._invalidate_topology()
 
     def _add(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
@@ -131,6 +122,8 @@ class Network:
     def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer)
     def add_potential_transformer(self, transformer: Any) -> None: self._add(self.registry.add_potential_transformer, transformer)
     def remove_potential_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_potential_transformer, transformer)
+    def add_relay(self, relay: Any) -> None: self._add(self.registry.add_relay, relay)
+    def remove_relay(self, relay: Any) -> None: self._remove(self.registry.remove_relay, relay)
     def add_line(self, line: Any) -> None: self._add(self.registry.add_line, line, affects_topology=True)
     def remove_line(self, line: Any) -> None: self._remove(self.registry.remove_line, line, affects_topology=True)
     def add_cable(self, cable: Any) -> None: self._add(self.registry.add_cable, cable, affects_topology=True)
@@ -164,7 +157,7 @@ class Network:
     def index_valid(self) -> bool: return self.index.valid
 
     def __repr__(self) -> str:
-        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
+        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
 
 
 __all__ = ["Network"]
