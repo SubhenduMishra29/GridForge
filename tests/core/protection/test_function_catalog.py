@@ -21,6 +21,7 @@ from core.protection.overcurrent import (
     IECOvercurrentRelay,
     InstantaneousOvercurrentRelay,
 )
+from core.protection.voltage import UnderVoltageRelay
 
 
 def test_catalog_exposes_all_requested_ansi_functions() -> None:
@@ -47,8 +48,14 @@ def test_catalog_marks_51n_with_canonical_implementation() -> None:
     assert specification.implementation is EarthIECOvercurrentRelay
 
 
+def test_catalog_marks_27_with_canonical_implementation() -> None:
+    specification = get_protection_function("27")
+    assert specification.status is ProtectionFunctionStatus.IMPLEMENTED
+    assert specification.implementation is UnderVoltageRelay
+
+
 def test_catalog_does_not_fabricate_unimplemented_functions() -> None:
-    for code in ("27", "59", "46", "49", "87"):
+    for code in ("59", "46", "49", "87"):
         specification = get_protection_function(code)
         assert specification.status is ProtectionFunctionStatus.NOT_IMPLEMENTED
         assert specification.implementation is None
