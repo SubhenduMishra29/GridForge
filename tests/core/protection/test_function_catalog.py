@@ -20,6 +20,7 @@ from core.protection.overcurrent import (
     EarthIECOvercurrentRelay,
     IECOvercurrentRelay,
     InstantaneousOvercurrentRelay,
+    NegativeSequenceOvercurrentRelay,
 )
 from core.protection.voltage import OverVoltageRelay, UnderVoltageRelay
 
@@ -60,8 +61,14 @@ def test_catalog_marks_59_with_canonical_implementation() -> None:
     assert specification.implementation is OverVoltageRelay
 
 
+def test_catalog_marks_46_with_canonical_implementation() -> None:
+    specification = get_protection_function("46")
+    assert specification.status is ProtectionFunctionStatus.IMPLEMENTED
+    assert specification.implementation is NegativeSequenceOvercurrentRelay
+
+
 def test_catalog_does_not_fabricate_unimplemented_functions() -> None:
-    for code in ("46", "49", "87"):
+    for code in ("49", "87"):
         specification = get_protection_function(code)
         assert specification.status is ProtectionFunctionStatus.NOT_IMPLEMENTED
         assert specification.implementation is None
