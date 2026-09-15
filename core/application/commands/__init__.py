@@ -37,6 +37,12 @@ from .sld_commands import (
     AddSLDConnectionCommand, RemoveSLDConnectionCommand,
 )
 from .placement_commands import PLACE_BUS, PlaceBusCommand
+from .relay_commands import (
+    CREATE_RELAY, UPDATE_RELAY, DELETE_RELAY,
+    PUT_RELAY_IN_SERVICE, TAKE_RELAY_OUT_OF_SERVICE,
+    CreateRelayCommand, UpdateRelayCommand, DeleteRelayCommand,
+    PutRelayInServiceCommand, TakeRelayOutOfServiceCommand,
+)
 from .model_commands import *
 from .control_commands import *
 
