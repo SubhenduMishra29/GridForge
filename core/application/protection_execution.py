@@ -70,11 +70,13 @@ class ProtectionExecutionService:
             command = TripBreakerCommand(breaker_id=breaker_id.strip())
             commands.append(command)
             try:
-                results.append(self._command_executor(command))
+                result = self._command_executor(command)
             except Exception as exc:
                 diagnostics.append(
                     f"Protection trip execution failed for '{breaker_id.strip()}': {exc}"
                 )
+                continue
+            results.append(result)
 
         return ProtectionExecutionResult(
             decisions=decision_tuple,
