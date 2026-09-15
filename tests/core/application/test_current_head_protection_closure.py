@@ -56,7 +56,7 @@ def test_close_project_detaches_closed_network_from_application():
 
     assert application.project_lifecycle.has_project is False
     assert application.project_lifecycle.network is not closed_network
-    assert application.project_lifecycle.network.relays == ()
+    assert len(application.project_lifecycle.network.relays) == 0
     assert application.protection_runtime is None
 
 
@@ -72,7 +72,7 @@ def test_project_a_protection_state_does_not_leak_into_project_b_and_reopens(tmp
     project_a_id = application.project_lifecycle.context.project_id
 
     application.new_project("Project B")
-    assert application.project_lifecycle.network.relays == ()
+    assert len(application.project_lifecycle.network.relays) == 0
     assert application.protection_configuration_service.configuration.elements == ()
     assert application.protection_runtime.configuration.project_id == application.project_lifecycle.context.project_id
     assert application.protection_runtime.configuration.project_id != project_a_id
