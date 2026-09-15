@@ -1,7 +1,6 @@
 # ============================================================
 # File: core/application/read_service.py
 # GridForge V2 — Application Read Services
-# Author: Subhendu Mishra
 # ============================================================
 """Read-only Application boundaries for authoritative Core state."""
 
@@ -21,36 +20,28 @@ from .read_models import (
     RelayReadModel,
 )
 
-
 _ELEMENT_COLLECTIONS = (
     "buses", "grids", "generators", "synchronous_machines", "loads",
     "motors", "shunts", "capacitors", "reactors", "solar", "batteries",
     "current_transformers", "potential_transformers", "capacitive_voltage_transformers",
-    "lines", "cables", "transformers", "breakers", "switches",
+    "relays", "lines", "cables", "transformers", "breakers", "switches",
     "disconnectors", "fuses",
 )
 
 _ELEMENT_TYPE_ALIASES = {
-    "bus": "buses", "buses": "buses",
-    "grid": "grids", "grids": "grids",
+    "bus": "buses", "buses": "buses", "grid": "grids", "grids": "grids",
     "generator": "generators", "generators": "generators",
     "synchronous_machine": "synchronous_machines", "synchronous_machines": "synchronous_machines",
-    "load": "loads", "loads": "loads",
-    "motor": "motors", "motors": "motors",
-    "shunt": "shunts", "shunts": "shunts",
-    "capacitor": "capacitors", "capacitors": "capacitors",
-    "reactor": "reactors", "reactors": "reactors",
-    "solar": "solar",
+    "load": "loads", "loads": "loads", "motor": "motors", "motors": "motors",
+    "shunt": "shunts", "shunts": "shunts", "capacitor": "capacitors", "capacitors": "capacitors",
+    "reactor": "reactors", "reactors": "reactors", "solar": "solar",
     "battery": "batteries", "batteries": "batteries",
     "ct": "current_transformers", "current_transformer": "current_transformers", "current_transformers": "current_transformers",
     "pt": "potential_transformers", "potential_transformer": "potential_transformers", "potential_transformers": "potential_transformers",
     "cvt": "capacitive_voltage_transformers", "capacitive_voltage_transformer": "capacitive_voltage_transformers", "capacitive_voltage_transformers": "capacitive_voltage_transformers",
-    "line": "lines", "lines": "lines",
-    "cable": "cables", "cables": "cables",
-    "transformer": "transformers", "transformers": "transformers",
-    "breaker": "breakers", "breakers": "breakers",
-    "switch": "switches", "switches": "switches",
-    "disconnector": "disconnectors", "disconnectors": "disconnectors",
+    "relay": "relays", "relays": "relays", "line": "lines", "lines": "lines", "cable": "cables", "cables": "cables",
+    "transformer": "transformers", "transformers": "transformers", "breaker": "breakers", "breakers": "breakers",
+    "switch": "switches", "switches": "switches", "disconnector": "disconnectors", "disconnectors": "disconnectors",
     "fuse": "fuses", "fuses": "fuses",
 }
 
@@ -76,194 +67,109 @@ _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "current_transformers": (("primary_rated_current_a", ("primary_rated_current_a",)), ("secondary_rated_current_a", ("secondary_rated_current_a",)), ("ratio", ("ratio",)), ("burden_va", ("burden_va",)), ("accuracy_class", ("accuracy_class",)), ("frequency_hz", ("frequency_hz",)), ("polarity", ("polarity",)), ("in_service", ("in_service",))),
     "potential_transformers": (("primary_voltage_kv", ("primary_voltage_kv",)), ("secondary_voltage_v", ("secondary_voltage_v",)), ("voltage_ratio", ("voltage_ratio", "ratio")), ("accuracy_class", ("accuracy_class",)), ("burden_va", ("burden_va",)), ("phase_displacement_deg", ("phase_displacement_deg",)), ("in_service", ("in_service",))),
     "capacitive_voltage_transformers": (("rated_primary_voltage_kv", ("rated_primary_voltage_kv",)), ("rated_secondary_voltage_v", ("rated_secondary_voltage_v",)), ("voltage_ratio", ("voltage_ratio", "ratio")), ("accuracy_class", ("accuracy_class",)), ("rated_burden_va", ("rated_burden_va",)), ("polarity", ("polarity",)), ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",))),
+    "relays": (("relay_type", ("relay_type", "type")), ("function_type", ("function_type",)), ("plugin_id", ("plugin_id",)), ("in_service", ("in_service",)), ("enabled", ("enabled",)), ("blocked", ("blocked",)), ("picked_up", ("picked_up",)), ("tripped", ("tripped",))),
 }
 
-# Every field declared in the C9 contract is required. Optional Core properties are
-# deliberately excluded from this projection contract; they are never fabricated.
 _REQUIRED_FIELDS = {element_type: frozenset(canonical for canonical, _ in fields) for element_type, fields in _FIELD_CONTRACTS.items()}
-
 
 class ReadService(ABC):
     """Framework-neutral contract for Application network read operations."""
-
     @abstractmethod
-    def network(self) -> NetworkReadModel:
-        raise NotImplementedError
-
+    def network(self) -> NetworkReadModel: raise NotImplementedError
     @abstractmethod
-    def element(self, element_type: str, object_id: str) -> ElementReadModel:
-        raise NotImplementedError
-
+    def element(self, element_type: str, object_id: str) -> ElementReadModel: raise NotImplementedError
 
 class NetworkReadService(ReadService):
     """Default read adapter over the authoritative Core Network aggregate."""
-
     def __init__(self, network: Network) -> None:
-        if not isinstance(network, Network):
-            raise TypeError("NetworkReadService requires a Network")
+        if not isinstance(network, Network): raise TypeError("NetworkReadService requires a Network")
         self._network = network
-
     def network(self) -> NetworkReadModel:
         elements: list[ElementReadModel] = []
         for element_type in _ELEMENT_COLLECTIONS:
-            for model in getattr(self._network, element_type):
-                elements.append(self._to_read_model(element_type, model))
+            for model in getattr(self._network, element_type): elements.append(self._to_read_model(element_type, model))
         return NetworkReadModel(elements=tuple(elements))
-
     def element(self, element_type: str, object_id: str) -> ElementReadModel:
-        requested = element_type.strip().lower()
-        key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
-        model = self._network.get_by_id(key, object_id)
-        return self._to_read_model(key, model)
-
+        requested = element_type.strip().lower(); key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
+        model = self._network.get_by_id(key, object_id); return self._to_read_model(key, model)
     @staticmethod
     def _value(model: Any, names: tuple[str, ...]) -> Any:
         for name in names:
             value = getattr(model, name, None)
-            if value is not None:
-                return value.value if hasattr(value, "value") else value
+            if value is not None: return value.value if hasattr(value, "value") else value
         return None
-
     @classmethod
     def _project_attributes(cls, element_type: str, model: Any) -> dict[str, Any]:
-        attributes: dict[str, Any] = {}
-        missing_required: list[str] = []
+        attributes: dict[str, Any] = {}; missing_required: list[str] = []
         for canonical, aliases in _FIELD_CONTRACTS.get(element_type, ()):
             value = cls._value(model, aliases)
             if value is None:
-                if canonical in _REQUIRED_FIELDS.get(element_type, ()):
-                    missing_required.append(canonical)
+                if canonical in _REQUIRED_FIELDS.get(element_type, ()): missing_required.append(canonical)
                 continue
-            if isinstance(value, (str, int, float, bool)):
-                attributes[canonical] = value
-            elif canonical in _REQUIRED_FIELDS.get(element_type, ()):
-                missing_required.append(canonical)
-        if missing_required:
-            raise ValueError(
-                f"Missing required Application field(s) for {element_type}: {', '.join(missing_required)}"
-            )
-        if element_type == "fuses" and "in_service" in attributes and "blown" in attributes:
-            attributes["conducts"] = bool(attributes["in_service"] and not attributes["blown"])
-        if element_type == "disconnectors" and "closed" in attributes:
-            attributes["conducts"] = bool(attributes["closed"] and attributes.get("in_service", True))
-        if element_type == "reactors" and "reactive_power_injection_mvar" in attributes:
-            attributes["absorption_mvar"] = abs(float(attributes["reactive_power_injection_mvar"]))
+            if isinstance(value, (str, int, float, bool)): attributes[canonical] = value
+            elif canonical in _REQUIRED_FIELDS.get(element_type, ()): missing_required.append(canonical)
+        if missing_required: raise ValueError(f"Missing required Application field(s) for {element_type}: {', '.join(missing_required)}")
+        if element_type == "fuses" and "in_service" in attributes and "blown" in attributes: attributes["conducts"] = bool(attributes["in_service"] and not attributes["blown"])
+        if element_type == "disconnectors" and "closed" in attributes: attributes["conducts"] = bool(attributes["closed"] and attributes.get("in_service", True))
+        if element_type == "reactors" and "reactive_power_injection_mvar" in attributes: attributes["absorption_mvar"] = abs(float(attributes["reactive_power_injection_mvar"]))
         if element_type == "batteries":
-            if "soc" in attributes:
-                attributes["state_of_charge"] = attributes["soc"]
-                attributes["soc_percent"] = float(attributes["soc"]) * 100.0
+            if "soc" in attributes: attributes["state_of_charge"] = attributes["soc"]; attributes["soc_percent"] = float(attributes["soc"]) * 100.0
             if "energy_capacity_mwh" in attributes and "soc" in attributes:
-                stored = float(attributes["energy_capacity_mwh"]) * float(attributes["soc"])
-                attributes["stored_energy_mwh"] = stored
-                attributes["available_energy_mwh"] = max(0.0, float(attributes["energy_capacity_mwh"]) - stored)
+                stored = float(attributes["energy_capacity_mwh"]) * float(attributes["soc"]); attributes["stored_energy_mwh"] = stored; attributes["available_energy_mwh"] = max(0.0, float(attributes["energy_capacity_mwh"]) - stored)
         return attributes
-
     @staticmethod
     def _to_read_model(element_type: str, model: Any) -> ElementReadModel:
-        object_id = str(getattr(model, "id"))
-        name = getattr(model, "name", None)
-        labels = {"name": str(name)} if name is not None else {}
-        connectivity_refs, terminal_connectivity = NetworkReadService._connectivity(model)
-        attributes = NetworkReadService._project_attributes(element_type, model)
+        object_id = str(getattr(model, "id")); name = getattr(model, "name", None); labels = {"name": str(name)} if name is not None else {}
+        connectivity_refs, terminal_connectivity = NetworkReadService._connectivity(model); attributes = NetworkReadService._project_attributes(element_type, model)
         endpoint_from_id, endpoint_to_id = NetworkReadService._branch_endpoint_ids(model)
-        if endpoint_from_id is not None:
-            attributes["from_endpoint"] = endpoint_from_id
-            attributes["endpoint_from_id"] = endpoint_from_id
-            attributes["from_terminal"] = endpoint_from_id
-        if endpoint_to_id is not None:
-            attributes["to_endpoint"] = endpoint_to_id
-            attributes["endpoint_to_id"] = endpoint_to_id
-            attributes["to_terminal"] = endpoint_to_id
-        if terminal_connectivity:
-            attributes["terminal_connectivity"] = terminal_connectivity
-        return ElementReadModel(object_id=object_id, element_type=element_type, labels=labels,
-                                 connectivity_refs=connectivity_refs, attributes=attributes)
-
+        if endpoint_from_id is not None: attributes.update({"from_endpoint": endpoint_from_id, "endpoint_from_id": endpoint_from_id, "from_terminal": endpoint_from_id})
+        if endpoint_to_id is not None: attributes.update({"to_endpoint": endpoint_to_id, "endpoint_to_id": endpoint_to_id, "to_terminal": endpoint_to_id})
+        if terminal_connectivity: attributes["terminal_connectivity"] = terminal_connectivity
+        return ElementReadModel(object_id=object_id, element_type=element_type, labels=labels, connectivity_refs=connectivity_refs, attributes=attributes)
     @staticmethod
     def _connectivity(model: Any) -> tuple[tuple[str, ...], tuple[tuple[str, str | None], ...]]:
-        refs: list[str] = []
-        terminal_connectivity: list[tuple[str, str | None]] = []
-        terminals = getattr(model, "terminals", None)
+        refs: list[str] = []; terminal_connectivity: list[tuple[str, str | None]] = []; terminals = getattr(model, "terminals", None)
         if terminals is not None:
             for terminal in terminals:
-                role = getattr(terminal, "role", None)
-                terminal_id = getattr(terminal, "id", None)
-                endpoint = getattr(terminal, "endpoint", None)
-                endpoint_id = getattr(endpoint, "id", None)
-                if terminal_id is not None:
-                    refs.append(str(terminal_id))
-                if role is not None:
-                    terminal_connectivity.append((str(role), None if endpoint_id is None else str(endpoint_id)))
+                role = getattr(terminal, "role", None); terminal_id = getattr(terminal, "id", None); endpoint = getattr(terminal, "endpoint", None); endpoint_id = getattr(endpoint, "id", None)
+                if terminal_id is not None: refs.append(str(terminal_id))
+                if role is not None: terminal_connectivity.append((str(role), None if endpoint_id is None else str(endpoint_id)))
             return tuple(dict.fromkeys(refs)), tuple(terminal_connectivity)
         for attribute in ("from_terminal", "to_terminal", "terminal"):
-            value = getattr(model, attribute, None)
-            value_id = getattr(value, "id", None) if value is not None else None
-            if value_id is not None:
-                refs.append(str(value_id))
+            value = getattr(model, attribute, None); value_id = getattr(value, "id", None) if value is not None else None
+            if value_id is not None: refs.append(str(value_id))
         return tuple(dict.fromkeys(refs)), ()
-
     @staticmethod
     def _branch_endpoint_ids(model: Any) -> tuple[str | None, str | None]:
         def endpoint_id(terminal: Any) -> str | None:
-            if terminal is None:
-                return None
-            endpoint = getattr(terminal, "endpoint", None)
-            value = getattr(endpoint, "id", None)
-            if value is not None:
-                return str(value)
-            terminal_value = getattr(terminal, "id", None)
-            return None if terminal_value is None else str(terminal_value)
+            if terminal is None: return None
+            endpoint = getattr(terminal, "endpoint", None); value = getattr(endpoint, "id", None)
+            if value is not None: return str(value)
+            terminal_value = getattr(terminal, "id", None); return None if terminal_value is None else str(terminal_value)
         return endpoint_id(getattr(model, "from_terminal", None)), endpoint_id(getattr(model, "to_terminal", None))
 
-
 class ProtectionReadService:
-    """Read adapter over authoritative physical Relays in ProtectionSystem."""
-
-    def __init__(self, protection_system: ProtectionSystem) -> None:
-        if not isinstance(protection_system, ProtectionSystem):
-            raise TypeError("ProtectionReadService requires a ProtectionSystem")
-        self._protection_system = protection_system
-
+    """Read adapter over authoritative physical Relays, optionally scoped by runtime configuration."""
+    def __init__(self, source: Network | ProtectionSystem) -> None:
+        if not isinstance(source, (Network, ProtectionSystem)): raise TypeError("ProtectionReadService requires a Network or ProtectionSystem")
+        self._source = source
     def protection(self) -> ProtectionReadModel:
-        return ProtectionReadModel(relays=tuple(self._to_read_model(relay) for relay in self._protection_system.relays()))
-
+        return ProtectionReadModel(relays=tuple(self._to_read_model(relay) for relay in self._relays()))
     def relay(self, object_id: str) -> RelayReadModel:
-        for relay in self._protection_system.relays():
-            if relay.id == object_id:
-                return self._to_read_model(relay)
-        raise KeyError(f"Relay '{object_id}' is not represented by ProtectionSystem")
-
+        for relay in self._relays():
+            if relay.id == object_id: return self._to_read_model(relay)
+        raise KeyError(f"Relay '{object_id}' is not represented by the authoritative protection source")
+    def _relays(self) -> tuple[Any, ...]:
+        if isinstance(self._source, Network): return self._source.relays
+        return self._source.relays()
     @staticmethod
     def _to_read_model(relay: Any) -> RelayReadModel:
-        bindings = tuple(
-            RelayInputBindingReadModel(
-                input_name=str(name),
-                channel_id=None if getattr(channel, "id", None) is None else str(getattr(channel, "id")),
-            )
-            for name, channel in sorted(relay.input_channels.items())
-        )
-        return RelayReadModel(
-            object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type),
-            function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id),
-            settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled),
-            blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped),
-            input_channel_bindings=bindings,
-        )
-
+        bindings = tuple(RelayInputBindingReadModel(input_name=str(name), channel_id=None if getattr(channel, "id", None) is None else str(getattr(channel, "id"))) for name, channel in sorted(relay.input_channels.items()))
+        return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings)
 
 class StudyReadService:
     """Placeholder study read boundary retained for Application consumers."""
+    def __init__(self, studies: Any) -> None: self._studies = studies
+    def snapshot(self) -> Any: return self._studies
 
-    def __init__(self, studies: Any) -> None:
-        self._studies = studies
-
-    def snapshot(self) -> Any:
-        return self._studies
-
-
-__all__ = [
-    "NetworkReadService",
-    "ProtectionReadService",
-    "ReadService",
-    "StudyReadService",
-]
+__all__ = ["NetworkReadService", "ProtectionReadService", "ReadService", "StudyReadService"]

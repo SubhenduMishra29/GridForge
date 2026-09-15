@@ -1,8 +1,6 @@
 # ============================================================
 # GridForge V2 — Application Composition Root
 # ============================================================
-# Author: Subhendu Mishra
-# ============================================================
 
 """Composition root for the headless GridForge Application layer."""
 
@@ -31,6 +29,8 @@ from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
 from core.persistence import ProjectPersistenceService
+from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.runtime import ProtectionRuntime
 from core.solver.dynamics import DAESolver, EventManager, Integrator, MultiMachineSystem, TransientStabilitySolver
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
@@ -41,22 +41,33 @@ from .command_manager import CommandManager
 from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
-from .read_service import NetworkReadService
+from .protection_configuration_handlers import ProtectionConfigurationHandlers
+from .read_service import NetworkReadService, ProtectionReadService
+from .relay_command_handlers import RelayCommandHandlers
 from .services.model_service import ModelService
+from .services.protection_configuration_service import ProtectionConfigurationService
+from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
 from .study_preparation import StudyPreparationService
 
 
 def create_application(network: Any) -> Application:
-    """Construct the fully configured headless Application facade."""
+    """Construct the fully configured headless GridForge Application facade."""
     if network is None:
         raise ValueError("network is required.")
+
+    initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
+    protection_configuration_service = ProtectionConfigurationService(
+        ProtectionProjectConfiguration(initial_context.project_id)
+    )
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
-        handlers = build_model_command_handlers(model_service)
+        handlers = dict(build_model_command_handlers(model_service))
+        handlers.update(RelayCommandHandlers(RelayModelService(active_network)).handlers())
+        handlers.update(ProtectionConfigurationHandlers(protection_configuration_service).handlers())
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
@@ -67,12 +78,27 @@ def create_application(network: Any) -> Application:
         validation_service=validation_service,
     )
 
+    application.protection_configuration_service = protection_configuration_service
+    application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
+    application._protection_read_service = ProtectionReadService(network)
+
     def activate_network(active_network: Any) -> None:
         next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
         application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
+        application._protection_read_service = ProtectionReadService(active_network)
 
     persistence = ProjectPersistenceService()
     dynamic_models = DynamicMachineModelRegistry()
+
+    def activate_project_state(context: ProjectContext, loaded) -> None:
+        configuration = loaded.protection_configuration if loaded is not None and loaded.protection_configuration is not None else ProtectionProjectConfiguration(context.project_id)
+        if configuration.project_id != context.project_id:
+            raise ValueError(
+                f"Protection configuration project_id {configuration.project_id!r} does not match "
+                f"active project {context.project_id!r}."
+            )
+        protection_configuration_service.activate(configuration)
+        application.protection_runtime = ProtectionRuntime(lifecycle.network, configuration)
 
     def load_project(path):
         loaded = persistence.load(path)
@@ -86,6 +112,7 @@ def create_application(network: Any) -> Application:
             presentation,
             path,
             dynamic_models=dynamic_models.all(),
+            protection_configuration=protection_configuration_service.configuration,
         )
 
     def new_network() -> Network:
@@ -98,9 +125,10 @@ def create_application(network: Any) -> Application:
         network=network,
         network_factory=new_network,
         activate_network=activate_network,
-        context=ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None),
+        context=initial_context,
         loader=load_project,
         saver=save_project,
+        project_state_activator=activate_project_state,
     )
     application.attach_project_lifecycle(lifecycle)
 
@@ -144,32 +172,11 @@ def create_application(network: Any) -> Application:
             time = float(event["time"])
             event_id = str(event["event_id"])
             if kind == "breaker_open":
-                schedule_breaker_open(
-                    event_manager,
-                    event_state,
-                    time,
-                    str(event["breaker_id"]),
-                    event_id,
-                    event.get("affected_equipment_ids", ()),
-                )
+                schedule_breaker_open(event_manager, event_state, time, str(event["breaker_id"]), event_id, event.get("affected_equipment_ids", ()))
             elif kind == "breaker_close":
-                schedule_breaker_close(
-                    event_manager,
-                    event_state,
-                    time,
-                    str(event["breaker_id"]),
-                    event_id,
-                    event.get("affected_equipment_ids", ()),
-                )
+                schedule_breaker_close(event_manager, event_state, time, str(event["breaker_id"]), event_id, event.get("affected_equipment_ids", ()))
             elif kind == "equipment_state":
-                schedule_equipment_state(
-                    event_manager,
-                    event_state,
-                    time,
-                    str(event["equipment_id"]),
-                    bool(event["conducting"]),
-                    event_id,
-                )
+                schedule_equipment_state(event_manager, event_state, time, str(event["equipment_id"]), bool(event["conducting"]), event_id)
             elif kind == "fault_apply":
                 fault = TransientFault(
                     fault_type=FaultType.from_value(event["fault_type"]),
@@ -190,33 +197,16 @@ def create_application(network: Any) -> Application:
         power_flow_result = request.configuration.get("power_flow_result")
         if not isinstance(prepared_power_flow, PreparedPowerFlow) or not isinstance(power_flow_result, PowerFlowResult):
             raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
-        prepared = study_preparation.prepare_transient_stability(
-            configuration,
-            prepared_power_flow,
-            power_flow_result,
-            dynamic_models,
-        )
+        prepared = study_preparation.prepare_transient_stability(configuration, prepared_power_flow, power_flow_result, dynamic_models)
         if token.cancelled:
             return None
-
         machine_system = MultiMachineSystem(prepared.machines)
         event_state = TransientEventState.from_snapshot(prepared.network)
         network_runtime = TransientNetworkRuntime(event_state, machine_system)
         event_manager = EventManager()
         configure_transient_events(request, event_manager, event_state)
-        dae_solver = DAESolver(
-            machine_system,
-            network_runtime.solve,
-            prepared.mechanical_powers,
-            integrator=Integrator("RK4"),
-        )
-        solver = TransientStabilitySolver(
-            dae_solver,
-            start_time=configuration.start_time,
-            end_time=configuration.end_time,
-            dt=configuration.dt,
-            event_manager=event_manager,
-        )
+        dae_solver = DAESolver(machine_system, network_runtime.solve, prepared.mechanical_powers, integrator=Integrator("RK4"))
+        solver = TransientStabilitySolver(dae_solver, start_time=configuration.start_time, end_time=configuration.end_time, dt=configuration.dt, event_manager=event_manager)
         analysis = TransientStabilityAnalysis(solver, configuration, prepared.initial_state)
         result = analysis.run()
         if token.cancelled:

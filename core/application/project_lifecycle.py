@@ -23,6 +23,7 @@ NetworkActivator = Callable[[Any], None]
 PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
+ProjectStateActivator = Callable[[ProjectContext, LoadedProject | None], None]
 
 
 class ProjectLifecycleService:
@@ -33,7 +34,8 @@ class ProjectLifecycleService:
                  loader: ProjectLoader | None = None, saver: ProjectSaver | None = None,
                  presentation: Any = None, presentation_factory: PresentationFactory | None = None,
                  serialize_presentation: PresentationSerializer | None = None,
-                 deserialize_presentation: PresentationDeserializer | None = None) -> None:
+                 deserialize_presentation: PresentationDeserializer | None = None,
+                 project_state_activator: ProjectStateActivator | None = None) -> None:
         if network is None:
             raise ValueError("network is required.")
         if not callable(network_factory):
@@ -42,6 +44,8 @@ class ProjectLifecycleService:
             raise TypeError("activate_network must be callable.")
         if (serialize_presentation is None) != (deserialize_presentation is None):
             raise ValueError("serialize_presentation and deserialize_presentation must be configured together.")
+        if project_state_activator is not None and not callable(project_state_activator):
+            raise TypeError("project_state_activator must be callable.")
         self._network = network
         self._network_factory = network_factory
         self._activate_network = activate_network
@@ -52,6 +56,7 @@ class ProjectLifecycleService:
         self._presentation_factory = presentation_factory
         self._serialize_presentation = serialize_presentation
         self._deserialize_presentation = deserialize_presentation
+        self._project_state_activator = project_state_activator
 
     @property
     def context(self) -> ProjectContext | None:
@@ -75,6 +80,11 @@ class ProjectLifecycleService:
         self._loader = loader
         self._saver = saver
 
+    def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
+        if not callable(activator):
+            raise TypeError("activator must be callable.")
+        self._project_state_activator = activator
+
     def configure_presentation_factory(self, factory: PresentationFactory) -> None:
         if not callable(factory):
             raise TypeError("factory must be callable.")
@@ -97,6 +107,7 @@ class ProjectLifecycleService:
         self._network = network
         self._context = context
         self._presentation = self._create_presentation(context)
+        self._activate_project_state(context, None)
         return context
 
     def open_project(self, path: str | Path) -> ProjectContext:
@@ -123,6 +134,7 @@ class ProjectLifecycleService:
         self._network = loaded.network
         self._context = loaded.context
         self._presentation = presentation
+        self._activate_project_state(loaded.context, loaded)
         return self._context
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
@@ -157,7 +169,13 @@ class ProjectLifecycleService:
         previous = self._context
         self._context = None
         self._presentation = None
+        if previous is not None:
+            self._activate_project_state(previous, None)
         return previous
+
+    def _activate_project_state(self, context: ProjectContext, loaded: LoadedProject | None) -> None:
+        if self._project_state_activator is not None:
+            self._project_state_activator(context, loaded)
 
     def _create_presentation(self, context: ProjectContext) -> Any:
         if self._presentation_factory is None:
@@ -179,5 +197,5 @@ class ProjectLifecycleService:
 
 __all__ = [
     "PresentationDeserializer", "PresentationFactory", "PresentationSerializer", "ProjectLifecycleService",
-    "ProjectLoader", "ProjectSaver",
+    "ProjectLoader", "ProjectSaver", "ProjectStateActivator",
 ]
