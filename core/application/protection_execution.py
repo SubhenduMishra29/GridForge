@@ -4,13 +4,7 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Application-owned orchestration for evaluating protection intent.
-
-Protection functions remain pure Core decision producers. This service
-coordinates evaluation and translates an actionable trip decision into
-the existing immutable Application ``TripBreakerCommand``. It never
-mutates Core directly and never introduces a second event bus or breaker API.
-"""
+"""Application-owned orchestration for protection trip intent."""
 
 from __future__ import annotations
 
@@ -25,7 +19,7 @@ from core.protection.decision import ProtectionDecision
 
 @dataclass(frozen=True, slots=True)
 class ProtectionExecutionResult:
-    """Immutable result of one Application-side protection evaluation."""
+    """Immutable result of one Application-side protection execution."""
 
     decisions: tuple[ProtectionDecision, ...] = ()
     trip_commands: tuple[TripBreakerCommand, ...] = ()
@@ -34,7 +28,7 @@ class ProtectionExecutionResult:
 
 
 class ProtectionExecutionService:
-    """Dispatch actionable protection trips through Application commands."""
+    """Dispatch actionable protection trips through existing Application commands."""
 
     def __init__(
         self,
@@ -49,17 +43,8 @@ class ProtectionExecutionService:
         self._command_executor = command_executor
         self._breaker_resolver = breaker_resolver
 
-    def execute(
-        self,
-        decisions: Iterable[ProtectionDecision],
-    ) -> ProtectionExecutionResult:
-        """Evaluate already-produced decisions and dispatch valid trip intent.
-
-        A ProtectionDecision remains authoritative for protection semantics.
-        Only ``trip_request`` decisions are translated. A breaker target must
-        be explicitly supplied by the configured resolver; this service never
-        guesses a breaker from arbitrary project objects.
-        """
+    def execute(self, decisions: Iterable[ProtectionDecision]) -> ProtectionExecutionResult:
+        """Translate only actionable protection decisions into trip commands."""
         decision_tuple = tuple(decisions)
         commands: list[TripBreakerCommand] = []
         results: list[ApplicationResult] = []
@@ -68,7 +53,7 @@ class ProtectionExecutionService:
         for decision in decision_tuple:
             if not isinstance(decision, ProtectionDecision):
                 raise TypeError("decisions must contain ProtectionDecision values.")
-            if not decision.trip_request:
+            if not decision.actionable:
                 continue
             if self._breaker_resolver is None:
                 diagnostics.append(
@@ -82,12 +67,7 @@ class ProtectionExecutionService:
                     f"Protection decision '{decision.element_id}' has no valid breaker target."
                 )
                 continue
-            command = TripBreakerCommand(
-                breaker_id=breaker_id.strip(),
-                causation_id=decision.metadata.get("command_id")
-                if isinstance(decision.metadata.get("command_id"), object)
-                else None,
-            )
+            command = TripBreakerCommand(breaker_id=breaker_id.strip())
             commands.append(command)
             try:
                 results.append(self._command_executor(command))
