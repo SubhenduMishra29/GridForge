@@ -27,7 +27,7 @@ class CreateRelayCommand(Command):
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(**_command(CREATE_RELAY, {
-            "relay_id": relay_id, "relay_type": relay_type, "name": name,
+            "relay_id": relay_id, "element_id": relay_id, "relay_type": relay_type, "name": name,
             "plugin_id": plugin_id, "settings": dict(settings or {}),
             "in_service": in_service, "enabled": enabled, "blocked": blocked,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
@@ -42,7 +42,7 @@ class UpdateRelayCommand(Command):
         if all(value is None for value in (name, plugin_id, settings, enabled, blocked, in_service)):
             raise ValueError("UpdateRelayCommand requires at least one mutable Relay field.")
         super().__init__(**_command(UPDATE_RELAY, {
-            "relay_id": relay_id, "name": name, "plugin_id": plugin_id,
+            "relay_id": relay_id, "element_id": relay_id, "name": name, "plugin_id": plugin_id,
             "settings": dict(settings) if settings is not None else None,
             "enabled": enabled, "blocked": blocked, "in_service": in_service,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
@@ -51,22 +51,22 @@ class UpdateRelayCommand(Command):
 class DeleteRelayCommand(Command):
     def __init__(self, *, relay_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(DELETE_RELAY, {"relay_id": relay_id}, command_id=command_id,
-                                   correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(DELETE_RELAY, {"relay_id": relay_id, "element_id": relay_id},
+                                   command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
 class PutRelayInServiceCommand(Command):
     def __init__(self, *, relay_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(PUT_RELAY_IN_SERVICE, {"relay_id": relay_id}, command_id=command_id,
-                                   correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(PUT_RELAY_IN_SERVICE, {"relay_id": relay_id, "element_id": relay_id},
+                                   command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
 class TakeRelayOutOfServiceCommand(Command):
     def __init__(self, *, relay_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(TAKE_RELAY_OUT_OF_SERVICE, {"relay_id": relay_id}, command_id=command_id,
-                                   correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(TAKE_RELAY_OUT_OF_SERVICE, {"relay_id": relay_id, "element_id": relay_id},
+                                   command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
 __all__ = [
