@@ -9,6 +9,7 @@ from core.measurement.measurement_channel import (
     MeasurementQuality,
     MeasurementSignalType,
 )
+from core.model.relay import Relay
 from core.protection.context import ProtectionContext
 from core.protection.overcurrent import (
     EarthIECOvercurrentRelay,
@@ -27,11 +28,12 @@ def _relay(value: float, available: bool = True) -> EarthIECOvercurrentRelay:
         quality=MeasurementQuality.GOOD if available else MeasurementQuality.INVALID,
         raw_value=value,
     )
+    relay = Relay(id="R1", relay_type="OVER_CURRENT", function_type="51N")
     relay_input = RelayInput("residual_current", channel)
     return EarthIECOvercurrentRelay(
-        relay_input=relay_input,
-        relay_id="R1",
+        relay,
         element_id="OC51N",
+        relay_inputs={"residual_current": relay_input},
         settings=EarthIECOvercurrentSettings(pickup=5.0, curve="SI", TMS=1.0),
     )
 
@@ -67,8 +69,7 @@ def test_51n_operates_when_elapsed_time_reaches_characteristic() -> None:
 def test_51n_pickup_resets_when_residual_current_falls_below_pickup() -> None:
     relay = _relay(10.0)
     relay.evaluate(ProtectionContext(time=1.0))
-    relay_input = relay.get_input("residual_current")
-    relay_input.channel.raw_value = 2.0
+    relay.get_input("residual_current").channel.raw_value = 2.0
     reset_decision = relay.evaluate(ProtectionContext(time=2.0))
     assert reset_decision.pickup is False
     assert reset_decision.trip_request is False
