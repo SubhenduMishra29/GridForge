@@ -1,0 +1,69 @@
+# ============================================================
+# File: core/application/sld_command_handlers.py
+# GridForge V2 — Application SLD command handlers
+# ============================================================
+
+"""Command handlers that bind SLD presentation commands to SLDService."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from .command import Command
+from .commands.placement_commands import PLACE_BUS
+from .commands.sld_commands import (
+    ADD_SLD_CONNECTION,
+    ADD_SLD_NODE,
+    REMOVE_SLD_CONNECTION,
+    REMOVE_SLD_NODE,
+    SET_SLD_NODE_POSITION,
+)
+from .placement_command_handlers import BusPlacementCommandHandler
+from .results import ApplicationResult
+from .services.sld_service import SLDService
+from .transaction import Transaction
+
+
+class SLDCommandHandlers:
+    """Application handlers for the canonical SLD command family."""
+
+    def __init__(self, service: SLDService) -> None:
+        if not isinstance(service, SLDService):
+            raise TypeError("service must be an SLDService")
+        self._service = service
+        self._bus_placement = BusPlacementCommandHandler(service)
+
+    def handlers(self) -> Mapping[str, Any]:
+        return {
+            SET_SLD_NODE_POSITION: self.set_node_position,
+            ADD_SLD_NODE: self.add_node,
+            REMOVE_SLD_NODE: self.remove_node,
+            ADD_SLD_CONNECTION: self.add_connection,
+            REMOVE_SLD_CONNECTION: self.remove_connection,
+            PLACE_BUS: self.place_bus,
+        }
+
+    def _execute(self, command: Command, _context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._service.execute(command, transaction)
+
+    def set_node_position(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def add_node(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def remove_node(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def add_connection(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def remove_connection(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def place_bus(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._bus_placement(command, context, transaction)
+
+
+__all__ = ["SLDCommandHandlers"]

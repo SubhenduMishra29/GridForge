@@ -116,6 +116,21 @@ class NetworkChanged(ApplicationEvent):
 
 
 @dataclass(frozen=True)
+class SLDPresentationChanged(ApplicationEvent):
+    """Semantic fact that persistent SLD presentation state changed."""
+
+    def __init__(self, *, operation: str,
+                 correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None,
+                 metadata: Mapping[str, Any] | None = None) -> None:
+        payload = {"operation": operation}
+        if metadata:
+            payload.update(metadata)
+        super().__init__("sld.presentation.changed", payload,
+                         correlation_id=correlation_id, causation_id=causation_id)
+
+
+@dataclass(frozen=True)
 class OperationCompleted(ApplicationEvent):
     def __init__(self, *, operation: str, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None,
@@ -169,25 +184,28 @@ class ValidationChanged(_OperationEvent):
     _EVENT_TYPE = "validation.changed"
 
 
-from .control_events import (
-    ControlComponentCreated,
-    ControlComponentUpdated,
-    ControlComponentRemoved,
-    ControlConnectionCreated,
-    ControlConnectionRemoved,
-    ControlDependencyCreated,
-    ControlDependencyRemoved,
-    ControlProgramChanged,
-    ControlStateChanged,
-    ControlExecutionStarted,
-    ControlExecutionCompleted,
-    ControlExecutionFailed,
-)
+_CONTROL_EVENT_NAMES = frozenset({
+    "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
+    "ControlConnectionCreated", "ControlConnectionRemoved",
+    "ControlDependencyCreated", "ControlDependencyRemoved", "ControlProgramChanged",
+    "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
+    "ControlExecutionFailed",
+})
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily expose control events without creating an import cycle."""
+    if name not in _CONTROL_EVENT_NAMES:
+        raise AttributeError(name)
+    from . import control_events
+    value = getattr(control_events, name)
+    globals()[name] = value
+    return value
 
 
 __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
-    "TopologyChanged", "NetworkChanged", "OperationCompleted",
+    "TopologyChanged", "NetworkChanged", "SLDPresentationChanged", "OperationCompleted",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed",
     "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
     "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",

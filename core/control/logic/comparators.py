@@ -6,18 +6,12 @@ import math
 from typing import Sequence
 
 from ..measurement_input import ControlInput
-from ...base import ControlSignal, Inputs, SignalRole, State
+from ..base import ControlSignal, Inputs, SignalRole, State
 from .base import LogicControlComponent, LogicControlResult
 
 
 class UndervoltageComparator(LogicControlComponent):
-    """Assert a Boolean trip output when a numeric voltage is below pickup.
-
-    The comparator is deliberately electrical-model agnostic. The caller
-    supplies the resolved engineering value through ``ControlInput`` or the
-    normal LogicEngine input mapping; Core equipment/network objects are not
-    retained or mutated here.
-    """
+    """Assert a Boolean trip output when a numeric voltage is below pickup."""
 
     def __init__(self, component_id: str, *, pickup: float) -> None:
         component_id = str(component_id).strip()
