@@ -42,7 +42,7 @@ from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
 from .protection_configuration_handlers import ProtectionConfigurationHandlers
-from .read_service import NetworkReadService
+from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
@@ -78,14 +78,14 @@ def create_application(network: Any) -> Application:
         validation_service=validation_service,
     )
 
-    # Application-owned protection state/services. Physical Relay objects remain
-    # authoritative in Network; this service owns only project associations.
     application.protection_configuration_service = protection_configuration_service
     application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
+    application._protection_read_service = ProtectionReadService(network)
 
     def activate_network(active_network: Any) -> None:
         next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
         application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
+        application._protection_read_service = ProtectionReadService(active_network)
 
     persistence = ProjectPersistenceService()
     dynamic_models = DynamicMachineModelRegistry()
