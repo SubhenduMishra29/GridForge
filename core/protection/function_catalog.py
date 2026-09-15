@@ -16,6 +16,7 @@ from typing import Any, Mapping
 from core.protection.distance import DistanceRelay
 from core.protection.directional import DirectionalRelay
 from core.protection.overcurrent import (
+    EarthIECOvercurrentRelay,
     EarthInstantaneousOvercurrentRelay,
     IECOvercurrentRelay,
     InstantaneousOvercurrentRelay,
@@ -57,7 +58,7 @@ _SPECS = (
     ProtectionFunctionSpecification("50", "Instantaneous overcurrent", ProtectionFunctionStatus.IMPLEMENTED, InstantaneousOvercurrentRelay),
     ProtectionFunctionSpecification("51", "Inverse-time overcurrent", ProtectionFunctionStatus.IMPLEMENTED, IECOvercurrentRelay),
     ProtectionFunctionSpecification("50N", "Instantaneous earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthInstantaneousOvercurrentRelay),
-    ProtectionFunctionSpecification("51N", "Inverse-time earth-fault overcurrent", ProtectionFunctionStatus.NOT_IMPLEMENTED),
+    ProtectionFunctionSpecification("51N", "Inverse-time earth-fault overcurrent", ProtectionFunctionStatus.IMPLEMENTED, EarthIECOvercurrentRelay),
     ProtectionFunctionSpecification("27", "Undervoltage", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("59", "Overvoltage", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.NOT_IMPLEMENTED),
