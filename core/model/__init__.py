@@ -30,10 +30,24 @@ PotentialTransformer = PT
 from .cvt import CVT
 from .relay import Relay
 
-# Relay is a physical Core model and participates in the same identity,
-# validation and persistence contract as the canonical ElectricalObject tree.
-# Registration is virtual to preserve the mature Relay implementation while
-# removing a second identity contract.
+# Relay is a physical Core model and participates in the canonical identity
+# contract without introducing a second identity implementation. The mature
+# Relay constructor is preserved, while its public identity is made immutable
+# and its canonical model TYPE is explicit.
+Relay.TYPE = "RELAY"
+
+def _relay_id_get(self):
+    return self._id
+
+def _relay_id_set(self, value):
+    if hasattr(self, "_id"):
+        raise AttributeError("Relay.id is immutable after construction.")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Relay.id must be a non-empty string.")
+    self._id = value.strip()
+
+Relay.id = property(_relay_id_get, _relay_id_set)
+Relay.element_type = property(lambda self: "RELAY")
 ElectricalObject.register(Relay)
 
 __all__ = (
