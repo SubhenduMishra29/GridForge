@@ -6,6 +6,12 @@ Overcurrent protection-function package.
 
 Provides
 --------
+InstantaneousOvercurrentRelay
+    ANSI 50 instantaneous overcurrent protection function.
+
+InstantaneousOvercurrentSettings
+    Immutable configuration for an ANSI 50 protection function.
+
 IECOvercurrentRelay
     IEC 51 inverse-time overcurrent protection function.
 
@@ -18,7 +24,7 @@ Physical Relay
     |
     +-- ProtectionElement
             |
-            +-- IECOvercurrentRelay
+            +-- InstantaneousOvercurrentRelay / IECOvercurrentRelay
                     |
                     +-- RelayInput
                     |
@@ -43,9 +49,15 @@ from core.protection.overcurrent.iec_relay import (
     IECOvercurrentRelay,
     IECOvercurrentSettings,
 )
+from core.protection.overcurrent.instantaneous_relay import (
+    InstantaneousOvercurrentRelay,
+    InstantaneousOvercurrentSettings,
+)
 
 
 __all__ = [
+    "InstantaneousOvercurrentRelay",
+    "InstantaneousOvercurrentSettings",
     "IECOvercurrentRelay",
     "IECOvercurrentSettings",
 ]
