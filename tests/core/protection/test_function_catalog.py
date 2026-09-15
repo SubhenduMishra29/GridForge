@@ -17,6 +17,7 @@ from core.protection.function_catalog import (
     list_protection_functions,
 )
 from core.protection.overcurrent import (
+    EarthIECOvercurrentRelay,
     IECOvercurrentRelay,
     InstantaneousOvercurrentRelay,
 )
@@ -33,14 +34,21 @@ def test_catalog_marks_existing_implemented_functions_canonically() -> None:
     assert get_protection_function("50").implementation is InstantaneousOvercurrentRelay
     assert get_protection_function("51").status is ProtectionFunctionStatus.IMPLEMENTED
     assert get_protection_function("51").implementation is IECOvercurrentRelay
+    assert get_protection_function("50N").implementation is not None
     assert get_protection_function("67").status is ProtectionFunctionStatus.IMPLEMENTED
     assert get_protection_function("67").implementation is DirectionalRelay
     assert get_protection_function("21").status is ProtectionFunctionStatus.IMPLEMENTED
     assert get_protection_function("21").implementation is DistanceRelay
 
 
+def test_catalog_marks_51n_with_canonical_implementation() -> None:
+    specification = get_protection_function("51N")
+    assert specification.status is ProtectionFunctionStatus.IMPLEMENTED
+    assert specification.implementation is EarthIECOvercurrentRelay
+
+
 def test_catalog_does_not_fabricate_unimplemented_functions() -> None:
-    for code in ("50N", "51N", "27", "59", "46", "49", "87"):
+    for code in ("27", "59", "46", "49", "87"):
         specification = get_protection_function(code)
         assert specification.status is ProtectionFunctionStatus.NOT_IMPLEMENTED
         assert specification.implementation is None
