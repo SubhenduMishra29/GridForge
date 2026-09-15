@@ -5,8 +5,7 @@ import pytest
 from core.application.bootstrap import create_application
 from core.application.commands.protection_configuration_commands import CreateProtectionConfigurationCommand
 from core.application.commands.relay_commands import CreateRelayCommand, DeleteRelayCommand
-from core.errors import ResourceError
-from core.model.relay import Relay
+from core.application.errors import ExecutionError
 from core.network import Network
 from core.protection.project_configuration import ProtectionFunctionConfiguration
 
@@ -28,11 +27,10 @@ def _configuration(relay_id: str = "R1") -> ProtectionFunctionConfiguration:
 def test_protection_configuration_requires_existing_relay_and_blocks_relay_delete():
     application = create_application(_network())
 
-    missing_relay = application.execute(
-        CreateProtectionConfigurationCommand(configuration=_configuration("MISSING"))
-    )
-    assert missing_relay.success is False
-    assert isinstance(missing_relay.error, ResourceError)
+    with pytest.raises(ExecutionError):
+        application.execute(
+            CreateProtectionConfigurationCommand(configuration=_configuration("MISSING"))
+        )
 
     created = application.execute(
         CreateRelayCommand(relay_id="R1", relay_type="numeric")
@@ -44,9 +42,9 @@ def test_protection_configuration_requires_existing_relay_and_blocks_relay_delet
     )
     assert configured.success is True
 
-    deleted = application.execute(DeleteRelayCommand(relay_id="R1"))
-    assert deleted.success is False
-    assert application.read_service.element("relay", "R1").object_id == "R1"
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteRelayCommand(relay_id="R1"))
+    assert application.project_lifecycle.network.get_by_id("relay", "R1").id == "R1"
 
 
 def test_close_project_detaches_closed_network_from_application():
@@ -58,7 +56,7 @@ def test_close_project_detaches_closed_network_from_application():
 
     assert application.project_lifecycle.has_project is False
     assert application.project_lifecycle.network is not closed_network
-    assert application.read_service.network().elements == ()
+    assert application.project_lifecycle.network.relays == ()
     assert application.protection_runtime is None
 
 
@@ -74,12 +72,12 @@ def test_project_a_protection_state_does_not_leak_into_project_b_and_reopens(tmp
     project_a_id = application.project_lifecycle.context.project_id
 
     application.new_project("Project B")
-    assert application.read_service.network().elements == ()
+    assert application.project_lifecycle.network.relays == ()
     assert application.protection_configuration_service.configuration.elements == ()
     assert application.protection_runtime.configuration.project_id == application.project_lifecycle.context.project_id
     assert application.protection_runtime.configuration.project_id != project_a_id
 
     application.open_project(project_a)
-    assert application.read_service.element("relay", "R1").object_id == "R1"
+    assert application.project_lifecycle.network.get_by_id("relay", "R1").id == "R1"
     assert application.protection_configuration_service.configuration.get("OC50").relay_id == "R1"
     assert application.protection_runtime.configuration.project_id == application.project_lifecycle.context.project_id
