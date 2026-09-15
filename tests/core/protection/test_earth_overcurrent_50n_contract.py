@@ -9,6 +9,7 @@ from core.measurement.measurement_channel import (
     MeasurementQuality,
     MeasurementSignalType,
 )
+from core.model.relay import Relay
 from core.protection.context import ProtectionContext
 from core.protection.overcurrent.earth_instantaneous_relay import (
     EarthInstantaneousOvercurrentRelay,
@@ -27,10 +28,11 @@ def _relay(value: float, available: bool = True) -> EarthInstantaneousOvercurren
         quality=MeasurementQuality.GOOD if available else MeasurementQuality.INVALID,
         raw_value=value,
     )
+    relay = Relay("R1", "OVER_CURRENT", function_type="50N")
     relay_input = RelayInput("residual_current", channel)
     return EarthInstantaneousOvercurrentRelay(
-        relay_input=relay_input,
-        relay_id="R1",
+        relay=relay,
+        relay_inputs={"residual_current": relay_input},
         element_id="OC50N",
         settings=EarthInstantaneousOvercurrentSettings(pickup=5.0),
     )
