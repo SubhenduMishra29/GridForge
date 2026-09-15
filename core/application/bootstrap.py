@@ -83,6 +83,10 @@ def create_application(network: Any) -> Application:
     application._protection_read_service = ProtectionReadService(network)
 
     def activate_network(active_network: Any) -> None:
+        # Network replacement invalidates all project-bound protection state until
+        # the corresponding project state has been installed below.
+        protection_configuration_service.deactivate()
+        application.protection_runtime = None
         next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
         application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
         application._protection_read_service = ProtectionReadService(active_network)
@@ -90,7 +94,12 @@ def create_application(network: Any) -> Application:
     persistence = ProjectPersistenceService()
     dynamic_models = DynamicMachineModelRegistry()
 
-    def activate_project_state(context: ProjectContext, loaded) -> None:
+    def activate_project_state(context: ProjectContext | None, loaded) -> None:
+        if context is None:
+            protection_configuration_service.deactivate()
+            application.protection_runtime = None
+            return
+
         configuration = loaded.protection_configuration if loaded is not None and loaded.protection_configuration is not None else ProtectionProjectConfiguration(context.project_id)
         if configuration.project_id != context.project_id:
             raise ValueError(
