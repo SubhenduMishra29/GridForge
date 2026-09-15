@@ -13,14 +13,20 @@ from .relay_input import RelayInput
 
 
 class ProtectionRuntime:
-    """Compose the project protection configuration against authoritative Core objects."""
+    """Compose project protection configuration against authoritative Core objects."""
 
     def __init__(self, network: Network, configuration: ProtectionProjectConfiguration) -> None:
-        if not isinstance(network, Network): raise TypeError("network must be a Network.")
-        if not isinstance(configuration, ProtectionProjectConfiguration): raise TypeError("configuration must be ProtectionProjectConfiguration.")
+        if not isinstance(network, Network):
+            raise TypeError("network must be a Network.")
+        if not isinstance(configuration, ProtectionProjectConfiguration):
+            raise TypeError("configuration must be ProtectionProjectConfiguration.")
         self._network = network
         self._configuration = configuration
         self._system = ProtectionSystem()
+
+    @property
+    def network(self) -> Network:
+        return self._network
 
     @property
     def system(self) -> ProtectionSystem:
@@ -31,14 +37,24 @@ class ProtectionRuntime:
         return self._configuration
 
     def compose(self, channels: Mapping[str, Any]) -> ProtectionSystem:
-        """Rebuild the runtime composition from project configuration and live channels."""
+        """Rebuild runtime composition from project configuration and live channels."""
+        if not isinstance(channels, Mapping):
+            raise TypeError("channels must be a mapping of channel IDs to MeasurementChannel objects.")
+
         self._system = ProtectionSystem()
         for item in self._configuration.elements:
             relay = self._network.get_by_id("relay", item.relay_id)
-            relay_inputs = {
-                name: RelayInput(name, channels[channel_id])
-                for name, channel_id in item.input_channel_ids.items()
-            }
+            relay_inputs: dict[str, RelayInput] = {}
+            for name, channel_id in item.input_channel_ids.items():
+                try:
+                    channel = channels[channel_id]
+                except KeyError as exc:
+                    raise KeyError(
+                        f"MeasurementChannel '{channel_id}' required by protection element "
+                        f"'{item.element_id}' is not available."
+                    ) from exc
+                relay_inputs[name] = RelayInput(name, channel)
+
             element = ProtectionFactory.create_element(
                 relay=relay,
                 element_id=item.element_id,
