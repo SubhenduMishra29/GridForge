@@ -33,7 +33,7 @@ def test_protection_configuration_requires_existing_relay_and_blocks_relay_delet
         )
 
     created = application.execute(
-        CreateRelayCommand(relay_id="R1", relay_type="numeric")
+        CreateRelayCommand(relay_id="R1", relay_type="OVER_CURRENT")
     )
     assert created.success is True
 
@@ -49,7 +49,7 @@ def test_protection_configuration_requires_existing_relay_and_blocks_relay_delet
 
 def test_close_project_detaches_closed_network_from_application():
     application = create_application(_network())
-    assert application.execute(CreateRelayCommand(relay_id="R1", relay_type="numeric")).success
+    assert application.execute(CreateRelayCommand(relay_id="R1", relay_type="OVER_CURRENT")).success
 
     closed_network = application.project_lifecycle.network
     application.close_project()
@@ -62,7 +62,7 @@ def test_close_project_detaches_closed_network_from_application():
 
 def test_project_a_protection_state_does_not_leak_into_project_b_and_reopens(tmp_path):
     application = create_application(_network())
-    assert application.execute(CreateRelayCommand(relay_id="R1", relay_type="numeric")).success
+    assert application.execute(CreateRelayCommand(relay_id="R1", relay_type="OVER_CURRENT")).success
     assert application.execute(
         CreateProtectionConfigurationCommand(configuration=_configuration())
     ).success
