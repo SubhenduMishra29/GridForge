@@ -4,6 +4,10 @@
 # Author: Subhendu Mishra
 # ============================================================
 
+import math
+
+import pytest
+
 from core.measurement.measurement_channel import (
     MeasurementChannel,
     MeasurementQuality,
@@ -11,6 +15,7 @@ from core.measurement.measurement_channel import (
 )
 from core.model.relay import Relay
 from core.protection.context import ProtectionContext
+from core.protection.decision import ProtectionDecision
 from core.protection.relay_input import RelayInput
 from core.protection.voltage.overvoltage_relay import (
     OverVoltageRelay,
@@ -18,7 +23,13 @@ from core.protection.voltage.overvoltage_relay import (
 )
 
 
-def _relay(value: float | complex, available: bool = True) -> OverVoltageRelay:
+def _relay(
+    value: float | complex,
+    available: bool = True,
+    *,
+    enabled: bool = True,
+    blocked: bool = False,
+) -> OverVoltageRelay:
     channel = MeasurementChannel(
         id="VCH-59",
         signal_type=MeasurementSignalType.VOLTAGE,
@@ -35,7 +46,17 @@ def _relay(value: float | complex, available: bool = True) -> OverVoltageRelay:
         relay_inputs={"voltage": relay_input},
         element_id="OV59",
         settings=OverVoltageSettings(pickup=100.0),
+        enabled=enabled,
+        blocked=blocked,
     )
+
+
+def test_59_settings_require_positive_finite_numeric_pickup() -> None:
+    assert OverVoltageSettings(pickup=1.10).pickup == 1.10
+
+    for invalid in (0.0, -1.0, math.nan, math.inf, -math.inf, "invalid"):
+        with pytest.raises(ValueError):
+            OverVoltageSettings(pickup=invalid)  # type: ignore[arg-type]
 
 
 def test_59_voltage_below_pickup_does_not_trip() -> None:
@@ -62,10 +83,47 @@ def test_59_voltage_above_pickup_trips_instantaneously() -> None:
 
 
 def test_59_uses_voltage_phasor_magnitude() -> None:
-    decision = _relay(60.0 + 80.0j).evaluate(ProtectionContext(time=1.0))
+    decision = _relay(0.8 + 0.8j).evaluate(ProtectionContext(time=1.0))
     assert decision.pickup is True
     assert decision.trip_request is True
-    assert decision.metadata["voltage"] == 100.0
+    assert decision.metadata["voltage"] == pytest.approx(abs(0.8 + 0.8j))
+
+
+def test_59_disabled_function_does_not_operate() -> None:
+    decision = _relay(110.0, enabled=False).evaluate(ProtectionContext(time=1.0))
+    assert decision.pickup is False
+    assert decision.operate is False
+    assert decision.trip_request is False
+
+
+def test_59_blocked_function_does_not_operate() -> None:
+    decision = _relay(110.0, blocked=True).evaluate(ProtectionContext(time=1.0))
+    assert decision.pickup is False
+    assert decision.operate is False
+    assert decision.trip_request is False
+
+
+def test_59_non_operational_authoritative_relay_does_not_operate() -> None:
+    function = _relay(110.0)
+    function.relay.take_out_of_service()
+
+    decision = function.evaluate(ProtectionContext(time=1.0))
+
+    assert decision.pickup is False
+    assert decision.operate is False
+    assert decision.trip_request is False
+
+
+@pytest.mark.parametrize("value", [True, False, math.nan, math.inf, -math.inf, "invalid"])
+def test_59_rejects_invalid_voltage_measurements(value: object) -> None:
+    function = _relay(100.0)
+    function.get_input("voltage").raw_value = value
+
+    decision = function.evaluate(ProtectionContext(time=1.0))
+
+    assert isinstance(decision, ProtectionDecision)
+    assert decision.valid is False
+    assert decision.trip_request is False
 
 
 def test_59_unusable_measurement_is_invalid() -> None:
