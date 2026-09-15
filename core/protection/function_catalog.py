@@ -22,6 +22,7 @@ from core.protection.overcurrent import (
     InstantaneousOvercurrentRelay,
     NegativeSequenceOvercurrentRelay,
 )
+from core.protection.thermal import ThermalOverloadRelay
 from core.protection.voltage import OverVoltageRelay, UnderVoltageRelay
 
 
@@ -64,7 +65,7 @@ _SPECS = (
     ProtectionFunctionSpecification("27", "Undervoltage", ProtectionFunctionStatus.IMPLEMENTED, UnderVoltageRelay),
     ProtectionFunctionSpecification("59", "Overvoltage", ProtectionFunctionStatus.IMPLEMENTED, OverVoltageRelay),
     ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.IMPLEMENTED, NegativeSequenceOvercurrentRelay),
-    ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.NOT_IMPLEMENTED),
+    ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.IMPLEMENTED, ThermalOverloadRelay),
     ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.IMPLEMENTED, DirectionalRelay),
     ProtectionFunctionSpecification("87", "Differential protection", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.IMPLEMENTED, DistanceRelay),
