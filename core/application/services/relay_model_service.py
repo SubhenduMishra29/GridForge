@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
@@ -11,15 +11,23 @@ from core.application.transaction import Transaction
 from core.errors import DomainError
 from core.model.relay import Relay
 from core.network.network import Network
+from core.protection.project_configuration import ProtectionProjectConfiguration
 
 
 class RelayModelService(ModelServiceSupport):
     """Own Application-layer mutations for physical Relay equipment."""
 
-    def __init__(self, network: Network) -> None:
+    def __init__(
+        self,
+        network: Network,
+        protection_configuration_provider: Callable[[], ProtectionProjectConfiguration | None] | None = None,
+    ) -> None:
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
+        if protection_configuration_provider is not None and not callable(protection_configuration_provider):
+            raise TypeError("protection_configuration_provider must be callable.")
         self._network = network
+        self._protection_configuration_provider = protection_configuration_provider
 
     @property
     def network(self) -> Network:
@@ -123,6 +131,7 @@ class RelayModelService(ModelServiceSupport):
         self._require_id(relay_id, "relay_id")
         relay = self._get_required("relay", relay_id, "Relay")
         self._require_type(relay, Relay, relay_id, "Relay")
+        self._ensure_no_protection_references(relay_id)
         self._network.remove_relay(relay)
         transaction.record_undo(lambda relay=relay: self._network.add_relay(relay))
         return self._success(relay, "relay", relay_id, f"Relay deleted: {relay_id}")
@@ -143,6 +152,21 @@ class RelayModelService(ModelServiceSupport):
         transaction.record_undo(lambda relay=relay, old=old: self._restore_service_state(relay, old))
         action = "put in service" if in_service else "taken out of service"
         return self._success(relay, "relay", relay_id, f"Relay {action}: {relay_id}")
+
+    def _ensure_no_protection_references(self, relay_id: str) -> None:
+        provider = self._protection_configuration_provider
+        if provider is None:
+            return
+        configuration = provider()
+        if configuration is None:
+            return
+        references = tuple(item.element_id for item in configuration.elements if item.relay_id == relay_id)
+        if references:
+            raise DomainError(
+                code="RELAY_HAS_PROTECTION_CONFIGURATION",
+                message=f"Relay {relay_id} cannot be deleted while protection configuration references it.",
+                details={"relay_id": relay_id, "protection_element_ids": references},
+            )
 
     @staticmethod
     def _restore_service_state(relay: Relay, state: tuple[bool, bool, bool]) -> None:

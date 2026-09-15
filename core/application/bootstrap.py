@@ -58,15 +58,27 @@ def create_application(network: Any) -> Application:
         raise ValueError("network is required.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
+    # The provider is intentionally late-bound to ProjectLifecycleService.
+    # It therefore always resolves the currently active Network rather than
+    # retaining the Network used during initial composition.
+    lifecycle = None
     protection_configuration_service = ProtectionConfigurationService(
-        ProtectionProjectConfiguration(initial_context.project_id)
+        ProtectionProjectConfiguration(initial_context.project_id),
+        network_provider=lambda: lifecycle.network if lifecycle is not None else network,
     )
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
         handlers = dict(build_model_command_handlers(model_service))
-        handlers.update(RelayCommandHandlers(RelayModelService(active_network)).handlers())
+        handlers.update(
+            RelayCommandHandlers(
+                RelayModelService(
+                    active_network,
+                    protection_configuration_provider=lambda: protection_configuration_service.configuration,
+                )
+            ).handlers()
+        )
         handlers.update(ProtectionConfigurationHandlers(protection_configuration_service).handlers())
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
