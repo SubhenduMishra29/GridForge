@@ -138,27 +138,19 @@ def create_application(network: Any) -> Application:
         analysis = ShortCircuitAnalysis.from_prepared(prepared)
         return analysis.run()
 
-    def configure_transient_events(
-        request: StudyRequest,
-        event_manager: EventManager,
-        event_state: TransientEventState,
-    ) -> None:
-        """Translate study-request event intent into detached runtime events."""
+    def configure_transient_events(request: StudyRequest, event_manager: EventManager, event_state: TransientEventState) -> None:
         for event in request.configuration.get("events", ()):
-            if not isinstance(event, dict):
-                raise TypeError("Transient study events must be mappings.")
-            kind = str(event.get("type", "")).strip().lower()
+            kind = str(event["type"]).strip().lower()
             time = float(event["time"])
             event_id = str(event["event_id"])
-
             if kind == "breaker_open":
                 schedule_breaker_open(
                     event_manager,
                     event_state,
                     time,
                     str(event["breaker_id"]),
-                    event_id=event_id,
-                    affected_equipment_ids=event.get("affected_equipment_ids", ()),
+                    event_id,
+                    event.get("affected_equipment_ids", ()),
                 )
             elif kind == "breaker_close":
                 schedule_breaker_close(
@@ -166,8 +158,8 @@ def create_application(network: Any) -> Application:
                     event_state,
                     time,
                     str(event["breaker_id"]),
-                    event_id=event_id,
-                    affected_equipment_ids=event.get("affected_equipment_ids", ()),
+                    event_id,
+                    event.get("affected_equipment_ids", ()),
                 )
             elif kind == "equipment_state":
                 schedule_equipment_state(
@@ -176,7 +168,7 @@ def create_application(network: Any) -> Application:
                     time,
                     str(event["equipment_id"]),
                     bool(event["conducting"]),
-                    event_id=event_id,
+                    event_id,
                 )
             elif kind == "fault_apply":
                 fault = TransientFault(
@@ -184,20 +176,9 @@ def create_application(network: Any) -> Application:
                     bus_id=str(event["bus_id"]),
                     impedance=complex(event.get("impedance", 0.0j)),
                 )
-                schedule_fault_apply(
-                    event_manager,
-                    event_state,
-                    time,
-                    fault,
-                    event_id=event_id,
-                )
+                schedule_fault_apply(event_manager, event_state, time, fault, event_id)
             elif kind == "fault_clear":
-                schedule_fault_clear(
-                    event_manager,
-                    event_state,
-                    time,
-                    event_id=event_id,
-                )
+                schedule_fault_clear(event_manager, event_state, time, event_id)
             else:
                 raise ValueError(f"Unsupported transient event type: {kind!r}.")
 
