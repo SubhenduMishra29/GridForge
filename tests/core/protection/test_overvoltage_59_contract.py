@@ -117,9 +117,9 @@ def test_59_non_operational_authoritative_relay_does_not_operate() -> None:
 
 
 @pytest.mark.parametrize("value", [True, False, math.nan, math.inf, -math.inf, "invalid"])
-def test_59_rejects_invalid_voltage_measurements(value: object) -> None:
+def test_59_rejects_invalid_voltage_measurements(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
     function = _relay(100.0)
-    function.get_input("voltage").channel.raw_value = value
+    monkeypatch.setattr(function, "voltage_signal", lambda: value)
 
     decision = function.evaluate(ProtectionContext(time=1.0))
 
