@@ -21,6 +21,10 @@ from core.protection.overcurrent.instantaneous_relay import (
     InstantaneousOvercurrentRelay,
     InstantaneousOvercurrentSettings,
 )
+from core.protection.overcurrent.negative_sequence_relay import (
+    NegativeSequenceOvercurrentRelay,
+    NegativeSequenceOvercurrentSettings,
+)
 
 
 __all__ = [
@@ -32,4 +36,6 @@ __all__ = [
     "EarthInstantaneousOvercurrentSettings",
     "EarthIECOvercurrentRelay",
     "EarthIECOvercurrentSettings",
+    "NegativeSequenceOvercurrentRelay",
+    "NegativeSequenceOvercurrentSettings",
 ]
