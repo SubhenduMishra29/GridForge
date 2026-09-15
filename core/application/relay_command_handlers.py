@@ -28,20 +28,26 @@ class RelayCommandHandlers:
             TAKE_RELAY_OUT_OF_SERVICE: self.take_relay_out_of_service,
         }
 
+    @staticmethod
+    def _payload(command) -> dict[str, Any]:
+        payload = dict(command.payload)
+        payload.pop("element_id", None)
+        return payload
+
     def create_relay(self, command, context, transaction):
-        return self._relay_service.create_relay(transaction=transaction, **command.payload)
+        return self._relay_service.create_relay(transaction=transaction, **self._payload(command))
 
     def update_relay(self, command, context, transaction):
-        return self._relay_service.update_relay(transaction=transaction, **command.payload)
+        return self._relay_service.update_relay(transaction=transaction, **self._payload(command))
 
     def delete_relay(self, command, context, transaction):
-        return self._relay_service.delete_relay(transaction=transaction, **command.payload)
+        return self._relay_service.delete_relay(transaction=transaction, **self._payload(command))
 
     def put_relay_in_service(self, command, context, transaction):
-        return self._relay_service.put_relay_in_service(transaction=transaction, **command.payload)
+        return self._relay_service.put_relay_in_service(transaction=transaction, **self._payload(command))
 
     def take_relay_out_of_service(self, command, context, transaction):
-        return self._relay_service.take_relay_out_of_service(transaction=transaction, **command.payload)
+        return self._relay_service.take_relay_out_of_service(transaction=transaction, **self._payload(command))
 
 
 __all__ = ["RelayCommandHandlers"]
