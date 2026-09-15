@@ -2,50 +2,34 @@
 GridForge V2 Overcurrent Protection
 ===================================
 
-Overcurrent protection-function package.
-
-Provides
---------
-IECOvercurrentRelay
-    IEC 51 inverse-time overcurrent protection function.
-
-IECOvercurrentSettings
-    Immutable configuration for an IEC 51 protection function.
-
-Architecture
-------------
-Physical Relay
-    |
-    +-- ProtectionElement
-            |
-            +-- IECOvercurrentRelay
-                    |
-                    +-- RelayInput
-                    |
-                    +-- ProtectionDecision
-
-IEC protection mathematics is implemented in:
-
-    core.protection.relay_functions
-
-The package does not own:
-
-    * physical Relay state;
-    * MeasurementChannel state;
-    * network topology;
-    * breaker state;
-    * simulation scheduling;
-    * persistence;
-    * GUI state.
+Canonical overcurrent protection-function package.
 """
 
+from core.protection.overcurrent.earth_iec_relay import (
+    EarthIECOvercurrentRelay,
+    EarthIECOvercurrentSettings,
+)
+from core.protection.overcurrent.earth_instantaneous_relay import (
+    EarthInstantaneousOvercurrentRelay,
+    EarthInstantaneousOvercurrentSettings,
+)
 from core.protection.overcurrent.iec_relay import (
     IECOvercurrentRelay,
     IECOvercurrentSettings,
 )
+from core.protection.overcurrent.instantaneous_relay import (
+    InstantaneousOvercurrentRelay,
+    InstantaneousOvercurrentSettings,
+)
 
 
 __all__ = [
+    "InstantaneousOvercurrentRelay",
+    "InstantaneousOvercurrentSettings",
     "IECOvercurrentRelay",
     "IECOvercurrentSettings",
+    "EarthInstantaneousOvercurrentRelay",
+    "EarthInstantaneousOvercurrentSettings",
+    "EarthIECOvercurrentRelay",
+    "EarthIECOvercurrentSettings",
 ]

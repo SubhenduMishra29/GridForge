@@ -141,6 +141,38 @@ class OperationCompleted(ApplicationEvent):
         super().__init__("operation.completed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
+@dataclass(frozen=True)
+class ProtectionTripRequested(ApplicationEvent):
+    """Semantic Application event for an actionable protection trip request."""
+
+    @classmethod
+    def from_decision(
+        cls,
+        decision: Any,
+        *,
+        breaker_id: str,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> "ProtectionTripRequested":
+        from core.protection.decision import ProtectionDecision
+
+        if not isinstance(decision, ProtectionDecision):
+            raise TypeError("decision must be a ProtectionDecision.")
+        if not isinstance(breaker_id, str) or not breaker_id.strip():
+            raise ValueError("breaker_id must be a non-empty string.")
+        return cls(
+            "protection.trip.requested",
+            {
+                "relay_id": decision.relay_id,
+                "element_id": decision.element_id,
+                "function_code": decision.function_code,
+                "breaker_id": breaker_id.strip(),
+            },
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 class _OperationEvent(ApplicationEvent):
     """Base for lifecycle/study semantic events with stable operation payload."""
     _EVENT_TYPE = ""
@@ -206,11 +238,11 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
     "TopologyChanged", "NetworkChanged", "SLDPresentationChanged", "OperationCompleted",
+    "ProtectionTripRequested",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed",
     "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
     "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
-    "ControlConnectionCreated", "ControlConnectionRemoved",
-    "ControlDependencyCreated", "ControlDependencyRemoved", "ControlProgramChanged",
-    "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
+    "ControlConnectionCreated", "ControlConnectionRemoved", "ControlDependencyCreated", "ControlDependencyRemoved",
+    "ControlProgramChanged", "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
     "ControlExecutionFailed",
 ]

@@ -10,9 +10,9 @@ Purpose
 -------
 Public API for the GridForge V2 protection subsystem.
 
-This package exposes only the stable foundational protection
-contracts. Concrete protection-function implementations remain in
-their dedicated subpackages.
+This package exposes stable foundational protection contracts and the
+canonical ANSI function metadata catalog. Concrete protection-function
+implementations remain in their dedicated subpackages.
 
 Architectural Boundary
 ----------------------
@@ -37,18 +37,12 @@ It does not:
 Public API Policy
 -----------------
 
-Only stable protection contracts are exported here.
+Only stable protection contracts and function metadata are exported
+here. Concrete protection functions remain available from their
+dedicated modules.
 
-Concrete protection functions are intentionally NOT re-exported from
-this package. They remain available from their dedicated modules:
-
-    core.protection.overcurrent
-    core.protection.directional
-    core.protection.distance
-    core.protection.coordination
-
-This prevents ``core.protection`` from becoming a concrete-function
-registry and preserves the intended plugin architecture.
+The function catalog is metadata only. It does not instantiate or own
+runtime protection elements and does not replace plugin registration.
 
 Copyright © 2026 Subhendu Mishra
 All Rights Reserved.
@@ -65,6 +59,12 @@ from .protection_element import (
 )
 from .protection_system import ProtectionSystem
 from .protection_measurement_binding import ProtectionMeasurementBinding
+from .function_catalog import (
+    ProtectionFunctionSpecification,
+    ProtectionFunctionStatus,
+    get_protection_function,
+    list_protection_functions,
+)
 
 
 __all__ = [
@@ -76,4 +76,8 @@ __all__ = [
     "ProtectionElementState",
     "ProtectionSystem",
     "ProtectionMeasurementBinding",
+    "ProtectionFunctionSpecification",
+    "ProtectionFunctionStatus",
+    "get_protection_function",
+    "list_protection_functions",
 ]
