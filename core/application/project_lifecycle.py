@@ -169,8 +169,15 @@ class ProjectLifecycleService:
         previous = self._context
         self._context = None
         self._presentation = None
-        if previous is not None:
-            self._activate_project_state(None, None)
+
+        # Closing a project must also detach every Application read/mutation
+        # service from the closed project's authoritative Network. Keep a
+        # fresh empty Network as the inactive shell rather than leaving the
+        # previous project graph reachable through the Application boundary.
+        network = self._network_factory()
+        self._activate_network(network)
+        self._network = network
+        self._activate_project_state(None, None)
         return previous
 
     def _activate_project_state(self, context: ProjectContext | None, loaded: LoadedProject | None) -> None:
