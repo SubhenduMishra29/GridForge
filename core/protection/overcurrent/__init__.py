@@ -5,6 +5,10 @@ GridForge V2 Overcurrent Protection
 Canonical overcurrent protection-function package.
 """
 
+from core.protection.overcurrent.earth_iec_relay import (
+    EarthIECOvercurrentRelay,
+    EarthIECOvercurrentSettings,
+)
 from core.protection.overcurrent.earth_instantaneous_relay import (
     EarthInstantaneousOvercurrentRelay,
     EarthInstantaneousOvercurrentSettings,
@@ -26,4 +30,6 @@ __all__ = [
     "IECOvercurrentSettings",
     "EarthInstantaneousOvercurrentRelay",
     "EarthInstantaneousOvercurrentSettings",
+    "EarthIECOvercurrentRelay",
+    "EarthIECOvercurrentSettings",
 ]
