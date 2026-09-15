@@ -1,0 +1,140 @@
+name: GridForge dynamic contract v2
+
+on:
+  push:
+    branches:
+      - 'remediation/dynamic-machine-model-contract'
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest numpy scipy
+      - name: Remove accidental Markdown fences from dynamic sources
+        run: |
+          for file in core/solver/dynamics/*.py; do
+            if [ "$(head -n 1 "$file")" = '```python' ]; then sed -i '1d' "$file"; fi
+            if [ "$(tail -n 1 "$file")" = '```' ]; then sed -i '$d' "$file"; fi
+          done
+      - name: Apply canonical dynamic contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('core/solver/dynamics/machine_models.py')
+          t = p.read_text()
+          t = t.replace('from dataclasses import dataclass\nfrom typing import Any\n', 'from dataclasses import dataclass\nfrom typing import Any, Protocol, Sequence, runtime_checkable\n', 1)
+          marker = '\n\n# ======================================================================\n# ERRORS\n# ======================================================================\n'
+          contract = '''\n\n# ======================================================================\n# DYNAMIC MODEL CONTRACT\n# ======================================================================\n\n@dataclass(frozen=True)\nclass DynamicStateDefinition:\n    """Definition of one state declared by a dynamic machine model."""\n\n    name: str\n    description: str = ""\n    units: str = "pu"\n\n    def __post_init__(self) -> None:\n        name = str(self.name).strip()\n        if not name:\n            raise ValueError("Dynamic state name cannot be empty.")\n        object.__setattr__(self, "name", name)\n\n@runtime_checkable\nclass DynamicMachineModel(Protocol):\n    """Small canonical contract consumed by the global dynamic state vector."""\n\n    @property\n    def machine_id(self) -> str: ...\n\n    def state_definitions(self) -> Sequence[DynamicStateDefinition]: ...\n\n    def state_names(self) -> tuple[str, ...]: ...\n\n    def initial_state(self) -> Sequence[float]: ...\n'''
+          if 'class DynamicMachineModel(Protocol):' not in t:
+              if marker not in t: raise SystemExit('machine model error marker not found')
+              t = t.replace(marker, contract + marker, 1)
+          state_marker = '''    @property\n    def state_size(\n        self,\n    ) -> int:\n        """Number of dynamic states."""\n\n        return self.STATE_SIZE\n'''
+          if 'def state_definitions(' not in t:
+              methods = state_marker + '''\n    def state_definitions(self) -> tuple[DynamicStateDefinition, ...]:\n        """Return the authoritative local dynamic-state definitions."""\n        return (\n            DynamicStateDefinition("delta", "Rotor electrical angle.", "rad"),\n            DynamicStateDefinition("omega", "Rotor speed deviation from synchronous speed.", "pu"),\n        )\n\n    def state_names(self) -> tuple[str, ...]:\n        """Return dynamic-state names in deterministic local order."""\n        return tuple(d.name for d in self.state_definitions())\n'''
+              if state_marker not in t: raise SystemExit('machine state_size marker not found')
+              t = t.replace(state_marker, methods, 1)
+          t = t.replace('    def initial_state(\n        self,\n        terminal_voltage: complex,\n', '    def initial_state(\n        self,\n        terminal_voltage: complex | None = None,\n', 1)
+          needle = '        del time\n\n        voltage = complex(\n            terminal_voltage\n        )\n'
+          replacement = '        del time\n\n        if terminal_voltage is None:\n            return self.validate_state(np.array([self.parameters.initial_delta, self.parameters.initial_omega], dtype=float))\n\n        voltage = complex(\n            terminal_voltage\n        )\n'
+          if needle not in t: raise SystemExit('initial_state marker not found')
+          t = t.replace(needle, replacement, 1)
+          if '"DynamicMachineModel"' not in t:
+              t = t.replace('    "ClassicalSynchronousMachine",\n', '    "DynamicStateDefinition",\n    "DynamicMachineModel",\n    "ClassicalSynchronousMachine",\n', 1)
+          p.write_text(t)
+
+          p = Path('core/solver/dynamics/state_vector.py')
+          t = p.read_text()
+          if 'Author: Subhendu Mishra' not in t.split('"""', 1)[0]:
+              t = '# GridForge V2 — Dynamic State Vector\n# Author: Subhendu Mishra\n\n' + t
+          old = '''            state = model.initial_state()\n\n            self._set_model_state(\n                machine_id,\n                state,\n            )\n'''
+          new = '''            state = np.asarray(model.initial_state(), dtype=float)\n\n            if state.ndim != 1 or state.size != len(self._machine_states[machine_id]):\n                raise StateVectorError(\n                    "Initial state size mismatch for "\n                    f"model '{machine_id}'."\n                )\n\n            for name, value in zip(self._machine_states[machine_id], state):\n                if not np.isfinite(value):\n                    raise StateVectorError(\n                        f"Initial state '{machine_id}.{name}' is not finite."\n                    )\n                self._values[self._machine_indices[machine_id][name]] = float(value)\n'''
+          if old not in t: raise SystemExit('state-vector initialization marker not found')
+          p.write_text(t.replace(old, new, 1))
+
+          p = Path('core/solver/dynamics/__init__.py')
+          t = p.read_text()
+          t = t.replace('from .state_vector import DynamicState\n', 'from .state_vector import DynamicStateVector\n', 1)
+          t = t.replace('    ClassicalMachineParameters,\n', '    DynamicStateDefinition,\n    DynamicMachineModel,\n    ClassicalMachineParameters,\n', 1)
+          t = t.replace('    "DynamicState",\n', '    "DynamicStateVector",\n', 1)
+          t = t.replace('    "ClassicalMachineParameters",\n', '    "DynamicStateDefinition",\n    "DynamicMachineModel",\n    "ClassicalMachineParameters",\n', 1)
+          p.write_text(t)
+          PY
+      - name: Add regression test
+        run: |
+          cat > tests/solver/dynamics/test_dynamic_machine_model_contract.py <<'PY'
+          import numpy as np
+          from core.solver.dynamics.machine_models import ClassicalSynchronousMachine, DynamicMachineModel
+          from core.solver.dynamics.state_vector import DynamicStateVector
+
+          def make_machine(machine_id, bus_id):
+              return ClassicalSynchronousMachine(machine_id, bus_id, H=3.0, Xd_prime=0.3, Efd=1.1)
+
+          def test_classical_machine_satisfies_contract():
+              machine = make_machine("G1", "B1")
+              assert isinstance(machine, DynamicMachineModel)
+              assert machine.state_names() == ("delta", "omega")
+              assert tuple(d.name for d in machine.state_definitions()) == ("delta", "omega")
+
+          def test_one_machine_state_layout_and_initialization():
+              state = DynamicStateVector([make_machine("G1", "B1")])
+              assert state.size == 2
+              assert [(x.machine_id, x.state_name) for x in state.locations] == [("G1", "delta"), ("G1", "omega")]
+              assert np.allclose(state.values, [0.0, 0.0])
+
+          def test_two_machine_state_layout():
+              state = DynamicStateVector([make_machine("G1", "B1"), make_machine("G2", "B2")])
+              assert state.size == 4
+              assert [(x.machine_id, x.state_name) for x in state.locations] == [("G1", "delta"), ("G1", "omega"), ("G2", "delta"), ("G2", "omega")]
+
+          def test_classical_derivatives_are_finite():
+              machine = make_machine("G1", "B1")
+              derivatives = machine.derivatives(np.array([0.1, 0.02]), 1.0 + 0.0j, 0.8)
+              assert derivatives.shape == (2,)
+              assert np.all(np.isfinite(derivatives))
+          PY
+          python -m py_compile core/solver/dynamics/machine_models.py core/solver/dynamics/state_vector.py core/solver/dynamics/swing_equation.py core/solver/dynamics/__init__.py tests/solver/dynamics/test_dynamic_machine_model_contract.py
+      - name: Run dynamic contract tests
+        run: |
+          python -m pytest -q tests/solver/dynamics/test_dynamic_machine_model_contract.py
+          python -m pytest -q tests/analysis/test_dynamic_initial_state_preparation.py tests/analysis/test_transient_network_coupling.py tests/analysis/test_transient_runtime_events.py tests/analysis/test_transient_event_state.py tests/solver/dynamics/test_transient_event_boundary.py
+      - name: Verify imports and startup composition
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python - <<'PY'
+          from core.solver.dynamics.machine_models import ClassicalMachineParameters, ClassicalSynchronousMachine, DynamicMachineModel
+          from core.solver.dynamics.state_vector import DynamicStateVector
+          from core.analysis.dynamic_initial_state import DynamicInitialStatePreparation
+          machine = ClassicalSynchronousMachine('G1', 'B1', H=3.0, Xd_prime=0.3)
+          assert isinstance(machine, DynamicMachineModel)
+          assert DynamicStateVector([machine]).size == 2
+          print('dynamic imports: OK')
+          PY
+          python - <<'PY'
+          import main
+          app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = main.build_application()
+          print('main.build_application(): OK')
+          ui_lifecycle.close(); workspace_controller.close(); ui_update_boundary.dispose(); plugin_manager.shutdown_all()
+          PY
+      - name: Run full test suite
+        run: python -m pytest -q
+      - name: Commit source remediation and restore temporary workflow changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout origin/main -- .github/workflows/targeted-remediation.yml
+          git rm -f .github/workflows/dynamic-machine-contract-remediation.yml .github/workflows/dynamic-contract-v2.yml remediation.trigger || true
+          git add core/solver/dynamics/machine_models.py core/solver/dynamics/state_vector.py core/solver/dynamics/__init__.py core/solver/dynamics/swing_equation.py tests/solver/dynamics/test_dynamic_machine_model_contract.py .github/workflows/targeted-remediation.yml
+          git commit -m 'fix: restore canonical dynamic machine model contract'
+          git push
