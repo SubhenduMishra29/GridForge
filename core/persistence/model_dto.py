@@ -1,7 +1,5 @@
 # ============================================================
-# File: core/persistence/model_dto.py
 # GridForge V2 — Model Persistence DTOs
-# Author: Subhendu Mishra
 # ============================================================
 
 """Stable JSON-oriented DTOs for concrete Core model objects."""
@@ -29,25 +27,17 @@ class TerminalDTO:
     endpoint_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
-            "attribute": self.attribute,
-            "role": self.role,
-        }
+        data: dict[str, Any] = {"attribute": self.attribute, "role": self.role}
         if self.endpoint_type is not None:
-            data["endpoint"] = {
-                "type": self.endpoint_type,
-                "id": self.endpoint_id,
-            }
+            data["endpoint"] = {"type": self.endpoint_type, "id": self.endpoint_id}
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TerminalDTO":
         endpoint = data.get("endpoint") or {}
         return cls(
-            attribute=str(data["attribute"]),
-            role=str(data["role"]),
-            endpoint_type=endpoint.get("type"),
-            endpoint_id=endpoint.get("id"),
+            attribute=str(data["attribute"]), role=str(data["role"]),
+            endpoint_type=endpoint.get("type"), endpoint_id=endpoint.get("id"),
         )
 
 
@@ -59,19 +49,12 @@ class ModelDTO:
     terminals: tuple[TerminalDTO, ...]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": self.type,
-            "id": self.id,
-            "state": self.state,
-            "terminals": [terminal.to_dict() for terminal in self.terminals],
-        }
+        return {"type": self.type, "id": self.id, "state": self.state, "terminals": [terminal.to_dict() for terminal in self.terminals]}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelDTO":
         return cls(
-            type=str(data["type"]),
-            id=str(data["id"]),
-            state=dict(data.get("state") or {}),
+            type=str(data["type"]), id=str(data["id"]), state=dict(data.get("state") or {}),
             terminals=tuple(TerminalDTO.from_dict(item) for item in data.get("terminals", ())),
         )
 
@@ -116,13 +99,8 @@ def _encode(value: Any, *, terminal_attributes: dict[str, Terminal], path: str) 
     if isinstance(value, list):
         return [_encode(item, terminal_attributes=terminal_attributes, path=f"{path}[]") for item in value]
     if isinstance(value, dict):
-        return {
-            str(key): _encode(item, terminal_attributes=terminal_attributes, path=f"{path}.{key}")
-            for key, item in value.items()
-        }
-    raise ModelSerializationError(
-        f"Unsupported state value at {path}: {type(value).__module__}.{type(value).__qualname__}"
-    )
+        return {str(key): _encode(item, terminal_attributes=terminal_attributes, path=f"{path}.{key}") for key, item in value.items()}
+    raise ModelSerializationError(f"Unsupported state value at {path}: {type(value).__module__}.{type(value).__qualname__}")
 
 
 def model_to_dto(model: Any) -> ModelDTO:
@@ -131,15 +109,16 @@ def model_to_dto(model: Any) -> ModelDTO:
         raise TypeError("Only ElectricalObject instances can be persisted.")
 
     attributes = _attribute_items(model)
-    terminal_attributes = {
-        name: value
-        for name, value in attributes.items()
-        if isinstance(value, Terminal)
-    }
+    terminal_attributes = {name: value for name, value in attributes.items() if isinstance(value, Terminal)}
 
     state: dict[str, Any] = {}
     for name, value in attributes.items():
         if name in terminal_attributes:
+            continue
+        # RelayInput/MeasurementChannel binding is a protection runtime concern.
+        # The project-scoped protection configuration persists channel IDs; the
+        # physical Relay must not persist a second authoritative binding graph.
+        if type(model).__name__ == "Relay" and name == "_input_channels":
             continue
         state[name] = _encode(value, terminal_attributes=terminal_attributes, path=name)
 
@@ -148,21 +127,9 @@ def model_to_dto(model: Any) -> ModelDTO:
         endpoint = terminal.endpoint
         endpoint_type = type(endpoint).__name__ if isinstance(endpoint, ElectricalObject) else None
         endpoint_id = endpoint.id if isinstance(endpoint, ElectricalObject) else None
-        terminals.append(
-            TerminalDTO(
-                attribute=attribute,
-                role=terminal.role,
-                endpoint_type=endpoint_type,
-                endpoint_id=endpoint_id,
-            )
-        )
+        terminals.append(TerminalDTO(attribute=attribute, role=terminal.role, endpoint_type=endpoint_type, endpoint_id=endpoint_id))
 
-    return ModelDTO(
-        type=type(model).__name__,
-        id=model.id,
-        state=state,
-        terminals=tuple(terminals),
-    )
+    return ModelDTO(type=type(model).__name__, id=model.id, state=state, terminals=tuple(terminals))
 
 
 def _decode(value: Any) -> Any:
@@ -187,11 +154,7 @@ def _decode(value: Any) -> Any:
 
 
 def restore_state(model: Any, state: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
-    """Restore scalar/object-reference state onto an uninitialized model.
-
-    Object references are retained as lightweight ``$ref`` dictionaries and
-    resolved by ``network_serializer`` after every object has been registered.
-    """
+    """Restore scalar/object-reference state onto an uninitialized model."""
     references: list[tuple[str, dict[str, str]]] = []
     for name, encoded in state.items():
         decoded = _decode(encoded)
@@ -199,13 +162,9 @@ def restore_state(model: Any, state: dict[str, Any]) -> list[tuple[str, dict[str
             references.append((name, dict(decoded["$ref"])))
             continue
         setattr(model, name, decoded)
+    if type(model).__name__ == "Relay" and not hasattr(model, "_input_channels"):
+        model._input_channels = {}
     return references
 
 
-__all__ = [
-    "ModelDTO",
-    "ModelSerializationError",
-    "TerminalDTO",
-    "model_to_dto",
-    "restore_state",
-]
+__all__ = ["ModelDTO", "ModelSerializationError", "TerminalDTO", "model_to_dto", "restore_state"]
