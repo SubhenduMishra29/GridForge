@@ -13,6 +13,7 @@ import math
 from typing import Any, Mapping
 
 from core.protection.context import ProtectionContext
+from core.protection.decision import ProtectionDecision
 from core.protection.relay_base import RelayBase
 from core.protection.relay_input import RelayInput
 
@@ -100,7 +101,7 @@ class UnderVoltageRelay(RelayBase):
             raise ValueError("Voltage measurement must be finite.")
         return abs(phasor)
 
-    def evaluate(self, context: ProtectionContext) -> Any:
+    def evaluate(self, context: ProtectionContext) -> ProtectionDecision:
         """Evaluate the ANSI 27 pickup criterion and return a decision."""
 
         timestamp = None if context is None else context.time
