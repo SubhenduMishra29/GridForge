@@ -27,6 +27,7 @@ def _relay(
     value: float | complex,
     available: bool = True,
     *,
+    pickup: float = 100.0,
     enabled: bool = True,
     blocked: bool = False,
 ) -> OverVoltageRelay:
@@ -45,7 +46,7 @@ def _relay(
         relay=relay,
         relay_inputs={"voltage": relay_input},
         element_id="OV59",
-        settings=OverVoltageSettings(pickup=100.0),
+        settings=OverVoltageSettings(pickup=pickup),
         enabled=enabled,
         blocked=blocked,
     )
@@ -83,10 +84,11 @@ def test_59_voltage_above_pickup_trips_instantaneously() -> None:
 
 
 def test_59_uses_voltage_phasor_magnitude() -> None:
-    decision = _relay(0.8 + 0.8j).evaluate(ProtectionContext(time=1.0))
+    value = 0.8 + 0.8j
+    decision = _relay(value, pickup=1.10).evaluate(ProtectionContext(time=1.0))
     assert decision.pickup is True
     assert decision.trip_request is True
-    assert decision.metadata["voltage"] == pytest.approx(abs(0.8 + 0.8j))
+    assert decision.metadata["voltage"] == pytest.approx(abs(value))
 
 
 def test_59_disabled_function_does_not_operate() -> None:
@@ -105,7 +107,7 @@ def test_59_blocked_function_does_not_operate() -> None:
 
 def test_59_non_operational_authoritative_relay_does_not_operate() -> None:
     function = _relay(110.0)
-    function.relay.take_out_of_service()
+    function.relay.operational = False
 
     decision = function.evaluate(ProtectionContext(time=1.0))
 
@@ -117,7 +119,7 @@ def test_59_non_operational_authoritative_relay_does_not_operate() -> None:
 @pytest.mark.parametrize("value", [True, False, math.nan, math.inf, -math.inf, "invalid"])
 def test_59_rejects_invalid_voltage_measurements(value: object) -> None:
     function = _relay(100.0)
-    function.get_input("voltage").raw_value = value
+    function.get_input("voltage").channel.raw_value = value
 
     decision = function.evaluate(ProtectionContext(time=1.0))
 
