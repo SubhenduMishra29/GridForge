@@ -102,8 +102,11 @@ class UILifecycle:
             self._phase = UILifecyclePhase.CLOSED
             return self._phase
 
-        self._phase = UILifecyclePhase.CLOSING
+        # The document must be closed while DOCUMENT_READY is still the
+        # active phase; close_document() intentionally rejects every other
+        # phase. Only then enter CLOSING and tear down the workspace.
         self.close_document()
+        self._phase = UILifecyclePhase.CLOSING
         if self._workspace_teardown is not None:
             self._workspace_teardown()
         if self._cleanup is not None:

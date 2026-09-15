@@ -1,7 +1,6 @@
 # ============================================================
 # File: core/application/project_lifecycle.py
 # GridForge V2 — Application Project Lifecycle Service
-# Author: Subhendu Mishra
 # ============================================================
 
 """Application-owned project lifecycle coordination."""
@@ -21,6 +20,7 @@ ProjectLoader = Callable[[Path], LoadedProject]
 ProjectSaver = Callable[[ProjectContext, Any, Mapping[str, Any] | None, Path], None]
 NetworkFactory = Callable[[], Any]
 NetworkActivator = Callable[[Any], None]
+PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
 
@@ -31,7 +31,8 @@ class ProjectLifecycleService:
     def __init__(self, *, network: Any, network_factory: NetworkFactory,
                  activate_network: NetworkActivator, context: ProjectContext | None = None,
                  loader: ProjectLoader | None = None, saver: ProjectSaver | None = None,
-                 presentation: Any = None, serialize_presentation: PresentationSerializer | None = None,
+                 presentation: Any = None, presentation_factory: PresentationFactory | None = None,
+                 serialize_presentation: PresentationSerializer | None = None,
                  deserialize_presentation: PresentationDeserializer | None = None) -> None:
         if network is None:
             raise ValueError("network is required.")
@@ -48,6 +49,7 @@ class ProjectLifecycleService:
         self._loader = loader
         self._saver = saver
         self._presentation = presentation
+        self._presentation_factory = presentation_factory
         self._serialize_presentation = serialize_presentation
         self._deserialize_presentation = deserialize_presentation
 
@@ -61,7 +63,6 @@ class ProjectLifecycleService:
 
     @property
     def presentation(self) -> Any:
-        """Return the active persistent presentation document/state."""
         return self._presentation
 
     @property
@@ -74,9 +75,13 @@ class ProjectLifecycleService:
         self._loader = loader
         self._saver = saver
 
+    def configure_presentation_factory(self, factory: PresentationFactory) -> None:
+        if not callable(factory):
+            raise TypeError("factory must be callable.")
+        self._presentation_factory = factory
+
     def configure_presentation(self, *, presentation: Any, serializer: PresentationSerializer,
                                deserializer: PresentationDeserializer) -> None:
-        """Attach the concrete presentation codec at the UI boundary."""
         if presentation is None:
             raise ValueError("presentation is required.")
         if not callable(serializer) or not callable(deserializer):
@@ -91,10 +96,10 @@ class ProjectLifecycleService:
         self._activate_network(network)
         self._network = network
         self._context = context
+        self._presentation = self._create_presentation(context)
         return context
 
     def open_project(self, path: str | Path) -> ProjectContext:
-        """Load and activate Core plus optional persistent presentation state."""
         target = self._normalize_path(path)
         if self._loader is None:
             raise RuntimeError("Project persistence loader is not configured.")
@@ -111,6 +116,8 @@ class ProjectLifecycleService:
             if self._deserialize_presentation is None:
                 raise RuntimeError("Project contains persistent presentation state but no presentation deserializer is configured.")
             presentation = self._deserialize_presentation(loaded.presentation)
+        else:
+            presentation = self._create_presentation(loaded.context)
 
         self._activate_network(loaded.network)
         self._network = loaded.network
@@ -119,7 +126,6 @@ class ProjectLifecycleService:
         return self._context
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
-        """Persist the active project without changing context on failure."""
         context = self._require_context()
         if self._saver is None:
             raise RuntimeError("Project persistence saver is not configured.")
@@ -136,14 +142,9 @@ class ProjectLifecycleService:
                 raise TypeError("Presentation serializer must return a mapping.")
 
         self._saver(context, self._network, presentation_data, target)
-
-        # A successful package write establishes the persistence boundary. The
-        # presentation document's own modified flag is local metadata and must
-        # not reopen a clean project as dirty after a round trip.
         mark_clean = getattr(self._presentation, "mark_clean", None)
         if callable(mark_clean):
             mark_clean()
-
         if context.path != target:
             context = ProjectContext(project_id=context.project_id, name=context.name, path=target)
             self._context = context
@@ -158,6 +159,14 @@ class ProjectLifecycleService:
         self._presentation = None
         return previous
 
+    def _create_presentation(self, context: ProjectContext) -> Any:
+        if self._presentation_factory is None:
+            return None
+        presentation = self._presentation_factory(context)
+        if presentation is None:
+            raise RuntimeError("Presentation factory returned no presentation.")
+        return presentation
+
     @staticmethod
     def _normalize_path(path: str | Path) -> Path:
         return normalize_package_path(path)
@@ -169,6 +178,6 @@ class ProjectLifecycleService:
 
 
 __all__ = [
-    "PresentationDeserializer", "PresentationSerializer", "ProjectLifecycleService",
+    "PresentationDeserializer", "PresentationFactory", "PresentationSerializer", "ProjectLifecycleService",
     "ProjectLoader", "ProjectSaver",
 ]

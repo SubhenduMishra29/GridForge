@@ -1,5 +1,6 @@
 # ============================================================
 # GridForge V2 — Composition Root Contract Tests
+# Author: Subhendu Mishra
 # ============================================================
 
 from __future__ import annotations
@@ -9,6 +10,19 @@ from core.network.network import Network
 from ui.canvas.canvas_composition import CanvasComposer
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
+
+
+class _PropertiesPanelProbe:
+    """Presentation-only probe for composition injection verification."""
+
+    def __init__(self) -> None:
+        self.target = None
+
+    def set_target(self, target) -> None:
+        self.target = target
+
+    def clear_target(self) -> None:
+        self.target = None
 
 
 def _application():
@@ -78,5 +92,37 @@ def test_canvas_composition_uses_prepared_selection_and_snap_instances():
 
     assert composition.selection_manager is preparation.selection_manager
     assert composition.snap_system is preparation.snap_system
+    assert composition.selection_projection is None
     assert tool_manager.selection_manager is composition.selection_manager
     assert tool_manager.snap_system is composition.snap_system
+
+
+def test_real_properties_panel_is_injected_before_selection_projection_is_used():
+    application = _application()
+    controller = Controller(application=application)
+    composer = CanvasComposer()
+    preparation = composer.prepare(controller=controller)
+    tool_manager = ToolManager(
+        controller=controller,
+        application=application,
+        selection_manager=preparation.selection_manager,
+        snap_system=preparation.snap_system,
+    )
+
+    composition = composer.compose(
+        controller=controller,
+        tool_manager=tool_manager,
+        preparation=preparation,
+        parent=None,
+    )
+    properties_panel = _PropertiesPanelProbe()
+
+    coordinator = composer.bind_selection_projection(
+        composition=composition,
+        properties_panel=properties_panel,
+    )
+
+    assert composition.selection_projection is coordinator
+    assert coordinator.application is application
+    assert coordinator.properties_panel is properties_panel
+    assert coordinator.properties_panel is not None
