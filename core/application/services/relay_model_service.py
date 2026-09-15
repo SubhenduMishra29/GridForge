@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Mapping
 
 from core.application.results import ApplicationResult
@@ -72,34 +73,47 @@ class RelayModelService(ModelServiceSupport):
         self._require_type(relay, Relay, relay_id, "Relay")
         if all(value is None for value in (name, plugin_id, settings, enabled, blocked, in_service)):
             raise DomainError(code="NO_RELAY_UPDATE", message="At least one mutable Relay property must be specified.", details={"relay_id": relay_id})
+
         old = {
             "name": relay.name,
             "plugin_id": relay.plugin_id,
-            "settings": dict(relay.settings),
+            "settings": deepcopy(relay.settings),
             "enabled": relay.enabled,
             "blocked": relay.blocked,
             "in_service": relay.in_service,
+            "picked_up": relay.picked_up,
+            "tripped": relay.tripped,
         }
         if name is not None:
             relay.name = name
         if plugin_id is not None:
-            relay.plugin_id = plugin_id
+            relay.plugin_id = relay._validate_identifier(plugin_id, "plugin_id")
         if settings is not None:
             relay.set_settings(settings)
         if enabled is not None:
-            relay.enabled = enabled
+            if not isinstance(enabled, bool):
+                raise TypeError("enabled must be bool.")
+            relay.enable() if enabled else relay.disable()
         if blocked is not None:
-            relay.blocked = blocked
+            if not isinstance(blocked, bool):
+                raise TypeError("blocked must be bool.")
+            relay.unblock() if not blocked else relay.block()
         if in_service is not None:
-            relay.in_service = in_service
+            if not isinstance(in_service, bool):
+                raise TypeError("in_service must be bool.")
+            relay.put_in_service() if in_service else relay.take_out_of_service()
+        relay.validate()
 
         def restore() -> None:
             relay.name = old["name"]
             relay.plugin_id = old["plugin_id"]
             relay.set_settings(old["settings"])
+            relay.in_service = old["in_service"]
             relay.enabled = old["enabled"]
             relay.blocked = old["blocked"]
-            relay.in_service = old["in_service"]
+            relay.picked_up = old["picked_up"]
+            relay.tripped = old["tripped"]
+            relay.validate()
 
         transaction.record_undo(restore)
         return self._success(relay, "relay", relay_id, f"Relay updated: {relay_id}")
@@ -124,14 +138,16 @@ class RelayModelService(ModelServiceSupport):
         self._require_id(relay_id, "relay_id")
         relay = self._get_required("relay", relay_id, "Relay")
         self._require_type(relay, Relay, relay_id, "Relay")
-        old = relay.in_service
-        if in_service:
-            relay.put_in_service()
-        else:
-            relay.take_out_of_service()
-        transaction.record_undo(lambda relay=relay, old=old: setattr(relay, "in_service", old))
+        old = (relay.in_service, relay.picked_up, relay.tripped)
+        relay.put_in_service() if in_service else relay.take_out_of_service()
+        transaction.record_undo(lambda relay=relay, old=old: self._restore_service_state(relay, old))
         action = "put in service" if in_service else "taken out of service"
         return self._success(relay, "relay", relay_id, f"Relay {action}: {relay_id}")
+
+    @staticmethod
+    def _restore_service_state(relay: Relay, state: tuple[bool, bool, bool]) -> None:
+        relay.in_service, relay.picked_up, relay.tripped = state
+        relay.validate()
 
 
 __all__ = ["RelayModelService"]
