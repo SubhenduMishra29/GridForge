@@ -6,6 +6,10 @@
 
 """Canonical voltage protection-function package."""
 
+from core.protection.voltage.overvoltage_relay import (
+    OverVoltageRelay,
+    OverVoltageSettings,
+)
 from core.protection.voltage.undervoltage_relay import (
     UnderVoltageRelay,
     UnderVoltageSettings,
@@ -14,4 +18,6 @@ from core.protection.voltage.undervoltage_relay import (
 __all__ = [
     "UnderVoltageRelay",
     "UnderVoltageSettings",
+    "OverVoltageRelay",
+    "OverVoltageSettings",
 ]
