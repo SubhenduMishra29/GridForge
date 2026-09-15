@@ -23,7 +23,7 @@ NetworkActivator = Callable[[Any], None]
 PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
-ProjectStateActivator = Callable[[ProjectContext, LoadedProject | None], None]
+ProjectStateActivator = Callable[[ProjectContext | None, LoadedProject | None], None]
 
 
 class ProjectLifecycleService:
@@ -170,10 +170,10 @@ class ProjectLifecycleService:
         self._context = None
         self._presentation = None
         if previous is not None:
-            self._activate_project_state(previous, None)
+            self._activate_project_state(None, None)
         return previous
 
-    def _activate_project_state(self, context: ProjectContext, loaded: LoadedProject | None) -> None:
+    def _activate_project_state(self, context: ProjectContext | None, loaded: LoadedProject | None) -> None:
         if self._project_state_activator is not None:
             self._project_state_activator(context, loaded)
 
