@@ -22,6 +22,7 @@ from core.protection.overcurrent import (
     InstantaneousOvercurrentRelay,
     NegativeSequenceOvercurrentRelay,
 )
+from core.protection.thermal import ThermalOverloadRelay
 from core.protection.voltage import OverVoltageRelay, UnderVoltageRelay
 
 
@@ -67,11 +68,16 @@ def test_catalog_marks_46_with_canonical_implementation() -> None:
     assert specification.implementation is NegativeSequenceOvercurrentRelay
 
 
+def test_catalog_marks_49_with_canonical_implementation() -> None:
+    specification = get_protection_function("49")
+    assert specification.status is ProtectionFunctionStatus.IMPLEMENTED
+    assert specification.implementation is ThermalOverloadRelay
+
+
 def test_catalog_does_not_fabricate_unimplemented_functions() -> None:
-    for code in ("49", "87"):
-        specification = get_protection_function(code)
-        assert specification.status is ProtectionFunctionStatus.NOT_IMPLEMENTED
-        assert specification.implementation is None
+    specification = get_protection_function("87")
+    assert specification.status is ProtectionFunctionStatus.NOT_IMPLEMENTED
+    assert specification.implementation is None
 
 
 def test_catalog_normalizes_function_code() -> None:
