@@ -29,6 +29,8 @@ from core.analysis.transient_runtime import TransientNetworkRuntime
 from core.analysis.transient_stability import TransientStabilityAnalysis, TransientStabilityStudyConfiguration
 from core.network import Network
 from core.persistence import ProjectPersistenceService
+from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.runtime import ProtectionRuntime
 from core.solver.dynamics import DAESolver, EventManager, Integrator, MultiMachineSystem, TransientStabilitySolver
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
@@ -39,9 +41,11 @@ from .command_manager import CommandManager
 from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
+from .protection_configuration_handlers import ProtectionConfigurationHandlers
 from .read_service import NetworkReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.model_service import ModelService
+from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
@@ -53,11 +57,17 @@ def create_application(network: Any) -> Application:
     if network is None:
         raise ValueError("network is required.")
 
+    initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
+    protection_configuration_service = ProtectionConfigurationService(
+        ProtectionProjectConfiguration(initial_context.project_id)
+    )
+
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
         handlers = dict(build_model_command_handlers(model_service))
         handlers.update(RelayCommandHandlers(RelayModelService(active_network)).handlers())
+        handlers.update(ProtectionConfigurationHandlers(protection_configuration_service).handlers())
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
@@ -68,12 +78,27 @@ def create_application(network: Any) -> Application:
         validation_service=validation_service,
     )
 
+    # Application-owned protection state/services. Physical Relay objects remain
+    # authoritative in Network; this service owns only project associations.
+    application.protection_configuration_service = protection_configuration_service
+    application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
+
     def activate_network(active_network: Any) -> None:
         next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
         application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
 
     persistence = ProjectPersistenceService()
     dynamic_models = DynamicMachineModelRegistry()
+
+    def activate_project_state(context: ProjectContext, loaded) -> None:
+        configuration = loaded.protection_configuration if loaded is not None and loaded.protection_configuration is not None else ProtectionProjectConfiguration(context.project_id)
+        if configuration.project_id != context.project_id:
+            raise ValueError(
+                f"Protection configuration project_id {configuration.project_id!r} does not match "
+                f"active project {context.project_id!r}."
+            )
+        protection_configuration_service.activate(configuration)
+        application.protection_runtime = ProtectionRuntime(lifecycle.network, configuration)
 
     def load_project(path):
         loaded = persistence.load(path)
@@ -87,6 +112,7 @@ def create_application(network: Any) -> Application:
             presentation,
             path,
             dynamic_models=dynamic_models.all(),
+            protection_configuration=protection_configuration_service.configuration,
         )
 
     def new_network() -> Network:
@@ -99,9 +125,10 @@ def create_application(network: Any) -> Application:
         network=network,
         network_factory=new_network,
         activate_network=activate_network,
-        context=ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None),
+        context=initial_context,
         loader=load_project,
         saver=save_project,
+        project_state_activator=activate_project_state,
     )
     application.attach_project_lifecycle(lifecycle)
 
