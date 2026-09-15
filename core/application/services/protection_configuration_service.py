@@ -15,16 +15,26 @@ class ProtectionConfigurationService:
     """Own mutable project association state without owning physical equipment."""
 
     def __init__(self, configuration: ProtectionProjectConfiguration) -> None:
+        self._configuration: ProtectionProjectConfiguration | None = None
         self.activate(configuration)
 
     @property
-    def configuration(self) -> ProtectionProjectConfiguration:
+    def configuration(self) -> ProtectionProjectConfiguration | None:
         return self._configuration
 
     def activate(self, configuration: ProtectionProjectConfiguration) -> None:
         if not isinstance(configuration, ProtectionProjectConfiguration):
             raise TypeError("configuration must be ProtectionProjectConfiguration.")
         self._configuration = configuration
+
+    def deactivate(self) -> None:
+        """Detach project-scoped protection configuration when no project is active."""
+        self._configuration = None
+
+    def _require_configuration(self) -> ProtectionProjectConfiguration:
+        if self._configuration is None:
+            raise RuntimeError("No active project protection configuration.")
+        return self._configuration
 
     def create_configuration(
         self,
@@ -35,8 +45,9 @@ class ProtectionConfigurationService:
         self._require_transaction(transaction)
         if not isinstance(configuration, ProtectionFunctionConfiguration):
             raise TypeError("configuration must be ProtectionFunctionConfiguration.")
+        active = self._require_configuration()
         try:
-            self._configuration.get(configuration.element_id)
+            active.get(configuration.element_id)
         except KeyError:
             pass
         else:
@@ -45,8 +56,8 @@ class ProtectionConfigurationService:
                 message=f"Protection configuration already exists: {configuration.element_id}",
                 details={"element_id": configuration.element_id},
             )
-        self._configuration.add(configuration)
-        transaction.record_undo(lambda: self._configuration.remove(configuration.element_id))
+        active.add(configuration)
+        transaction.record_undo(lambda: active.remove(configuration.element_id))
         return self._success(configuration, f"Protection configuration created: {configuration.element_id}")
 
     def update_configuration(
@@ -58,16 +69,17 @@ class ProtectionConfigurationService:
         self._require_transaction(transaction)
         if not isinstance(configuration, ProtectionFunctionConfiguration):
             raise TypeError("configuration must be ProtectionFunctionConfiguration.")
+        active = self._require_configuration()
         try:
-            previous = self._configuration.get(configuration.element_id)
+            previous = active.get(configuration.element_id)
         except KeyError as exc:
             raise ResourceError(
                 code="PROTECTION_CONFIGURATION_NOT_FOUND",
                 message=f"Protection configuration not found: {configuration.element_id}",
                 details={"element_id": configuration.element_id},
             ) from exc
-        self._configuration.replace(configuration)
-        transaction.record_undo(lambda previous=previous: self._configuration.replace(previous))
+        active.replace(configuration)
+        transaction.record_undo(lambda previous=previous: active.replace(previous))
         return self._success(configuration, f"Protection configuration updated: {configuration.element_id}")
 
     def delete_configuration(
@@ -79,15 +91,16 @@ class ProtectionConfigurationService:
         self._require_transaction(transaction)
         if not isinstance(element_id, str) or not element_id.strip():
             raise ValueError("element_id must be a non-empty string.")
+        active = self._require_configuration()
         try:
-            previous = self._configuration.remove(element_id.strip())
+            previous = active.remove(element_id.strip())
         except KeyError as exc:
             raise ResourceError(
                 code="PROTECTION_CONFIGURATION_NOT_FOUND",
                 message=f"Protection configuration not found: {element_id}",
                 details={"element_id": element_id},
             ) from exc
-        transaction.record_undo(lambda previous=previous: self._configuration.add(previous))
+        transaction.record_undo(lambda previous=previous: active.add(previous))
         return self._success(previous, f"Protection configuration deleted: {element_id}")
 
     @staticmethod
