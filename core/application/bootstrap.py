@@ -1,8 +1,6 @@
 # ============================================================
 # GridForge V2 — Application Composition Root
 # ============================================================
-# Author: Subhendu Mishra
-# ============================================================
 
 """Composition root for the headless GridForge Application layer."""
 
@@ -42,21 +40,24 @@ from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
 from .read_service import NetworkReadService
+from .relay_command_handlers import RelayCommandHandlers
 from .services.model_service import ModelService
+from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
 from .study_preparation import StudyPreparationService
 
 
 def create_application(network: Any) -> Application:
-    """Construct the fully configured headless Application facade."""
+    """Construct the fully configured headless GridForge Application facade."""
     if network is None:
         raise ValueError("network is required.")
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
-        handlers = build_model_command_handlers(model_service)
+        handlers = dict(build_model_command_handlers(model_service))
+        handlers.update(RelayCommandHandlers(RelayModelService(active_network)).handlers())
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
@@ -144,32 +145,11 @@ def create_application(network: Any) -> Application:
             time = float(event["time"])
             event_id = str(event["event_id"])
             if kind == "breaker_open":
-                schedule_breaker_open(
-                    event_manager,
-                    event_state,
-                    time,
-                    str(event["breaker_id"]),
-                    event_id,
-                    event.get("affected_equipment_ids", ()),
-                )
+                schedule_breaker_open(event_manager, event_state, time, str(event["breaker_id"]), event_id, event.get("affected_equipment_ids", ()))
             elif kind == "breaker_close":
-                schedule_breaker_close(
-                    event_manager,
-                    event_state,
-                    time,
-                    str(event["breaker_id"]),
-                    event_id,
-                    event.get("affected_equipment_ids", ()),
-                )
+                schedule_breaker_close(event_manager, event_state, time, str(event["breaker_id"]), event_id, event.get("affected_equipment_ids", ()))
             elif kind == "equipment_state":
-                schedule_equipment_state(
-                    event_manager,
-                    event_state,
-                    time,
-                    str(event["equipment_id"]),
-                    bool(event["conducting"]),
-                    event_id,
-                )
+                schedule_equipment_state(event_manager, event_state, time, str(event["equipment_id"]), bool(event["conducting"]), event_id)
             elif kind == "fault_apply":
                 fault = TransientFault(
                     fault_type=FaultType.from_value(event["fault_type"]),
@@ -190,33 +170,16 @@ def create_application(network: Any) -> Application:
         power_flow_result = request.configuration.get("power_flow_result")
         if not isinstance(prepared_power_flow, PreparedPowerFlow) or not isinstance(power_flow_result, PowerFlowResult):
             raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
-        prepared = study_preparation.prepare_transient_stability(
-            configuration,
-            prepared_power_flow,
-            power_flow_result,
-            dynamic_models,
-        )
+        prepared = study_preparation.prepare_transient_stability(configuration, prepared_power_flow, power_flow_result, dynamic_models)
         if token.cancelled:
             return None
-
         machine_system = MultiMachineSystem(prepared.machines)
         event_state = TransientEventState.from_snapshot(prepared.network)
         network_runtime = TransientNetworkRuntime(event_state, machine_system)
         event_manager = EventManager()
         configure_transient_events(request, event_manager, event_state)
-        dae_solver = DAESolver(
-            machine_system,
-            network_runtime.solve,
-            prepared.mechanical_powers,
-            integrator=Integrator("RK4"),
-        )
-        solver = TransientStabilitySolver(
-            dae_solver,
-            start_time=configuration.start_time,
-            end_time=configuration.end_time,
-            dt=configuration.dt,
-            event_manager=event_manager,
-        )
+        dae_solver = DAESolver(machine_system, network_runtime.solve, prepared.mechanical_powers, integrator=Integrator("RK4"))
+        solver = TransientStabilitySolver(dae_solver, start_time=configuration.start_time, end_time=configuration.end_time, dt=configuration.dt, event_manager=event_manager)
         analysis = TransientStabilityAnalysis(solver, configuration, prepared.initial_state)
         result = analysis.run()
         if token.cancelled:
