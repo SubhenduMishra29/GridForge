@@ -23,6 +23,7 @@ class NetworkRegistry:
         self._current_transformers: dict[str, Any] = {}
         self._potential_transformers: dict[str, Any] = {}
         self._capacitive_voltage_transformers: dict[str, Any] = {}
+        self._relays: dict[str, Any] = {}
         self._lines: dict[str, Any] = {}
         self._cables: dict[str, Any] = {}
         self._transformers: dict[str, Any] = {}
@@ -62,6 +63,8 @@ class NetworkRegistry:
     def potential_transformers(self) -> tuple[Any, ...]: return self._values(self._potential_transformers)
     @property
     def capacitive_voltage_transformers(self) -> tuple[Any, ...]: return self._values(self._capacitive_voltage_transformers)
+    @property
+    def relays(self) -> tuple[Any, ...]: return self._values(self._relays)
     @property
     def lines(self) -> tuple[Any, ...]: return self._values(self._lines)
     @property
@@ -125,6 +128,8 @@ class NetworkRegistry:
     def remove_potential_transformer(self, element: Any) -> None: self._remove(self._potential_transformers, element)
     def add_capacitive_voltage_transformer(self, element: Any) -> None: self._add(self._capacitive_voltage_transformers, element)
     def remove_capacitive_voltage_transformer(self, element: Any) -> None: self._remove(self._capacitive_voltage_transformers, element)
+    def add_relay(self, element: Any) -> None: self._add(self._relays, element)
+    def remove_relay(self, element: Any) -> None: self._remove(self._relays, element)
     def add_line(self, element: Any) -> None: self._add(self._lines, element)
     def remove_line(self, element: Any) -> None: self._remove(self._lines, element)
     def add_cable(self, element: Any) -> None: self._add(self._cables, element)
@@ -148,6 +153,7 @@ class NetworkRegistry:
             "battery": self._batteries, "ct": self._current_transformers, "current_transformer": self._current_transformers,
             "pt": self._potential_transformers, "potential_transformer": self._potential_transformers,
             "cvt": self._capacitive_voltage_transformers, "capacitive_voltage_transformer": self._capacitive_voltage_transformers,
+            "relay": self._relays, "relays": self._relays,
             "line": self._lines, "cable": self._cables, "transformer": self._transformers,
             "breaker": self._breakers, "switch": self._switches, "disconnector": self._disconnectors, "fuse": self._fuses,
         }
