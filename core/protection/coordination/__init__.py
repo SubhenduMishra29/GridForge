@@ -1,4 +1,3 @@
-```python
 """
 GridForge Protection Coordination Package
 =========================================
