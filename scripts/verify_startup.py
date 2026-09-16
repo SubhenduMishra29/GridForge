@@ -10,6 +10,8 @@ import compileall
 import importlib
 from pathlib import Path
 
+from ui.lifecycle import UILifecyclePhase
+
 SOURCE_ROOTS = (Path("core"), Path("ui"))
 
 
@@ -58,8 +60,10 @@ def verify_application_lifecycle() -> None:
 
     app, _window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = main.build_application()
     try:
-        if app is None or not ui_lifecycle.started:
-            raise SystemExit("Application composition did not establish a started UI lifecycle.")
+        if app is None or ui_lifecycle.phase is not UILifecyclePhase.DOCUMENT_READY:
+            raise SystemExit(
+                "Application composition did not establish a document-ready UI lifecycle."
+            )
     finally:
         main._shutdown_components(
             ui_lifecycle=ui_lifecycle,
