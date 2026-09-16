@@ -15,7 +15,7 @@ from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.power_flow_preparation import PowerFlowPreparation
 from core.model.bus import Bus
 from core.model.line import Line
-from core.network.endpoint import Terminal
+from core.model.terminal import Terminal
 from core.network.network import Network
 from core.solver.power_flow.input import PowerFlowBusType
 
