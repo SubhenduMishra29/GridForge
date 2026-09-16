@@ -1,4 +1,3 @@
-```python
 """
 GridForge Dynamic State Vector
 ==============================
@@ -911,4 +910,3 @@ __all__ = [
     "StateLocation",
     "DynamicStateVector",
 ]
-```
