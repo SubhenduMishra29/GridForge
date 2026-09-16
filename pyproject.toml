@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gridforge"
+version = "2.0.0"
+description = "GridForge V2 power-system engineering platform"
+requires-python = ">=3.12,<3.14"
+authors = [{name = "Subhendu Mishra"}]
+dependencies = [
+  "numpy>=2.0,<3",
+  "scipy>=1.12,<2",
+  "PySide6>=6.7,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+]
+
+[tool.setuptools.packages.find]
+include = ["core*", "ui*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
