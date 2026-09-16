@@ -19,7 +19,7 @@ from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
-from ui.core.qt import QApplication
+from ui.core.qt import QApplication, QWidget
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle
@@ -111,8 +111,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     canvas_plugin = canvas_entry.plugin; panels_plugin = panels_entry.plugin; set_composition = getattr(canvas_plugin, "set_composition", None)
     if not callable(set_composition): raise RuntimeError("CanvasPlugin does not expose set_composition().")
     set_composition(canvas_composition); panel_presentation_bridge = PanelPresentationBridge(panels_plugin)
-    window = MainWindow(controller=controller, plugin_registry=plugin_registry, central_surface=canvas_composition.widget); root_widget = window.central_surface
-    if root_widget is None: raise RuntimeError("MainWindow did not provide a central surface.")
+
+    # ShellPlugin owns the visible central widget composition. It requires a
+    # distinct root widget so that its QVBoxLayout never becomes a child
+    # layout of the GraphicsView that it is intended to contain.
+    root_widget = QWidget()
+    root_widget.setObjectName("GridForgeShellRoot")
+    window = MainWindow(controller=controller, plugin_registry=plugin_registry, central_surface=root_widget)
+
     workspace_realizer = WorkspaceRealizer(main_window=window); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
 
