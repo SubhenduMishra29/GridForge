@@ -31,8 +31,8 @@ def test_fault_event_changes_detached_network_solution_and_clear_restores():
     baseline = runtime.solve(state, 0.0)
     manager = EventManager()
     fault = TransientFault(FaultType.THREE_PHASE, "B2", 0.1j)
-    schedule_fault_apply(manager, event_state, 0.1, fault, "fault-on")
-    schedule_fault_clear(manager, event_state, 0.2, "fault-off")
+    schedule_fault_apply(manager, event_state, 0.1, fault, event_id="fault-on")
+    schedule_fault_clear(manager, event_state, 0.2, event_id="fault-off")
 
     manager.process_interval(0.0, 0.1)
     faulted = runtime.solve(state, 0.1)
@@ -47,7 +47,7 @@ def test_fault_event_changes_detached_network_solution_and_clear_restores():
 def test_breaker_event_changes_only_detached_passive_equipment_state():
     event_state, runtime = _runtime()
     manager = EventManager()
-    schedule_breaker_open(manager, event_state, 0.1, "CB1", "breaker-open", ("L1",))
+    schedule_breaker_open(manager, event_state, 0.1, "CB1", event_id="breaker-open")
     baseline = runtime.solve(np.array([0.0, 0.0]), 0.0)
     manager.process_interval(0.0, 0.1)
     opened = runtime.solve(np.array([0.0, 0.0]), 0.1)
