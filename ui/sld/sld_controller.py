@@ -9,14 +9,15 @@
 
 The controller coordinates document structure and interaction state. Persistent
 SLD mutations are submitted to the Application command boundary; the
-controller never mutates the SLD document directly.
+controller never mutates the SLD document directly or composes Application
+services.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from core.application.application import Application
+from core.application import Application
 from core.application.commands.sld_commands import (
     AddSLDConnectionCommand,
     AddSLDNodeCommand,
@@ -24,7 +25,6 @@ from core.application.commands.sld_commands import (
     RemoveSLDNodeCommand,
     SetSLDNodePositionCommand,
 )
-from core.application.services.sld_service import SLDService
 
 from .sld_document import SLDDocument
 from .sld_model import SLDConnection, SLDNode
@@ -96,11 +96,7 @@ class SLDController:
             raise KeyError(document_id)
         self._state.active_document_id = document_id
         self._state.clear_selection()
-        if self._application is not None:
-            try:
-                self._application.sld_service.bind_document(document)
-            except RuntimeError:
-                self._application.attach_sld_service(SLDService(document))
+        self.application.sld_service.bind_document(document)
         return document
 
     @property
