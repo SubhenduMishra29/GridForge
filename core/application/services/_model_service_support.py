@@ -1,10 +1,16 @@
+# ============================================================
+# File: core/application/services/_model_service_support.py
+# GridForge V2 — Model Service Support
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
 from typing import Any
 
+from core.application.errors import DomainError, ResourceError
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
-from core.errors import DomainError, ResourceError
 from core.model.bus import Bus
 from core.model.terminal import Terminal
 from core.network.network import Network
