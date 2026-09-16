@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from ...base import (
+from ..base import (
     ControlSignal,
     Inputs,
     SignalRole,
