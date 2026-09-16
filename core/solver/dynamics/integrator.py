@@ -957,4 +957,3 @@ __all__ = [
     "TrapezoidalIntegrator",
     "Integrator",
 ]
-```
