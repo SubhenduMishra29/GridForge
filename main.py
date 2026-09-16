@@ -11,6 +11,7 @@ from collections.abc import Callable
 
 from core.application.bootstrap import create_application
 from core.application.events import ProjectLoaded
+from core.application.services.sld_service import SLDService
 from core.network.network import Network
 
 from ui.canvas.canvas_composition import CanvasComposer
@@ -210,6 +211,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[
     if not isinstance(sld_document, SLDDocument):
         raise RuntimeError("Application did not establish an SLDDocument for the active project.")
 
+    gridforge_application.attach_sld_service(SLDService(sld_document))
     sld_controller = SLDController(
         projection_manager=sld_projection_manager,
         application=gridforge_application,
