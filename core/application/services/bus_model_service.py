@@ -1,9 +1,15 @@
+# ============================================================
+# File: core/application/services/bus_model_service.py
+# GridForge V2 — Bus Model Service
+# Author: Subhendu Mishra
+# ============================================================
+
 from __future__ import annotations
 
+from core.application.errors import DomainError
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
-from core.errors import DomainError
 from core.model.bus import Bus
 from core.network.network import Network
 
