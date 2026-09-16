@@ -1,11 +1,17 @@
+# ============================================================
+# File: core/application/services/battery_model_service.py
+# GridForge V2 — Battery Model Service
+# Author: Subhendu Mishra
+# ============================================================
+
 """Application service boundary for Battery mutations."""
 
 from __future__ import annotations
 
+from core.application.errors import DomainError
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
-from core.errors import DomainError
 from core.model.battery import Battery
 from core.model.bus import Bus
 from core.model.terminal import Terminal
