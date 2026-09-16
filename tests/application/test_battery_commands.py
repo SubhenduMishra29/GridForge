@@ -10,11 +10,11 @@ from core.application.commands.battery_commands import (
     PutBatteryInServiceCommand,
     TakeBatteryOutOfServiceCommand,
 )
-from core.application.commands.endpoint_reference import EndpointReference
+from core.application.endpoint_reference import EndpointReference
 
 
 def test_battery_create_command_preserves_application_payload():
-    endpoint = EndpointReference("bus", "b1")
+    endpoint = EndpointReference.bus("b1")
     command = CreateBatteryCommand(
         battery_id="bat1", name="Battery 1", endpoint=endpoint,
         p_mw=2.0, q_mvar=0.5, max_charge_mw=3.0,
