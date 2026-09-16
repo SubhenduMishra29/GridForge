@@ -47,12 +47,19 @@ def test_fault_event_changes_detached_network_solution_and_clear_restores():
 def test_breaker_event_changes_only_detached_passive_equipment_state():
     event_state, runtime = _runtime()
     manager = EventManager()
-    schedule_breaker_open(manager, event_state, 0.1, "CB1", event_id="breaker-open")
+    schedule_breaker_open(
+        manager,
+        event_state,
+        0.1,
+        "CB1",
+        affected_equipment_ids=("L1",),
+        event_id="breaker-open",
+    )
     baseline = runtime.solve(np.array([0.0, 0.0]), 0.0)
     manager.process_interval(0.0, 0.1)
     opened = runtime.solve(np.array([0.0, 0.0]), 0.1)
 
     assert event_state.breaker_states["CB1"] is False
-    assert event_state.is_conducting("L1") is True
+    assert event_state.is_conducting("L1") is False
     assert event_state.snapshot.is_element_conducting("L1") is True
     assert opened != baseline
