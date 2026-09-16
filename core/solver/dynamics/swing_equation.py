@@ -549,4 +549,3 @@ __all__ = [
     "SwingEquation",
     "swing_derivatives",
 ]
-```
