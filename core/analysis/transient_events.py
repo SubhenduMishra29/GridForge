@@ -2,19 +2,47 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 from core.solver.dynamics.events import EventManager, SimulationEvent
 
 from .transient_event_state import TransientEventState
 
 
-def schedule_breaker_open(manager: EventManager, state: TransientEventState, time: float, breaker_id: str, *, event_id: str) -> SimulationEvent:
-    return manager.add(time, lambda: state.set_breaker(breaker_id, False), event_id=event_id, event_type="breaker_open", metadata={"breaker_id": str(breaker_id)})
+def schedule_breaker_open(
+    manager: EventManager,
+    state: TransientEventState,
+    time: float,
+    breaker_id: str,
+    *,
+    affected_equipment_ids: Iterable[str] = (),
+    event_id: str,
+) -> SimulationEvent:
+    return manager.add(
+        time,
+        lambda: state.set_breaker(breaker_id, False, affected_equipment_ids),
+        event_id=event_id,
+        event_type="breaker_open",
+        metadata={"breaker_id": str(breaker_id)},
+    )
 
 
-def schedule_breaker_close(manager: EventManager, state: TransientEventState, time: float, breaker_id: str, *, event_id: str) -> SimulationEvent:
-    return manager.add(time, lambda: state.set_breaker(breaker_id, True), event_id=event_id, event_type="breaker_close", metadata={"breaker_id": str(breaker_id)})
+def schedule_breaker_close(
+    manager: EventManager,
+    state: TransientEventState,
+    time: float,
+    breaker_id: str,
+    *,
+    affected_equipment_ids: Iterable[str] = (),
+    event_id: str,
+) -> SimulationEvent:
+    return manager.add(
+        time,
+        lambda: state.set_breaker(breaker_id, True, affected_equipment_ids),
+        event_id=event_id,
+        event_type="breaker_close",
+        metadata={"breaker_id": str(breaker_id)},
+    )
 
 
 def schedule_equipment_state(manager: EventManager, state: TransientEventState, time: float, equipment_id: str, conducting: bool, *, event_id: str) -> SimulationEvent:
