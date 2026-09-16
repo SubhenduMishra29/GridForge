@@ -52,6 +52,7 @@ def test_breaker_event_changes_only_detached_passive_equipment_state():
     manager.process_interval(0.0, 0.1)
     opened = runtime.solve(np.array([0.0, 0.0]), 0.1)
 
-    assert event_state.is_conducting("L1") is False
+    assert event_state.breaker_states["CB1"] is False
+    assert event_state.is_conducting("L1") is True
     assert event_state.snapshot.is_element_conducting("L1") is True
     assert opened != baseline
