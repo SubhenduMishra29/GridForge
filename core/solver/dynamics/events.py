@@ -891,4 +891,3 @@ __all__ = [
     "EventManager",
     "create_event",
 ]
-```

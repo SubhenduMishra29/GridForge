@@ -1,4 +1,3 @@
-```python
 """
 GridForge Protection Coordination Package
 =========================================
@@ -35,4 +34,3 @@ __all__ = [
     "TCCCurve",
     "RelayCoordination",
 ]
-```

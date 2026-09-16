@@ -1,7 +1,8 @@
-```python
 """
-GridForge Dynamic State Vector
-==============================
+# ============================================================
+# GridForge V2 — Dynamic State Vector
+# Author: Subhendu Mishra
+# ============================================================
 
 Global dynamic-state representation for GridForge time-domain
 simulation.
@@ -911,4 +912,3 @@ __all__ = [
     "StateLocation",
     "DynamicStateVector",
 ]
-```

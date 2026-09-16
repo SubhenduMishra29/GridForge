@@ -1,4 +1,3 @@
-```python
 """
 GridForge V2 - Dynamic Control Base Contracts
 ==============================================
