@@ -41,11 +41,7 @@ from ui.canvas.navigation_controller import NavigationController
 
 
 class GraphicsView(QGraphicsView):
-    """Canonical GridForge Canvas viewport.
-
-    The viewport is constructed first and receives view-dependent
-    interaction/navigation services through ``bind_services``.
-    """
+    """Canonical GridForge Canvas viewport."""
 
     def __init__(
         self,
@@ -57,7 +53,6 @@ class GraphicsView(QGraphicsView):
         navigation_controller: Optional[NavigationController] = None,
         parent: Optional[Any] = None,
     ) -> None:
-        """Create a viewport; view-dependent services may bind afterward."""
         if controller is None:
             raise ValueError("controller must not be None.")
         if tool_manager is None:
@@ -66,7 +61,6 @@ class GraphicsView(QGraphicsView):
             raise ValueError("scene must not be None.")
 
         super().__init__(parent)
-
         self.controller = controller
         self.tool_manager = tool_manager
         self._scene = scene
@@ -76,7 +70,6 @@ class GraphicsView(QGraphicsView):
         if self._scene.parent() is None:
             self._scene.setParent(self)
         self.setScene(self._scene)
-
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -88,7 +81,6 @@ class GraphicsView(QGraphicsView):
         interaction_manager: InteractionManager,
         navigation_controller: NavigationController,
     ) -> None:
-        """Bind already-composed view-dependent Canvas services once."""
         if interaction_manager is None:
             raise ValueError("interaction_manager must not be None.")
         if navigation_controller is None:
@@ -97,13 +89,11 @@ class GraphicsView(QGraphicsView):
             raise RuntimeError("interaction_manager is already bound.")
         if self.navigation_controller is not None:
             raise RuntimeError("navigation_controller is already bound.")
-
         self.interaction_manager = interaction_manager
         self.navigation_controller = navigation_controller
 
     @property
     def graphics_scene(self) -> QGraphicsScene:
-        """Return the composed Canvas scene."""
         return self._scene
 
     def mousePressEvent(self, event: Any) -> None:
@@ -120,6 +110,11 @@ class GraphicsView(QGraphicsView):
         if self.interaction_manager is not None and self.interaction_manager.mouse_release(event):
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: Any) -> None:
+        if self.interaction_manager is not None and self.interaction_manager.mouse_double_click(event):
+            return
+        super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event: Any) -> None:
         if self.navigation_controller is not None and self.navigation_controller.handle_wheel(event):
@@ -140,7 +135,6 @@ class GraphicsView(QGraphicsView):
         super().resizeEvent(event)
 
     def dispose(self) -> None:
-        """Release references without disposing shared composed services."""
         self.interaction_manager = None
         self.navigation_controller = None
         self.controller = None

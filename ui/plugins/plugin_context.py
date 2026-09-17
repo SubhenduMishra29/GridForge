@@ -17,12 +17,14 @@ from ui.core.qt import QWidget
 
 @dataclass(frozen=True, slots=True)
 class PluginContext:
-    """Immutable dependency context for GridForge UI plugins."""
+    """Immutable dependency context for GridForge UI plugins.
+
+    ``application`` is the single canonical Application dependency.
+    """
 
     main_window: QWidget | None = None
     parent: QWidget | None = None
     application: Any = None
-    gridforge_application: Any = None
     root_widget: QWidget | None = None
     controller: Any = None
 
@@ -30,11 +32,8 @@ class PluginContext:
     project_controller: Any = None
     event_bus: Any = None
 
-    # Active presentation document supplied by application composition.
     sld_document: Any = None
-    # Renderer-neutral projection boundary between SLD and Canvas.
     sld_canvas_projection: Any = None
-    # Transient graphics realization of the SLD canvas snapshot.
     sld_canvas_render_system: Any = None
 
     tool_manager: Any = None
