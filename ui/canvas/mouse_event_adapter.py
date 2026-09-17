@@ -14,13 +14,13 @@ from ui.core.qt import QPointF
 
 @dataclass(frozen=True, slots=True)
 class CanvasMouseEvent:
-    """Framework-neutral mouse event consumed by Canvas tools."""
+    """Semantic mouse event consumed by Canvas tools."""
 
     position: QPointF
     scene_position: QPointF
     object_id: Any = None
-    button: Any = None
-    buttons: Any = None
+    button: Optional[int] = None
+    buttons: int = 0
     modifiers: int = 0
 
 
@@ -52,9 +52,9 @@ class MouseEventAdapter:
             position=QPointF(scene_position),
             scene_position=QPointF(scene_position),
             object_id=self._hit_test(scene_position),
-            button=self._event_value(event, "button"),
-            buttons=self._event_value(event, "buttons"),
-            modifiers=self._event_modifiers(event),
+            button=self._event_flag(event, "button", allow_none=True),
+            buttons=self._event_flag(event, "buttons", default=0),
+            modifiers=self._event_flag(event, "modifiers", default=0),
         )
 
     def _map_to_scene(self, position: Any) -> Any:
@@ -73,10 +73,6 @@ class MouseEventAdapter:
         items_method = getattr(self._scene, "items", None)
         if not callable(items_method):
             raise TypeError("scene must provide items().")
-
-        # QGraphicsScene.items(point) returns items in stacking order. Walk
-        # each candidate toward its selectable BaseItem so decorative child
-        # graphics do not become independent selection targets.
         for item in tuple(items_method(scene_position)):
             candidate = self._selectable_ancestor(item)
             if candidate is not None:
@@ -93,7 +89,6 @@ class MouseEventAdapter:
             return False
         if getattr(item, "object_id", None) is None:
             return False
-
         flags = getattr(item, "flags", None)
         if not callable(flags):
             return True
@@ -138,14 +133,33 @@ class MouseEventAdapter:
         return value
 
     @classmethod
-    def _event_modifiers(cls, event: Any) -> int:
-        value = cls._event_value(event, "modifiers")
+    def _event_flag(
+        cls,
+        event: Any,
+        name: str,
+        *,
+        default: Optional[int] = None,
+        allow_none: bool = False,
+    ) -> Optional[int]:
+        value = cls._event_value(event, name)
         if value is None:
-            return 0
-        try:
-            return int(value)
-        except (TypeError, ValueError) as exc:
-            raise TypeError("event modifiers must be integer-compatible.") from exc
+            if allow_none:
+                return None
+            if default is not None:
+                return default
+            raise TypeError(f"event {name} must provide an integer flag.")
+        if isinstance(value, bool):
+            raise TypeError(f"event {name} must be an integer flag, not bool.")
+        if isinstance(value, int):
+            return value
+        raw_value = getattr(value, "value", None)
+        if isinstance(raw_value, bool):
+            raise TypeError(f"event {name} must be an integer flag, not bool.")
+        if isinstance(raw_value, int):
+            return raw_value
+        raise TypeError(
+            f"event {name} must be an integer or expose an integer .value."
+        )
 
     def dispose(self) -> None:
         self._view = None
