@@ -201,6 +201,9 @@ class ToolManager:
     def mouse_release(self, event: Any) -> bool:
         return self._dispatch_input("mouse_release", event)
 
+    def mouse_double_click(self, event: Any) -> bool:
+        return self._dispatch_input("mouse_double_click", event)
+
     def key_press(self, event: Any) -> bool:
         return self._dispatch_input("key_press", event)
 
