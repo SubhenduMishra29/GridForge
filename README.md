@@ -1,1647 +1,1980 @@
-# ⚡ GridForge
+# GridForge V2
 
-## Power-System Digital Twin & Simulation Platform
+## Power-System Digital Twin, Engineering, Simulation and Automation Platform
 
-GridForge is a modular power-system engineering platform for **electrical modeling, network analysis, numerical simulation, protection, visualization, validation, and future digital-twin applications**.
+**Author:** Subhendu Mishra
 
-GridForge V2 is designed around a fundamental engineering principle:
+GridForge is a Python-based power-system engineering platform for creating, editing, validating, studying, simulating, documenting and operating digital representations of electrical power systems.
 
-> **Represent engineering truth once, derive specialized representations from it, execute studies through independent numerical services, and keep visualization and persistence outside the authoritative engineering core.**
+GridForge is designed as a **one-stop engineering environment for power-system engineers**, while maintaining strict separation between:
 
-The platform is intended to evolve from an engineering analysis environment into a comprehensive digital representation of electrical power systems capable of supporting steady-state studies, fault analysis, contingency analysis, dynamic simulation, protection studies, and future real-time digital-twin applications.
+* authoritative electrical engineering truth;
+* application orchestration;
+* user interaction;
+* graphical presentation;
+* studies and solvers;
+* protection;
+* control and automation;
+* dynamics;
+* persistence;
+* plugins;
+* engineering documentation.
 
----
-
-## Table of Contents
-
-1. [Vision](#1-vision)
-2. [Core Architectural Principle](#2-core-architectural-principle)
-3. [GridForge V2 Architecture](#3-gridforge-v2-architecture)
-4. [Repository Structure](#4-repository-structure)
-5. [Core Architecture](#5-core-architecture)
-6. [Physical Model](#6-physical-model)
-7. [Asset, Equipment, Component and Device Semantics](#7-asset-equipment-component-and-device-semantics)
-8. [Electrical Network](#8-electrical-network)
-9. [Analysis Layer](#9-analysis-layer)
-10. [Solver Architecture](#10-solver-architecture)
-11. [Power Flow](#11-power-flow)
-12. [Short-Circuit Analysis](#12-short-circuit-analysis)
-13. [Dynamic Simulation](#13-dynamic-simulation)
-14. [Protection Architecture](#14-protection-architecture)
-15. [Measurement Architecture](#15-measurement-architecture)
-16. [Protection Decision Boundary](#16-protection-decision-boundary)
-17. [Simulation Architecture](#17-simulation-architecture)
-18. [Validation](#18-validation)
-19. [GUI Architecture](#19-gui-architecture)
-20. [GUI and Core Separation](#20-gui-and-core-separation)
-21. [Qt Architecture](#21-qt-architecture)
-22. [Multi-Canvas Architecture](#22-multi-canvas-architecture)
-23. [Bus-Centric Network Editing](#23-bus-centric-network-editing)
-24. [Rendering Architecture](#24-rendering-architecture)
-25. [Interaction Architecture](#25-interaction-architecture)
-26. [Plugin Architecture](#26-plugin-architecture)
-27. [Persistence Architecture](#27-persistence-architecture)
-28. [Digital-Twin State Ownership](#28-digital-twin-state-ownership)
-29. [Identity Architecture](#29-identity-architecture)
-30. [Determinism](#30-determinism)
-31. [Performance](#31-performance)
-32. [CPU / GPU Backend Independence](#32-cpu--gpu-backend-independence)
-33. [Headless Operation](#33-headless-operation)
-34. [Testing Strategy](#34-testing-strategy)
-35. [Engineering Regression](#35-engineering-regression)
-36. [Architectural Rules](#36-architectural-rules)
-37. [Engineering Execution Flow](#37-engineering-execution-flow)
-38. [Future Engineering Capabilities](#38-future-engineering-capabilities)
-39. [Development Philosophy](#39-development-philosophy)
-40. [V2 Architectural Baseline](#40-v2-architectural-baseline)
-41. [What GridForge Is Not](#41-what-gridforge-is-not)
-42. [Project Status](#42-project-status)
-43. [Final Architecture](#43-final-architecture)
-44. [Guiding Principle](#44-guiding-principle)
+GridForge V2 is not an SLD-only application. The SLD is one engineering projection of the underlying digital twin.
 
 ---
 
-# 1. Vision
+# 1. Architectural Authority
 
-GridForge is intended to provide a unified engineering environment for representing, analyzing, simulating, and operating a digital representation of an electrical power system.
+The GridForge V2 architecture defined in this document is the architectural baseline.
 
-The long-term vision is:
+The fundamental rule is:
+
+> **Core owns engineering truth. Application owns orchestration. UI owns interaction and presentation.**
+
+No subsystem may bypass these ownership boundaries merely because direct access is convenient.
+
+The architecture is organized around the following layers:
 
 ```text
-                         GRIDFORGE
-                            │
-             ┌──────────────┼──────────────┐
-             │              │              │
-             ▼              ▼              ▼
-        Digital Twin    Simulation    Engineering
-             │              │           Analysis
-             └──────────────┼──────────────┘
-                            │
-                            ▼
-                     Decision Support
+                    USER / ENGINEER
+                           │
+                           ▼
+                UI / Engineering Workspaces
+                           │
+                           ▼
+                  Controllers / Tools
+                           │
+                           ▼
+                  Immutable Commands
+                           │
+                           ▼
+                 APPLICATION LAYER
+                           │
+          ┌────────────────┼────────────────┐
+          │                │                │
+          ▼                ▼                ▼
+      Commands        Transactions      Services
+      History         Undo / Redo       Studies
+      Lifecycle       Persistence       Events
+          │                │                │
+          └────────────────┼────────────────┘
+                           │
+                           ▼
+                    AUTHORITATIVE CORE
+                           │
+       ┌───────────┬───────┼────────┬───────────┐
+       ▼           ▼       ▼        ▼           ▼
+     Model      Network  Analysis  Protection  Control
+                           │
+                           ▼
+                         Solvers
+                           │
+                           ▼
+                       Results
+                           │
+                           ▼
+                 APPLICATION EVENTS
+                           │
+                           ▼
+                    READ MODELS
+                           │
+                           ▼
+              UI UPDATE BOUNDARY / BUS
+                           │
+                           ▼
+              UI / Canvas / Projections
 ```
-
-The platform is designed to support:
-
-* Power-system modeling
-* Electrical network topology
-* AC and DC power-flow studies
-* Short-circuit studies
-* Contingency analysis
-* Dynamic simulation
-* Protection studies
-* Relay coordination
-* Time-current characteristic analysis
-* Future OPF / SCOPF
-* Future EMT simulation
-* Engineering visualization
-* Project persistence
-* Extensible engineering plugins
-* Future SCADA and real-time digital-twin integration
-
-GridForge is therefore not merely a collection of numerical algorithms or a graphical single-line-diagram editor. It is designed as a **coherent engineering platform built around a common authoritative digital representation of the electrical system**.
 
 ---
 
 # 2. Core Architectural Principle
 
-The central architectural principle of GridForge is:
+GridForge maintains **one authoritative engineering truth**.
 
-> **One authoritative engineering truth, many specialized services.**
+The Core is the authority for:
 
-The engineering execution chain is:
+* equipment;
+* identities;
+* terminals;
+* electrical properties;
+* topology;
+* connections;
+* engineering relationships;
+* domain validation;
+* studies;
+* calculations;
+* protection decisions;
+* simulation state;
+* study results.
+
+The UI must never become a second engineering model.
+
+The SLD must never become a second engineering model.
+
+A renderer must never become a second engineering model.
+
+A plugin must never become a second engineering model.
+
+---
+
+# 3. Architectural Ownership
+
+## 3.1 Core
+
+Core is the authoritative engineering/domain layer.
+
+Core contains no Qt or UI dependencies.
+
+Core owns:
 
 ```text
-Physical Engineering Model
-          │
-          ▼
-Electrical Network
-          │
-          ▼
-Engineering Analysis
-          │
-          ▼
-Numerical Solvers
-          │
-          ▼
-Simulation / Protection
-          │
-          ▼
-Engineering Results
-          │
-          ▼
-Visualization / Reports
-```
-
-Each layer has a defined responsibility.
-
-No layer should silently become the owner of another layer's state.
-
-For example:
-
-* The GUI does not own electrical topology.
-* The solver does not own physical equipment.
-* The network does not replace the physical model.
-* Protection functions do not own CT/PT state.
-* Protection functions do not directly operate breakers.
-* Persistence does not become part of domain objects.
-* Numerical indices do not become engineering identities.
-
-This separation is fundamental to the V2 architecture.
-
----
-
-# 3. GridForge V2 Architecture
-
-GridForge V2 is organized as a layered engineering system.
-
-```text
-┌──────────────────────────────────────────────────────────┐
-│                 GridForge Application                     │
-│                                                          │
-│     GUI • Tools • Rendering • Controllers • UX           │
-└─────────────────────────────┬────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────┐
-│                     GridForge Core                       │
-│                                                          │
-│ Model • Network • Analysis • Solver • Protection         │
-│ Simulation • Validation • Controllers                    │
-└─────────────────────────────┬────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────┐
-│                 Numerical / Backend Layer                │
-│                                                          │
-│       NumPy • SciPy • Sparse • GPU Backends              │
-└──────────────────────────────────────────────────────────┘
-```
-
-The architecture deliberately separates:
-
-* Physical engineering state
-* Electrical network representation
-* Engineering study definitions
-* Numerical execution
-* Runtime simulation state
-* Protection execution
-* Validation
-* GUI state
-* Persistence state
-
-The core remains independent of GUI implementation and project-file representation.
-
----
-
-# 4. Repository Structure
-
-The repository is organized around architectural responsibilities rather than individual features.
-
-```text
-GridForge/
-│
-├── core/
-│   ├── analysis/
-│   ├── base/
-│   ├── model/
-│   ├── network/
-│   ├── protection/
-│   ├── simulation/
-│   ├── solver/
-│   ├── validation/
-│   └── controller.py
-│
-├── ui/
-│   ├── canvas/
-│   ├── core/
-│   ├── controllers/
-│   ├── interaction/
-│   ├── items/
-│   ├── plugins/
-│   ├── renderers/
-│   ├── tools/
-│   └── ...
-│
-├── plugins/
-│   └── ...
-│
-├── tests/
-│   ├── core/
-│   ├── network/
-│   ├── protection/
-│   ├── solver/
-│   └── ...
-│
-├── projects/
-│   └── ...
-│
-├── main.py
-└── README.md
-```
-
-The exact contents of individual directories may evolve during implementation.
-
-The **architectural boundaries must remain stable**.
-
----
-
-# 5. Core Architecture
-
-The `core/` package is the authoritative engineering execution layer.
-
-| Module          | Responsibility                                 |
-| --------------- | ---------------------------------------------- |
-| `model/`        | Physical and engineering objects               |
-| `network/`      | Electrical topology and network representation |
-| `analysis/`     | Engineering study definitions and services     |
-| `solver/`       | Numerical computation                          |
-| `protection/`   | Protection-function execution                  |
-| `simulation/`   | Runtime and dynamic execution                  |
-| `validation/`   | Engineering and structural validation          |
-| `controller.py` | Core-level orchestration                       |
-
-The core must not depend on:
-
-* Qt widgets
-* Graphics scenes
-* Rendering objects
-* Mouse events
-* GUI controllers
-* Project file dialogs
-* GUI-specific state
-
-This allows the engineering engine to execute independently of the graphical application.
-
----
-
-# 6. Physical Model
-
-The model layer represents what physically exists in the digital twin.
-
-Typical engineering entities include:
-
-* Buses
-* Generators
-* Loads
-* Transmission lines
-* Cables
-* Transformers
-* Breakers
-* Switches
-* Shunts
-* Motors
-* Measurement equipment
-* Protection equipment
-* Terminals
-* Other domain-specific equipment
-
-The model layer is the authoritative owner of:
-
-* Physical equipment identity
-* Engineering configuration
-* Equipment relationships
-* Persistent engineering properties
-
-Derived numerical representations must not replace the physical model.
-
----
-
-# 7. Asset, Equipment, Component and Device Semantics
-
-GridForge uses explicit engineering semantics rather than requiring every physical object to inherit from one universal monolithic hierarchy.
-
-| Term          | Meaning                                         |
-| ------------- | ----------------------------------------------- |
-| **Asset**     | Persistent identifiable engineering entity      |
-| **Equipment** | Engineered physical apparatus                   |
-| **Component** | Engineering-significant constituent part        |
-| **Device**    | Independently identifiable functional apparatus |
-
-This permits specialized engineering domains to evolve independently.
-
-For example, protection, measurement, switching, and dynamic-model objects can have appropriate contracts without forcing every object into an artificial inheritance tree.
-
----
-
-# 8. Electrical Network
-
-The network layer converts the physical engineering model into an authoritative electrical representation.
-
-It manages:
-
-* Electrical topology
-* Connectivity
-* Terminals
-* Buses / nodes
-* Branches
-* Network indexing
-* Deterministic network construction
-* Per-unit representation
-* Y-bus construction
-* Network-derived electrical structures
-
-The conceptual relationship is:
-
-```text
-Physical Model
-      │
-      ▼
-Electrical Network
-      │
-      ├── Topology
-      ├── Network Indexing
-      ├── Per-Unit
-      └── Y-Bus
-```
-
-The network layer **does not become the owner of physical equipment**.
-
-Numerical network indices may be reconstructed whenever topology changes. Engineering identities must remain stable.
-
----
-
-# 9. Analysis Layer
-
-The analysis layer defines **what engineering problem is being investigated**.
-
-Current study domains include:
-
-* Power Flow
-* Line Flow
-* Transformer Flow
-* Short Circuit
-* Contingency
-
-The analysis layer may define:
-
-* Study configuration
-* Engineering objectives
-* Input requirements
-* Preconditions
-* Result interpretation
-* Study-level validation
-
-The numerical solver defines **how the problem is solved**.
-
-Therefore:
-
-> **Analysis ≠ Solver**
-
-This distinction allows multiple numerical methods to serve the same engineering study.
-
----
-
-# 10. Solver Architecture
-
-The solver layer provides numerical execution engines.
-
-```text
-core/solver/
-│
-├── common/
-├── contingency/
-├── dynamics/
-├── power_flow/
-└── short_circuit/
-```
-
-Potential numerical technologies include:
-
-* NumPy
-* SciPy
-* Sparse matrix algorithms
-* Vectorized numerical operations
-* Batched calculations
-* CPU numerical backends
-* GPU numerical backends
-
-The solver consumes appropriate numerical representations derived from the authoritative engineering state.
-
-The solver must not become the owner of physical equipment.
-
----
-
-# 11. Power Flow
-
-GridForge provides a dedicated power-flow solver architecture for steady-state electrical analysis.
-
-The architecture is intended to support:
-
-* Newton-Raphson
-* Adaptive line search
-* Armijo-type step control
-* Trust-region methods
-* Levenberg-Marquardt / hybrid approaches
-* Continuation power flow
-* Predictor-corrector methods
-* Contingency screening
-* Sparse Jacobian assembly
-* CPU execution
-* Future GPU execution
-
-The conceptual execution path is:
-
-```text
-Physical Model
-      │
-      ▼
-Network
-      │
-      ▼
-Power Flow Analysis
-      │
-      ▼
-Numerical Representation
-      │
-      ▼
-Power Flow Solver
-      │
-      ▼
-Engineering Result
-```
-
-A solver result must clearly distinguish:
-
-* Converged solution
-* Non-converged solution
-* Invalid input
-* Invalid topology
-* Numerical failure
-
----
-
-# 12. Short-Circuit Analysis
-
-The short-circuit subsystem provides fault-analysis capabilities.
-
-The architecture is designed to support:
-
-* Fault definition
-* Fault location
-* Fault type
-* Sequence-network calculations
-* Fault currents
-* Bus voltages
-* Branch currents
-* Fault contribution analysis
-* Engineering fault-study results
-
-Supported fault categories are intended to include:
-
-* Three-phase faults
-* Single-line-to-ground faults
-* Line-to-line faults
-* Double-line-to-ground faults
-
-The short-circuit solver consumes the authoritative electrical network representation.
-
-It must not maintain a competing physical network model.
-
----
-
-# 13. Dynamic Simulation
-
-The dynamics subsystem provides time-domain power-system simulation.
-
-Dynamic models may represent:
-
-* Synchronous generators
-* Excitation systems
-* Governors
-* Power-system stabilizers
-* Motors
-* Dynamic loads
-* Other dynamic equipment
-
-The conceptual execution path is:
-
-```text
-Dynamic Model
-      │
-      ▼
-Dynamic Equations
-      │
-      ▼
-Numerical Integrator
-      │
-      ▼
-Simulation State
-      │
-      ▼
-Simulation Results
-```
-
-Dynamic simulation is architecturally independent from the implementation of steady-state power flow and short-circuit algorithms.
-
----
-
-# 14. Protection Architecture
-
-GridForge V2 uses a **multifunction protection architecture**.
-
-A physical relay is not assumed to represent a single protection function.
-
-For example:
-
-```text
-Relay R1
-│
-├── 50   Instantaneous Overcurrent
-├── 51   Time Overcurrent
-├── 46   Negative Sequence
-├── 67   Directional Overcurrent
-└── 50BF Breaker Failure
-```
-
-The conceptual structure is:
-
-```text
-Physical Relay
-      │
-      ├── ProtectionElement
-      │       └── RelayBase
-      │
-      ├── ProtectionElement
-      │       └── RelayBase
-      │
-      └── ProtectionElement
-              └── RelayBase
-```
-
-This architecture permits realistic multifunction numerical relay configurations.
-
-Protection functions remain specialized execution units rather than forcing all relay behavior into one monolithic class.
-
----
-
-# 15. Measurement Architecture
-
-Protection functions consume authoritative measurement infrastructure.
-
-The intended signal chain is:
-
-```text
-CT / PT / CVT
-      │
-      ▼
-MeasurementChannel
-      │
-      ▼
-RelayInput
-      │
-      ▼
-Protection Function
-```
-
-Measurement state must have **one authoritative owner**.
-
-Protection functions must not create independent competing copies of:
-
-* CT state
-* PT state
-* CVT state
-* Scaling
-* Measurement caches
-* Electrical measurement history
-
-Multiple protection functions should therefore consume consistent measurements from the same measurement infrastructure.
-
----
-
-# 16. Protection Decision Boundary
-
-Protection functions produce **protection decisions**.
-
-They do not directly operate physical breakers.
-
-```text
-Protection Function
-       │
-       ▼
-ProtectionDecision
-       │
-       ▼
-Protection Scheme / Output Logic
-       │
-       ▼
-Trip Command
-       │
-       ▼
-BreakerManager
-       │
-       ▼
-Physical Breaker
-```
-
-This boundary allows future implementation of:
-
-* Breaker failure
-* Autoreclose
-* Permissive schemes
-* Blocking
-* Interlocking
-* Transfer trip
-* Trip-circuit supervision
-* Communication-assisted protection
-
-The protection decision is therefore a deliberate architectural boundary between **protection logic** and **physical switching**.
-
----
-
-# 17. Simulation Architecture
-
-Simulation provides runtime execution of the digital twin.
-
-A typical simulation cycle is:
-
-```text
-Authoritative System State
-          │
-          ▼
-Simulation Time
-          │
-          ▼
-Dynamic / Network State
-          │
-          ▼
+Electrical Model
+Network Model
+Topology
+Terminals
+Connections
+Engineering Identities
+Domain Validation
+Analysis
+Protection
 Measurement
-          │
-          ▼
-Protection / Control
-          │
-          ▼
-System State Update
-          │
-          ▼
-Next Simulation Step
+Control Domain
+Dynamics Domain
+Studies
+Solvers
+Results
 ```
 
-Runtime simulation state must remain separate from persistent engineering configuration.
+Core does **not** own:
 
-A transient simulation condition must not silently overwrite the permanent engineering model.
+* Qt;
+* QGraphics;
+* widgets;
+* canvas state;
+* UI controllers;
+* UI history;
+* application lifecycle;
+* UI persistence orchestration;
+* presentation geometry.
 
 ---
 
-# 18. Validation
+# 4. Application Layer
 
-GridForge validates engineering state before and during execution.
+The Application layer is the **sole orchestration boundary between UI and Core**.
 
-Validation may operate across several stages:
+UI components must not directly mutate Core.
 
-```text
-Model
-  │
-  ▼
-Network
-  │
-  ▼
-Study Configuration
-  │
-  ▼
-Numerical Preconditions
-  │
-  ▼
-Runtime Conditions
-```
+The Application layer owns:
 
-Validation must distinguish **engineering invalidity** from **numerical failure**.
+* command execution;
+* command validation;
+* command-handler resolution;
+* transactions;
+* rollback;
+* commit;
+* command history;
+* undo;
+* redo;
+* project lifecycle;
+* persistence orchestration;
+* study orchestration;
+* application services;
+* application events;
+* read-model coordination;
+* UI update boundaries.
 
-For example:
+The Application layer may call Core.
 
-```text
-Invalid topology
-```
+Core must not call UI.
 
-is fundamentally different from:
-
-```text
-Valid topology
-+
-Valid study configuration
-+
-Numerical solver failed to converge
-```
-
-These conditions should not be collapsed into a generic error.
+UI must not directly mutate Core.
 
 ---
 
-# 19. GUI Architecture
+# 5. UI / Application / Core Contract
 
-GridForge provides a modern 2D engineering interface for power-system visualization and interactive modeling.
+The authoritative mutation path is:
 
-The GUI is intended to support:
+```text
+UI interaction
+      │
+      ▼
+Controller / Tool
+      │
+      ▼
+Immutable Command
+      │
+      ▼
+Application.execute()
+      │
+      ▼
+CommandManager
+      │
+      ├── validation
+      ├── handler resolution
+      ├── transaction
+      ├── history
+      └── undo / redo
+      │
+      ▼
+Handler / Application Service
+      │
+      ▼
+Core
+      │
+      ▼
+Semantic Application Event
+      │
+      ▼
+Read Model / Projection
+      │
+      ▼
+UIUpdateBoundary / UIUpdateBus
+      │
+      ▼
+UI
+```
 
-* Single-line diagrams
-* Bus-centric editing
-* Interactive equipment placement
-* Topology-aware connections
-* Snapping
-* Engineering tools
-* Multi-canvas navigation
-* Property editing
-* Simulation visualization
-* Protection visualization
-* Analysis-result visualization
-
-The GUI is a **client of the core**.
-
-It does not own engineering truth.
+This is the canonical GridForge V2 mutation pipeline.
 
 ---
 
-# 20. GUI and Core Separation
+# 6. Command Architecture
 
-The fundamental application direction is:
+User intent is represented by immutable commands.
+
+A command describes an intended state transition.
+
+Examples include:
 
 ```text
-GUI
+CreateBus
+CreateTransformer
+CreateBreaker
+CreateLine
+ConnectTerminals
+UpdateEquipment
+DeleteEquipment
+PlaceEquipment
+MoveEquipmentRepresentation
+RunStudy
+SaveProject
+OpenProject
+CloseProject
+```
+
+Commands do not directly manipulate widgets.
+
+Commands do not bypass Application.
+
+Commands do not directly expose mutable Core state to UI code.
+
+---
+
+# 7. CommandManager
+
+Application owns the authoritative CommandManager.
+
+The CommandManager is responsible for:
+
+1. receiving a command;
+2. validating the command;
+3. resolving the appropriate handler;
+4. opening a transaction;
+5. executing the handler;
+6. committing or rolling back;
+7. recording history;
+8. supporting undo/redo.
+
+The failure invariant is:
+
+```text
+State S0
+   │
+   │ failed command
+   ▼
+State S0
+```
+
+A failed command must not leave a partially mutated system.
+
+Successful execution follows:
+
+```text
+S0
  │
+ │ execute
  ▼
-Application / Controller
+S1
  │
+ │ undo
  ▼
-GridForge Core
+S0
+ │
+ │ redo
+ ▼
+S1
 ```
 
-Not:
+Undo and redo remain under the same Application-controlled mutation architecture.
+
+---
+
+# 8. Transactions
+
+Application transactions have explicit lifecycle states.
+
+Conceptually:
+
+```text
+OPEN
+  │
+  ▼
+COMMITTING
+  │
+  ▼
+COMMITTED
+```
+
+Failure paths include rollback states:
+
+```text
+OPEN
+  │
+  ▼
+ROLLING_BACK
+  │
+  ├──────────────► ROLLED_BACK
+  │
+  └──────────────► ROLLBACK_FAILED
+```
+
+A transaction must never silently transition from failure to apparent success.
+
+---
+
+# 9. Application Events
+
+Application emits semantic events rather than exposing arbitrary Core mutations to UI.
+
+Core event/application integration includes events such as:
+
+```text
+ElementCreated
+ElementUpdated
+ElementRemoved
+TopologyChanged
+
+ProjectLoaded
+ProjectSaved
+ProjectClosed
+
+StudyStarted
+StudyCompleted
+
+ValidationChanged
+```
+
+An execution event must have a corresponding coherent history/undo/redo interpretation.
+
+---
+
+# 10. Read Models and UI Updates
+
+UI should not depend on arbitrary mutable Core objects for normal presentation.
+
+The preferred path is:
 
 ```text
 Core
  │
  ▼
-GUI
+Application Event
+ │
+ ▼
+Read Model
+ │
+ ▼
+UIUpdateBoundary / UIUpdateBus
+ │
+ ▼
+Projection
+ │
+ ▼
+UI
 ```
 
-Core objects must never require:
+Read models are presentation-oriented representations.
 
-* Qt widgets
-* Graphics scenes
-* Rendering objects
-* Mouse events
-* GUI controllers
-* GUI-only state
+They do not replace Core.
 
-This separation ensures that the core can operate:
-
-* Headlessly
-* In automated tests
-* In batch studies
-* In server environments
-* In future real-time applications
+They do not become a second source of engineering truth.
 
 ---
 
-# 21. Qt Architecture
+# 11. Physical Model
 
-GridForge uses **PySide6** as its Qt framework.
+The physical model represents engineering equipment and relationships.
 
-GUI implementation must not introduce mixed Qt frameworks.
+The architecture does **not** use an artificial inheritance hierarchy such as:
 
-A centralized Qt abstraction layer provides controlled access to Qt-specific functionality:
+```text
+Asset
+  └── Equipment
+       └── Component
+            └── Device
+```
+
+Instead, equipment is modeled according to its actual engineering semantics.
+
+Equipment owns its persistent terminals.
+
+A terminal represents an electrical endpoint belonging to its equipment.
+
+---
+
+# 12. Terminals
+
+Terminals are first-class engineering objects.
+
+A terminal has a defined local endpoint associated with its owning equipment.
+
+Terminals provide the basis for:
+
+* connectivity;
+* topology;
+* electrical relationships;
+* switching interpretation;
+* network construction.
+
+Generic port abstractions must not be introduced merely for software convenience when terminal semantics are sufficient.
+
+---
+
+# 13. Connections and Topology
+
+Connections are derived from authoritative terminal relationships.
+
+TopologyManager is responsible for canonical topology interpretation.
+
+Topology must not be inferred solely from SLD geometry.
+
+The graphical position of an object does not establish electrical connectivity unless the corresponding engineering relationship exists.
+
+---
+
+# 14. Bus Model
+
+A Bus is an engineering object with its own identity and electrical properties.
+
+A Bus is not merely a graphical line.
+
+A Bus is also not to be treated as a generic derived topological node.
+
+Topology may derive network connectivity from buses, terminals and connections, but the Bus remains an authoritative domain object.
+
+---
+
+# 15. Network Architecture
+
+The network layer derives network representations from authoritative Core engineering data.
+
+Conceptually:
+
+```text
+Equipment
+   │
+   ▼
+Terminals
+   │
+   ▼
+Connections
+   │
+   ▼
+TopologyManager
+   │
+   ▼
+Network
+   │
+   ▼
+Analysis / Studies
+```
+
+The network representation must remain derivable from authoritative engineering state.
+
+---
+
+# 16. Per-Unit System
+
+Per-unit functionality belongs to the domain foundation.
+
+The canonical architecture is:
+
+```text
+core/base/per_unit.py
+```
+
+The network layer consumes the appropriate domain functionality rather than maintaining an independent competing per-unit architecture.
+
+---
+
+# 17. Analysis Architecture
+
+Analysis represents engineering calculations and study-domain logic.
+
+Analysis is distinct from numerical solver implementation.
+
+The architecture separates:
+
+```text
+Study / Engineering Analysis
+          │
+          ▼
+Numerical Solver
+          │
+          ▼
+Results
+```
+
+A solver is an implementation mechanism, not the owner of study lifecycle.
+
+---
+
+# 18. Power Flow
+
+Power Flow is an engineering study orchestrated through Application.
+
+The canonical domain boundary for Power Flow belongs under:
+
+```text
+core.analysis
+```
+
+not as an independent competing application architecture under a legacy solver package.
+
+The workflow is:
+
+```text
+Power Flow Request
+       │
+       ▼
+Application
+       │
+       ▼
+Study Preconditions
+       │
+       ▼
+Core Analysis
+       │
+       ▼
+Numerical Solver
+       │
+       ▼
+Power Flow Results
+       │
+       ▼
+Application StudyCompleted
+```
+
+---
+
+# 19. Short Circuit
+
+Short-circuit analysis is a domain study.
+
+It consumes authoritative network and equipment data and produces study results without becoming the owner of the underlying engineering model.
+
+---
+
+# 20. Dynamics
+
+Dynamics is a first-class study domain.
+
+Dynamic simulation is separated from static network modeling.
+
+Dynamic solver infrastructure is organized under:
+
+```text
+core/solver/dynamics/
+```
+
+Dynamic initialization may use an operating point obtained from a solved static study.
+
+The dynamic model must not silently create a competing permanent electrical truth.
+
+---
+
+# 21. Protection Architecture
+
+Protection is based on measured electrical quantities, protection functions and protection decisions.
+
+The conceptual architecture is:
+
+```text
+Primary Electrical System
+          │
+          ▼
+       CT / PT / CVT
+          │
+          ▼
+ Measurement Channel
+          │
+          ▼
+ Protection Function
+          │
+          ▼
+ Protection Decision
+          │
+          ▼
+ Control / Trip Scheme
+          │
+          ▼
+ Application-Controlled State Transition
+```
+
+Protection decisions remain distinct from physical switching state.
+
+---
+
+# 22. Measurement Architecture
+
+CT, PT and CVT have distinct electrical meanings.
+
+Conceptually:
+
+```text
+CT
+ └── Line current measurement
+
+PT / CVT
+ └── Voltage measurement
+```
+
+Measurement points are first-class engineering concepts.
+
+Measurement channels are represented under the measurement domain, including:
+
+```text
+core/measurement/measurement_channel.py
+```
+
+The measurement architecture provides the interface between primary electrical quantities and protection/control functions.
+
+---
+
+# 23. Protection Decision
+
+Protection logic produces a semantic protection decision.
+
+The protection decision is represented independently from the physical breaker state.
+
+The protection decision structure includes concepts such as:
+
+```text
+relay_id
+function_code
+function_id
+decision
+```
+
+The decision may subsequently participate in a control or trip scheme.
+
+A protection function must not directly mutate arbitrary Core state outside the Application-controlled mutation architecture.
+
+---
+
+# 24. Switching Devices
+
+Breakers, switches, disconnectors, contactors and related switching devices are modeled according to their engineering semantics.
+
+A switching device may have:
+
+* authoritative terminals;
+* switching state;
+* operating mechanism;
+* auxiliary contacts;
+* trip/close mechanisms where applicable.
+
+Switching state affects topology interpretation where the device semantics require it.
+
+---
+
+# 25. Contactor and Motor-Control Architecture
+
+A Contactor is a controlled multi-pole switching device.
+
+Its domain model may include:
+
+```text
+Power switching poles
+Coil / actuator
+Auxiliary contacts
+Switching state
+```
+
+Motor starters and similar control arrangements may be represented as reusable subsystems.
+
+The SLD should show the appropriate engineering abstraction rather than attempting to render every physical contact detail.
+
+Control logic remains separate from the physical equipment model.
+
+---
+
+# 26. Control and Automation
+
+Control and automation is a first-class GridForge engineering domain.
+
+It may include:
+
+* digital inputs;
+* digital outputs;
+* analog signals;
+* timers;
+* interlocks;
+* logic;
+* ladder representations;
+* control sequences;
+* actuator commands;
+* equipment feedback.
+
+Control logic must interact with the engineering model through defined application/domain interfaces.
+
+Control logic must not directly mutate arbitrary Core objects.
+
+---
+
+# 27. Ladder Logic
+
+Ladder logic represents control intent.
+
+A typical control path is:
+
+```text
+Inputs
+  │
+  ▼
+Logic
+  │
+  ├── contacts
+  ├── coils
+  ├── timers
+  └── interlocks
+  │
+  ▼
+Output / Command
+  │
+  ▼
+Controlled Equipment
+```
+
+For switching equipment such as breakers and contactors, ladder logic should act through the equipment's defined control mechanism.
+
+For example, a breaker trip command acts through its trip mechanism rather than directly modifying unrelated topology structures.
+
+---
+
+# 28. SLD Architecture
+
+The Single-Line Diagram is a **presentation and interaction projection** of the engineering model.
+
+It is not the authoritative electrical model.
+
+The SLD may contain:
+
+* symbols;
+* graphical positions;
+* labels;
+* routing;
+* annotations;
+* visual states;
+* selection state;
+* interaction state.
+
+These are separate from Core engineering truth.
+
+---
+
+# 29. SLD Placement Workflow
+
+The authoritative equipment-placement workflow is:
+
+```text
+Equipment Palette
+       │
+       ▼
+Engineer selects equipment
+       │
+       ▼
+Live cursor preview
+       │
+       │
+       │  preview is NOT a Core object
+       ▼
+Engineer clicks canvas
+       │
+       ▼
+Placement Command
+       │
+       ▼
+Application.execute()
+       │
+       ├───────────────┐
+       ▼               ▼
+Core Equipment     SLD Representation
+       │               │
+       └───────┬───────┘
+               ▼
+        Application Event
+               │
+               ▼
+        Projection Update
+```
+
+This distinction is mandatory.
+
+---
+
+# 30. Bus Placement and Connectivity
+
+Bus placement may provide intelligent snapping and multi-terminal connection assistance.
+
+However:
+
+> **Graphical snapping does not itself constitute authoritative electrical connectivity.**
+
+The resulting engineering relationship must be committed through the Application command path.
+
+---
+
+# 31. SLD Geometry
+
+SLD geometry is presentation state.
+
+Persistent project data must not depend on QGraphics objects or other runtime UI objects.
+
+The project stores semantic/presentation information, not live GUI objects.
+
+---
+
+# 32. Canvas Architecture
+
+GridForge may provide multiple engineering canvases.
+
+Examples include:
+
+```text
+SLD / Network
+Protection
+Control
+Dynamics
+Studies
+Equipment
+Operations
+Documentation
+Validation
+```
+
+These canvases share the same Core and Application infrastructure.
+
+They do not directly mutate one another.
+
+They communicate through Application/domain contracts.
+
+---
+
+# 33. Engineering Scope
+
+SLD and engineering workspaces may be organized into scopes such as:
+
+```text
+Plant
+ └── Substation
+      └── Switchboard
+           └── Feeder
+```
+
+Scope is a structural/organizational concept and must not be confused with electrical topology.
+
+---
+
+# 34. Rendering
+
+Rendering is presentation.
+
+A renderer:
+
+* reads appropriate projection/read-model data;
+* produces graphical output;
+* reflects state;
+* does not own engineering truth;
+* does not mutate Core.
+
+Rendering code must not become an alternate domain model.
+
+---
+
+# 35. UI Architecture
+
+The MainWindow is intentionally thin.
+
+UI responsibilities include:
+
+* presentation;
+* interaction;
+* workspace composition;
+* tool activation;
+* navigation;
+* user feedback;
+* visualization.
+
+The UI must not become a domain-service container.
+
+Qt dependencies should remain isolated through the UI infrastructure, including the canonical Qt abstraction boundary.
+
+---
+
+# 36. Qt Boundary
+
+Qt must not enter Core.
+
+Core must remain importable and usable without a running Qt application.
+
+The UI layer may use:
 
 ```text
 PySide6
+Qt Widgets
+Qt Graphics
+Qt Models
+Qt Signals
+```
+
+but those dependencies must remain outside Core.
+
+---
+
+# 37. Plugin Architecture
+
+GridForge supports a plugin platform.
+
+Plugins may contribute:
+
+* equipment types;
+* engineering studies;
+* canvases;
+* tools;
+* panels;
+* renderers;
+* reports;
+* domain extensions.
+
+Plugins must communicate through defined Core/Application contracts.
+
+Plugins must not bypass Application to perform uncontrolled Core mutation.
+
+A plugin is an extension of GridForge, not an alternative architecture.
+
+---
+
+# 38. Persistence Architecture
+
+The canonical project package is:
+
+```text
+project.gridforge
+```
+
+The package contains:
+
+```text
+manifest.json
+project.json
+```
+
+`manifest.json` contains package/schema/version metadata.
+
+`project.json` contains canonical project engineering/presentation data.
+
+Runtime Qt objects are never persisted as project truth.
+
+QGraphics objects are never persisted as project truth.
+
+---
+
+# 39. Project Lifecycle
+
+Project lifecycle belongs to Application.
+
+Supported lifecycle concepts include:
+
+```text
+New
+Open
+Save
+Save As
+Close
+```
+
+The Application owns the lifecycle orchestration.
+
+Relevant events include:
+
+```text
+ProjectLoaded
+ProjectSaved
+ProjectClosed
+```
+
+Persistence implementation must not bypass the lifecycle contract.
+
+---
+
+# 40. Identity and Determinism
+
+Every persistent engineering object must have a stable canonical identity.
+
+Identity is not a graphical label.
+
+Examples of independent concepts include:
+
+```text
+Object Identity
+Display Name
+Equipment Type
+Terminal Identity
+Project Scope
+```
+
+Generated identifiers must be deterministic where required by the domain contract.
+
+Identity generation must not depend on transient GUI state.
+
+---
+
+# 41. Validation
+
+Validation exists at multiple levels.
+
+### Command validation
+
+Determines whether a requested operation is admissible.
+
+### Domain validation
+
+Protects Core engineering invariants.
+
+### Network validation
+
+Checks network/topology consistency.
+
+### Study validation
+
+Checks study-specific prerequisites.
+
+### Project validation
+
+Checks persistence/project integrity.
+
+Validation results should be represented semantically and exposed through Application/read-model mechanisms.
+
+---
+
+# 42. Study Lifecycle
+
+A study is an Application-orchestrated workflow.
+
+Generic pattern:
+
+```text
+Study Request
+     │
+     ▼
+Study Configuration
+     │
+     ▼
+Precondition Validation
+     │
+     ▼
+StudyStarted
+     │
+     ▼
+Core Analysis / Solver
+     │
+     ▼
+Results
+     │
+     ▼
+StudyCompleted
+```
+
+A failed study must produce an explicit failure state and must not be represented as successful completion.
+
+---
+
+# 43. Engineering Workflow Architecture
+
+GridForge engineering workflows follow a common lifecycle:
+
+```text
+Engineer Intent
+      │
+      ▼
+UI Interaction
+      │
+      ▼
+Command
+      │
+      ▼
+Application
+      │
+      ▼
+Validation
+      │
+      ▼
+Transaction
+      │
+      ▼
+Core
+      │
+      ▼
+Semantic Event
+      │
+      ▼
+Read Model
+      │
+      ▼
+Projection
+      │
+      ▼
+Engineer-visible result
+```
+
+Different engineering systems implement their domain-specific workflow inside this common architecture.
+
+---
+
+# 44. Workflow-First Architecture
+
+GridForge development and auditing are workflow-first.
+
+A subsystem is not considered architecturally complete merely because its classes exist.
+
+The complete engineering workflow must be traceable from:
+
+```text
+User Intent
+   ↓
+Command
+   ↓
+Application
+   ↓
+Domain Operation
+   ↓
+Core State
+   ↓
+Event
+   ↓
+Read Model
+   ↓
+UI Projection
+```
+
+This applies to:
+
+* SLD;
+* network editing;
+* protection;
+* control;
+* dynamics;
+* studies;
+* project lifecycle;
+* equipment management;
+* documentation;
+* operations.
+
+---
+
+# 45. Control Workflow
+
+A control workflow may follow:
+
+```text
+Engineer
    │
    ▼
-ui/core/qt.py
+Control Design
    │
    ▼
-GridForge GUI
+Signals
+   │
+   ▼
+Logic / Ladder
+   │
+   ▼
+Evaluation
+   │
+   ▼
+Control Output
+   │
+   ▼
+Application / Domain Boundary
+   │
+   ▼
+Equipment Control Mechanism
+   │
+   ▼
+Equipment State
+   │
+   ▼
+Feedback
+   │
+   └──────────────► Control Logic
 ```
 
-This prevents individual GUI modules from introducing inconsistent Qt dependencies.
+The workflow must maintain a clear distinction between:
+
+* signal;
+* logic;
+* command;
+* equipment state;
+* feedback.
 
 ---
 
-# 22. Multi-Canvas Architecture
+# 46. Protection Workflow
 
-GridForge is designed around hierarchical engineering visualization.
-
-A typical navigation hierarchy may be:
+A protection workflow may follow:
 
 ```text
-Grid
- │
- ├── Substation A
- │      ├── Bus
- │      ├── Transformer
- │      └── Feeder
- │
- ├── Substation B
- │
- └── Plant / Network
+Primary System
+      │
+      ▼
+CT / PT / CVT
+      │
+      ▼
+Measurement Channel
+      │
+      ▼
+Protection Function
+      │
+      ▼
+Protection Decision
+      │
+      ▼
+Trip / Control Scheme
+      │
+      ▼
+Application-controlled action
+      │
+      ▼
+Switching Equipment
+      │
+      ▼
+Network State
+      │
+      ▼
+Measurement Feedback
 ```
-
-The architecture supports navigation between:
-
-* Grid-level views
-* Substation-level views
-* Plant-level views
-* Equipment-level views
-* Detailed engineering contexts
-
-A canvas represents a visualization context, not an independent electrical network.
 
 ---
 
-# 23. Bus-Centric Network Editing
+# 47. Dynamics Workflow
 
-Electrical connections are governed by **engineering topology**, not arbitrary graphical proximity.
-
-A graphical connection is meaningful only when it corresponds to a valid electrical relationship.
+A dynamics workflow may follow:
 
 ```text
-Graphical Interaction
-        │
-        ▼
-Topology / Connection Validation
-        │
-        ▼
-Authoritative Network
-        │
-        ▼
-Electrical Relationship
+Network Model
+      │
+      ▼
+Solved Operating Point
+      │
+      ▼
+Dynamic Initialization
+      │
+      ▼
+Dynamic Model
+      │
+      ▼
+Simulation
+      │
+      ▼
+Time-Series Results
+      │
+      ▼
+Analysis / Visualization
 ```
 
-Therefore:
-
-* A graphical line is not merely a drawing object.
-* A bus is not merely a graphical rectangle.
-* A connection cannot become electrically valid simply because two graphics overlap.
-
-The network remains authoritative.
+The dynamic state must not silently replace the authoritative persistent electrical model.
 
 ---
 
-# 24. Rendering Architecture
+# 48. Documentation and Engineering Knowledge
 
-Rendering is separated from engineering state.
+Documentation and engineering knowledge provide contextual assistance.
+
+Knowledge does not replace Core engineering truth.
+
+Help may be associated with:
+
+* equipment;
+* studies;
+* validation messages;
+* engineering concepts;
+* workflows;
+* standards references.
+
+Knowledge must have provenance and lifecycle where applicable.
+
+---
+
+# 49. Headless Operation
+
+GridForge Core and Application functionality should be usable without the graphical UI.
+
+A headless workflow follows:
 
 ```text
-Core Model / Network
-        │
-        ▼
-Render System
-        │
-        ├── BusRenderer
-        ├── LineRenderer
-        ├── TransformerRenderer
-        └── Equipment Renderers
+Application
+   │
+   ▼
+Command / Service
+   │
+   ▼
+Core
+   │
+   ▼
+Study / Result
 ```
 
-Renderers visualize authoritative objects.
+Headless operation must use the same domain and application contracts as the graphical environment.
 
-They do not become owners of those objects.
-
-Rendering state may be derived from engineering state, but it must not silently replace it.
+The headless path must not become a separate competing architecture.
 
 ---
 
-# 25. Interaction Architecture
+# 50. Testing Architecture
 
-The GUI interaction system is divided into specialized services.
+Testing should verify both engineering correctness and architectural contracts.
 
-Examples include:
-
-* InteractionManager
-* Tool System
-* Snap System
-* Grid System
-* Navigation Controller
-* Coordinate System
-* Rendering System
-* Canvas Controller
-
-The purpose of this separation is to prevent:
-
-* Monolithic widgets
-* Hidden state ownership
-* Duplicated interaction logic
-* Direct GUI manipulation of core engineering state
-
-Tools should request engineering operations through the appropriate application/controller boundary.
-
----
-
-# 26. Plugin Architecture
-
-GridForge supports extensibility through plugins.
-
-Potential plugin domains include:
-
-* Protection functions
-* Dynamic models
-* Equipment models
-* Analysis extensions
-* Solver backends
-* Visualization
-* Engineering tools
-* Application services
-
-Plugins must consume stable GridForge contracts.
-
-They must not bypass established ownership boundaries.
-
-A plugin should not, for example:
-
-* Directly manipulate hidden network state
-* Create a competing physical model
-* Circumvent validation
-* Operate breakers outside the protection/control boundary
-* Make GUI objects the authoritative engineering state
-
----
-
-# 27. Persistence Architecture
-
-Project persistence is intentionally separated from the engineering core.
+Important categories include:
 
 ```text
-GUI / Application
-        │
-        ▼
-Persistence / Project Layer
-        │
-        ├── Serialization
-        ├── Deserialization
-        ├── Schema Validation
-        └── Project File Management
-        │
-        ▼
-GridForge Core
+Core Domain Tests
+Network / Topology Tests
+Analysis Tests
+Solver Tests
+Protection Tests
+Control Tests
+Dynamics Tests
+
+Application Tests
+Command Tests
+Transaction Tests
+History Tests
+Undo / Redo Tests
+Lifecycle Tests
+Persistence Tests
+Event Tests
+
+UI / Projection Tests
+Workflow Integration Tests
+Architecture Boundary Tests
+Regression Tests
 ```
 
-Core model objects should not contain arbitrary:
-
-* JSON I/O
-* File-system management
-* GUI file dialogs
-* Project-window logic
-
-Projects are loaded into authoritative core objects.
-
-Persistence represents the engineering state; it does not become the engineering state itself.
-
 ---
 
-# 28. Digital-Twin State Ownership
+# 51. Workflow Contract Testing
 
-GridForge follows a strict state-ownership principle.
-
-| Domain                  | Authoritative Owner           |
-| ----------------------- | ----------------------------- |
-| Physical equipment      | `core.model`                  |
-| Electrical topology     | `core.network`                |
-| Per-unit representation | Base / network infrastructure |
-| Y-bus                   | `core.network`                |
-| Numerical computation   | `core.solver`                 |
-| Study interpretation    | `core.analysis`               |
-| Protection function     | Protection subsystem          |
-| Protection decision     | `ProtectionDecision`          |
-| Runtime simulation      | `core.simulation`             |
-| Validation              | `core.validation`             |
-| GUI state               | GUI                           |
-| Project persistence     | Persistence layer             |
-
-The key rule is:
-
-> **Every important state has one authoritative owner.**
-
-Derived representations may exist, but they must remain derived.
-
----
-
-# 29. Identity Architecture
-
-GridForge separates engineering identity from numerical indexing.
-
-```text
-Asset ID
-   ≠
-Equipment ID
-   ≠
-Terminal ID
-   ≠
-Network Node ID
-   ≠
-Numerical Index
-```
-
-Engineering identities must remain stable.
-
-Numerical indices may change when:
-
-* Topology changes
-* Network structures are rebuilt
-* Components are added or removed
-* Solver representations are reconstructed
-
-A numerical index is therefore an implementation detail, not an engineering identity.
-
----
-
-# 30. Determinism
-
-GridForge prioritizes deterministic engineering behavior.
-
-Identical:
-
-* Model state
-* Network topology
-* Study configuration
-* Solver settings
-
-should produce reproducible results within expected numerical tolerances.
-
-Determinism is particularly important for:
-
-* Regression testing
-* Contingency analysis
-* Protection studies
-* Simulation
-* Debugging
-* Engineering verification
-
-Non-deterministic behavior must be deliberate and documented where it is genuinely required.
-
----
-
-# 31. Performance
-
-GridForge is designed for large-scale power-system computation.
-
-The architecture is compatible with:
-
-* Vectorized computation
-* Sparse matrices
-* Sparse Jacobians
-* Batched contingency analysis
-* Repeated simulations
-* GPU acceleration
-* Large network models
-
-Performance optimization must never compromise:
-
-* Engineering correctness
-* Determinism
-* State ownership
-* Numerical validity
-* Architectural boundaries
-
-Correctness remains the first engineering requirement.
-
----
-
-# 32. CPU / GPU Backend Independence
-
-Numerical hardware backends are implementation details.
-
-```text
-                 Numerical Representation
-                          │
-                    ┌─────┴─────┐
-                    ▼           ▼
-                   CPU         GPU
-                 Backend     Backend
-```
-
-The physical model and electrical network remain backend-independent.
-
-This allows future GPU acceleration without requiring a redesign of the engineering model.
-
-A GPU implementation is therefore a computational backend, not a second version of the engineering domain model.
-
----
-
-# 33. Headless Operation
-
-GridForge Core is designed to operate without the GUI.
+Every major engineering workflow should have explicit contract coverage.
 
 For example:
 
-```python
-network = Network(...)
-result = power_flow.solve(network)
+```text
+Create Equipment
+Create Connection
+Edit Equipment
+Delete Equipment
+Undo
+Redo
+Save
+Open
+Close
+Run Study
+Display Result
+Protection Trip
+Control Action
+Dynamic Simulation
 ```
 
-and:
-
-```python
-simulation = Simulation(...)
-simulation.run()
-```
-
-Headless execution enables:
-
-* Automated engineering studies
-* Batch analysis
-* Regression testing
-* Server-side execution
-* Optimization
-* Continuous validation
-* Future real-time applications
-
-The GUI is therefore an application client rather than a prerequisite for engineering execution.
+Testing should verify the complete path rather than only isolated classes.
 
 ---
 
-# 34. Testing Strategy
+# 52. Regression Principle
 
-GridForge uses layered testing.
+Engineering regression must protect against:
+
+* numerical regressions;
+* topology regressions;
+* identity regressions;
+* persistence regressions;
+* command regressions;
+* transaction regressions;
+* workflow regressions;
+* UI/Application boundary regressions;
+* architectural boundary regressions.
+
+A passing numerical solver does not prove that the complete engineering workflow works.
+
+---
+
+# 53. Performance Architecture
+
+Performance optimization must preserve architectural boundaries.
+
+Potential optimization mechanisms include:
+
+* caching;
+* incremental topology updates;
+* sparse numerical methods;
+* parallel computation;
+* background execution;
+* GPU acceleration where justified.
+
+Optimization must not introduce a second source of engineering truth.
+
+---
+
+# 54. CPU / GPU
+
+GridForge may use CPU and GPU resources according to solver and workload requirements.
+
+GPU execution is an implementation strategy.
+
+It does not change:
+
+* Core ownership;
+* Application ownership;
+* engineering semantics;
+* persistence semantics;
+* workflow contracts.
+
+---
+
+# 55. Repository Architecture
+
+The repository should reflect architectural ownership.
+
+A representative structure is:
 
 ```text
-Unit Tests
-     │
-     ▼
-Subsystem Tests
-     │
-     ▼
-Integration Tests
-     │
-     ▼
-Numerical Regression
-     │
-     ▼
-Engineering Case Validation
+GridForge/
+│
+├── core/
+│   ├── base/
+│   ├── model/
+│   ├── network/
+│   ├── topology/
+│   ├── analysis/
+│   ├── solver/
+│   │   └── dynamics/
+│   ├── measurement/
+│   ├── protection/
+│   ├── control/
+│   ├── validation/
+│   └── results/
+│
+├── application/
+│   ├── commands/
+│   ├── handlers/
+│   ├── services/
+│   ├── transactions/
+│   ├── history/
+│   ├── lifecycle/
+│   ├── studies/
+│   ├── events/
+│   ├── read_models/
+│   └── persistence/
+│
+├── ui/
+│   ├── core/
+│   ├── main_window/
+│   ├── sld/
+│   ├── control/
+│   ├── protection/
+│   ├── dynamics/
+│   ├── studies/
+│   ├── panels/
+│   └── projections/
+│
+├── plugins/
+│
+├── tests/
+│
+└── docs/
 ```
 
-Testing must verify both:
-
-### Software correctness
-
-* Imports
-* APIs
-* State transitions
-* Contracts
-* Error handling
-* Deterministic behavior
-* Integration boundaries
-
-### Engineering correctness
-
-* Electrical topology
-* Power-flow results
-* Fault currents
-* Protection behavior
-* Dynamic response
-* Engineering constraints
-
-A test suite that passes software-level assertions while producing incorrect engineering results is not sufficient.
+The exact repository layout may evolve, but ownership boundaries must remain intact.
 
 ---
 
-# 35. Engineering Regression
+# 56. Architectural Rules
 
-Representative engineering cases should be maintained for:
+The following rules are mandatory.
 
-* Power flow
-* Short circuit
-* Contingency
-* Dynamics
-* Protection
-* Network topology
+### Rule 1 — Core is authoritative
 
-Regression validation should cover both:
+There must be one authoritative engineering model.
 
-* Numerical values
-* Expected engineering behavior
+### Rule 2 — Application is the UI↔Core boundary
 
-Examples include:
+UI code must not directly mutate Core.
+
+### Rule 3 — Commands are immutable
+
+User-initiated state changes are represented through immutable commands.
+
+### Rule 4 — Transactions are explicit
+
+Mutations must have controlled commit and rollback behavior.
+
+### Rule 5 — Undo/redo are Application responsibilities
+
+History must not be independently implemented by UI components.
+
+### Rule 6 — SLD is a projection
+
+SLD geometry and symbols are not engineering truth.
+
+### Rule 7 — Renderer is read-only with respect to Core
+
+Rendering cannot mutate engineering state.
+
+### Rule 8 — Plugins use contracts
+
+Plugins must not bypass Application and directly mutate Core.
+
+### Rule 9 — Qt stays out of Core
+
+Core must remain headless.
+
+### Rule 10 — Persistence stores semantics
+
+Runtime UI objects are never persisted as engineering truth.
+
+### Rule 11 — Topology is derived from engineering relationships
+
+Graphics alone cannot establish electrical connectivity.
+
+### Rule 12 — Protection decisions are separate from switching state
+
+A protection decision is not itself the physical breaker state.
+
+### Rule 13 — Studies are Application-orchestrated
+
+Study execution is a workflow, not merely a solver call.
+
+### Rule 14 — Read models are not Core
+
+Read models are projections for consumers.
+
+### Rule 15 — Workflows must be auditable end-to-end
+
+Every major engineering capability must have a traceable lifecycle.
+
+---
+
+# 57. Forbidden Architectural Paths
+
+The following patterns are prohibited:
 
 ```text
-Expected:
-Bus voltage within tolerance
-
-Expected:
-Fault current within tolerance
-
-Expected:
-Relay operates within expected time
-
-Expected:
-Breaker remains closed when no trip condition exists
-
-Expected:
-Topology rejects invalid connection
+UI ───────────────► Core mutation
 ```
-
-Engineering regression is a long-term protection against architectural and numerical drift.
-
----
-
-# 36. Architectural Rules
-
-The following rules are fundamental to GridForge V2.
-
-|  # | Rule                                                      | Description                                                           |
-| -: | --------------------------------------------------------- | --------------------------------------------------------------------- |
-|  1 | **One authoritative owner per state**                     | Important engineering state must have one authoritative owner         |
-|  2 | **Model owns physical equipment**                         | Numerical solvers must not become equipment models                    |
-|  3 | **Network owns electrical representation**                | GUI components must not become the topology engine                    |
-|  4 | **Solver owns numerical execution**                       | Engineering models must not contain solver algorithms                 |
-|  5 | **Analysis and solver remain separate**                   | Study definitions and numerical algorithms are different concerns     |
-|  6 | **Protection functions produce decisions**                | Protection functions do not directly operate physical breakers        |
-|  7 | **Measurement has one authoritative owner**               | Protection functions consume common measurement infrastructure        |
-|  8 | **Runtime state is separate from persistent state**       | Simulation state must not silently become engineering configuration   |
-|  9 | **GUI is outside the core**                               | Core objects remain headless-capable                                  |
-| 10 | **Persistence is outside domain objects**                 | Domain models do not become file-management classes                   |
-| 11 | **Numerical indices are not engineering identities**      | Stable engineering identities survive numerical reconstruction        |
-| 12 | **Plugins respect established contracts**                 | Extensions must not bypass architectural ownership                    |
-| 13 | **Qt remains isolated to the GUI**                        | Core code must not depend on PySide6                                  |
-| 14 | **Derived state remains derived**                         | Cached or rendered representations cannot replace authoritative state |
-| 15 | **Engineering invalidity differs from numerical failure** | Validation and solver failure must remain distinguishable             |
-
-These rules define the architectural contract for V2.
-
----
-
-# 37. Engineering Execution Flow
-
-A complete GridForge workflow can be represented as:
 
 ```text
-                 PROJECT / USER INPUT
-                         │
-                         ▼
-                  Physical Model
-                         │
-                         ▼
-                     Validation
-                         │
-                         ▼
-                 Network Construction
-                         │
-                         ▼
-                   Study Definition
-                         │
-            ┌────────────┼────────────┐
-            ▼            ▼            ▼
-        Power Flow   Short Circuit  Dynamics
-            │            │            │
-            └────────────┼────────────┘
-                         ▼
-                     Simulation
-                         │
-              ┌──────────┴──────────┐
-              ▼                     ▼
-         Measurement            Protection
-              │                     │
-              └──────────┬──────────┘
-                         ▼
-                  Engineering Results
-                         │
-                         ▼
-                 GUI / Reports / Export
+SLD ──────────────► Core mutation
 ```
-
-The important architectural property is that each stage consumes the authoritative state supplied by the appropriate preceding layer.
-
----
-
-# 38. Future Engineering Capabilities
-
-## Steady-State
-
-Planned or extensible capabilities include:
-
-* AC power flow
-* DC power flow
-* Continuation power flow
-* Optimal power flow
-* Security-constrained OPF
-* Voltage stability analysis
-
-## Fault Analysis
-
-* Three-phase faults
-* Single-line-to-ground faults
-* Line-to-line faults
-* Double-line-to-ground faults
-* Sequence networks
-* Fault contribution analysis
-
-## Contingency
-
-* N-1 analysis
-* N-k analysis
-* Fast contingency screening
-* Contingency ranking
-* Security assessment
-
-## Dynamics
-
-* Transient stability
-* AVR
-* Governor
-* PSS
-* Generator models
-* Motor dynamics
-* Dynamic load models
-
-## Protection
-
-* Overcurrent
-* Directional overcurrent
-* Distance
-* Differential
-* Voltage
-* Frequency
-* Breaker failure
-* Autoreclose
-* Protection coordination
-* TCC analysis
-
-## Advanced Simulation
-
-* EMT
-* Real-time simulation
-* Hardware-in-the-loop
-* Communication-assisted protection
-
-## Digital Twin
-
-* SCADA integration
-* Online measurements
-* State estimation
-* Real-time monitoring
-* Event recording
-* Predictive analysis
-* Operational decision support
-
-Future capabilities must be introduced without violating the established V2 ownership boundaries.
-
----
-
-# 39. Development Philosophy
-
-GridForge development follows a controlled engineering freeze process:
 
 ```text
-Designed
-   │
-   ▼
-Audited
-   │
-   ▼
-Implemented
-   │
-   ▼
-Validated
-   │
-   ▼
-Regressed
-   │
-   ▼
-Finalized
-   │
-   ▼
-Frozen
+Renderer ──────────► Core mutation
 ```
-
-A foundational subsystem should not be redesigned merely because its implementation contains defects.
-
-The preferred process is:
 
 ```text
-Architectural Contract
-        │
-        ▼
-Implementation Audit
-        │
-        ▼
-Defect Classification
-        │
-        ▼
-Production Correction
-        │
-        ▼
-Fresh Audit
-        │
-        ▼
-Tests
-        │
-        ▼
-Integration Validation
-        │
-        ▼
-Freeze
+Plugin ────────────► uncontrolled Core mutation
 ```
-
-This prevents continuous architectural recursion and protects completed subsystems from unnecessary redesign.
-
----
-
-# 40. V2 Architectural Baseline
-
-GridForge V2 establishes the following major boundaries:
 
 ```text
-                         GridForge V2
-                              │
-       ┌──────────────────────┼──────────────────────┐
-       │                      │                      │
-       ▼                      ▼                      ▼
-     Model                 Network                Analysis
-       │                      │                      │
-       │                      ├── Topology           │
-       │                      ├── Per-Unit           │
-       │                      └── Y-Bus              │
-       │                                             │
-       └──────────────────────┬──────────────────────┘
-                              │
-                              ▼
-                         Solver Layer
-                              │
-                ┌─────────────┼─────────────┐
-                ▼             ▼             ▼
-           Power Flow    Short Circuit    Dynamics
-                │             │             │
-                └─────────────┼─────────────┘
-                              │
-                              ▼
-                          Simulation
-                              │
-                   ┌──────────┴──────────┐
-                   ▼                     ▼
-              Measurement           Protection
-                   │                     │
-                   ▼                     ▼
-            MeasurementChannel    ProtectionElement
-                                         │
-                                         ▼
-                                ProtectionDecision
-                                         │
-                                         ▼
-                                  Scheme / Output
-                                         │
-                                         ▼
-                                   BreakerManager
-                                         │
-                                         ▼
-                                  Physical Model
+Controller ────────► Core mutation
 ```
-
-The V2 architecture therefore maintains a clear distinction between:
-
-* Engineering objects
-* Electrical representation
-* Study definitions
-* Numerical execution
-* Runtime state
-* Protection decisions
-* Physical switching
-* Visualization
-
----
-
-# 41. What GridForge Is Not
-
-GridForge is not intended to become:
-
-* ❌ A GUI-only drawing application
-* ❌ A collection of independent numerical scripts
-* ❌ A monolithic solver
-* ❌ A monolithic equipment class hierarchy
-* ❌ A relay-only protection simulator
-* ❌ A database disguised as an engineering model
-* ❌ A file-format-dependent core
-* ❌ A GUI-dependent simulation engine
-* ❌ A collection of disconnected analysis tools
-
-GridForge is intended to be:
-
-> **An integrated engineering platform built around a coherent digital representation of an electrical power system.**
-
----
-
-# 42. Project Status
-
-GridForge V2 is being developed as a:
-
-**Layered · Modular · Extensible · Headless-capable · Power-system Digital-Twin Platform**
-
-The architectural foundation establishes explicit boundaries for:
-
-* Physical modeling
-* Electrical network representation
-* Engineering analysis
-* Numerical solvers
-* Dynamic simulation
-* Protection
-* Measurement
-* Validation
-* GUI
-* Persistence
-* Plugins
-
-The objective is not merely to implement individual engineering calculations.
-
-The objective is to provide a coherent platform in which those calculations operate on a **common authoritative digital representation of the electrical system**.
-
----
-
-# 43. Final Architecture
-
-The complete conceptual architecture is:
 
 ```text
-                         ┌─────────────────────┐
-                         │      USER / UI      │
-                         └──────────┬──────────┘
-                                    │
-                         ┌──────────▼──────────┐
-                         │  Application Layer  │
-                         └──────────┬──────────┘
-                                    │
-                 ┌──────────────────┴──────────────────┐
-                 │                                     │
-                 ▼                                     ▼
-        Persistence / Projects                    GridForge GUI
-                 │                                     │
-                 └──────────────────┬──────────────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │    GRIDFORGE CORE   │
-                         └──────────┬──────────┘
-                                    │
-          ┌─────────────────────────┼─────────────────────────┐
-          │                         │                         │
-          ▼                         ▼                         ▼
-       MODEL                     NETWORK                  ANALYSIS
-          │                         │                         │
-          │                         ├── Topology              │
-          │                         ├── Per-Unit              │
-          │                         └── Y-Bus                 │
-          │                                                   │
-          └─────────────────────────┬─────────────────────────┘
-                                    │
-                                    ▼
-                              SOLVER LAYER
-                                    │
-                   ┌────────────────┼────────────────┐
-                   ▼                ▼                ▼
-               Power Flow      Short Circuit      Dynamics
-                   │                │                │
-                   └────────────────┼────────────────┘
-                                    │
-                                    ▼
-                                SIMULATION
-                                    │
-                         ┌──────────┴──────────┐
-                         ▼                     ▼
-                    Measurement           Protection
-                         │                     │
-                         ▼                     ▼
-                  MeasurementChannel    ProtectionElement
-                                               │
-                                               ▼
-                                      ProtectionDecision
-                                               │
-                                               ▼
-                                        Scheme / Control
-                                               │
-                                               ▼
-                                         BreakerManager
-                                               │
-                                               ▼
-                                         Physical Model
+Core ──────────────► Qt
+```
+
+```text
+Core ──────────────► UI
+```
+
+```text
+Solver ────────────► independent engineering truth
+```
+
+```text
+SLD geometry ──────► authoritative topology
+```
+
+```text
+UI history ────────► independent undo/redo
 ```
 
 ---
 
-# 44. Guiding Principle
+# 58. Engineering State Ownership
 
-GridForge V2 is governed by one overarching engineering principle:
-
-> ## **One authoritative engineering truth, many specialized services.**
-
-The physical model represents what exists.
-
-The network represents how it is electrically connected.
-
-The analysis layer defines what engineering question is being asked.
-
-The solver determines how that question is numerically solved.
-
-Simulation represents runtime behavior.
-
-Protection evaluates measurements and produces protection decisions.
-
-Validation protects engineering integrity.
-
-The GUI visualizes and interacts with the system.
-
-Persistence stores and reconstructs projects.
-
-Plugins extend stable contracts.
-
-None of these layers should silently take ownership of another layer's authoritative state.
-
-This separation provides the foundation required for a scalable power-system engineering platform capable of evolving from offline studies toward advanced simulation, automation, and real-time digital-twin applications.
+| Concern                       | Owner                    |
+| ----------------------------- | ------------------------ |
+| Equipment identity            | Core                     |
+| Equipment properties          | Core                     |
+| Terminals                     | Core                     |
+| Connections                   | Core                     |
+| Topology                      | Core                     |
+| Domain validation             | Core                     |
+| Numerical domain calculations | Core                     |
+| Study orchestration           | Application              |
+| Command execution             | Application              |
+| Transactions                  | Application              |
+| Undo/redo                     | Application              |
+| Project lifecycle             | Application              |
+| Persistence orchestration     | Application              |
+| Application events            | Application              |
+| Read models                   | Application              |
+| UI interaction                | UI                       |
+| Canvas geometry               | UI / projection          |
+| Rendering                     | UI                       |
+| Selection state               | UI                       |
+| User workspace state          | UI                       |
+| Plugin contribution           | Plugin through contracts |
 
 ---
 
-<p align="center"><em>GridForge — one authoritative engineering truth, many specialized services.</em></p>
+# 59. Architectural Reconciliation Process
+
+Architecture changes must follow:
+
+```text
+FETCH
+  ↓
+AUDIT
+  ↓
+RECONCILE
+  ↓
+CORRECT
+  ↓
+CHECK
+  ↓
+FREEZE
+```
+
+Existing implementation must be inspected before introducing architectural changes.
+
+When old and new architectures conflict:
+
+> **The current frozen V2 architecture takes precedence.**
+
+Parallel competing architectures must not be maintained.
+
+---
+
+# 60. Workflow Audit Process
+
+Workflow is the primary integration audit unit.
+
+For each workflow:
+
+```text
+1. Identify engineer intent
+2. Identify UI entry point
+3. Identify command
+4. Identify Application entry point
+5. Identify handler/service
+6. Identify Core mutation
+7. Identify transaction
+8. Identify resulting event
+9. Identify read model
+10. Identify UI projection
+11. Verify persistence
+12. Verify undo/redo where applicable
+13. Verify failure/rollback behavior
+14. Verify no boundary violation
+```
+
+A workflow is not closed merely because individual components exist.
+
+---
+
+# 61. Definition of Architectural Completion
+
+A feature is architecturally complete only when:
+
+* its domain model is authoritative;
+* its Application boundary is defined;
+* its commands are defined where required;
+* its mutation path is controlled;
+* its transactions are correct;
+* its events are defined;
+* its read model/projection is defined where required;
+* persistence is defined where required;
+* undo/redo behavior is defined where applicable;
+* failure behavior is defined;
+* UI/Core boundaries are respected;
+* workflow integration is verified.
+
+---
+
+# 62. Project Lifecycle
+
+The GridForge project lifecycle is:
+
+```text
+New Project
+    │
+    ▼
+Build Model
+    │
+    ▼
+Validate
+    │
+    ▼
+Save
+    │
+    ▼
+Open / Continue
+    │
+    ▼
+Modify
+    │
+    ▼
+Validate
+    │
+    ▼
+Run Studies
+    │
+    ▼
+Review Results
+    │
+    ▼
+Iterate
+    │
+    ▼
+Document
+    │
+    ▼
+Operate / Simulate
+    │
+    ▼
+Save / Close
+```
+
+All lifecycle transitions are Application-controlled.
+
+---
+
+# 63. Engineering Digital Twin
+
+The GridForge digital twin represents multiple engineering aspects of the same system.
+
+These include:
+
+```text
+Physical Equipment
+Electrical Network
+Topology
+Measurements
+Protection
+Control
+Dynamic State
+Studies
+Results
+Documentation
+Operations
+```
+
+The different views must remain consistent through shared authoritative Core state and Application orchestration.
+
+---
+
+# 64. Separation of Representations
+
+GridForge may maintain several representations of the same engineering system:
+
+```text
+Core Domain Model
+Network Representation
+Analysis Representation
+Protection Representation
+Control Representation
+Dynamic Representation
+Read Model
+SLD Projection
+Reports
+```
+
+These representations are not independent sources of truth.
+
+They are derived or coordinated representations of the authoritative domain.
+
+---
+
+# 65. Final Architecture
+
+The complete architecture is:
+
+```text
+                         ENGINEER
+                            │
+                            ▼
+                    GRIDFORGE UI
+                            │
+       ┌────────────────────┼────────────────────┐
+       │                    │                    │
+       ▼                    ▼                    ▼
+      SLD                Control             Studies
+       │                    │                    │
+       └────────────────────┼────────────────────┘
+                            │
+                            ▼
+                  Controllers / Tools
+                            │
+                            ▼
+                    Immutable Commands
+                            │
+                            ▼
+                 ┌──────────────────────┐
+                 │     APPLICATION      │
+                 │                      │
+                 │ CommandManager       │
+                 │ Handlers             │
+                 │ Services             │
+                 │ Transactions         │
+                 │ History              │
+                 │ Undo / Redo          │
+                 │ Project Lifecycle    │
+                 │ Study Orchestration  │
+                 │ Persistence          │
+                 │ Events               │
+                 │ Read Models          │
+                 └──────────┬───────────┘
+                            │
+                            ▼
+                    AUTHORITATIVE CORE
+                            │
+       ┌────────────┬───────┼────────┬────────────┐
+       │            │       │        │            │
+       ▼            ▼       ▼        ▼            ▼
+     Model       Network  Analysis Protection  Control
+                            │
+                            ▼
+                         Solvers
+                            │
+                            ▼
+                         Results
+                            │
+                            ▼
+                    Application Events
+                            │
+                            ▼
+                       Read Models
+                            │
+                            ▼
+                UI Update Boundary / Bus
+                            │
+                            ▼
+                    UI Projections
+                            │
+             ┌──────────────┼──────────────┐
+             ▼              ▼              ▼
+            SLD          Control UI      Study UI
+```
+
+---
+
+# 66. What GridForge Is Not
+
+GridForge is not:
+
+* merely an SLD drawing application;
+* merely a numerical solver;
+* merely a protection calculator;
+* merely a simulation engine;
+* merely a control-logic editor;
+* a collection of disconnected engineering tools;
+* a GUI wrapped around an unrelated calculation library;
+* a system where graphical state is treated as engineering truth.
+
+GridForge is an integrated engineering platform built around one authoritative digital-twin model.
+
+---
+
+# 67. Development Philosophy
+
+GridForge development follows these principles:
+
+### Engineering truth before presentation
+
+The domain model is established before presentation behavior is allowed to define semantics.
+
+### Explicit boundaries before convenience
+
+Shortcuts across architectural boundaries are treated as defects.
+
+### Workflow before isolated classes
+
+A capability must work end-to-end.
+
+### Determinism before convenience
+
+Identity, persistence and engineering results should be reproducible where the domain requires it.
+
+### Validation before freeze
+
+Architectural decisions are checked against implementation and workflow behavior before being frozen.
+
+---
+
+# 68. Current V2 Guiding Principle
+
+The entire GridForge architecture can be summarized as:
+
+> **One authoritative engineering truth, one controlled application boundary, multiple specialized engineering workflows and projections.**
+
+Or, more precisely:
+
+```text
+CORE
+    = Engineering Truth
+
+APPLICATION
+    = Orchestration + Commands + Transactions + Lifecycle + Studies
+
+UI
+    = Interaction + Presentation + Projection
+
+WORKFLOWS
+    = End-to-End Engineering Execution
+
+PLUGINS
+    = Contract-Bound Extensions
+
+PERSISTENCE
+    = Reproducible Project State
+```
+
+GridForge V2 therefore remains a unified engineering platform while preserving strict separation of concerns.
+
+The goal is not merely to make the software function.
+
+The goal is to make every engineering action **traceable, deterministic, auditable, reversible where applicable, and architecturally consistent**.
