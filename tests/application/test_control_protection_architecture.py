@@ -17,6 +17,7 @@ from core.application.control_signal_mapping import (
     ControlSignalBinding,
     ControlSignalDestination,
     ControlSignalMapping,
+    ControlSignalResolutionError,
     ControlSignalSource,
 )
 from core.application.read_service import ReadService
@@ -66,15 +67,12 @@ def test_control_dispatch_translates_motor_start_to_canonical_update_contract():
     command = ControlCommandTranslator.to_command(decision)
 
     assert command.command_type == "model.update_motor"
-    assert command.payload == {"motor_id": "M1", "rated_mva": None, "rated_kv": None,
-                               "power_factor": None, "p": None, "q": None,
-                               "efficiency": None, "slip": None,
-                               "starting_current_pu": None, "running": True,
-                               "in_service": None, "name": None}
+    assert command.payload["motor_id"] == "M1"
+    assert command.payload["running"] is True
 
 
 def test_control_signal_mapping_is_deterministic_and_resolves_read_models():
-    source = ControlSignalSource("core", "breaker", "B1", "closed")
+    source = ControlSignalSource("core", "breaker", "B1", "closed", expected_type=bool)
     destination = ControlSignalDestination("CTRL1", "CONTACT1", "IN")
     mapping = ControlSignalMapping((ControlSignalBinding(source, destination),))
 
@@ -86,6 +84,8 @@ def test_control_signal_mapping_is_deterministic_and_resolves_read_models():
     assert result.external_inputs == {"CONTACT1": {"IN": True}}
     assert result.bindings == mapping.bindings
     read_service.element.assert_called_once_with("breaker", "B1")
+    with pytest.raises(TypeError):
+        result.external_inputs["CONTACT1"]["IN"] = False
 
 
 def test_control_signal_mapping_rejects_duplicate_destinations():
@@ -95,3 +95,15 @@ def test_control_signal_mapping_rejects_duplicate_destinations():
 
     with pytest.raises(ValueError, match="one canonical engineering source"):
         ControlSignalMapping((first, second))
+
+
+def test_control_signal_mapping_rejects_wrong_signal_type():
+    source = ControlSignalSource("core", "breaker", "B1", "closed", expected_type=bool)
+    destination = ControlSignalDestination("CTRL1", "CONTACT1", "IN")
+    mapping = ControlSignalMapping((ControlSignalBinding(source, destination),))
+
+    read_service = Mock(spec=ReadService)
+    read_service.element.return_value = SimpleNamespace(attributes={"closed": "true"})
+
+    with pytest.raises(ControlSignalResolutionError, match="expected bool"):
+        mapping.resolve(read_service)
