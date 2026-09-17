@@ -1,15 +1,18 @@
-"""Bindings from Control outputs to stable equipment-action intent."""
+"""Bindings from Control outputs to stable equipment-action intent.
+
+Author: Subhendu Mishra
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .decision import ControlActionType, ControlDecision
+from .decision import ControlActionType, ControlDecision, ControlTargetType
 
 
 @dataclass(frozen=True, slots=True)
 class ControlActionBinding:
-    """Configuration connecting a logic output to a breaker action."""
+    """Configuration connecting a logic output to an equipment action intent."""
 
     control_id: str
     source_component: str
@@ -17,7 +20,7 @@ class ControlActionBinding:
     target_equipment_id: str
     action_type: ControlActionType
     reason: str
-    target_equipment_type: str = "breaker"
+    target_equipment_type: str = ControlTargetType.BREAKER.value
     interlock_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -32,10 +35,16 @@ class ControlActionBinding:
             if not value:
                 raise ValueError(f"{field_name} must be a non-empty string.")
             object.__setattr__(self, field_name, value)
+
         target_type = str(self.target_equipment_type).strip().lower()
-        if target_type != "breaker":
-            raise ValueError("target_equipment_type must be 'breaker' for Control actions.")
+        try:
+            target_type = ControlTargetType(target_type).value
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported Control target equipment type: {target_type!r}."
+            ) from exc
         object.__setattr__(self, "target_equipment_type", target_type)
+
         if self.interlock_id is not None:
             value = str(self.interlock_id).strip()
             object.__setattr__(self, "interlock_id", value or None)
@@ -43,7 +52,7 @@ class ControlActionBinding:
             object.__setattr__(self, "action_type", ControlActionType(self.action_type))
 
     def decision(self, *, simulation_time: float) -> ControlDecision:
-        """Produce intent from an asserted logic output."""
+        """Produce an immutable intent from an asserted logic output."""
         return ControlDecision(
             control_id=self.control_id,
             action_type=self.action_type,

@@ -2,6 +2,8 @@
 
 Control produces intent. This module is the only bridge in this slice from
 that intent to the existing Application command system.
+
+Author: Subhendu Mishra
 """
 
 from __future__ import annotations
@@ -17,45 +19,119 @@ from core.application.commands.breaker_commands import (
     TakeBreakerOutOfServiceCommand,
     TripBreakerCommand,
 )
+from core.application.commands.model_commands import (
+    BlowFuseCommand,
+    CloseDisconnectorCommand,
+    CloseSwitchCommand,
+    OpenDisconnectorCommand,
+    OpenSwitchCommand,
+    PutDisconnectorInServiceCommand,
+    PutFuseInServiceCommand,
+    PutSwitchInServiceCommand,
+    ResetFuseCommand,
+    TakeDisconnectorOutOfServiceCommand,
+    TakeFuseOutOfServiceCommand,
+    TakeSwitchOutOfServiceCommand,
+)
+from core.application.commands.motor_commands import (
+    StartMotorCommand,
+    StopMotorCommand,
+    PutMotorInServiceCommand,
+    TakeMotorOutOfServiceCommand,
+)
 from core.application.results import ApplicationResult
-from core.control.decision import ControlActionType, ControlDecision
+from core.control.decision import ControlActionType, ControlDecision, ControlTargetType
 
 
 class ControlCommandTranslator:
     """Translate typed Control intent into existing Application commands."""
 
     @staticmethod
-    def to_command(decision: ControlDecision):
+    def to_command(decision: ControlDecision) -> Command:
         if not isinstance(decision, ControlDecision):
             raise TypeError("decision must be a ControlDecision.")
         if not decision.valid:
             raise ValueError(
                 decision.diagnostic or "Control decision is not valid for execution."
             )
-        if decision.target_equipment_type != "breaker":
-            raise ValueError("Control actions currently require a breaker target.")
 
         target = decision.target_equipment_id
         action = decision.action_type
-        if action is ControlActionType.TRIP:
-            return TripBreakerCommand(breaker_id=target)
-        if action is ControlActionType.OPEN:
-            return OpenBreakerCommand(breaker_id=target)
-        if action is ControlActionType.CLOSE:
-            return CloseBreakerCommand(breaker_id=target)
-        if action is ControlActionType.PUT_IN_SERVICE:
-            return PutBreakerInServiceCommand(breaker_id=target)
-        if action is ControlActionType.TAKE_OUT_OF_SERVICE:
-            return TakeBreakerOutOfServiceCommand(breaker_id=target)
-        raise ValueError(f"Unsupported Control action: {action.value}")
+        target_type = decision.target_equipment_type
+
+        if target_type == ControlTargetType.BREAKER.value:
+            commands = {
+                ControlActionType.TRIP: TripBreakerCommand,
+                ControlActionType.OPEN: OpenBreakerCommand,
+                ControlActionType.CLOSE: CloseBreakerCommand,
+                ControlActionType.PUT_IN_SERVICE: PutBreakerInServiceCommand,
+                ControlActionType.TAKE_OUT_OF_SERVICE: TakeBreakerOutOfServiceCommand,
+            }
+            command_type = commands.get(action)
+            if command_type is None:
+                raise ValueError(f"Unsupported action {action.value!r} for breaker target.")
+            return command_type(breaker_id=target)
+
+        if target_type == ControlTargetType.SWITCH.value:
+            commands = {
+                ControlActionType.OPEN: OpenSwitchCommand,
+                ControlActionType.CLOSE: CloseSwitchCommand,
+                ControlActionType.PUT_IN_SERVICE: PutSwitchInServiceCommand,
+                ControlActionType.TAKE_OUT_OF_SERVICE: TakeSwitchOutOfServiceCommand,
+            }
+            command_type = commands.get(action)
+            if command_type is None:
+                raise ValueError(f"Unsupported action {action.value!r} for switch target.")
+            return command_type(switch_id=target)
+
+        if target_type == ControlTargetType.DISCONNECTOR.value:
+            commands = {
+                ControlActionType.OPEN: OpenDisconnectorCommand,
+                ControlActionType.CLOSE: CloseDisconnectorCommand,
+                ControlActionType.PUT_IN_SERVICE: PutDisconnectorInServiceCommand,
+                ControlActionType.TAKE_OUT_OF_SERVICE: TakeDisconnectorOutOfServiceCommand,
+            }
+            command_type = commands.get(action)
+            if command_type is None:
+                raise ValueError(f"Unsupported action {action.value!r} for disconnector target.")
+            return command_type(disconnector_id=target)
+
+        if target_type == ControlTargetType.FUSE.value:
+            commands = {
+                ControlActionType.TRIP: BlowFuseCommand,
+                ControlActionType.BLOW: BlowFuseCommand,
+                ControlActionType.RESET: ResetFuseCommand,
+                ControlActionType.PUT_IN_SERVICE: PutFuseInServiceCommand,
+                ControlActionType.TAKE_OUT_OF_SERVICE: TakeFuseOutOfServiceCommand,
+            }
+            command_type = commands.get(action)
+            if command_type is None:
+                raise ValueError(f"Unsupported action {action.value!r} for fuse target.")
+            return command_type(fuse_id=target)
+
+        if target_type == ControlTargetType.MOTOR.value:
+            commands = {
+                ControlActionType.START: StartMotorCommand,
+                ControlActionType.STOP: StopMotorCommand,
+                ControlActionType.PUT_IN_SERVICE: PutMotorInServiceCommand,
+                ControlActionType.TAKE_OUT_OF_SERVICE: TakeMotorOutOfServiceCommand,
+            }
+            command_type = commands.get(action)
+            if command_type is None:
+                raise ValueError(f"Unsupported action {action.value!r} for motor target.")
+            return command_type(motor_id=target)
+
+        raise ValueError(
+            f"No Application command contract is registered for Control target "
+            f"type {target_type!r}."
+        )
 
 
 class ControlCommandDispatcher:
-    """Execute Control intent using the existing Application command boundary.
+    """Execute Control intent using the Application command boundary.
 
-    An optional command executor lets the Application facade remain the owner
-    of semantic event publication while preserving CommandManager as the
-    authoritative mutation/undo path.
+    CommandManager remains the authoritative mutation/undo path; Control has
+    no access to equipment instances or Core mutation APIs.
     """
 
     def __init__(
