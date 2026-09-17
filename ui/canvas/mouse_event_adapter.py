@@ -14,7 +14,12 @@ from ui.core.qt import QPointF
 
 @dataclass(frozen=True, slots=True)
 class CanvasMouseEvent:
-    """Semantic mouse event consumed by Canvas tools."""
+    """Semantic mouse event consumed by Canvas tools.
+
+    ``position`` is the viewport-local pointer position and
+    ``scene_position`` is its mapped scene coordinate. Qt-specific enum/flag
+    values are normalized to integers at the input boundary.
+    """
 
     position: QPointF
     scene_position: QPointF
@@ -22,6 +27,8 @@ class CanvasMouseEvent:
     button: Optional[int] = None
     buttons: int = 0
     modifiers: int = 0
+    event_type: Optional[int] = None
+    timestamp: Optional[int] = None
 
 
 class MouseEventAdapter:
@@ -48,14 +55,33 @@ class MouseEventAdapter:
             raise ValueError("event must not be None.")
         viewport_position = self._event_position(event)
         scene_position = self._map_to_scene(viewport_position)
+        viewport_point = self._point(viewport_position)
+        scene_point = self._point(scene_position)
         return CanvasMouseEvent(
-            position=QPointF(scene_position),
-            scene_position=QPointF(scene_position),
-            object_id=self._hit_test(scene_position),
+            position=viewport_point,
+            scene_position=scene_point,
+            object_id=self._hit_test(scene_point),
             button=self._event_flag(event, "button", allow_none=True),
             buttons=self._event_flag(event, "buttons", default=0),
             modifiers=self._event_flag(event, "modifiers", default=0),
+            event_type=self._event_flag(event, "type", allow_none=True),
+            timestamp=self._event_integer(event, "timestamp", allow_none=True),
         )
+
+    @staticmethod
+    def _point(value: Any) -> QPointF:
+        if isinstance(value, QPointF):
+            return QPointF(value)
+        try:
+            return QPointF(value)
+        except (TypeError, ValueError):
+            x = getattr(value, "x", None)
+            y = getattr(value, "y", None)
+            if callable(x) and callable(y):
+                return QPointF(float(x()), float(y()))
+            if isinstance(value, (tuple, list)) and len(value) >= 2:
+                return QPointF(float(value[0]), float(value[1]))
+            raise TypeError("mouse position must be QPointF-compatible.")
 
     def _map_to_scene(self, position: Any) -> Any:
         mapper = getattr(self._view, "mapToScene", None)
@@ -160,6 +186,31 @@ class MouseEventAdapter:
         raise TypeError(
             f"event {name} must be an integer or expose an integer .value."
         )
+
+    @classmethod
+    def _event_integer(
+        cls,
+        event: Any,
+        name: str,
+        *,
+        default: Optional[int] = None,
+        allow_none: bool = False,
+    ) -> Optional[int]:
+        value = cls._event_value(event, name)
+        if value is None:
+            if allow_none:
+                return None
+            return default
+        if isinstance(value, bool):
+            raise TypeError(f"event {name} must be an integer, not bool.")
+        if isinstance(value, int):
+            return value
+        raw_value = getattr(value, "value", None)
+        if isinstance(raw_value, bool):
+            raise TypeError(f"event {name} must be an integer, not bool.")
+        if isinstance(raw_value, int):
+            return raw_value
+        raise TypeError(f"event {name} must be an integer.")
 
     def dispose(self) -> None:
         self._view = None
