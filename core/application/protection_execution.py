@@ -14,7 +14,7 @@ from typing import Callable, Iterable
 from core.application.command import Command
 from core.application.control_dispatch import ControlCommandDispatcher, ControlCommandTranslator
 from core.application.results import ApplicationResult
-from core.control.decision import ControlActionType, ControlDecision
+from core.control.decision import ControlDecision
 from core.protection.decision import ProtectionDecision
 
 
@@ -33,8 +33,8 @@ class ProtectionExecutionService:
     """Dispatch actionable protection decisions through Control and Application.
 
     Protection remains an intent producer. The resolver is the explicit
-    Application-owned binding from protection identity to a physical target;
-    this service does not assume that the target is a breaker.
+    Application-owned binding from protection identity to a physical target
+    and action; this service does not assume that the target is a breaker.
     """
 
     def __init__(
@@ -83,12 +83,6 @@ class ProtectionExecutionService:
                 continue
             if not isinstance(control_decision, ControlDecision):
                 raise TypeError("action_resolver must return ControlDecision or None.")
-            if control_decision.action_type is not ControlActionType.TRIP:
-                diagnostics.append(
-                    f"Protection action resolver returned unsupported action "
-                    f"'{control_decision.action_type.value}' for '{protection_decision.element_id}'."
-                )
-                continue
 
             try:
                 command = ControlCommandTranslator.to_command(control_decision)
