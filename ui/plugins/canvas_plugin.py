@@ -15,6 +15,9 @@ CanvasPlugin consumes an application-owned CanvasComposition and injected SLD
 presentation services. It does not construct Canvas services, own the Canvas
 scene, or dispose shared Canvas services. SLD projection and graphics
 realization remain presentation-only.
+
+Author:
+    Subhendu Mishra
 """
 
 from __future__ import annotations
