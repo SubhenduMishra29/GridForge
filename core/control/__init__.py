@@ -9,7 +9,7 @@ _base.ControlState = ControlState
 from .signals import ControlSignal
 from .limits import Limit as ControlLimits
 from .controller import ControlController
-from .decision import ControlActionType, ControlDecision
+from .decision import ControlActionType, ControlDecision, ControlTargetType
 from .action import ControlActionBinding
 from .context import ControlExecutionContext
 from .engine import ControlEngine, ControlEvaluationResult
@@ -22,6 +22,7 @@ __all__ = [
     "ControlLimits",
     "ControlController",
     "ControlActionType",
+    "ControlTargetType",
     "ControlDecision",
     "ControlActionBinding",
     "ControlExecutionContext",
