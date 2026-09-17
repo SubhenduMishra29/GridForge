@@ -1,6 +1,10 @@
 """Immutable Application commands for Motor mutations.
 
 Author: Subhendu Mishra
+
+Semantic operational constructors intentionally reuse the canonical
+``model.update_motor`` command contract so lifecycle logic remains in
+MotorModelService and no parallel mutation path is introduced.
 """
 
 from __future__ import annotations
@@ -14,10 +18,10 @@ from ..endpoint_reference import EndpointReference
 CREATE_MOTOR = "model.create_motor"
 UPDATE_MOTOR = "model.update_motor"
 DELETE_MOTOR = "model.delete_motor"
-START_MOTOR = "model.start_motor"
-STOP_MOTOR = "model.stop_motor"
-PUT_MOTOR_IN_SERVICE = "model.put_motor_in_service"
-TAKE_MOTOR_OUT_OF_SERVICE = "model.take_motor_out_of_service"
+START_MOTOR = UPDATE_MOTOR
+STOP_MOTOR = UPDATE_MOTOR
+PUT_MOTOR_IN_SERVICE = UPDATE_MOTOR
+TAKE_MOTOR_OUT_OF_SERVICE = UPDATE_MOTOR
 
 
 def _command(command_type: str, payload: dict[str, Any], *, command_id: UUID | None = None,
@@ -71,40 +75,40 @@ class UpdateMotorCommand(Command):
         ))
 
 
-class StartMotorCommand(Command):
-    """Semantic motor start; lifecycle logic remains in MotorModelService."""
+class StartMotorCommand(UpdateMotorCommand):
+    """Semantic motor start using the canonical MotorModelService contract."""
 
     def __init__(self, *, motor_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(START_MOTOR, {"motor_id": motor_id},
-                                    command_id=command_id, correlation_id=correlation_id,
-                                    causation_id=causation_id))
+        super().__init__(motor_id=motor_id, running=True, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
 
 
-class StopMotorCommand(Command):
-    """Semantic motor stop; lifecycle logic remains in MotorModelService."""
+class StopMotorCommand(UpdateMotorCommand):
+    """Semantic motor stop using the canonical MotorModelService contract."""
 
     def __init__(self, *, motor_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(STOP_MOTOR, {"motor_id": motor_id},
-                                    command_id=command_id, correlation_id=correlation_id,
-                                    causation_id=causation_id))
+        super().__init__(motor_id=motor_id, running=False, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
 
 
-class PutMotorInServiceCommand(Command):
+class PutMotorInServiceCommand(UpdateMotorCommand):
+    """Semantic motor in-service transition using MotorModelService."""
+
     def __init__(self, *, motor_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(PUT_MOTOR_IN_SERVICE, {"motor_id": motor_id},
-                                    command_id=command_id, correlation_id=correlation_id,
-                                    causation_id=causation_id))
+        super().__init__(motor_id=motor_id, in_service=True, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
 
 
-class TakeMotorOutOfServiceCommand(Command):
+class TakeMotorOutOfServiceCommand(UpdateMotorCommand):
+    """Semantic motor out-of-service transition using MotorModelService."""
+
     def __init__(self, *, motor_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(TAKE_MOTOR_OUT_OF_SERVICE, {"motor_id": motor_id},
-                                    command_id=command_id, correlation_id=correlation_id,
-                                    causation_id=causation_id))
+        super().__init__(motor_id=motor_id, in_service=False, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
 
 
 class DeleteMotorCommand(Command):
