@@ -48,14 +48,8 @@ class PluginDefinition:
 class PluginManager:
     """Coordinates explicitly defined GridForge V2 UI plugins."""
 
-    def __init__(
-        self,
-        *,
-        loader: Optional[PluginLoader] = None,
-        registry: Optional[PluginRegistry] = None,
-        state_store: Optional[PluginStateStore] = None,
-        definitions: Optional[Iterable[PluginDefinition]] = None,
-    ) -> None:
+    def __init__(self, *, loader: Optional[PluginLoader] = None, registry: Optional[PluginRegistry] = None,
+                 state_store: Optional[PluginStateStore] = None, definitions: Optional[Iterable[PluginDefinition]] = None) -> None:
         self._loader = loader if loader is not None else create_default_plugin_loader()
         if not isinstance(self._loader, PluginLoader):
             raise TypeError("loader must be a PluginLoader.")
@@ -96,6 +90,14 @@ class PluginManager:
     @property
     def plugin_ids(self) -> tuple[str, ...]:
         return tuple(self._definitions.keys())
+
+    def get(self, plugin_id: str) -> Any:
+        """Return a loaded plugin instance through the canonical registry."""
+        self._require_definition(plugin_id)
+        entry = self._registry.get_entry(plugin_id)
+        if entry is None:
+            raise KeyError(f"Plugin {plugin_id!r} is not loaded.")
+        return entry.plugin
 
     def define(self, definition: PluginDefinition) -> None:
         if not isinstance(definition, PluginDefinition):
@@ -261,9 +263,7 @@ class PluginManager:
 
     def unload(self, plugin_id: str) -> Optional[PluginEntry]:
         self._require_definition(plugin_id)
-        registered_dependants = tuple(
-            dependant for dependant in self._dependent_closure(plugin_id) if self._registry.contains(dependant)
-        )
+        registered_dependants = tuple(dependant for dependant in self._dependent_closure(plugin_id) if self._registry.contains(dependant))
         if registered_dependants:
             raise RuntimeError(f"Cannot unload plugin {plugin_id!r}; registered dependants remain: {', '.join(registered_dependants)}.")
         if not self._registry.contains(plugin_id):
