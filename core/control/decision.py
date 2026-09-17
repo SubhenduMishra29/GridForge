@@ -1,4 +1,7 @@
-"""Typed, immutable intent produced by the Control domain."""
+"""Typed, immutable intent produced by the Control domain.
+
+Author: Subhendu Mishra
+"""
 
 from __future__ import annotations
 
@@ -13,8 +16,26 @@ class ControlActionType(str, Enum):
     TRIP = "trip"
     OPEN = "open"
     CLOSE = "close"
+    START = "start"
+    STOP = "stop"
+    BLOW = "blow"
+    RESET = "reset"
     PUT_IN_SERVICE = "put_in_service"
     TAKE_OUT_OF_SERVICE = "take_out_of_service"
+
+
+class ControlTargetType(str, Enum):
+    """Equipment classes that may receive Control intent."""
+
+    BREAKER = "breaker"
+    SWITCH = "switch"
+    DISCONNECTOR = "disconnector"
+    FUSE = "fuse"
+    MOTOR = "motor"
+    CONTACTOR = "contactor"
+    ACTUATOR = "actuator"
+    GENERATOR = "generator"
+    PLANT_CONTROLLER_OUTPUT = "plant_controller_output"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +47,7 @@ class ControlDecision:
     target_equipment_id: str
     reason: str
     simulation_time: float
-    target_equipment_type: str = "breaker"
+    target_equipment_type: str = ControlTargetType.BREAKER.value
     triggered_by: str | None = None
     valid: bool = True
     diagnostic: str | None = None
@@ -42,8 +63,12 @@ class ControlDecision:
             raise ValueError("target_equipment_id must be a non-empty string.")
         if not target_type:
             raise ValueError("target_equipment_type must be a non-empty string.")
-        if target_type != "breaker":
-            raise ValueError("target_equipment_type must be 'breaker' for Control actions.")
+        try:
+            target_type = ControlTargetType(target_type).value
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported Control target equipment type: {target_type!r}."
+            ) from exc
         if not reason:
             raise ValueError("reason must be a non-empty string.")
         if not isinstance(self.action_type, ControlActionType):
@@ -76,6 +101,7 @@ class ControlDecision:
             control_id=control_id,
             action_type=ControlActionType.TRIP,
             target_equipment_id=target_equipment_id,
+            target_equipment_type=ControlTargetType.BREAKER.value,
             reason=reason,
             simulation_time=simulation_time,
             triggered_by=triggered_by,
@@ -91,12 +117,14 @@ class ControlDecision:
         reason: str,
         simulation_time: float,
         diagnostic: str,
+        target_equipment_type: str = ControlTargetType.BREAKER.value,
     ) -> "ControlDecision":
         """Create an explicit blocked intent for diagnostics."""
         return cls(
             control_id=control_id,
             action_type=action_type,
             target_equipment_id=target_equipment_id,
+            target_equipment_type=target_equipment_type,
             reason=reason,
             simulation_time=simulation_time,
             valid=False,
@@ -104,4 +132,4 @@ class ControlDecision:
         )
 
 
-__all__ = ["ControlActionType", "ControlDecision"]
+__all__ = ["ControlActionType", "ControlTargetType", "ControlDecision"]
