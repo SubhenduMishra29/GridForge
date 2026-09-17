@@ -1,0 +1,179 @@
+# GridForge V2 — Master Audit Register
+
+**Purpose:** lossless audit-register consolidation; no production remediation.
+**Repository:** `madhuri196mishra-cpu/GridForge`
+**Branch baseline:** `main` at `d5900e8c8dbd85eefa5e148fb07079a7125accc0`
+**Consolidation date:** 2026-09-17
+**Authority:** frozen GridForge V2 architecture supplied for this audit.
+
+## Evidence discipline
+
+This register distinguishes current repository evidence from historical register claims. A source change is not treated as resolution without executable/current verification. Historical IDs whose original wording is not present in the current repository are preserved in the Legacy ID Coverage Appendix and are **not silently deleted or declared duplicates**. This is a material evidence gap, not a closure.
+
+## Source registers discovered on `main`
+
+1. `AUDIT_REPORT.md`
+2. `AUDIT_STATUS_2026-09-10.md`
+3. `AUDIT_STATUS_2026-09-10_FINAL.md`
+4. `AUDIT_STATUS_2026-09-11_CORE_CLOSURE.md`
+5. `AUDIT_STATUS_2026-09-12_FINAL_CLOSURE.md`
+6. `RUNTIME_STARTUP_DEFECT_REGISTER.md`
+7. `Modification_Register.txt`
+8. `docs/audits/2026-09-03-gridforge-v2-ui-audit-checkpoints.md`
+9. `docs/superpowers/audits/2026-09-10-gf-aud-210-220-edm-001-069-compatibility-sweep.md`
+10. `docs/superpowers/audits/2026-09-10-gf-aud-210-220-edm-001-069-current-head-audit.md`
+11. `docs/superpowers/audits/2026-09-10-gf-aud-210-220-edm-001-069-static-verification.md`
+12. `docs/superpowers/audits/2026-09-11-protection-application-boundary-closure.md`
+13. `contract.md` as an architectural/audit baseline.
+
+Git history was also inspected for audit evolution and remediation lineage, including the runtime-startup closure merge at `4edcfd511300c868a30f2813ea1951fdc279374a`.
+
+## Canonical register
+
+| Master ID | Legacy IDs | Domain | Subsystem | Finding Title | Severity | Status | Root Cause | Impact | Frozen Principle Violated | Verification Required |
+|---|---|---|---|---|---|---|---|---|---|---|
+| GF-MASTER-0001 | GF-AUD-007 | Study | Contingency | Contingency result consumer is incompatible with authoritative Power Flow result vocabulary | CRITICAL | CONFIRMED | Consumer expects `converged`, `bus_voltage`, `line_loading`, `transformer_loading`; current `PowerFlowResult` exposes a different contract | Contingency decisions can be incorrect or fail at runtime | Studies consume authoritative prepared/result contracts | Yes |
+| GF-MASTER-0002 | GF-AUD-005 | Study | Contingency | Bus-outage semantics require authoritative topology/state reconciliation | HIGH | UNVERIFIED | Historical contingency behavior disables a bus and connected equipment without current executable proof of canonical topology semantics | Incorrect outage isolation can affect study correctness | Core/network owns topology and authoritative electrical state | Yes |
+| GF-MASTER-0003 | GF-AUD-006 | Core | Endpoint/Topology | Defensive terminal fallbacks in contingency logic are not proven canonical | HIGH | UNVERIFIED | Consumer-side endpoint fallback logic was retained instead of proven against the authoritative Terminal/EndpointReference contract | Endpoint identity/topology interpretation can diverge | Endpoint identity reconciles through canonical Core terminal references | Yes |
+| GF-MASTER-0004 | GF-AUD-014 | SLD | Semantic presentation | SLD read-side vocabulary exceeds current semantic/render coverage | HIGH | UNVERIFIED | Read side can expose many equipment types while semantic realization/concrete graphics coverage is narrower | Non-bus SLD nodes may have no deliberate representation | SLD is a projection and must have an explicit presentation contract | Yes |
+| GF-MASTER-0005 | GF-AUD-012; GF-DOC-A1 | Documentation | Architecture/audit documentation | Architectural and audit-state documentation can lag current implementation | MEDIUM | OPEN | Historical documents retain superseded/pending descriptions without a single authoritative reconciliation ledger | Engineers can act on stale architectural assumptions | Documentation must reflect the frozen architecture and evidence state | Yes |
+| GF-MASTER-0006 | RS-005; RS-006; RS-013; RS-015; RS-017 | Runtime | Packaging/dependencies | Runtime dependency and packaging authority was historically fragmented | HIGH | UNVERIFIED | Earlier CI used ad-hoc dependencies; `pyproject.toml` now declares canonical runtime/dev dependencies, but current execution proof is absent | Fresh-process installation/startup may remain unproven; RS-013 is an exact duplicate of RS-005 | Runtime must have a reproducible canonical dependency contract | Yes |
+| GF-MASTER-0007 | RS-007; RS-014; RS-019; RS-020 | Runtime | CI/startup verification | Startup CI coverage exists but current successful execution is not proven | HIGH | UNVERIFIED | Verification workflow is present and targets `main`/PR/remediation paths, but no completed successful run was established in the audit | Syntax/import/startup regressions can escape detection | Runtime correctness requires executable evidence | Yes |
+| GF-MASTER-0008 | RS-008; RS-016 | Runtime | Startup execution | Current-main startup remains unverified | CRITICAL | OPEN | No successful current-main `import main` / application bootstrap execution evidence was available | Application startup can remain broken despite source-level changes | Runtime startup blockers require executable proof | Yes |
+| GF-MASTER-0009 | RS-009 | Runtime | Source integrity | Historical Markdown-fence corruption required direct source verification | CRITICAL | RECLASSIFIED | Historical register reported fenced `state_vector.py`; current file is no longer fenced, but its API imports a missing `DynamicMachineModel`, so the historical syntax defect is superseded by a live API defect | Syntax issue may be replaced by import-time failure | Source integrity and canonical package API must both hold | Yes |
+| GF-MASTER-0010 | RS-018 | Runtime | CI integrity | CI source-repair workaround was removed | HIGH | RESOLVED | Current workflow fails on source-integrity checks rather than rewriting source | Prevents verification from mutating the code under test | Audit/CI must not silently modify production source | No |
+| GF-MASTER-0011 | — | Dynamics | Public API | `DynamicStateVector` imports a `DynamicMachineModel` contract that is absent from current `machine_models.py` | CRITICAL | CONFIRMED | State-vector implementation references a protocol/type not present in the current machine-model module | Import-time failure blocks Dynamics and may block startup paths | Canonical subsystem API must be internally consistent | Yes |
+| GF-MASTER-0012 | — | Dynamics | Package exports | `core.solver.dynamics.__init__` exports obsolete `DynamicState` instead of current `DynamicStateVector` | CRITICAL | CONFIRMED | Package export vocabulary was not reconciled with the current state-vector class | Package import can fail before numerical execution | Public API must expose implemented canonical symbols | Yes |
+| GF-MASTER-0013 | historical Dynamics API reconciliation; commit `30010462...` | Dynamics | Public API migration | Dynamics public symbols underwent incompatible contract migration | HIGH | UNVERIFIED | Legacy symbol names and newer implementations evolved across package exports | Import/consumer failures can propagate into startup | Canonical subsystem API requires consumer-wide reconciliation | Yes |
+| GF-MASTER-0014 | historical Dynamics initial-state audit | Dynamics | PF→Dynamics initialization | Initial-state bridge may derive electrical operating-point power from mechanical input rather than authoritative solved power | HIGH | UNVERIFIED | Preparation boundary exists, but operating-point semantics require reconciliation | Dynamic initial state may not represent solved PF state | Studies initialize from authoritative prepared/result state | Yes |
+| GF-MASTER-0015 | GF-AUD-019; GF-AUD-WS-019 | Dynamics | Transient/network coupling | Transient execution lacks a fully proven canonical algebraic network-coupling contract | CRITICAL | OPEN | Historical audit explicitly required a canonical algebraic network-coupling contract and did not add a speculative second architecture | Transient stability execution can be structurally incomplete | One authoritative network model; study execution consumes explicit contracts | Yes |
+| GF-MASTER-0016 | GF-AUD-WS-003; GF-AUD-WS-004; GF-AUD-WS-005; GF-AUD-WS-006; GF-AUD-WS-008; GF-AUD-WS-009 | UI | Workspace/lifecycle | Workspace/project UI composition was source-remediated but runtime verification was deferred | HIGH | UNVERIFIED | Source-level composition exists without executable GUI lifecycle evidence | Startup/project activation/teardown can still diverge | UI is composed around Application and canonical workspace authority | Yes |
+| GF-MASTER-0017 | GF-AUD-065; GF-AUD-069 | UI | Workspace consumers | Workspace/panel consumer coverage was historically inconclusive | MEDIUM | UNVERIFIED | Indexed search was explicitly insufficient and direct consumer tracing remained required | Stale placement consumers may survive unnoticed | Workspace/Layout is sole placement authority | Yes |
+| GF-MASTER-0018 | GF-AUD-066; GF-AUD-068 | UI | Panel placement metadata | PanelArea/area ownership was duplicated across Workspace and panel metadata | HIGH | UNVERIFIED | PanelDescriptor/PanelState historically carried placement-like state while Workspace owns canonical placement | Competing placement authorities can reappear | Panel metadata/lifecycle must not own canonical workspace placement | Yes |
+| GF-MASTER-0019 | GF-AUD-071 | UI | PanelsPlugin | PanelsPlugin historically performed direct Qt docking operations | HIGH | UNVERIFIED | Panel composition plugin crossed into workspace realization | Docking policy can bypass WorkspaceRealizer/MainWindow ownership | WorkspaceRealizer translates layout decisions into MainWindow/Qt operations | Yes |
+| GF-MASTER-0020 | GF-AUD-072 | UI | Plugin composition | Plugin lifecycle/composition handoff and shutdown/rollback remain incompletely verified | HIGH | UNVERIFIED | Static architecture was established but complete lifecycle execution was not proven | Plugin ordering/resource cleanup can fail | Plugin infrastructure is separate from workspace/electrical authority | Yes |
+| GF-MASTER-0021 | GF-AUD-003; GF-EDM-049; GF-EDM-050; GF-EDM-063; GF-EDM-064; GF-EDM-065 | Study | Power Flow preparation | Prepared Power Flow boundary is structurally present but runtime/immutability proof remains incomplete | HIGH | UNVERIFIED | Preparation converts engineering state to detached numerical structures but live `Network` access and nested mutability remain concerns | Analysis may mutate or mis-correlate authoritative state | Numerical solvers consume prepared authoritative snapshots | Yes |
+| GF-MASTER-0022 | GF-EDM-001–019 | Core | Engineering data | Engineering-data findings remain incompletely reconciled study-by-study | HIGH | UNVERIFIED | Historical findings were broad; current consumers require per-study deterministic preparation verification | Missing/ambiguous engineering inputs can cause incorrect results | Physical model is authoritative; studies derive explicit representations | Yes |
+| GF-MASTER-0023 | GF-AUD-212; GF-AUD-217; GF-AUD-218; GF-AUD-220 | Core | Transformer numerical data | Transformer impedance basis is explicit in model but conversion/persistence verification is incomplete | HIGH | UNVERIFIED | `pu`/`engineering` basis exists, while downstream support and round-trip proof are incomplete | Transformer study results can be wrong or data can be rejected unexpectedly | Engineering-unit interpretation belongs in preparation/migration | Yes |
+| GF-MASTER-0024 | GF-EDM-028; GF-EDM-047; GF-EDM-067 | Study | Reactive equipment | Capacitor/Reactor preparation uses `PreparedShunt`, but executable numerical proof is pending | HIGH | UNVERIFIED | Prepared shunt representation exists without full execution evidence | Reactive injections/susceptance can be wrong | Numerical boundary consumes prepared state | Yes |
+| GF-MASTER-0025 | GF-EDM-050; GF-EDM-063 | Study | Per-unit/YBus | Per-unit conversion and YBus authority are separated correctly, but deep immutability/consumer sweep remains incomplete | HIGH | UNVERIFIED | `PerUnitSystem` is canonical; YBus consumes prepared PU data, but SciPy CSR payload remains mutable | Snapshot integrity and downstream interpretation can diverge | One PU authority; YBus is numerical-only | Yes |
+| GF-MASTER-0026 | GF-EDM-051–054 | Study | Short Circuit | Short-circuit detached preparation/result boundary is source-present but executable verification remains pending | HIGH | UNVERIFIED | Preparation and typed results were added after historical open state; no runtime study proof was established | Fault results/provenance can remain incorrect or incomplete | Studies consume detached authoritative input | Yes |
+| GF-MASTER-0027 | GF-EDM-055–057 | Protection | Study preparation | Protection study/execution boundary remains source-present but end-to-end proof is absent | HIGH | UNVERIFIED | Detached preparation exists; offline-vs-simulation and measurement-chain behavior need executable verification | Protection decisions may not reflect authoritative measurements | Protection is a study/domain layer over authoritative equipment | Yes |
+| GF-MASTER-0028 | GF-EDM-030–037; GF-EDM-038–045; GF-AUD-204; GF-AUD-205 | Protection | Measurement | CT/PT/CVT/MeasurementPoint/MeasurementChannel architecture has been reconciled, but conversion and channel tests were not executed | HIGH | UNVERIFIED | Source-level measurement conversion and duplicate-command cleanup exist without runtime proof | Relay pickup/measurement values may be wrong | Protection measurement must be derived from explicit engineering/numerical contracts | Yes |
+| GF-MASTER-0029 | GF-EDM-069 | Protection | Breaker trip application boundary | Protection decision now routes through Application command execution, but integration verification is deferred | HIGH | UNVERIFIED | Prior direct `ModelService` mutation bypassed Application; source correction exists | History/transaction/event semantics can be bypassed if path regresses | All meaningful mutation crosses Application.execute() | Yes |
+| GF-MASTER-0030 | GF-EDM-058; GF-EDM-059; GF-EDM-060; GF-EDM-061; GF-EDM-068 | Dynamics | Capability boundary | Dynamic preparation/control-model capabilities are deferred or absent in historical scope | HIGH | DEFERRED | Historical audits explicitly deferred detailed dynamic execution/model capabilities rather than inventing them | Required dynamic studies may be unavailable | Do not invent unsupported study models | Yes |
+| GF-MASTER-0031 | GF-AUD-206; GF-AUD-216; GF-PERSIST-A7; GF-PERSIST-A8; GF-PERSIST-A11 | Persistence | Project package | Canonical `.gridforge` persistence boundary exists, but full semantic round-trip is unverified | CRITICAL | UNVERIFIED | Package structure is present; executable all-equipment reconstruction/equivalence proof is absent | Data loss, stale reconstruction, or ambiguous engineering state risk | `manifest.json` + `project.json` are canonical; QGraphics is not persistence authority | Yes |
+| GF-MASTER-0032 | GF-PERSIST-A7; GF-PERSIST-A8; GF-PERSIST-A11 | Persistence | Engineering-state migration | Legacy Cable/Transformer engineering representation requires explicit metadata and ambiguity handling | HIGH | UNVERIFIED | Migration rejects ambiguous data rather than guessing, but full corpus coverage is unverified | Legacy projects may fail to load or be misinterpreted | Persistence preserves engineering truth and representation metadata | Yes |
+| GF-MASTER-0033 | historical dynamic-model persistence commits | Persistence | Dynamics association | Project-scoped dynamic-model association persistence was added but round-trip proof is absent | HIGH | UNVERIFIED | Serialization/composition wiring exists without fresh reconstruction verification | Dynamic model identity/configuration can be lost across reload | Persistence reconstructs authoritative domain state | Yes |
+| GF-MASTER-0034 | historical relay/protection persistence commits | Persistence | Protection serialization | Relay and project protection configuration persistence was added but full reconstruction proof is absent | HIGH | UNVERIFIED | Source serialization coverage exists without complete semantic round-trip evidence | Protection configuration can be lost or detached from equipment | Canonical project persistence must preserve required engineering state | Yes |
+| GF-MASTER-0035 | GF-AUD-018; historical event audit | Application | Events | Semantic event vocabulary/restrictions have source-level reconciliation but runtime event propagation is unverified | HIGH | UNVERIFIED | Events are separated from presentation, but executable producer/consumer coverage is incomplete | UI projections/study lifecycle can become stale or over-react | Core→Application→UI event direction | Yes |
+| GF-MASTER-0036 | historical Application revision findings | Application | Revision/validation | Application/Core revision and validation coordination remains insufficiently runtime-proven | HIGH | UNVERIFIED | Multiple historical revisions/dirty-state concerns were reconciled in source but not fully executed | Stale study/result state or dirty-state inconsistency | Revision/validation state has one authoritative coordination path | Yes |
+| GF-MASTER-0037 | historical Application mutation findings | Application | Command/transaction/history | Application-only mutation boundary and undo/redo semantics require complete consumer verification | CRITICAL | UNVERIFIED | Historical findings identify direct mutation paths and divergent command handling; later source changes are not executable proof | Core state can change outside history/transaction/event guarantees | All meaningful UI/domain mutation uses immutable Command→Application.execute() | Yes |
+| GF-MASTER-0038 | historical SLD terminal/equipment findings | SLD | Identity | Parallel UI/equipment/terminal identity representations require full consumer reconciliation | CRITICAL | UNVERIFIED | SLD/UI can carry presentation identities while Core owns authoritative equipment/terminal identity; historical duplicate abstractions require traceability | Wrong endpoint/equipment can be edited, connected, rendered, or persisted | No authoritative duplicate Terminal/equipment model in UI | Yes |
+| GF-MASTER-0039 | historical SLD connection/topology findings | SLD | Connection lifecycle/topology | UI connection state and Core topology authority require complete migration proof | CRITICAL | UNVERIFIED | Historical connection/terminal concerns require Application/Core topology authority | SLD can diverge from actual connectivity | Core/network owns global topology | Yes |
+| GF-MASTER-0040 | historical SLD rendering/factory findings | SLD | Projection-rendering | Rendering boundary is structurally separated, but supported-type coverage and runtime rendering remain unverified | HIGH | UNVERIFIED | Factory/projection separation exists while semantic coverage is incomplete | Render failures or accidental engineering logic in presentation | QGraphicsItem is presentation-only | Yes |
+| GF-MASTER-0041 | historical Core architecture findings | Core | Authority-topology-equipment | Core authority is structurally defined but broad historical findings require current consumer-level verification | CRITICAL | UNVERIFIED | Multiple historical architecture concerns were source-reconciled in different batches without one executable repository-wide proof | Duplicate authority can re-emerge in consumers | Core owns authoritative engineering/domain truth | Yes |
+| GF-MASTER-0042 | historical control findings; GF-EDM control-related records where applicable | Control | Control/automation | Control/ladder/simulation/command integration is not fully evidenced in the consolidated registers | HIGH | UNVERIFIED | Historical control scope is fragmented and current complete consumer chain was not demonstrated | Breaker/control interactions may bypass canonical Application events/commands | Control actions must use authoritative Application/Core boundaries | Yes |
+| GF-MASTER-0043 | historical redundancy/migration findings | Architecture | Migration/redundancy | Legacy/parallel subsystem migration cannot be declared complete from absence or source deletion alone | HIGH | UNVERIFIED | Historical audits repeatedly warn that indexed absence is insufficient evidence | Duplicate authorities may remain hidden in consumers | One responsibility/one owner; no speculative deletion | Yes |
+| GF-MASTER-0044 | historical test/evidence findings | Runtime | Verification | Large portions of remediation are source-level only; executable evidence is incomplete | HIGH | UNVERIFIED | Test specifications/workflows exist but current successful runs were not established | False closure can mask startup, persistence, study, and UI defects | RESOLVED requires current executable evidence | Yes |
+| GF-MASTER-0045 | NEW — SLD contextual engineering-state hover/readout | UI/SLD | Canvas interaction | Canonical contextual hover/readout interaction contract is not composed | MEDIUM | OPEN | Application read-side state exists but no verified Canvas hover/readout contract was established | Users may lack contextual engineering-state feedback | UI consumes projections/read models; it does not invent authority | Yes |
+| GF-MASTER-0046 | GF-AUD-001; GF-AUD-002; GF-AUD-004; GF-AUD-008; GF-AUD-009; GF-AUD-010; GF-AUD-011 | Architecture | Historical aligned findings | Previously aligned architectural findings are preserved but not all have fresh executable verification | MEDIUM | UNVERIFIED | Historical closure claims relied on static/source evidence; current main differs | Historical confidence may exceed current executable evidence | Claims of alignment require current evidence | Yes |
+| GF-MASTER-0047 | GF-ARCH-A1; GF-ARCH-A2; GF-ARCH-A4; GF-ARCH-A5; GF-ARCH-A6; GF-ARCH-A7; GF-ARCH-A8; GF-ARCH-A9; GF-ARCH-A19; GF-ARCH-A20; GF-SLD-A1; GF-SLD-A2; GF-SLD-A4; GF-SLD-A5; GF-SLD-A6; GF-SLD-A7; GF-SLD-A8; GF-SLD-A53; GF-APP-A1; GF-APP-A2; GF-APP-A4; GF-APP-A5; GF-APP-A6; GF-APP-A7; GF-APP-A9; GF-APP-A10; GF-APP-A11; GF-APP-A12; GF-APP-A14; GF-APP-A15; GF-APP-A16; GF-APP-A18; GF-APP-A19; GF-APP-A20; GF-APP-A22; GF-APP-A23; GF-APP-A24; GF-CORE-A12; GF-CORE-A15; GF-CORE-A16; GF-CORE-A19; GF-CORE-A20; GF-PERSIST-A1; GF-PERSIST-A5; GF-PERSIST-A6; GF-PERSIST-A9; GF-PERSIST-A10 | Architecture | Historical mandatory-ID coverage | Historical IDs were explicitly required for preservation, but their complete original finding text is not present in the current register files inspected | Cannot safely infer exact root cause/status from ID alone | Lossless audit history must preserve IDs without fabricating missing facts | Yes |
+| GF-MASTER-0048 | GF-ARCH-A3; GF-ARCH-A10; GF-ARCH-A12; GF-ARCH-A13; GF-ARCH-A14; GF-ARCH-A15; GF-ARCH-A17; GF-ARCH-A18; GF-ARCH-A22; GF-ARCH-A23; GF-ARCH-A26; GF-ARCH-A29; GF-ARCH-A30; GF-ARCH-A31; GF-ARCH-A32; GF-ARCH-A33; GF-ARCH-A35; GF-ARCH-A36; GF-ARCH-A37; GF-ARCH-A39; GF-ARCH-A40; GF-ARCH-A41; GF-ARCH-A42; GF-ARCH-A43; GF-ARCH-A44; GF-APP-A3; GF-APP-A8; GF-APP-A13; GF-APP-A27; GF-APP-A28; GF-APP-A29; GF-APP-A30; GF-APP-A31; GF-APP-A32; GF-APP-A33; GF-APP-A34; GF-APP-A36; GF-APP-A37a; GF-APP-A38; GF-APP-A39; GF-APP-A41; GF-APP-A42; GF-SLD-A3; GF-SLD-A9; GF-SLD-A10; GF-SLD-A11; GF-SLD-A12; GF-SLD-A13; GF-SLD-A14; GF-SLD-A15; GF-SLD-A16; GF-SLD-A17; GF-SLD-A18; GF-SLD-A19; GF-SLD-A20; GF-SLD-A21; GF-SLD-A22; GF-SLD-A23; GF-SLD-A24; GF-SLD-A25; GF-SLD-A26; GF-SLD-A27; GF-SLD-A28; GF-SLD-A29; GF-SLD-A30; GF-SLD-A31; GF-SLD-A33; GF-SLD-A34; GF-SLD-A35; GF-SLD-A37; GF-SLD-A38; GF-SLD-A39; GF-SLD-A40; GF-SLD-A41; GF-SLD-A42; GF-SLD-A43; GF-SLD-A44; GF-SLD-A45; GF-SLD-A46; GF-SLD-A47; GF-SLD-A48; GF-SLD-A49; GF-SLD-A50; GF-SLD-A52; GF-SLD-A54; GF-SLD-A55; GF-CORE-A13; GF-CORE-A17; GF-CORE-A18; GF-CORE-A21; GF-CORE-A22; GF-CORE-A21; GF-CORE-A22; GF-PERSIST-A7; GF-PERSIST-A8; GF-PERSIST-A11; GF-STUDY-A1; GF-STUDY-A2; GF-STUDY-A3; GF-STUDY-A4; GF-STUDY-A5; GF-STUDY-A6; GF-DOC-A1 | Architecture/Core/Application/UI/SLD/Persistence/Study/Documentation | Historical mandatory-ID coverage | Preservation-only holding area for unresolved historical IDs | Original detailed text is not present in the currently inspected source registers; no root-cause merge is asserted | Prevents silent loss of historical findings while avoiding invented descriptions | Yes |
+
+## Batch 8 — SLDModel Ownership, Projection Isolation, Geometry Preservation & Persistence
+
+The following `GF-INT` findings are the authoritative current-head batch entries supplied by the Batch 8 audit. They are retained as individual audit IDs rather than collapsed into historical master findings. `PASS / CLOSED` is preserved as the supplied severity/status notation for these explicit closure findings.
+
+| ID | Finding | Severity | Status | Evidence | Cross-reference |
+|---|---|---|---|---|---|
+| GF-INT-068 | SLDModel is isolated from Core/electrical logic | PASS / CLOSED | CLOSED | `ui/sld/sld_model.py`; SLDModel contains SLDNode/SLDConnection presentation structures and does not own electrical calculations, topology, rendering, input handling, or solver logic. | GF-MASTER-0038; GF-MASTER-0040 |
+| GF-INT-069 | SLDProjectionManager does not own persistent geometry | PASS / CLOSED | CLOSED | `ui/sld/sld_projection_manager.py`; ProjectionManager owns projection/layout behavior rather than persistent document geometry. | GF-MASTER-0040 |
+| GF-INT-070 | SLD node identity is coupled to Core object identity | HIGH | OPEN | `ui/sld/sld_read_synchronizer.py`; synchronization uses Application/Core `object_id` as SLD `node_id`, despite SLDNode having separate `node_id` and `equipment_id`. | GF-INT-071; GF-INT-077; GF-INT-078; GF-INT-0038 |
+| GF-INT-071 | Projection-source tagging exists but is not used as an ownership guard | HIGH | OPEN | `ui/sld/sld_read_synchronizer.py`; `projection_source="application_read_model"` is assigned and used for stale cleanup, but lookup occurs by `node_id/object_id` before ownership is established. | GF-INT-070; GF-INT-077 |
+| GF-INT-072 | Existing user geometry is preserved during projection | PASS / CLOSED | CLOSED | `ui/sld/sld_read_synchronizer.py`; existing projected nodes receive semantic/projection updates without overwriting their existing `x/y` position. | GF-INT-073; GF-INT-085 |
+| GF-INT-073 | Newly projected nodes default to `(0,0)` instead of using a persistent layout policy | MEDIUM | OPEN | `ui/sld/sld_read_synchronizer.py`; new projected nodes are created with `x=0.0`, `y=0.0`; projection synchronization does not establish a persistent initial-placement policy. | GF-INT-069; GF-INT-072; GF-INT-082 |
+| GF-INT-074 | Projection reconciliation does not falsely mark the SLD document dirty | PASS / CLOSED | CLOSED | `SLDReadSynchronizer` mutates projection/model state without calling `SLDDocument.mark_modified()`; user-driven mutations participate in dirty tracking. | GF-INT-086 |
+| GF-INT-075 | Persistence separates electrical network state from SLD presentation state | PASS / CLOSED | CLOSED | `core/persistence/project_persistence.py`; project persistence stores Network and SLD presentation separately. | GF-MASTER-0031; GF-INT-084 |
+| GF-INT-076 | SLD geometry survives serialization/reload | PASS / CLOSED | CLOSED | `ui/sld/sld_document.py`; `ui/sld/sld_model.py`; node identity, equipment reference, coordinates, properties and connections are serialized/deserialized. | GF-INT-075; GF-INT-085; GF-MASTER-0031 |
+| GF-INT-077 | Reload/projection reconciliation can convert a user presentation node into a projection-owned node | HIGH | OPEN | `ui/sld/sld_read_synchronizer.py`; a persisted user node whose `node_id` collides with a Core `object_id` can be found and assigned `equipment_id` and `projection_source`. | GF-INT-070; GF-INT-071; GF-INT-085 |
+| GF-INT-078 | SLD connection identity is also coupled to Core branch identity | HIGH | OPEN | `ui/sld/sld_read_synchronizer.py`; Core branch `object_id` is used as the SLD connection identity. | GF-INT-070; GF-MASTER-0039 |
+
+## Batch 9 — SLD Command Ownership, Collision Rules & Project-Load Ordering
+
+The following `GF-INT` findings are the authoritative current-head batch entries supplied by the Batch 9 audit.
+
+| ID | Finding | Severity | Status | Evidence | Cross-reference |
+|---|---|---|---|---|---|
+| GF-INT-079 | SLD commands have no explicit ownership classification | HIGH | OPEN | `core/application/commands/sld_commands.py`; Add/Remove/Position/Connection commands operate on presentation IDs without explicit user-authored versus projection-owned classification. | GF-INT-080; GF-INT-087; GF-MASTER-0037 |
+| GF-INT-080 | Projection-owned SLD nodes can currently be removed through the generic SLD removal command | HIGH | OPEN | `ui/sld/sld_controller.py`; `core/application/commands/sld_commands.py`; `core/application/services/sld_service.py`; remove_node submits `RemoveSLDNodeCommand` without ownership check, allowing Core equipment to remain while its SLD representation is absent until reconciliation. | GF-INT-079; GF-INT-081; GF-INT-087 |
+| GF-INT-081 | User movement of projection-owned nodes lacks explicit ownership semantics | MEDIUM/HIGH | OPEN | `SetSLDNodePositionCommand`; `SLDController.set_node_position()`; position mutation does not distinguish projection-owned equipment geometry from independent user-authored presentation objects. | GF-INT-070; GF-INT-079 |
+| GF-INT-082 | Layout arrangement remains coupled to presentation/Core identity | MEDIUM | OPEN | `ui/sld/sld_controller.py`; `SLDProjectionManager`; `arrange_nodes()` uses `node.node_id` and passes it into position commands. | GF-INT-070; GF-INT-073; GF-INT-081 |
+| GF-INT-083 | Project loading restores Core network and persistent SLD presentation before project-state activation | PASS / CLOSED | CLOSED | `core/application/project_lifecycle.py`; `open_project()` loads and validates the project, deserializes persistent presentation, activates the Network, installs ProjectContext/presentation, then activates project state. | GF-INT-084; GF-INT-085; GF-MASTER-0031 |
+| GF-INT-084 | Persisted SLD state is restored rather than regenerated during project opening | PASS / CLOSED | CLOSED | `core/application/project_lifecycle.py`; persistent presentation is deserialized and installed when present rather than discarded and reconstructed. | GF-INT-075; GF-INT-083; GF-INT-085 |
+| GF-INT-085 | Project-state activation still requires end-to-end proof that restored SLD state is not overwritten during immediate reconciliation | MEDIUM/HIGH | OPEN | `core/application/project_lifecycle.py`; project-state activation callback and SLD synchronization path; required invariant is restore → bind → reconcile semantic projection → preserve user geometry. | GF-INT-072; GF-INT-076; GF-INT-077; GF-INT-083; GF-INT-084 |
+| GF-INT-086 | SLDDocument dirty state and SLDState local-view dirty state have unclear load semantics | MEDIUM | OPEN | `ui/sld/sld_controller.py`; `ui/sld/sld_document.py`; `ui/sld/sld_state.py`; `replace_document()` resets controller/local state without clearly establishing the authoritative clean baseline for the loaded SLDDocument. | GF-INT-074; GF-INT-083; GF-INT-084; persistence/load lifecycle |
+| GF-INT-087 | Remove-node command can implicitly remove multiple SLD connections | MEDIUM | OPEN | `ui/sld/sld_model.py`; `core/application/services/sld_service.py`; removing one node automatically removes all attached SLD connections while command payload contains only node ID. | GF-INT-079; GF-INT-080; GF-MASTER-0037 |
+
+## Batch 8/9 cross-reference register
+
+- `GF-INT-070 ↔ GF-INT-077`
+- `GF-INT-070 ↔ GF-INT-078`
+- `GF-INT-071 ↔ GF-INT-077`
+- `GF-INT-079 ↔ GF-INT-080`
+- `GF-INT-081 ↔ GF-INT-070`
+- `GF-INT-082 ↔ GF-INT-070`
+- `GF-INT-085 ↔ GF-INT-077`
+- `GF-INT-086 ↔ persistence/load lifecycle`
+- `GF-INT-087 ↔ GF-INT-079 / GF-INT-080`
+
+Earlier relationships retained:
+
+- `GF-INT-064 ↔ transaction/rollback findings`
+- `GF-INT-065 ↔ projection ownership`
+- `GF-INT-066 ↔ identity collision`
+- `GF-INT-067 ↔ project replacement/event binding`
+
+## Architectural continuity note
+
+The Batch 8/9 SLD ownership model is intentionally generic and does not freeze the current Contactor or motor-control architecture. The findings must remain applicable to future Contactor, Motor Starter, Composite Equipment Symbol, Protection Overlay, Control Overlay, Annotation, Grouping, and multi-terminal equipment presentation without allowing UI/SLD presentation objects to become authoritative Core electrical objects.
+
+## Historical/runtime exact-duplicate disposition
+
+- `RS-013` is an exact duplicate of `RS-005` and is represented by GF-MASTER-0006; its legacy ID is preserved.
+- No other finding is marked `DUPLICATE` solely from similar wording. Related findings remain separate where remediation could differ.
+- Historical “REMEDIATED — VERIFICATION DEFERRED”, “PARTIALLY CLOSED”, “OBSOLETE/SUPERSEDED”, and “REQUIRES ARCHITECTURAL DECISION” labels are retained as Historical Notes/evidence, not converted automatically to `RESOLVED`.
+
+## Mandatory correction preservation
+
+### GF-SLD-A32
+The historical claim that `BusItem` did not exist was corrected by later repository evidence showing `ui/items/bus_item.py`. It is therefore preserved as a historical/reclassified observation and must not be presented as a current absence claim. The current UI audit record also identifies `BusItem` as a locked presentation-only component.
+
+### Dynamics runtime correction state
+Current `main` still has a public API inconsistency: `state_vector.py` imports `DynamicMachineModel`, while current `machine_models.py` exposes `ClassicalMachineParameters`, `MachineElectricalOutput`, and `ClassicalSynchronousMachine` in the inspected source, and `core/solver/dynamics/__init__.py` imports `DynamicState`. This is retained as an open runtime/API finding; no production change was made during consolidation.
+
+## Current verification evidence
+
+- Current `main` commit: `d5900e8c8dbd85eefa5e148fb07079a7125accc0`.
+- `pyproject.toml` contains canonical runtime/dev dependency declarations.
+- `.github/workflows/targeted-remediation.yml` installs the declared package, performs source integrity/syntax verification, targeted startup tests, relevant regressions, and a full test suite, but this audit did not establish a successful run.
+- `state_vector.py` is no longer Markdown-fenced at the current head, but its `DynamicMachineModel` import is unresolved in the inspected `machine_models.py`.
+- `__init__.py` imports `DynamicState`, while the current state-vector implementation defines `DynamicStateVector`.
+- `AUDIT_STATUS_2026-09-12_FINAL_CLOSURE.md` explicitly records unresolved `GF-AUD-019` and an open SLD contextual hover/readout capability.
+- `GF-EDM-069` source correction routes protection decisions through Application, but its test was documented as not executed.
+
+## Root-cause clusters
+
+1. Authoritative Core vs presentation authority
+2. Application mutation/read boundary
+3. Parallel SLD/equipment/terminal representations
+4. Endpoint/identity propagation
+5. Workspace/panel placement authority
+6. Prepared numerical boundary
+7. Engineering-unit/PU basis ambiguity
+8. Persistence and legacy migration
+9. Study-result identity/provenance
+10. Short Circuit preparation
+11. Protection measurement/preparation
+12. SLD projection ownership and presentation identity
+13. SLD command ownership and project-load reconciliation

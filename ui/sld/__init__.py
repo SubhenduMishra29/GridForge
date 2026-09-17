@@ -8,27 +8,43 @@
 SLD is the first-class electrical visual projection/editing surface.
 It owns presentation semantics and layout coordination, but not the
 authoritative Core electrical model or Qt canvas mechanics.
+
+Exports are lazy because SLDDocument participates in the workspace/document
+boundary and eager package imports otherwise create an import-time cycle.
 """
 
-from .sld_model import SLDModel, SLDNode, SLDConnection
-from .sld_document import SLDDocument
-from .sld_state import SLDState
-from .sld_controller import SLDController
-from .sld_layout import SLDLayout, SLDPlacement
-from .sld_projection import SLDProjection
-from .sld_projection_manager import SLDProjectionManager
-from .sld_read_synchronizer import SLDReadSynchronizer
+from __future__ import annotations
 
-__all__ = [
-    "SLDModel",
-    "SLDNode",
-    "SLDConnection",
-    "SLDDocument",
-    "SLDState",
-    "SLDController",
-    "SLDLayout",
-    "SLDPlacement",
-    "SLDProjection",
-    "SLDProjectionManager",
-    "SLDReadSynchronizer",
-]
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "SLDModel": ("ui.sld.sld_model", "SLDModel"),
+    "SLDNode": ("ui.sld.sld_model", "SLDNode"),
+    "SLDConnection": ("ui.sld.sld_model", "SLDConnection"),
+    "SLDDocument": ("ui.sld.sld_document", "SLDDocument"),
+    "SLDState": ("ui.sld.sld_state", "SLDState"),
+    "SLDController": ("ui.sld.sld_controller", "SLDController"),
+    "SLDLayout": ("ui.sld.sld_layout", "SLDLayout"),
+    "SLDPlacement": ("ui.sld.sld_layout", "SLDPlacement"),
+    "SLDProjection": ("ui.sld.sld_projection", "SLDProjection"),
+    "SLDProjectionManager": ("ui.sld.sld_projection_manager", "SLDProjectionManager"),
+    "SLDReadSynchronizer": ("ui.sld.sld_read_synchronizer", "SLDReadSynchronizer"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    target = _EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, attribute_name = target
+    value = getattr(import_module(module_name), attribute_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_EXPORTS))
+
+
+__all__ = list(_EXPORTS)

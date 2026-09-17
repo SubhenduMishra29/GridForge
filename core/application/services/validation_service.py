@@ -108,6 +108,7 @@ class ValidationService:
             *registry.current_transformers,
             *registry.potential_transformers,
             *registry.capacitive_voltage_transformers,
+            *registry.relays,
             *registry.lines,
             *registry.cables,
             *registry.transformers,

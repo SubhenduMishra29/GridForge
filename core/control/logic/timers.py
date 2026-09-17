@@ -23,7 +23,7 @@ from enum import Enum
 import math
 from typing import Sequence
 
-from ...base import ControlSignal, SignalRole, State, Inputs
+from ..base import ControlSignal, SignalRole, State, Inputs
 from .base import LogicControlComponent, LogicControlResult, LogicEvent, LogicEventType, LogicStateDefinition
 
 

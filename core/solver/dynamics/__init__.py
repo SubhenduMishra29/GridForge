@@ -3,9 +3,10 @@ GridForge Dynamic Solver
 ========================
 
 Public package exports for the current dynamic solver implementation.
+
+Author: Subhendu Mishra
 """
 
-from .state_vector import DynamicState
 from .integrator import Integrator, RK4Integrator, TrapezoidalIntegrator
 from .swing_equation import SwingEquation
 from .machine_models import (
@@ -32,7 +33,6 @@ from .transient_stability import (
 )
 
 __all__ = [
-    "DynamicState",
     "Integrator",
     "RK4Integrator",
     "TrapezoidalIntegrator",

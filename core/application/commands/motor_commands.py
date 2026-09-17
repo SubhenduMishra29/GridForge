@@ -1,4 +1,11 @@
-"""Immutable Application commands for Motor mutations."""
+"""Immutable Application commands for Motor mutations.
+
+Author: Subhendu Mishra
+
+Semantic operational constructors intentionally reuse the canonical
+``model.update_motor`` command contract so lifecycle logic remains in
+MotorModelService and no parallel mutation path is introduced.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +18,10 @@ from ..endpoint_reference import EndpointReference
 CREATE_MOTOR = "model.create_motor"
 UPDATE_MOTOR = "model.update_motor"
 DELETE_MOTOR = "model.delete_motor"
+START_MOTOR = UPDATE_MOTOR
+STOP_MOTOR = UPDATE_MOTOR
+PUT_MOTOR_IN_SERVICE = UPDATE_MOTOR
+TAKE_MOTOR_OUT_OF_SERVICE = UPDATE_MOTOR
 
 
 def _command(command_type: str, payload: dict[str, Any], *, command_id: UUID | None = None,
@@ -64,14 +75,53 @@ class UpdateMotorCommand(Command):
         ))
 
 
+class StartMotorCommand(UpdateMotorCommand):
+    """Semantic motor start using the canonical MotorModelService contract."""
+
+    def __init__(self, *, motor_id: str, command_id: UUID | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(motor_id=motor_id, running=True, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
+
+
+class StopMotorCommand(UpdateMotorCommand):
+    """Semantic motor stop using the canonical MotorModelService contract."""
+
+    def __init__(self, *, motor_id: str, command_id: UUID | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(motor_id=motor_id, running=False, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
+
+
+class PutMotorInServiceCommand(UpdateMotorCommand):
+    """Semantic motor in-service transition using MotorModelService."""
+
+    def __init__(self, *, motor_id: str, command_id: UUID | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(motor_id=motor_id, in_service=True, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
+
+
+class TakeMotorOutOfServiceCommand(UpdateMotorCommand):
+    """Semantic motor out-of-service transition using MotorModelService."""
+
+    def __init__(self, *, motor_id: str, command_id: UUID | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(motor_id=motor_id, in_service=False, command_id=command_id,
+                         correlation_id=correlation_id, causation_id=causation_id)
+
+
 class DeleteMotorCommand(Command):
     def __init__(self, *, motor_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(
-            DELETE_MOTOR,
-            {"motor_id": motor_id},
-            command_id=command_id, correlation_id=correlation_id, causation_id=causation_id,
-        ))
+        super().__init__(**_command(DELETE_MOTOR, {"motor_id": motor_id},
+                                    command_id=command_id, correlation_id=correlation_id,
+                                    causation_id=causation_id))
 
 
-__all__ = ["CREATE_MOTOR", "UPDATE_MOTOR", "DELETE_MOTOR", "CreateMotorCommand", "UpdateMotorCommand", "DeleteMotorCommand"]
+__all__ = [
+    "CREATE_MOTOR", "UPDATE_MOTOR", "DELETE_MOTOR", "START_MOTOR", "STOP_MOTOR",
+    "PUT_MOTOR_IN_SERVICE", "TAKE_MOTOR_OUT_OF_SERVICE", "CreateMotorCommand",
+    "UpdateMotorCommand", "StartMotorCommand", "StopMotorCommand",
+    "PutMotorInServiceCommand", "TakeMotorOutOfServiceCommand", "DeleteMotorCommand",
+]
