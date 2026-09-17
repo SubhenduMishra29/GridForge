@@ -32,7 +32,6 @@ class ControlSignalSource:
             object.__setattr__(self, name, value)
         object.__setattr__(self, "domain", self.domain.lower())
         object.__setattr__(self, "element_type", self.element_type.lower())
-        object.__setattr__(self, "signal", self.signal.lower())
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -49,7 +48,6 @@ class ControlSignalDestination:
             if not value:
                 raise ValueError(f"{name} must be a non-empty string.")
             object.__setattr__(self, name, value)
-        object.__setattr__(self, "input_name", self.input_name.lower())
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -134,8 +132,7 @@ class ControlSignalMapping:
                 )
                 continue
 
-            value = attributes[source.signal]
-            external_inputs.setdefault(destination.component_id, {})[destination.input_name] = value
+            external_inputs.setdefault(destination.component_id, {})[destination.input_name] = attributes[source.signal]
 
         if diagnostics:
             raise ControlSignalResolutionError(tuple(diagnostics))
