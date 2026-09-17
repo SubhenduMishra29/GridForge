@@ -121,6 +121,11 @@ class GraphicsView(QGraphicsView):
             return
         super().mouseReleaseEvent(event)
 
+    def mouseDoubleClickEvent(self, event: Any) -> None:
+        if self.interaction_manager is not None and self.interaction_manager._dispatch_event("mouse_double_click", self.interaction_manager.input_adapter.adapt(event) if self.interaction_manager.input_adapter is not None else event):
+            return
+        super().mouseDoubleClickEvent(event)
+
     def wheelEvent(self, event: Any) -> None:
         if self.navigation_controller is not None and self.navigation_controller.handle_wheel(event):
             return
