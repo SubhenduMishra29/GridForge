@@ -10,6 +10,7 @@ ordering, and diagnostics; LogicEngine remains equipment-neutral.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from .read_service import ReadService
@@ -23,6 +24,7 @@ class ControlSignalSource:
     element_type: str
     object_id: str
     signal: str
+    expected_type: type | tuple[type, ...] | None = None
 
     def __post_init__(self) -> None:
         for name in ("domain", "element_type", "object_id", "signal"):
@@ -32,6 +34,12 @@ class ControlSignalSource:
             object.__setattr__(self, name, value)
         object.__setattr__(self, "domain", self.domain.lower())
         object.__setattr__(self, "element_type", self.element_type.lower())
+        if self.expected_type is not None:
+            if isinstance(self.expected_type, tuple):
+                if not self.expected_type or not all(isinstance(item, type) for item in self.expected_type):
+                    raise TypeError("expected_type tuple must contain type values.")
+            elif not isinstance(self.expected_type, type):
+                raise TypeError("expected_type must be a type, tuple of types, or None.")
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -60,18 +68,18 @@ class ControlSignalBinding:
 
 @dataclass(frozen=True, slots=True)
 class ControlSignalResolution:
-    """Deterministic resolved Control input snapshot plus diagnostics."""
+    """Deterministic, immutable resolved Control input snapshot plus diagnostics."""
 
     external_inputs: Mapping[str, Mapping[str, Any]]
     bindings: tuple[ControlSignalBinding, ...]
     diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "external_inputs",
-            {str(component): dict(values) for component, values in self.external_inputs.items()},
-        )
+        frozen_inputs = {
+            str(component): MappingProxyType(dict(values))
+            for component, values in self.external_inputs.items()
+        }
+        object.__setattr__(self, "external_inputs", MappingProxyType(frozen_inputs))
         object.__setattr__(self, "bindings", tuple(self.bindings))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
 
@@ -132,7 +140,21 @@ class ControlSignalMapping:
                 )
                 continue
 
-            external_inputs.setdefault(destination.component_id, {})[destination.input_name] = attributes[source.signal]
+            value = attributes[source.signal]
+            if source.expected_type is not None and not isinstance(value, source.expected_type):
+                expected = source.expected_type
+                expected_name = (
+                    ", ".join(item.__name__ for item in expected)
+                    if isinstance(expected, tuple)
+                    else expected.__name__
+                )
+                diagnostics.append(
+                    f"Signal '{source.signal}' on {source.element_type}:{source.object_id} "
+                    f"has type {type(value).__name__}; expected {expected_name}."
+                )
+                continue
+
+            external_inputs.setdefault(destination.component_id, {})[destination.input_name] = value
 
         if diagnostics:
             raise ControlSignalResolutionError(tuple(diagnostics))
