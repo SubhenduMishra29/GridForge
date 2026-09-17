@@ -19,6 +19,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install headless Qt runtime dependency
+        run: sudo apt-get update && sudo apt-get install -y libegl1
+
       - name: Install canonical runtime and development dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
 

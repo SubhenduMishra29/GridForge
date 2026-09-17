@@ -42,8 +42,9 @@
 """GridForge V2 Main Window.
 
 MainWindow is deliberately a mechanical Qt host.
-WorkspaceRealizer translates logical WorkspaceLayout objects
-into host operations exposed by this class.
+The supplied central surface is the already-composed shell/root
+presentation widget. WorkspaceRealizer translates logical
+WorkspaceLayout objects into host operations exposed by this class.
 """
 
 from __future__ import annotations
@@ -115,10 +116,10 @@ class MainWindow(QMainWindow):
         self,
         central_surface: QWidget | None,
     ) -> None:
-        """Install the already-composed central presentation surface."""
+        """Install the already-composed shell/root presentation surface."""
         if central_surface is None:
             raise ValueError(
-                "MainWindow requires the canonical CanvasComposition widget."
+                "MainWindow requires the canonical shell/root composition widget."
             )
         if not isinstance(central_surface, QWidget):
             raise TypeError("central_surface must be a QWidget.")

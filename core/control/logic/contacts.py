@@ -37,11 +37,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Sequence
 
-from ..base import (
+from .base import (
     LogicControlComponent,
     LogicControlResult,
 )
-from ...base import (
+from ..base import (
     ControlSignal,
     Inputs,
     SignalRole,

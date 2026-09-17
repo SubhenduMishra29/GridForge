@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 import main
+from ui.lifecycle import UILifecyclePhase
 
 
 def test_import_main() -> None:
@@ -15,9 +16,17 @@ def test_import_main() -> None:
 
 
 def test_application_composition_and_shutdown() -> None:
-    app, _window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = main.build_application()
+    app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle = main.build_application()
     assert app is not None
-    assert ui_lifecycle.started
+    assert ui_lifecycle.phase is UILifecyclePhase.DOCUMENT_READY
+
+    canvas_plugin = plugin_manager.get("canvas")
+    assert canvas_plugin is not None
+    canvas_widget = canvas_plugin.widget
+    assert canvas_widget is not None
+    assert window.central_surface is not canvas_widget
+    assert canvas_widget.parentWidget() is window.central_surface
+
     main._shutdown_components(
         ui_lifecycle=ui_lifecycle,
         workspace_controller=workspace_controller,

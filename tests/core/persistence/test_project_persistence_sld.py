@@ -63,10 +63,12 @@ def test_project_round_trip_preserves_core_identity_terminals_and_rebuilt_topolo
     assert bus_1.id == "BUS-001"
     assert bus_2.id == "BUS-002"
     assert line.id == "LINE-001"
-    assert line.endpoint_from is bus_1
-    assert line.endpoint_to is bus_2
-    assert line.endpoint_from.owner is line
-    assert line.endpoint_to.owner is line
+    assert line.from_endpoint is bus_1
+    assert line.to_endpoint is bus_2
+    assert line.from_terminal.endpoint is bus_1
+    assert line.to_terminal.endpoint is bus_2
+    assert line.from_terminal.owner is line
+    assert line.to_terminal.owner is line
     assert loaded.network.topology_valid is True
 
 
