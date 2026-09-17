@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 from core.application.command import Command
-from core.application.control_dispatch import ControlCommandDispatcher
+from core.application.control_dispatch import ControlCommandDispatcher, ControlCommandTranslator
 from core.application.results import ApplicationResult
 from core.control.decision import ControlActionType, ControlDecision
 from core.protection.decision import ProtectionDecision
@@ -90,16 +90,19 @@ class ProtectionExecutionService:
                 )
                 continue
 
-            control_decisions.append(control_decision)
             try:
-                command = self._dispatcher._translator_to_command(control_decision)  # type: ignore[attr-defined]
-                commands.append(command)
-                results.append(self._dispatcher.execute(control_decision))
+                command = ControlCommandTranslator.to_command(control_decision)
+                result = self._dispatcher.execute(control_decision)
             except Exception as exc:
                 diagnostics.append(
                     f"Protection action execution failed for "
                     f"'{control_decision.target_equipment_type}:{control_decision.target_equipment_id}': {exc}"
                 )
+                continue
+
+            control_decisions.append(control_decision)
+            commands.append(command)
+            results.append(result)
 
         return ProtectionExecutionResult(
             decisions=decision_tuple,
