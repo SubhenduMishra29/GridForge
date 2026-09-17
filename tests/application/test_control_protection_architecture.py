@@ -53,6 +53,26 @@ def test_control_dispatch_translates_switch_intent_to_existing_semantic_command(
     assert command.payload["switch_id"] == "SW1"
 
 
+def test_control_dispatch_translates_motor_start_to_canonical_update_contract():
+    decision = ControlDecision(
+        control_id="motor-start",
+        action_type=ControlActionType.START,
+        target_equipment_id="M1",
+        target_equipment_type=ControlTargetType.MOTOR.value,
+        reason="start command",
+        simulation_time=4.0,
+    )
+
+    command = ControlCommandTranslator.to_command(decision)
+
+    assert command.command_type == "model.update_motor"
+    assert command.payload == {"motor_id": "M1", "rated_mva": None, "rated_kv": None,
+                               "power_factor": None, "p": None, "q": None,
+                               "efficiency": None, "slip": None,
+                               "starting_current_pu": None, "running": True,
+                               "in_service": None, "name": None}
+
+
 def test_control_signal_mapping_is_deterministic_and_resolves_read_models():
     source = ControlSignalSource("core", "breaker", "B1", "closed")
     destination = ControlSignalDestination("CTRL1", "CONTACT1", "IN")
