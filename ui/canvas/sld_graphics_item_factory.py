@@ -4,19 +4,13 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Construct presentation-only graphics items for the SLD canvas.
-
-This factory is deliberately narrower than a renderer or renderer registry.
-It maps renderer-neutral SLD canvas descriptors plus an explicit presentation
-selection to the locked graphics item implementations. It does not perform
-semantic resolution, layout, topology resolution, styling, application
-commands, or Core-domain mutation.
-"""
+"""Construct presentation-only graphics items for the SLD canvas."""
 
 from __future__ import annotations
 
 from ui.core.qt import QPointF
 from ui.items.bus_item import BusItem
+from ui.items.equipment_item import EquipmentItem
 from ui.items.line_item import LineItem
 
 from .semantic_presentation_realization import PresentationSelection
@@ -28,56 +22,43 @@ class SLDGraphicsItemFactory:
 
     _NODE_CONSTRUCTORS = {
         "bus": BusItem,
+        "equipment": EquipmentItem,
     }
 
-    def create_node(
-        self,
-        node: SLDCanvasNode,
-        selection: PresentationSelection,
-    ) -> BusItem:
-        """Construct the graphics projection selected for one SLD node."""
+    def create_node(self, node: SLDCanvasNode, selection: PresentationSelection):
         if not isinstance(node, SLDCanvasNode):
             raise TypeError("node must be an SLDCanvasNode.")
         if not isinstance(selection, PresentationSelection):
             raise TypeError("selection must be a PresentationSelection.")
-
         item_class = self._NODE_CONSTRUCTORS.get(selection.representation_id)
         if item_class is None:
-            raise ValueError(
-                f"Unsupported presentation representation: {selection.representation_id}"
+            raise ValueError(f"Unsupported presentation representation: {selection.representation_id}")
+        if selection.representation_id == "equipment":
+            element_type = node.properties.get("element_type")
+            item = item_class(
+                object_id=node.node_id,
+                element_type=str(element_type),
+                position=QPointF(node.x, node.y),
             )
+        else:
+            item = item_class(
+                object_id=node.node_id,
+                position=QPointF(node.x, node.y),
+                radius=self._node_radius(node),
+            )
+        return item
 
-        return item_class(
-            object_id=node.node_id,
-            position=QPointF(node.x, node.y),
-            radius=self._node_radius(node),
-        )
-
-    def create_connection(
-        self,
-        connection: SLDCanvasConnection,
-        source: QPointF,
-        target: QPointF,
-    ) -> LineItem:
-        """Create the presentation projection for one SLD connection."""
+    def create_connection(self, connection: SLDCanvasConnection, source: QPointF, target: QPointF) -> LineItem:
         if not isinstance(connection, SLDCanvasConnection):
             raise TypeError("connection must be an SLDCanvasConnection.")
         self._validate_point(source, "source")
         self._validate_point(target, "target")
-
-        return LineItem(
-            object_id=connection.connection_id,
-            start=source,
-            end=target,
-        )
+        return LineItem(object_id=connection.connection_id, start=source, end=target)
 
     @staticmethod
     def _node_radius(node: SLDCanvasNode) -> float:
-        """Read optional presentation radius without introducing rendering policy."""
         value = node.properties.get("radius", BusItem.DEFAULT_RADIUS)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return BusItem.DEFAULT_RADIUS
-        if value <= 0:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             return BusItem.DEFAULT_RADIUS
         return float(value)
 

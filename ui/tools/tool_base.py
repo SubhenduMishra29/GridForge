@@ -176,8 +176,19 @@ class ToolBase(ABC):
 
     @staticmethod
     def event_position(event: Any) -> Any:
+        """Return semantic scene position when available, else raw position.
+
+        MouseEventAdapter establishes ``scene_position`` as the canonical
+        coordinate consumed by Canvas tools. Raw events remain supported for
+        existing keyboard/non-adapted callers.
+        """
         if event is None:
             raise ValueError("event must not be None.")
+        scene_position = getattr(event, "scene_position", None)
+        if scene_position is not None:
+            return scene_position
+        if isinstance(event, dict) and event.get("scene_position") is not None:
+            return event["scene_position"]
         position = getattr(event, "position", None)
         if callable(position):
             return position()
@@ -185,7 +196,7 @@ class ToolBase(ABC):
             return position
         if isinstance(event, dict) and "position" in event:
             return event["position"]
-        raise AttributeError("event does not expose position().")
+        raise AttributeError("event does not expose a semantic scene position or position().")
 
     @staticmethod
     def _is_escape_event(event: Any) -> bool:
@@ -199,7 +210,8 @@ class ToolBase(ABC):
                 return False
         if isinstance(event, dict):
             key = event.get("key", key)
-        return key in (16777216, "Escape", "Key_Escape")
+        raw_key = getattr(key, "value", key)
+        return raw_key in (16777216, "Escape", "Key_Escape")
 
     def get_state(self) -> dict[str, Any]:
         return {
