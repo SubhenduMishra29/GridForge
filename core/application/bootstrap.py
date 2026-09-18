@@ -36,6 +36,7 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
@@ -44,6 +45,7 @@ from .project_lifecycle import ProjectLifecycleService
 from .protection_configuration_handlers import ProtectionConfigurationHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
+from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.relay_model_service import RelayModelService
@@ -67,19 +69,45 @@ def create_application(network: Any) -> Application:
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
     )
 
+    def register_handlers(target: dict[str, Any], source: Any, family: str) -> None:
+        """Merge one handler family into the single Application registry.
+
+        Duplicate command ownership is a composition error, not a last-write-wins
+        condition.  The composition root therefore rejects duplicate handlers
+        before constructing the CommandManager.
+        """
+        for command_type, handler in dict(source).items():
+            if command_type in target:
+                raise RuntimeError(
+                    f"Duplicate Application handler registration for {command_type!r} "
+                    f"while composing {family}."
+                )
+            target[command_type] = handler
+
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
-        handlers = dict(build_model_command_handlers(model_service))
-        handlers.update(
+        handlers: dict[str, Any] = {}
+        register_handlers(handlers, build_model_command_handlers(model_service), "model")
+        register_handlers(
+            handlers,
             RelayCommandHandlers(
                 RelayModelService(
                     active_network,
                     protection_configuration_provider=lambda: protection_configuration_service.configuration,
                 )
-            ).handlers()
+            ).handlers(),
+            "protection relay",
         )
-        handlers.update(ProtectionConfigurationHandlers(protection_configuration_service).handlers())
+        register_handlers(
+            handlers,
+            ProtectionConfigurationHandlers(protection_configuration_service).handlers(),
+            "protection configuration",
+        )
+        # Control editing commands are composed into the same authoritative
+        # Application command registry as model and protection commands.
+        control_service = ControlApplicationService()
+        register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 

@@ -177,3 +177,27 @@ Current `main` still has a public API inconsistency: `state_vector.py` imports `
 11. Protection measurement/preparation
 12. SLD projection ownership and presentation identity
 13. SLD command ownership and project-load reconciliation
+
+
+## Phase A — Single Application Mutation Authority — 2026-09-18
+
+**Remediation state:** AGENT CORRECTED → RE-AUDIT REQUIRED
+
+This correction pass addresses the confirmed Phase A registration/authority defects without declaring architectural verification.
+
+| Finding / lineage | Correction | Affected files | Status |
+|---|---|---|---|
+| GF-MASTER-0037 — historical Application mutation findings | Controller already delegates execution/history through Application; the Application command registry was strengthened so duplicate handler ownership is rejected rather than silently tolerated. | ui/core/controller.py; core/application/application.py; core/application/command_manager.py | AGENT CORRECTED → RE-AUDIT REQUIRED |
+| GF-MASTER-0042 — historical control findings | Control command handlers are now composed into the same Application CommandManager registry as model/protection handlers at the Application composition root. | core/application/bootstrap.py; core/application/control_command_handlers.py; core/application/services/control_service.py | AGENT CORRECTED → RE-AUDIT REQUIRED |
+| GF-MASTER-0037 / GF-MASTER-0042 — command authority/registration lineage | Model, relay-protection, protection-configuration, and control handler families now pass through one duplicate-rejecting registration function before CommandManager construction. | core/application/bootstrap.py | AGENT CORRECTED → RE-AUDIT REQUIRED |
+| Phase A SLD registration dependency | SLD registration remains attached to the same Application CommandManager; duplicate SLD ownership is now an explicit registration error rather than silently skipped. Full composition-root/static consumer reconciliation remains outstanding. | core/application/application.py; core/application/sld_command_handlers.py | AGENT CORRECTED → RE-AUDIT REQUIRED |
+
+### Phase A remaining findings
+
+- Full repository-wide static proof that no UI/tool/plugin path owns or invokes a second mutation authority is still required.
+- ToolManager currently receives the canonical Application and does not expose a command manager in its constructor; consumer-level tracing of all tool factories remains required.
+- PluginContext currently carries gridforge_application and no command_manager field, but all plugin consumers must still be traced before the Phase A authority finding can be re-audited.
+- SLD handlers are registered when SLDService is attached after the initial Application composition; this is the same Application CommandManager, but the staged registration lifecycle must be reconciled during the remaining Phase A audit rather than assumed closed.
+- No tests, CI, or application execution were run during this correction pass.
+
+> Verification: none. These entries record source corrections only. The subsequent static re-audit must establish the complete consumer graph and may reopen any finding where an executable parallel authority remains.
