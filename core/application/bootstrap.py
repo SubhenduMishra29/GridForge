@@ -36,6 +36,7 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
@@ -44,6 +45,7 @@ from .project_lifecycle import ProjectLifecycleService
 from .protection_configuration_handlers import ProtectionConfigurationHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
+from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.relay_model_service import RelayModelService
@@ -80,6 +82,10 @@ def create_application(network: Any) -> Application:
             ).handlers()
         )
         handlers.update(ProtectionConfigurationHandlers(protection_configuration_service).handlers())
+        # Control editing commands are composed into the same authoritative
+        # Application command registry as model and protection commands.
+        control_service = ControlApplicationService()
+        handlers.update(ControlCommandHandlers(control_service).handlers())
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
