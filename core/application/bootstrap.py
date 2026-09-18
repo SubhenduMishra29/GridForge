@@ -69,23 +69,44 @@ def create_application(network: Any) -> Application:
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
     )
 
+    def register_handlers(target: dict[str, Any], source: Any, family: str) -> None:
+        """Merge one handler family into the single Application registry.
+
+        Duplicate command ownership is a composition error, not a last-write-wins
+        condition.  The composition root therefore rejects duplicate handlers
+        before constructing the CommandManager.
+        """
+        for command_type, handler in dict(source).items():
+            if command_type in target:
+                raise RuntimeError(
+                    f"Duplicate Application handler registration for {command_type!r} "
+                    f"while composing {family}."
+                )
+            target[command_type] = handler
+
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
         handlers = dict(build_model_command_handlers(model_service))
-        handlers.update(
+        register_handlers(
+            handlers,
             RelayCommandHandlers(
                 RelayModelService(
                     active_network,
                     protection_configuration_provider=lambda: protection_configuration_service.configuration,
                 )
-            ).handlers()
+            ).handlers(),
+            "protection relay",
         )
-        handlers.update(ProtectionConfigurationHandlers(protection_configuration_service).handlers())
+        register_handlers(
+            handlers,
+            ProtectionConfigurationHandlers(protection_configuration_service).handlers(),
+            "protection configuration",
+        )
         # Control editing commands are composed into the same authoritative
         # Application command registry as model and protection commands.
         control_service = ControlApplicationService()
-        handlers.update(ControlCommandHandlers(control_service).handlers())
+        register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
