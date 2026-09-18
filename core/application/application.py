@@ -120,8 +120,9 @@ class Application:
 
     def _register_sld_handlers(self, service: SLDService) -> None:
         for command_type, handler in SLDCommandHandlers(service).handlers().items():
-            if not self._command_manager.has_handler(command_type):
-                self._command_manager.register_handler(command_type, handler)
+            # Registration is authoritative and duplicate ownership is an
+            # architecture error. Do not silently skip an existing handler.
+            self._command_manager.register_handler(command_type, handler)
 
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
