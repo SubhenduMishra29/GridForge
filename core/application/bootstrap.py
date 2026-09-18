@@ -87,7 +87,8 @@ def create_application(network: Any) -> Application:
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
-        handlers = dict(build_model_command_handlers(model_service))
+        handlers: dict[str, Any] = {}
+        register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(
             handlers,
             RelayCommandHandlers(
