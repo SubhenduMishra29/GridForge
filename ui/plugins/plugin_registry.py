@@ -422,15 +422,6 @@ class PluginRegistry:
                 )
             except Exception as exc:
                 self._record_error(plugin_id, exc)
-                try:
-                    entry.plugin.shutdown()
-                except Exception as compensation_error:
-                    aggregate = ExceptionGroup(
-                        f"Plugin {plugin_id!r} initialization and compensation failed.",
-                        [exc, compensation_error],
-                    )
-                    self._record_error(plugin_id, aggregate)
-                    raise aggregate from exc
                 raise
 
             # ------------------------------------------------
@@ -449,18 +440,25 @@ class PluginRegistry:
 
             except Exception as exc:
                 self._record_error(plugin_id, exc)
-                try:
-                    entry.plugin.shutdown()
-                except Exception as compensation_error:
-                    aggregate = ExceptionGroup(
-                        f"Plugin {plugin_id!r} initialization-state commit and compensation failed.",
-                        [exc, compensation_error],
-                    )
-                    self._record_error(plugin_id, aggregate)
-                    raise aggregate from exc
                 raise
 
             return result
+
+    def compensate_failed_initialization(self, plugin_id: str) -> None:
+        """
+        Execute the plugin shutdown callback after a failed initialization
+        attempt without fabricating an initialized -> uninitialized state
+        transition in PluginStateStore.
+
+        PluginManager owns the surrounding compensation event stream.
+        """
+        with self._lock:
+            entry = self._require_entry(plugin_id)
+            try:
+                entry.plugin.shutdown()
+            except Exception as exc:
+                self._record_error(plugin_id, exc)
+                raise
 
     # ========================================================
     # SHUTDOWN
