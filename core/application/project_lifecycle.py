@@ -115,6 +115,15 @@ class ProjectLifecycleService:
         """Return the rollback failure that put lifecycle into ROLLBACK_FAILED."""
         return self._rollback_error
 
+    @property
+    def presentation_configured(self) -> bool:
+        """Return whether this lifecycle has an explicit presentation contract."""
+        return (
+            self._presentation is not None
+            or self._presentation_factory is not None
+            or self._serialize_presentation is not None
+        )
+
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
             raise TypeError("loader and saver must be callable.")
@@ -130,6 +139,21 @@ class ProjectLifecycleService:
         if not callable(factory):
             raise TypeError("factory must be callable.")
         self._presentation_factory = factory
+
+    def configure_presentation_contract(
+        self,
+        *,
+        factory: PresentationFactory,
+        serializer: PresentationSerializer,
+        deserializer: PresentationDeserializer,
+    ) -> None:
+        if not callable(factory):
+            raise TypeError("factory must be callable.")
+        if not callable(serializer) or not callable(deserializer):
+            raise TypeError("serializer and deserializer must be callable.")
+        self._presentation_factory = factory
+        self._serialize_presentation = serializer
+        self._deserialize_presentation = deserializer
 
     def configure_presentation_activator(self, activator: PresentationActivator) -> None:
         if not callable(activator):
@@ -168,27 +192,30 @@ class ProjectLifecycleService:
 
     def open_project(self, path: str | Path) -> ProjectContext:
         target = self._normalize_path(path)
-        if self._loader is None:
-            raise RuntimeError("Project persistence loader is not configured.")
+        loaded = self._load_project(target)
+        presentation = self._presentation_for_loaded(loaded)
+        return self._activate_candidate(
+            loaded.context,
+            loaded,
+            loaded.network,
+            presentation,
+        )
 
-        loaded = self._loader(target)
-        if not isinstance(loaded, LoadedProject):
-            raise TypeError("Project loader must return a LoadedProject.")
-        if not isinstance(loaded.context, ProjectContext):
-            raise TypeError("Project loader returned an invalid ProjectContext.")
-        if loaded.network is None:
-            raise ValueError("Project loader returned no Network.")
+    def discard_project_changes(self) -> ProjectContext:
+        """Restore the persisted project state without manipulating command history."""
+        context = self._require_context()
+        if context.path is None:
+            # An unnamed project has no persisted checkpoint to reconstruct.
+            # Discard therefore abandons its unsaved in-memory state at the
+            # surrounding transition boundary.
+            return context
 
-        if loaded.presentation is not None:
-            if self._deserialize_presentation is None:
-                raise RuntimeError(
-                    "Project contains persistent presentation state but no presentation "
-                    "deserializer is configured."
-                )
-            presentation = self._deserialize_presentation(loaded.presentation)
-        else:
-            presentation = self._create_presentation(loaded.context)
-
+        loaded = self._load_project(context.path)
+        if loaded.context.project_id != context.project_id:
+            raise RuntimeError(
+                "Persisted project identity does not match the active project."
+            )
+        presentation = self._presentation_for_loaded(loaded)
         return self._activate_candidate(
             loaded.context,
             loaded,
@@ -230,6 +257,23 @@ class ProjectLifecycleService:
         previous = self._context
         network = self._network_factory()
         return self._activate_candidate(None, None, network, None, previous_context=previous)
+
+    def _load_project(self, target: Path) -> LoadedProject:
+        if self._loader is None:
+            raise RuntimeError("Project persistence loader is not configured.")
+        loaded = self._loader(target)
+        if not isinstance(loaded, LoadedProject):
+            raise TypeError("Project loader must return a LoadedProject.")
+        if not isinstance(loaded.context, ProjectContext):
+            raise TypeError("Project loader returned an invalid ProjectContext.")
+        if loaded.network is None:
+            raise ValueError("Project loader returned no Network.")
+        return loaded
+
+    def _presentation_for_loaded(self, loaded: LoadedProject) -> Any | None:
+        if loaded.presentation is not None and self._deserialize_presentation is not None:
+            return self._deserialize_presentation(loaded.presentation)
+        return self._create_presentation(loaded.context)
 
     def _activate_candidate(
         self,
@@ -321,10 +365,12 @@ class ProjectLifecycleService:
             raise TypeError("Candidate project context must be a ProjectContext.")
         if network is None:
             raise ValueError("Candidate project must provide a Network.")
-        if presentation is None:
-            raise RuntimeError("Candidate project requires an Application-owned presentation.")
+        if self.presentation_configured and presentation is None:
+            raise RuntimeError("Configured project transition requires an Application-owned presentation.")
 
         for candidate, label in ((network, "network"), (presentation, "presentation")):
+            if candidate is None:
+                continue
             candidate_project_id = getattr(candidate, "project_id", None)
             if candidate_project_id is not None and candidate_project_id != context.project_id:
                 raise ValueError(f"Candidate {label} project_id does not match the candidate project.")
@@ -347,11 +393,11 @@ class ProjectLifecycleService:
             return None
         return self._project_state_activator(context, loaded, network, generation)
 
-    def _create_presentation(self, context: ProjectContext) -> Any:
+    def _create_presentation(self, context: ProjectContext) -> Any | None:
         if not isinstance(context, ProjectContext):
             raise TypeError("Presentation creation requires a ProjectContext.")
         if self._presentation_factory is None:
-            raise RuntimeError("Application-owned presentation factory is not configured.")
+            return None
         presentation = self._presentation_factory(context)
         if presentation is None:
             raise RuntimeError("Presentation factory returned no presentation.")
