@@ -12,7 +12,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from .plugin_context import PluginContext
-from .plugin_events import (PluginEvent, PluginEventSource, plugin_failed, plugin_initialize_requested, plugin_initialized, plugin_initializing, plugin_shutdown, plugin_shutdown_requested, plugin_shutting_down)
+from .plugin_events import (PluginEvent, PluginEventSource, plugin_defined, plugin_failed, plugin_initialize_requested, plugin_initialized, plugin_initializing, plugin_load_requested, plugin_loaded, plugin_shutdown, plugin_shutdown_requested, plugin_shutting_down, plugin_unload_requested, plugin_unloaded)
 from .plugin_contract import validate_plugin
 from .plugin_loader import PluginLoader, create_default_plugin_loader
 from .plugin_registry import PluginEntry, PluginRegistry, create_plugin_registry
@@ -116,6 +116,7 @@ class PluginManager:
         if definition.plugin_id in self._definitions:
             raise ValueError(f"Plugin definition {definition.plugin_id!r} already exists.")
         self._definitions[definition.plugin_id] = definition
+        self._emit(plugin_defined(definition.plugin_id, source=PluginEventSource.MANAGER))
 
     def define_many(self, definitions: Iterable[PluginDefinition]) -> None:
         for definition in definitions:
@@ -164,6 +165,7 @@ class PluginManager:
         existing = self._registry.get_entry(plugin_id)
         if existing is not None:
             return existing
+        self._emit(plugin_load_requested(plugin_id, source=PluginEventSource.MANAGER))
         for current_id in self.resolve_order((plugin_id,)):
             if self._registry.contains(current_id):
                 continue
@@ -171,6 +173,7 @@ class PluginManager:
             plugin = self._loader.create(current_id)
             validate_plugin(plugin, plugin_id=current_id)
             self._registry.register(current_id, plugin, enabled=definition.enabled, metadata=dict(definition.metadata))
+            self._emit(plugin_loaded(current_id, source=PluginEventSource.MANAGER))
         entry = self._registry.get_entry(plugin_id)
         if entry is None:
             raise RuntimeError(f"Plugin {plugin_id!r} was not registered after loading.")
@@ -309,6 +312,7 @@ class PluginManager:
             self._registry.shutdown(plugin_id)
         entry = self._registry.get_entry(plugin_id)
         self._registry.unregister(plugin_id)
+        self._emit(plugin_unloaded(plugin_id, source=PluginEventSource.MANAGER))
         return entry
 
     def resolve_order(self, plugin_ids: Optional[Iterable[str]] = None) -> tuple[str, ...]:
