@@ -48,6 +48,8 @@ class ProjectLifecycleService:
             raise ValueError("serialize_presentation and deserialize_presentation must be configured together.")
         if project_state_activator is not None and not callable(project_state_activator):
             raise TypeError("project_state_activator must be callable.")
+        if project_state_validator is not None and not callable(project_state_validator):
+            raise TypeError("project_state_validator must be callable.")
         self._network = network
         self._network_factory = network_factory
         self._activate_network = activate_network
@@ -60,7 +62,7 @@ class ProjectLifecycleService:
         self._deserialize_presentation = deserialize_presentation
         self._project_state_activator = project_state_activator
         self._project_state_validator = project_state_validator
-        self._activation_generation = 0
+        self._activation_generation = 1 if context is not None else 0
 
     @property
     def context(self) -> ProjectContext | None:
@@ -77,6 +79,10 @@ class ProjectLifecycleService:
     @property
     def has_project(self) -> bool:
         return self._context is not None
+
+    @property
+    def activation_generation(self) -> int:
+        return self._activation_generation
 
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
