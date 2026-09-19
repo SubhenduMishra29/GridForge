@@ -13,6 +13,7 @@ from core.application.read_models import ElementReadModel, NetworkReadModel, Pro
 
 from ui.projection.projection_registry import ProjectionDomain
 from .sld_projection import SLDProjection
+from .sld_vocabulary import semantic_type
 from .sld_projection_manager import SLDProjectionManager
 from .sld_read_adapter import SLDReadAdapter
 
@@ -96,14 +97,23 @@ class SLDReadSynchronizer:
         self,
         read_model: ElementReadModel,
     ) -> SLDProjection:
-        """Synchronize one network-domain projection."""
+        """Synchronize one NETWORK-owned projection.
+
+        Relay is deliberately excluded from this generic path. A Relay
+        ElementReadModel is only valid here when its presentation ownership
+        is NETWORK, which the frozen contract does not permit. Protection
+        Relay presentation must enter through synchronize_protection(), where
+        SLDReadAdapter.protection() establishes the PROTECTION-domain source.
+        """
         if not isinstance(read_model, ElementReadModel):
             raise TypeError("read_model must be an ElementReadModel")
+        if semantic_type(read_model.element_type) == "RELAY":
+            raise ValueError(
+                "Relay presentation is owned by the protection projection "
+                "domain; use synchronize_protection() instead."
+            )
         adapted = self._read_adapter.element(read_model)
-        return self._projection_manager.project(
-            adapted,
-            domain=ProjectionDomain.NETWORK,
-        )
+        return self._projection_manager.project_network_element(adapted)
 
     def _require_application(self) -> Any:
         if self._application is None:

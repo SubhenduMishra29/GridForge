@@ -40,7 +40,7 @@ _ELEMENT_TYPE_ALIASES = {
     "ct": "current_transformers", "current_transformer": "current_transformers", "current_transformers": "current_transformers",
     "pt": "potential_transformers", "potential_transformer": "potential_transformers", "potential_transformers": "potential_transformers",
     "cvt": "capacitive_voltage_transformers", "capacitive_voltage_transformer": "capacitive_voltage_transformers", "capacitive_voltage_transformers": "capacitive_voltage_transformers",
-    "relay": "relays", "relays": "relays", "line": "lines", "lines": "lines", "cable": "cables", "cables": "cables",
+"line": "lines", "lines": "lines", "cable": "cables", "cables": "cables",
     "transformer": "transformers", "transformers": "transformers", "breaker": "breakers", "breakers": "breakers",
     "switch": "switches", "switches": "switches", "disconnector": "disconnectors", "disconnectors": "disconnectors",
     "fuse": "fuses", "fuses": "fuses",
@@ -98,8 +98,27 @@ class NetworkReadService(ReadService):
             for model in getattr(self._network, element_type): elements.append(self._to_read_model(element_type, model))
         return NetworkReadModel(elements=tuple(elements))
     def element(self, element_type: str, object_id: str) -> ElementReadModel:
-        requested = element_type.strip().lower(); key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
-        model = self._network.get_by_id(key, object_id); return self._to_read_model(key, model)
+        """Return one NETWORK-domain element read model.
+
+        Relay is a Core Network object, but its presentation/read ownership is
+        PROTECTION. Generic Network element reads therefore reject Relay
+        explicitly; callers needing Relay presentation data must use the
+        Application protection read boundary.
+        """
+        requested = element_type.strip().lower()
+        if requested in {"relay", "relays"}:
+            raise ValueError(
+                "Relay is owned by the protection read boundary; "
+                "use Application.read_relay() instead of read_element()."
+            )
+        key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
+        if key == "relays":
+            raise ValueError(
+                "Relay is owned by the protection read boundary; "
+                "use Application.read_relay() instead of read_element()."
+            )
+        model = self._network.get_by_id(key, object_id)
+        return self._to_read_model(key, model)
     @staticmethod
     def _value(model: Any, names: tuple[str, ...]) -> Any:
         for name in names:
