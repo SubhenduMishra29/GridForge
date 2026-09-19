@@ -53,17 +53,44 @@ class ValidationSummary:
 
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
-    """Immutable authoritative snapshot produced by Application validation."""
+    """Immutable validation result scoped to one project activation generation."""
 
     model_revision: int
     topology_revision: int
     issues: tuple[ValidationIssue, ...]
     summary: ValidationSummary
     authoritative: bool = True
+    project_id: str | None = None
+    activation_generation: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.project_id is not None:
+            if not isinstance(self.project_id, str) or not self.project_id.strip():
+                raise ValueError("ValidationResult.project_id must be non-empty when supplied.")
+            object.__setattr__(self, "project_id", self.project_id.strip())
+        if self.activation_generation is not None:
+            if (
+                not isinstance(self.activation_generation, int)
+                or isinstance(self.activation_generation, bool)
+                or self.activation_generation < 1
+            ):
+                raise ValueError(
+                    "ValidationResult.activation_generation must be a positive integer when supplied."
+                )
 
     @property
     def valid(self) -> bool:
         return self.summary.valid
+
+    @property
+    def scope(self) -> tuple[str | None, int | None, int, int]:
+        """Return project/generation/model/topology identity as one scope tuple."""
+        return (
+            self.project_id,
+            self.activation_generation,
+            self.model_revision,
+            self.topology_revision,
+        )
 
 
 __all__ = [
