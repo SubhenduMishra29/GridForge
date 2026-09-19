@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping
 from uuid import UUID, uuid4
 
 from .event_bus import ApplicationEventBus
+from .revision import ProjectRevision
 from .events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
 
 
@@ -23,6 +24,7 @@ class StudyRequest:
     study_id: UUID = field(default_factory=uuid4)
     project_id: str = ""
     activation_generation: int = 0
+    source_revision: ProjectRevision | None = None
     study_type: str = ""
     configuration: Mapping[str, Any] = field(default_factory=dict)
 
@@ -33,6 +35,10 @@ class StudyRequest:
             raise ValueError("project_id must be a non-empty string.")
         if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
             raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
         if not isinstance(self.study_type, str) or not self.study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
         if not isinstance(self.configuration, Mapping):
@@ -49,6 +55,7 @@ class StudyResult:
     study_id: UUID
     project_id: str
     activation_generation: int
+    source_revision: ProjectRevision
     study_type: str
     status: str
     value: Any = None
@@ -140,6 +147,7 @@ class StudyService:
                     study_id=request.study_id,
                     project_id=request.project_id,
                     activation_generation=request.activation_generation,
+                    source_revision=request.source_revision,
                     study_type=request.study_type,
                     status="cancelled",
                     message="Study cancelled.",
@@ -157,6 +165,7 @@ class StudyService:
                 study_id=request.study_id,
                 project_id=request.project_id,
                 activation_generation=request.activation_generation,
+                source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="completed",
                 value=value,
@@ -174,6 +183,7 @@ class StudyService:
                 study_id=request.study_id,
                 project_id=request.project_id,
                 activation_generation=request.activation_generation,
+                source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="failed",
                 message=str(exc),
