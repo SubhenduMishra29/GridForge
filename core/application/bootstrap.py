@@ -1,6 +1,7 @@
 # ============================================================
 # GridForge V2 — Application Composition Root
 # ============================================================
+# Author: Subhendu Mishra
 
 """Composition root for the headless GridForge Application layer."""
 
