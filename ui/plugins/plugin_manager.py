@@ -52,6 +52,10 @@ class PluginManager:
     def __init__(self, *, loader: Optional[PluginLoader] = None, registry: Optional[PluginRegistry] = None,
                  state_store: Optional[PluginStateStore] = None, definitions: Optional[Iterable[PluginDefinition]] = None,
                  event_sink: Optional[Callable[[PluginEvent], None]] = None) -> None:
+        if event_sink is not None and not callable(event_sink):
+            raise TypeError("event_sink must be callable or None.")
+        self._event_sink = event_sink
+        self._events: list[PluginEvent] = []
         self._loader = loader if loader is not None else create_default_plugin_loader()
         if not isinstance(self._loader, PluginLoader):
             raise TypeError("loader must be a PluginLoader.")
@@ -67,10 +71,7 @@ class PluginManager:
             self._state_store = state_store if state_store is not None else PluginStateStore()
             if not isinstance(self._state_store, PluginStateStore):
                 raise TypeError("state_store must be a PluginStateStore.")
-            self._registry = create_plugin_registry(state_store=self._state_store, event_sink=event_sink)
-        if event_sink is not None and not callable(event_sink):
-            raise TypeError("event_sink must be callable or None.")
-        self._event_sink = event_sink
+            self._registry = create_plugin_registry(state_store=self._state_store, event_sink=self._emit)
         self._definitions: dict[str, PluginDefinition] = {}
         self._contexts: dict[str, PluginContext] = {}
         if definitions is not None:
@@ -87,6 +88,11 @@ class PluginManager:
     @property
     def state_store(self) -> PluginStateStore:
         return self._state_store
+
+    @property
+    def events(self) -> tuple[PluginEvent, ...]:
+        """Return the immutable observational lifecycle event history."""
+        return tuple(self._events)
 
     @property
     def definitions(self) -> tuple[PluginDefinition, ...]:
@@ -368,6 +374,7 @@ class PluginManager:
             raise ExceptionGroup("One or more plugin rollback shutdowns failed.", failures)
 
     def _emit(self, event: PluginEvent) -> None:
+        self._events.append(event)
         if self._event_sink is not None:
             self._event_sink(event)
 
