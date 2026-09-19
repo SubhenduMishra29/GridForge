@@ -58,15 +58,11 @@ A Terminal endpoint is identified by:
     equipment_id
     terminal_role
 
-This is required because the current NetworkRegistry guarantees
-identifier uniqueness within an equipment family, not globally
-across all equipment families.
+Network object identity is globally unique within the authoritative
+Network registry. A Terminal intentionally has no independent persisted
+object ID; its reference identity remains:
 
-A Terminal does not receive a globally unique Terminal ID.
-
-Its identity remains:
-
-    owning equipment + terminal role
+    owning equipment identity + terminal role
 
 The reference therefore mirrors the existing Core identity
 contract rather than introducing a second identity system.
@@ -298,7 +294,7 @@ class EndpointReference:
         Parameters
         ----------
         equipment_type:
-            Canonical Network equipment family.
+            Canonical Core terminal-owning equipment family.
 
         equipment_id:
             Canonical identifier within that family.
