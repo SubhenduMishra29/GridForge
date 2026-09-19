@@ -166,7 +166,6 @@ class Application:
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.new_project(name, project_id=project_id)
-        self._revision_service.reset_for_project()
         self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
