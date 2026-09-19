@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ui.core.qt import QPointF, Qt
+from ui.core.qt import QPointF
 
 
 @dataclass(frozen=True, slots=True)
