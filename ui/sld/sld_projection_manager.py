@@ -30,7 +30,7 @@ class SLDProjectionManager:
         """Return the presentation-only layout policy."""
         return self._layout
 
-    def project(self, read_model: ElementReadModel, *, domain: ProjectionDomain) -> SLDProjection:
+    def project(self, read_model: ElementReadModel, *, domain: ProjectionDomain = ProjectionDomain.NETWORK) -> SLDProjection:
         """Create or refresh one projection in an explicit presentation domain."""
         if not isinstance(read_model, ElementReadModel):
             raise TypeError("SLD projection requires an ElementReadModel")
