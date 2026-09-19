@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ui.core.qt import QPointF
+from ui.core.qt import QGraphicsItem, QPointF
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,28 +115,23 @@ class MouseEventAdapter:
 
     @staticmethod
     def _is_selectable(item: Any) -> bool:
-        if item is None:
-            return False
-        if getattr(item, "object_id", None) is None:
-            return False
-        if getattr(item, "isVisible", lambda: True)() is False:
-            return False
-        if getattr(item, "isEnabled", lambda: True)() is False:
+        if item is None or getattr(item, "object_id", None) is None:
             return False
 
+        is_visible = getattr(item, "isVisible", None)
+        is_enabled = getattr(item, "isEnabled", None)
         flags = getattr(item, "flags", None)
-        if not callable(flags):
-            return True
+        if not callable(is_visible) or not callable(is_enabled) or not callable(flags):
+            return False
 
         try:
-            value = flags()
-            flag_type = getattr(item, "GraphicsItemFlag", None)
-            selectable_flag = getattr(flag_type, "ItemIsSelectable", None)
-            if selectable_flag is None:
-                return True
-            return bool(value & selectable_flag)
+            return bool(
+                is_visible()
+                and is_enabled()
+                and flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            )
         except (TypeError, AttributeError):
-            return True
+            return False
 
     @staticmethod
     def _event_position(event: Any) -> Any:
