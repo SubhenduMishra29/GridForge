@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Mapping
 
 from core.control.context import ControlExecutionContext
@@ -37,6 +38,7 @@ from .events import (
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
+from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
@@ -112,8 +114,6 @@ class Application:
 
     def _register_sld_handlers(self, service: SLDService) -> None:
         for command_type, handler in SLDCommandHandlers(service).handlers().items():
-            # Registration is authoritative and duplicate ownership is an
-            # architecture error. Do not silently skip an existing handler.
             self._command_manager.register_handler(command_type, handler)
 
     def attach_project_lifecycle(self, service: ProjectLifecycleService) -> None:
@@ -123,14 +123,58 @@ class Application:
         if self._sld_service is not None:
             service.configure_presentation_activator(lambda presentation: self._bind_sld_transactionally(self._sld_service, presentation))
 
-    def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
-        self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
+    def configure_project_presentation(
+        self, *, presentation: Any, serializer: Any, deserializer: Any
+    ) -> None:
+        self.project_lifecycle.configure_presentation(
+            presentation=presentation, serializer=serializer, deserializer=deserializer
+        )
         if self._sld_service is not None:
-            self.project_lifecycle.configure_presentation_activator(lambda value: self._bind_sld_transactionally(self._sld_service, value))
+            self.project_lifecycle.configure_presentation_activator(
+                lambda value: self._bind_sld_transactionally(self._sld_service, value)
+            )
+
+    def configure_project_presentation_contract(
+        self, *, factory: Any, serializer: Any, deserializer: Any
+    ) -> None:
+        """Configure a presentation contract without constructing a UI object prematurely."""
+        self.project_lifecycle.configure_presentation_contract(
+            factory=factory, serializer=serializer, deserializer=deserializer
+        )
+
+    def configure_presentation_activator(self, activator: Any) -> None:
+        """Compose an external presentation/workspace transaction with SLD binding."""
+        if not callable(activator):
+            raise TypeError("activator must be callable.")
+
+        if self._sld_service is None:
+            self.project_lifecycle.configure_presentation_activator(activator)
+            return
+
+        sld_service = self._sld_service
+
+        def composite(value: Any | None):
+            sld_rollback = self._bind_sld_transactionally(sld_service, value)
+            try:
+                workspace_rollback = activator(value)
+            except BaseException:
+                sld_rollback()
+                raise
+
+            def rollback() -> None:
+                try:
+                    workspace_rollback_fn = workspace_rollback
+                    if workspace_rollback_fn is not None:
+                        workspace_rollback_fn()
+                finally:
+                    sld_rollback()
+
+            return rollback
+
+        self.project_lifecycle.configure_presentation_activator(composite)
 
     @staticmethod
     def _bind_sld_transactionally(service: SLDService, value: Any) -> Any:
-        """Bind/detach the persistent SLD document with an explicit rollback."""
         previous = service.document if service.is_bound else None
         if value is None:
             service.detach_document()
@@ -156,36 +200,135 @@ class Application:
         if presentation is not None:
             service.bind_document(presentation)
 
-    def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+    @staticmethod
+    def _coerce_transition_decision(
+        decision: ProjectTransitionDecision | str | None,
+    ) -> ProjectTransitionDecision | None:
+        if decision is None:
+            return None
+        if isinstance(decision, ProjectTransitionDecision):
+            return decision
+        if isinstance(decision, str):
+            try:
+                return ProjectTransitionDecision(decision.strip().lower())
+            except ValueError as exc:
+                raise ValueError(f"Unsupported project transition decision: {decision!r}") from exc
+        raise TypeError("decision must be ProjectTransitionDecision, string, or None.")
+
+    def _prepare_project_transition(
+        self,
+        decision: ProjectTransitionDecision | str | None,
+    ) -> bool:
+        """Resolve dirty-state transition policy before any target activation."""
+        if not self.is_dirty:
+            return True
+
+        normalized = self._coerce_transition_decision(decision)
+        if normalized is None:
+            raise ProjectTransitionRequired(
+                "The active project is dirty; the transition requires SAVE, DISCARD, or CANCEL."
+            )
+
+        if normalized is ProjectTransitionDecision.CANCEL:
+            return False
+
+        if normalized is ProjectTransitionDecision.SAVE:
+            self.save_project()
+            return True
+
+        if normalized is ProjectTransitionDecision.DISCARD:
+            self.project_lifecycle.discard_project_changes()
+            return True
+
+        raise RuntimeError(f"Unhandled transition decision: {normalized!r}")
+
+    def new_project(
+        self,
+        name: str = "Untitled Project",
+        *,
+        project_id: str | None = None,
+        decision: ProjectTransitionDecision | str | None = None,
+    ) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
+        if not self._prepare_project_transition(decision):
+            current = self.project_lifecycle.context
+            if current is None:
+                raise RuntimeError("Cancel cannot leave the Application without an active project.")
+            return current
         context = self.project_lifecycle.new_project(name, project_id=project_id)
-        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new", "activation_generation": self.project_lifecycle.activation_generation}))
+        self._event_bus.publish(ProjectLoaded(metadata={
+            "project_id": context.project_id,
+            "name": context.name,
+            "operation": "new",
+            "activation_generation": self.project_lifecycle.activation_generation,
+            "semantic_scope": "APPLICATION_PROJECT_ACTIVATED",
+            "ui_workspace_ready": False,
+        }))
         return context
 
-    def open_project(self, path: str) -> ProjectContext:
+    def open_project(
+        self,
+        path: str,
+        *,
+        decision: ProjectTransitionDecision | str | None = None,
+    ) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
+        if not self._prepare_project_transition(decision):
+            current = self.project_lifecycle.context
+            if current is None:
+                raise RuntimeError("Cancel cannot leave the Application without an active project.")
+            return current
         context = self.project_lifecycle.open_project(path)
-        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open", "activation_generation": self.project_lifecycle.activation_generation}))
+        self._event_bus.publish(ProjectLoaded(metadata={
+            "project_id": context.project_id,
+            "name": context.name,
+            "path": str(context.path) if context.path else None,
+            "operation": "open",
+            "activation_generation": self.project_lifecycle.activation_generation,
+            "semantic_scope": "APPLICATION_PROJECT_ACTIVATED",
+            "ui_workspace_ready": False,
+        }))
         return context
 
     def save_project(self, path: str | None = None) -> ProjectContext:
         context = self.project_lifecycle.save_project(path)
         self._revision_service.mark_persisted()
-        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None, "activation_generation": self.project_lifecycle.activation_generation}))
+        self._event_bus.publish(ProjectSaved(metadata={
+            "project_id": context.project_id,
+            "path": str(context.path) if context.path else None,
+            "activation_generation": self.project_lifecycle.activation_generation,
+        }))
         return context
 
     def save_project_as(self, path: str) -> ProjectContext:
         context = self.project_lifecycle.save_project_as(path)
         self._revision_service.mark_persisted()
-        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None, "activation_generation": self.project_lifecycle.activation_generation}))
+        self._event_bus.publish(ProjectSaved(metadata={
+            "project_id": context.project_id,
+            "path": str(context.path) if context.path else None,
+            "activation_generation": self.project_lifecycle.activation_generation,
+        }))
         return context
 
-    def close_project(self) -> ProjectContext | None:
+    def close_project(
+        self,
+        *,
+        decision: ProjectTransitionDecision | str | None = None,
+    ) -> ProjectContext | None:
         self._study_service.ensure_no_active_studies()
+        if not self._prepare_project_transition(decision):
+            return self.project_lifecycle.context
         previous_generation = self.project_lifecycle.activation_generation
         context = self.project_lifecycle.close_project()
         if context is not None:
-            self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name, "activation_generation": previous_generation, "operation": "close"}))
+            self._event_bus.publish(ProjectClosed(metadata={
+                "project_id": context.project_id,
+                "name": context.name,
+                "activation_generation": previous_generation,
+                "operation": "close",
+                "semantic_scope": "APPLICATION_PROJECT_ACTIVATED",
+                "ui_workspace_ready": False,
+            }))
         return context
 
     def capture_project_snapshot(self) -> ProjectSnapshot:
@@ -226,8 +369,6 @@ class Application:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService): raise TypeError("read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("validation_service must be a ValidationService.")
-        # Register all candidate handlers before swapping any active runtime state.
-        # This makes runtime replacement itself failure-atomic.
         if self._sld_service is not None:
             for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
                 command_manager.register_handler(command_type, handler)
@@ -244,9 +385,27 @@ class Application:
 
     def validate_project(self) -> ValidationResult:
         result = self.validation_service.validate_project()
-        self._event_bus.publish(ValidationChanged(metadata={"valid": result.valid, "errors": result.summary.errors, "warnings": result.summary.warnings, "model_revision": result.model_revision, "topology_revision": result.topology_revision}))
-        return result
-    def read_validation(self) -> ValidationResult | None: return self.validation_service.read_validation()
+        context = self.project_lifecycle.context
+        if context is None:
+            raise RuntimeError("Validation requires an active project.")
+        return replace(
+            result,
+            project_id=context.project_id,
+            activation_generation=self.project_lifecycle.activation_generation,
+        )
+
+    def read_validation(self) -> ValidationResult | None:
+        result = self.validation_service.read_validation()
+        if result is None:
+            return None
+        context = self.project_lifecycle.context
+        if context is None:
+            return None
+        return replace(
+            result,
+            project_id=context.project_id,
+            activation_generation=self.project_lifecycle.activation_generation,
+        )
 
     def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None,
                               external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
@@ -264,7 +423,7 @@ class Application:
                 self._revision_service.record_command_success(command)
                 if self._validation_service is not None:
                     self._validation_service.invalidate()
-                    self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True}))
+                    self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
             self._publish_semantic_events(command, result, operation="execute")
         return result
 
@@ -279,7 +438,7 @@ class Application:
             self._revision_service.record_undo()
             if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
-                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True}))
+                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
             self._publish_history_events(command, result, operation="undo")
         return result
 
@@ -291,7 +450,7 @@ class Application:
             self._revision_service.record_redo()
             if self._validation_service is not None and not command.command_type.startswith("sld."):
                 self._validation_service.invalidate()
-                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True}))
+                self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
             self._publish_semantic_events(command, result, operation="redo")
         return result
 
@@ -312,8 +471,20 @@ class Application:
     def read_relay(self, relay_id: str) -> RelayReadModel:
         self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
+    def _project_scope_metadata(self) -> dict[str, object]:
+        context = self.project_lifecycle.context
+        return {
+            "project_id": context.project_id if context is not None else None,
+            "activation_generation": self.project_lifecycle.activation_generation,
+        }
+
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
-        metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation}
+        metadata = {
+            "command_id": str(command.command_id),
+            "message": result.message,
+            "operation": operation,
+            **self._project_scope_metadata(),
+        }
         if command.command_type.startswith("model."):
             self._publish_model_event(command, metadata, operation=operation)
             self._publish_network_changed(command, metadata)
