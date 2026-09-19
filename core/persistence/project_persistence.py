@@ -172,8 +172,25 @@ class ProjectPersistenceService:
                 raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' does not reference a SynchronousMachine.")
             if bus.element_type != "BUS":
                 raise ProjectPersistenceError(f"Dynamic model association '{association.bus_id}' does not reference a Bus.")
-        if protection_configuration is not None and protection_configuration.project_id != context.project_id:
-            raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")
+        if protection_configuration is not None:
+            if protection_configuration.project_id != context.project_id:
+                raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")
+            for item in protection_configuration.elements:
+                try:
+                    protected_element = network.get_by_identity(item.element_id)
+                    relay = network.get_by_identity(item.relay_id)
+                except KeyError as exc:
+                    raise ProjectPersistenceError(
+                        f"Protection configuration '{item.element_id}' references a missing Core object: {exc}"
+                    ) from exc
+                if relay.element_type != "RELAY":
+                    raise ProjectPersistenceError(
+                        f"Protection configuration '{item.element_id}' relay_id does not reference a Relay."
+                    )
+                if not getattr(protected_element, "id", None):
+                    raise ProjectPersistenceError(
+                        f"Protection configuration '{item.element_id}' references an invalid protected object."
+                    )
 
     @staticmethod
     def _recover_interrupted_save(package: Path) -> None:
