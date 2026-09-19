@@ -116,6 +116,28 @@ class NetworkChanged(ApplicationEvent):
 
 
 @dataclass(frozen=True)
+class ProtectionChanged(ApplicationEvent):
+    """Semantic fact that Application-owned protection read state changed."""
+
+    def __init__(
+        self,
+        *,
+        operation: str,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        payload = {"operation": operation}
+        if metadata:
+            payload.update(metadata)
+        super().__init__(
+            "protection.changed",
+            payload,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 class SLDPresentationChanged(ApplicationEvent):
     """Semantic fact that persistent SLD presentation state changed."""
 
@@ -237,7 +259,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
-    "TopologyChanged", "NetworkChanged", "SLDPresentationChanged", "OperationCompleted",
+    "TopologyChanged", "NetworkChanged", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
     "ProtectionTripRequested",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed",
     "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
