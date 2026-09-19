@@ -37,8 +37,6 @@ class StudyRequest:
             raise ValueError("activation_generation must be a positive integer.")
         if not isinstance(self.source_revision, ProjectRevision):
             raise TypeError("source_revision must be ProjectRevision.")
-        if not isinstance(self.source_revision, ProjectRevision):
-            raise TypeError("source_revision must be ProjectRevision.")
         if not isinstance(self.study_type, str) or not self.study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
         if not isinstance(self.configuration, Mapping):
@@ -69,6 +67,8 @@ class StudyResult:
             raise ValueError("project_id must be a non-empty string.")
         if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
             raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
         if not isinstance(self.study_type, str) or not self.study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
         if self.status not in {"completed", "failed", "cancelled"}:
@@ -188,7 +188,7 @@ class StudyService:
                 status="failed",
                 message=str(exc),
             )
-            self._results[request.study_id] = result
+            self._results[key] = result
             self._event_bus.publish(StudyFailed(metadata={
                 "study_id": str(request.study_id),
                 "study_type": request.study_type,
