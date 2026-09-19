@@ -77,7 +77,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     app = QApplication.instance()
     if app is None: app = QApplication(sys.argv)
     network = Network(); gridforge_application = create_application(network)
-    sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
+    sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
     sld_controller: SLDController
 
     def serialize_sld(document: SLDDocument) -> dict:
@@ -142,7 +142,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_context = project_workspace_adapter.new_project(name="GridForge Project", project_id=project_id, activate_workspace=False)
     sld_document = gridforge_application.presentation
     if not isinstance(sld_document, SLDDocument): raise RuntimeError("Application did not establish an SLDDocument for the active project.")
-    sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.activate_document(sld_document.document_id); sld_read_synchronizer.synchronize_network(sld_document, gridforge_application.read_network())
+    sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.activate_document(sld_document.document_id); sld_read_synchronizer.synchronize_network(gridforge_application.read_network()); sld_read_synchronizer.synchronize_protection(gridforge_application.read_protection())
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
@@ -163,7 +163,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     workspace_controller.activate_default()
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas): raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
-    sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, document=sld_document, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
+    sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
     element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
