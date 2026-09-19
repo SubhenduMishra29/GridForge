@@ -151,6 +151,32 @@ class RevisionService:
         self._current = transition.after
         return self._current
 
+    def snapshot_state(self) -> tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int]:
+        """Capture revision/history state for an Application activation transaction."""
+        return (
+            self._current,
+            self._persisted_state,
+            tuple(self._undo),
+            tuple(self._redo),
+            self._persisted_generation,
+        )
+
+    def restore_state(
+        self,
+        snapshot: tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int],
+    ) -> None:
+        """Restore a previously captured activation snapshot."""
+        if not isinstance(snapshot, tuple) or len(snapshot) != 5:
+            raise TypeError("Invalid revision state snapshot.")
+        current, persisted, undo, redo, generation = snapshot
+        if not isinstance(current, ProjectRevision) or not isinstance(persisted, ProjectRevision):
+            raise TypeError("Invalid revision state snapshot.")
+        self._current = current
+        self._persisted_state = persisted
+        self._undo = list(undo)
+        self._redo = list(redo)
+        self._persisted_generation = generation
+
     def mark_persisted(self) -> ProjectRevision:
         """Mark the current state as successfully persisted."""
         self._persisted_generation += 1

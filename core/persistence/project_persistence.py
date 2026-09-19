@@ -100,21 +100,33 @@ class ProjectPersistenceService:
 
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=parent))
         backup_dir: Path | None = None
+        replacement_installed = False
         try:
             self._write_json(temp_dir / MANIFEST_NAME, manifest)
             self._write_json(temp_dir / "project.json", project)
+
             if target.exists():
                 backup_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.backup.", dir=parent))
                 backup_dir.rmdir()
                 os.replace(target, backup_dir)
+
             os.replace(temp_dir, target)
+            replacement_installed = True
+            temp_dir = Path()
+
             if backup_dir is not None:
                 shutil.rmtree(backup_dir)
                 backup_dir = None
-            temp_dir = Path()
         except Exception as exc:
-            if temp_dir and temp_dir.exists(): shutil.rmtree(temp_dir, ignore_errors=True)
-            if backup_dir is not None and backup_dir.exists() and not target.exists(): os.replace(backup_dir, target)
+            if temp_dir and temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+            if backup_dir is not None and backup_dir.exists():
+                if replacement_installed and target.exists():
+                    shutil.rmtree(target, ignore_errors=True)
+                if not target.exists():
+                    os.replace(backup_dir, target)
+
             raise ProjectPersistenceError(f"Unable to save GridForge project to {target}: {exc}") from exc
 
     @staticmethod
