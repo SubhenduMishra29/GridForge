@@ -425,11 +425,12 @@ class PluginRegistry:
                 try:
                     entry.plugin.shutdown()
                 except Exception as compensation_error:
-                    self._record_error(plugin_id, compensation_error)
-                    raise ExceptionGroup(
+                    aggregate = ExceptionGroup(
                         f"Plugin {plugin_id!r} initialization and compensation failed.",
                         [exc, compensation_error],
-                    ) from exc
+                    )
+                    self._record_error(plugin_id, aggregate)
+                    raise aggregate from exc
                 raise
 
             # ------------------------------------------------
@@ -451,11 +452,12 @@ class PluginRegistry:
                 try:
                     entry.plugin.shutdown()
                 except Exception as compensation_error:
-                    self._record_error(plugin_id, compensation_error)
-                    raise ExceptionGroup(
+                    aggregate = ExceptionGroup(
                         f"Plugin {plugin_id!r} initialization-state commit and compensation failed.",
                         [exc, compensation_error],
-                    ) from exc
+                    )
+                    self._record_error(plugin_id, aggregate)
+                    raise aggregate from exc
                 raise
 
             return result
