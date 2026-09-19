@@ -62,8 +62,7 @@ class ElementCreated(ApplicationEvent):
                  causation_id: UUID | None = None,
                  metadata: Mapping[str, Any] | None = None) -> None:
         payload = {"element_id": element_id, "element_type": element_type}
-        if metadata:
-            payload.update(metadata)
+        if metadata: payload.update(metadata)
         super().__init__("element.created", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
@@ -74,8 +73,7 @@ class ElementRemoved(ApplicationEvent):
                  causation_id: UUID | None = None,
                  metadata: Mapping[str, Any] | None = None) -> None:
         payload = {"element_id": element_id, "element_type": element_type}
-        if metadata:
-            payload.update(metadata)
+        if metadata: payload.update(metadata)
         super().__init__("element.removed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
@@ -99,8 +97,7 @@ class TopologyChanged(ApplicationEvent):
                  causation_id: UUID | None = None,
                  metadata: Mapping[str, Any] | None = None) -> None:
         payload = {"operation": operation}
-        if metadata:
-            payload.update(metadata)
+        if metadata: payload.update(metadata)
         super().__init__("topology.changed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
@@ -110,8 +107,7 @@ class NetworkChanged(ApplicationEvent):
                  causation_id: UUID | None = None,
                  metadata: Mapping[str, Any] | None = None) -> None:
         payload = {"operation": operation}
-        if metadata:
-            payload.update(metadata)
+        if metadata: payload.update(metadata)
         super().__init__("network.changed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
@@ -119,37 +115,23 @@ class NetworkChanged(ApplicationEvent):
 class ProtectionChanged(ApplicationEvent):
     """Semantic fact that Application-owned protection read state changed."""
 
-    def __init__(
-        self,
-        *,
-        operation: str,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-        metadata: Mapping[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, *, operation: str, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None,
+                 metadata: Mapping[str, Any] | None = None) -> None:
         payload = {"operation": operation}
-        if metadata:
-            payload.update(metadata)
-        super().__init__(
-            "protection.changed",
-            payload,
-            correlation_id=correlation_id,
-            causation_id=causation_id,
-        )
+        if metadata: payload.update(metadata)
+        super().__init__("protection.changed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
 class SLDPresentationChanged(ApplicationEvent):
     """Semantic fact that persistent SLD presentation state changed."""
 
-    def __init__(self, *, operation: str,
-                 correlation_id: UUID | None = None,
+    def __init__(self, *, operation: str, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None,
                  metadata: Mapping[str, Any] | None = None) -> None:
         payload = {"operation": operation}
-        if metadata:
-            payload.update(metadata)
-        super().__init__("sld.presentation.changed", payload,
-                         correlation_id=correlation_id, causation_id=causation_id)
+        if metadata: payload.update(metadata)
+        super().__init__("sld.presentation.changed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
 @dataclass(frozen=True)
@@ -158,8 +140,7 @@ class OperationCompleted(ApplicationEvent):
                  causation_id: UUID | None = None,
                  metadata: Mapping[str, Any] | None = None) -> None:
         payload = {"operation": operation}
-        if metadata:
-            payload.update(metadata)
+        if metadata: payload.update(metadata)
         super().__init__("operation.completed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
@@ -168,16 +149,10 @@ class ProtectionTripRequested(ApplicationEvent):
     """Semantic Application event for an actionable protection trip request."""
 
     @classmethod
-    def from_decision(
-        cls,
-        decision: Any,
-        *,
-        breaker_id: str,
-        correlation_id: UUID | None = None,
-        causation_id: UUID | None = None,
-    ) -> "ProtectionTripRequested":
+    def from_decision(cls, decision: Any, *, breaker_id: str,
+                      correlation_id: UUID | None = None,
+                      causation_id: UUID | None = None) -> "ProtectionTripRequested":
         from core.protection.decision import ProtectionDecision
-
         if not isinstance(decision, ProtectionDecision):
             raise TypeError("decision must be a ProtectionDecision.")
         if not isinstance(breaker_id, str) or not breaker_id.strip():
@@ -207,6 +182,13 @@ class _OperationEvent(ApplicationEvent):
 
 
 class ProjectLoaded(_OperationEvent):
+    """Application project activation has committed.
+
+    This event does not assert that an engineer-visible UI workspace/SLD is
+    ready. UI readiness is a separate presentation transaction signalled by
+    the workspace adapter after its activation callback commits.
+    """
+
     _EVENT_TYPE = "project.loaded"
 
 
