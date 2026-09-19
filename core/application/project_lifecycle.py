@@ -20,13 +20,10 @@ from .project import ProjectContext
 ProjectLoader = Callable[[Path], LoadedProject]
 ProjectSaver = Callable[[ProjectContext, Any, Mapping[str, Any] | None, Path], None]
 NetworkFactory = Callable[[], Any]
-NetworkActivator = Callable[[Any], None]
 PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
-ProjectStateActivator = Callable[[ProjectContext | None, LoadedProject | None], None]
 ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
-PresentationActivator = Callable[[Any | None], None]
 ActivationRollback = Callable[[], None]
 ActivationTransaction = Callable[[ProjectContext | None, LoadedProject | None, Any, Any, int], ActivationRollback | None]
 
@@ -35,32 +32,23 @@ class ProjectLifecycleService:
     """Own the active project's lifecycle at the Application boundary."""
 
     def __init__(self, *, network: Any, network_factory: NetworkFactory,
-                 activate_network: NetworkActivator, context: ProjectContext | None = None,
+                 context: ProjectContext | None = None,
                  loader: ProjectLoader | None = None, saver: ProjectSaver | None = None,
                  presentation: Any = None, presentation_factory: PresentationFactory | None = None,
                  serialize_presentation: PresentationSerializer | None = None,
                  deserialize_presentation: PresentationDeserializer | None = None,
-                 project_state_activator: ProjectStateActivator | None = None,
                  project_state_validator: ProjectStateValidator | None = None,
-                 presentation_activator: PresentationActivator | None = None,
                  activation_transaction: ActivationTransaction | None = None) -> None:
         if network is None:
             raise ValueError("network is required.")
         if not callable(network_factory):
             raise TypeError("network_factory must be callable.")
-        if not callable(activate_network):
-            raise TypeError("activate_network must be callable.")
         if (serialize_presentation is None) != (deserialize_presentation is None):
             raise ValueError("serialize_presentation and deserialize_presentation must be configured together.")
-        if project_state_activator is not None and not callable(project_state_activator):
-            raise TypeError("project_state_activator must be callable.")
         if project_state_validator is not None and not callable(project_state_validator):
             raise TypeError("project_state_validator must be callable.")
-        if presentation_activator is not None and not callable(presentation_activator):
-            raise TypeError("presentation_activator must be callable.")
         self._network = network
         self._network_factory = network_factory
-        self._activate_network = activate_network
         self._context = context
         self._loader = loader
         self._saver = saver
@@ -68,12 +56,10 @@ class ProjectLifecycleService:
         self._presentation_factory = presentation_factory
         self._serialize_presentation = serialize_presentation
         self._deserialize_presentation = deserialize_presentation
-        self._project_state_activator = project_state_activator
         self._project_state_validator = project_state_validator
         self._activation_generation = 1 if context is not None else 0
-        self._presentation_activator = presentation_activator
-        if activation_transaction is not None and not callable(activation_transaction):
-            raise TypeError("activation_transaction must be callable.")
+        if not callable(activation_transaction):
+            raise TypeError("activation_transaction is required and must be callable.")
         self._activation_transaction = activation_transaction
 
     @property
@@ -106,21 +92,6 @@ class ProjectLifecycleService:
         if not callable(validator):
             raise TypeError("validator must be callable.")
         self._project_state_validator = validator
-
-    def configure_presentation_activator(self, activator: PresentationActivator) -> None:
-        if not callable(activator):
-            raise TypeError("activator must be callable.")
-        self._presentation_activator = activator
-
-    def configure_activation_transaction(self, transaction: ActivationTransaction) -> None:
-        if not callable(transaction):
-            raise TypeError("transaction must be callable.")
-        self._activation_transaction = transaction
-
-    def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
-        if not callable(activator):
-            raise TypeError("activator must be callable.")
-        self._project_state_activator = activator
 
     def configure_presentation_factory(self, factory: PresentationFactory) -> None:
         if not callable(factory):
@@ -229,49 +200,10 @@ class ProjectLifecycleService:
         presentation: Any | None,
         generation: int,
     ) -> None:
-        """Commit one fully validated candidate through the single activation boundary."""
-        if self._activation_transaction is not None:
-            rollback = self._activation_transaction(context, loaded, network, presentation, generation)
-            if rollback is not None and not callable(rollback):
-                raise TypeError("activation_transaction must return a callable rollback or None.")
-            return
-
-        # Compatibility path for legacy composition callers.
-        previous_network = self._network
-        previous_context = self._context
-        previous_presentation = self._presentation
-        try:
-            self._activate_presentation(presentation)
-            self._activate_network(network)
-            self._activate_project_state(context, loaded)
-        except Exception:
-            try:
-                self._activate_presentation(previous_presentation)
-                self._activate_network(previous_network)
-                self._activate_project_state(previous_context, None)
-            except Exception as rollback_exc:
-                raise RuntimeError("Project activation failed and rollback also failed.") from rollback_exc
-            raise
-
-    def _activate_presentation(self, presentation: Any | None) -> None:
-        if self._presentation_activator is not None:
-            self._presentation_activator(presentation)
-
-    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
-        if self._project_state_validator is not None:
-            self._project_state_validator(context, loaded, network, presentation)
-
-    def _activate_project_state(self, context: ProjectContext | None, loaded: LoadedProject | None) -> None:
-        if self._project_state_activator is not None:
-            self._project_state_activator(context, loaded)
-
-    def _create_presentation(self, context: ProjectContext) -> Any:
-        if self._presentation_factory is None:
-            return None
-        presentation = self._presentation_factory(context)
-        if presentation is None:
-            raise RuntimeError("Presentation factory returned no presentation.")
-        return presentation
+        """Commit one candidate through the single Application-owned activation transaction."""
+        rollback = self._activation_transaction(context, loaded, network, presentation, generation)
+        if rollback is not None and not callable(rollback):
+            raise TypeError("activation_transaction must return a callable rollback or None.")
 
     @staticmethod
     def _normalize_path(path: str | Path) -> Path:
