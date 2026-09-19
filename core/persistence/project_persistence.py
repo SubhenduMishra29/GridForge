@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/persistence/project_persistence.py
+# GridForge V2 — Project Persistence Service
+# Author: Subhendu Mishra
+# ============================================================
+
 """Canonical ``.gridforge`` project loader/saver."""
 
 from __future__ import annotations
@@ -65,6 +71,7 @@ class ProjectPersistenceService:
             try: protection_configuration = ProtectionProjectConfiguration.from_dict(protection_data)
             except (TypeError, ValueError, KeyError) as exc: raise ProjectPersistenceError(f"Invalid protection configuration: {exc}") from exc
         context = ProjectContext(project_id=project_id, name=name, path=package)
+        self._validate_project_state(context, network, presentation, dynamic_models, protection_configuration)
         return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration)
 
     def save(self, context: ProjectContext, network: Network,
@@ -90,6 +97,13 @@ class ProjectPersistenceService:
         target = normalize_package_path(path)
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if network.topology_dirty:
+                network.rebuild_topology()
+            network.validate()
+        except Exception as exc:
+            raise ProjectPersistenceError(f"Project Network failed the persistence validation gate: {exc}") from exc
+        self._validate_project_state(context, network, presentation, tuple(dynamic_models), protection_configuration)
         network_data = serialize_network(network)
         presentation_data = None if presentation is None else dict(presentation)
         dynamic_models_data = [item.to_dict() for item in dynamic_models]
@@ -128,6 +142,30 @@ class ProjectPersistenceService:
                     os.replace(backup_dir, target)
 
             raise ProjectPersistenceError(f"Unable to save GridForge project to {target}: {exc}") from exc
+
+    @staticmethod
+    def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None) -> None:
+        """Validate cross-domain project invariants at load/save boundaries."""
+        if not isinstance(context, ProjectContext) or not isinstance(network, Network):
+            raise ProjectPersistenceError("Project context or Network is invalid.")
+        if presentation is not None:
+            presentation_project_id = presentation.get("project_id")
+            if presentation_project_id is not None and presentation_project_id != context.project_id:
+                raise ProjectPersistenceError("Presentation project_id does not match the active project.")
+        for association in dynamic_models:
+            if association.project_id != context.project_id:
+                raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' belongs to another project.")
+            try:
+                machine = network.get_by_identity(association.machine_id)
+                bus = network.get_by_identity(association.bus_id)
+            except KeyError as exc:
+                raise ProjectPersistenceError(f"Dynamic model association references a missing Core object: {exc}") from exc
+            if machine.element_type != "SYNCHRONOUS_MACHINE":
+                raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' does not reference a SynchronousMachine.")
+            if bus.element_type != "BUS":
+                raise ProjectPersistenceError(f"Dynamic model association '{association.bus_id}' does not reference a Bus.")
+        if protection_configuration is not None and protection_configuration.project_id != context.project_id:
+            raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")
 
     @staticmethod
     def _read_json(path: Path) -> dict[str, Any]:
