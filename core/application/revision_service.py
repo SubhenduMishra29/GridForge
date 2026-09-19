@@ -61,6 +61,34 @@ class RevisionService:
         """Return whether the current engineering/presentation state is unsaved."""
         return self._current != self._persisted_state
 
+    def snapshot_state(self) -> tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int]:
+        """Capture the complete revision state for an enclosing activation transaction."""
+        return (
+            self._current,
+            self._persisted_state,
+            tuple(self._undo),
+            tuple(self._redo),
+            self._persisted_generation,
+        )
+
+    def restore_state(
+        self,
+        state: tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int],
+    ) -> None:
+        """Restore a previously captured revision state after activation rollback."""
+        if not isinstance(state, tuple) or len(state) != 5:
+            raise TypeError("Invalid revision transaction state.")
+        current, persisted, undo, redo, generation = state
+        if not isinstance(current, ProjectRevision) or not isinstance(persisted, ProjectRevision):
+            raise TypeError("Invalid revision snapshots.")
+        if not isinstance(generation, int) or isinstance(generation, bool) or generation < 0:
+            raise ValueError("persisted generation must be a non-negative integer.")
+        self._current = current
+        self._persisted_state = persisted
+        self._undo = list(undo)
+        self._redo = list(redo)
+        self._persisted_generation = generation
+
     def reset_for_project(self) -> ProjectRevision:
         """Reset revision state for a newly active project."""
         self._persisted_generation += 1
