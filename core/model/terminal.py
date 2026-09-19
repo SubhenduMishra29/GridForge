@@ -81,6 +81,28 @@ if TYPE_CHECKING:
 
 class Terminal:
     """
+    # Terminal roles are case-sensitive canonical Core vocabulary. Existing
+    # model families retain their established spellings; FROM and from are
+    # distinct role identifiers and are not silently normalized.
+    BUS_ROLE = "bus"
+    SINGLE_ROLE = "terminal"
+    BRANCH_FROM_ROLE = "FROM"
+    BRANCH_TO_ROLE = "TO"
+    SWITCHING_FROM_ROLE = "from"
+    SWITCHING_TO_ROLE = "to"
+    CT_PRIMARY_1_ROLE = "P1"
+    CT_PRIMARY_2_ROLE = "P2"
+    CT_SECONDARY_1_ROLE = "S1"
+    CT_SECONDARY_2_ROLE = "S2"
+    PT_PRIMARY_A_ROLE = "primary_a"
+    PT_PRIMARY_B_ROLE = "primary_b"
+    PT_SECONDARY_A_ROLE = "secondary_a"
+    PT_SECONDARY_B_ROLE = "secondary_b"
+    CVT_PRIMARY_1_ROLE = "H1"
+    CVT_PRIMARY_2_ROLE = "H2"
+    CVT_SECONDARY_1_ROLE = "X1"
+    CVT_SECONDARY_2_ROLE = "X2"
+
     Authoritative electrical connection point.
 
     A Terminal belongs to exactly one Equipment object and may
@@ -233,10 +255,15 @@ class Terminal:
         self._validate_endpoint(endpoint)
 
         endpoint_token = getattr(endpoint, "_gridforge_network_token", None)
-        if self._network_token is not None and endpoint_token is not None and self._network_token is not endpoint_token:
-            raise ValueError(
-                "Terminal endpoint belongs to a different Network."
-            )
+        if self._network_token is not None:
+            if endpoint_token is None:
+                raise ValueError(
+                    "Terminal endpoint is not registered in the owning Network."
+                )
+            if self._network_token is not endpoint_token:
+                raise ValueError(
+                    "Terminal endpoint belongs to a different Network."
+                )
 
         self._endpoint = endpoint
 
