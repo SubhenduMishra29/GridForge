@@ -155,7 +155,7 @@ class Application:
     def open_project(self, path: str) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.open_project(path)
-        if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
+        self._revision_service.reset_for_project()
         self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
