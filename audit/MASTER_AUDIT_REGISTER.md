@@ -451,3 +451,61 @@ This addendum reflects the current main branch after the Batch 3 source correcti
 The static lifecycle chain is materially corrected, but GF-INT-032, GF-INT-037, and GF-INT-039 remain open. They are retained as explicit findings rather than being inferred closed.
 
 Verification remains **deferred** exactly as required by the remediation scope.
+
+# WF-041-V1–V15 — Plugin Lifecycle Static Re-audit
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Static-audit head after correction:** `a82e4b35ebbbb6a03d4eedee5a4bf0da5dbfb3f1`  
+**Verification mode:** static source inspection only. Tests, CI, application startup, GUI execution, and runtime verification were not performed.
+
+## Scope
+
+The re-audit covered:
+
+- `ui/plugins/plugin_manager.py`
+- `ui/plugins/plugin_registry.py`
+- `ui/plugins/plugin_state.py`
+- `ui/plugins/plugin_events.py`
+
+The frozen ownership chain remains:
+
+`Composition Root → PluginManager → PluginRegistry → PluginStateStore`.
+
+No second lifecycle state store, lifecycle manager, event bus, or `PARTIALLY_INITIALIZED` state was introduced.
+
+## Static event matrix
+
+| Operation | Success path | Failure path |
+|---|---|---|
+| Load | `LOAD_REQUESTED → LOADED` per newly introduced plugin | `LOAD_REQUESTED → FAILED(operation=load)`; transaction-created registrations are compensated |
+| Initialize | `INITIALIZE_REQUESTED → INITIALIZING → plugin.initialize() → StateStore initialized → INITIALIZED` | `INITIALIZE_REQUESTED → INITIALIZING → FAILED(operation=initialize)`; started callbacks receive rollback shutdown compensation |
+| Shutdown | `SHUTDOWN_REQUESTED → SHUTTING_DOWN → plugin.shutdown() → StateStore uninitialized → SHUTDOWN` | `SHUTDOWN_REQUESTED → SHUTTING_DOWN → FAILED(operation=shutdown)`; failed plugin remains initialized |
+| Disable | successful state transition → `DISABLED` | `FAILED(operation=disable)`; shutdown success is preserved if disable itself fails |
+| Unload | `UNLOAD_REQUESTED → shutdown if required → disable if required → unregister → UNLOADED` | `FAILED(operation=unload)` or the underlying lifecycle failure event; `UNLOADED` is never emitted prematurely |
+| Rollback | existing shutdown/unload vocabulary with `rollback=true` metadata | rollback failures are retained and aggregated |
+
+## Finding register
+
+| Finding | Affected implementation | Root cause | Correction | Static verification | Residual observation | Status |
+|---|---|---|---|---|---|---|
+| WF-041-V1 | `PluginManager._emit`; Registry event sink | Registry could externally publish lifecycle events in addition to Manager | Registry lifecycle emission removed; Manager is the sole external publisher | Manager/Registry event ownership statically reconciled | No runtime observer verification | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V2 | `PluginManager._initialize_transaction` | Success/failure event ordering was not transactionally aligned | INITIALIZED follows successful Registry/state transition; FAILED is emitted on callback failure | Event sequence statically traced | Runtime event stream not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V3 | `PluginManager._shutdown_one` | Success event could be separated from actual shutdown semantics | SHUTDOWN is emitted only after successful Registry shutdown | State/event ordering statically traced | Runtime callback behavior not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V4 | `PluginManager.unload` | Unload had no complete request→teardown→unregister boundary | Added UNLOAD_REQUESTED and success-only UNLOADED boundary | Unload path statically traced | Runtime unregister behavior not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V5 | `load/load_many/load_all`; `initialize/initialize_many`; `shutdown/shutdown_all` | Single and bulk operations had separate observability behavior | Shared transaction/helper boundaries established | Single/bulk implementation paths compared | Runtime equivalence not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V6 | `PluginManager._load_plugins` | Loading was not tracked independently from initialization | Explicit `loaded_here` tracking and rollback added | Variable lifecycle and rollback paths statically traced | Runtime dependency failure not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V7 | `PluginManager.load_many` | Bulk-load transaction semantics were implicit | One resolved order is processed through one load transaction | Bulk boundary statically verified | Runtime batch failure not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V8 | `PluginManager._initialize_transaction` | Implicit loads could outlive initialization rollback | Separate `loaded_here` and `initialized_here` scopes now roll back together | Transaction paths statically verified | Runtime compensation not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V9 | `shutdown/shutdown_all` | Shutdown could abort or incorrectly proceed through failed dependency chains | Reverse ordering, dependency blocking, independent continuation, and aggregation implemented | Control flow statically traced | Runtime failure aggregation not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V10 | `PluginManager.enable/disable`; Registry enable/disable | Local Registry operations could become the observable lifecycle boundary | Manager owns orchestration/events; Registry performs local state transition | Ownership and event source statically verified | Runtime state transition not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V11 | `PluginManager.unload` | Inclusive dependant closure could treat target as its own dependant | Target explicitly excluded from registered-dependant guard | Guard statically verified | Runtime dependency graph not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V12 | `PluginManager.unload` | Unregister could be reached before disable | Shutdown → disable → unregister ordering made explicit | Ordering statically verified | Runtime teardown not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V13 | Manager/Registry/StateStore failure paths | Lifecycle failures could diverge from authoritative state | StateStore remains sole state authority; success events are success-gated; failed shutdown does not mark uninitialized | State invariants and failure branches statically checked | Runtime state observation not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V14 | Manager + Registry event paths | Manager and Registry could duplicate externally visible events or publish success prematurely | Registry lifecycle event emission removed; Manager publishes at orchestration boundaries | Event matrix and source ownership statically checked | Runtime event consumer behavior not executed | **CLOSED — STATICALLY VERIFIED** |
+| WF-041-V15 | Registry guards; Manager rollback | Cleanup/retry paths risked unsafe state fabrication | Existing idempotent guards preserved; failed-init compensation failure protects the plugin from unsafe unregister | Guard and compensation control flow statically checked | Runtime retry behavior not executed | **CLOSED — STATICALLY VERIFIED** |
+
+### Architectural residual observation
+
+The Registry retains its existing `event_sink` compatibility parameter, but current Registry lifecycle methods no longer publish lifecycle events through it. This does not create a second event publisher or state authority. Runtime behavior remains intentionally unverified because tests, CI, startup, and GUI execution were explicitly excluded.
+
