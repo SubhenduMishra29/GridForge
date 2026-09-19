@@ -264,39 +264,41 @@ class CommandHistory:
         self._redo_stack.append(record)
 
     def move_undo_to_redo(self, record: CommandRecord) -> None:
-        """Move an already-removed undo record to redo history.
+        """Append an already-removed undo record to redo history.
 
-        This helper is state-only. The record is appended to redo before
-        the undo entry is removed so a transition failure is explicit and
-        cannot be mistaken for a completed history transition.
+        Contract
+        --------
+        CommandManager owns the removal step:
+
+            pop_undo() -> execute inverse journal -> move_undo_to_redo()
+
+        Therefore this state-only transition requires the supplied record
+        to be absent from both stacks before it is appended to redo. The
+        record itself is never mutated or recreated.
+
+        A transition failure is surfaced to CommandManager, which owns the
+        Core/history integrity decision after the Core undo has completed.
         """
         self._validate_record(record)
-        if not self._undo_stack or self._undo_stack[-1] is not record:
+
+        if any(existing is record for existing in self._undo_stack):
             raise RuntimeError(
-                "Undo history transition requires the supplied record "
-                "to be the current undo record."
+                "Undo-to-redo transition received a record that is still "
+                "present in undo history."
             )
 
-        self._redo_stack.append(record)
+        if any(existing is record for existing in self._redo_stack):
+            raise RuntimeError(
+                "Undo-to-redo transition received a record that is already "
+                "present in redo history."
+            )
+
         try:
-            popped = self._undo_stack.pop()
+            self._redo_stack.append(record)
         except Exception as exc:
-            try:
-                if self._redo_stack and self._redo_stack[-1] is record:
-                    self._redo_stack.pop()
-            except Exception as restore_exc:
-                raise RuntimeError(
-                    "Undo-to-redo history transition failed and its "
-                    "history cleanup also failed."
-                ) from restore_exc
             raise RuntimeError(
                 "Undo-to-redo history transition failed."
             ) from exc
-
-        if popped is not record:
-            raise RuntimeError(
-                "Undo-to-redo history transition removed an unexpected record."
-            )
 
     # ========================================================
     # REDO
