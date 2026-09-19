@@ -1,6 +1,7 @@
 """Canonical ``.gridforge`` project loader/saver."""
 
 from __future__ import annotations
+# Author: Subhendu Mishra
 
 import json
 import os
