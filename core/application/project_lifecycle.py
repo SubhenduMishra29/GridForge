@@ -200,18 +200,17 @@ class ProjectLifecycleService:
 
     def close_project(self) -> ProjectContext | None:
         previous = self._context
-        self._context = None
-        self._presentation = None
 
-        # Closing a project must also detach every Application read/mutation
-        # service from the closed project's authoritative Network. Keep a
-        # fresh empty Network as the inactive shell rather than leaving the
-        # previous project graph reachable through the Application boundary.
+        # Prepare the inactive shell before discarding the active context so
+        # a failed runtime replacement does not silently half-close the project.
         network = self._network_factory()
         self._activate_network(network)
         self._network = network
         self._activate_project_state(None, None)
         self._activate_presentation(None)
+
+        self._context = None
+        self._presentation = None
         self._activation_generation += 1
         return previous
 
