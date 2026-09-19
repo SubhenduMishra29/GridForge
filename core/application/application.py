@@ -131,19 +131,36 @@ class Application:
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
         if self._sld_service is not None:
-            service.configure_presentation_activator(lambda presentation: self._sld_service.detach_document() if presentation is None else self._sld_service.bind_document(presentation))
+            service.configure_presentation_activator(lambda presentation: self._bind_sld_transactionally(self._sld_service, presentation))
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
         if self._sld_service is not None:
-            self.project_lifecycle.configure_presentation_activator(lambda value: self._sld_service.detach_document() if value is None else self._sld_service.bind_document(value))
+            self.project_lifecycle.configure_presentation_activator(lambda value: self._bind_sld_transactionally(self._sld_service, value))
+
+    @staticmethod
+    def _bind_sld_transactionally(service: SLDService, value: Any) -> Any:
+        """Bind/detach the persistent SLD document with an explicit rollback."""
+        previous = service.document if service.is_bound else None
+        if value is None:
+            service.detach_document()
+        else:
+            service.bind_document(value)
+
+        def rollback() -> None:
+            if previous is None:
+                service.detach_document()
+            else:
+                service.bind_document(previous)
+
+        return rollback
 
     def attach_sld_service(self, service: SLDService) -> None:
         if not isinstance(service, SLDService): raise TypeError("service must be an SLDService.")
         if self._sld_service is not None and self._sld_service is not service: raise RuntimeError("Application SLD service is already configured.")
         self._sld_service = service
         if self._project_lifecycle is not None:
-            self._project_lifecycle.configure_presentation_activator(lambda value: service.detach_document() if value is None else service.bind_document(value))
+            self._project_lifecycle.configure_presentation_activator(lambda value: self._bind_sld_transactionally(service, value))
         self._register_sld_handlers(service)
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
