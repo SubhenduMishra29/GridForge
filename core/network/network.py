@@ -91,9 +91,11 @@ class Network:
         if len(registered) != len(self.registry._objects):
             raise ValueError("Network contains duplicate canonical identities.")
 
+        from core.model.base import ElectricalObject
+
         for element in self.registry._objects.values():
-            if not isinstance(element, object):
-                raise TypeError("Network contains an invalid object.")
+            if not isinstance(element, ElectricalObject):
+                raise TypeError("Network contains a non-Core electrical object.")
             element.validate()
             if getattr(element, "_gridforge_network_token", None) is not self.registry._network_token:
                 raise ValueError(f"Network membership token is invalid for '{element.id}'.")
