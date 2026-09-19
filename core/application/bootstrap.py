@@ -148,7 +148,7 @@ def create_application(network: Any) -> Application:
     persistence = ProjectPersistenceService()
     dynamic_models = DynamicMachineModelRegistry()
 
-    def activate_project_state(context: ProjectContext | None, loaded, generation: int):
+    def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
         """Install project-scoped protection/dynamic/revision state transactionally."""
         previous_configuration = protection_configuration_service.configuration
         previous_protection_runtime = application.protection_runtime
@@ -181,7 +181,7 @@ def create_application(network: Any) -> Application:
                             for item in loaded.dynamic_models
                         )
                     )
-                application.protection_runtime = ProtectionRuntime(network=lifecycle.network, configuration=configuration)
+                application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration)
 
             application.revision_service.reset_for_project()
         except Exception:
