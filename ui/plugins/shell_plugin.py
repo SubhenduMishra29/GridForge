@@ -303,17 +303,69 @@ class ShellPlugin:
                 )
             )
 
-        self._context = context
+        previous_context = self._context
+        previous_root = self._root_widget
+        previous_layout = self._layout
+        previous_initialized = self._initialized
+        root = context.root_widget
+        existing_layout = root.layout()
+        previous_items = (
+            tuple(
+                existing_layout.itemAt(index).widget()
+                for index in range(existing_layout.count())
+            )
+            if existing_layout is not None
+            else ()
+        )
 
-        self._root_widget = self._resolve_root_widget()
+        try:
+            self._context = context
+            self._root_widget = self._resolve_root_widget()
+            self._create_layout()
+            self._compose_widgets()
+            self._initialized = True
+            return self._root_widget
+        except BaseException as exc:
+            compensation_error = None
+            try:
+                self._compensate_initialization(
+                    root=root,
+                    existing_layout=existing_layout,
+                    previous_items=previous_items,
+                    created_layout=existing_layout is None,
+                )
+            except BaseException as cleanup_exc:
+                compensation_error = cleanup_exc
+            self._context = previous_context
+            self._root_widget = previous_root
+            self._layout = previous_layout
+            self._initialized = previous_initialized
+            if compensation_error is not None:
+                raise ExceptionGroup(
+                    "ShellPlugin initialization and composition compensation failed.",
+                    [exc, compensation_error],
+                ) from exc
+            raise
 
-        self._create_layout()
-
-        self._compose_widgets()
-
-        self._initialized = True
-
-        return self._root_widget
+    def _compensate_initialization(
+        self,
+        *,
+        root: QWidget,
+        existing_layout: Optional[QLayout],
+        previous_items: tuple[Optional[QWidget], ...],
+        created_layout: bool,
+    ) -> None:
+        """Restore shell-owned layout composition after failed initialization."""
+        layout = self._layout
+        if layout is None:
+            return
+        while layout.count() > 0:
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget not in previous_items:
+                widget.setParent(None)
+        if created_layout and layout is not existing_layout:
+            layout.deleteLater()
 
     # ========================================================
 
