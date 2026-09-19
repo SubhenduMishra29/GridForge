@@ -81,6 +81,7 @@ class ProjectPersistenceService:
         if presentation is not None and not isinstance(presentation, Mapping): raise TypeError("presentation must be a mapping or None.")
         if not isinstance(dynamic_models, Sequence): raise TypeError("dynamic_models must be a sequence.")
         if any(not isinstance(item, DynamicMachineModelAssociation) for item in dynamic_models): raise TypeError("dynamic_models contains an invalid association.")
+        if any(item.project_id != context.project_id for item in dynamic_models): raise ProjectPersistenceError("dynamic_models contains an association for a different project.")
         if protection_configuration is not None and not isinstance(protection_configuration, ProtectionProjectConfiguration): raise TypeError("protection_configuration must be ProtectionProjectConfiguration or None.")
 
         target = normalize_package_path(path)
