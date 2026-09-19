@@ -23,6 +23,7 @@ class _RevisionTransition:
 class RevisionService:
     """Own the authoritative in-memory revision state for the active project."""
 
+    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.")
     _TOPOLOGY_COMMANDS = frozenset({
         "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
@@ -63,9 +64,7 @@ class RevisionService:
     def is_dirty(self) -> bool:
         return self._current != self._persisted_state
 
-    def snapshot_state(
-        self,
-    ) -> tuple[
+    def snapshot_state(self) -> tuple[
         ProjectRevision,
         ProjectRevision,
         tuple[_RevisionTransition, ...],
@@ -81,16 +80,13 @@ class RevisionService:
             self._persisted_generation,
         )
 
-    def restore_state(
-        self,
-        state: tuple[
-            ProjectRevision,
-            ProjectRevision,
-            tuple[_RevisionTransition, ...],
-            tuple[_RevisionTransition, ...],
-            int,
-        ],
-    ) -> None:
+    def restore_state(self, state: tuple[
+        ProjectRevision,
+        ProjectRevision,
+        tuple[_RevisionTransition, ...],
+        tuple[_RevisionTransition, ...],
+        int,
+    ]) -> None:
         """Restore a previously captured activation revision state."""
         if not isinstance(state, tuple) or len(state) != 5:
             raise TypeError("Invalid revision transaction state.")
@@ -134,18 +130,14 @@ class RevisionService:
         return False
 
     @classmethod
-    def _next_for_command(
-        cls,
-        revision: ProjectRevision,
-        command: Command,
-    ) -> ProjectRevision:
-        """Derive the next revision from the canonical Application command contract."""
+    def _next_for_command(cls, revision: ProjectRevision, command: Command) -> ProjectRevision:
+        """Derive the next revision from the canonical Application mutation contract."""
         if not isinstance(revision, ProjectRevision):
             raise TypeError("revision must be a ProjectRevision")
         if not isinstance(command, Command):
             raise TypeError("command must be a Command")
 
-        if not command.command_type.startswith("model."):
+        if not command.command_type.startswith(cls._MUTATING_COMMAND_PREFIXES):
             return revision
 
         model_revision = revision.model_revision + 1
@@ -168,7 +160,7 @@ class RevisionService:
         return self._current
 
     def record_command_success(self, command: Command) -> ProjectRevision:
-        """Record one successfully committed engineering/model command."""
+        """Record every successful Application mutation command as project-dirty."""
         return self._record_transition(self._next_for_command(self._current, command))
 
     def record_presentation_change(self) -> ProjectRevision:
