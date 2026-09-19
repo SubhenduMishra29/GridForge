@@ -96,55 +96,38 @@ class MouseEventAdapter:
             return mapper(to_point())
 
     def _hit_test(self, scene_position: Any) -> Optional[Any]:
-        items_method = getattr(self._scene, "items", None)
-        if not callable(items_method):
-            raise TypeError("scene must provide items().")
+        item_at = getattr(self._scene, "itemAt", None)
+        if not callable(item_at):
+            raise TypeError("scene must provide itemAt().")
 
-        # Do not dispatch QGraphicsScene.items(QPointF) through PySide6.
-        # That overload can enter a generated isinstance() check containing
-        # collections.abc.Sequence[QPoint]. Use the scalar rectangle overload
-        # as an indexed candidate query, then apply the exact point test below.
         x = float(scene_position.x())
         y = float(scene_position.y())
-        epsilon = 1e-6
-        candidates = items_method(
-            x - epsilon,
-            y - epsilon,
-            2.0 * epsilon,
-            2.0 * epsilon,
-            Qt.IntersectsItemShape,
-            Qt.DescendingOrder,
-        )
+        transform = self._view.viewportTransform()
 
-        for item in tuple(candidates):
-            if not self._contains_scene_point(item, scene_position):
-                continue
-            candidate = self._selectable_ancestor(item)
-            if candidate is not None:
-                return getattr(candidate, "object_id", None)
-        return None
-
-    @staticmethod
-    def _contains_scene_point(item: Any, scene_position: QPointF) -> bool:
-        contains = getattr(item, "contains", None)
-        map_from_scene = getattr(item, "mapFromScene", None)
-        if not callable(contains) or not callable(map_from_scene):
-            return True
-        return bool(contains(map_from_scene(scene_position)))
+        # Use QGraphicsScene.itemAt's scalar overload directly.  Passing
+        # Python QPointF objects through the overloaded dispatcher can enter
+        # PySide6's generated isinstance() machinery; the scalar overload
+        # avoids that path while preserving Qt's indexed topmost hit test.
+        item = item_at(x, y, transform)
+        if not self._is_selectable(item):
+            return None
+        return getattr(item, "object_id", None)
 
     @staticmethod
     def _is_selectable(item: Any) -> bool:
         if item is None:
             return False
+        if getattr(item, "object_id", None) is None:
+            return False
         if getattr(item, "isVisible", lambda: True)() is False:
             return False
         if getattr(item, "isEnabled", lambda: True)() is False:
             return False
-        if getattr(item, "object_id", None) is None:
-            return False
+
         flags = getattr(item, "flags", None)
         if not callable(flags):
             return True
+
         try:
             value = flags()
             flag_type = getattr(item, "GraphicsItemFlag", None)
@@ -154,16 +137,6 @@ class MouseEventAdapter:
             return bool(value & selectable_flag)
         except (TypeError, AttributeError):
             return True
-
-    @classmethod
-    def _selectable_ancestor(cls, item: Any) -> Optional[Any]:
-        current = item
-        while current is not None:
-            if cls._is_selectable(current):
-                return current
-            parent_method = getattr(current, "parentItem", None)
-            current = parent_method() if callable(parent_method) else None
-        return None
 
     @staticmethod
     def _event_position(event: Any) -> Any:
