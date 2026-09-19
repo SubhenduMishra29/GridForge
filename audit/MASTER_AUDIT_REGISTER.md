@@ -377,3 +377,43 @@ The following findings were source-corrected in this remediation batch. They rem
 - Existing selectable-ancestor traversal and `object_id` extraction remain unchanged.
 - Repository inspection found no additional direct `QGraphicsScene.items(QPointF)` hit-test invocation in the affected Canvas path. `ui/core/snap_system.py` uses `scene.items()` with no geometry argument and is unrelated to this overload defect.
 - The requested `ui/canvas/tool_manager.py`, `ui/canvas/tool_base.py`, and `ui/canvas/snap_system.py` paths do not exist on `main`; the corresponding current implementations are `ui/core/tool_manager.py`, `ui/tools/tool_base.py`, and `ui/core/snap_system.py`. They were inspected and no same defective point-overload call was identified.
+
+
+## Batch 3 — Core Integration Boundary Remediation Addendum
+
+**Static remediation baseline:** current main after Batch 3 source corrections.
+**Verification policy:** no tests, CI, application startup, GUI execution, or runtime verification were performed.
+
+| Finding ID | Severity | Affected area | Status | Static disposition / remaining risk |
+|---|---|---|---|---|
+| GF-INT-018 | HIGH | Terminal ownership | REMEDIATED — VERIFICATION DEFERRED | Terminal ownership is enforced by Core validation and Network registration; runtime verification remains deferred. |
+| GF-INT-020 | HIGH | Endpoint ownership | REMEDIATED — VERIFICATION DEFERRED | Terminal endpoints are restricted to Core ElectricalObjects and Network membership tokens reject cross-Network/unregistered endpoints. |
+| GF-INT-021 | HIGH | Network identity | REMEDIATED — VERIFICATION DEFERRED | NetworkRegistry now owns one canonical identity map and rejects unsupported/arbitrary ID-bearing objects. |
+| GF-INT-022 | MEDIUM | File headers | REMEDIATED — VERIFICATION DEFERRED | Required headers added to affected Batch 3 files. |
+| GF-INT-023 | MEDIUM | File headers | REMEDIATED — VERIFICATION DEFERRED | Required headers added to newly touched Batch 3 files. |
+| GF-INT-024 | HIGH | Registration/identity | REMEDIATED — VERIFICATION DEFERRED | Registration validates Core type, identity, structure, ownership, endpoint membership, and duplicate identity. |
+| GF-INT-025 | HIGH | Deletion invariants | REMEDIATED — VERIFICATION DEFERRED | Registry removal rejects deletion while another authoritative Terminal references the object. |
+| GF-INT-027 | HIGH | Canonical lookup | REMEDIATED — VERIFICATION DEFERRED | Added unambiguous canonical lookup by global object identity while preserving typed compatibility lookup. |
+| GF-INT-028 | HIGH | Identity uniqueness | REMEDIATED — VERIFICATION DEFERRED | Global duplicate identity is rejected across supported Network object families. |
+| GF-INT-029 | HIGH | Endpoint type safety | REMEDIATED — VERIFICATION DEFERRED | Terminal-to-Terminal endpoints and arbitrary non-Core objects are rejected. |
+| GF-INT-030 | HIGH | Registration boundary | REMEDIATED — VERIFICATION DEFERRED | Network registration is the authoritative admission boundary. |
+| GF-INT-031 | HIGH | Persistence reconstruction | REMEDIATED — VERIFICATION DEFERRED | Persisted endpoint references resolve through ModelTypeRegistry plus canonical Network identity lookup. |
+| GF-INT-032 | HIGH | Bus/topology semantics | OPEN — ARCHITECTURAL AMBIGUITY | Current TopologyManager represents graph vertices directly with Bus objects. The frozen requirement distinguishes Bus from Topological Node; changing this safely requires an explicit canonical topology-node contract. |
+| GF-INT-033 | HIGH | Endpoint resolution | REMEDIATED — VERIFICATION DEFERRED | Valid unconnected terminals resolve as absence; malformed endpoint relationships remain distinct errors. |
+| GF-INT-035 | HIGH | EquipmentType | REMEDIATED — VERIFICATION DEFERRED | EquipmentType is derived from terminal-owning Core model types instead of an incomplete hand-maintained list. |
+| GF-INT-036 | HIGH | Project validation | REMEDIATED — VERIFICATION DEFERRED | Core Network validation and cross-domain project validation are enforced at load/save boundaries. |
+| GF-INT-037 | HIGH | Persistence endpoint mapping | REMEDIATED — VERIFICATION DEFERRED | Independent persistence endpoint-type mapping was removed; persisted types resolve through ModelTypeRegistry. |
+| GF-INT-038 | HIGH | Terminal role contract | OPEN — PARTIAL RECONCILIATION | Canonical role spellings and case sensitivity are documented in Terminal, but legacy model literals remain distributed across model implementations. |
+| GF-INT-039 | HIGH | Deletion/reference integrity | REMEDIATED — VERIFICATION DEFERRED | Authoritative removal rejects external Terminal references to the removed object. |
+| GF-INT-040 | HIGH | Transaction rollback | REMEDIATED — VERIFICATION DEFERRED | Rollback failure places CommandManager in DEGRADED state and blocks further command execution. |
+| GF-INT-041 | HIGH | Undo recovery | REMEDIATED — VERIFICATION DEFERRED | Zero-operation undo failure restores history; partial inverse execution marks the boundary DEGRADED. |
+| GF-INT-042 | HIGH | Post-commit history | REMEDIATED — VERIFICATION DEFERRED | History-recording failure after Core commit is surfaced and places CommandManager in DEGRADED state. |
+| GF-INT-043 | HIGH | Save validation | REMEDIATED — VERIFICATION DEFERRED | Persistence save performs Network/topology and cross-domain validation before package replacement. |
+| GF-INT-044 | HIGH | Load validation | REMEDIATED — VERIFICATION DEFERRED | Loaded Network is reconstructed, rebuilt, validated, and cross-domain project state is validated before LoadedProject is returned. |
+| GF-INT-045 | HIGH | Command history/project transitions | REMEDIATED — VERIFICATION DEFERRED | Project activation replaces the project-bound CommandManager runtime, preventing old history from surviving into a new Network. |
+| GF-INT-046 | HIGH | Revision/project transitions | REMEDIATED — VERIFICATION DEFERRED | Project activation resets RevisionService separately from CommandManager history. |
+| GF-INT-047 | HIGH | Dynamic project state | REMEDIATED — VERIFICATION DEFERRED | Application bootstrap owns DynamicMachineModelRegistry, activates loaded state, and supplies it to persistence save. |
+| GF-INT-048 | HIGH | Protection project state | REMEDIATED — VERIFICATION DEFERRED | Application bootstrap owns ProtectionConfigurationService state, activates loaded configuration, and supplies it to persistence save. |
+| GF-INT-049 | MEDIUM | Persistence filesystem durability | REMEDIATED — VERIFICATION DEFERRED | Existing temporary-package replacement is retained; documentation distinguishes exception-safe replacement from process-crash/filesystem durability. |
+
+**Batch 3 register rule:** no Batch 3 finding is marked VERIFIED from source modification alone. GF-INT-032 and GF-INT-038 remain open pending explicit architectural reconciliation.
