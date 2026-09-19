@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/project_lifecycle.py
 # GridForge V2 — Application Project Lifecycle Service
+# Author: Subhendu Mishra
 # ============================================================
 
 """Application-owned project lifecycle coordination."""
@@ -24,6 +25,8 @@ PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
 ProjectStateActivator = Callable[[ProjectContext | None, LoadedProject | None], None]
+ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
+PresentationActivator = Callable[[Any | None], None]
 
 
 class ProjectLifecycleService:
@@ -35,7 +38,9 @@ class ProjectLifecycleService:
                  presentation: Any = None, presentation_factory: PresentationFactory | None = None,
                  serialize_presentation: PresentationSerializer | None = None,
                  deserialize_presentation: PresentationDeserializer | None = None,
-                 project_state_activator: ProjectStateActivator | None = None) -> None:
+                 project_state_activator: ProjectStateActivator | None = None,
+                 project_state_validator: ProjectStateValidator | None = None,
+                 presentation_activator: PresentationActivator | None = None) -> None:
         if network is None:
             raise ValueError("network is required.")
         if not callable(network_factory):
@@ -46,6 +51,10 @@ class ProjectLifecycleService:
             raise ValueError("serialize_presentation and deserialize_presentation must be configured together.")
         if project_state_activator is not None and not callable(project_state_activator):
             raise TypeError("project_state_activator must be callable.")
+        if project_state_validator is not None and not callable(project_state_validator):
+            raise TypeError("project_state_validator must be callable.")
+        if presentation_activator is not None and not callable(presentation_activator):
+            raise TypeError("presentation_activator must be callable.")
         self._network = network
         self._network_factory = network_factory
         self._activate_network = activate_network
@@ -57,6 +66,9 @@ class ProjectLifecycleService:
         self._serialize_presentation = serialize_presentation
         self._deserialize_presentation = deserialize_presentation
         self._project_state_activator = project_state_activator
+        self._project_state_validator = project_state_validator
+        self._activation_generation = 1 if context is not None else 0
+        self._presentation_activator = presentation_activator
 
     @property
     def context(self) -> ProjectContext | None:
@@ -74,11 +86,25 @@ class ProjectLifecycleService:
     def has_project(self) -> bool:
         return self._context is not None
 
+    @property
+    def activation_generation(self) -> int:
+        return self._activation_generation
+
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
             raise TypeError("loader and saver must be callable.")
         self._loader = loader
         self._saver = saver
+
+    def configure_project_state_validator(self, validator: ProjectStateValidator) -> None:
+        if not callable(validator):
+            raise TypeError("validator must be callable.")
+        self._project_state_validator = validator
+
+    def configure_presentation_activator(self, activator: PresentationActivator) -> None:
+        if not callable(activator):
+            raise TypeError("activator must be callable.")
+        self._presentation_activator = activator
 
     def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
         if not callable(activator):
@@ -103,11 +129,15 @@ class ProjectLifecycleService:
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
         network = self._network_factory()
+        presentation = self._create_presentation(context)
+        self._validate_candidate(context, None, network, presentation)
+        self._activate_presentation(presentation)
         self._activate_network(network)
         self._network = network
         self._context = context
-        self._presentation = self._create_presentation(context)
+        self._presentation = presentation
         self._activate_project_state(context, None)
+        self._activation_generation += 1
         return context
 
     def open_project(self, path: str | Path) -> ProjectContext:
@@ -130,11 +160,14 @@ class ProjectLifecycleService:
         else:
             presentation = self._create_presentation(loaded.context)
 
+        self._validate_candidate(loaded.context, loaded, loaded.network, presentation)
+        self._activate_presentation(presentation)
         self._activate_network(loaded.network)
         self._network = loaded.network
         self._context = loaded.context
         self._presentation = presentation
         self._activate_project_state(loaded.context, loaded)
+        self._activation_generation += 1
         return self._context
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
@@ -167,18 +200,27 @@ class ProjectLifecycleService:
 
     def close_project(self) -> ProjectContext | None:
         previous = self._context
-        self._context = None
-        self._presentation = None
 
-        # Closing a project must also detach every Application read/mutation
-        # service from the closed project's authoritative Network. Keep a
-        # fresh empty Network as the inactive shell rather than leaving the
-        # previous project graph reachable through the Application boundary.
+        # Prepare the inactive shell before discarding the active context so
+        # a failed runtime replacement does not silently half-close the project.
         network = self._network_factory()
         self._activate_network(network)
         self._network = network
         self._activate_project_state(None, None)
+        self._activate_presentation(None)
+
+        self._context = None
+        self._presentation = None
+        self._activation_generation += 1
         return previous
+
+    def _activate_presentation(self, presentation: Any | None) -> None:
+        if self._presentation_activator is not None:
+            self._presentation_activator(presentation)
+
+    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
+        if self._project_state_validator is not None:
+            self._project_state_validator(context, loaded, network, presentation)
 
     def _activate_project_state(self, context: ProjectContext | None, loaded: LoadedProject | None) -> None:
         if self._project_state_activator is not None:
@@ -204,5 +246,5 @@ class ProjectLifecycleService:
 
 __all__ = [
     "PresentationDeserializer", "PresentationFactory", "PresentationSerializer", "ProjectLifecycleService",
-    "ProjectLoader", "ProjectSaver", "ProjectStateActivator",
+    "ProjectLoader", "ProjectSaver", "ProjectStateActivator", "ProjectStateValidator", "PresentationActivator",
 ]

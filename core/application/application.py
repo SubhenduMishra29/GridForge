@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/application.py
 # GridForge V2 — Headless Application Facade
+# Author: Subhendu Mishra
 # ============================================================
 
 """Stable public Application facade for commands, reads, events, history, project lifecycle, and studies."""
@@ -34,11 +35,12 @@ from .events import (
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
     SLDPresentationChanged, TopologyChanged, ValidationChanged,
 )
-from .project import ProjectContext
+from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
+from core.persistence.network_serializer import deserialize_network, serialize_network
 from .revision import ProjectRevision
 from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
@@ -128,52 +130,90 @@ class Application:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
+        if self._sld_service is not None:
+            service.configure_presentation_activator(lambda presentation: self._sld_service.detach_document() if presentation is None else self._sld_service.bind_document(presentation))
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
-        if self._sld_service is not None: self._sld_service.bind_document(presentation)
+        if self._sld_service is not None:
+            self.project_lifecycle.configure_presentation_activator(lambda value: self._sld_service.detach_document() if value is None else self._sld_service.bind_document(value))
 
     def attach_sld_service(self, service: SLDService) -> None:
         if not isinstance(service, SLDService): raise TypeError("service must be an SLDService.")
         if self._sld_service is not None and self._sld_service is not service: raise RuntimeError("Application SLD service is already configured.")
         self._sld_service = service
+        if self._project_lifecycle is not None:
+            self._project_lifecycle.configure_presentation_activator(lambda value: service.detach_document() if value is None else service.bind_document(value))
         self._register_sld_handlers(service)
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+        self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.new_project(name, project_id=project_id)
-        if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
-        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new"}))
+        self._revision_service.reset_for_project()
+        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def open_project(self, path: str) -> ProjectContext:
+        self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.open_project(path)
-        if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
-        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open"}))
+        self._revision_service.reset_for_project()
+        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def save_project(self, path: str | None = None) -> ProjectContext:
         context = self.project_lifecycle.save_project(path)
         self._revision_service.mark_persisted()
-        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None}))
+        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None, "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def save_project_as(self, path: str) -> ProjectContext:
         context = self.project_lifecycle.save_project_as(path)
         self._revision_service.mark_persisted()
-        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None}))
+        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None, "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def close_project(self) -> ProjectContext | None:
+        self._study_service.ensure_no_active_studies()
+        previous_generation = self.project_lifecycle.activation_generation
         context = self.project_lifecycle.close_project()
         if context is not None:
-            if self._sld_service is not None: self._sld_service.detach_document()
             self._revision_service.reset_for_project()
-            self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name}))
+            self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name, "activation_generation": previous_generation, "operation": "close"}))
         return context
 
-    def execute_study(self, request: StudyRequest) -> StudyResult: return self._study_service.execute(request)
-    def study_result(self, study_id) -> StudyResult | None: return self._study_service.get_result(study_id)
-    def cancel_study(self, study_id) -> bool: return self._study_service.cancel(study_id)
+    def capture_project_snapshot(self) -> ProjectSnapshot:
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None:
+            raise RuntimeError("No active project.")
+        network_snapshot = deserialize_network(serialize_network(lifecycle.network))
+        dynamic_models = tuple(getattr(getattr(self, "dynamic_models", None), "snapshot", lambda: ())())
+        return ProjectSnapshot(
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            revision=self.revision,
+            network=network_snapshot,
+            dynamic_models=dynamic_models,
+        )
+
+    def execute_study(self, request: StudyRequest) -> StudyResult:
+        if not isinstance(request, StudyRequest):
+            raise TypeError("request must be a StudyRequest.")
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None:
+            raise RuntimeError("Cannot start a study without an active project.")
+        if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
+            raise ValueError("StudyRequest project scope does not match the active project generation.")
+        if request.source_revision != self.revision:
+            raise ValueError("StudyRequest source_revision does not match the active project revision.")
+        return self._study_service.execute(request)
+
+    def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
+        return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)
+
+    def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
+        return self._study_service.cancel(study_id, project_id=project_id, activation_generation=activation_generation)
 
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService, validation_service: ValidationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
@@ -182,7 +222,6 @@ class Application:
         self._command_manager = command_manager
         self._read_service = read_service
         self._validation_service = validation_service
-        self._revision_service.reset_for_project()
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         if self._sld_service is not None: self._register_sld_handlers(self._sld_service)
 

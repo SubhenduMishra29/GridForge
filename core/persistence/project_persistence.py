@@ -1,6 +1,7 @@
 """Canonical ``.gridforge`` project loader/saver."""
 
 from __future__ import annotations
+# Author: Subhendu Mishra
 
 import json
 import os
@@ -54,7 +55,7 @@ class ProjectPersistenceService:
         dynamic_models_data = project.get("dynamic_models", ())
         if not isinstance(dynamic_models_data, list): raise ProjectPersistenceError("project.json dynamic_models payload must be an array.")
         try:
-            dynamic_models = tuple(DynamicMachineModelAssociation.from_dict(item) for item in dynamic_models_data)
+            dynamic_models = tuple(DynamicMachineModelAssociation.from_dict(item, project_id=project_id, activation_generation=1) for item in dynamic_models_data)
         except (TypeError, ValueError, KeyError) as exc:
             raise ProjectPersistenceError(f"Invalid dynamic machine model association: {exc}") from exc
         protection_data = project.get("protection")
@@ -80,6 +81,7 @@ class ProjectPersistenceService:
         if presentation is not None and not isinstance(presentation, Mapping): raise TypeError("presentation must be a mapping or None.")
         if not isinstance(dynamic_models, Sequence): raise TypeError("dynamic_models must be a sequence.")
         if any(not isinstance(item, DynamicMachineModelAssociation) for item in dynamic_models): raise TypeError("dynamic_models contains an invalid association.")
+        if any(item.project_id != context.project_id for item in dynamic_models): raise ProjectPersistenceError("dynamic_models contains an association for a different project.")
         if protection_configuration is not None and not isinstance(protection_configuration, ProtectionProjectConfiguration): raise TypeError("protection_configuration must be ProtectionProjectConfiguration or None.")
 
         target = normalize_package_path(path)
@@ -126,7 +128,8 @@ class ProjectPersistenceService:
         try:
             with path.open("w", encoding="utf-8") as handle:
                 json.dump(value, handle, indent=2, sort_keys=True, ensure_ascii=False)
-                handle.write("\n")
+                handle.write("
+")
                 handle.flush()
                 os.fsync(handle.fileno())
         except (OSError, TypeError, ValueError) as exc: raise ProjectPersistenceError(f"Unable to write {path.name}: {exc}") from exc

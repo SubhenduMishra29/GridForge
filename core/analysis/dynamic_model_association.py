@@ -24,6 +24,8 @@ class DynamicMachineModelAssociation:
     parameters: ClassicalMachineParameters
     mechanical_power: float = 0.0
     metadata: Mapping[str, Any] = MappingProxyType({})
+    project_id: str = ""
+    activation_generation: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.machine_id, str) or not self.machine_id.strip():
@@ -34,6 +36,11 @@ class DynamicMachineModelAssociation:
             raise ValueError("model_type must be a non-empty string.")
         if not isinstance(self.parameters, ClassicalMachineParameters):
             raise TypeError("parameters must be ClassicalMachineParameters.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "machine_id", self.machine_id.strip())
         object.__setattr__(self, "bus_id", self.bus_id.strip())
         object.__setattr__(self, "model_type", self.model_type.strip())
@@ -43,6 +50,8 @@ class DynamicMachineModelAssociation:
     def to_dict(self) -> dict[str, Any]:
         p = self.parameters
         return {
+            "project_id": self.project_id,
+            "activation_generation": self.activation_generation,
             "machine_id": self.machine_id,
             "bus_id": self.bus_id,
             "model_type": self.model_type,
@@ -53,13 +62,15 @@ class DynamicMachineModelAssociation:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "DynamicMachineModelAssociation":
+    def from_dict(cls, data: Mapping[str, Any], *, project_id: str | None = None, activation_generation: int | None = None) -> "DynamicMachineModelAssociation":
         if not isinstance(data, Mapping):
             raise TypeError("Dynamic machine model association must be a mapping.")
         parameters = data.get("parameters")
         if not isinstance(parameters, Mapping):
             raise ValueError("Dynamic machine model parameters are required.")
         return cls(
+            project_id=str(project_id if project_id is not None else data.get("project_id", "")),
+            activation_generation=int(activation_generation if activation_generation is not None else data.get("activation_generation", 0)),
             machine_id=str(data.get("machine_id", "")),
             bus_id=str(data.get("bus_id", "")),
             model_type=str(data.get("model_type", "")),
@@ -84,6 +95,9 @@ class DynamicMachineModelRegistry:
         if not isinstance(association, DynamicMachineModelAssociation):
             raise TypeError("association must be DynamicMachineModelAssociation.")
         self._associations[association.machine_id] = association
+
+    def snapshot(self) -> tuple[DynamicMachineModelAssociation, ...]:
+        return self.all()
 
     def replace(self, associations: tuple[DynamicMachineModelAssociation, ...]) -> None:
         if any(not isinstance(item, DynamicMachineModelAssociation) for item in associations):
