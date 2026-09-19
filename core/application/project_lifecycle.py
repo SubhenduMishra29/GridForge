@@ -56,8 +56,6 @@ class ProjectLifecycleService:
             raise ValueError("network is required.")
         if not callable(network_factory):
             raise TypeError("network_factory must be callable.")
-        if not callable(activate_network):
-            raise TypeError("activate_network must be callable.")
         if (serialize_presentation is None) != (deserialize_presentation is None):
             raise ValueError("serialize_presentation and deserialize_presentation must be configured together.")
         for name, callback in (
@@ -70,7 +68,6 @@ class ProjectLifecycleService:
 
         self._network = network
         self._network_factory = network_factory
-        self._activate_network = activate_network
         self._context = context
         self._loader = loader
         self._saver = saver
@@ -78,7 +75,6 @@ class ProjectLifecycleService:
         self._presentation_factory = presentation_factory
         self._serialize_presentation = serialize_presentation
         self._deserialize_presentation = deserialize_presentation
-        self._project_state_activator = project_state_activator
         self._project_state_validator = project_state_validator
         self._presentation_activator = presentation_activator
         self._activation_generation = 1 if context is not None else 0
@@ -113,16 +109,6 @@ class ProjectLifecycleService:
         if not callable(validator):
             raise TypeError("validator must be callable.")
         self._project_state_validator = validator
-
-    def configure_presentation_activator(self, activator: PresentationActivator) -> None:
-        if not callable(activator):
-            raise TypeError("activator must be callable.")
-        self._presentation_activator = activator
-
-    def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
-        if not callable(activator):
-            raise TypeError("activator must be callable.")
-        self._project_state_activator = activator
 
     def configure_presentation_factory(self, factory: PresentationFactory) -> None:
         if not callable(factory):

@@ -89,20 +89,42 @@ class DynamicMachineModelRegistry:
     """Project-scoped binding store; never part of Network topology."""
 
     def __init__(self, associations: tuple[DynamicMachineModelAssociation, ...] = ()) -> None:
-        self._associations = {item.machine_id: item for item in associations}
+        self._associations: dict[str, DynamicMachineModelAssociation] = {}
+        self.replace(tuple(associations))
+
+    @property
+    def project_id(self) -> str | None:
+        values = self.all()
+        return values[0].project_id if values else None
+
+    @property
+    def activation_generation(self) -> int | None:
+        values = self.all()
+        return values[0].activation_generation if values else None
 
     def bind(self, association: DynamicMachineModelAssociation) -> None:
         if not isinstance(association, DynamicMachineModelAssociation):
             raise TypeError("association must be DynamicMachineModelAssociation.")
+        if self._associations:
+            current = next(iter(self._associations.values()))
+            if association.project_id != current.project_id or association.activation_generation != current.activation_generation:
+                raise ValueError(
+                    "Dynamic model association scope does not match the active registry "
+                    f"({current.project_id!r}, {current.activation_generation})."
+                )
         self._associations[association.machine_id] = association
 
     def snapshot(self) -> tuple[DynamicMachineModelAssociation, ...]:
         return self.all()
 
     def replace(self, associations: tuple[DynamicMachineModelAssociation, ...]) -> None:
-        if any(not isinstance(item, DynamicMachineModelAssociation) for item in associations):
+        values = tuple(associations)
+        if any(not isinstance(item, DynamicMachineModelAssociation) for item in values):
             raise TypeError("associations contains an invalid dynamic model association.")
-        self._associations = {item.machine_id: item for item in associations}
+        scopes = {(item.project_id, item.activation_generation) for item in values}
+        if len(scopes) > 1:
+            raise ValueError("Dynamic model associations cannot mix project IDs or activation generations.")
+        self._associations = {item.machine_id: item for item in values}
 
     def remove(self, machine_id: str) -> None:
         self._associations.pop(str(machine_id), None)

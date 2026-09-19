@@ -15,11 +15,6 @@ from .sld_document import SLDDocument
 from .sld_projection import SLDProjection
 from .sld_projection_manager import SLDProjectionManager
 from .sld_read_adapter import SLDReadAdapter
-from .sld_vocabulary import semantic_type
-
-
-_PROJECTION_SOURCE = "application_read_model"
-_BRANCH_TYPES = frozenset({"LINE", "CABLE", "TRANSFORMER"})
 
 
 class SLDReadSynchronizer:
@@ -84,7 +79,6 @@ class SLDReadSynchronizer:
         self._require_document(document)
         if not isinstance(read_model, NetworkReadModel):
             raise TypeError("read_model must be a NetworkReadModel")
-
         adapted = self._read_adapter.network(read_model)
         projections = self._projection_manager.project_network(adapted)
         active_ids = {element.object_id for element in adapted.elements}

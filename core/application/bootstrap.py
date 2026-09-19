@@ -260,11 +260,10 @@ def create_application(network: Any) -> Application:
     lifecycle = ProjectLifecycleService(
         network=network,
         network_factory=new_network,
-        activate_network=activate_network,
         context=initial_context,
         loader=load_project,
         saver=save_project,
-        project_state_activator=activate_project_state,
+        activation_transaction=activate_project_transaction,
         project_state_validator=validate_project_candidate,
     )
     application.attach_project_lifecycle(lifecycle)
