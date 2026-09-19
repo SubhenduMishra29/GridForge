@@ -40,6 +40,12 @@ SLD_SEMANTIC_TYPES = (
 
 SLD_SUPPORTED_TYPES = frozenset(SLD_SEMANTIC_TYPES)
 
+# Canonical topology-bearing SLD equipment vocabulary.
+SLD_TOPOLOGY_BRANCH_TYPES = frozenset({
+    "LINE", "CABLE", "TRANSFORMER", "BREAKER", "SWITCH", "DISCONNECTOR", "FUSE",
+})
+SLD_PROJECTION_SOURCE = "application.network_read_model"
+
 # Application collection names, canonical singular names, and instrument
 # abbreviations all resolve to the same frozen SLD semantic vocabulary.
 _PRODUCER_ALIASES = {
@@ -108,4 +114,10 @@ def semantic_type(element_type: str) -> str:
     return value
 
 
-__all__ = ["SLD_SEMANTIC_TYPES", "SLD_SUPPORTED_TYPES", "semantic_type"]
+__all__ = [
+    "SLD_SEMANTIC_TYPES",
+    "SLD_SUPPORTED_TYPES",
+    "SLD_TOPOLOGY_BRANCH_TYPES",
+    "SLD_PROJECTION_SOURCE",
+    "semantic_type",
+]
