@@ -89,7 +89,7 @@ class SLDUpdateCoordinator:
             return
 
         if isinstance(event, (ElementCreated, ElementUpdated, ElementRemoved)):
-            element_type = str(event.metadata.get("element_type", "")).lower()
+            element_type = str(event.payload.get("element_type", "")).lower()
             if element_type == "relay":
                 self._synchronizer.synchronize_protection_from_application()
             else:
