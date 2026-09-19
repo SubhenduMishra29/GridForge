@@ -86,10 +86,11 @@ class WorkspaceController:
         self._manager.clear_active()
 
     def close(self) -> None:
-        """Release the realized Qt workspace and make this coordinator inert."""
+        """Release the realized workspace and detach composition bindings."""
         if self._closed:
             return
         self.deactivate()
+        self._realizer.detach_all_docks()
         self._closed = True
 
     def _ensure_open(self) -> None:
