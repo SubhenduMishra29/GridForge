@@ -141,12 +141,14 @@ class Application:
         self._register_sld_handlers(service)
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+        self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.new_project(name, project_id=project_id)
         if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
         self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new"}))
         return context
 
     def open_project(self, path: str) -> ProjectContext:
+        self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.open_project(path)
         if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
         self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open"}))
@@ -165,6 +167,7 @@ class Application:
         return context
 
     def close_project(self) -> ProjectContext | None:
+        self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.close_project()
         if context is not None:
             if self._sld_service is not None: self._sld_service.detach_document()
