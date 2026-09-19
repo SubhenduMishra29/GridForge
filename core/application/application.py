@@ -34,11 +34,12 @@ from .events import (
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
     SLDPresentationChanged, TopologyChanged, ValidationChanged,
 )
-from .project import ProjectContext
+from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
+from core.persistence.network_serializer import deserialize_network, serialize_network
 from .revision import ProjectRevision
 from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
@@ -171,9 +172,37 @@ class Application:
             self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name}))
         return context
 
-    def execute_study(self, request: StudyRequest) -> StudyResult: return self._study_service.execute(request)
-    def study_result(self, study_id) -> StudyResult | None: return self._study_service.get_result(study_id)
-    def cancel_study(self, study_id) -> bool: return self._study_service.cancel(study_id)
+    def capture_project_snapshot(self) -> ProjectSnapshot:
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None:
+            raise RuntimeError("No active project.")
+        network_snapshot = deserialize_network(serialize_network(lifecycle.network))
+        dynamic_models = tuple(getattr(getattr(self, "dynamic_models", None), "snapshot", lambda: ())())
+        return ProjectSnapshot(
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            revision=self.revision,
+            network=network_snapshot,
+            dynamic_models=dynamic_models,
+        )
+
+    def execute_study(self, request: StudyRequest) -> StudyResult:
+        if not isinstance(request, StudyRequest):
+            raise TypeError("request must be a StudyRequest.")
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None:
+            raise RuntimeError("Cannot start a study without an active project.")
+        if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
+            raise ValueError("StudyRequest project scope does not match the active project generation.")
+        return self._study_service.execute(request)
+
+    def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
+        return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)
+
+    def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
+        return self._study_service.cancel(study_id, project_id=project_id, activation_generation=activation_generation)
 
     def _replace_runtime(self, command_manager: CommandManager, read_service: ReadService, validation_service: ValidationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
