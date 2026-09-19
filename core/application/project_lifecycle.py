@@ -216,6 +216,7 @@ class ProjectLifecycleService:
 
 
 __all__ = [
-    "PresentationDeserializer", "PresentationFactory", "PresentationSerializer", "ProjectLifecycleService",
-    "ProjectLoader", "ProjectSaver", "ProjectStateActivator", "ProjectStateValidator", "PresentationActivator",
+    "ActivationRollback", "ActivationTransaction",
+    "PresentationDeserializer", "PresentationFactory", "PresentationSerializer",
+    "ProjectLifecycleService", "ProjectLoader", "ProjectSaver", "ProjectStateValidator",
 ]
