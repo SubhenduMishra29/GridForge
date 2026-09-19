@@ -23,7 +23,8 @@ NetworkActivator = Callable[[Any], None]
 PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
-ProjectStateActivator = Callable[[ProjectContext | None, LoadedProject | None], None]\nProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
+ProjectStateActivator = Callable[[ProjectContext | None, LoadedProject | None], None]
+ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
 
 
 class ProjectLifecycleService:
@@ -35,7 +36,8 @@ class ProjectLifecycleService:
                  presentation: Any = None, presentation_factory: PresentationFactory | None = None,
                  serialize_presentation: PresentationSerializer | None = None,
                  deserialize_presentation: PresentationDeserializer | None = None,
-                 project_state_activator: ProjectStateActivator | None = None,\n                 project_state_validator: ProjectStateValidator | None = None) -> None:
+                 project_state_activator: ProjectStateActivator | None = None,
+                 project_state_validator: ProjectStateValidator | None = None) -> None:
         if network is None:
             raise ValueError("network is required.")
         if not callable(network_factory):
@@ -56,7 +58,9 @@ class ProjectLifecycleService:
         self._presentation_factory = presentation_factory
         self._serialize_presentation = serialize_presentation
         self._deserialize_presentation = deserialize_presentation
-        self._project_state_activator = project_state_activator\n        self._project_state_validator = project_state_validator\n        self._activation_generation = 0
+        self._project_state_activator = project_state_activator
+        self._project_state_validator = project_state_validator
+        self._activation_generation = 0
 
     @property
     def context(self) -> ProjectContext | None:
@@ -80,7 +84,12 @@ class ProjectLifecycleService:
         self._loader = loader
         self._saver = saver
 
-    def configure_project_state_validator(self, validator: ProjectStateValidator) -> None:\n        if not callable(validator):\n            raise TypeError("validator must be callable.")\n        self._project_state_validator = validator\n\n    def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
+    def configure_project_state_validator(self, validator: ProjectStateValidator) -> None:
+        if not callable(validator):
+            raise TypeError("validator must be callable.")
+        self._project_state_validator = validator
+
+    def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
         if not callable(activator):
             raise TypeError("activator must be callable.")
         self._project_state_activator = activator
@@ -103,11 +112,14 @@ class ProjectLifecycleService:
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
         network = self._network_factory()
+        presentation = self._create_presentation(context)
+        self._validate_candidate(context, None, network, presentation)
         self._activate_network(network)
         self._network = network
         self._context = context
-        self._presentation = self._create_presentation(context)
+        self._presentation = presentation
         self._activate_project_state(context, None)
+        self._activation_generation += 1
         return context
 
     def open_project(self, path: str | Path) -> ProjectContext:
@@ -130,11 +142,13 @@ class ProjectLifecycleService:
         else:
             presentation = self._create_presentation(loaded.context)
 
+        self._validate_candidate(loaded.context, loaded, loaded.network, presentation)
         self._activate_network(loaded.network)
         self._network = loaded.network
         self._context = loaded.context
         self._presentation = presentation
         self._activate_project_state(loaded.context, loaded)
+        self._activation_generation += 1
         return self._context
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
@@ -178,9 +192,18 @@ class ProjectLifecycleService:
         self._activate_network(network)
         self._network = network
         self._activate_project_state(None, None)
+        self._activation_generation += 1
         return previous
 
-    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:\n        if self._project_state_validator is not None:\n            self._project_state_validator(context, loaded, network, presentation)\n\n    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
+    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
+        if self._project_state_validator is not None:
+            self._project_state_validator(context, loaded, network, presentation)
+
+    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
+        if self._project_state_validator is not None:
+            self._project_state_validator(context, loaded, network, presentation)
+
+    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
         if self._project_state_validator is not None:
             self._project_state_validator(context, loaded, network, presentation)
 
