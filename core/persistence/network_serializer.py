@@ -31,6 +31,10 @@ _COLLECTIONS = (
 def serialize_network(network: Network) -> dict[str, Any]:
     """Return the complete canonical engineering Network representation."""
     if not isinstance(network, Network): raise TypeError("network must be a Network.")
+    try:
+        network.validate()
+    except Exception as exc:
+        raise NetworkSerializationError(f"Cannot serialize an invalid Network: {exc}") from exc
     elements: list[dict[str, Any]] = []
     seen: set[int] = set()
     for collection_name in _COLLECTIONS:
