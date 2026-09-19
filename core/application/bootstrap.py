@@ -6,7 +6,8 @@
 
 from __future__ import annotations
 
-from typing import Any\nfrom dataclasses import replace
+from typing import Any
+from dataclasses import replace
 from uuid import uuid4
 
 from core.analysis.power_flow import PowerFlowAnalysis
@@ -60,9 +61,9 @@ def create_application(network: Any) -> Application:
         raise ValueError("network is required.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
-    # The provider is intentionally late-bound to ProjectLifecycleService.
-    # It therefore always resolves the currently active Network rather than
-    # retaining the Network used during initial composition.
+    # The protection service may resolve the active Network for its own
+    # Application-scoped configuration checks. Study execution never uses this
+    # provider; studies capture an explicit detached ProjectSnapshot.
     lifecycle = None
     protection_configuration_service = ProtectionConfigurationService(
         ProtectionProjectConfiguration(initial_context.project_id),
