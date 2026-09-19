@@ -46,4 +46,4 @@ class ProjectContext:
         return value
 
 
-__all__ = ["ProjectContext"]
+\n\n@dataclass(frozen=True, slots=True)\nclass ProjectSnapshot:\n    """Immutable Application study boundary for one activated project generation."""\n\n    project_id: str\n    activation_generation: int\n    revision: Any\n    network: Any\n    dynamic_models: tuple[Any, ...] = ()\n\n    def __post_init__(self) -> None:\n        if not isinstance(self.project_id, str) or not self.project_id.strip():\n            raise ValueError("project_id must be a non-empty string.")\n        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:\n            raise ValueError("activation_generation must be a positive integer.")\n        if self.network is None:\n            raise ValueError("ProjectSnapshot requires a network snapshot.")\n        object.__setattr__(self, "project_id", self.project_id.strip())\n        object.__setattr__(self, "dynamic_models", tuple(self.dynamic_models))\n\n\n__all__ = ["ProjectContext", "ProjectSnapshot"]
