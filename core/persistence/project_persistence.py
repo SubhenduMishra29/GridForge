@@ -54,7 +54,7 @@ class ProjectPersistenceService:
         dynamic_models_data = project.get("dynamic_models", ())
         if not isinstance(dynamic_models_data, list): raise ProjectPersistenceError("project.json dynamic_models payload must be an array.")
         try:
-            dynamic_models = tuple(DynamicMachineModelAssociation.from_dict(item) for item in dynamic_models_data)
+            dynamic_models = tuple(DynamicMachineModelAssociation.from_dict(item, project_id=project_id, activation_generation=1) for item in dynamic_models_data)
         except (TypeError, ValueError, KeyError) as exc:
             raise ProjectPersistenceError(f"Invalid dynamic machine model association: {exc}") from exc
         protection_data = project.get("protection")
