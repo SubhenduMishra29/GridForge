@@ -81,96 +81,12 @@ class RevisionService:
         current, persisted, undo, redo, generation = state
         if not isinstance(current, ProjectRevision) or not isinstance(persisted, ProjectRevision):
             raise TypeError("Invalid revision snapshots.")
+        if not isinstance(undo, tuple) or not all(isinstance(item, _RevisionTransition) for item in undo):
+            raise TypeError("Invalid undo history snapshot.")
+        if not isinstance(redo, tuple) or not all(isinstance(item, _RevisionTransition) for item in redo):
+            raise TypeError("Invalid redo history snapshot.")
         if not isinstance(generation, int) or isinstance(generation, bool) or generation < 0:
             raise ValueError("persisted generation must be a non-negative integer.")
-        self._current = current
-        self._persisted_state = persisted
-        self._undo = list(undo)
-        self._redo = list(redo)
-        self._persisted_generation = generation
-
-    def reset_for_project(self) -> ProjectRevision:
-        """Reset revision state for a newly active project."""
-        self._persisted_generation += 1
-        self._current = ProjectRevision(
-            persisted_revision=self._persisted_generation,
-        )
-        self._persisted_state = self._current
-        self._undo.clear()
-        self._redo.clear()
-        return self._current
-
-    def record_command_success(self, command: Command) -> ProjectRevision:
-        """Record one successfully committed persistent command."""
-        if not isinstance(command, Command):
-            raise TypeError("command must be a Command.")
-
-        before = self._current
-        after = self._next_for_command(before, command)
-        if after == before:
-            return before
-
-        self._undo.append(_RevisionTransition(before, after))
-        self._redo.clear()
-        self._current = after
-        return after
-
-    def record_presentation_change(self) -> ProjectRevision:
-        """Record one successfully committed persistent SLD presentation edit."""
-        before = self._current
-        after = ProjectRevision(
-            model_revision=before.model_revision,
-            topology_revision=before.topology_revision,
-            presentation_revision=before.presentation_revision + 1,
-            persisted_revision=before.persisted_revision,
-        )
-        self._undo.append(_RevisionTransition(before, after))
-        self._redo.clear()
-        self._current = after
-        return after
-
-    def record_undo(self) -> ProjectRevision:
-        """Restore the exact revision state preceding the latest mutation."""
-        if not self._undo:
-            return self._current
-        transition = self._undo.pop()
-        if transition.after != self._current:
-            raise RuntimeError("Revision undo state is inconsistent with current revision.")
-        self._redo.append(transition)
-        self._current = transition.before
-        return self._current
-
-    def record_redo(self) -> ProjectRevision:
-        """Restore the exact revision state produced by the latest undone mutation."""
-        if not self._redo:
-            return self._current
-        transition = self._redo.pop()
-        if transition.before != self._current:
-            raise RuntimeError("Revision redo state is inconsistent with current revision.")
-        self._undo.append(transition)
-        self._current = transition.after
-        return self._current
-
-    def snapshot_state(self) -> tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int]:
-        """Capture revision/history state for an Application activation transaction."""
-        return (
-            self._current,
-            self._persisted_state,
-            tuple(self._undo),
-            tuple(self._redo),
-            self._persisted_generation,
-        )
-
-    def restore_state(
-        self,
-        snapshot: tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int],
-    ) -> None:
-        """Restore a previously captured activation snapshot."""
-        if not isinstance(snapshot, tuple) or len(snapshot) != 5:
-            raise TypeError("Invalid revision state snapshot.")
-        current, persisted, undo, redo, generation = snapshot
-        if not isinstance(current, ProjectRevision) or not isinstance(persisted, ProjectRevision):
-            raise TypeError("Invalid revision state snapshot.")
         self._current = current
         self._persisted_state = persisted
         self._undo = list(undo)
