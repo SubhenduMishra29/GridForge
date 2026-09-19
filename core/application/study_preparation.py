@@ -76,6 +76,14 @@ class StudyPreparationService:
             prepared_power_flow,
             power_flow_result,
             dynamic_models,
+            project_id=self._snapshot.project_id,
+            activation_generation=self._snapshot.activation_generation,
+            source_revision=(
+                self._snapshot.revision.model_revision,
+                self._snapshot.revision.topology_revision,
+                self._snapshot.revision.presentation_revision,
+                self._snapshot.revision.persisted_revision,
+            ),
         )
 
 
