@@ -126,11 +126,23 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if not hasattr(context, "project_id") or not hasattr(context, "name"): raise TypeError("presentation factory requires a ProjectContext")
         return SLDDocument(document_id=f"{context.project_id}:sld", name=f"{context.name} SLD", project_id=context.project_id)
 
-    project_workspace_adapter.application.project_lifecycle.configure_presentation_factory(create_sld_document); project_id = "gridforge-project"
+    lifecycle_service = project_workspace_adapter.application.project_lifecycle
+    lifecycle_service.configure_presentation_factory(create_sld_document)
+    initial_context = lifecycle_service.context
+    if initial_context is None:
+        raise RuntimeError("Application did not establish an initial ProjectContext.")
+    initial_sld_document = create_sld_document(initial_context)
+    gridforge_application.attach_sld_service(SLDService(initial_sld_document))
+    gridforge_application.configure_project_presentation(
+        presentation=initial_sld_document,
+        serializer=serialize_sld,
+        deserializer=deserialize_sld,
+    )
+    project_id = "gridforge-project"
     project_context = project_workspace_adapter.new_project(name="GridForge Project", project_id=project_id, activate_workspace=False)
     sld_document = gridforge_application.presentation
     if not isinstance(sld_document, SLDDocument): raise RuntimeError("Application did not establish an SLDDocument for the active project.")
-    gridforge_application.attach_sld_service(SLDService(sld_document)); sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.activate_document(sld_document.document_id); sld_read_synchronizer.synchronize_network(sld_document, gridforge_application.read_network())
+    sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.activate_document(sld_document.document_id); sld_read_synchronizer.synchronize_network(sld_document, gridforge_application.read_network())
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document

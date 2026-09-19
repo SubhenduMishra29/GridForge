@@ -263,7 +263,8 @@ def create_application(network: Any) -> Application:
         context=initial_context,
         loader=load_project,
         saver=save_project,
-        activation_transaction=activate_project_transaction,
+        activate_network=activate_network,
+        project_state_activator=activate_project_state,
         project_state_validator=validate_project_candidate,
     )
     application.attach_project_lifecycle(lifecycle)
