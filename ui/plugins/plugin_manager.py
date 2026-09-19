@@ -480,6 +480,7 @@ class PluginManager:
         plugin_id: str,
         *,
         metadata: Optional[Mapping[str, Any]] = None,
+        failure_operation: str = "shutdown",
     ) -> None:
         self._emit(
             plugin_shutdown_requested(
@@ -502,7 +503,7 @@ class PluginManager:
                 plugin_failed(
                     plugin_id,
                     exc,
-                    operation="shutdown",
+                    operation=failure_operation,
                     recoverable=True,
                     source=PluginEventSource.MANAGER,
                     metadata=metadata,
@@ -596,7 +597,10 @@ class PluginManager:
             )
         )
         if self._registry.is_initialized(plugin_id):
-            self._shutdown_one(plugin_id)
+            self._shutdown_one(
+                plugin_id,
+                failure_operation="unload",
+            )
 
         if self._registry.is_enabled(plugin_id):
             try:
@@ -606,7 +610,7 @@ class PluginManager:
                     plugin_failed(
                         plugin_id,
                         exc,
-                        operation="disable",
+                        operation="unload",
                         recoverable=True,
                         source=PluginEventSource.MANAGER,
                     )
