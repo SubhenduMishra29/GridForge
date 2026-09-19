@@ -74,7 +74,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from .plugin_contract import validate_plugin
-from .plugin_events import PluginEvent, PluginEventSource, plugin_failed
+from .plugin_events import PluginEvent, PluginEventSource, plugin_disabled, plugin_enabled, plugin_failed
 from .plugin_state import PluginStateStore
 
 
@@ -636,6 +636,8 @@ class PluginRegistry:
             self._state_store.clear_last_error(
                 plugin_id
             )
+            if self._event_sink is not None:
+                self._event_sink(plugin_enabled(plugin_id, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # DISABLE
@@ -689,6 +691,8 @@ class PluginRegistry:
                 plugin_id,
                 False,
             )
+            if self._event_sink is not None:
+                self._event_sink(plugin_disabled(plugin_id, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # QUERIES
