@@ -223,14 +223,6 @@ class ProjectLifecycleService:
         if self._project_state_validator is not None:
             self._project_state_validator(context, loaded, network, presentation)
 
-    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
-        if self._project_state_validator is not None:
-            self._project_state_validator(context, loaded, network, presentation)
-
-    def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
-        if self._project_state_validator is not None:
-            self._project_state_validator(context, loaded, network, presentation)
-
     def _activate_project_state(self, context: ProjectContext | None, loaded: LoadedProject | None) -> None:
         if self._project_state_activator is not None:
             self._project_state_activator(context, loaded)
