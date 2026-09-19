@@ -270,7 +270,6 @@ def create_application(network: Any) -> Application:
     lifecycle = ProjectLifecycleService(
         network=network,
         network_factory=new_network,
-        activate_network=lambda candidate: None,
         context=initial_context,
         loader=load_project,
         saver=save_project,
