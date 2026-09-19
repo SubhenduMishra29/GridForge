@@ -53,14 +53,14 @@ class DynamicMachineModelAssociation:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "DynamicMachineModelAssociation":
+    def from_dict(cls, data: Mapping[str, Any], *, project_id: str | None = None, activation_generation: int | None = None) -> "DynamicMachineModelAssociation":
         if not isinstance(data, Mapping):
             raise TypeError("Dynamic machine model association must be a mapping.")
         parameters = data.get("parameters")
         if not isinstance(parameters, Mapping):
             raise ValueError("Dynamic machine model parameters are required.")
         return cls(
-            project_id=str(data.get("project_id", "")),\n            activation_generation=int(data.get("activation_generation", 0)),\n            machine_id=str(data.get("machine_id", "")),
+            project_id=str(project_id if project_id is not None else data.get("project_id", "")),\n            activation_generation=int(activation_generation if activation_generation is not None else data.get("activation_generation", 0)),\n            machine_id=str(data.get("machine_id", "")),
             bus_id=str(data.get("bus_id", "")),
             model_type=str(data.get("model_type", "")),
             mechanical_power=float(data.get("mechanical_power", 0.0)),
