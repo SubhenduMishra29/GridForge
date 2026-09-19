@@ -33,7 +33,7 @@ from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated, ElementRemoved, ElementUpdated,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
-    SLDPresentationChanged, TopologyChanged, ValidationChanged,
+    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged,
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
@@ -335,6 +335,12 @@ class Application:
             self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
                                                           correlation_id=command.correlation_id,
                                                           causation_id=command.causation_id))
+        elif command.command_type.startswith("protection."):
+            payload = dict(result.metadata)
+            payload.update(metadata)
+            self._event_bus.publish(ProtectionChanged(operation=operation, metadata=payload,
+                                                     correlation_id=command.correlation_id,
+                                                     causation_id=command.causation_id))
         elif command.command_type == "application.place_bus":
             payload = dict(result.metadata)
             payload.update(metadata)
@@ -386,10 +392,7 @@ class Application:
 
     @classmethod
     def _is_topology_command(cls, command: Command) -> bool:
-        if command.command_type in cls._TOPOLOGY_COMMANDS: return True
-        if command.command_type in {"model.update_breaker", "model.update_switch", "model.update_disconnector", "model.update_fuse"}:
-            return any(field in command.payload for field in cls._STATE_CHANGE_FIELDS)
-        return False
+        return RevisionService.is_topology_command(command)
 
     @staticmethod
     def _action_from_command_type(command_type: str) -> str:
