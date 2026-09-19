@@ -25,7 +25,7 @@ PresentationFactory = Callable[[ProjectContext], Any]
 PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
 ProjectStateActivator = Callable[
-    [ProjectContext | None, LoadedProject | None, int],
+    [ProjectContext | None, LoadedProject | None, Any, int],
     Callable[[], None] | None,
 ]
 ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
@@ -314,6 +314,7 @@ class ProjectLifecycleService:
         self,
         context: ProjectContext | None,
         loaded: LoadedProject | None,
+        network: Any,
         generation: int,
     ) -> Callable[[], None] | None:
         if self._project_state_activator is None:
