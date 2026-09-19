@@ -465,3 +465,522 @@ must NOT become independent canonical placement authorities.
 Workspace/Layout decides how editors are arranged.
 
 ======================================================================
+
+======================================================================
+GRIDFORGE V2 — BATCH 3 GF-INT CURRENT RECONCILIATION
+======================================================================
+
+The following entries are the current authoritative Batch 3
+GF-INT reconciliation. Historical audit material is preserved
+elsewhere and is not replaced by these current-status records.
+
+======================================================================
+GF-INT-018
+======================================================================
+
+Scope:
+    Application/Core endpoint resolution.
+
+Finding:
+    Endpoint resolution required a single canonical interpretation of
+    Terminal endpoint relationships and must not silently convert
+    malformed Core state into a disconnected endpoint.
+
+Correction:
+    The Network endpoint resolver validates the authoritative Terminal,
+    rejects unsupported endpoint forms, and resolves supported endpoint
+    relationships to the canonical Bus.
+
+Architectural requirement:
+    Endpoint interpretation remains read-only and within the
+    Application/Network boundary; Terminal does not own global topology.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-020
+======================================================================
+
+Scope:
+    Application endpoint reference validation.
+
+Finding:
+    Endpoint references required explicit validation and canonical Core
+    resolution rather than permissive or duplicated object lookup.
+
+Correction:
+    EndpointResolver resolves immutable endpoint references through the
+    active project context and canonical Network objects, with explicit
+    validation/error handling for unsupported or missing references.
+
+Architectural requirement:
+    Endpoint resolution is read-only Application orchestration over the
+    authoritative Core Network.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-021
+======================================================================
+
+Scope:
+    Network identity uniqueness.
+
+Finding:
+    Canonical object identity must be unique across the complete Network,
+    not merely within individual typed collections.
+
+Correction:
+    NetworkRegistry uses one canonical identity map and rejects duplicate
+    canonical IDs before registration.
+
+Architectural requirement:
+    NetworkRegistry is the single authority for Network membership and
+    canonical identity.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-023
+======================================================================
+
+Scope:
+    Network aggregate contract.
+
+Finding:
+    Network membership, identity, topology state and indexing required a
+    single authoritative aggregate boundary.
+
+Correction:
+    Network owns the authoritative Registry, NetworkState, BusIndex and
+    TopologyManager and exposes controlled mutation/validation boundaries.
+
+Architectural requirement:
+    Network remains the authoritative electrical aggregate; downstream
+    analysis does not become a competing state authority.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-024
+======================================================================
+
+Scope:
+    Typed Core membership.
+
+Finding:
+    Network registration must reject non-Core or unsupported object types
+    instead of allowing arbitrary objects into authoritative membership.
+
+Correction:
+    NetworkRegistry validates ElectricalObject membership and the supported
+    Core Network type set before registration.
+
+Architectural requirement:
+    Only supported Core ElectricalObject instances enter authoritative
+    Network membership.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-025
+======================================================================
+
+Scope:
+    Stale references during Network deletion.
+
+Finding:
+    Removing an object while another registered object still referenced it
+    could leave dangling Core endpoint references.
+
+Correction:
+    NetworkRegistry.remove() scans registered owners and rejects removal
+    while dependent Terminal references remain.
+
+Architectural requirement:
+    Network membership changes preserve endpoint/reference integrity.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-027
+======================================================================
+
+Scope:
+    Canonical identity lookup.
+
+Finding:
+    Object lookup required one canonical identity path rather than
+    independently authoritative typed collections.
+
+Correction:
+    Network.get_by_identity() delegates to NetworkRegistry's canonical
+    identity map; typed lookup remains a compatibility projection.
+
+Architectural requirement:
+    Canonical identity resolution is owned by NetworkRegistry.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-028
+======================================================================
+
+Scope:
+    Registry authority.
+
+Finding:
+    Typed collections must not become independent membership authorities.
+
+Correction:
+    NetworkRegistry derives typed collections from the canonical
+    _objects identity map and retains membership mutation in the registry.
+
+Architectural requirement:
+    There is one authoritative Network registry; typed views are
+    projections.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-030
+======================================================================
+
+Scope:
+    Dependent-reference protection.
+
+Finding:
+    Core deletion must protect dependent references and must not silently
+    leave owners pointing at removed objects.
+
+Correction:
+    NetworkRegistry.remove() explicitly checks all registered Terminal
+    owners and rejects deletion while a dependent reference exists.
+
+Architectural requirement:
+    Referential integrity is enforced at the authoritative Network
+    mutation boundary.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-035
+======================================================================
+
+Scope:
+    Canonical terminal-role handling.
+
+Finding:
+    Terminal ownership, semantic role and endpoint references require one
+    authoritative Core Terminal contract.
+
+Correction:
+    Terminal owns its endpoint and semantic role, validates its owner and
+    role, and retains the canonical role vocabulary without delegating
+    global topology interpretation to Terminal.
+
+Architectural requirement:
+    Terminal remains a Core domain value/relationship boundary; global
+    topology remains owned by Network.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-040
+======================================================================
+
+Scope:
+    Application transaction rollback state integrity.
+
+Finding:
+    Transaction lifecycle required explicit distinction between open,
+    committing, committed, rolling back, rolled back and rollback-failed
+    states.
+
+Correction:
+    Transaction records undo operations only while OPEN; commit creates the
+    immutable undo journal; rollback transitions through ROLLING_BACK,
+    attempts inverse operations, and represents rollback failure explicitly
+    while preserving the first rollback error.
+
+Architectural requirement:
+    Rollback is a pre-commit transaction concern and cannot be repeated
+    after a committed transaction.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-041
+======================================================================
+
+Scope:
+    Application undo/redo history transition.
+
+Finding:
+    Undo history transition required removal from undo history before the
+    record could enter redo history.
+
+Correction:
+    CommandManager performs:
+        pop_undo(record)
+        -> execute inverse UndoJournal
+        -> move_undo_to_redo(record)
+
+    CommandHistory.move_undo_to_redo() now accepts an already-removed
+    record and rejects a record that is still present in either stack.
+
+Architectural requirement:
+    CommandManager owns undo-operation execution and transition
+    orchestration; CommandHistory remains a state-only history container.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-042
+======================================================================
+
+Scope:
+    Application command transaction/history commit boundary.
+
+Finding:
+    PRE-COMMIT, COMMIT and POST-COMMIT behavior required explicit
+    separation so that post-commit history failure cannot roll back already
+    committed Core state.
+
+Correction:
+    CommandManager executes handler work before commit, obtains the
+    immutable UndoJournal at commit, and records history only after commit.
+    A post-commit history-recording failure marks the command boundary
+    degraded instead of attempting to roll back committed Core state.
+
+Architectural requirement:
+    Core transaction commit is authoritative; history recording is a
+    post-commit application concern.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-046
+======================================================================
+
+Scope:
+    Project runtime isolation.
+
+Finding:
+    Activating another project/network required a fresh project-bound
+    Application command/history runtime rather than retaining the prior
+    project's history boundary.
+
+Correction:
+    Bootstrap builds a fresh CommandManager/read/validation runtime for
+    the active Network and Application replaces the runtime atomically
+    during Network activation.
+
+Architectural requirement:
+    Project-scoped command/history state must not leak across active
+    project boundaries.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-047
+======================================================================
+
+Scope:
+    Project lifecycle activation integrity.
+
+Finding:
+    Project activation required validation and rollback-aware replacement
+    of project-bound runtime state.
+
+Correction:
+    ProjectLifecycleService validates the candidate and coordinates
+    presentation, Network and project-state activation with rollback
+    callbacks; incomplete rollback enters ROLLBACK_FAILED explicitly.
+
+Architectural requirement:
+    Project activation remains an Application lifecycle transaction and
+    does not expose partial project state as active.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-048
+======================================================================
+
+Scope:
+    Project identity and activation-generation isolation.
+
+Finding:
+    Project-scoped state and study/runtime references required explicit
+    project identity and activation-generation provenance.
+
+Correction:
+    Project lifecycle increments activation_generation across successful
+    transitions, ProjectSnapshot carries project_id and
+    activation_generation, and project-scoped runtime activation validates
+    the active project generation before use.
+
+Architectural requirement:
+    Project identity and activation generation remain explicit boundaries
+    for project-scoped state and downstream study preparation.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-050
+======================================================================
+
+Scope:
+    Network.validate() Core-domain validation boundary.
+
+Finding:
+    Generic object validation was insufficient for authoritative Network
+    validation.
+
+Correction:
+    Network.validate() explicitly requires Core ElectricalObject
+    membership, invokes each element's validate() contract, and checks
+    Network membership tokens and registered endpoint relationships.
+
+Architectural requirement:
+    Network validation operates on the Core ElectricalObject contract and
+    validates authoritative membership/reference integrity.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-051
+======================================================================
+
+Scope:
+    Batch 3 audit/register synchronization.
+
+Finding:
+    The current Batch 3 implementation/remediation state was not
+    synchronized into Modification_Register.txt, creating a divergence
+    between source implementation and the authoritative audit register.
+
+Correction:
+    Synchronize the current Batch 3 findings and statuses into this
+    authoritative register while preserving existing IDs and historical
+    audit material.
+
+Architectural requirement:
+    Code state, audit findings and the modification register must form one
+    consistent audit authority. Register synchronization must not alter
+    the frozen GridForge V2 architecture.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static reconciliation only.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+BATCH 3 STATIC RECONCILIATION CHECK
+======================================================================
+
+Reconciled current Batch 3 findings:
+    18 current GF-INT findings are represented by one authoritative
+    current entry each.
+
+Additional current Batch 3 GF-INT identifiers:
+    None identified in the inspected authoritative register or current
+    repository audit/remediation material.
+
+Register integrity:
+    One current authoritative entry per reconciled GF-INT identifier.
+    No replacement identifiers introduced.
+
+Verification boundary:
+    Static source/register reconciliation only.
+    Runtime, tests and CI remain deferred and are not claimed.
+
+======================================================================
