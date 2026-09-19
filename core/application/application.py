@@ -144,35 +144,36 @@ class Application:
         self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.new_project(name, project_id=project_id)
         if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
-        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new"}))
+        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def open_project(self, path: str) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.open_project(path)
         if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
-        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open"}))
+        self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def save_project(self, path: str | None = None) -> ProjectContext:
         context = self.project_lifecycle.save_project(path)
         self._revision_service.mark_persisted()
-        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None}))
+        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None, "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def save_project_as(self, path: str) -> ProjectContext:
         context = self.project_lifecycle.save_project_as(path)
         self._revision_service.mark_persisted()
-        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None}))
+        self._event_bus.publish(ProjectSaved(metadata={"project_id": context.project_id, "path": str(context.path) if context.path else None, "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def close_project(self) -> ProjectContext | None:
         self._study_service.ensure_no_active_studies()
+        previous_generation = self.project_lifecycle.activation_generation
         context = self.project_lifecycle.close_project()
         if context is not None:
             if self._sld_service is not None: self._sld_service.detach_document()
             self._revision_service.reset_for_project()
-            self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name}))
+            self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name, "activation_generation": previous_generation, "operation": "close"}))
         return context
 
     def capture_project_snapshot(self) -> ProjectSnapshot:
