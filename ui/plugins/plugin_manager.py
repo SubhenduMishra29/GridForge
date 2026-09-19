@@ -12,7 +12,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from .plugin_context import PluginContext
-from .plugin_events import (PluginEvent, PluginEventSource, plugin_defined, plugin_failed, plugin_initialize_requested, plugin_initialized, plugin_initializing, plugin_load_requested, plugin_loaded, plugin_shutdown, plugin_shutdown_requested, plugin_shutting_down, plugin_unload_requested, plugin_unloaded)
+from .plugin_events import (PluginEvent, PluginEventSource, plugin_defined, plugin_disabled, plugin_enabled, plugin_failed, plugin_initialize_requested, plugin_initialized, plugin_initializing, plugin_load_requested, plugin_loaded, plugin_shutdown, plugin_shutdown_requested, plugin_shutting_down, plugin_unload_requested, plugin_unloaded)
 from .plugin_contract import validate_plugin
 from .plugin_loader import PluginLoader, create_default_plugin_loader
 from .plugin_registry import PluginEntry, PluginRegistry, create_plugin_registry
@@ -162,100 +162,208 @@ class PluginManager:
 
     def load(self, plugin_id: str) -> PluginEntry:
         self._require_definition(plugin_id)
-        existing = self._registry.get_entry(plugin_id)
-        if existing is not None:
-            return existing
-        self._emit(plugin_load_requested(plugin_id, source=PluginEventSource.MANAGER))
-        for current_id in self.resolve_order((plugin_id,)):
-            if self._registry.contains(current_id):
-                continue
-            definition = self._definitions[current_id]
-            plugin = self._loader.create(current_id)
-            validate_plugin(plugin, plugin_id=current_id)
-            self._registry.register(current_id, plugin, enabled=definition.enabled, metadata=dict(definition.metadata))
-            self._emit(plugin_loaded(current_id, source=PluginEventSource.MANAGER))
+        order = self.resolve_order((plugin_id,))
+        self._load_plugins(order)
         entry = self._registry.get_entry(plugin_id)
         if entry is None:
             raise RuntimeError(f"Plugin {plugin_id!r} was not registered after loading.")
         return entry
 
     def load_many(self, plugin_ids: Optional[Iterable[str]] = None) -> tuple[PluginEntry, ...]:
-        return tuple(self.load(current_id) for current_id in self.resolve_order(plugin_ids))
+        order = self.resolve_order(plugin_ids)
+        self._load_plugins(order)
+        return tuple(
+            self._registry.get_entry(plugin_id)
+            for plugin_id in order
+            if self._registry.get_entry(plugin_id) is not None
+        )
 
     def load_all(self) -> tuple[PluginEntry, ...]:
         return self.load_many()
 
+    def _load_plugins(self, order: Iterable[str]) -> list[str]:
+        """Load one ordered lifecycle transaction and compensate new registrations on failure."""
+        loaded_here: list[str] = []
+        try:
+            for current_id in order:
+                if self._registry.contains(current_id):
+                    continue
+                self._emit(
+                    plugin_load_requested(
+                        current_id,
+                        source=PluginEventSource.MANAGER,
+                    )
+                )
+                definition = self._definitions[current_id]
+                try:
+                    plugin = self._loader.create(current_id)
+                    validate_plugin(plugin, plugin_id=current_id)
+                    self._registry.register(
+                        current_id,
+                        plugin,
+                        enabled=definition.enabled,
+                        metadata=dict(definition.metadata),
+                    )
+                except Exception as exc:
+                    self._emit(
+                        plugin_failed(
+                            current_id,
+                            exc,
+                            operation="load",
+                            recoverable=True,
+                            source=PluginEventSource.MANAGER,
+                        )
+                    )
+                    raise
+                loaded_here.append(current_id)
+                self._emit(
+                    plugin_loaded(
+                        current_id,
+                        source=PluginEventSource.MANAGER,
+                    )
+                )
+        except Exception as exc:
+            rollback_errors = self._rollback_loaded(loaded_here)
+            if rollback_errors:
+                raise ExceptionGroup(
+                    "Plugin load transaction and compensation failed.",
+                    [exc, *rollback_errors],
+                ) from exc
+            raise
+        return loaded_here
+
+    def _rollback_loaded(self, loaded_here: Iterable[str]) -> list[BaseException]:
+        """Restore the pre-operation registration set for transaction-created plugins."""
+        failures: list[BaseException] = []
+        for plugin_id in reversed(tuple(loaded_here)):
+            if not self._registry.contains(plugin_id):
+                continue
+            metadata = {"rollback": True}
+            self._emit(
+                plugin_unload_requested(
+                    plugin_id,
+                    source=PluginEventSource.MANAGER,
+                    metadata=metadata,
+                )
+            )
+            try:
+                if self._registry.is_initialized(plugin_id):
+                    self._shutdown_one(
+                        plugin_id,
+                        metadata=metadata,
+                    )
+                if self._registry.is_enabled(plugin_id):
+                    self._registry.disable(plugin_id)
+                    self._emit(
+                        plugin_disabled(
+                            plugin_id,
+                            source=PluginEventSource.MANAGER,
+                            metadata=metadata,
+                        )
+                    )
+                self._registry.unregister(plugin_id, shutdown=False)
+                self._emit(
+                    plugin_unloaded(
+                        plugin_id,
+                        source=PluginEventSource.MANAGER,
+                        metadata=metadata,
+                    )
+                )
+            except Exception as exc:
+                failures.append(exc)
+                self._emit(
+                    plugin_failed(
+                        plugin_id,
+                        exc,
+                        operation="unload",
+                        recoverable=True,
+                        source=PluginEventSource.MANAGER,
+                        metadata=metadata,
+                    )
+                )
+        return failures
+
     def initialize(self, plugin_id: str) -> Any:
         self._require_definition(plugin_id)
-        order = self.resolve_order((plugin_id,))
-        initialized_here: list[str] = []
-        result: Any = None
-        try:
-            for current_id in order:
-                definition = self._definitions[current_id]
-                self.load(current_id)
-                if not definition.enabled:
-                    continue
-                self._require_enabled_dependencies(current_id)
-                if not self._registry.is_enabled(current_id):
-                    raise RuntimeError(f"Plugin {current_id!r} is runtime-disabled.")
-                if self._registry.is_initialized(current_id):
-                    continue
-                context = self._contexts.get(current_id)
-                if context is None:
-                    raise RuntimeError(f"Plugin {current_id!r} requires an explicit PluginContext before initialization.")
-                if current_id == "shell":
-                    self._prepare_shell_composition()
-                self._emit(plugin_initialize_requested(current_id, source=PluginEventSource.MANAGER))
-                self._emit(plugin_initializing(current_id, source=PluginEventSource.MANAGER))
-                try:
-                    result = self._registry.initialize(current_id, context=context)
-                except Exception as exc:
-                    self._emit(plugin_failed(current_id, exc, operation="initialize", recoverable=True, source=PluginEventSource.MANAGER))
-                    raise
-                self._emit(plugin_initialized(current_id, source=PluginEventSource.MANAGER))
-                initialized_here.append(current_id)
-        except Exception:
-            self._rollback_initialization(initialized_here)
-            raise
-        return result
+        results = self._initialize_transaction(self.resolve_order((plugin_id,)))
+        return results[-1] if results else None
 
     def initialize_many(self, plugin_ids: Optional[Iterable[str]] = None) -> tuple[Any, ...]:
-        order = self.resolve_order(plugin_ids)
-        results: list[Any] = []
-        initialized_here: list[str] = []
-        try:
-            for current_id in order:
-                definition = self._definitions[current_id]
-                self.load(current_id)
-                if not definition.enabled:
-                    continue
-                self._require_enabled_dependencies(current_id)
-                if not self._registry.is_enabled(current_id):
-                    raise RuntimeError(f"Plugin {current_id!r} is runtime-disabled.")
-                if self._registry.is_initialized(current_id):
-                    continue
-                context = self._contexts.get(current_id)
-                if context is None:
-                    raise RuntimeError(f"Plugin {current_id!r} requires an explicit PluginContext before initialization.")
-                if current_id == "shell":
-                    self._prepare_shell_composition()
-                self._emit(plugin_initialize_requested(current_id, source=PluginEventSource.MANAGER))
-                self._emit(plugin_initializing(current_id, source=PluginEventSource.MANAGER))
-                try:
-                    results.append(self._registry.initialize(current_id, context=context))
-                except Exception as exc:
-                    self._emit(plugin_failed(current_id, exc, operation="initialize", recoverable=True, source=PluginEventSource.MANAGER))
-                    raise
-                self._emit(plugin_initialized(current_id, source=PluginEventSource.MANAGER))
-                initialized_here.append(current_id)
-        except Exception:
-            self._rollback_initialization(initialized_here)
-            raise
-        return tuple(results)
+        return tuple(
+            self._initialize_transaction(self.resolve_order(plugin_ids))
+        )
 
     def initialize_all(self) -> tuple[Any, ...]:
         return self.initialize_many()
+
+    def _initialize_transaction(self, order: Iterable[str]) -> list[Any]:
+        """Initialize an ordered dependency closure as one load/initialization transaction."""
+        loaded_here = self._load_plugins(order)
+        initialized_here: list[str] = []
+        results: list[Any] = []
+        try:
+            for current_id in order:
+                definition = self._definitions[current_id]
+                if not definition.enabled:
+                    continue
+                self._require_enabled_dependencies(current_id)
+                if not self._registry.is_enabled(current_id):
+                    raise RuntimeError(f"Plugin {current_id!r} is runtime-disabled.")
+                if self._registry.is_initialized(current_id):
+                    continue
+                context = self._contexts.get(current_id)
+                if context is None:
+                    raise RuntimeError(
+                        f"Plugin {current_id!r} requires an explicit PluginContext before initialization."
+                    )
+                if current_id == "shell":
+                    self._prepare_shell_composition()
+                self._emit(
+                    plugin_initialize_requested(
+                        current_id,
+                        source=PluginEventSource.MANAGER,
+                    )
+                )
+                self._emit(
+                    plugin_initializing(
+                        current_id,
+                        source=PluginEventSource.MANAGER,
+                    )
+                )
+                try:
+                    result = self._registry.initialize(
+                        current_id,
+                        context=context,
+                    )
+                except Exception as exc:
+                    self._emit(
+                        plugin_failed(
+                            current_id,
+                            exc,
+                            operation="initialize",
+                            recoverable=True,
+                            source=PluginEventSource.MANAGER,
+                        )
+                    )
+                    raise
+                self._emit(
+                    plugin_initialized(
+                        current_id,
+                        source=PluginEventSource.MANAGER,
+                    )
+                )
+                initialized_here.append(current_id)
+                results.append(result)
+        except Exception as exc:
+            rollback_errors = self._rollback_initialization(initialized_here)
+            rollback_errors.extend(self._rollback_loaded(loaded_here))
+            if rollback_errors:
+                raise ExceptionGroup(
+                    "Plugin initialization transaction and compensation failed.",
+                    [exc, *rollback_errors],
+                ) from exc
+            raise
+        return results
 
     def _prepare_shell_composition(self) -> None:
         shell_entry = self._registry.get_entry("shell")
@@ -277,41 +385,208 @@ class PluginManager:
             raise RuntimeError("ShellPlugin does not implement the required set_composition() contract.")
         setter(canvas_widget=widgets["canvas"], toolbar_widget=widgets["toolbar"], status_widget=widgets["status"])
 
+    def enable(self, plugin_id: str) -> None:
+        self._require_definition(plugin_id)
+        if not self._registry.contains(plugin_id):
+            raise KeyError(f"Plugin {plugin_id!r} is not registered.")
+        if self._registry.is_enabled(plugin_id):
+            return
+        try:
+            self._registry.enable(plugin_id)
+        except Exception as exc:
+            self._emit(
+                plugin_failed(
+                    plugin_id,
+                    exc,
+                    operation="enable",
+                    recoverable=True,
+                    source=PluginEventSource.MANAGER,
+                )
+            )
+            raise
+        self._emit(plugin_enabled(plugin_id, source=PluginEventSource.MANAGER))
+
+    def disable(self, plugin_id: str) -> None:
+        self._require_definition(plugin_id)
+        if not self._registry.contains(plugin_id):
+            raise KeyError(f"Plugin {plugin_id!r} is not registered.")
+        if self._registry.is_initialized(plugin_id):
+            self.shutdown(plugin_id)
+        if not self._registry.is_enabled(plugin_id):
+            return
+        try:
+            self._registry.disable(plugin_id, shutdown=False)
+        except Exception as exc:
+            self._emit(
+                plugin_failed(
+                    plugin_id,
+                    exc,
+                    operation="disable",
+                    recoverable=True,
+                    source=PluginEventSource.MANAGER,
+                )
+            )
+            raise
+        self._emit(plugin_disabled(plugin_id, source=PluginEventSource.MANAGER))
+
+    def _shutdown_one(
+        self,
+        plugin_id: str,
+        *,
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        self._emit(
+            plugin_shutdown_requested(
+                plugin_id,
+                source=PluginEventSource.MANAGER,
+                metadata=metadata,
+            )
+        )
+        self._emit(
+            plugin_shutting_down(
+                plugin_id,
+                source=PluginEventSource.MANAGER,
+                metadata=metadata,
+            )
+        )
+        try:
+            self._registry.shutdown(plugin_id)
+        except Exception as exc:
+            self._emit(
+                plugin_failed(
+                    plugin_id,
+                    exc,
+                    operation="shutdown",
+                    recoverable=True,
+                    source=PluginEventSource.MANAGER,
+                    metadata=metadata,
+                )
+            )
+            raise
+        self._emit(
+            plugin_shutdown(
+                plugin_id,
+                source=PluginEventSource.MANAGER,
+                metadata=metadata,
+            )
+        )
+
     def shutdown(self, plugin_id: str) -> None:
         self._require_definition(plugin_id)
         affected = set(self._dependent_closure(plugin_id))
-        for current_id in reversed(tuple(item for item in self.resolve_order() if item in affected)):
-            if self._registry.contains(current_id) and self._registry.is_initialized(current_id):
-                self._registry.shutdown(current_id)
+        failures: list[BaseException] = []
+        failed_plugins: set[str] = set()
+        for current_id in reversed(
+            tuple(item for item in self.resolve_order() if item in affected)
+        ):
+            if not (
+                self._registry.contains(current_id)
+                and self._registry.is_initialized(current_id)
+            ):
+                continue
+            if any(
+                dependant in failed_plugins
+                for dependant in self._dependent_closure(current_id)
+                if dependant != current_id
+            ):
+                continue
+            try:
+                self._shutdown_one(current_id)
+            except Exception as exc:
+                failures.append(exc)
+                failed_plugins.add(current_id)
+        if failures:
+            raise ExceptionGroup(
+                f"One or more plugin shutdown operations failed for {plugin_id!r}.",
+                failures,
+            )
 
     def shutdown_all(self) -> None:
         failures: list[BaseException] = []
+        failed_plugins: set[str] = set()
         for plugin_id in reversed(self.resolve_order()):
-            if not (self._registry.contains(plugin_id) and self._registry.is_initialized(plugin_id)):
+            if not (
+                self._registry.contains(plugin_id)
+                and self._registry.is_initialized(plugin_id)
+            ):
                 continue
-            self._emit(plugin_shutdown_requested(plugin_id, source=PluginEventSource.MANAGER))
-            self._emit(plugin_shutting_down(plugin_id, source=PluginEventSource.MANAGER))
+            if any(
+                dependant in failed_plugins
+                for dependant in self._dependent_closure(plugin_id)
+                if dependant != plugin_id
+            ):
+                continue
             try:
-                self._registry.shutdown(plugin_id)
+                self._shutdown_one(plugin_id)
             except Exception as exc:
                 failures.append(exc)
-                self._emit(plugin_failed(plugin_id, exc, operation="shutdown", recoverable=True, source=PluginEventSource.MANAGER))
+                failed_plugins.add(plugin_id)
                 continue
-            self._emit(plugin_shutdown(plugin_id, source=PluginEventSource.MANAGER))
         if failures:
-            raise ExceptionGroup("One or more plugin shutdown operations failed.", failures)
+            raise ExceptionGroup(
+                "One or more plugin shutdown operations failed.",
+                failures,
+            )
 
     def unload(self, plugin_id: str) -> Optional[PluginEntry]:
         self._require_definition(plugin_id)
-        registered_dependants = tuple(dependant for dependant in self._dependent_closure(plugin_id) if self._registry.contains(dependant))
+        registered_dependants = tuple(
+            dependant
+            for dependant in self._dependent_closure(plugin_id)
+            if dependant != plugin_id and self._registry.contains(dependant)
+        )
         if registered_dependants:
-            raise RuntimeError(f"Cannot unload plugin {plugin_id!r}; registered dependants remain: {', '.join(registered_dependants)}.")
+            raise RuntimeError(
+                f"Cannot unload plugin {plugin_id!r}; registered dependants remain: "
+                f"{', '.join(registered_dependants)}."
+            )
         if not self._registry.contains(plugin_id):
             return None
+
+        self._emit(
+            plugin_unload_requested(
+                plugin_id,
+                source=PluginEventSource.MANAGER,
+            )
+        )
         if self._registry.is_initialized(plugin_id):
-            self._registry.shutdown(plugin_id)
+            self._shutdown_one(plugin_id)
+
+        if self._registry.is_enabled(plugin_id):
+            try:
+                self._registry.disable(plugin_id, shutdown=False)
+            except Exception as exc:
+                self._emit(
+                    plugin_failed(
+                        plugin_id,
+                        exc,
+                        operation="disable",
+                        recoverable=True,
+                        source=PluginEventSource.MANAGER,
+                    )
+                )
+                raise
+            self._emit(
+                plugin_disabled(
+                    plugin_id,
+                    source=PluginEventSource.MANAGER,
+                )
+            )
+
         entry = self._registry.get_entry(plugin_id)
-        self._registry.unregister(plugin_id)
+        try:
+            self._registry.unregister(plugin_id, shutdown=False)
+        except Exception as exc:
+            self._emit(
+                plugin_failed(
+                    plugin_id,
+                    exc,
+                    operation="unload",
+                    recoverable=True,
+                    source=PluginEventSource.MANAGER,
+                )
+            )
+            raise
         self._emit(plugin_unloaded(plugin_id, source=PluginEventSource.MANAGER))
         return entry
 
@@ -360,22 +635,20 @@ class PluginManager:
     def _direct_dependants(self, plugin_id: str) -> tuple[str, ...]:
         return tuple(candidate for candidate, definition in self._definitions.items() if plugin_id in definition.dependencies)
 
-    def _rollback_initialization(self, initialized_here: Iterable[str]) -> None:
+    def _rollback_initialization(self, initialized_here: Iterable[str]) -> list[BaseException]:
         failures: list[BaseException] = []
         for plugin_id in reversed(tuple(initialized_here)):
-            if not (self._registry.contains(plugin_id) and self._registry.is_initialized(plugin_id)):
+            if not (
+                self._registry.contains(plugin_id)
+                and self._registry.is_initialized(plugin_id)
+            ):
                 continue
-            self._emit(plugin_shutdown_requested(plugin_id, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
-            self._emit(plugin_shutting_down(plugin_id, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
+            metadata = {"rollback": True}
             try:
-                self._registry.shutdown(plugin_id)
+                self._shutdown_one(plugin_id, metadata=metadata)
             except Exception as exc:
                 failures.append(exc)
-                self._emit(plugin_failed(plugin_id, exc, operation="rollback_shutdown", recoverable=True, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
-                continue
-            self._emit(plugin_shutdown(plugin_id, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
-        if failures:
-            raise ExceptionGroup("One or more plugin rollback shutdowns failed.", failures)
+        return failures
 
     def _emit(self, event: PluginEvent) -> None:
         self._events.append(event)
