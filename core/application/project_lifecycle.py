@@ -25,6 +25,7 @@ PresentationSerializer = Callable[[Any], Mapping[str, Any]]
 PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
 ProjectStateActivator = Callable[[ProjectContext | None, LoadedProject | None], None]
 ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
+PresentationActivator = Callable[[Any | None], None]
 
 
 class ProjectLifecycleService:
@@ -37,7 +38,8 @@ class ProjectLifecycleService:
                  serialize_presentation: PresentationSerializer | None = None,
                  deserialize_presentation: PresentationDeserializer | None = None,
                  project_state_activator: ProjectStateActivator | None = None,
-                 project_state_validator: ProjectStateValidator | None = None) -> None:
+                 project_state_validator: ProjectStateValidator | None = None,
+                 presentation_activator: PresentationActivator | None = None) -> None:
         if network is None:
             raise ValueError("network is required.")
         if not callable(network_factory):
@@ -50,6 +52,8 @@ class ProjectLifecycleService:
             raise TypeError("project_state_activator must be callable.")
         if project_state_validator is not None and not callable(project_state_validator):
             raise TypeError("project_state_validator must be callable.")
+        if presentation_activator is not None and not callable(presentation_activator):
+            raise TypeError("presentation_activator must be callable.")
         self._network = network
         self._network_factory = network_factory
         self._activate_network = activate_network
@@ -63,6 +67,7 @@ class ProjectLifecycleService:
         self._project_state_activator = project_state_activator
         self._project_state_validator = project_state_validator
         self._activation_generation = 1 if context is not None else 0
+        self._presentation_activator = presentation_activator
 
     @property
     def context(self) -> ProjectContext | None:
@@ -95,6 +100,11 @@ class ProjectLifecycleService:
             raise TypeError("validator must be callable.")
         self._project_state_validator = validator
 
+    def configure_presentation_activator(self, activator: PresentationActivator) -> None:
+        if not callable(activator):
+            raise TypeError("activator must be callable.")
+        self._presentation_activator = activator
+
     def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
         if not callable(activator):
             raise TypeError("activator must be callable.")
@@ -120,6 +130,7 @@ class ProjectLifecycleService:
         network = self._network_factory()
         presentation = self._create_presentation(context)
         self._validate_candidate(context, None, network, presentation)
+        self._activate_presentation(presentation)
         self._activate_network(network)
         self._network = network
         self._context = context
@@ -149,6 +160,7 @@ class ProjectLifecycleService:
             presentation = self._create_presentation(loaded.context)
 
         self._validate_candidate(loaded.context, loaded, loaded.network, presentation)
+        self._activate_presentation(presentation)
         self._activate_network(loaded.network)
         self._network = loaded.network
         self._context = loaded.context
@@ -198,8 +210,13 @@ class ProjectLifecycleService:
         self._activate_network(network)
         self._network = network
         self._activate_project_state(None, None)
+        self._activate_presentation(None)
         self._activation_generation += 1
         return previous
+
+    def _activate_presentation(self, presentation: Any | None) -> None:
+        if self._presentation_activator is not None:
+            self._presentation_activator(presentation)
 
     def _validate_candidate(self, context: ProjectContext, loaded: LoadedProject | None, network: Any, presentation: Any) -> None:
         if self._project_state_validator is not None:
@@ -237,5 +254,5 @@ class ProjectLifecycleService:
 
 __all__ = [
     "PresentationDeserializer", "PresentationFactory", "PresentationSerializer", "ProjectLifecycleService",
-    "ProjectLoader", "ProjectSaver", "ProjectStateActivator", "ProjectStateValidator",
+    "ProjectLoader", "ProjectSaver", "ProjectStateActivator", "ProjectStateValidator", "PresentationActivator",
 ]
