@@ -129,21 +129,25 @@ class Application:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
+        if self._sld_service is not None:
+            service.configure_presentation_activator(self._sld_service.bind_document)
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
-        if self._sld_service is not None: self._sld_service.bind_document(presentation)
+        if self._sld_service is not None:
+            self.project_lifecycle.configure_presentation_activator(self._sld_service.bind_document)
 
     def attach_sld_service(self, service: SLDService) -> None:
         if not isinstance(service, SLDService): raise TypeError("service must be an SLDService.")
         if self._sld_service is not None and self._sld_service is not service: raise RuntimeError("Application SLD service is already configured.")
         self._sld_service = service
+        if self._project_lifecycle is not None:
+            self._project_lifecycle.configure_presentation_activator(service.bind_document)
         self._register_sld_handlers(service)
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.new_project(name, project_id=project_id)
-        if self._sld_service is not None and self.presentation is not None: self._sld_service.bind_document(self.presentation)
         self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
@@ -171,7 +175,6 @@ class Application:
         previous_generation = self.project_lifecycle.activation_generation
         context = self.project_lifecycle.close_project()
         if context is not None:
-            if self._sld_service is not None: self._sld_service.detach_document()
             self._revision_service.reset_for_project()
             self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name, "activation_generation": previous_generation, "operation": "close"}))
         return context
