@@ -284,9 +284,7 @@ class ProjectLifecycleService:
 
     def _activate_presentation(self, presentation: Any | None) -> Callable[[], None] | None:
         if self._presentation_activator is None:
-            if presentation is None:
-                return None
-            raise RuntimeError("Presentation activator is not configured.")
+            return None
         return self._presentation_activator(presentation)
 
     def _validate_candidate(
