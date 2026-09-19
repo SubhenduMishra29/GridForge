@@ -144,7 +144,7 @@ class StudyService:
                     status="cancelled",
                     message="Study cancelled.",
                 )
-                self._results[request.study_id] = result
+                self._results[key] = result
                 self._event_bus.publish(StudyCancelled(metadata={
                     "study_id": str(request.study_id),
                     "study_type": request.study_type,
@@ -161,7 +161,7 @@ class StudyService:
                 status="completed",
                 value=value,
             )
-            self._results[request.study_id] = result
+            self._results[key] = result
             self._event_bus.publish(StudyCompleted(metadata={
                 "study_id": str(request.study_id),
                 "study_type": request.study_type,
@@ -189,6 +189,18 @@ class StudyService:
             raise
         finally:
             self._tokens.pop(key, None)
+
+    @property
+    def has_active_studies(self) -> bool:
+        return bool(self._tokens)
+
+    def ensure_no_active_studies(self) -> None:
+        if self._tokens:
+            scopes = ", ".join(
+                f"{project_id}:{generation}:{study_id}"
+                for project_id, generation, study_id in self._tokens
+            )
+            raise RuntimeError(f"Project transition blocked by active study scope(s): {scopes}")
 
     def cancel(self, study_id: UUID, *, project_id: str, activation_generation: int) -> bool:
         token = self._tokens.get((project_id, activation_generation, study_id))
