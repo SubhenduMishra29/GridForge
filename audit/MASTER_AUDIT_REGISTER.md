@@ -335,3 +335,18 @@ The following findings were source-corrected in this remediation batch. They rem
 | Architecture constraints | Core remains authoritative for physical Relay objects. Application remains the UI↔Core read boundary. Relay presentation ownership is PROTECTION. Network presentation reads exclude Relay. ProjectionRegistry remains strict and domain-aware. SLDReadSynchronizer remains read/projection-only. No direct Core access from SLD. No duplicate read/projection architecture. |
 | Verification | Static source inspection only. Tests, CI, startup and runtime execution are deferred. |
 | Status | AGENT CORRECTED → RE-AUDIT REQUIRED |
+
+## GF-INT-20260919-022
+
+| Field | Value |
+|---|---|
+| Finding ID | GF-INT-20260919-022 |
+| Severity | CRITICAL |
+| Category | Application Integration / Lifecycle Contract |
+| Finding | `Application.attach_sld_service()` invokes `ProjectLifecycleService.configure_presentation_activator()`, but the current `ProjectLifecycleService` exposed no such configuration method despite already defining `presentation_activator` and `_activate_presentation()` support. |
+| Root Cause | The presentation activation lifecycle contract was partially implemented: the internal callback storage/activation path existed, but the public configuration boundary required by the Application composition path was missing. |
+| Impact | Application startup fails during SLD service attachment before the UI can be constructed. |
+| Required Correction | Complete the existing `ProjectLifecycleService` presentation-activator configuration contract and preserve the single `_activate_candidate()` project activation transaction. |
+| Architecture Constraint | No second lifecycle transaction, no UI→Core mutation, no SLD→Core mutation, no direct Core access from SLD/UI, and no bypass of Application orchestration. |
+| Verification State | AGENT CORRECTED → RE-AUDIT REQUIRED |
+| Verification | Static source inspection only. Runtime/test verification remains deferred according to the current stabilization policy. |
