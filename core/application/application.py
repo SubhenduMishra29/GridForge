@@ -126,29 +126,20 @@ class Application:
             )
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
-        self.project_lifecycle.configure_presentation(
-            presentation=presentation, serializer=serializer, deserializer=deserializer
-        )
+        self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
         if self._sld_service is not None:
             self.project_lifecycle.configure_presentation_activator(
                 lambda context, value: self._bind_sld_transactionally(self._sld_service, value)
             )
 
     def configure_project_presentation_contract(self, *, factory: Any, serializer: Any, deserializer: Any) -> None:
-        """Configure a presentation contract without constructing a UI object prematurely."""
-        self.project_lifecycle.configure_presentation_contract(
-            factory=factory, serializer=serializer, deserializer=deserializer
-        )
+        self.project_lifecycle.configure_presentation_contract(factory=factory, serializer=serializer, deserializer=deserializer)
 
     def configure_presentation_activator(self, activator: Any) -> None:
-        """Compose an external presentation/workspace transaction with SLD binding."""
-        if not callable(activator):
-            raise TypeError("activator must be callable.")
-
+        if not callable(activator): raise TypeError("activator must be callable.")
         if self._sld_service is None:
             self.project_lifecycle.configure_presentation_activator(activator)
             return
-
         sld_service = self._sld_service
 
         def composite(context: ProjectContext | None, value: Any | None):
@@ -173,17 +164,12 @@ class Application:
     @staticmethod
     def _bind_sld_transactionally(service: SLDService, value: Any) -> Any:
         previous = service.document if service.is_bound else None
-        if value is None:
-            service.detach_document()
-        else:
-            service.bind_document(value)
+        if value is None: service.detach_document()
+        else: service.bind_document(value)
 
         def rollback() -> None:
-            if previous is None:
-                service.detach_document()
-            else:
-                service.bind_document(previous)
-
+            if previous is None: service.detach_document()
+            else: service.bind_document(previous)
         return rollback
 
     def attach_sld_service(self, service: SLDService) -> None:
@@ -196,34 +182,23 @@ class Application:
             )
         self._register_sld_handlers(service)
         presentation = self.presentation if self._project_lifecycle is not None else None
-        if presentation is not None:
-            service.bind_document(presentation)
+        if presentation is not None: service.bind_document(presentation)
 
     @staticmethod
     def _coerce_transition_decision(decision: ProjectTransitionDecision | str | None) -> ProjectTransitionDecision | None:
-        if decision is None:
-            return None
-        if isinstance(decision, ProjectTransitionDecision):
-            return decision
+        if decision is None: return None
+        if isinstance(decision, ProjectTransitionDecision): return decision
         if isinstance(decision, str):
-            try:
-                return ProjectTransitionDecision(decision.strip().lower())
-            except ValueError as exc:
-                raise ValueError(f"Unsupported project transition decision: {decision!r}") from exc
+            try: return ProjectTransitionDecision(decision.strip().lower())
+            except ValueError as exc: raise ValueError(f"Unsupported project transition decision: {decision!r}") from exc
         raise TypeError("decision must be ProjectTransitionDecision, string, or None.")
 
     def _prepare_project_transition(self, decision: ProjectTransitionDecision | str | None) -> bool:
-        """Resolve dirty-state transition policy before any target activation."""
-        if not self.is_dirty:
-            return True
-
+        if not self.is_dirty: return True
         normalized = self._coerce_transition_decision(decision)
         if normalized is None:
-            raise ProjectTransitionRequired(
-                "The active project is dirty; the transition requires SAVE, DISCARD, or CANCEL."
-            )
-        if normalized is ProjectTransitionDecision.CANCEL:
-            return False
+            raise ProjectTransitionRequired("The active project is dirty; the transition requires SAVE, DISCARD, or CANCEL.")
+        if normalized is ProjectTransitionDecision.CANCEL: return False
         if normalized is ProjectTransitionDecision.SAVE:
             self.save_project()
             return True
@@ -237,8 +212,7 @@ class Application:
         self._study_service.ensure_no_active_studies()
         if not self._prepare_project_transition(decision):
             current = self.project_lifecycle.context
-            if current is None:
-                raise RuntimeError("Cancel cannot leave the Application without an active project.")
+            if current is None: raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
         context = self.project_lifecycle.new_project(name, project_id=project_id)
         self._event_bus.publish(ProjectLoaded(metadata={
@@ -252,8 +226,7 @@ class Application:
         self._study_service.ensure_no_active_studies()
         if not self._prepare_project_transition(decision):
             current = self.project_lifecycle.context
-            if current is None:
-                raise RuntimeError("Cancel cannot leave the Application without an active project.")
+            if current is None: raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
         context = self.project_lifecycle.open_project(path)
         self._event_bus.publish(ProjectLoaded(metadata={
@@ -284,8 +257,7 @@ class Application:
 
     def close_project(self, *, decision: ProjectTransitionDecision | str | None = None) -> ProjectContext | None:
         self._study_service.ensure_no_active_studies()
-        if not self._prepare_project_transition(decision):
-            return self.project_lifecycle.context
+        if not self._prepare_project_transition(decision): return self.project_lifecycle.context
         previous_generation = self.project_lifecycle.activation_generation
         context = self.project_lifecycle.close_project()
         if context is not None:
@@ -299,25 +271,17 @@ class Application:
     def capture_project_snapshot(self) -> ProjectSnapshot:
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        if context is None:
-            raise RuntimeError("No active project.")
+        if context is None: raise RuntimeError("No active project.")
         network_snapshot = deserialize_network(serialize_network(lifecycle.network))
         dynamic_models = tuple(getattr(getattr(self, "dynamic_models", None), "snapshot", lambda: ())())
-        return ProjectSnapshot(
-            project_id=context.project_id,
-            activation_generation=lifecycle.activation_generation,
-            revision=self.revision,
-            network=network_snapshot,
-            dynamic_models=dynamic_models,
-        )
+        return ProjectSnapshot(project_id=context.project_id, activation_generation=lifecycle.activation_generation,
+                               revision=self.revision, network=network_snapshot, dynamic_models=dynamic_models)
 
     def execute_study(self, request: StudyRequest) -> StudyResult:
-        if not isinstance(request, StudyRequest):
-            raise TypeError("request must be a StudyRequest.")
+        if not isinstance(request, StudyRequest): raise TypeError("request must be a StudyRequest.")
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        if context is None:
-            raise RuntimeError("Cannot start a study without an active project.")
+        if context is None: raise RuntimeError("Cannot start a study without an active project.")
         if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
             raise ValueError("StudyRequest project scope does not match the active project generation.")
         if request.source_revision != self.revision:
@@ -338,10 +302,7 @@ class Application:
             for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
                 command_manager.register_handler(command_type, handler)
         next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
-        self._command_manager = command_manager
-        self._read_service = read_service
-        self._validation_service = validation_service
-        self._control_execution = next_control_execution
+        self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
 
     def mark_project_persisted(self) -> ProjectRevision: return self._revision_service.mark_persisted()
     def record_presentation_change(self) -> ProjectRevision: return self._revision_service.record_presentation_change()
@@ -349,17 +310,24 @@ class Application:
     def validate_project(self) -> ValidationResult:
         result = self.validation_service.validate_project()
         context = self.project_lifecycle.context
-        if context is None:
-            raise RuntimeError("Validation requires an active project.")
-        return replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
+        if context is None: raise RuntimeError("Validation requires an active project.")
+        scoped = replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
+        self._event_bus.publish(ValidationChanged(metadata={
+            "valid": scoped.valid,
+            "errors": scoped.summary.errors,
+            "warnings": scoped.summary.warnings,
+            "model_revision": scoped.model_revision,
+            "topology_revision": scoped.topology_revision,
+            "project_id": scoped.project_id,
+            "activation_generation": scoped.activation_generation,
+        }))
+        return scoped
 
     def read_validation(self) -> ValidationResult | None:
         result = self.validation_service.read_validation()
-        if result is None:
-            return None
+        if result is None: return None
         context = self.project_lifecycle.context
-        if context is None:
-            return None
+        if context is None: return None
         return replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
 
     def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None,
@@ -372,8 +340,7 @@ class Application:
         if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
         result = self._command_manager.execute(command)
         if result.success:
-            if command.command_type.startswith("sld."):
-                self._revision_service.record_presentation_change()
+            if command.command_type.startswith("sld."): self._revision_service.record_presentation_change()
             else:
                 self._revision_service.record_command_success(command)
                 if self._validation_service is not None:
@@ -428,61 +395,43 @@ class Application:
 
     def _project_scope_metadata(self) -> dict[str, object]:
         context = self.project_lifecycle.context
-        return {
-            "project_id": context.project_id if context is not None else None,
-            "activation_generation": self.project_lifecycle.activation_generation,
-        }
+        return {"project_id": context.project_id if context is not None else None,
+                "activation_generation": self.project_lifecycle.activation_generation}
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
-        metadata = {
-            "command_id": str(command.command_id), "message": result.message, "operation": operation,
-            **self._project_scope_metadata(),
-        }
+        metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation, **self._project_scope_metadata()}
         if command.command_type.startswith("model."):
-            self._publish_model_event(command, metadata, operation=operation)
-            self._publish_network_changed(command, metadata)
-        elif command.command_type.startswith("control."):
-            self._publish_control_event(command, result, metadata, operation=operation)
+            self._publish_model_event(command, metadata, operation=operation); self._publish_network_changed(command, metadata)
+        elif command.command_type.startswith("control."): self._publish_control_event(command, result, metadata, operation=operation)
         elif command.command_type.startswith("sld."):
             payload = dict(result.metadata); payload.update(metadata)
-            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
-                                                          correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
         elif command.command_type.startswith("protection."):
             payload = dict(result.metadata); payload.update(metadata)
-            self._event_bus.publish(ProtectionChanged(operation=operation, metadata=payload,
-                                                     correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(ProtectionChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
         elif command.command_type == "application.place_bus":
             payload = dict(result.metadata); payload.update(metadata)
-            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
-                                                          correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
 
     def _publish_control_event(self, command: Command, result: ApplicationResult, metadata: dict[str, object], *, operation: str) -> None:
-        command_type = command.command_type
-        payload = dict(result.metadata); payload.update(metadata)
+        command_type = command.command_type; payload = dict(result.metadata); payload.update(metadata)
         cid, caid = command.correlation_id, command.causation_id
-        if command_type == ADD_CONTROL_COMPONENT:
-            self._event_bus.publish(ControlComponentCreated(component_id=str(payload["component_id"]), component_type=str(payload["component_type"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type == REMOVE_CONTROL_COMPONENT:
-            self._event_bus.publish(ControlComponentRemoved(component_id=str(payload["component_id"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type == CONNECT_CONTROL_SIGNALS:
-            self._event_bus.publish(ControlConnectionCreated(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type == DISCONNECT_CONTROL_SIGNALS:
-            self._event_bus.publish(ControlConnectionRemoved(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type in {ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT, ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY}:
-            self._event_bus.publish(ControlProgramChanged(metadata={**payload, "command_type": command_type}, correlation_id=cid, causation_id=caid))
+        if command_type == ADD_CONTROL_COMPONENT: self._event_bus.publish(ControlComponentCreated(component_id=str(payload["component_id"]), component_type=str(payload["component_type"]), metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type == REMOVE_CONTROL_COMPONENT: self._event_bus.publish(ControlComponentRemoved(component_id=str(payload["component_id"]), metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type == CONNECT_CONTROL_SIGNALS: self._event_bus.publish(ControlConnectionCreated(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type == DISCONNECT_CONTROL_SIGNALS: self._event_bus.publish(ControlConnectionRemoved(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
+        elif command_type in {ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT, ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY}: self._event_bus.publish(ControlProgramChanged(metadata={**payload, "command_type": command_type}, correlation_id=cid, causation_id=caid))
 
     def _publish_history_events(self, command: Command | None, result: ApplicationResult, *, operation: str) -> None:
         if command is not None: self._publish_semantic_events(command, result, operation=operation)
 
     def _publish_model_event(self, command: Command, metadata: dict[str, object], *, operation: str) -> None:
-        action = self._action_from_command_type(command.command_type)
-        element_type = self._element_type(command); element_id = self._element_id(command)
+        action = self._action_from_command_type(command.command_type); element_type = self._element_type(command); element_id = self._element_id(command)
         if element_type is None or element_id is None: return
         effective_action = {"create": "delete", "delete": "create"}.get(action, action) if operation == "undo" else action
         if effective_action == "create": self._event_bus.publish(ElementCreated(element_id=element_id, element_type=element_type, metadata=metadata))
         elif effective_action == "delete": self._event_bus.publish(ElementRemoved(element_id=element_id, element_type=element_type, metadata=metadata))
-        elif effective_action in {"update", "open", "close", "reset", "blow", "trip", "put_in_service", "take_out_of_service"}:
-            self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, changes=metadata))
+        elif effective_action in {"update", "open", "close", "reset", "blow", "trip", "put_in_service", "take_out_of_service"}: self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, changes=metadata))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
         if not self._is_network_change_command(command): return
@@ -499,8 +448,7 @@ class Application:
         return cls._element_type(command) in cls._NETWORK_ELEMENT_CREATE_DELETE_TYPES
 
     @classmethod
-    def _is_topology_command(cls, command: Command) -> bool:
-        return RevisionService.is_topology_command(command)
+    def _is_topology_command(cls, command: Command) -> bool: return RevisionService.is_topology_command(command)
 
     @staticmethod
     def _action_from_command_type(command_type: str) -> str:
@@ -511,8 +459,7 @@ class Application:
 
     @staticmethod
     def _element_type(command: Command) -> str | None:
-        payload = command.payload
-        value = payload.get("element_type") or payload.get("equipment_type")
+        payload = command.payload; value = payload.get("element_type") or payload.get("equipment_type")
         if value is None and command.command_type.startswith("model."):
             action = command.command_type.split(".", 1)[1]
             for prefix in ("create_", "update_", "delete_", "open_", "close_", "trip_", "put_", "take_", "blow_", "reset_"):
@@ -521,8 +468,7 @@ class Application:
 
     @staticmethod
     def _element_id(command: Command) -> str | None:
-        payload = command.payload
-        value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
+        payload = command.payload; value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
         if value is None:
             for key in ("breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
                 if key in payload: value = payload[key]; break
