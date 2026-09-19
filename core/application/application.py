@@ -121,22 +121,20 @@ class Application:
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
         if self._sld_service is not None:
-            service.configure_presentation_activator(lambda presentation: self._bind_sld_transactionally(self._sld_service, presentation))
+            service.configure_presentation_activator(
+                lambda context, presentation: self._bind_sld_transactionally(self._sld_service, presentation)
+            )
 
-    def configure_project_presentation(
-        self, *, presentation: Any, serializer: Any, deserializer: Any
-    ) -> None:
+    def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(
             presentation=presentation, serializer=serializer, deserializer=deserializer
         )
         if self._sld_service is not None:
             self.project_lifecycle.configure_presentation_activator(
-                lambda value: self._bind_sld_transactionally(self._sld_service, value)
+                lambda context, value: self._bind_sld_transactionally(self._sld_service, value)
             )
 
-    def configure_project_presentation_contract(
-        self, *, factory: Any, serializer: Any, deserializer: Any
-    ) -> None:
+    def configure_project_presentation_contract(self, *, factory: Any, serializer: Any, deserializer: Any) -> None:
         """Configure a presentation contract without constructing a UI object prematurely."""
         self.project_lifecycle.configure_presentation_contract(
             factory=factory, serializer=serializer, deserializer=deserializer
@@ -153,19 +151,18 @@ class Application:
 
         sld_service = self._sld_service
 
-        def composite(value: Any | None):
+        def composite(context: ProjectContext | None, value: Any | None):
             sld_rollback = self._bind_sld_transactionally(sld_service, value)
             try:
-                workspace_rollback = activator(value)
+                workspace_rollback = activator(context, value)
             except BaseException:
                 sld_rollback()
                 raise
 
             def rollback() -> None:
                 try:
-                    workspace_rollback_fn = workspace_rollback
-                    if workspace_rollback_fn is not None:
-                        workspace_rollback_fn()
+                    if workspace_rollback is not None:
+                        workspace_rollback()
                 finally:
                     sld_rollback()
 
@@ -194,16 +191,16 @@ class Application:
         if self._sld_service is not None and self._sld_service is not service: raise RuntimeError("Application SLD service is already configured.")
         self._sld_service = service
         if self._project_lifecycle is not None:
-            self._project_lifecycle.configure_presentation_activator(lambda value: self._bind_sld_transactionally(service, value))
+            self._project_lifecycle.configure_presentation_activator(
+                lambda context, value: self._bind_sld_transactionally(service, value)
+            )
         self._register_sld_handlers(service)
         presentation = self.presentation if self._project_lifecycle is not None else None
         if presentation is not None:
             service.bind_document(presentation)
 
     @staticmethod
-    def _coerce_transition_decision(
-        decision: ProjectTransitionDecision | str | None,
-    ) -> ProjectTransitionDecision | None:
+    def _coerce_transition_decision(decision: ProjectTransitionDecision | str | None) -> ProjectTransitionDecision | None:
         if decision is None:
             return None
         if isinstance(decision, ProjectTransitionDecision):
@@ -215,10 +212,7 @@ class Application:
                 raise ValueError(f"Unsupported project transition decision: {decision!r}") from exc
         raise TypeError("decision must be ProjectTransitionDecision, string, or None.")
 
-    def _prepare_project_transition(
-        self,
-        decision: ProjectTransitionDecision | str | None,
-    ) -> bool:
+    def _prepare_project_transition(self, decision: ProjectTransitionDecision | str | None) -> bool:
         """Resolve dirty-state transition policy before any target activation."""
         if not self.is_dirty:
             return True
@@ -228,27 +222,18 @@ class Application:
             raise ProjectTransitionRequired(
                 "The active project is dirty; the transition requires SAVE, DISCARD, or CANCEL."
             )
-
         if normalized is ProjectTransitionDecision.CANCEL:
             return False
-
         if normalized is ProjectTransitionDecision.SAVE:
             self.save_project()
             return True
-
         if normalized is ProjectTransitionDecision.DISCARD:
             self.project_lifecycle.discard_project_changes()
             return True
-
         raise RuntimeError(f"Unhandled transition decision: {normalized!r}")
 
-    def new_project(
-        self,
-        name: str = "Untitled Project",
-        *,
-        project_id: str | None = None,
-        decision: ProjectTransitionDecision | str | None = None,
-    ) -> ProjectContext:
+    def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None,
+                    decision: ProjectTransitionDecision | str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         if not self._prepare_project_transition(decision):
             current = self.project_lifecycle.context
@@ -257,21 +242,13 @@ class Application:
             return current
         context = self.project_lifecycle.new_project(name, project_id=project_id)
         self._event_bus.publish(ProjectLoaded(metadata={
-            "project_id": context.project_id,
-            "name": context.name,
-            "operation": "new",
+            "project_id": context.project_id, "name": context.name, "operation": "new",
             "activation_generation": self.project_lifecycle.activation_generation,
-            "semantic_scope": "APPLICATION_PROJECT_ACTIVATED",
-            "ui_workspace_ready": False,
+            "semantic_scope": "APPLICATION_PROJECT_ACTIVATED", "ui_workspace_ready": False,
         }))
         return context
 
-    def open_project(
-        self,
-        path: str,
-        *,
-        decision: ProjectTransitionDecision | str | None = None,
-    ) -> ProjectContext:
+    def open_project(self, path: str, *, decision: ProjectTransitionDecision | str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         if not self._prepare_project_transition(decision):
             current = self.project_lifecycle.context
@@ -280,13 +257,10 @@ class Application:
             return current
         context = self.project_lifecycle.open_project(path)
         self._event_bus.publish(ProjectLoaded(metadata={
-            "project_id": context.project_id,
-            "name": context.name,
-            "path": str(context.path) if context.path else None,
-            "operation": "open",
+            "project_id": context.project_id, "name": context.name,
+            "path": str(context.path) if context.path else None, "operation": "open",
             "activation_generation": self.project_lifecycle.activation_generation,
-            "semantic_scope": "APPLICATION_PROJECT_ACTIVATED",
-            "ui_workspace_ready": False,
+            "semantic_scope": "APPLICATION_PROJECT_ACTIVATED", "ui_workspace_ready": False,
         }))
         return context
 
@@ -294,8 +268,7 @@ class Application:
         context = self.project_lifecycle.save_project(path)
         self._revision_service.mark_persisted()
         self._event_bus.publish(ProjectSaved(metadata={
-            "project_id": context.project_id,
-            "path": str(context.path) if context.path else None,
+            "project_id": context.project_id, "path": str(context.path) if context.path else None,
             "activation_generation": self.project_lifecycle.activation_generation,
         }))
         return context
@@ -304,17 +277,12 @@ class Application:
         context = self.project_lifecycle.save_project_as(path)
         self._revision_service.mark_persisted()
         self._event_bus.publish(ProjectSaved(metadata={
-            "project_id": context.project_id,
-            "path": str(context.path) if context.path else None,
+            "project_id": context.project_id, "path": str(context.path) if context.path else None,
             "activation_generation": self.project_lifecycle.activation_generation,
         }))
         return context
 
-    def close_project(
-        self,
-        *,
-        decision: ProjectTransitionDecision | str | None = None,
-    ) -> ProjectContext | None:
+    def close_project(self, *, decision: ProjectTransitionDecision | str | None = None) -> ProjectContext | None:
         self._study_service.ensure_no_active_studies()
         if not self._prepare_project_transition(decision):
             return self.project_lifecycle.context
@@ -322,12 +290,9 @@ class Application:
         context = self.project_lifecycle.close_project()
         if context is not None:
             self._event_bus.publish(ProjectClosed(metadata={
-                "project_id": context.project_id,
-                "name": context.name,
-                "activation_generation": previous_generation,
-                "operation": "close",
-                "semantic_scope": "APPLICATION_PROJECT_ACTIVATED",
-                "ui_workspace_ready": False,
+                "project_id": context.project_id, "name": context.name,
+                "activation_generation": previous_generation, "operation": "close",
+                "semantic_scope": "APPLICATION_PROJECT_ACTIVATED", "ui_workspace_ready": False,
             }))
         return context
 
@@ -372,9 +337,7 @@ class Application:
         if self._sld_service is not None:
             for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
                 command_manager.register_handler(command_type, handler)
-        next_control_execution = ControlExecutionService(
-            ControlCommandDispatcher(command_manager, command_executor=self.execute)
-        )
+        next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._command_manager = command_manager
         self._read_service = read_service
         self._validation_service = validation_service
@@ -388,11 +351,7 @@ class Application:
         context = self.project_lifecycle.context
         if context is None:
             raise RuntimeError("Validation requires an active project.")
-        return replace(
-            result,
-            project_id=context.project_id,
-            activation_generation=self.project_lifecycle.activation_generation,
-        )
+        return replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
 
     def read_validation(self) -> ValidationResult | None:
         result = self.validation_service.read_validation()
@@ -401,11 +360,7 @@ class Application:
         context = self.project_lifecycle.context
         if context is None:
             return None
-        return replace(
-            result,
-            project_id=context.project_id,
-            activation_generation=self.project_lifecycle.activation_generation,
-        )
+        return replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
 
     def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None,
                               external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
@@ -480,9 +435,7 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {
-            "command_id": str(command.command_id),
-            "message": result.message,
-            "operation": operation,
+            "command_id": str(command.command_id), "message": result.message, "operation": operation,
             **self._project_scope_metadata(),
         }
         if command.command_type.startswith("model."):
@@ -491,23 +444,17 @@ class Application:
         elif command.command_type.startswith("control."):
             self._publish_control_event(command, result, metadata, operation=operation)
         elif command.command_type.startswith("sld."):
-            payload = dict(result.metadata)
-            payload.update(metadata)
+            payload = dict(result.metadata); payload.update(metadata)
             self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
-                                                          correlation_id=command.correlation_id,
-                                                          causation_id=command.causation_id))
+                                                          correlation_id=command.correlation_id, causation_id=command.causation_id))
         elif command.command_type.startswith("protection."):
-            payload = dict(result.metadata)
-            payload.update(metadata)
+            payload = dict(result.metadata); payload.update(metadata)
             self._event_bus.publish(ProtectionChanged(operation=operation, metadata=payload,
-                                                     correlation_id=command.correlation_id,
-                                                     causation_id=command.causation_id))
+                                                     correlation_id=command.correlation_id, causation_id=command.causation_id))
         elif command.command_type == "application.place_bus":
-            payload = dict(result.metadata)
-            payload.update(metadata)
+            payload = dict(result.metadata); payload.update(metadata)
             self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
-                                                          correlation_id=command.correlation_id,
-                                                          causation_id=command.causation_id))
+                                                          correlation_id=command.correlation_id, causation_id=command.causation_id))
 
     def _publish_control_event(self, command: Command, result: ApplicationResult, metadata: dict[str, object], *, operation: str) -> None:
         command_type = command.command_type
