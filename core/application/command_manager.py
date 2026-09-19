@@ -807,8 +807,8 @@ class CommandManager:
     # SAFE ROLLBACK
     # ========================================================
 
-    @staticmethod
     def _rollback_safely(
+        self,
         transaction: Transaction,
     ) -> None:
         """
