@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ui.core.qt import QPointF
+from ui.core.qt import QPointF, Qt
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,11 +99,38 @@ class MouseEventAdapter:
         items_method = getattr(self._scene, "items", None)
         if not callable(items_method):
             raise TypeError("scene must provide items().")
-        for item in tuple(items_method(scene_position)):
+
+        # Do not dispatch QGraphicsScene.items(QPointF) through PySide6.
+        # That overload can enter a generated isinstance() check containing
+        # collections.abc.Sequence[QPoint]. Use the scalar rectangle overload
+        # as an indexed candidate query, then apply the exact point test below.
+        x = float(scene_position.x())
+        y = float(scene_position.y())
+        epsilon = 1e-6
+        candidates = items_method(
+            x - epsilon,
+            y - epsilon,
+            2.0 * epsilon,
+            2.0 * epsilon,
+            Qt.IntersectsItemShape,
+            Qt.DescendingOrder,
+        )
+
+        for item in tuple(candidates):
+            if not self._contains_scene_point(item, scene_position):
+                continue
             candidate = self._selectable_ancestor(item)
             if candidate is not None:
                 return getattr(candidate, "object_id", None)
         return None
+
+    @staticmethod
+    def _contains_scene_point(item: Any, scene_position: QPointF) -> bool:
+        contains = getattr(item, "contains", None)
+        map_from_scene = getattr(item, "mapFromScene", None)
+        if not callable(contains) or not callable(map_from_scene):
+            return True
+        return bool(contains(map_from_scene(scene_position)))
 
     @staticmethod
     def _is_selectable(item: Any) -> bool:
