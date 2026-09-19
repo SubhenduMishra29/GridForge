@@ -81,18 +81,41 @@ class CanvasPlugin:
         if context is not None:
             self.set_context(context)
         self._validate_context()
-        if self._composition is None:
-            raise RuntimeError("CanvasPlugin requires an application-composed CanvasComposition.")
+        previous_context = self._context
+        previous_render_system = self._sld_canvas_render_system
+        previous_snapshot = self._sld_canvas_snapshot
+        try:
+            if self._composition is None:
+                raise RuntimeError("CanvasPlugin requires an application-composed CanvasComposition.")
 
-        self._sld_canvas_render_system = self._context.sld_canvas_render_system
-        if not isinstance(self._sld_canvas_render_system, SLDCanvasRenderSystem):
-            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
-        if self._sld_canvas_render_system.scene is not self.require_scene():
-            raise RuntimeError("SLD canvas render system must target the CanvasComposition scene.")
+            self._sld_canvas_render_system = self._context.sld_canvas_render_system
+            if not isinstance(self._sld_canvas_render_system, SLDCanvasRenderSystem):
+                raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
+            if self._sld_canvas_render_system.scene is not self.require_scene():
+                raise RuntimeError("SLD canvas render system must target the CanvasComposition scene.")
 
-        self.synchronize_sld()
-        self._initialized = True
-        return True
+            self.synchronize_sld()
+            self._initialized = True
+            return True
+        except BaseException as exc:
+            compensation_error = None
+            try:
+                if self._sld_canvas_render_system is not None:
+                    self._sld_canvas_render_system.clear()
+                    if previous_snapshot is not None:
+                        self._sld_canvas_render_system.synchronize(previous_snapshot)
+            except BaseException as cleanup_exc:
+                compensation_error = cleanup_exc
+            self._sld_canvas_render_system = previous_render_system
+            self._sld_canvas_snapshot = previous_snapshot
+            self._context = previous_context
+            self._initialized = False
+            if compensation_error is not None:
+                raise ExceptionGroup(
+                    "CanvasPlugin initialization and presentation compensation failed.",
+                    [exc, compensation_error],
+                ) from exc
+            raise
 
     def _validate_context(self) -> None:
         if self._context is None:
