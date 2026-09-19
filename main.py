@@ -133,6 +133,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         raise RuntimeError("Application did not establish an initial ProjectContext.")
     initial_sld_document = create_sld_document(initial_context)
     gridforge_application.attach_sld_service(SLDService(initial_sld_document))
+    gridforge_application.configure_project_presentation(
+        presentation=initial_sld_document,
+        serializer=serialize_sld,
+        deserializer=deserialize_sld,
+    )
     project_id = "gridforge-project"
     project_context = project_workspace_adapter.new_project(name="GridForge Project", project_id=project_id, activate_workspace=False)
     sld_document = gridforge_application.presentation
