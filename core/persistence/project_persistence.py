@@ -127,7 +127,8 @@ class ProjectPersistenceService:
         try:
             with path.open("w", encoding="utf-8") as handle:
                 json.dump(value, handle, indent=2, sort_keys=True, ensure_ascii=False)
-                handle.write("\n")
+                handle.write("
+")
                 handle.flush()
                 os.fsync(handle.fileno())
         except (OSError, TypeError, ValueError) as exc: raise ProjectPersistenceError(f"Unable to write {path.name}: {exc}") from exc
