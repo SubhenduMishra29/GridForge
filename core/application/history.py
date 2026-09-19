@@ -250,6 +250,55 @@ class CommandHistory:
         self._undo_stack.append(record)
 
     # ========================================================
+    # STATE TRANSITIONS
+    # ========================================================
+
+    def restore_undo(self, record: CommandRecord) -> None:
+        """Restore one record to undo history after a clean undo failure."""
+        self._validate_record(record)
+        self._undo_stack.append(record)
+
+    def restore_redo(self, record: CommandRecord) -> None:
+        """Restore one record to redo history after a clean redo failure."""
+        self._validate_record(record)
+        self._redo_stack.append(record)
+
+    def move_undo_to_redo(self, record: CommandRecord) -> None:
+        """Move an already-removed undo record to redo history.
+
+        This helper is state-only. The record is appended to redo before
+        the undo entry is removed so a transition failure is explicit and
+        cannot be mistaken for a completed history transition.
+        """
+        self._validate_record(record)
+        if not self._undo_stack or self._undo_stack[-1] is not record:
+            raise RuntimeError(
+                "Undo history transition requires the supplied record "
+                "to be the current undo record."
+            )
+
+        self._redo_stack.append(record)
+        try:
+            popped = self._undo_stack.pop()
+        except Exception as exc:
+            try:
+                if self._redo_stack and self._redo_stack[-1] is record:
+                    self._redo_stack.pop()
+            except Exception as restore_exc:
+                raise RuntimeError(
+                    "Undo-to-redo history transition failed and its "
+                    "history cleanup also failed."
+                ) from restore_exc
+            raise RuntimeError(
+                "Undo-to-redo history transition failed."
+            ) from exc
+
+        if popped is not record:
+            raise RuntimeError(
+                "Undo-to-redo history transition removed an unexpected record."
+            )
+
+    # ========================================================
     # REDO
     # ========================================================
 
