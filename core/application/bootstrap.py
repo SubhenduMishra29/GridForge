@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any\nfrom dataclasses import replace
 from uuid import uuid4
 
 from core.analysis.power_flow import PowerFlowAnalysis
@@ -147,12 +147,34 @@ def create_application(network: Any) -> Application:
                 f"active project {context.project_id!r}."
             )
         protection_configuration_service.activate(configuration)
+        generation = lifecycle.activation_generation + 1
+        if loaded is None:
+            dynamic_models.replace(())
+        else:
+            dynamic_models.replace(
+                tuple(
+                    replace(item, activation_generation=generation)
+                    for item in loaded.dynamic_models
+                )
+            )
         application.protection_runtime = ProtectionRuntime(lifecycle.network, configuration)
 
+    def validate_project_candidate(context: ProjectContext, loaded, candidate_network, presentation) -> None:
+        del candidate_network, presentation
+        if loaded is not None:
+            for association in loaded.dynamic_models:
+                if association.project_id != context.project_id:
+                    raise ValueError(
+                        f"Dynamic model association {association.machine_id!r} belongs to "
+                        f"project {association.project_id!r}, not {context.project_id!r}."
+                    )
+            if loaded.protection_configuration is not None and loaded.protection_configuration.project_id != context.project_id:
+                raise ValueError("Protection configuration project_id does not match the candidate project.")
+
     def load_project(path):
-        loaded = persistence.load(path)
-        dynamic_models.replace(loaded.dynamic_models)
-        return loaded
+        # Loading is side-effect free. Candidate dynamic/protection state is
+        # installed only by the successful activation transaction.
+        return persistence.load(path)
 
     def save_project(context, active_network, presentation, path):
         persistence.save(
@@ -165,7 +187,6 @@ def create_application(network: Any) -> Application:
         )
 
     def new_network() -> Network:
-        dynamic_models.replace(())
         return Network()
 
     application.dynamic_models = dynamic_models
@@ -178,10 +199,9 @@ def create_application(network: Any) -> Application:
         loader=load_project,
         saver=save_project,
         project_state_activator=activate_project_state,
+        project_state_validator=validate_project_candidate,
     )
     application.attach_project_lifecycle(lifecycle)
-
-    study_preparation = StudyPreparationService(lambda: lifecycle.network)
 
     def study_configuration(request: StudyRequest, expected_type: type[Any]) -> Any:
         configuration = request.configuration.get("configuration", request.configuration)
@@ -196,7 +216,10 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         configuration = study_configuration(request, PowerFlowStudyConfiguration)
-        prepared = study_preparation.prepare_power_flow(configuration)
+        snapshot = application.capture_project_snapshot()
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
+            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
+        prepared = StudyPreparationService(snapshot).prepare_power_flow(configuration)
         if token.cancelled:
             return None
         analysis = PowerFlowAnalysis.from_prepared(prepared)
@@ -209,7 +232,10 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         configuration = study_configuration(request, ShortCircuitStudyConfiguration)
-        prepared = study_preparation.prepare_short_circuit(configuration)
+        snapshot = application.capture_project_snapshot()
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
+            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
+        prepared = StudyPreparationService(snapshot).prepare_short_circuit(configuration)
         if token.cancelled:
             return None
         analysis = ShortCircuitAnalysis.from_prepared(prepared)
@@ -246,7 +272,13 @@ def create_application(network: Any) -> Application:
         power_flow_result = request.configuration.get("power_flow_result")
         if not isinstance(prepared_power_flow, PreparedPowerFlow) or not isinstance(power_flow_result, PowerFlowResult):
             raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
-        prepared = study_preparation.prepare_transient_stability(configuration, prepared_power_flow, power_flow_result, dynamic_models)
+        snapshot = application.capture_project_snapshot()
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
+            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
+        prepared = StudyPreparationService(snapshot).prepare_transient_stability(
+            configuration, prepared_power_flow, power_flow_result,
+            DynamicMachineModelRegistry(snapshot.dynamic_models),
+        )
         if token.cancelled:
             return None
         machine_system = MultiMachineSystem(prepared.machines)
