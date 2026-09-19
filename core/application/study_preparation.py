@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/study_preparation.py
 # GridForge V2 — Application Study Preparation Boundary
+# Author: Subhendu Mishra
 # ============================================================
 """Application-owned bridge from active project state to detached study inputs."""
 
