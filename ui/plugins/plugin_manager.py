@@ -301,6 +301,8 @@ class PluginManager:
         loaded_here = self._load_plugins(order)
         initialized_here: list[str] = []
         results: list[Any] = []
+        initialization_started = False
+        current_initializing: Optional[str] = None
         try:
             for current_id in order:
                 definition = self._definitions[current_id]
@@ -330,6 +332,8 @@ class PluginManager:
                         source=PluginEventSource.MANAGER,
                     )
                 )
+                initialization_started = True
+                current_initializing = current_id
                 try:
                     result = self._registry.initialize(
                         current_id,
@@ -354,8 +358,50 @@ class PluginManager:
                 )
                 initialized_here.append(current_id)
                 results.append(result)
+                initialization_started = False
+                current_initializing = None
         except Exception as exc:
-            rollback_errors = self._rollback_initialization(initialized_here)
+            rollback_errors: list[BaseException] = []
+            if initialization_started and current_initializing is not None:
+                metadata = {"rollback": True}
+                failed_id = current_initializing
+                self._emit(
+                    plugin_shutdown_requested(
+                        failed_id,
+                        source=PluginEventSource.MANAGER,
+                        metadata=metadata,
+                    )
+                )
+                self._emit(
+                    plugin_shutting_down(
+                        failed_id,
+                        source=PluginEventSource.MANAGER,
+                        metadata=metadata,
+                    )
+                )
+                try:
+                    self._registry.compensate_failed_initialization(failed_id)
+                except Exception as compensation_error:
+                    rollback_errors.append(compensation_error)
+                    self._emit(
+                        plugin_failed(
+                            failed_id,
+                            compensation_error,
+                            operation="rollback_shutdown",
+                            recoverable=True,
+                            source=PluginEventSource.MANAGER,
+                            metadata=metadata,
+                        )
+                    )
+                else:
+                    self._emit(
+                        plugin_shutdown(
+                            failed_id,
+                            source=PluginEventSource.MANAGER,
+                            metadata=metadata,
+                        )
+                    )
+            rollback_errors.extend(self._rollback_initialization(initialized_here))
             rollback_errors.extend(self._rollback_loaded(loaded_here))
             if rollback_errors:
                 raise ExceptionGroup(
