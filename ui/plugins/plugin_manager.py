@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from .plugin_context import PluginContext
+from .plugin_events import (PluginEvent, PluginEventSource, plugin_failed, plugin_initialize_requested, plugin_initialized, plugin_initializing, plugin_shutdown, plugin_shutdown_requested, plugin_shutting_down)
 from .plugin_contract import validate_plugin
 from .plugin_loader import PluginLoader, create_default_plugin_loader
 from .plugin_registry import PluginEntry, PluginRegistry, create_plugin_registry
@@ -49,7 +50,8 @@ class PluginManager:
     """Coordinates explicitly defined GridForge V2 UI plugins."""
 
     def __init__(self, *, loader: Optional[PluginLoader] = None, registry: Optional[PluginRegistry] = None,
-                 state_store: Optional[PluginStateStore] = None, definitions: Optional[Iterable[PluginDefinition]] = None) -> None:
+                 state_store: Optional[PluginStateStore] = None, definitions: Optional[Iterable[PluginDefinition]] = None,
+                 event_sink: Optional[Callable[[PluginEvent], None]] = None) -> None:
         self._loader = loader if loader is not None else create_default_plugin_loader()
         if not isinstance(self._loader, PluginLoader):
             raise TypeError("loader must be a PluginLoader.")
@@ -65,7 +67,10 @@ class PluginManager:
             self._state_store = state_store if state_store is not None else PluginStateStore()
             if not isinstance(self._state_store, PluginStateStore):
                 raise TypeError("state_store must be a PluginStateStore.")
-            self._registry = create_plugin_registry(state_store=self._state_store)
+            self._registry = create_plugin_registry(state_store=self._state_store, event_sink=event_sink)
+        if event_sink is not None and not callable(event_sink):
+            raise TypeError("event_sink must be callable or None.")
+        self._event_sink = event_sink
         self._definitions: dict[str, PluginDefinition] = {}
         self._contexts: dict[str, PluginContext] = {}
         if definitions is not None:
@@ -192,7 +197,14 @@ class PluginManager:
                     raise RuntimeError(f"Plugin {current_id!r} requires an explicit PluginContext before initialization.")
                 if current_id == "shell":
                     self._prepare_shell_composition()
-                result = self._registry.initialize(current_id, context=context)
+                self._emit(plugin_initialize_requested(current_id, source=PluginEventSource.MANAGER))
+                self._emit(plugin_initializing(current_id, source=PluginEventSource.MANAGER))
+                try:
+                    result = self._registry.initialize(current_id, context=context)
+                except Exception as exc:
+                    self._emit(plugin_failed(current_id, exc, operation="initialize", recoverable=True, source=PluginEventSource.MANAGER))
+                    raise
+                self._emit(plugin_initialized(current_id, source=PluginEventSource.MANAGER))
                 initialized_here.append(current_id)
         except Exception:
             self._rollback_initialization(initialized_here)
@@ -219,7 +231,14 @@ class PluginManager:
                     raise RuntimeError(f"Plugin {current_id!r} requires an explicit PluginContext before initialization.")
                 if current_id == "shell":
                     self._prepare_shell_composition()
-                results.append(self._registry.initialize(current_id, context=context))
+                self._emit(plugin_initialize_requested(current_id, source=PluginEventSource.MANAGER))
+                self._emit(plugin_initializing(current_id, source=PluginEventSource.MANAGER))
+                try:
+                    results.append(self._registry.initialize(current_id, context=context))
+                except Exception as exc:
+                    self._emit(plugin_failed(current_id, exc, operation="initialize", recoverable=True, source=PluginEventSource.MANAGER))
+                    raise
+                self._emit(plugin_initialized(current_id, source=PluginEventSource.MANAGER))
                 initialized_here.append(current_id)
         except Exception:
             self._rollback_initialization(initialized_here)
@@ -257,9 +276,21 @@ class PluginManager:
                 self._registry.shutdown(current_id)
 
     def shutdown_all(self) -> None:
+        failures: list[BaseException] = []
         for plugin_id in reversed(self.resolve_order()):
-            if self._registry.contains(plugin_id) and self._registry.is_initialized(plugin_id):
+            if not (self._registry.contains(plugin_id) and self._registry.is_initialized(plugin_id)):
+                continue
+            self._emit(plugin_shutdown_requested(plugin_id, source=PluginEventSource.MANAGER))
+            self._emit(plugin_shutting_down(plugin_id, source=PluginEventSource.MANAGER))
+            try:
                 self._registry.shutdown(plugin_id)
+            except Exception as exc:
+                failures.append(exc)
+                self._emit(plugin_failed(plugin_id, exc, operation="shutdown", recoverable=True, source=PluginEventSource.MANAGER))
+                continue
+            self._emit(plugin_shutdown(plugin_id, source=PluginEventSource.MANAGER))
+        if failures:
+            raise ExceptionGroup("One or more plugin shutdown operations failed.", failures)
 
     def unload(self, plugin_id: str) -> Optional[PluginEntry]:
         self._require_definition(plugin_id)
@@ -320,9 +351,25 @@ class PluginManager:
         return tuple(candidate for candidate, definition in self._definitions.items() if plugin_id in definition.dependencies)
 
     def _rollback_initialization(self, initialized_here: Iterable[str]) -> None:
+        failures: list[BaseException] = []
         for plugin_id in reversed(tuple(initialized_here)):
-            if self._registry.contains(plugin_id) and self._registry.is_initialized(plugin_id):
+            if not (self._registry.contains(plugin_id) and self._registry.is_initialized(plugin_id)):
+                continue
+            self._emit(plugin_shutdown_requested(plugin_id, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
+            self._emit(plugin_shutting_down(plugin_id, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
+            try:
                 self._registry.shutdown(plugin_id)
+            except Exception as exc:
+                failures.append(exc)
+                self._emit(plugin_failed(plugin_id, exc, operation="rollback_shutdown", recoverable=True, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
+                continue
+            self._emit(plugin_shutdown(plugin_id, source=PluginEventSource.MANAGER, metadata={"rollback": True}))
+        if failures:
+            raise ExceptionGroup("One or more plugin rollback shutdowns failed.", failures)
+
+    def _emit(self, event: PluginEvent) -> None:
+        if self._event_sink is not None:
+            self._event_sink(event)
 
     def _require_definition(self, plugin_id: str) -> PluginDefinition:
         self._validate_plugin_id(plugin_id)
