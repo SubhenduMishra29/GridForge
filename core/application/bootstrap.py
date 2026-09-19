@@ -213,6 +213,30 @@ def create_application(network: Any) -> Application:
 
         return rollback
 
+    def validate_project_candidate(context: ProjectContext, loaded, candidate_network, presentation) -> None:
+        """Validate candidate identity/provenance without mutating active state."""
+        if candidate_network is None:
+            raise ValueError("Candidate Network is required.")
+        if presentation is None:
+            raise ValueError("Candidate presentation is required.")
+        if loaded is not None:
+            if loaded.context.project_id != context.project_id:
+                raise ValueError("Loaded ProjectContext does not match the candidate project.")
+            for association in loaded.dynamic_models:
+                if association.project_id != context.project_id:
+                    raise ValueError(
+                        f"Dynamic model association {association.machine_id!r} belongs to "
+                        f"project {context.project_id!r}, not {context.project_id!r}."
+                    )
+                if association.activation_generation < 1:
+                    raise ValueError(
+                        f"Dynamic model association {association.machine_id!r} has invalid persisted "
+                        "activation provenance."
+                    )
+            configuration = loaded.protection_configuration
+            if configuration is not None and configuration.project_id != context.project_id:
+                raise ValueError("Protection configuration project_id does not match the candidate project.")
+
     def load_project(path):
         # Loading is side-effect free. Candidate dynamic/protection state is
         # installed only by the successful activation transaction.
