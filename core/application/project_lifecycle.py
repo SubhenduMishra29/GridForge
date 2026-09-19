@@ -29,7 +29,7 @@ ProjectStateActivator = Callable[
     Callable[[], None] | None,
 ]
 ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
-PresentationActivator = Callable[[Any | None], Callable[[], None] | None]
+PresentationActivator = Callable[[ProjectContext | None, Any | None], Callable[[], None] | None]
 
 
 class ProjectLifecycleService:
@@ -86,34 +86,19 @@ class ProjectLifecycleService:
         self._rollback_error: Exception | None = None
 
     @property
-    def context(self) -> ProjectContext | None:
-        return self._context
-
+    def context(self) -> ProjectContext | None: return self._context
     @property
-    def network(self) -> Any:
-        return self._network
-
+    def network(self) -> Any: return self._network
     @property
-    def presentation(self) -> Any:
-        return self._presentation
-
+    def presentation(self) -> Any: return self._presentation
     @property
-    def has_project(self) -> bool:
-        return self._context is not None
-
+    def has_project(self) -> bool: return self._context is not None
     @property
-    def activation_generation(self) -> int:
-        return self._activation_generation
-
+    def activation_generation(self) -> int: return self._activation_generation
     @property
-    def state(self) -> str:
-        """Return the lifecycle integrity state."""
-        return self._state
-
+    def state(self) -> str: return self._state
     @property
-    def rollback_error(self) -> Exception | None:
-        """Return the rollback failure that put lifecycle into ROLLBACK_FAILED."""
-        return self._rollback_error
+    def rollback_error(self) -> Exception | None: return self._rollback_error
 
     @property
     def presentation_configured(self) -> bool:
@@ -175,17 +160,8 @@ class ProjectLifecycleService:
         self._serialize_presentation = serializer
         self._deserialize_presentation = deserializer
 
-    def new_project(
-        self,
-        name: str = "Untitled Project",
-        *,
-        project_id: str | None = None,
-    ) -> ProjectContext:
-        context = ProjectContext(
-            project_id=project_id or str(uuid4()),
-            name=name,
-            path=None,
-        )
+    def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
+        context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
         network = self._network_factory()
         presentation = self._create_presentation(context)
         return self._activate_candidate(context, None, network, presentation)
@@ -194,34 +170,19 @@ class ProjectLifecycleService:
         target = self._normalize_path(path)
         loaded = self._load_project(target)
         presentation = self._presentation_for_loaded(loaded)
-        return self._activate_candidate(
-            loaded.context,
-            loaded,
-            loaded.network,
-            presentation,
-        )
+        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation)
 
     def discard_project_changes(self) -> ProjectContext:
         """Restore the persisted project state without manipulating command history."""
         context = self._require_context()
         if context.path is None:
-            # An unnamed project has no persisted checkpoint to reconstruct.
-            # Discard therefore abandons its unsaved in-memory state at the
-            # surrounding transition boundary.
             return context
 
         loaded = self._load_project(context.path)
         if loaded.context.project_id != context.project_id:
-            raise RuntimeError(
-                "Persisted project identity does not match the active project."
-            )
+            raise RuntimeError("Persisted project identity does not match the active project.")
         presentation = self._presentation_for_loaded(loaded)
-        return self._activate_candidate(
-            loaded.context,
-            loaded,
-            loaded.network,
-            presentation,
-        )
+        return self._activate_candidate(loaded.context, loaded, loaded.network, presentation)
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
         context = self._require_context()
@@ -234,9 +195,7 @@ class ProjectLifecycleService:
         presentation_data: Mapping[str, Any] | None = None
         if self._presentation is not None:
             if self._serialize_presentation is None:
-                raise RuntimeError(
-                    "A persistent presentation is active but no presentation serializer is configured."
-                )
+                raise RuntimeError("A persistent presentation is active but no presentation serializer is configured.")
             presentation_data = self._serialize_presentation(self._presentation)
             if not isinstance(presentation_data, Mapping):
                 raise TypeError("Presentation serializer must return a mapping.")
@@ -303,7 +262,7 @@ class ProjectLifecycleService:
 
         rollback_stack: list[Callable[[], None]] = []
         try:
-            rollback = self._activate_presentation(presentation)
+            rollback = self._activate_presentation(context, presentation)
             if rollback is not None:
                 rollback_stack.append(rollback)
 
@@ -337,9 +296,7 @@ class ProjectLifecycleService:
 
             if rollback_errors:
                 self._state = "ROLLBACK_FAILED"
-                self._rollback_error = RuntimeError(
-                    "One or more project activation rollback callbacks failed."
-                )
+                self._rollback_error = RuntimeError("One or more project activation rollback callbacks failed.")
                 self._rollback_error.__cause__ = activation_error
                 raise RuntimeError(
                     "Project activation failed and rollback is incomplete; lifecycle is ROLLBACK_FAILED."
@@ -349,10 +306,14 @@ class ProjectLifecycleService:
             self._rollback_error = old_rollback_error
             raise
 
-    def _activate_presentation(self, presentation: Any | None) -> Callable[[], None] | None:
+    def _activate_presentation(
+        self,
+        context: ProjectContext | None,
+        presentation: Any | None,
+    ) -> Callable[[], None] | None:
         if self._presentation_activator is None:
             return None
-        return self._presentation_activator(presentation)
+        return self._presentation_activator(context, presentation)
 
     def _validate_candidate(
         self,
