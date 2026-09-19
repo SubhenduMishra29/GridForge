@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/model/base.py
+# GridForge V2 — Electrical Object Identity Model
+# Author: Subhendu Mishra
+# ============================================================
+
 """Common identity and validation contract for GridForge model objects."""
 
 from __future__ import annotations
