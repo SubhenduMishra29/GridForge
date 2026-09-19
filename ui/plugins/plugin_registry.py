@@ -74,7 +74,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from .plugin_contract import validate_plugin
-from .plugin_events import PluginEvent, PluginEventSource, plugin_disabled, plugin_enabled, plugin_failed
+from .plugin_events import PluginEvent, PluginEventSource
 from .plugin_state import PluginStateStore
 
 
@@ -422,15 +422,6 @@ class PluginRegistry:
                 )
             except Exception as exc:
                 self._record_error(plugin_id, exc)
-                try:
-                    entry.plugin.shutdown()
-                except Exception as compensation_error:
-                    aggregate = ExceptionGroup(
-                        f"Plugin {plugin_id!r} initialization and compensation failed.",
-                        [exc, compensation_error],
-                    )
-                    self._record_error(plugin_id, aggregate)
-                    raise aggregate from exc
                 raise
 
             # ------------------------------------------------
@@ -449,18 +440,25 @@ class PluginRegistry:
 
             except Exception as exc:
                 self._record_error(plugin_id, exc)
-                try:
-                    entry.plugin.shutdown()
-                except Exception as compensation_error:
-                    aggregate = ExceptionGroup(
-                        f"Plugin {plugin_id!r} initialization-state commit and compensation failed.",
-                        [exc, compensation_error],
-                    )
-                    self._record_error(plugin_id, aggregate)
-                    raise aggregate from exc
                 raise
 
             return result
+
+    def compensate_failed_initialization(self, plugin_id: str) -> None:
+        """
+        Execute the plugin shutdown callback after a failed initialization
+        attempt without fabricating an initialized -> uninitialized state
+        transition in PluginStateStore.
+
+        PluginManager owns the surrounding compensation event stream.
+        """
+        with self._lock:
+            entry = self._require_entry(plugin_id)
+            try:
+                entry.plugin.shutdown()
+            except Exception as exc:
+                self._record_error(plugin_id, exc)
+                raise
 
     # ========================================================
     # SHUTDOWN
@@ -636,8 +634,6 @@ class PluginRegistry:
             self._state_store.clear_last_error(
                 plugin_id
             )
-            if self._event_sink is not None:
-                self._event_sink(plugin_enabled(plugin_id, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # DISABLE
@@ -691,8 +687,6 @@ class PluginRegistry:
                 plugin_id,
                 False,
             )
-            if self._event_sink is not None:
-                self._event_sink(plugin_disabled(plugin_id, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # QUERIES
@@ -855,8 +849,6 @@ class PluginRegistry:
             plugin_id,
             error,
         )
-        if self._event_sink is not None:
-            self._event_sink(plugin_failed(plugin_id, error, operation="lifecycle", recoverable=False, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # INTERNALS
