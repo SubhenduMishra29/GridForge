@@ -68,25 +68,11 @@ class SLDProjectionManager:
             raise TypeError("read_model must be a NetworkReadModel")
         return tuple(self.project_network_element(element) for element in read_model.elements)
 
-    def project_protection(self, read_model: ProtectionReadModel) -> tuple[SLDProjection, ...]:
-        """Project a complete Application protection snapshot deterministically."""
-        if not isinstance(read_model, ProtectionReadModel):
-            raise TypeError("read_model must be a ProtectionReadModel")
-        return tuple(
-            self.project_protection_element(element)
-            for element in read_model.relays
-            for element in (self._protection_element(element),)
-        )
-
-    @staticmethod
-    def _protection_element(relay) -> ElementReadModel:
-        from core.application.read_models import RelayInputBindingReadModel
-        from ui.sld.sld_read_adapter import SLDReadAdapter
-
-        # Keep relay semantic adaptation in the canonical SLDReadAdapter.
-        return SLDReadAdapter().protection(
-            ProtectionReadModel(relays=(relay,))
-        ).elements[0]
+    def project_protection(self, read_model: NetworkReadModel) -> tuple[SLDProjection, ...]:
+        """Project an adapted protection-domain snapshot deterministically."""
+        if not isinstance(read_model, NetworkReadModel):
+            raise TypeError("read_model must be a NetworkReadModel")
+        return tuple(self.project_protection_element(element) for element in read_model.elements)
 
     def projection(self, object_id: str) -> SLDProjection | None:
         """Return the registered SLD projection for an object ID."""
