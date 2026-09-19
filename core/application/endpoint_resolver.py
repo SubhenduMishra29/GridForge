@@ -9,7 +9,7 @@ GridForge V2 — Application Endpoint Resolver
 =============================================
 
 Resolves immutable EndpointReference values into canonical
-Core Bus / Terminal objects.
+Core electrical endpoints.
 
 The resolver is read-only.
 
@@ -35,7 +35,7 @@ Terminal:
     equipment_id
     terminal_role
 
-A Terminal has no globally unique ID.
+A Terminal has no independent persisted identity; its reference is the owning equipment plus canonical terminal role.
 
 Its identity is the owning equipment plus terminal role.
 """
@@ -187,8 +187,8 @@ def _resolve_terminal(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve a Terminal EndpointReference to the canonical
-    Terminal owned by the referenced equipment.
+    Resolve a Terminal EndpointReference through the canonical Terminal
+    owned by the referenced equipment to its attached electrical endpoint.
 
     Exactly one terminal must satisfy both:
 
@@ -303,8 +303,8 @@ def resolve_endpoint(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve an EndpointReference into the canonical Core
-    Bus or Terminal.
+    Resolve an EndpointReference into the canonical Core electrical
+    endpoint. Terminal objects are never returned as endpoints.
 
     No Core mutation occurs.
     """
