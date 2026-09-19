@@ -1,7 +1,6 @@
 # ============================================================
 # File: ui/workspace/project_workspace_adapter.py
 # GridForge V2 — Project Workspace Application Adapter
-# Author: Subhendu Mishra
 # ============================================================
 
 from __future__ import annotations
@@ -139,16 +138,17 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool = True,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext:
+        if self._application.is_dirty and self._is_cancel(decision):
+            current = self._application.project_lifecycle.context
+            if current is None:
+                raise RuntimeError("Cancel cannot leave the Application without an active project.")
+            return current
         self._configure_presentation_transaction(
             document,
             open_existing=False,
             activate_workspace=activate_workspace,
         )
-        context = self._application.new_project(
-            name,
-            project_id=project_id,
-            decision=decision,
-        )
+        context = self._application.new_project(name, project_id=project_id, decision=decision)
         if self._is_cancel(decision):
             return context
         self._publish("new", self._lifecycle.state, context.project_id)
@@ -161,6 +161,11 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool = True,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext:
+        if self._application.is_dirty and self._is_cancel(decision):
+            current = self._application.project_lifecycle.context
+            if current is None:
+                raise RuntimeError("Cancel cannot leave the Application without an active project.")
+            return current
         self._configure_presentation_transaction(
             open_existing=True,
             activate_workspace=activate_workspace,
@@ -176,10 +181,9 @@ class ProjectWorkspaceApplicationAdapter:
         *,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext | None:
-        self._configure_presentation_transaction(
-            open_existing=False,
-            activate_workspace=False,
-        )
+        if self._application.is_dirty and self._is_cancel(decision):
+            return self._application.project_lifecycle.context
+        self._configure_presentation_transaction(open_existing=False, activate_workspace=False)
         context = self._application.close_project(decision=decision)
         if self._is_cancel(decision):
             return context
