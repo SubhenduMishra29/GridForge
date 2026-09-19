@@ -254,7 +254,7 @@ class ProjectLifecycleService:
             if rollback is not None:
                 rollback_stack.append(rollback)
 
-            rollback = self._activate_project_state(context, loaded, next_generation)
+            rollback = self._activate_project_state(context, loaded, network, next_generation)
             if rollback is not None:
                 rollback_stack.append(rollback)
 
@@ -318,7 +318,7 @@ class ProjectLifecycleService:
     ) -> Callable[[], None] | None:
         if self._project_state_activator is None:
             return None
-        return self._project_state_activator(context, loaded, generation)
+        return self._project_state_activator(context, loaded, network, generation)
 
     def _create_presentation(self, context: ProjectContext) -> Any:
         if not isinstance(context, ProjectContext):
