@@ -1,3 +1,4 @@
+# Author: Subhendu Mishra
 """Detached transient-network state and machine/network algebraic coupling."""
 
 from __future__ import annotations
