@@ -34,8 +34,18 @@ class ValidationService:
         return self._result
 
     def validate_project(self) -> ValidationResult:
-        """Validate every registered Core model and current topology state."""
+        """Validate the complete authoritative Core Network and topology state."""
         issues: list[ValidationIssue] = []
+        try:
+            self._network.validate()
+        except Exception as exc:
+            issues.append(
+                ValidationIssue(
+                    code="NETWORK_INTEGRITY_FAILED",
+                    message=str(exc),
+                    severity=ValidationSeverity.ERROR,
+                )
+            )
         for element in self._elements():
             try:
                 valid = element.validate()

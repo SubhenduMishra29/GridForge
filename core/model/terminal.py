@@ -81,6 +81,28 @@ if TYPE_CHECKING:
 
 class Terminal:
     """
+    # Terminal roles are case-sensitive canonical Core vocabulary. Existing
+    # model families retain their established spellings; FROM and from are
+    # distinct role identifiers and are not silently normalized.
+    BUS_ROLE = "bus"
+    SINGLE_ROLE = "terminal"
+    BRANCH_FROM_ROLE = "FROM"
+    BRANCH_TO_ROLE = "TO"
+    SWITCHING_FROM_ROLE = "from"
+    SWITCHING_TO_ROLE = "to"
+    CT_PRIMARY_1_ROLE = "P1"
+    CT_PRIMARY_2_ROLE = "P2"
+    CT_SECONDARY_1_ROLE = "S1"
+    CT_SECONDARY_2_ROLE = "S2"
+    PT_PRIMARY_A_ROLE = "primary_a"
+    PT_PRIMARY_B_ROLE = "primary_b"
+    PT_SECONDARY_A_ROLE = "secondary_a"
+    PT_SECONDARY_B_ROLE = "secondary_b"
+    CVT_PRIMARY_1_ROLE = "H1"
+    CVT_PRIMARY_2_ROLE = "H2"
+    CVT_SECONDARY_1_ROLE = "X1"
+    CVT_SECONDARY_2_ROLE = "X2"
+
     Authoritative electrical connection point.
 
     A Terminal belongs to exactly one Equipment object and may
@@ -108,6 +130,7 @@ class Terminal:
         "_owner",
         "_role",
         "_endpoint",
+        "_network_token",
     )
 
     def __init__(
@@ -153,6 +176,7 @@ class Terminal:
         self._owner = owner
         self._role = normalized_role
         self._endpoint: Any | None = None
+        self._network_token: object | None = getattr(owner, "_gridforge_network_token", None)
 
         if endpoint is not None:
             self.attach(endpoint)
@@ -185,6 +209,10 @@ class Terminal:
         None means that the Terminal is currently disconnected.
         """
         return self._endpoint
+
+    def _bind_network(self, token: object | None) -> None:
+        """Bind this Terminal to its owning Network membership token."""
+        self._network_token = token
 
     # --------------------------------------------------------
     # Connection state
@@ -225,6 +253,17 @@ class Terminal:
         responsibility.
         """
         self._validate_endpoint(endpoint)
+
+        endpoint_token = getattr(endpoint, "_gridforge_network_token", None)
+        if self._network_token is not None:
+            if endpoint_token is None:
+                raise ValueError(
+                    "Terminal endpoint is not registered in the owning Network."
+                )
+            if self._network_token is not endpoint_token:
+                raise ValueError(
+                    "Terminal endpoint belongs to a different Network."
+                )
 
         self._endpoint = endpoint
 
@@ -283,17 +322,21 @@ class Terminal:
         if endpoint is None:
             raise ValueError("Terminal endpoint must not be None.")
 
-        endpoint_id = getattr(endpoint, "id", None)
+        from .base import ElectricalObject
 
-        if not isinstance(endpoint_id, str):
+        if isinstance(endpoint, Terminal):
             raise TypeError(
-                "Terminal endpoint must expose a string 'id' attribute."
+                "Terminal-to-Terminal endpoint relationships are not supported."
             )
 
-        if not endpoint_id.strip():
-            raise ValueError(
-                "Terminal endpoint id must not be empty."
+        if not isinstance(endpoint, ElectricalObject):
+            raise TypeError(
+                "Terminal endpoint must be a supported Core ElectricalObject."
             )
+
+        endpoint_id = getattr(endpoint, "id", None)
+        if not isinstance(endpoint_id, str) or not endpoint_id.strip():
+            raise ValueError("Terminal endpoint must have a non-empty canonical id.")
 
     # --------------------------------------------------------
     # Representation

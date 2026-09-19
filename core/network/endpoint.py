@@ -30,59 +30,45 @@ from typing import Any
 
 def resolve_terminal_bus(
     terminal: Any,
-) -> Any:
+) -> Any | None:
     """
-    Resolve a Terminal to its electrical Bus.
+    Resolve one authoritative Terminal to its electrical Bus.
 
-    Resolution order:
-
-    1. Read ``terminal.endpoint``.
-    2. Reject a missing endpoint.
-    3. Reject Terminal-to-Terminal chaining.
-    4. Resolve ``endpoint.bus`` when present and non-None.
-    5. Otherwise return the endpoint itself as the Bus-like object.
-
-    The resolver is intentionally read-only.
+    None is the only representation of a valid unconnected Terminal.
+    Malformed endpoint relationships are raised so corrupted Core state is
+    never silently interpreted as a disconnected terminal.
     """
-
     if terminal is None:
-        raise ValueError(
-            "Terminal cannot be None."
-        )
+        raise TypeError("Terminal cannot be None.")
 
-    endpoint = getattr(
-        terminal,
-        "endpoint",
-        None,
-    )
-
-    if endpoint is None:
-        raise ValueError(
-            "Terminal does not have an endpoint."
-        )
-
-    # Import locally to avoid a module-level dependency cycle between
-    # model and network package initialization.
+    from core.model.base import ElectricalObject
+    from core.model.bus import Bus
     from core.model.terminal import Terminal
 
-    if isinstance(
-        endpoint,
-        Terminal,
-    ):
+    if not isinstance(terminal, Terminal):
+        raise TypeError("resolve_terminal_bus requires a Core Terminal.")
+
+    endpoint = terminal.endpoint
+    if endpoint is None:
+        return None
+
+    if isinstance(endpoint, Terminal):
+        raise ValueError("Terminal-to-Terminal endpoint chaining is not supported.")
+
+    if not isinstance(endpoint, ElectricalObject):
+        raise TypeError("Terminal endpoint is not a supported Core ElectricalObject.")
+
+    if isinstance(endpoint, Bus):
+        return endpoint
+
+    bus = getattr(endpoint, "bus", None)
+    if bus is None:
         raise ValueError(
-            "Terminal-to-Terminal endpoint chaining is not supported."
+            f"Terminal endpoint '{endpoint.id}' is not a Bus and does not expose a Bus relationship."
         )
-
-    resolved_bus = getattr(
-        endpoint,
-        "bus",
-        None,
-    )
-
-    if resolved_bus is not None:
-        return resolved_bus
-
-    return endpoint
+    if not isinstance(bus, Bus):
+        raise TypeError("Terminal endpoint bus relationship is not a Core Bus.")
+    return bus
 
 
 __all__ = [

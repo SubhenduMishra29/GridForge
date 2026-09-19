@@ -335,9 +335,9 @@ class TopologyManager:
         if terminal is None:
             return None
 
-        try:
-            bus = resolve_terminal_bus(terminal)
-        except (TypeError, ValueError):
+        bus = resolve_terminal_bus(terminal)
+
+        if bus is None:
             return None
 
         if bus not in self.network.buses:
