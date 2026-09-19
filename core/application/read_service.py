@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/read_service.py
 # GridForge V2 — Application Read Services
+# Author: Subhendu Mishra
 # ============================================================
 """Read-only Application boundaries for authoritative Core state."""
 
@@ -24,7 +25,7 @@ _ELEMENT_COLLECTIONS = (
     "buses", "grids", "generators", "synchronous_machines", "loads",
     "motors", "shunts", "capacitors", "reactors", "solar", "batteries",
     "current_transformers", "potential_transformers", "capacitive_voltage_transformers",
-    "relays", "lines", "cables", "transformers", "breakers", "switches",
+    "lines", "cables", "transformers", "breakers", "switches",
     "disconnectors", "fuses",
 )
 
@@ -85,6 +86,13 @@ class NetworkReadService(ReadService):
         if not isinstance(network, Network): raise TypeError("NetworkReadService requires a Network")
         self._network = network
     def network(self) -> NetworkReadModel:
+        """Return only NETWORK-domain presentation elements.
+
+        Relays remain authoritative Core Network objects and are exposed
+        through ProtectionReadService; they are intentionally excluded from
+        the network presentation read collection because Relay presentation
+        identity is owned exclusively by the PROTECTION projection domain.
+        """
         elements: list[ElementReadModel] = []
         for element_type in _ELEMENT_COLLECTIONS:
             for model in getattr(self._network, element_type): elements.append(self._to_read_model(element_type, model))
