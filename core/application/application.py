@@ -204,6 +204,8 @@ class Application:
             raise RuntimeError("Cannot start a study without an active project.")
         if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
             raise ValueError("StudyRequest project scope does not match the active project generation.")
+        if request.source_revision != self.revision:
+            raise ValueError("StudyRequest source_revision does not match the active project revision.")
         return self._study_service.execute(request)
 
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
