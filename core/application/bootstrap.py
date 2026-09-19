@@ -124,42 +124,116 @@ def create_application(network: Any) -> Application:
     application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
     application._protection_read_service = ProtectionReadService(network)
 
-    def activate_network(active_network: Any) -> None:
-        # Network replacement invalidates all project-bound protection state until
-        # the corresponding project state has been installed below.
-        protection_configuration_service.deactivate()
-        application.protection_runtime = None
-        next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
-        application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
-        application._protection_read_service = ProtectionReadService(active_network)
-
     persistence = ProjectPersistenceService()
     dynamic_models = DynamicMachineModelRegistry()
 
-    def activate_project_state(context: ProjectContext | None, loaded) -> None:
+    def activate_project_transaction(
+        context: ProjectContext | None,
+        loaded,
+        candidate_network: Any,
+        presentation: Any | None,
+        generation: int,
+    ):
+        """Stage and atomically commit every project-bound Application dependency."""
+        next_command_manager, next_read_service, next_validation_service = build_runtime(candidate_network)
+        next_protection_read_service = ProtectionReadService(candidate_network)
         if context is None:
-            protection_configuration_service.deactivate()
-            application.protection_runtime = None
-            return
-
-        configuration = loaded.protection_configuration if loaded is not None and loaded.protection_configuration is not None else ProtectionProjectConfiguration(context.project_id)
-        if configuration.project_id != context.project_id:
-            raise ValueError(
-                f"Protection configuration project_id {configuration.project_id!r} does not match "
-                f"active project {context.project_id!r}."
-            )
-        protection_configuration_service.activate(configuration)
-        generation = lifecycle.activation_generation + 1
-        if loaded is None:
-            dynamic_models.replace(())
+            next_configuration = None
+            next_dynamic_models = ()
+            next_protection_runtime = None
         else:
-            dynamic_models.replace(
-                tuple(
-                    replace(item, activation_generation=generation)
-                    for item in loaded.dynamic_models
-                )
+            next_configuration = (
+                loaded.protection_configuration
+                if loaded is not None and loaded.protection_configuration is not None
+                else ProtectionProjectConfiguration(context.project_id)
             )
-        application.protection_runtime = ProtectionRuntime(lifecycle.network, configuration)
+            if next_configuration.project_id != context.project_id:
+                raise ValueError(
+                    f"Protection configuration project_id {next_configuration.project_id!r} does not match "
+                    f"active project {context.project_id!r}."
+                )
+            next_dynamic_models = tuple(
+                replace(item, activation_generation=generation)
+                for item in (loaded.dynamic_models if loaded is not None else ())
+            )
+            next_protection_runtime = ProtectionRuntime(candidate_network, next_configuration)
+
+        previous_runtime = (
+            application._command_manager,
+            application._read_service,
+            application._validation_service,
+            application._control_execution,
+            application._protection_read_service,
+            application.protection_runtime,
+        )
+        previous_configuration = protection_configuration_service.configuration
+        previous_dynamic_models = dynamic_models.snapshot()
+        previous_revision = application.revision_service.snapshot_state()
+        previous_presentation = application.presentation
+
+        try:
+            application._replace_runtime(
+                next_command_manager,
+                next_read_service,
+                next_validation_service,
+            )
+            application._protection_read_service = next_protection_read_service
+            if next_configuration is None:
+                protection_configuration_service.deactivate()
+            else:
+                protection_configuration_service.activate(next_configuration)
+            dynamic_models.replace(next_dynamic_models)
+            application.protection_runtime = next_protection_runtime
+            if application._sld_service is not None:
+                if presentation is None:
+                    application._sld_service.detach_document()
+                else:
+                    application._sld_service.bind_document(presentation)
+            application.revision_service.reset_for_project()
+        except Exception:
+            (
+                application._command_manager,
+                application._read_service,
+                application._validation_service,
+                application._control_execution,
+                application._protection_read_service,
+                application.protection_runtime,
+            ) = previous_runtime
+            if previous_configuration is None:
+                protection_configuration_service.deactivate()
+            else:
+                protection_configuration_service.activate(previous_configuration)
+            dynamic_models.replace(previous_dynamic_models)
+            application.revision_service.restore_state(previous_revision)
+            if application._sld_service is not None:
+                if previous_presentation is None:
+                    application._sld_service.detach_document()
+                else:
+                    application._sld_service.bind_document(previous_presentation)
+            raise
+
+        def rollback() -> None:
+            (
+                application._command_manager,
+                application._read_service,
+                application._validation_service,
+                application._control_execution,
+                application._protection_read_service,
+                application.protection_runtime,
+            ) = previous_runtime
+            if previous_configuration is None:
+                protection_configuration_service.deactivate()
+            else:
+                protection_configuration_service.activate(previous_configuration)
+            dynamic_models.replace(previous_dynamic_models)
+            application.revision_service.restore_state(previous_revision)
+            if application._sld_service is not None:
+                if previous_presentation is None:
+                    application._sld_service.detach_document()
+                else:
+                    application._sld_service.bind_document(previous_presentation)
+
+        return rollback
 
     def validate_project_candidate(context: ProjectContext, loaded, candidate_network, presentation) -> None:
         del candidate_network, presentation
@@ -196,11 +270,10 @@ def create_application(network: Any) -> Application:
     lifecycle = ProjectLifecycleService(
         network=network,
         network_factory=new_network,
-        activate_network=activate_network,
         context=initial_context,
         loader=load_project,
         saver=save_project,
-        project_state_activator=activate_project_state,
+        activation_transaction=activate_project_transaction,
         project_state_validator=validate_project_candidate,
     )
     application.attach_project_lifecycle(lifecycle)

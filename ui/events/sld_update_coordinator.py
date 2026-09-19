@@ -100,10 +100,9 @@ class SLDUpdateCoordinator:
             document = self.document
             if document is None:
                 return
-            self._synchronizer.synchronize_network(
-                document,
-                self._application.read_network(),
-            )
+            # Event handling may refresh read-only projections, but it must
+            # never mutate the persistent SLDDocument.
+            self._synchronizer.project_network(self._application.read_network())
             self._canvas_refresh()
 
     def dispose(self) -> None:

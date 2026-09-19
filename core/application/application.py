@@ -130,33 +130,30 @@ class Application:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
-        if self._sld_service is not None:
-            service.configure_presentation_activator(lambda presentation: self._sld_service.detach_document() if presentation is None else self._sld_service.bind_document(presentation))
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
         if self._sld_service is not None:
-            self.project_lifecycle.configure_presentation_activator(lambda value: self._sld_service.detach_document() if value is None else self._sld_service.bind_document(value))
+            self._sld_service.bind_document(presentation)
 
     def attach_sld_service(self, service: SLDService) -> None:
         if not isinstance(service, SLDService): raise TypeError("service must be an SLDService.")
         if self._sld_service is not None and self._sld_service is not service: raise RuntimeError("Application SLD service is already configured.")
         self._sld_service = service
-        if self._project_lifecycle is not None:
-            self._project_lifecycle.configure_presentation_activator(lambda value: service.detach_document() if value is None else service.bind_document(value))
         self._register_sld_handlers(service)
+        presentation = self.presentation if self._project_lifecycle is not None else None
+        if presentation is not None:
+            service.bind_document(presentation)
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.new_project(name, project_id=project_id)
-        self._revision_service.reset_for_project()
         self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "operation": "new", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
     def open_project(self, path: str) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
         context = self.project_lifecycle.open_project(path)
-        self._revision_service.reset_for_project()
         self._event_bus.publish(ProjectLoaded(metadata={"project_id": context.project_id, "name": context.name, "path": str(context.path) if context.path else None, "operation": "open", "activation_generation": self.project_lifecycle.activation_generation}))
         return context
 
@@ -177,7 +174,6 @@ class Application:
         previous_generation = self.project_lifecycle.activation_generation
         context = self.project_lifecycle.close_project()
         if context is not None:
-            self._revision_service.reset_for_project()
             self._event_bus.publish(ProjectClosed(metadata={"project_id": context.project_id, "name": context.name, "activation_generation": previous_generation, "operation": "close"}))
         return context
 
@@ -219,11 +215,18 @@ class Application:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if not isinstance(read_service, ReadService): raise TypeError("read_service must implement ReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("validation_service must be a ValidationService.")
+        # Register all candidate handlers before swapping any active runtime state.
+        # This makes runtime replacement itself failure-atomic.
+        if self._sld_service is not None:
+            for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
+                command_manager.register_handler(command_type, handler)
+        next_control_execution = ControlExecutionService(
+            ControlCommandDispatcher(command_manager, command_executor=self.execute)
+        )
         self._command_manager = command_manager
         self._read_service = read_service
         self._validation_service = validation_service
-        self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
-        if self._sld_service is not None: self._register_sld_handlers(self._sld_service)
+        self._control_execution = next_control_execution
 
     def mark_project_persisted(self) -> ProjectRevision: return self._revision_service.mark_persisted()
     def record_presentation_change(self) -> ProjectRevision: return self._revision_service.record_presentation_change()
