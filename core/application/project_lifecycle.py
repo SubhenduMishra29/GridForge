@@ -263,18 +263,23 @@ class ProjectLifecycleService:
             self._presentation = presentation
             self._activation_generation = next_generation
             return context if context is not None else previous_context
-        except Exception:
+        except Exception as activation_error:
+            rollback_errors: list[Exception] = []
             for rollback in reversed(rollback_stack):
                 try:
                     rollback()
-                except Exception:
-                    # Preserve the original activation error. The rollback
-                    # callback is the sole rollback authority for its scope.
-                    pass
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+
             self._network = old_network
             self._context = old_context
             self._presentation = old_presentation
             self._activation_generation = old_generation
+
+            if rollback_errors:
+                raise RuntimeError(
+                    "Project activation failed and one or more rollback callbacks also failed."
+                ) from activation_error
             raise
 
     def _activate_presentation(self, presentation: Any | None) -> Callable[[], None] | None:
