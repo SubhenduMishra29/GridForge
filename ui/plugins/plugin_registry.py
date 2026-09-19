@@ -691,8 +691,6 @@ class PluginRegistry:
                 plugin_id,
                 False,
             )
-            if self._event_sink is not None:
-                self._event_sink(plugin_disabled(plugin_id, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # QUERIES
@@ -855,8 +853,6 @@ class PluginRegistry:
             plugin_id,
             error,
         )
-        if self._event_sink is not None:
-            self._event_sink(plugin_failed(plugin_id, error, operation="lifecycle", recoverable=False, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # INTERNALS
