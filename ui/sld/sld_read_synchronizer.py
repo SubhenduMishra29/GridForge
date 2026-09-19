@@ -3,7 +3,7 @@
 # GridForge V2 — SLD Read Synchronizer
 # Author: Subhendu Mishra
 # ============================================================
-"""Synchronize Application read snapshots into the SLD document model."""
+"""Project Application read models into SLD presentation projections only."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 from core.application.read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel
 
 from .sld_document import SLDDocument
-from .sld_model import SLDConnection, SLDNode
+from .sld_projection import SLDProjection
 from .sld_projection_manager import SLDProjectionManager
 from .sld_read_adapter import SLDReadAdapter
 from .sld_vocabulary import semantic_type
@@ -23,7 +23,7 @@ _BRANCH_TYPES = frozenset({"LINE", "CABLE", "TRANSFORMER"})
 
 
 class SLDReadSynchronizer:
-    """Reconcile Application read data with an SLD document."""
+    """Project Application read data without mutating persistent SLDDocument state."""
 
     def __init__(
         self,
@@ -42,27 +42,28 @@ class SLDReadSynchronizer:
 
     @property
     def application(self) -> Any:
-        """Return the injected Application read facade."""
         return self._application
 
     def attach_application(self, application: Any) -> None:
-        """Attach the Application facade used for authoritative reads."""
         if application is None:
             raise TypeError("application must not be None")
         self._application = application
 
     def detach_application(self) -> Any:
-        """Detach and return the Application facade."""
         application = self._application
         self._application = None
         return application
 
-    def synchronize_network_from_application(self, document: SLDDocument) -> tuple[SLDNode, ...]:
-        """Read the network only through the Application facade, then project it."""
+    def synchronize_network_from_application(
+        self,
+        document: SLDDocument,
+    ) -> tuple[SLDProjection, ...]:
         return self.synchronize_network(document, self._require_application().read_network())
 
-    def synchronize_protection_from_application(self, document: SLDDocument) -> tuple[SLDNode, ...]:
-        """Read protection data only through the Application facade, then project it."""
+    def synchronize_protection_from_application(
+        self,
+        document: SLDDocument,
+    ) -> tuple[SLDProjection, ...]:
         return self.synchronize_protection(document, self._require_application().read_protection())
 
     def synchronize_element_from_application(
@@ -70,91 +71,80 @@ class SLDReadSynchronizer:
         document: SLDDocument,
         element_type: str,
         object_id: str,
-    ) -> SLDNode:
-        """Read one element only through the Application facade, then project it."""
+    ) -> SLDProjection:
         read_model = self._require_application().read_element(element_type, object_id)
         return self.synchronize_element(document, read_model)
 
-    def synchronize_network(self, document: SLDDocument, read_model: NetworkReadModel) -> tuple[SLDNode, ...]:
-        """Reconcile network read data and branch connectivity."""
-        if not isinstance(document, SLDDocument):
-            raise TypeError("document must be an SLDDocument")
+    def synchronize_network(
+        self,
+        document: SLDDocument,
+        read_model: NetworkReadModel,
+    ) -> tuple[SLDProjection, ...]:
+        """Synchronize the read-side projection registry; document is never mutated."""
+        self._require_document(document)
         if not isinstance(read_model, NetworkReadModel):
             raise TypeError("read_model must be a NetworkReadModel")
 
         adapted = self._read_adapter.network(read_model)
-        self._projection_manager.project_network(adapted)
+        projections = self._projection_manager.project_network(adapted)
         active_ids = {element.object_id for element in adapted.elements}
+        for projection_id in self._projection_ids():
+            if projection_id not in active_ids:
+                self._projection_manager.remove(projection_id)
 
-        for node in tuple(document.model.nodes):
-            if node.properties.get("projection_source") == _PROJECTION_SOURCE and node.equipment_id not in active_ids:
-                if node.equipment_id is not None:
-                    self._projection_manager.remove(node.equipment_id)
-                document.model.remove_node(node.node_id)
+        self._project_connections(adapted)
+        return projections
 
-        nodes = tuple(self._synchronize_element(document, element) for element in adapted.elements)
-        self._synchronize_connections(document, adapted)
-        return nodes
-
-    def synchronize_protection(self, document: SLDDocument, read_model: ProtectionReadModel) -> tuple[SLDNode, ...]:
-        """Reconcile protection-domain Relay snapshots through the existing SLD projection boundary."""
-        if not isinstance(document, SLDDocument):
-            raise TypeError("document must be an SLDDocument")
+    def synchronize_protection(
+        self,
+        document: SLDDocument,
+        read_model: ProtectionReadModel,
+    ) -> tuple[SLDProjection, ...]:
+        self._require_document(document)
         if not isinstance(read_model, ProtectionReadModel):
             raise TypeError("read_model must be a ProtectionReadModel")
         adapted = self._read_adapter.protection(read_model)
-        return tuple(self._synchronize_element(document, element) for element in adapted.elements)
+        return tuple(self._synchronize_element(element) for element in adapted.elements)
 
-    def synchronize_element(self, document: SLDDocument, read_model: ElementReadModel) -> SLDNode:
-        """Reconcile one Application element into the SLD document."""
-        if not isinstance(document, SLDDocument):
-            raise TypeError("document must be an SLDDocument")
+    def synchronize_element(
+        self,
+        document: SLDDocument,
+        read_model: ElementReadModel,
+    ) -> SLDProjection:
+        self._require_document(document)
         if not isinstance(read_model, ElementReadModel):
             raise TypeError("read_model must be an ElementReadModel")
         adapted = self._read_adapter.element(read_model)
-        self._projection_manager.project(adapted)
-        return self._synchronize_element(document, adapted)
+        return self._synchronize_element(adapted)
+
+    def _require_document(self, document: SLDDocument) -> None:
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument")
+        # The document is accepted only for compatibility with existing callers.
+        # It is deliberately never read or mutated by the read synchronizer.
+
+    def _projection_ids(self) -> tuple[str, ...]:
+        registry = getattr(self._projection_manager, "_registry", None)
+        values = getattr(registry, "values", None)
+        if not callable(values):
+            return ()
+        return tuple(
+            projection.object_id
+            for projection in tuple(values())
+            if isinstance(projection, SLDProjection)
+        )
 
     def _require_application(self) -> Any:
         if self._application is None:
             raise RuntimeError("SLD Application read facade is not configured")
         return self._application
 
-    def _synchronize_element(self, document: SLDDocument, read_model: ElementReadModel) -> SLDNode:
-        node = document.model.get_node_optional(read_model.object_id)
-        if node is None:
-            node = SLDNode(
-                node_id=read_model.object_id,
-                equipment_id=read_model.object_id,
-                x=0.0,
-                y=0.0,
-                properties={
-                    "projection_source": _PROJECTION_SOURCE,
-                    "element_type": read_model.element_type,
-                    "labels": dict(read_model.labels),
-                    "attributes": dict(read_model.attributes),
-                },
-            )
-            document.model.add_node(node)
-            return node
+    def _synchronize_element(self, read_model: ElementReadModel) -> SLDProjection:
+        return self._projection_manager.project(read_model)
 
-        if node.equipment_id not in (None, read_model.object_id):
-            raise ValueError(f"SLD node ID conflicts with equipment ID: {read_model.object_id!r}")
-
-        node.equipment_id = read_model.object_id
-        node.properties.update({
-            "projection_source": _PROJECTION_SOURCE,
-            "element_type": read_model.element_type,
-            "labels": dict(read_model.labels),
-            "attributes": dict(read_model.attributes),
-        })
-        return node
-
-    def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
-        """Project unambiguous branch endpoint identities into SLD structure."""
-        active_connection_ids: set[str] = set()
-        active_node_ids = {node.node_id for node in document.model.nodes}
-
+    def _project_connections(self, read_model: NetworkReadModel) -> tuple[dict[str, Any], ...]:
+        """Return topology projection data without creating persistent connections."""
+        projected: list[dict[str, Any]] = []
         for element in read_model.elements:
             try:
                 semantic = semantic_type(element.element_type)
@@ -162,34 +152,21 @@ class SLDReadSynchronizer:
                 continue
             if semantic not in _BRANCH_TYPES:
                 continue
-
             source_id = element.attributes.get("endpoint_from_id")
             target_id = element.attributes.get("endpoint_to_id")
             if not isinstance(source_id, str) or not isinstance(target_id, str):
                 continue
-            if source_id not in active_node_ids or target_id not in active_node_ids:
-                continue
-
-            connection_id = element.object_id
-            active_connection_ids.add(connection_id)
-            connection = document.model.get_connection_optional(connection_id)
-            properties = {
-                "projection_source": _PROJECTION_SOURCE,
-                "element_type": semantic,
-                "equipment_id": element.object_id,
-            }
-
-            if connection is None:
-                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_id, target_node_id=target_id, properties=properties))
-            elif connection.source_node_id != source_id or connection.target_node_id != target_id:
-                document.model.remove_connection(connection_id)
-                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_id, target_node_id=target_id, properties=properties))
-            else:
-                connection.properties.update(properties)
-
-        for connection in tuple(document.model.connections):
-            if connection.properties.get("projection_source") == _PROJECTION_SOURCE and connection.connection_id not in active_connection_ids:
-                document.model.remove_connection(connection.connection_id)
+            projected.append(
+                {
+                    "connection_id": element.object_id,
+                    "source_node_id": source_id,
+                    "target_node_id": target_id,
+                    "element_type": semantic,
+                    "equipment_id": element.object_id,
+                    "projection_source": _PROJECTION_SOURCE,
+                }
+            )
+        return tuple(projected)
 
 
 __all__ = ["SLDReadSynchronizer"]
