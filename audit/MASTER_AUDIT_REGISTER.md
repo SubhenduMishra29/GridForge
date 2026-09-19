@@ -417,3 +417,37 @@ The following findings were source-corrected in this remediation batch. They rem
 | GF-INT-049 | MEDIUM | Persistence filesystem durability | REMEDIATED — VERIFICATION DEFERRED | Existing temporary-package replacement is retained; documentation distinguishes exception-safe replacement from process-crash/filesystem durability. |
 
 **Batch 3 register rule:** no Batch 3 finding is marked VERIFIED from source modification alone. GF-INT-032 and GF-INT-038 remain open pending explicit architectural reconciliation.
+
+
+## Batch 3 — Static Correction Re-audit — 2026-09-19
+
+This addendum reflects the current main branch after the Batch 3 source corrections. No tests, CI, application startup, GUI execution, or runtime verification were performed.
+
+| Finding | Static status | Disposition |
+|---|---|---|
+| GF-INT-031 | REMEDIATED — VERIFICATION DEFERRED | Deferred persisted object references are recursively resolved through ModelTypeRegistry and the canonical NetworkRegistry identity map before topology validation. |
+| GF-INT-032 | OPEN — STATIC GAP | Application endpoint/object-type coverage is not yet one complete authoritative taxonomy; the current Application command set does not cover every Core/persistence object family. |
+| GF-INT-033 | REMEDIATED — VERIFICATION DEFERRED | Persisted references and terminal endpoints resolve by canonical Core identity and explicit persisted type checks. |
+| GF-INT-036 | REMEDIATED — VERIFICATION DEFERRED | Reconstructed Network and project-level dynamic/protection state are validated before lifecycle activation. |
+| GF-INT-037 | OPEN — STATIC GAP | ModelTypeRegistry, NetworkRegistry aliases/collections, and Application command-type coverage remain separate mapping authorities. |
+| GF-INT-038 | REMEDIATED — VERIFICATION DEFERRED | Network membership tokens plus canonical registry identity reject cross-Network endpoint references. |
+| GF-INT-039 | OPEN — STATIC GAP | Persistence separates registration from connection, but every create/connect/undo/redo mutation path has not been proven to preserve the same explicit lifecycle separation. |
+| GF-INT-040 | REMEDIATED — VERIFICATION DEFERRED | ProjectLifecycleService now exposes explicit ROLLBACK_FAILED state and blocks further project transitions until recovery. |
+| GF-INT-041 | REMEDIATED — VERIFICATION DEFERRED | CommandManager restores zero-operation undo failures and degrades on partial inverse execution. |
+| GF-INT-042 | REMEDIATED — VERIFICATION DEFERRED | Post-commit history failure is surfaced and places CommandManager in DEGRADED state rather than attempting an invalid rollback. |
+| GF-INT-043 | REMEDIATED — VERIFICATION DEFERRED | Save validates Network and complete project state before serialization and package replacement. |
+| GF-INT-044 | REMEDIATED — VERIFICATION DEFERRED | Dynamic-model and protection references are included in project-level validation; presentation state remains outside Core validation. |
+| GF-INT-045 | REMEDIATED — VERIFICATION DEFERRED | RevisionService is marked persisted only after the persistence operation succeeds. |
+| GF-INT-046 | REMEDIATED — VERIFICATION DEFERRED | Project activation constructs a fresh CommandManager runtime, establishing a history boundary between projects. |
+| GF-INT-047 | REMEDIATED — VERIFICATION DEFERRED | Dynamic model associations are loaded, generation-bound during activation, validated, and supplied back to persistence on save. |
+| GF-INT-048 | REMEDIATED — VERIFICATION DEFERRED | Bootstrap wires the real protection configuration service and dynamic registry into lifecycle activation and persistence. |
+| GF-INT-049 | REMEDIATED — VERIFICATION DEFERRED | Save writes a complete staged package, fsyncs files, preserves a prior-package backup during replacement, and load can recover that backup after an interrupted replacement. Full filesystem-journal durability remains platform-specific. |
+| GF-INT-050 | REMEDIATED — VERIFICATION DEFERRED | Meaningless isinstance(element, object) validation was replaced with explicit Core ElectricalObject validation. |
+
+### Batch 3 closure decision
+
+**Batch 3 is NOT CLOSED.**
+
+The static lifecycle chain is materially corrected, but GF-INT-032, GF-INT-037, and GF-INT-039 remain open. They are retained as explicit findings rather than being inferred closed.
+
+Verification remains **deferred** exactly as required by the remediation scope.

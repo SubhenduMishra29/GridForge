@@ -13,7 +13,7 @@ from typing import Any
 from core.model.terminal import Terminal
 from core.network import Network
 
-from .model_dto import ModelDTO, model_to_dto, restore_state
+from .model_dto import ModelDTO, model_to_dto, resolve_state_references, restore_state
 from .type_registry import ModelTypeRegistry, network_adder_name
 
 
@@ -80,6 +80,39 @@ def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | N
         except (TypeError, ValueError, KeyError) as exc:
             raise NetworkSerializationError(
                 f"Unable to register reconstructed {model_type.__name__} '{dto.id}': {exc}"
+            ) from exc
+
+    def resolve_reference(reference: dict[str, Any]) -> Any:
+        reference_type = reference.get("type")
+        reference_id = reference.get("id")
+        if not isinstance(reference_type, str) or not reference_type.strip():
+            raise NetworkSerializationError("Persisted object reference type cannot be empty.")
+        if not isinstance(reference_id, str) or not reference_id.strip():
+            raise NetworkSerializationError("Persisted object reference ID cannot be empty.")
+        try:
+            expected_type = type_registry.resolve(reference_type)
+            resolved = network.get_by_identity(reference_id)
+        except (KeyError, ValueError) as exc:
+            raise NetworkSerializationError(
+                f"Persisted object reference does not exist: {reference_type}:{reference_id}"
+            ) from exc
+        if not isinstance(resolved, expected_type):
+            raise NetworkSerializationError(
+                f"Persisted object reference type mismatch for {reference_id}: "
+                f"persisted={reference_type}, actual={type(resolved).__name__}"
+            )
+        return resolved
+
+    # All canonical objects are now registered. Resolve every deferred state
+    # reference through the single Network identity authority before terminals
+    # or topology can observe the reconstructed graph.
+    for model in tuple(network.registry._objects.values()):
+        try:
+            resolve_state_references(model, resolve_reference)
+            model.validate()
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Unable to resolve persisted state references for '{model.id}': {exc}"
             ) from exc
 
     for terminal, endpoint_ref in pending_terminals:

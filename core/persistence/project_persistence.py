@@ -43,14 +43,16 @@ class ProjectPersistenceError(RuntimeError):
 class ProjectPersistenceService:
     """Load and save the canonical GridForge engineering project package.
 
-    The temporary-directory replacement strategy is exception-safe for a
-    completed process. File contents are fsync'd before replacement, but this
-    implementation does not claim full process-crash or filesystem-journal
-    durability because directory-entry synchronization is platform-specific.
+    The temporary-directory replacement strategy writes a complete candidate
+    package before installation. An interrupted directory replacement leaves
+    the previous package in a recoverable sibling backup; load-time recovery
+    restores that checkpoint before parsing. File contents are fsync'd before
+    replacement. Directory-entry durability remains platform-specific.
     """
 
     def load(self, path: str | Path) -> LoadedProject:
         package = normalize_package_path(path)
+        self._recover_interrupted_save(package)
         if not package.is_dir(): raise ProjectPersistenceError(f"Project package does not exist: {package}")
         manifest = self._read_json(manifest_path(package))
         if manifest.get("package_version") != PACKAGE_VERSION: raise ProjectPersistenceError(f"Unsupported GridForge package version: {manifest.get('package_version')!r}")
@@ -170,8 +172,54 @@ class ProjectPersistenceService:
                 raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' does not reference a SynchronousMachine.")
             if bus.element_type != "BUS":
                 raise ProjectPersistenceError(f"Dynamic model association '{association.bus_id}' does not reference a Bus.")
-        if protection_configuration is not None and protection_configuration.project_id != context.project_id:
-            raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")
+        if protection_configuration is not None:
+            if protection_configuration.project_id != context.project_id:
+                raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")
+            for item in protection_configuration.elements:
+                try:
+                    protected_element = network.get_by_identity(item.element_id)
+                    relay = network.get_by_identity(item.relay_id)
+                except KeyError as exc:
+                    raise ProjectPersistenceError(
+                        f"Protection configuration '{item.element_id}' references a missing Core object: {exc}"
+                    ) from exc
+                if relay.element_type != "RELAY":
+                    raise ProjectPersistenceError(
+                        f"Protection configuration '{item.element_id}' relay_id does not reference a Relay."
+                    )
+                if not getattr(protected_element, "id", None):
+                    raise ProjectPersistenceError(
+                        f"Protection configuration '{item.element_id}' references an invalid protected object."
+                    )
+
+    @staticmethod
+    def _recover_interrupted_save(package: Path) -> None:
+        """Recover a previous valid package after an interrupted replacement."""
+        parent = package.parent
+        backup_candidates = sorted(
+            parent.glob(f".{package.name}.backup.*"),
+            key=lambda item: item.stat().st_mtime_ns,
+            reverse=True,
+        )
+        if package.is_dir():
+            # A completed replacement may leave its old backup behind if the
+            # process stopped before cleanup. The installed package remains
+            # authoritative; stale backups are safe to discard.
+            for backup in backup_candidates:
+                shutil.rmtree(backup, ignore_errors=True)
+            return
+        if not backup_candidates:
+            return
+
+        backup = backup_candidates[0]
+        try:
+            os.replace(backup, package)
+        except OSError as exc:
+            raise ProjectPersistenceError(
+                f"Unable to recover the previous persisted project package: {package}"
+            ) from exc
+        for stale in backup_candidates[1:]:
+            shutil.rmtree(stale, ignore_errors=True)
 
     @staticmethod
     def _read_json(path: Path) -> dict[str, Any]:
