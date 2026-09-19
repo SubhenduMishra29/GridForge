@@ -21,13 +21,7 @@ class _RevisionTransition:
 
 
 class RevisionService:
-    """
-    Own the authoritative in-memory revision state for the active project.
-
-    The service deliberately tracks state transitions rather than inferring
-    dirty state from command-history depth. This makes undo/redo restore the
-    exact revision state that existed before the corresponding mutation.
-    """
+    """Own the authoritative in-memory revision state for the active project."""
 
     _TOPOLOGY_COMMANDS = frozenset({
         "model.create_line", "model.delete_line",
@@ -42,6 +36,16 @@ class RevisionService:
         "model.create_fuse", "model.update_fuse", "model.delete_fuse",
         "model.blow_fuse", "model.reset_fuse",
         "model.put_fuse_in_service", "model.take_fuse_out_of_service",
+        "model.create_breaker", "model.delete_breaker",
+        "model.open_breaker", "model.close_breaker", "model.trip_breaker",
+        "model.put_breaker_in_service", "model.take_breaker_out_of_service",
+    })
+    _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
+    _TOPOLOGY_UPDATE_COMMANDS = frozenset({
+        "model.update_breaker",
+        "model.update_switch",
+        "model.update_disconnector",
+        "model.update_fuse",
     })
 
     def __init__(self) -> None:
@@ -53,16 +57,22 @@ class RevisionService:
 
     @property
     def revision(self) -> ProjectRevision:
-        """Return the immutable current revision snapshot."""
         return self._current
 
     @property
     def is_dirty(self) -> bool:
-        """Return whether the current engineering/presentation state is unsaved."""
         return self._current != self._persisted_state
 
-    def snapshot_state(self) -> tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int]:
-        """Capture the complete revision state for an enclosing activation transaction."""
+    def snapshot_state(
+        self,
+    ) -> tuple[
+        ProjectRevision,
+        ProjectRevision,
+        tuple[_RevisionTransition, ...],
+        tuple[_RevisionTransition, ...],
+        int,
+    ]:
+        """Capture all revision state needed by an activation rollback."""
         return (
             self._current,
             self._persisted_state,
@@ -73,9 +83,15 @@ class RevisionService:
 
     def restore_state(
         self,
-        state: tuple[ProjectRevision, ProjectRevision, tuple[_RevisionTransition, ...], tuple[_RevisionTransition, ...], int],
+        state: tuple[
+            ProjectRevision,
+            ProjectRevision,
+            tuple[_RevisionTransition, ...],
+            tuple[_RevisionTransition, ...],
+            int,
+        ],
     ) -> None:
-        """Restore a previously captured revision state after activation rollback."""
+        """Restore a previously captured activation revision state."""
         if not isinstance(state, tuple) or len(state) != 5:
             raise TypeError("Invalid revision transaction state.")
         current, persisted, undo, redo, generation = state
@@ -94,7 +110,7 @@ class RevisionService:
         self._persisted_generation = generation
 
     def mark_persisted(self) -> ProjectRevision:
-        """Mark the current state as successfully persisted."""
+        """Mark the current project state as successfully persisted."""
         self._persisted_generation += 1
         self._current = ProjectRevision(
             model_revision=self._current.model_revision,
@@ -106,29 +122,95 @@ class RevisionService:
         return self._current
 
     @classmethod
+    def is_topology_command(cls, command: Command) -> bool:
+        """Return whether a command changes authoritative switching topology."""
+        if not isinstance(command, Command):
+            raise TypeError("command must be a Command")
+        command_type = command.command_type
+        if command_type in cls._TOPOLOGY_COMMANDS:
+            return True
+        if command_type in cls._TOPOLOGY_UPDATE_COMMANDS:
+            return any(field in command.payload for field in cls._TOPOLOGY_STATE_FIELDS)
+        return False
+
+    @classmethod
     def _next_for_command(
         cls,
         revision: ProjectRevision,
         command: Command,
     ) -> ProjectRevision:
-        command_type = command.command_type
-        model_revision = revision.model_revision
-        topology_revision = revision.topology_revision
+        """Derive the next revision from the canonical Application command contract."""
+        if not isinstance(revision, ProjectRevision):
+            raise TypeError("revision must be a ProjectRevision")
+        if not isinstance(command, Command):
+            raise TypeError("command must be a Command")
 
-        if command_type in cls._TOPOLOGY_COMMANDS:
-            model_revision += 1
-            topology_revision += 1
-        elif command_type.startswith("model."):
-            model_revision += 1
-        else:
+        if not command.command_type.startswith("model."):
             return revision
 
+        model_revision = revision.model_revision + 1
+        topology_revision = revision.topology_revision + (
+            1 if cls.is_topology_command(command) else 0
+        )
         return ProjectRevision(
             model_revision=model_revision,
             topology_revision=topology_revision,
             presentation_revision=revision.presentation_revision,
             persisted_revision=revision.persisted_revision,
         )
+
+    def _record_transition(self, after: ProjectRevision) -> ProjectRevision:
+        if after == self._current:
+            return self._current
+        self._undo.append(_RevisionTransition(self._current, after))
+        self._current = after
+        self._redo.clear()
+        return self._current
+
+    def record_command_success(self, command: Command) -> ProjectRevision:
+        """Record one successfully committed engineering/model command."""
+        return self._record_transition(self._next_for_command(self._current, command))
+
+    def record_presentation_change(self) -> ProjectRevision:
+        """Record one successfully committed persistent SLD presentation command."""
+        next_revision = ProjectRevision(
+            model_revision=self._current.model_revision,
+            topology_revision=self._current.topology_revision,
+            presentation_revision=self._current.presentation_revision + 1,
+            persisted_revision=self._current.persisted_revision,
+        )
+        return self._record_transition(next_revision)
+
+    def record_undo(self) -> ProjectRevision:
+        """Restore the exact revision state represented by the latest undo transition."""
+        if not self._undo:
+            raise RuntimeError("No revision transition is available to undo.")
+        transition = self._undo.pop()
+        if transition.after != self._current:
+            raise RuntimeError("Revision undo state is inconsistent with current revision.")
+        self._current = transition.before
+        self._redo.append(transition)
+        return self._current
+
+    def record_redo(self) -> ProjectRevision:
+        """Restore the exact revision state represented by the latest redo transition."""
+        if not self._redo:
+            raise RuntimeError("No revision transition is available to redo.")
+        transition = self._redo.pop()
+        if transition.before != self._current:
+            raise RuntimeError("Revision redo state is inconsistent with current revision.")
+        self._current = transition.after
+        self._undo.append(transition)
+        return self._current
+
+    def reset_for_project(self) -> ProjectRevision:
+        """Reset revision/history state only after successful project activation."""
+        self._current = ProjectRevision()
+        self._persisted_state = self._current
+        self._undo.clear()
+        self._redo.clear()
+        self._persisted_generation = 0
+        return self._current
 
 
 __all__ = ["RevisionService"]
