@@ -86,7 +86,6 @@ class SLDReadSynchronizer:
             if projection_id not in active_ids:
                 self._projection_manager.remove(projection_id)
 
-        self._project_connections(adapted)
         return projections
 
     def synchronize_protection(
@@ -136,31 +135,6 @@ class SLDReadSynchronizer:
     def _synchronize_element(self, read_model: ElementReadModel) -> SLDProjection:
         return self._projection_manager.project(read_model)
 
-    def _project_connections(self, read_model: NetworkReadModel) -> tuple[dict[str, Any], ...]:
-        """Return topology projection data without creating persistent connections."""
-        projected: list[dict[str, Any]] = []
-        for element in read_model.elements:
-            try:
-                semantic = semantic_type(element.element_type)
-            except ValueError:
-                continue
-            if semantic not in _BRANCH_TYPES:
-                continue
-            source_id = element.attributes.get("endpoint_from_id")
-            target_id = element.attributes.get("endpoint_to_id")
-            if not isinstance(source_id, str) or not isinstance(target_id, str):
-                continue
-            projected.append(
-                {
-                    "connection_id": element.object_id,
-                    "source_node_id": source_id,
-                    "target_node_id": target_id,
-                    "element_type": semantic,
-                    "equipment_id": element.object_id,
-                    "projection_source": _PROJECTION_SOURCE,
-                }
-            )
-        return tuple(projected)
 
 
 __all__ = ["SLDReadSynchronizer"]
