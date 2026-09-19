@@ -82,6 +82,8 @@ class ProjectLifecycleService:
         self._project_state_validator = project_state_validator
         self._presentation_activator = presentation_activator
         self._activation_generation = 1 if context is not None else 0
+        self._state = "ACTIVE" if context is not None else "NO_PROJECT"
+        self._rollback_error: Exception | None = None
 
     @property
     def context(self) -> ProjectContext | None:
@@ -102,6 +104,16 @@ class ProjectLifecycleService:
     @property
     def activation_generation(self) -> int:
         return self._activation_generation
+
+    @property
+    def state(self) -> str:
+        """Return the lifecycle integrity state."""
+        return self._state
+
+    @property
+    def rollback_error(self) -> Exception | None:
+        """Return the rollback failure that put lifecycle into ROLLBACK_FAILED."""
+        return self._rollback_error
 
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
@@ -228,6 +240,10 @@ class ProjectLifecycleService:
         *,
         previous_context: ProjectContext | None = None,
     ) -> ProjectContext | None:
+        if self._state == "ROLLBACK_FAILED":
+            raise RuntimeError(
+                "Project lifecycle is in ROLLBACK_FAILED state and requires recovery before another transition."
+            ) from self._rollback_error
         if context is not None:
             self._validate_candidate(context, loaded, network, presentation)
         elif loaded is not None:
@@ -237,6 +253,8 @@ class ProjectLifecycleService:
         old_network = self._network
         old_presentation = self._presentation
         old_generation = self._activation_generation
+        old_state = self._state
+        old_rollback_error = self._rollback_error
         next_generation = old_generation + 1
 
         rollback_stack: list[Callable[[], None]] = []
@@ -257,6 +275,8 @@ class ProjectLifecycleService:
             self._context = context
             self._presentation = presentation
             self._activation_generation = next_generation
+            self._state = "ACTIVE" if context is not None else "NO_PROJECT"
+            self._rollback_error = None
             return context if context is not None else previous_context
         except Exception as activation_error:
             rollback_errors: list[Exception] = []
@@ -272,9 +292,17 @@ class ProjectLifecycleService:
             self._activation_generation = old_generation
 
             if rollback_errors:
+                self._state = "ROLLBACK_FAILED"
+                self._rollback_error = RuntimeError(
+                    "One or more project activation rollback callbacks failed."
+                )
+                self._rollback_error.__cause__ = activation_error
                 raise RuntimeError(
-                    "Project activation failed and one or more rollback callbacks also failed."
+                    "Project activation failed and rollback is incomplete; lifecycle is ROLLBACK_FAILED."
                 ) from activation_error
+
+            self._state = old_state
+            self._rollback_error = old_rollback_error
             raise
 
     def _activate_presentation(self, presentation: Any | None) -> Callable[[], None] | None:
