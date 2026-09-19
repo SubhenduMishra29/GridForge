@@ -133,12 +133,17 @@ class Application:
 
     def configure_project_presentation(self, *, presentation: Any, serializer: Any, deserializer: Any) -> None:
         self.project_lifecycle.configure_presentation(presentation=presentation, serializer=serializer, deserializer=deserializer)
+        if self._sld_service is not None:
+            self._sld_service.bind_document(presentation)
 
     def attach_sld_service(self, service: SLDService) -> None:
         if not isinstance(service, SLDService): raise TypeError("service must be an SLDService.")
         if self._sld_service is not None and self._sld_service is not service: raise RuntimeError("Application SLD service is already configured.")
         self._sld_service = service
         self._register_sld_handlers(service)
+        presentation = self.presentation if self._project_lifecycle is not None else None
+        if presentation is not None:
+            service.bind_document(presentation)
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None) -> ProjectContext:
         self._study_service.ensure_no_active_studies()
