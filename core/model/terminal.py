@@ -108,6 +108,7 @@ class Terminal:
         "_owner",
         "_role",
         "_endpoint",
+        "_network_token",
     )
 
     def __init__(
@@ -153,6 +154,7 @@ class Terminal:
         self._owner = owner
         self._role = normalized_role
         self._endpoint: Any | None = None
+        self._network_token: object | None = getattr(owner, "_gridforge_network_token", None)
 
         if endpoint is not None:
             self.attach(endpoint)
@@ -185,6 +187,10 @@ class Terminal:
         None means that the Terminal is currently disconnected.
         """
         return self._endpoint
+
+    def _bind_network(self, token: object | None) -> None:
+        """Bind this Terminal to its owning Network membership token."""
+        self._network_token = token
 
     # --------------------------------------------------------
     # Connection state
@@ -225,6 +231,12 @@ class Terminal:
         responsibility.
         """
         self._validate_endpoint(endpoint)
+
+        endpoint_token = getattr(endpoint, "_gridforge_network_token", None)
+        if self._network_token is not None and endpoint_token is not None and self._network_token is not endpoint_token:
+            raise ValueError(
+                "Terminal endpoint belongs to a different Network."
+            )
 
         self._endpoint = endpoint
 
@@ -283,17 +295,21 @@ class Terminal:
         if endpoint is None:
             raise ValueError("Terminal endpoint must not be None.")
 
-        endpoint_id = getattr(endpoint, "id", None)
+        from .base import ElectricalObject
 
-        if not isinstance(endpoint_id, str):
+        if isinstance(endpoint, Terminal):
             raise TypeError(
-                "Terminal endpoint must expose a string 'id' attribute."
+                "Terminal-to-Terminal endpoint relationships are not supported."
             )
 
-        if not endpoint_id.strip():
-            raise ValueError(
-                "Terminal endpoint id must not be empty."
+        if not isinstance(endpoint, ElectricalObject):
+            raise TypeError(
+                "Terminal endpoint must be a supported Core ElectricalObject."
             )
+
+        endpoint_id = getattr(endpoint, "id", None)
+        if not isinstance(endpoint_id, str) or not endpoint_id.strip():
+            raise ValueError("Terminal endpoint must have a non-empty canonical id.")
 
     # --------------------------------------------------------
     # Representation
