@@ -350,3 +350,30 @@ The following findings were source-corrected in this remediation batch. They rem
 | Architecture Constraint | No second lifecycle transaction, no UI→Core mutation, no SLD→Core mutation, no direct Core access from SLD/UI, and no bypass of Application orchestration. |
 | Verification State | AGENT CORRECTED → RE-AUDIT REQUIRED |
 | Verification | Static source inspection only. Runtime/test verification remains deferred according to the current stabilization policy. |
+
+## GF-UI-20260919-023
+
+| Field | Value |
+|---|---|
+| Finding ID | GF-UI-20260919-023 |
+| Severity | HIGH |
+| Category | UI / Canvas / PySide6 Integration / Hit Testing |
+| Finding | Canvas hit testing invoked `QGraphicsScene.items(QPointF)`. PySide6 overload dispatch reached a runtime type expression containing `collections.abc.Sequence[QPoint]`, producing repeated FIXME diagnostics during mouse movement. |
+| Affected path | `GraphicsView` → `MouseEventAdapter` → scene hit test → PySide6 overload dispatcher |
+| Root Cause | PySide6 runtime overload resolution incompatibility with the parameterized generic in the selected Qt overload path. |
+| Impact | Repeated FIXME diagnostics during Canvas mouse movement and a defective/fragile Qt hit-testing integration path. |
+| Required Correction | Replace the problematic point overload with the scalar rectangle query overload using a small indexed candidate region, then apply the exact `QGraphicsItem.contains()` point test before existing selectable-ancestor resolution. Preserve descending stacking order and stable presentation identity. |
+| Architecture Constraint | Hit testing remains entirely within the UI/Canvas presentation boundary. No QGraphics/Qt objects enter Core. No direct UI→Core mutation. No Application bypass. |
+| Verification State | AGENT CORRECTED → RE-AUDIT REQUIRED |
+| Verification | Static source inspection only. Tests, CI, application startup, GUI execution, and runtime verification were not performed. |
+
+### GF-UI-20260919-023 correction notes
+
+- `ui/canvas/mouse_event_adapter.py` was corrected.
+- The affected call no longer dispatches `QGraphicsScene.items(QPointF)`.
+- The replacement uses the six-argument scalar rectangle overload: `(x, y, w, h, ItemSelectionMode, SortOrder)`, avoiding the geometry overload that triggered the parameterized-generic `isinstance()` diagnostic.
+- The candidate query remains Qt scene-indexed and uses `Qt.DescendingOrder`, preserving topmost-first candidate ordering.
+- A precise `QGraphicsItem.contains()` check after `mapFromScene(scene_position)` restores exact point-hit semantics rather than treating the small candidate rectangle as a selection tolerance.
+- Existing selectable-ancestor traversal and `object_id` extraction remain unchanged.
+- Repository inspection found no additional direct `QGraphicsScene.items(QPointF)` hit-test invocation in the affected Canvas path. `ui/core/snap_system.py` uses `scene.items()` with no geometry argument and is unrelated to this overload defect.
+- The requested `ui/canvas/tool_manager.py`, `ui/canvas/tool_base.py`, and `ui/canvas/snap_system.py` paths do not exist on `main`; the corresponding current implementations are `ui/core/tool_manager.py`, `ui/tools/tool_base.py`, and `ui/core/snap_system.py`. They were inspected and no same defective point-overload call was identified.
