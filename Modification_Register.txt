@@ -968,24 +968,8 @@ BATCH 3 STATIC RECONCILIATION CHECK
 ======================================================================
 
 Reconciled current Batch 3 findings:
-    GF-INT-018
-    GF-INT-020
-    GF-INT-021
-    GF-INT-023
-    GF-INT-024
-    GF-INT-025
-    GF-INT-027
-    GF-INT-028
-    GF-INT-030
-    GF-INT-035
-    GF-INT-040
-    GF-INT-041
-    GF-INT-042
-    GF-INT-046
-    GF-INT-047
-    GF-INT-048
-    GF-INT-050
-    GF-INT-051
+    18 current GF-INT findings are represented by one authoritative
+    current entry each.
 
 Additional current Batch 3 GF-INT identifiers:
     None identified in the inspected authoritative register or current
