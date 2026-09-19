@@ -132,9 +132,17 @@ def create_application(network: Any) -> Application:
         previous_protection_read_service = application._protection_read_service
         previous_control_execution = application._control_execution
 
-        next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
-        application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
-        application._protection_read_service = ProtectionReadService(active_network)
+        try:
+            next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
+            application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
+            application._protection_read_service = ProtectionReadService(active_network)
+        except Exception:
+            application._command_manager = previous_command_manager
+            application._read_service = previous_read_service
+            application._validation_service = previous_validation_service
+            application._protection_read_service = previous_protection_read_service
+            application._control_execution = previous_control_execution
+            raise
 
         def rollback() -> None:
             application._command_manager = previous_command_manager
