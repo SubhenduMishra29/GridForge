@@ -41,7 +41,13 @@ class ProjectPersistenceError(RuntimeError):
 
 
 class ProjectPersistenceService:
-    """Load and save the canonical GridForge engineering project package."""
+    """Load and save the canonical GridForge engineering project package.
+
+    The temporary-directory replacement strategy is exception-safe for a
+    completed process. File contents are fsync'd before replacement, but this
+    implementation does not claim full process-crash or filesystem-journal
+    durability because directory-entry synchronization is platform-specific.
+    """
 
     def load(self, path: str | Path) -> LoadedProject:
         package = normalize_package_path(path)
