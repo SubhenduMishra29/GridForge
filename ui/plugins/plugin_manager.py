@@ -232,10 +232,18 @@ class PluginManager:
             raise
         return loaded_here
 
-    def _rollback_loaded(self, loaded_here: Iterable[str]) -> list[BaseException]:
-        """Restore the pre-operation registration set for transaction-created plugins."""
+    def _rollback_loaded(
+        self,
+        loaded_here: Iterable[str],
+        *,
+        protected: Iterable[str] = (),
+    ) -> list[BaseException]:
+        """Restore transaction-created registrations unless safe compensation failed."""
         failures: list[BaseException] = []
+        protected_ids = set(protected)
         for plugin_id in reversed(tuple(loaded_here)):
+            if plugin_id in protected_ids:
+                continue
             if not self._registry.contains(plugin_id):
                 continue
             metadata = {"rollback": True}
@@ -362,6 +370,7 @@ class PluginManager:
                 current_initializing = None
         except Exception as exc:
             rollback_errors: list[BaseException] = []
+            protected_loaded: set[str] = set()
             if initialization_started and current_initializing is not None:
                 metadata = {"rollback": True}
                 failed_id = current_initializing
@@ -383,6 +392,7 @@ class PluginManager:
                     self._registry.compensate_failed_initialization(failed_id)
                 except Exception as compensation_error:
                     rollback_errors.append(compensation_error)
+                    protected_loaded.add(failed_id)
                     self._emit(
                         plugin_failed(
                             failed_id,
@@ -402,7 +412,12 @@ class PluginManager:
                         )
                     )
             rollback_errors.extend(self._rollback_initialization(initialized_here))
-            rollback_errors.extend(self._rollback_loaded(loaded_here))
+            rollback_errors.extend(
+                self._rollback_loaded(
+                    loaded_here,
+                    protected=protected_loaded,
+                )
+            )
             if rollback_errors:
                 raise ExceptionGroup(
                     "Plugin initialization transaction and compensation failed.",
