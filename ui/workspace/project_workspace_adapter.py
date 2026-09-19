@@ -55,7 +55,13 @@ class ProjectWorkspaceApplicationAdapter:
         try: self._handlers.remove(handler)
         except ValueError: return
 
-    def _configure_presentation_transaction(self, document: Document | None = None) -> None:
+    def _configure_presentation_transaction(
+        self,
+        document: Document | None = None,
+        *,
+        open_existing: bool,
+        activate_workspace: bool,
+    ) -> None:
         def factory(context: ProjectContext) -> Document:
             if document is not None:
                 if document.project_id not in (None, context.project_id):
@@ -73,42 +79,56 @@ class ProjectWorkspaceApplicationAdapter:
                 raise TypeError("presentation document must provide to_dict().")
             return to_dict()
 
+        def activate(context: ProjectContext | None, presentation: object | None):
+            return self._activate_workspace_presentation(
+                context,
+                presentation,
+                open_existing=open_existing,
+                activate_workspace=activate_workspace,
+            )
+
         self._application.configure_project_presentation_contract(
             factory=factory,
             serializer=serializer,
             deserializer=SLDDocument.from_dict,
         )
-        self._application.configure_presentation_activator(self._activate_workspace_presentation)
+        self._application.configure_presentation_activator(activate)
 
     def _activate_workspace_presentation(
         self,
         context: ProjectContext | None,
         presentation: object | None,
+        *,
+        open_existing: bool,
+        activate_workspace: bool,
     ):
-        if context is None:
-            snapshot = self._lifecycle.capture_transition_state()
-            try:
-                state = self._lifecycle.close_project()
-                return lambda: self._lifecycle.restore_last_state(snapshot)
-            except BaseException:
-                self._lifecycle.restore_last_state(snapshot)
-                raise
-
-        if not isinstance(presentation, Document):
-            raise RuntimeError("Application transition did not provide a workspace Document.")
-
         snapshot = self._lifecycle.capture_transition_state()
         try:
-            state = self._lifecycle.activate_project_transition(
-                self._to_ui_project(context),
-                document=presentation,
-                activate_workspace=True,
-                open_existing=True,
-            )
+            if context is None:
+                self._lifecycle.close_project()
+            else:
+                if not isinstance(presentation, Document):
+                    raise RuntimeError("Application transition did not provide a workspace Document.")
+                self._lifecycle.activate_project_transition(
+                    self._to_ui_project(context),
+                    document=presentation,
+                    activate_workspace=activate_workspace,
+                    open_existing=open_existing,
+                )
             return lambda: self._lifecycle.restore_last_state(snapshot)
         except BaseException:
             self._lifecycle.restore_last_state(snapshot)
             raise
+
+    @staticmethod
+    def _is_cancel(decision: ProjectTransitionDecision | str | None) -> bool:
+        return (
+            decision is ProjectTransitionDecision.CANCEL
+            or (
+                isinstance(decision, str)
+                and decision.strip().lower() == ProjectTransitionDecision.CANCEL.value
+            )
+        )
 
     def new_project(
         self,
@@ -119,15 +139,17 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool = True,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext:
-        self._configure_presentation_transaction(document)
+        self._configure_presentation_transaction(
+            document,
+            open_existing=False,
+            activate_workspace=activate_workspace,
+        )
         context = self._application.new_project(
             name,
             project_id=project_id,
             decision=decision,
         )
-        if decision is ProjectTransitionDecision.CANCEL or (
-            isinstance(decision, str) and decision.strip().lower() == ProjectTransitionDecision.CANCEL.value
-        ):
+        if self._is_cancel(decision):
             return context
         self._publish("new", self._lifecycle.state, context.project_id)
         return context
@@ -139,11 +161,12 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool = True,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext:
-        self._configure_presentation_transaction()
+        self._configure_presentation_transaction(
+            open_existing=True,
+            activate_workspace=activate_workspace,
+        )
         context = self._application.open_project(path, decision=decision)
-        if decision is ProjectTransitionDecision.CANCEL or (
-            isinstance(decision, str) and decision.strip().lower() == ProjectTransitionDecision.CANCEL.value
-        ):
+        if self._is_cancel(decision):
             return context
         self._publish("open", self._lifecycle.state, context.project_id)
         return context
@@ -153,11 +176,12 @@ class ProjectWorkspaceApplicationAdapter:
         *,
         decision: ProjectTransitionDecision | str | None = None,
     ) -> ProjectContext | None:
-        self._configure_presentation_transaction()
+        self._configure_presentation_transaction(
+            open_existing=False,
+            activate_workspace=False,
+        )
         context = self._application.close_project(decision=decision)
-        if decision is ProjectTransitionDecision.CANCEL or (
-            isinstance(decision, str) and decision.strip().lower() == ProjectTransitionDecision.CANCEL.value
-        ):
+        if self._is_cancel(decision):
             return context
         if context is not None:
             self._publish("close", self._lifecycle.state, context.project_id)
