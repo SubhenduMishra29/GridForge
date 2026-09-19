@@ -673,12 +673,18 @@ class CommandManager:
     def can_undo(self) -> bool:
         """Return whether an undo operation is available."""
 
-        return self._history.can_undo()
+        return (
+            self._integrity_state == "CLEAN"
+            and self._history.can_undo()
+        )
 
     def can_redo(self) -> bool:
         """Return whether a redo operation is available."""
 
-        return self._history.can_redo()
+        return (
+            self._integrity_state == "CLEAN"
+            and self._history.can_redo()
+        )
 
     def undo_count(self) -> int:
         """Return the number of undo records."""
