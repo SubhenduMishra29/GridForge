@@ -253,4 +253,41 @@ The historical finding IDs below are required by the current remediation pass bu
 | Impact | Project lifecycle implementation was internally incomplete and could not be considered statically ready. |
 | Required correction | Implement/reconcile the helpers through the existing Application-owned validator and presentation factory contracts, then re-audit the complete activation workflow. |
 | Architecture constraint | Application owns lifecycle orchestration. Core remains authoritative engineering state. UI must not become a lifecycle authority. Exactly one project activation transaction boundary. |
-| Status | OPEN |
+| Status | AGENT CORRECTED → RE-AUDIT REQUIRED |
+
+
+## GF-REMED-20260919-007
+
+| Field | Value |
+|---|---|
+| Finding ID | GF-REMED-20260919-007 |
+| Severity | CRITICAL |
+| Category | Application Lifecycle / API Contract |
+| Expected | ProjectLifecycleService and bootstrap must use one matching, fully-defined activation transaction contract. |
+| Actual | bootstrap passed activation_transaction=activate_project_transaction while ProjectLifecycleService did not accept that parameter; the lifecycle constructor also required the activate_network callback but bootstrap had not supplied it. |
+| Required correction | Use ProjectLifecycleService._activate_candidate() as the single activation transaction boundary, supply the existing activate_network and project_state_activator callbacks, and remove the dangling activation_transaction path. |
+| Status | AGENT CORRECTED → RE-AUDIT REQUIRED |
+
+## GF-REMED-20260919-008
+
+| Field | Value |
+|---|---|
+| Finding ID | GF-REMED-20260919-008 |
+| Severity | CRITICAL |
+| Category | Application Lifecycle / Missing Implementation |
+| Expected | Every referenced activation callback must have one authoritative implementation and rollback contract. |
+| Actual | bootstrap referenced activate_project_transaction, but no corresponding implementation existed; the actual rollback-bearing callbacks are activate_network and activate_project_state. |
+| Required correction | Make _activate_candidate() the sole transaction boundary and wire the existing rollback callbacks into that boundary. |
+| Status | AGENT CORRECTED → RE-AUDIT REQUIRED |
+
+## GF-REMED-20260919-009
+
+| Field | Value |
+|---|---|
+| Finding ID | GF-REMED-20260919-009 |
+| Severity | CRITICAL |
+| Category | SLD / Projection Source Integrity |
+| Expected | SLDReadSynchronizer must use the canonical SLD semantic vocabulary and all referenced symbols must be defined/imported. |
+| Actual | semantic_type, _BRANCH_TYPES and _PROJECTION_SOURCE were referenced without definitions/imports in the synchronizer module. |
+| Required correction | Remove the discarded connection-building path from SLDReadSynchronizer; keep semantic mapping in SLDReadAdapter/sld_vocabulary and topology endpoint representation in SLDProjection, with canonical topology types sourced from sld_vocabulary. |
+| Status | AGENT CORRECTED → RE-AUDIT REQUIRED |
