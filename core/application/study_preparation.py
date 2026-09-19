@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from core.analysis.dynamic_model_association import DynamicMachineModelRegistry
 from core.analysis.power_flow_preparation import PreparedPowerFlow, PowerFlowPreparation
@@ -18,28 +18,34 @@ from core.analysis.transient_stability import TransientStabilityStudyConfigurati
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.input import ShortCircuitInput
 
+from .project import ProjectSnapshot
 
-NetworkProvider = Callable[[], Any]
+
+NetworkProvider = ProjectSnapshot
 
 
 class StudyPreparationService:
     """Prepare detached Core study snapshots without exposing live Core objects to handlers."""
 
-    def __init__(self, network_provider: NetworkProvider) -> None:
-        if not callable(network_provider):
-            raise TypeError("network_provider must be callable.")
-        self._network_provider = network_provider
+    def __init__(self, snapshot: ProjectSnapshot) -> None:
+        if not isinstance(snapshot, ProjectSnapshot):
+            raise TypeError("snapshot must be ProjectSnapshot.")
+        self._snapshot = snapshot
+
+    @property
+    def snapshot(self) -> ProjectSnapshot:
+        return self._snapshot
 
     def prepare_power_flow(self, configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
         if not isinstance(configuration, PowerFlowStudyConfiguration):
             raise TypeError("configuration must be PowerFlowStudyConfiguration.")
-        return PowerFlowPreparation.prepare(self._network_provider(), configuration)
+        return PowerFlowPreparation.prepare(self._snapshot.network, configuration)
 
     def prepare_short_circuit(self, configuration: ShortCircuitStudyConfiguration) -> ShortCircuitInput:
         if not isinstance(configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
         preparation = ShortCircuitPreparation(
-            self._network_provider(),
+            self._snapshot.network,
             base_mva=configuration.metadata.get("base_mva"),
         )
         return preparation.prepare(
