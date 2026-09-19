@@ -154,12 +154,20 @@ def _decode(value: Any) -> Any:
 
 
 def restore_state(model: Any, state: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
-    """Restore scalar/object-reference state onto an uninitialized model."""
+    """Restore scalar/object-reference state onto an uninitialized model.
+
+    Object references remain explicit $ref tokens until the complete Network
+    registry exists. The reconstruction boundary resolves them through the
+    canonical Network identity map.
+    """
     references: list[tuple[str, dict[str, str]]] = []
     for name, encoded in state.items():
         decoded = _decode(encoded)
-        if isinstance(decoded, dict) and "$ref" in decoded:
-            references.append((name, dict(decoded["$ref"])))
+        if isinstance(decoded, dict) and set(decoded) == {"$ref"}:
+            reference = decoded["$ref"]
+            if not isinstance(reference, dict):
+                raise ModelSerializationError(f"Invalid object reference at {name}.")
+            references.append((name, dict(reference)))
             continue
         setattr(model, name, decoded)
     if type(model).__name__ == "Relay" and not hasattr(model, "_input_channels"):
@@ -167,4 +175,34 @@ def restore_state(model: Any, state: dict[str, Any]) -> list[tuple[str, dict[str
     return references
 
 
-__all__ = ["ModelDTO", "ModelSerializationError", "TerminalDTO", "model_to_dto", "restore_state"]
+def resolve_state_references(model: Any, resolver: Any) -> None:
+    """Resolve every persisted $ref token in model state recursively."""
+    if not callable(resolver):
+        raise TypeError("resolver must be callable.")
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, dict):
+            if set(value) == {"$ref"}:
+                reference = value["$ref"]
+                if not isinstance(reference, dict):
+                    raise ModelSerializationError("Persisted $ref payload must be an object.")
+                return resolver(dict(reference))
+            return {key: resolve(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(resolve(item) for item in value)
+        return value
+
+    for name, value in _attribute_items(model).items():
+        if isinstance(value, Terminal):
+            continue
+        resolved = resolve(value)
+        if resolved is not value:
+            setattr(model, name, resolved)
+
+
+__all__ = [
+    "ModelDTO", "ModelSerializationError", "TerminalDTO",
+    "model_to_dto", "restore_state", "resolve_state_references",
+]
