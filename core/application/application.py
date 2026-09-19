@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/application.py
 # GridForge V2 — Headless Application Facade
+# Author: Subhendu Mishra
 # ============================================================
 
 """Stable public Application facade for commands, reads, events, history, project lifecycle, and studies."""
