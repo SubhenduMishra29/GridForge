@@ -11,6 +11,7 @@ from core.application.read_models import ElementReadModel
 
 from ui.projection.projection import Projection
 from ui.projection.projection_state import ProjectionState
+from ui.sld.sld_vocabulary import SLD_TOPOLOGY_BRANCH_TYPES
 
 
 class SLDProjection(Projection):
@@ -38,10 +39,7 @@ class SLDProjection(Projection):
 
     @property
     def is_topology_bearing(self) -> bool:
-        return self.element_type in {
-            "LINE", "CABLE", "TRANSFORMER",
-            "SWITCH", "BREAKER", "DISCONNECTOR", "FUSE",
-        }
+        return self.element_type in SLD_TOPOLOGY_BRANCH_TYPES
 
     def update_from_read_model(self, read_model: ElementReadModel) -> None:
         """Refresh this projection from an Application read snapshot."""
