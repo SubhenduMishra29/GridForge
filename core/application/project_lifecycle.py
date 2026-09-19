@@ -119,6 +119,11 @@ class ProjectLifecycleService:
             raise TypeError("factory must be callable.")
         self._presentation_factory = factory
 
+    def configure_presentation_activator(self, activator: PresentationActivator) -> None:
+        if not callable(activator):
+            raise TypeError("activator must be callable.")
+        self._presentation_activator = activator
+
     def configure_presentation(
         self,
         *,
