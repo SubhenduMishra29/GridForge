@@ -226,7 +226,7 @@ def create_application(network: Any) -> Application:
                 if association.project_id != context.project_id:
                     raise ValueError(
                         f"Dynamic model association {association.machine_id!r} belongs to "
-                        f"project {context.project_id!r}, not {context.project_id!r}."
+                        f"project {association.project_id!r}, not {context.project_id!r}."
                     )
                 if association.activation_generation < 1:
                     raise ValueError(
