@@ -27,6 +27,8 @@ PresentationDeserializer = Callable[[Mapping[str, Any]], Any]
 ProjectStateActivator = Callable[[ProjectContext | None, LoadedProject | None], None]
 ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
 PresentationActivator = Callable[[Any | None], None]
+ActivationRollback = Callable[[], None]
+ActivationTransaction = Callable[[ProjectContext | None, LoadedProject | None, Any, Any, int], ActivationRollback | None]
 
 
 class ProjectLifecycleService:
@@ -40,7 +42,8 @@ class ProjectLifecycleService:
                  deserialize_presentation: PresentationDeserializer | None = None,
                  project_state_activator: ProjectStateActivator | None = None,
                  project_state_validator: ProjectStateValidator | None = None,
-                 presentation_activator: PresentationActivator | None = None) -> None:
+                 presentation_activator: PresentationActivator | None = None,
+                 activation_transaction: ActivationTransaction | None = None) -> None:
         if network is None:
             raise ValueError("network is required.")
         if not callable(network_factory):
@@ -69,6 +72,9 @@ class ProjectLifecycleService:
         self._project_state_validator = project_state_validator
         self._activation_generation = 1 if context is not None else 0
         self._presentation_activator = presentation_activator
+        if activation_transaction is not None and not callable(activation_transaction):
+            raise TypeError("activation_transaction must be callable.")
+        self._activation_transaction = activation_transaction
 
     @property
     def context(self) -> ProjectContext | None:
@@ -106,6 +112,11 @@ class ProjectLifecycleService:
             raise TypeError("activator must be callable.")
         self._presentation_activator = activator
 
+    def configure_activation_transaction(self, transaction: ActivationTransaction) -> None:
+        if not callable(transaction):
+            raise TypeError("transaction must be callable.")
+        self._activation_transaction = transaction
+
     def configure_project_state_activator(self, activator: ProjectStateActivator) -> None:
         if not callable(activator):
             raise TypeError("activator must be callable.")
@@ -130,14 +141,13 @@ class ProjectLifecycleService:
         context = ProjectContext(project_id=project_id or str(uuid4()), name=name, path=None)
         network = self._network_factory()
         presentation = self._create_presentation(context)
+        next_generation = self._activation_generation + 1
         self._validate_candidate(context, None, network, presentation)
-        self._activate_presentation(presentation)
-        self._activate_network(network)
+        self._commit_candidate(context, None, network, presentation, next_generation)
         self._network = network
         self._context = context
         self._presentation = presentation
-        self._activate_project_state(context, None)
-        self._activation_generation += 1
+        self._activation_generation = next_generation
         return context
 
     def open_project(self, path: str | Path) -> ProjectContext:
@@ -160,14 +170,13 @@ class ProjectLifecycleService:
         else:
             presentation = self._create_presentation(loaded.context)
 
+        next_generation = self._activation_generation + 1
         self._validate_candidate(loaded.context, loaded, loaded.network, presentation)
-        self._activate_presentation(presentation)
-        self._activate_network(loaded.network)
+        self._commit_candidate(loaded.context, loaded, loaded.network, presentation, next_generation)
         self._network = loaded.network
         self._context = loaded.context
         self._presentation = presentation
-        self._activate_project_state(loaded.context, loaded)
-        self._activation_generation += 1
+        self._activation_generation = next_generation
         return self._context
 
     def save_project(self, path: str | Path | None = None) -> ProjectContext:
@@ -201,18 +210,48 @@ class ProjectLifecycleService:
     def close_project(self) -> ProjectContext | None:
         previous = self._context
 
-        # Prepare the inactive shell before discarding the active context so
-        # a failed runtime replacement does not silently half-close the project.
+        # Closing is the same atomic activation boundary as opening/new-project:
+        # stage the inactive runtime, commit once, then publish ProjectClosed.
         network = self._network_factory()
-        self._activate_network(network)
+        next_generation = self._activation_generation + 1
+        self._commit_candidate(None, None, network, None, next_generation)
         self._network = network
-        self._activate_project_state(None, None)
-        self._activate_presentation(None)
-
         self._context = None
         self._presentation = None
-        self._activation_generation += 1
+        self._activation_generation = next_generation
         return previous
+
+    def _commit_candidate(
+        self,
+        context: ProjectContext | None,
+        loaded: LoadedProject | None,
+        network: Any,
+        presentation: Any | None,
+        generation: int,
+    ) -> None:
+        """Commit one fully validated candidate through the single activation boundary."""
+        if self._activation_transaction is not None:
+            rollback = self._activation_transaction(context, loaded, network, presentation, generation)
+            if rollback is not None and not callable(rollback):
+                raise TypeError("activation_transaction must return a callable rollback or None.")
+            return
+
+        # Compatibility path for legacy composition callers.
+        previous_network = self._network
+        previous_context = self._context
+        previous_presentation = self._presentation
+        try:
+            self._activate_presentation(presentation)
+            self._activate_network(network)
+            self._activate_project_state(context, loaded)
+        except Exception:
+            try:
+                self._activate_presentation(previous_presentation)
+                self._activate_network(previous_network)
+                self._activate_project_state(previous_context, None)
+            except Exception as rollback_exc:
+                raise RuntimeError("Project activation failed and rollback also failed.") from rollback_exc
+            raise
 
     def _activate_presentation(self, presentation: Any | None) -> None:
         if self._presentation_activator is not None:
