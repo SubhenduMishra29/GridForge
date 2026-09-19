@@ -22,9 +22,6 @@ from core.solver.short_circuit.input import ShortCircuitInput
 from .project import ProjectSnapshot
 
 
-NetworkProvider = ProjectSnapshot
-
-
 class StudyPreparationService:
     """Prepare detached Core study snapshots without exposing live Core objects to handlers."""
 
@@ -87,4 +84,4 @@ class StudyPreparationService:
         )
 
 
-__all__ = ["NetworkProvider", "StudyPreparationService"]
+__all__ = ["StudyPreparationService"]
