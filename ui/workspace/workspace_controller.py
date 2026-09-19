@@ -86,11 +86,22 @@ class WorkspaceController:
         self._manager.clear_active()
 
     def close(self) -> None:
-        """Release the realized Qt workspace and make this coordinator inert."""
+        """Release the realized workspace and detach composition bindings."""
         if self._closed:
             return
-        self.deactivate()
-        self._closed = True
+        failures: list[BaseException] = []
+        try:
+            self.deactivate()
+        except BaseException as exc:
+            failures.append(exc)
+        finally:
+            try:
+                self._realizer.detach_all_docks()
+            except BaseException as exc:
+                failures.append(exc)
+        self._closed = not failures
+        if failures:
+            raise ExceptionGroup("Workspace teardown failed.", failures)
 
     def _ensure_open(self) -> None:
         if self._closed:

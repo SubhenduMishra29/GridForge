@@ -81,12 +81,36 @@ class PanelsPlugin(QObject):
             if self._context is not context: raise RuntimeError("PanelsPlugin is already initialized with a different PluginContext.")
             return
         if not isinstance(context.main_window, QMainWindow): raise TypeError("PluginContext.main_window must be QMainWindow.")
-        self._context = context; self._initialized = True
+        previous_context = self._context
+        previous_initialized = self._initialized
+        created_ids: list[str] = []
+        self._context = context
+        self._initialized = True
         try:
             from ui.panels.default_panels import compose_default_panel_specs
-            for spec in compose_default_panel_specs(): self.add_panel(spec)
-        except Exception:
-            self._dock_widgets.clear(); self._panels.clear(); self._panel_specs.clear(); self._context = None; self._initialized = False; raise
+            for spec in compose_default_panel_specs():
+                self.add_panel(spec)
+                created_ids.append(spec.panel_id)
+        except BaseException as exc:
+            failures: list[BaseException] = []
+            for panel_id in reversed(created_ids):
+                dock = self._dock_widgets.get(panel_id)
+                if dock is not None:
+                    try:
+                        self._remove_dock(dock)
+                    except BaseException as cleanup_exc:
+                        failures.append(cleanup_exc)
+            self._dock_widgets.clear()
+            self._panels.clear()
+            self._panel_specs.clear()
+            self._context = previous_context
+            self._initialized = previous_initialized
+            if failures:
+                raise ExceptionGroup(
+                    "PanelsPlugin initialization and resource compensation failed.",
+                    [exc, *failures],
+                ) from exc
+            raise
 
     def shutdown(self) -> None:
         if not self._initialized: return
@@ -99,9 +123,18 @@ class PanelsPlugin(QObject):
         if spec.panel_id in self._panels: raise ValueError(f"Panel already registered: {spec.panel_id!r}")
         widget = spec.widget if spec.widget is not None else QWidget()
         widget.setObjectName(f"GridForgePanel_{spec.panel_id}")
-        dock = QDockWidget(spec.title, self._main_window); dock.setObjectName(spec.panel_id); dock.setWidget(widget); dock.setFeatures(self._dock_features(spec))
-        self._panels[spec.panel_id] = widget; self._dock_widgets[spec.panel_id] = dock; self._panel_specs[spec.panel_id] = spec
-        return widget
+        dock = QDockWidget(spec.title, self._main_window)
+        try:
+            dock.setObjectName(spec.panel_id)
+            dock.setWidget(widget)
+            dock.setFeatures(self._dock_features(spec))
+            self._panels[spec.panel_id] = widget
+            self._dock_widgets[spec.panel_id] = dock
+            self._panel_specs[spec.panel_id] = spec
+            return widget
+        except BaseException:
+            self._remove_dock(dock)
+            raise
 
     def remove_panel(self, panel_id: str) -> QWidget | None:
         self._require_initialized()

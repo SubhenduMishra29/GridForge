@@ -71,9 +71,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from threading import RLock
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .plugin_contract import validate_plugin
+from .plugin_events import PluginEvent, PluginEventSource, plugin_disabled, plugin_enabled, plugin_failed
 from .plugin_state import PluginStateStore
 
 
@@ -200,6 +201,7 @@ class PluginRegistry:
         self,
         *,
         state_store: PluginStateStore | None = None,
+        event_sink: Callable[[PluginEvent], None] | None = None,
     ) -> None:
         if state_store is not None and not isinstance(
             state_store,
@@ -220,6 +222,9 @@ class PluginRegistry:
             PluginEntry,
         ] = {}
 
+        if event_sink is not None and not callable(event_sink):
+            raise TypeError("event_sink must be callable or None.")
+        self._event_sink = event_sink
         self._lock = RLock()
 
     # ========================================================
@@ -416,10 +421,16 @@ class PluginRegistry:
                     context
                 )
             except Exception as exc:
-                self._record_error(
-                    plugin_id,
-                    exc,
-                )
+                self._record_error(plugin_id, exc)
+                try:
+                    entry.plugin.shutdown()
+                except Exception as compensation_error:
+                    aggregate = ExceptionGroup(
+                        f"Plugin {plugin_id!r} initialization and compensation failed.",
+                        [exc, compensation_error],
+                    )
+                    self._record_error(plugin_id, aggregate)
+                    raise aggregate from exc
                 raise
 
             # ------------------------------------------------
@@ -437,18 +448,16 @@ class PluginRegistry:
                 )
 
             except Exception as exc:
-                # The plugin callback succeeded, but the canonical
-                # state transition failed. Record the failure if
-                # possible and propagate it rather than pretending
-                # initialization was fully committed.
+                self._record_error(plugin_id, exc)
                 try:
-                    self._record_error(
-                        plugin_id,
-                        exc,
+                    entry.plugin.shutdown()
+                except Exception as compensation_error:
+                    aggregate = ExceptionGroup(
+                        f"Plugin {plugin_id!r} initialization-state commit and compensation failed.",
+                        [exc, compensation_error],
                     )
-                except Exception:
-                    pass
-
+                    self._record_error(plugin_id, aggregate)
+                    raise aggregate from exc
                 raise
 
             return result
@@ -627,6 +636,8 @@ class PluginRegistry:
             self._state_store.clear_last_error(
                 plugin_id
             )
+            if self._event_sink is not None:
+                self._event_sink(plugin_enabled(plugin_id, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # DISABLE
@@ -680,6 +691,8 @@ class PluginRegistry:
                 plugin_id,
                 False,
             )
+            if self._event_sink is not None:
+                self._event_sink(plugin_disabled(plugin_id, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # QUERIES
@@ -842,6 +855,8 @@ class PluginRegistry:
             plugin_id,
             error,
         )
+        if self._event_sink is not None:
+            self._event_sink(plugin_failed(plugin_id, error, operation="lifecycle", recoverable=False, source=PluginEventSource.REGISTRY))
 
     # ========================================================
     # INTERNALS
@@ -899,6 +914,7 @@ class PluginRegistry:
 def create_plugin_registry(
     *,
     state_store: PluginStateStore | None = None,
+    event_sink: Callable[[PluginEvent], None] | None = None,
 ) -> PluginRegistry:
     """
     Create an empty PluginRegistry.
@@ -915,7 +931,8 @@ def create_plugin_registry(
     """
 
     return PluginRegistry(
-        state_store=state_store
+        state_store=state_store,
+        event_sink=event_sink,
     )
 
 

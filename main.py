@@ -156,10 +156,18 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
-    for panel_id in ("project", "equipment", "properties", "element_list", "messages", "study_cases"):
-        dock = panels_plugin.get_dock(panel_id)
-        if dock is None: raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
-        workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
+    registered_docks: list[str] = []
+    try:
+        for panel_id in ("project", "equipment", "properties", "element_list", "messages", "study_cases"):
+            dock = panels_plugin.get_dock(panel_id)
+            if dock is None:
+                raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
+            workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
+            registered_docks.append(panel_id)
+    except BaseException:
+        for panel_id in reversed(registered_docks):
+            workspace_realizer.unregister_dock(panel_id)
+        raise
     workspace_controller.activate_default()
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas): raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
