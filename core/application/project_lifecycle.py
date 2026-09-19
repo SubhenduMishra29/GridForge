@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/project_lifecycle.py
 # GridForge V2 — Application Project Lifecycle Service
+# Author: Subhendu Mishra
 # ============================================================
 
 """Application-owned project lifecycle coordination."""
