@@ -510,3 +510,31 @@ No second lifecycle state store, lifecycle manager, event bus, or `PARTIALLY_INI
 
 The Registry retains its existing `event_sink` compatibility parameter, but current Registry lifecycle methods no longer publish lifecycle events through it. This does not create a second event publisher or state authority. Runtime behavior remains intentionally unverified because tests, CI, startup, and GUI execution were explicitly excluded.
 
+
+
+## Batch 17 — Persistent SLD/Core Association Validation
+
+### Architectural decision state
+
+Static repository tracing did not establish an authoritative rule selecting automatic SLD-node removal, explicit unresolved/orphan retention, or Core-equipment deletion protection when a persistent SLD node references missing Core equipment.
+
+**ARCHITECTURAL DECISION REQUIRED.**
+
+The correction therefore introduces read-only Application validation that distinguishes `equipment_id=None`, a resolved Core identity, and an unresolved Core identity. It does not delete, repair, rewrite, fabricate, or otherwise resolve the unresolved state.
+
+### Finding register
+
+| Finding | Affected implementation | Root cause | Correction | Static verification | Residual observation | Status |
+|---|---|---|---|---|---|---|
+| SLD-WF-100 | Persistent SLD/Core deletion and reconciliation policy | Persistent SLD orphan policy is undefined | No deletion, repair, or Core-protection policy was invented; unresolved references remain observable and require architecture decision | Static trace of SLD model, persistence, lifecycle, commands, and audit material | Policy remains undefined | **OPEN** |
+| SLD-WF-101 | `core/application/revision_service.py`; Application validation | Dirty/revision semantics did not classify unresolved SLD references | Validation is read-only; presentation revision remains owned by Application command success; unresolved references do not create a second dirty authority | Static revision/validation path reconciliation | No new dirty-state system introduced | **OPEN** |
+| SLD-WF-102 | `core/persistence/project_persistence.py` | Persistence did not validate persistent SLD equipment references | Persistence now invokes the Application SLD association validator; unresolved references are diagnosed but not rejected pending orphan policy | Static load/save gate traced | Unresolved-reference policy remains undecided | **OPEN** |
+| SLD-WF-103 | `core/application/services/validation_service.py`; `core/application/application.py` | No Application-level SLD association validation gate | Added immutable association-state/result contracts and Application project-validation integration | Static call path and ownership boundary checked | Runtime validation not executed | **OPEN** |
+| SLD-WF-104 | `core/application/services/validation_service.py` | `equipment_id=None` semantics were undefined | Explicit `UNREFERENCED` state is distinct from `UNRESOLVED` | Static state vocabulary checked | Meaning remains presentation-policy neutral | **OPEN** |
+| SLD-WF-105 | Application command/revision/history and SLD presentation | Independent Core/SLD history can permit association divergence | Existing Application command/history boundary is preserved; no compound Core+SLD deletion was invented without policy | Static command, SLDService, revision, and undo/redo paths checked | Compound deletion policy remains an architecture decision | **OPEN** |
+| SLD-WF-106 | `ProjectLifecycleService.discard_project_changes`; persistence/load validation | Discard reloads persisted state but persisted SLD semantic validity was not guaranteed | Discard continues to restore persisted state; association validation now diagnoses unresolved references without silently repairing them | Static discard → load → activation path checked | Guarantee depends on the unresolved-reference policy | **OPEN** |
+| SLD-WF-107 | Application validation vs Dynamic/Protection cross-domain checks | SLD validation lacked parity with other cross-domain association validation | SLD association validation now uses the canonical Network identity lookup alongside existing Dynamic/Protection validation | Static cross-domain validation comparison checked | Runtime verification deferred | **OPEN** |
+
+### Static re-audit conclusion
+
+Source correction is present, but Batch 17 is **not closed**. The repository still requires an explicit architectural decision for persistent SLD references whose Core equipment no longer exists. No runtime, test, CI, application-startup, GUI, or runtime verification was performed.
