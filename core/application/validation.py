@@ -19,6 +19,60 @@ class ValidationSeverity(str, Enum):
     INFO = "info"
 
 
+
+class SLDAssociationState(str, Enum):
+    """Application validation state for one persistent SLD equipment reference.
+
+    UNREFERENCED is deliberately distinct from UNRESOLVED so that
+    equipment_id=None does not acquire an implicit orphan meaning.
+    """
+
+    UNREFERENCED = "unreferenced"
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+
+
+@dataclass(frozen=True, slots=True)
+class SLDAssociationReference:
+    """Immutable diagnostic for one persistent SLD node equipment reference."""
+
+    node_id: str
+    equipment_id: str | None
+    state: SLDAssociationState
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.node_id, str) or not self.node_id.strip():
+            raise ValueError("SLDAssociationReference.node_id must be non-empty.")
+        if self.equipment_id is not None and not isinstance(self.equipment_id, str):
+            raise TypeError("SLDAssociationReference.equipment_id must be a string or None.")
+        if not isinstance(self.state, SLDAssociationState):
+            raise TypeError("SLDAssociationReference.state must be SLDAssociationState.")
+        object.__setattr__(self, "node_id", self.node_id.strip())
+
+
+@dataclass(frozen=True, slots=True)
+class SLDAssociationValidationResult:
+    """Read-only Application validation of ProjectContext + Network + SLD data."""
+
+    project_id: str
+    references: tuple[SLDAssociationReference, ...] = ()
+    issues: tuple[ValidationIssue, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("SLDAssociationValidationResult.project_id must be non-empty.")
+        object.__setattr__(self, "project_id", self.project_id.strip())
+        object.__setattr__(self, "references", tuple(self.references))
+        object.__setattr__(self, "issues", tuple(self.issues))
+
+    @property
+    def unresolved(self) -> tuple[SLDAssociationReference, ...]:
+        return tuple(
+            reference
+            for reference in self.references
+            if reference.state is SLDAssociationState.UNRESOLVED
+        )
+
 @dataclass(frozen=True, slots=True)
 class ValidationIssue:
     """One immutable validation diagnostic."""
@@ -94,6 +148,9 @@ class ValidationResult:
 
 
 __all__ = [
+    "SLDAssociationReference",
+    "SLDAssociationState",
+    "SLDAssociationValidationResult",
     "ValidationIssue",
     "ValidationResult",
     "ValidationSeverity",

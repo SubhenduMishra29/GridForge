@@ -21,6 +21,7 @@ from core.analysis.dynamic_model_association import DynamicMachineModelAssociati
 from core.application.project import ProjectContext
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.application.services.validation_service import ValidationService
 
 from .network_serializer import deserialize_network, serialize_network
 from .project_package import MANIFEST_NAME, PACKAGE_VERSION, manifest_path, normalize_package_path, project_path
@@ -157,9 +158,19 @@ class ProjectPersistenceService:
         if not isinstance(context, ProjectContext) or not isinstance(network, Network):
             raise ProjectPersistenceError("Project context or Network is invalid.")
         if presentation is not None:
-            presentation_project_id = presentation.get("project_id")
-            if presentation_project_id is not None and presentation_project_id != context.project_id:
-                raise ProjectPersistenceError("Presentation project_id does not match the active project.")
+            sld_validation = ValidationService.validate_sld_associations(
+                context,
+                network,
+                presentation,
+            )
+            for issue in sld_validation.issues:
+                # Structural/project-identity errors are persistence-contract
+                # failures. An unresolved equipment reference is deliberately
+                # diagnostic only until the repository establishes an orphan
+                # policy; persistence must not silently delete, rewrite, or
+                # synthesize either side of the association.
+                if issue.code != "SLD_EQUIPMENT_REFERENCE_UNRESOLVED":
+                    raise ProjectPersistenceError(issue.message)
         for association in dynamic_models:
             if association.project_id != context.project_id:
                 raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' belongs to another project.")

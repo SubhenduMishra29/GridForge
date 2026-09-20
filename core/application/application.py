@@ -308,9 +308,9 @@ class Application:
     def record_presentation_change(self) -> ProjectRevision: return self._revision_service.record_presentation_change()
 
     def validate_project(self) -> ValidationResult:
-        result = self.validation_service.validate_project()
         context = self.project_lifecycle.context
         if context is None: raise RuntimeError("Validation requires an active project.")
+        result = self.validation_service.validate_project(context=context, presentation=self.presentation)
         scoped = replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
         self._event_bus.publish(ValidationChanged(metadata={
             "valid": scoped.valid,

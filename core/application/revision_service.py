@@ -62,6 +62,12 @@ class RevisionService:
 
     @property
     def is_dirty(self) -> bool:
+        """Return whether model/topology/presentation state differs from persisted state.
+
+        Validation is read-only and never changes revision counters. An
+        unresolved SLD equipment reference is therefore a validation
+        diagnostic, not a second dirty-state authority.
+        """
         return self._current != self._persisted_state
 
     def snapshot_state(self) -> tuple[
@@ -164,7 +170,12 @@ class RevisionService:
         return self._record_transition(self._next_for_command(self._current, command))
 
     def record_presentation_change(self) -> ProjectRevision:
-        """Record one successfully committed persistent SLD presentation command."""
+        """Record one successfully committed persistent SLD presentation command.
+
+        SLD association validation does not advance this revision; only an
+        Application command that actually mutates persistent presentation
+        state does so.
+        """
         next_revision = ProjectRevision(
             model_revision=self._current.model_revision,
             topology_revision=self._current.topology_revision,
