@@ -538,3 +538,55 @@ The correction therefore introduces read-only Application validation that distin
 ### Static re-audit conclusion
 
 Source correction is present, but Batch 17 is **not closed**. The repository still requires an explicit architectural decision for persistent SLD references whose Core equipment no longer exists. No runtime, test, CI, application-startup, GUI, or runtime verification was performed.
+
+
+## Batch 18 — Core Equipment / Persistent SLD Deletion Intent and Transaction Boundaries
+
+### Architectural decision state
+
+Static repository tracing found no authoritative engineer-facing policy that makes SLD-node deletion imply Core-equipment deletion, Core-equipment deletion imply persistent SLD deletion, or both actions a single canonical use case. The existing architecture explicitly keeps `RemoveSLDNodeCommand` presentation-only and keeps generic Core delete commands presentation-neutral.
+
+**ARCHITECTURAL DECISION REQUIRED.**
+
+No coordinated Core+SLD deletion command is introduced in Batch 18 because the required policy/intent has not been authoritatively approved. This preserves the existing distinction between presentation-only deletion and Core-only deletion and avoids inventing a compound workflow.
+
+### Finding register
+
+| Finding | Severity | Status | Static evidence / correction |
+|---|---|---|---|
+| SLD-WF-108 | CRITICAL | **OPEN** | No canonical Application equipment-representation deletion use case was found. Existing `PlaceBusCommand` establishes a compound-command pattern for placement, but no authoritative deletion intent was found. |
+| SLD-WF-109 | CRITICAL | **OPEN** | Core deletion and persistent SLD deletion remain independent command/history boundaries. No nested `Application.execute()` composition was introduced. |
+| SLD-WF-110 | HIGH | **OPEN** | `SLDController.remove_node()` is explicitly documented and traced as presentation-only; it submits `RemoveSLDNodeCommand` and does not infer equipment deletion. |
+| SLD-WF-111 | HIGH | **OPEN** | SLD selection is transient UI state. `SLDNode.equipment_id` provides identity mapping, but no verified engineer-facing equipment-deletion workflow exists. |
+| SLD-WF-112 | CRITICAL | **OPEN** | Generic Core delete commands contain Core identity payloads only; no persistent SLD reconciliation boundary is attached to them. |
+| SLD-WF-113 | HIGH | **OPEN** | Core delete undo restores Core state through the existing Application history/transaction mechanism, but does not and must not silently mutate persistent SLD state without an approved compound deletion policy. |
+| SLD-WF-114 | HIGH | **OPEN** | Runtime projection reconciliation remains distinct from persistent `SLDDocument` mutation. No projection path is authorized to rewrite persistent SLD state. |
+| SLD-WF-115 | HIGH | **OPEN** | Engineer-facing meaning of SLD-node deletion versus equipment deletion remains undefined; no intent was inferred from Delete-selection infrastructure or selection state. |
+
+### Static deletion-path re-audit
+
+| Path | Result |
+|---|---|
+| SLD canvas/controller node removal | Routes through `SLDController.remove_node()` → immutable `RemoveSLDNodeCommand` → `Application.execute()` → one Application transaction → `SLDService` only. |
+| SLD selection | UI-only; `selected_node_ids` remain transient and do not mutate Core. |
+| Core equipment deletion | Generic `model.delete_*` commands remain presentation-neutral and operate through the Core/Application model boundary. |
+| Context menu / keyboard Delete | No authoritative engineer-facing coordinated deletion workflow was found; no workflow was invented. |
+| Explorer / equipment panel / inspector | No authoritative coordinated Core+SLD deletion path was found in the inspected repository; recorded as a workflow gap rather than synthesized behavior. |
+| Undo/redo | Existing `CommandManager` transaction/history boundary remains authoritative. Independent commands retain independent history entries; no nested public execution was introduced. |
+| Persistence/orphan handling | Existing SLD association validation remains diagnostic/read-only; unresolved references are not silently deleted, fabricated, or repaired. |
+
+### Transaction and rollback contract
+
+If a future architecturally approved coordinated deletion is introduced, it must enter through one immutable Application command and one CommandManager transaction. Its mutation order must be explicit and its inverse operations registered with the existing `Transaction.record_undo()` mechanism. For the currently authorized workflows, `RemoveSLDNodeCommand` records only SLD restoration; Core delete commands record only their Core inverse state.
+
+### Semantic event contract
+
+Current SLD-only removal publishes `SLDPresentationChanged`; Core deletion publishes the applicable Core semantic events such as `ElementRemoved`, `NetworkChanged`, and `TopologyChanged` where applicable. No compound event lifecycle was invented because no compound deletion command is authorized.
+
+### Verification boundary
+
+**CORRECTED — STATIC VERIFICATION COMPLETE** for the intent-boundary clarification and register reconciliation.
+
+Batch 18 remains **OPEN / RE-AUDIT REQUIRED** for SLD-WF-108 through SLD-WF-115 because the missing engineer-facing coordinated deletion policy is an architectural decision, not something source modification alone can legitimately close.
+
+No tests, CI, application startup, GUI execution, or runtime verification was performed.

@@ -984,3 +984,61 @@ Verification boundary:
     Runtime, tests and CI remain deferred and are not claimed.
 
 ======================================================================
+
+======================================================================
+BATCH 18 — SLD / CORE DELETION INTENT AND TRANSACTION BOUNDARY
+======================================================================
+
+Architectural decision state:
+    No authoritative engineer-facing policy was found that makes
+    SLD-node deletion imply Core-equipment deletion, Core-equipment
+    deletion imply persistent SLD deletion, or both actions one
+    canonical use case.
+
+    ARCHITECTURAL DECISION REQUIRED.
+
+Correction:
+    RemoveSLDNodeCommand remains presentation-only.
+    Generic Core Delete*Command objects remain presentation-neutral.
+    SLDController.remove_node() and SLD selection are explicitly
+    documented as presentation/UI intent only.
+    No coordinated Core+SLD deletion command was introduced because
+    doing so would invent an engineer-facing deletion policy that the
+    repository does not currently authorize.
+
+Batch 18 findings:
+    SLD-WF-108 — No canonical Application equipment-representation
+                   deletion use case — CRITICAL — OPEN
+    SLD-WF-109 — Core and persistent SLD deletion are independent
+                   history boundaries — CRITICAL — OPEN
+    SLD-WF-110 — SLDController.remove_node() is presentation-only and
+                   has no equipment-deletion intent — HIGH — OPEN
+    SLD-WF-111 — SLD selection does not provide a verified
+                   equipment-deletion workflow — HIGH — OPEN
+    SLD-WF-112 — Core delete commands have no persistent SLD
+                   reconciliation boundary — CRITICAL — OPEN
+    SLD-WF-113 — Core delete undo cannot reconcile presentation
+                   because the command owns no SLD mutation — HIGH — OPEN
+    SLD-WF-114 — Runtime projection reconciliation is distinct from
+                   persistent SLD reconciliation — HIGH — OPEN
+    SLD-WF-115 — Engineer-facing meaning of SLD-node deletion versus
+                   equipment deletion is undefined — HIGH — OPEN
+
+Static verification:
+    Application transaction/history boundaries were traced.
+    RemoveSLDNodeCommand records only SLD restoration through the
+    existing Transaction.record_undo() mechanism.
+    Core deletion remains Core-scoped.
+    No nested Application.execute() composition was introduced.
+    Runtime projection does not receive authority to mutate the
+    persistent SLDDocument.
+
+Status:
+    CORRECTED — STATIC VERIFICATION COMPLETE
+    Batch 18 remains OPEN / RE-AUDIT REQUIRED pending the architectural
+    deletion-intent decision.
+
+Verification boundary:
+    No tests, CI, application startup, GUI execution, or runtime
+    verification performed.
+
