@@ -131,6 +131,12 @@ class SLDController:
         return placements
 
     def remove_node(self, node_id: str) -> SLDNode:
+        """Remove only the persistent SLD representation identified by ``node_id``.
+
+        This method intentionally does not infer or initiate Core-equipment deletion.
+        A future coordinated engineer-deletion intent must enter the Application as
+        a dedicated compound command and is not implied by SLD node removal.
+        """
         document = self._require_active_document()
         node = document.model.get_node(node_id)
         result = self.application.execute(RemoveSLDNodeCommand(node_id=node_id))
@@ -162,6 +168,7 @@ class SLDController:
         return connection
 
     def select_node(self, node_id: str, *, additive: bool = False) -> None:
+        """Update transient SLD selection only; selection is not deletion intent."""
         document = self._require_active_document()
         if not document.model.has_node(node_id):
             raise KeyError(node_id)
