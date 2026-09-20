@@ -37,8 +37,12 @@ class ValidationService:
     def result(self) -> ValidationResult | None:
         return self._result
 
-    def validate_project(self) -> ValidationResult:
-        """Validate the complete authoritative Core Network and topology state."""
+    def validate_project(self, *, context: Any | None = None, presentation: Any | None = None) -> ValidationResult:
+        """Validate Core state plus optional Application-owned SLD associations.
+
+        SLD association diagnostics are read-only. They do not choose an orphan
+        repair/deletion policy and do not mutate the persistent document.
+        """
         issues: list[ValidationIssue] = []
         try:
             self._network.validate()
@@ -74,6 +78,10 @@ class ValidationService:
                         element_type=getattr(element, "element_type", type(element).__name__),
                     )
                 )
+
+        if context is not None:
+            sld_validation = self.validate_sld_associations(context, self._network, presentation)
+            issues.extend(sld_validation.issues)
 
         if self._network.topology_dirty:
             issues.append(
