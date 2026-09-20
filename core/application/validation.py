@@ -148,6 +148,9 @@ class ValidationResult:
 
 
 __all__ = [
+    "SLDAssociationReference",
+    "SLDAssociationState",
+    "SLDAssociationValidationResult",
     "ValidationIssue",
     "ValidationResult",
     "ValidationSeverity",
