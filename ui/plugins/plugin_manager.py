@@ -1,6 +1,8 @@
 """
 GridForge V2 — deterministic UI plugin lifecycle orchestration.
 
+Author: Subhendu Mishra
+
 Plugin construction is context-free. PluginContext is supplied during
 initialization and is the single dependency carrier for plugin composition.
 """
