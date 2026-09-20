@@ -1,6 +1,8 @@
 """
 GridForge V2 — deterministic UI plugin lifecycle orchestration.
 
+Author: Subhendu Mishra
+
 Plugin construction is context-free. PluginContext is supplied during
 initialization and is the single dependency carrier for plugin composition.
 """
@@ -358,16 +360,23 @@ class PluginManager:
                         )
                     )
                     raise
+
+                # PluginRegistry returns only after canonical initialization
+                # state has been committed. From this point onward, this is
+                # a normal initialized plugin, never a failed pre-initialization
+                # attempt. Clear the compensation guard before emitting the
+                # observational INITIALIZED event.
+                initialized_here.append(current_id)
+                results.append(result)
+                initialization_started = False
+                current_initializing = None
+
                 self._emit(
                     plugin_initialized(
                         current_id,
                         source=PluginEventSource.MANAGER,
                     )
                 )
-                initialized_here.append(current_id)
-                results.append(result)
-                initialization_started = False
-                current_initializing = None
         except Exception as exc:
             rollback_errors: list[BaseException] = []
             protected_loaded: set[str] = set()
@@ -591,6 +600,16 @@ class PluginManager:
             )
 
     def unload(self, plugin_id: str) -> Optional[PluginEntry]:
+        """Unload one plugin using explicit stage-specific failure operations.
+
+        Unload failure operations are deterministic:
+            unload.shutdown
+            unload.disable
+            unload.unregister
+
+        A failed stage does not emit a later successful lifecycle event.
+        The PluginStateStore remains the canonical source of resulting state.
+        """
         self._require_definition(plugin_id)
         registered_dependants = tuple(
             dependant
@@ -614,7 +633,7 @@ class PluginManager:
         if self._registry.is_initialized(plugin_id):
             self._shutdown_one(
                 plugin_id,
-                failure_operation="unload",
+                failure_operation="unload.shutdown",
             )
 
         if self._registry.is_enabled(plugin_id):
@@ -625,7 +644,7 @@ class PluginManager:
                     plugin_failed(
                         plugin_id,
                         exc,
-                        operation="unload",
+                        operation="unload.disable",
                         recoverable=True,
                         source=PluginEventSource.MANAGER,
                     )
@@ -646,7 +665,7 @@ class PluginManager:
                 plugin_failed(
                     plugin_id,
                     exc,
-                    operation="unload",
+                    operation="unload.unregister",
                     recoverable=True,
                     source=PluginEventSource.MANAGER,
                 )

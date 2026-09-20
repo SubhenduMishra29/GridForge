@@ -429,15 +429,15 @@ class PluginRegistry:
             # plugin initialization.
             # ------------------------------------------------
 
+            # mark_initialized() is the canonical lifecycle commit point.
+            # It also clears last_error as part of the same state snapshot.
+            # Do not perform ancillary diagnostic writes after this commit:
+            # a diagnostic failure must never turn a committed initialization
+            # back into a failed pre-initialization attempt.
             try:
                 self._state_store.mark_initialized(
                     plugin_id
                 )
-
-                self._state_store.clear_last_error(
-                    plugin_id
-                )
-
             except Exception as exc:
                 self._record_error(plugin_id, exc)
                 raise
