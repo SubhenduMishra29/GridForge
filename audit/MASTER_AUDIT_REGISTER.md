@@ -617,3 +617,7 @@ One concrete typed-semantic defect was confirmed in the transformer engineering 
 - No tests, CI, application startup, GUI execution, or runtime verification was performed.
 
 RCA-016 remains **OPEN / RE-AUDIT REQUIRED** for the broader configuration/units workflow until the remaining study, persistence, Inspector, SLD, plugin, and project-isolation consumers are statically re-audited after this correction.
+
+## RCA-017 — Static Correction Record
+
+RCA-017 equipment catalogue/tool activation correction is source-remediated with verification deferred. RCA-017-003 is retracted. Cross-reference: RCA-016 Transformer configuration findings. No tests, CI, startup, GUI, or runtime verification performed.
