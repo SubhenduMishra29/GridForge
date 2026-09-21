@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/tools/tool_registry.py
 # GridForge V2 — Tool Registry
 # ============================================================
