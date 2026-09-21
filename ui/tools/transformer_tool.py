@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple
+
+from core.model.transformer import ImpedanceBasis
 from uuid import uuid4
 
 from core.application.commands.model_commands import CreateTransformerCommand
@@ -27,6 +29,7 @@ class TransformerTool(ToolBase):
         application: Any,
         selection_manager: Any,
         snap_system: Any,
+        preview_layer: Any = None,
     ) -> None:
         super().__init__(
             controller=controller,
@@ -79,6 +82,7 @@ class TransformerTool(ToolBase):
             self._current_endpoint = endpoint
             self._current_position = position
             self._preview_active = True
+            self._update_preview()
             return True
 
         self._current_endpoint = endpoint
@@ -97,6 +101,7 @@ class TransformerTool(ToolBase):
         self._current_position = self._position_tuple(snap_result.position)
         self._current_endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         self._preview_active = True
+        self._update_preview()
         return True
 
     def on_mouse_release(self, event: Any) -> bool:
@@ -146,13 +151,34 @@ class TransformerTool(ToolBase):
             endpoint_to=endpoint_to,
             r=float(parameters["r"]),
             x=float(parameters["x"]),
-            impedance_basis=str(parameters["impedance_basis"]),
+            b=float(parameters.get("b", 0.0)),
+            impedance_basis=self._normalize_impedance_basis(parameters["impedance_basis"]),
             tap=float(parameters.get("tap", 1.0)),
             shift=float(parameters.get("shift", 0.0)),
             name=str(parameters.get("name", "")),
             rate_mva=self._optional_float(parameters.get("rate_mva")),
         )
         return self.execute_command(command)
+
+    @staticmethod
+    def _normalize_impedance_basis(value: Any) -> ImpedanceBasis:
+        if isinstance(value, ImpedanceBasis):
+            return value
+        try:
+            return ImpedanceBasis(str(value).strip().lower())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
+
+    def _update_preview(self) -> None:
+        if self.preview_layer is None:
+            return
+        if self._start_position is None or self._current_position is None:
+            self.preview_layer.clear()
+            return
+        show_segment = getattr(self.preview_layer, "show_segment", None)
+        if not callable(show_segment):
+            raise TypeError("PreviewLayer must provide show_segment().")
+        show_segment(self._start_position, self._current_position)
 
     @staticmethod
     def _optional_float(value: Any) -> float | None:
@@ -183,6 +209,10 @@ class TransformerTool(ToolBase):
         self._current_endpoint = None
         self._current_position = None
         self._preview_active = False
+        if self.preview_layer is not None:
+            clear = getattr(self.preview_layer, "clear", None)
+            if callable(clear):
+                clear()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
