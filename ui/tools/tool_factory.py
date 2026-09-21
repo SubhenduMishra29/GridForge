@@ -1,8 +1,11 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/tools/tool_factory.py
 # GridForge V2 — Tool Factory
 # ============================================================
-"""
+"""LEGACY NON-AUTHORITATIVE: ToolManager/default_tool_registry owns all runtime tool construction.
+
+
 Explicit factory for the frozen GridForge V2 tool set.
 
 The factory centralizes construction of concrete tools while

@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # GridForge V2
 # ============================================================
 # File:
@@ -45,6 +46,9 @@ class EquipmentDefinition:
 
     display_name: str
 
+    # Canonical UI tool identity for engineer activation.
+    tool_id: str = ""
+
     terminal_names: tuple[str, ...] = ()
 
     symbol_id: str = ""
@@ -73,6 +77,9 @@ class EquipmentDefinition:
             self.display_name,
             "display_name",
         )
+
+        tool_id = self.tool_id or equipment_type
+        tool_id = self._validate_text(tool_id, "tool_id")
 
         category = self._validate_text(
             self.category,
@@ -142,6 +149,12 @@ class EquipmentDefinition:
             self,
             "display_name",
             display_name,
+        )
+
+        object.__setattr__(
+            self,
+            "tool_id",
+            tool_id,
         )
 
         object.__setattr__(
@@ -259,6 +272,7 @@ class EquipmentDefinition:
         return {
             "equipment_type": self.equipment_type,
             "display_name": self.display_name,
+            "tool_id": self.tool_id,
             "terminal_names": list(
                 self.terminal_names
             ),
@@ -318,6 +332,10 @@ class EquipmentDefinition:
             display_name=data[
                 "display_name"
             ],
+            tool_id=data.get(
+                "tool_id",
+                data["equipment_type"],
+            ),
             terminal_names=tuple(
                 data.get(
                     "terminal_names",

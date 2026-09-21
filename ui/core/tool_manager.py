@@ -30,6 +30,7 @@ class ToolManager:
         selection_manager: Any,
         snap_system: Any,
         tool_registry: Any = None,
+        preview_layer: Any = None,
     ) -> None:
         if controller is None:
             raise ValueError("controller must not be None.")
@@ -44,6 +45,7 @@ class ToolManager:
         self.application = application
         self.selection_manager = selection_manager
         self.snap_system = snap_system
+        self.preview_layer = preview_layer
         self._tool_registry: dict[str, ToolFactory] = {}
         self._tool_instances: dict[str, Any] = {}
         self._active_tool_id: str | None = None
@@ -118,6 +120,7 @@ class ToolManager:
             application=self.application,
             selection_manager=self.selection_manager,
             snap_system=self.snap_system,
+            preview_layer=self.preview_layer,
         )
         if tool is None:
             raise RuntimeError(f"Tool factory returned None: {tool_id!r}")

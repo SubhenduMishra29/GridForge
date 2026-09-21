@@ -1,9 +1,10 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/tools/tool_registry.py
 # GridForge V2 — Tool Registry
 # ============================================================
 """
-Explicit tool registry for GridForge V2.
+Legacy compatibility shell for the superseded ToolRegistry architecture. The authoritative runtime path is ToolManager/create_default_tool_factories().
 
 ToolRegistry is responsible for the identity and availability of
 UI tools. It deliberately does not perform tool lifecycle
@@ -97,6 +98,7 @@ class ToolRegistry:
         self,
         tools: Optional[Iterable[ToolBase]] = None,
     ) -> None:
+        raise RuntimeError("Legacy ToolRegistry is non-authoritative; use ToolManager.")
         """
         Initialize an empty registry and optionally register tools.
 

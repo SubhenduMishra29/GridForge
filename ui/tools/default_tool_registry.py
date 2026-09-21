@@ -48,6 +48,7 @@ def create_default_tool_factories(
     application: Any,
     selection_manager: Any,
     snap_system: Any,
+    preview_layer: Any = None,
 ) -> dict[str, ToolFactory]:
     """Return the standard concrete-tool factory mapping.
 
@@ -63,12 +64,21 @@ def create_default_tool_factories(
             snap_system=snap_system,
         )
 
+    def transformer_factory(**_ignored: Any) -> TransformerTool:
+        return TransformerTool(
+            controller=controller,
+            application=application,
+            selection_manager=selection_manager,
+            snap_system=snap_system,
+            preview_layer=preview_layer,
+        )
+
     return {
         "select": factory(SelectTool),
         "bus": factory(BusTool),
         "line": factory(LineTool),
         "cable": factory(CableTool),
-        "transformer": factory(TransformerTool),
+        "transformer": transformer_factory,
         "switch": factory(SwitchTool),
         "breaker": factory(BreakerTool),
         "disconnector": factory(DisconnectorTool),

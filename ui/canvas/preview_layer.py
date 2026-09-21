@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/canvas/preview_layer.py
 # GridForge V2 — Canvas Preview Layer
 # ============================================================
@@ -80,7 +81,10 @@ from typing import Any, Iterable
 
 from ui.core.qt import (
     QGraphicsItem,
+    QGraphicsLineItem,
     QGraphicsScene,
+    QLineF,
+    QPointF,
 )
 
 
@@ -252,6 +256,32 @@ class PreviewLayer:
         return tuple(
             added
         )
+
+    # ========================================================
+    # SEMANTIC PLACEMENT PREVIEW
+    # ========================================================
+
+    def show_segment(self, start: Any, end: Any) -> None:
+        """Show one transient cursor-to-endpoint placement segment."""
+        self.clear()
+        self.add(
+            QGraphicsLineItem(
+                QLineF(
+                    self._point(start),
+                    self._point(end),
+                )
+            )
+        )
+
+    @staticmethod
+    def _point(value: Any) -> QPointF:
+        if hasattr(value, "x") and hasattr(value, "y"):
+            x = value.x() if callable(value.x) else value.x
+            y = value.y() if callable(value.y) else value.y
+            return QPointF(float(x), float(y))
+        if isinstance(value, (tuple, list)) and len(value) >= 2:
+            return QPointF(float(value[0]), float(value[1]))
+        raise TypeError("Preview position must expose x/y coordinates.")
 
     # ========================================================
     # REMOVE PREVIEW

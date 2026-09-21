@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/tools/tool_context.py
 # GridForge V2 — Tool Context
 # ============================================================
@@ -49,11 +50,9 @@ ToolContext does NOT:
     - perform navigation;
     - discover plugins.
 
-The concrete tool set remains frozen to:
-
-    SelectTool
-    BusTool
-    LineTool
+Legacy note: this module is retained only for compatibility with the superseded
+ToolContext-based tool architecture. ToolManager/default_tool_registry is the
+only authoritative runtime path and owns dynamic engineering tool identities.
 
 Qt
 --
@@ -377,38 +376,13 @@ class ToolContext:
 
     # --------------------------------------------------------
 
-    def validate_for_tool(
-        self,
-        tool_id: str,
-    ) -> None:
+    def validate_for_tool(self, tool_id: str) -> None:
+        """Validate only that a legacy caller supplied a non-empty tool ID.
+
+        Tool-specific lifecycle and dependency policy are owned by ToolManager.
         """
-        Validate the dependency contract for one of the frozen
-        concrete tools.
-        """
-
-        if not isinstance(
-            tool_id,
-            str,
-        ):
-            raise TypeError(
-                "tool_id must be a string."
-            )
-
-        if tool_id == "select":
-            self.validate_for_select_tool()
-            return
-
-        if tool_id == "bus":
-            self.validate_for_bus_tool()
-            return
-
-        if tool_id == "line":
-            self.validate_for_line_tool()
-            return
-
-        raise ValueError(
-            f"Unknown GridForge tool id: {tool_id!r}."
-        )
+        if not isinstance(tool_id, str) or not tool_id.strip():
+            raise ValueError("tool_id must be a non-empty string.")
 
     # ========================================================
     # DIAGNOSTICS
