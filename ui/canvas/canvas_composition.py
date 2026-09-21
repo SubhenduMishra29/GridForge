@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/canvas/canvas_composition.py
 # GridForge V2 — Canvas Composition
 # ============================================================
