@@ -42,6 +42,7 @@ class TransformerTool(ToolBase):
         self._current_endpoint: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._preview_active = False
+        self._preview_layer = preview_layer
         self._engineering_parameters: dict[str, Any] = {}
 
     @property
