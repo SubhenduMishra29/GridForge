@@ -621,3 +621,10 @@ RCA-016 remains **OPEN / RE-AUDIT REQUIRED** for the broader configuration/units
 ## RCA-017 — Static Correction Record
 
 RCA-017 equipment catalogue/tool activation correction is source-remediated with verification deferred. RCA-017-003 is retracted. Cross-reference: RCA-016 Transformer configuration findings. No tests, CI, startup, GUI, or runtime verification performed.
+
+
+### RCA-017 — Static re-audit addendum
+
+The re-audit identified one residual competing construction surface: `ui/tools/tool_factory.py` still contained concrete legacy constructors despite being documented as non-authoritative. It has now been reduced to a compatibility marker that raises on construction and exposes no concrete creation methods. Authoritative construction remains `ToolManager` → `create_default_tool_factories()`.
+
+Status remains **REMEDIATED — VERIFICATION DEFERRED**. No tests, CI, application startup, GUI execution, or runtime verification were performed.
