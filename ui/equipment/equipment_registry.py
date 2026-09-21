@@ -202,6 +202,58 @@ class EquipmentRegistry:
         )
 
     # ========================================================
+    # CANONICAL CATALOGUE PROJECTION
+    # ========================================================
+
+    def catalogue(self) -> tuple[EquipmentDefinition, ...]:
+        """Return the project-independent equipment catalogue snapshot."""
+        return tuple(self._definitions.values())
+
+    def tool_id_for(self, equipment_type: str) -> str:
+        """Resolve the canonical ToolManager identity for an equipment type."""
+        return self.require(equipment_type).tool_id
+
+    @classmethod
+    def create_default(cls) -> "EquipmentRegistry":
+        """Compose the built-in engineering equipment catalogue once."""
+        registry = cls()
+        definitions = (
+            ("bus", "Bus", ("terminal",), "network"),
+            ("line", "Line", ("from", "to"), "branch"),
+            ("cable", "Cable", ("from", "to"), "branch"),
+            ("transformer", "Transformer", ("from", "to"), "branch"),
+            ("switch", "Switch", ("from", "to"), "switching"),
+            ("breaker", "Breaker", ("from", "to"), "switching"),
+            ("disconnector", "Disconnector", ("from", "to"), "switching"),
+            ("fuse", "Fuse", ("from", "to"), "switching"),
+            ("load", "Load", ("terminal",), "load"),
+            ("generator", "Generator", ("terminal",), "generation"),
+            ("synchronous_machine", "Synchronous Machine", ("terminal",), "generation"),
+            ("motor", "Motor", ("terminal",), "load"),
+            ("shunt", "Shunt", ("terminal",), "shunt"),
+            ("capacitor", "Capacitor", ("terminal",), "shunt"),
+            ("reactor", "Reactor", ("terminal",), "shunt"),
+            ("solar", "Solar", ("terminal",), "generation"),
+            ("battery", "Battery", ("terminal",), "storage"),
+            ("grid", "Grid", ("terminal",), "source"),
+            ("current_transformer", "Current Transformer", ("primary", "secondary"), "measurement"),
+            ("potential_transformer", "Potential Transformer", ("primary", "secondary"), "measurement"),
+            ("cvt", "Capacitive Voltage Transformer", ("primary", "secondary"), "measurement"),
+            ("relay", "Relay", (), "protection"),
+        )
+        for equipment_type, display_name, terminals, category in definitions:
+            registry.register(
+                EquipmentDefinition(
+                    equipment_type=equipment_type,
+                    display_name=display_name,
+                    tool_id=equipment_type,
+                    terminal_names=terminals,
+                    category=category,
+                )
+            )
+        return registry
+
+    # ========================================================
     # COLLECTION MANAGEMENT
     # ========================================================
 
