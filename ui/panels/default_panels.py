@@ -108,6 +108,20 @@ class EquipmentPanelWidget(QWidget):
         self._active_tool_id = self._tool_manager.active_tool_id
         return tool
 
+    def configure_active_tool(self, **parameters: Any) -> None:
+        """Forward typed engineering configuration to the active Tool only.
+
+        The Browser does not retain an engineering-configuration store.
+        The active Tool owns the transient pre-placement configuration.
+        """
+        if self._tool_manager is None:
+            raise RuntimeError("Equipment Browser has not been composed with ToolManager.")
+        tool = self._tool_manager.get_current_tool()
+        setter = getattr(tool, "set_engineering_parameters", None)
+        if not callable(setter):
+            raise RuntimeError("Active tool does not accept engineering parameters.")
+        setter(**parameters)
+
     def _on_item_clicked(self, item: Any) -> None:
         row = self._list.row(item)
         if row < 0 or row >= len(self._definitions):
