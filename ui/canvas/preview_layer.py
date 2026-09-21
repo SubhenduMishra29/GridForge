@@ -1,4 +1,5 @@
 # ============================================================
+# Author: Subhendu Mishra
 # File: ui/canvas/preview_layer.py
 # GridForge V2 — Canvas Preview Layer
 # ============================================================
