@@ -195,20 +195,27 @@ class DeleteLineCommand(Command):
 
 class CreateTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
-                 r: float, x: float, impedance_basis: ImpedanceBasis | str, tap: float = 1.0, shift: float = 0.0,
+                 r: float, x: float, b: float = 0.0, impedance_basis: ImpedanceBasis | str = ImpedanceBasis.ENGINEERING, tap: float = 1.0, shift: float = 0.0,
                  name: str = "", rate_mva: float = 100.0,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
             raise TypeError("Transformer endpoints must be EndpointReference values.")
-        if not isinstance(impedance_basis, str) or not impedance_basis.strip():
-            raise ValueError("Transformer impedance_basis is required and must be a non-empty string.")
+        try:
+            normalized_basis = (
+                impedance_basis
+                if isinstance(impedance_basis, ImpedanceBasis)
+                else ImpedanceBasis(str(impedance_basis).strip().lower())
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
         super().__init__(**_command(CREATE_TRANSFORMER, {
             "transformer_id": transformer_id,
             "endpoint_from": endpoint_from,
             "endpoint_to": endpoint_to,
             "r": r,
             "x": x,
-            "impedance_basis": impedance_basis,
+            "b": b,
+            "impedance_basis": normalized_basis,
             "tap": tap,
             "shift": shift,
             "name": name,
