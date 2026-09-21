@@ -38,6 +38,7 @@ class PluginContext:
 
     tool_manager: Any = None
     tool_registry: Any = None
+    equipment_registry: Any = None
     tool_dispatcher: Any = None
     interaction_manager: Any = None
     renderer_registry: Any = None
