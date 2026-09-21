@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from ..command import Command
 from ..endpoint_reference import EndpointReference
+from ...model.transformer import ImpedanceBasis
 
 CREATE_BUS = "model.create_bus"
 UPDATE_BUS = "model.update_bus"
@@ -194,7 +195,7 @@ class DeleteLineCommand(Command):
 
 class CreateTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
-                 r: float, x: float, impedance_basis: str, tap: float = 1.0, shift: float = 0.0,
+                 r: float, x: float, impedance_basis: ImpedanceBasis | str, tap: float = 1.0, shift: float = 0.0,
                  name: str = "", rate_mva: float = 100.0,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):

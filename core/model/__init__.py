@@ -9,7 +9,7 @@ from .bus import Bus
 from .branch import Branch
 from .line import Line
 from .cable import Cable
-from .transformer import Transformer
+from .transformer import ImpedanceBasis, Transformer
 from .switch import Switch
 from .breaker import Breaker
 from .disconnector import Disconnector
@@ -51,7 +51,7 @@ Relay.element_type = property(lambda self: "RELAY")
 ElectricalObject.register(Relay)
 
 __all__ = (
-    "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "Line", "Cable", "Transformer", "Switch",
+    "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "Line", "Cable", "ImpedanceBasis", "Transformer", "Switch",
     "Breaker", "Disconnector", "Fuse", "Load", "Generator", "SynchronousMachine", "SyncMachine", "Motor",
     "Shunt", "Capacitor", "Reactor", "Solar", "Battery", "Grid", "CTPolarity", "CurrentTransformer", "PT",
     "PotentialTransformer", "CVT", "Relay",

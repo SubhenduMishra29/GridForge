@@ -16,9 +16,17 @@ No unit or base inference is performed by numerical builders.
 from __future__ import annotations
 
 import math
+from enum import Enum
 from typing import Any
 
 from .branch import Branch
+
+
+class ImpedanceBasis(str, Enum):
+    """Typed semantic basis for transformer r/x/b engineering values."""
+
+    PU = "pu"
+    ENGINEERING = "engineering"
 
 
 class Transformer(Branch):
@@ -37,7 +45,7 @@ class Transformer(Branch):
     """
 
     TYPE = "TRANSFORMER"
-    VALID_IMPEDANCE_BASES = frozenset({"pu", "engineering"})
+    VALID_IMPEDANCE_BASES = frozenset(ImpedanceBasis)
 
     __slots__ = (
         "_tap",
@@ -56,7 +64,7 @@ class Transformer(Branch):
         r: float = 0.0,
         x: float = 0.0,
         b: float = 0.0,
-        impedance_basis: str,
+        impedance_basis: ImpedanceBasis | str,
         impedance_base_mva: float | None = None,
         impedance_base_voltage_kv: float | None = None,
         tap: float = 1.0,
@@ -69,11 +77,16 @@ class Transformer(Branch):
             raise ValueError(
                 "Transformer impedance_basis is required; ambiguous r/x/b data is not accepted."
             )
-        impedance_basis = str(impedance_basis).strip().lower()
-        if impedance_basis not in self.VALID_IMPEDANCE_BASES:
+        try:
+            impedance_basis = (
+                impedance_basis
+                if isinstance(impedance_basis, ImpedanceBasis)
+                else ImpedanceBasis(str(impedance_basis).strip().lower())
+            )
+        except (TypeError, ValueError) as exc:
             raise ValueError(
                 "Transformer impedance_basis must be 'pu' or 'engineering'."
-            )
+            ) from exc
 
         # The existing Branch ``rate_mva`` is the transformer nameplate
         # rating. It is a valid original MVA basis only when explicitly
@@ -126,7 +139,7 @@ class Transformer(Branch):
         return self.TYPE
 
     @property
-    def impedance_basis(self) -> str:
+    def impedance_basis(self) -> ImpedanceBasis:
         """Return the declared basis of ``r/x/b``."""
         return self._impedance_basis
 
@@ -263,4 +276,4 @@ class Transformer(Branch):
         return value
 
 
-__all__ = ["Transformer"]
+__all__ = ["ImpedanceBasis", "Transformer"]

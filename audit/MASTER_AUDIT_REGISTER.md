@@ -590,3 +590,30 @@ Current SLD-only removal publishes `SLDPresentationChanged`; Core deletion publi
 Batch 18 remains **OPEN / RE-AUDIT REQUIRED** for SLD-WF-108 through SLD-WF-115 because the missing engineer-facing coordinated deletion policy is an architectural decision, not something source modification alone can legitimately close.
 
 No tests, CI, application startup, GUI execution, or runtime verification was performed.
+
+
+## RCA-016 — Configuration / Units / Engineering Parameters / Typed Values
+
+### Static evidence review
+
+The inspected repository already has explicit engineering-unit semantics for the principal Core quantities (for example `nominal_voltage_kv`, `frequency_hz`, `resistance_ohm`, `shunt_susceptance_siemens`) and a single canonical per-unit utility in `core/base/per_unit.py`. No evidence was found requiring a new generic writable configuration store, UI engineering database, second CommandManager, or second conversion service.
+
+One concrete typed-semantic defect was confirmed in the transformer engineering contract: `impedance_basis` was represented and stored as an unrestricted string even though the domain permits only two semantic states. This allowed an engineering-basis concept to cross the Core/Application boundary as arbitrary text.
+
+### Finding register
+
+| Finding | Module | File | Root Cause | Frozen Contract | Correction | Affected Workflow(s) | Status | Verification Evidence | Remaining Risk |
+|---|---|---|---|---|---|---|---|---|---|
+| RCA-016-001 | Core transformer engineering configuration | `core/model/transformer.py`; `core/application/commands/model_commands.py` | Transformer impedance basis was an unrestricted string rather than a typed domain value | Engineering meaning must not depend on arbitrary strings; Application commands must carry typed engineering intent into Core | Added `ImpedanceBasis(str, Enum)` with `PU` and `ENGINEERING`; Transformer normalizes legacy string input once at the Core boundary and stores the typed enum; transformer command type now accepts the typed basis while preserving compatibility with existing string callers | Transformer creation → Application command → ModelService → Core → Power Flow preparation → persistence | **REMEDIATED — VERIFICATION DEFERRED** | Static source inspection confirms the domain vocabulary is closed to the two supported bases; existing persistence already serializes Enum values through the canonical ModelDTO encoder | Runtime compatibility and persisted-project round-trip remain unexecuted by policy |
+
+### Static re-audit conclusion
+
+- No second configuration authority was introduced.
+- No second unit-conversion service was introduced.
+- No UI/Canvas/Plugin mutation path was introduced.
+- Transformer `r/x/b` basis remains explicit and is now represented by a typed Core value.
+- Existing per-unit conversion remains centralized in `core/base/per_unit.py`.
+- Existing persistence Enum support is reused; no parallel persistence format was added.
+- No tests, CI, application startup, GUI execution, or runtime verification was performed.
+
+RCA-016 remains **OPEN / RE-AUDIT REQUIRED** for the broader configuration/units workflow until the remaining study, persistence, Inspector, SLD, plugin, and project-isolation consumers are statically re-audited after this correction.
