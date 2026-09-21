@@ -34,6 +34,7 @@ class CanvasCompositionPreparation:
     grid_system: GridSystem
     scene: GridScene
     snap_system: SnapSystem
+    preview_layer: PreviewLayer
 
 
 @dataclass
@@ -73,12 +74,14 @@ class CanvasComposer:
             grid_system=grid_system,
             scene=scene,
         )
+        preview_layer = PreviewLayer(scene=scene)
 
         return CanvasCompositionPreparation(
             selection_manager=selection_manager,
             grid_system=grid_system,
             scene=scene,
             snap_system=snap_system,
+            preview_layer=preview_layer,
         )
 
     def compose(
@@ -113,11 +116,14 @@ class CanvasComposer:
         grid_system = preparation.grid_system
         scene = preparation.scene
         snap_system = preparation.snap_system
+        preview_layer = preparation.preview_layer
 
         if tool_manager.selection_manager is not selection_manager:
             raise ValueError("ToolManager must use the prepared SelectionManager.")
         if tool_manager.snap_system is not snap_system:
             raise ValueError("ToolManager must use the prepared SnapSystem.")
+        if tool_manager.preview_layer is not preview_layer:
+            raise ValueError("ToolManager must use the prepared PreviewLayer.")
 
         view = GraphicsView(
             controller=controller,
@@ -126,7 +132,6 @@ class CanvasComposer:
             parent=parent,
         )
         coordinate_system = CoordinateSystem(view=view, grid_system=grid_system)
-        preview_layer = PreviewLayer(scene=scene)
         input_adapter = MouseEventAdapter(view=view, scene=scene)
         interaction_manager = InteractionManager(
             view=view,
@@ -152,6 +157,7 @@ class CanvasComposer:
                 application=application,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
+                preview_layer=preview_layer,
             )
         )
 
