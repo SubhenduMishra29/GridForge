@@ -156,7 +156,7 @@ class TransformerTool(ToolBase):
             tap=float(parameters.get("tap", 1.0)),
             shift=float(parameters.get("shift", 0.0)),
             name=str(parameters.get("name", "")),
-            rate_mva=self._optional_float(parameters.get("rate_mva")),
+            rate_mva=float(parameters.get("rate_mva", 100.0)),
         )
         return self.execute_command(command)
 
