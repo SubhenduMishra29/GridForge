@@ -301,3 +301,20 @@ Static remediation and static self-review were performed against the current wor
 | GF-MASTER-0072 | RCA-APP-VALIDATION-001 — ModelService validation boundary | **REMEDIATED — VERIFICATION DEFERRED** | SLD association validation is Application-level read validation; electrical endpoint mutation still delegates terminal/domain invariants to Core |
 | GF-MASTER-0073 | RCA-APP-ENDPOINT-001 — Endpoint vocabulary reconciliation | **CLOSED** | `EndpointReference` remains canonical; `resolve_terminal_reference()` supports unconnected-terminal use cases without a second identity model |
 | GF-MASTER-0074 | RCA-SLD-CONN-001 — canonical electrical connection/reconnection workflow | **REMEDIATED — VERIFICATION DEFERRED** | Added connect/disconnect/reconnect commands, Application service/handlers, EndpointReference resolution, Core Terminal attach/detach, Network invalidation, transaction undo, semantic topology events, and downstream SLD reconciliation |
+
+
+## Post-correction static re-audit — 2026-09-22
+
+Repository: `pandaraseswari03-collab/GridForge`, branch `main`.
+
+This section records the post-correction source state for the residual SLD terminal/connection/workflow pass. It supplements, and does not replace, the preserved Master IDs above.
+
+| Master ID | RCA | Current status | Static evidence |
+|---|---|---|---|
+| GF-MASTER-0062 | RCA-UI-BOOTSTRAP-003 | **REMEDIATED — VERIFICATION DEFERRED** | `main.py` no longer creates an SLD document for the bootstrap context before calling `new_project()`. The presentation factory is configured first; the single explicit project activation creates the active SLD document, which is then bound to Application presentation/SLDService. |
+| GF-MASTER-0067 | RCA-SLD-CONN-002 | **OPEN — unresolved** | Core `Terminal.role`, Application `EndpointReference(equipment_id, terminal_role)`, and read-side `terminal_connectivity` are source-proven. The current `SnapResult` carries only generic `object_id/source`; `EndpointIdentityAdapter` has explicit Bus support but no complete generic terminal-anchor/terminal-role path. `EquipmentItem` exposes no terminal snap-point realization. |
+| GF-MASTER-0069 | RCA-SLD-INTERACTION-002 | **OPEN — unresolved** | Concrete tools such as `LineTool` and `TransformerTool` retain multi-step endpoint/preview state directly while `ToolInteraction` provides a generic lifecycle container. No source proof established that the two authorities are semantically identical, so no broad consolidation was made. |
+| GF-MASTER-0070 | RCA-APP-ID-001 | **OPEN — SOURCE EVIDENCE PENDING** | Measurement identity compatibility was not renamed or deleted without a complete consumer/persistence sweep. |
+| GF-MASTER-0075 | RCA-TOPO-CONDUCT-001 | **CLOSED** | `core/network/topology.py` uses model-provided `conducts` when available and has explicit static fallback semantics for Breaker, Switch/Disconnector, Fuse, and generic Branch/Line/Cable/Transformer families. No unsupported switching family is silently accepted. |
+
+Runtime evidence remains intentionally outside this static classification.
