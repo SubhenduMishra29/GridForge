@@ -204,9 +204,9 @@ class SLDReadSynchronizer:
 
             if connection is None:
                 document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_node_id, target_node_id=target_node_id, properties=properties))
-            elif connection.source_node_id != source_id or connection.target_node_id != target_id:
+            elif connection.source_node_id != source_node_id or connection.target_node_id != target_node_id:
                 document.model.remove_connection(connection_id)
-                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_id, target_node_id=target_id, properties=properties))
+                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_node_id, target_node_id=target_node_id, properties=properties))
             else:
                 connection.properties.update(properties)
 
