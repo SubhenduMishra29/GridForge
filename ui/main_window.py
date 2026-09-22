@@ -119,7 +119,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: Any) -> None:
         """Resolve dirty-project shutdown before allowing the Qt window to close."""
         if self._close_handler is None:
-            event.accept()
+            # Closing without the composition-owned transition boundary could
+            # bypass dirty-project resolution; fail closed.
+            event.ignore()
             return
         if self._close_handler():
             event.accept()
