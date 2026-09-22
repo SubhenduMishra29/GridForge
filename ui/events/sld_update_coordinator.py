@@ -100,9 +100,16 @@ class SLDUpdateCoordinator:
             document = self.document
             if document is None:
                 return
+            initial_positions = {}
+            if isinstance(event, ElementCreated):
+                x = event.metadata.get("presentation_x")
+                y = event.metadata.get("presentation_y")
+                if x is not None and y is not None:
+                    initial_positions[event.element_id] = (float(x), float(y))
             self._synchronizer.synchronize_network(
                 document,
                 self._application.read_network(),
+                initial_positions=initial_positions,
             )
             self._canvas_refresh()
 
