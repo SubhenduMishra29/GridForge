@@ -95,9 +95,7 @@ class SLDReadSynchronizer:
 
         for node in tuple(document.model.nodes):
             if node.properties.get("projection_source") == _PROJECTION_SOURCE and node.equipment_id not in active_ids:
-                if node.equipment_id is not None:
-                    self._projection_manager.remove(node.equipment_id)
-                document.model.remove_node(node.node_id)
+                self._remove_stale_projection_node(document, node)
 
         nodes = tuple(
             self._synchronize_element(
@@ -125,7 +123,7 @@ class SLDReadSynchronizer:
                 node.properties.get("projection_source") == _PROTECTION_PROJECTION_SOURCE
                 and node.equipment_id not in active_ids
             ):
-                document.model.remove_node(node.node_id)
+                self._remove_stale_projection_node(document, node)
 
         nodes = tuple(
             self._synchronize_element(
@@ -229,6 +227,15 @@ class SLDReadSynchronizer:
         if node.equipment_id not in (None, read_model.object_id):
             raise ValueError(f"SLD node ID conflicts with equipment ID: {read_model.object_id!r}")
 
+        existing_source = node.properties.get("projection_source")
+        if existing_source not in (
+            projection_source,
+        ):
+            raise ValueError(
+                f"SLD node ownership collision for equipment ID: {read_model.object_id!r}; "
+                f"existing presentation source is {existing_source!r}"
+            )
+
         node.equipment_id = read_model.object_id
         node.properties.update({
             "projection_source": projection_source,
@@ -237,6 +244,42 @@ class SLDReadSynchronizer:
             "attributes": dict(read_model.attributes),
         })
         return node
+
+    @staticmethod
+    def _remove_stale_projection_node(document: SLDDocument, node: SLDNode) -> None:
+        """Remove a stale projection without deleting engineer-owned structure."""
+        attached_connections = tuple(
+            connection
+            for connection in document.model.connections
+            if connection.source_node_id == node.node_id
+            or connection.target_node_id == node.node_id
+        )
+        engineer_owned_connections = tuple(
+            connection
+            for connection in attached_connections
+            if connection.properties.get("projection_source")
+            not in (_PROJECTION_SOURCE, _PROTECTION_PROJECTION_SOURCE)
+        )
+
+        if engineer_owned_connections:
+            # The node is no longer projection-owned, but its persisted
+            # presentation structure is still engineer-owned. Preserve the
+            # node, its document identity, and its geometry rather than
+            # deleting unrelated presentation structure.
+            node.equipment_id = None
+            node.properties.pop("projection_source", None)
+            node.properties.pop("element_type", None)
+            return
+
+        for connection in attached_connections:
+            document.model.remove_connection(connection.connection_id)
+
+        equipment_id = node.equipment_id
+        if equipment_id is not None:
+            # Projection registry cleanup is intentionally best-effort here;
+            # the document remains the authoritative presentation container.
+            pass
+        document.model.remove_node(node.node_id)
 
     def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
         """Project unambiguous branch endpoint identities into SLD structure."""
