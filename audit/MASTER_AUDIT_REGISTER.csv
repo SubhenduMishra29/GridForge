@@ -121,3 +121,4 @@ GF-POST-B39-001,RCA-016-B6-005,UI/Projection,Source integrity,Duplicate Engineer
 GF-POST-B39-002,RCA-016-B6-008,UI/Projection,Source integrity,Duplicate ProjectionState engineering_parameters field,MEDIUM,CORRECTED - STATIC VERIFICATION COMPLETE,Consolidated duplicate field,No
 GF-POST-B39-003,RCA-016-B6-008,Application Read Models,Source integrity,Duplicate EngineeringParameterReadModel declaration,MEDIUM,CORRECTED - STATIC VERIFICATION COMPLETE,Consolidated duplicate read model,No
 GF-POST-B39-004,RCA-016-B6-005,Application Read Service,Source integrity,Duplicate parameter metadata and read implementation,MEDIUM,CORRECTED - STATIC VERIFICATION COMPLETE,Consolidated duplicate metadata and implementation,No
+GF-POST-B39-005,RCA-016-B6-005,UI Projection,Source integrity,Duplicate SelectionProjectionCoordinator mapping,MEDIUM,CORRECTED - STATIC VERIFICATION COMPLETE,Consolidated engineering parameter mapping,No
