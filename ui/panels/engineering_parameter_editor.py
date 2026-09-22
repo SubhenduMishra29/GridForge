@@ -39,6 +39,13 @@ class EngineeringConfigurationIntent:
 class EngineeringParameterEditor:
     """Build and submit immutable commands from generic projected parameters.
 
+    ``_builders`` is the editor's command-adapter extension boundary: each
+    projected ``element_type`` maps to exactly one immutable Application
+    command builder. It is not a state store, command manager, or mutation
+    authority. Concrete equipment support may add builders here while the
+    generic ProjectionState -> intent -> Application.execute() contract stays
+    unchanged.
+
     The editor owns no engineering state. Values are read from ProjectionState,
     edited as typed values, converted into one immutable Application command,
     and then discarded. Core/Application ReadModel state remains authoritative.

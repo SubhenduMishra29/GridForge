@@ -177,14 +177,20 @@ class NetworkReadService(ReadService):
     def _to_read_model(element_type: str, model: Any) -> ElementReadModel:
         object_id = str(getattr(model, "id")); name = getattr(model, "name", None); labels = {"name": str(name)} if name is not None else {}
         connectivity_refs, terminal_connectivity = NetworkReadService._connectivity(model); attributes = NetworkReadService._project_attributes(element_type, model)
-        engineering_parameters = NetworkReadService._engineering_parameters(attributes)
+        engineering_parameters = NetworkReadService._engineering_parameters(
+            element_type,
+            attributes,
+        )
         endpoint_from_id, endpoint_to_id = NetworkReadService._branch_endpoint_ids(model)
         if endpoint_from_id is not None: attributes.update({"from_endpoint": endpoint_from_id, "endpoint_from_id": endpoint_from_id, "from_terminal": endpoint_from_id})
         if endpoint_to_id is not None: attributes.update({"to_endpoint": endpoint_to_id, "endpoint_to_id": endpoint_to_id, "to_terminal": endpoint_to_id})
         if terminal_connectivity: attributes["terminal_connectivity"] = terminal_connectivity
         return ElementReadModel(object_id=object_id, element_type=element_type, labels=labels, connectivity_refs=connectivity_refs, attributes=attributes, engineering_parameters=engineering_parameters)
     @staticmethod
-    def _engineering_parameters(attributes: dict[str, Any]) -> tuple[EngineeringParameterReadModel, ...]:
+    def _engineering_parameters(
+        element_type: str,
+        attributes: dict[str, Any],
+    ) -> tuple[EngineeringParameterReadModel, ...]:
         from .read_models import EngineeringParameterReadModel
 
         result: list[EngineeringParameterReadModel] = []

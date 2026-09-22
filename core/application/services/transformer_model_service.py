@@ -10,6 +10,8 @@ not an inferred electrical value, and is persisted on the Transformer as
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction

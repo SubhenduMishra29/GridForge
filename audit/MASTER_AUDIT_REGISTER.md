@@ -688,3 +688,27 @@ Successful `model.update_transformer` execution is published by the existing App
 Source-level inspection confirms one canonical Transformer update command/handler/service path, one per-unit conversion authority, no Transformer-specific persistent UI state store, no endpoint reassignment addition, and no second CommandManager or SLD authority.
 
 **Tests/CI/application startup/GUI/runtime execution intentionally not performed.**
+
+
+## Post-PR156 Static Correction / Re-Audit — 2026-09-22
+
+### New finding: RCA-016-B6-009
+
+| Finding | Status | Evidence |
+|---|---|---|
+| RCA-016-B6-009 — Undefined canonical `element_type` reference in `NetworkReadService._engineering_parameters()` | **CORRECTED — STATIC VERIFICATION COMPLETE** | `core/application/read_service.py` now accepts `element_type` explicitly and `_to_read_model()` passes the already-known canonical element type; no type inference was introduced. |
+
+### Static re-audit conclusion
+
+- RCA-016-B6-001 remains **AGENT CORRECTED → RE-AUDIT REQUIRED**; the editor reads only `ProjectionState.engineering_parameters`, rejects non-editable/derived parameters, normalizes datatypes, creates immutable `EngineeringConfigurationIntent`, and submits through `Application.execute()`.
+- RCA-016-B6-004 remains **AGENT CORRECTED → RE-AUDIT REQUIRED**; one `UPDATE_TRANSFORMER` command identity and one `ModelCommandHandlers.update_transformer()` path trace through `ModelService` and `TransformerModelService` to `Transformer.update_configuration()`, with transaction undo and semantic `ElementUpdated` publication.
+- RCA-017-010 remains **AGENT CORRECTED → RE-AUDIT REQUIRED**; `PanelsPlugin` binds `PropertiesPanelWidget` from canonical `PluginContext.application`, and the widget delegates configuration edits to the generic editor/Application boundary.
+- Transformer `r/x/b` coupling remains in Core; basis/base conversion remains delegated to `core.base.per_unit.PerUnitSystem`; `impedance_base_voltage_kv` remains construction/reference data; `in_service` remains represented in the topology-sensitive revision contract.
+- Core candidate validation occurs before authoritative mutation, and `Transformer.update_configuration()` restores the prior state on validation failure.
+- No endpoint reassignment is present in the update path.
+- No Transformer-specific persistent UI state, ProjectionState, second CommandManager, or direct UI→Core mutation path was introduced.
+- The engineering editor's builder mapping is explicitly documented as a command-adapter extension boundary, not a state or mutation authority.
+- The complete static workflow is internally consistent as `ReadModel → ProjectionState → Editor → immutable intent → Application command → Handler → Service → Core → Transaction → ElementUpdated → ReadModel → Projection`.
+- Closure is **not** claimed for RCA-016-B6-001, RCA-016-B6-004, or RCA-017-010 because the repository verification policy still defers runtime/tests/CI evidence.
+
+Verification boundary: static source inspection, symbol tracing, dependency tracing, and register reconciliation only. No pytest, tests, CI, application startup, GUI execution, or runtime verification performed.
