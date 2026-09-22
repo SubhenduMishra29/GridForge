@@ -201,3 +201,23 @@ Static correction/re-audit completed for the corrected SLD seam. No tests, CI, s
 
 The broader GF-MASTER-0037/0038/0039 clusters remain open where their scope exceeds this correction batch.
 
+
+
+### 2026-09-22 — Post-update targeted correction pass
+
+Static source correction only; no tests, CI, startup, GUI execution, or runtime verification was performed.
+
+| Register ID | Finding | Status | Static evidence |
+|---|---|---|---|
+| RCA-SLD-AUTH-001-B36-001 | Reconciliation module runtime symbol/import integrity | **OPEN — CONFIRMED IMPLEMENTATION DEFECT** | ui/sld/sld_read_synchronizer.py now explicitly imports SLDDocument, SLDNode, and SLDConnection and defines projection-source constants; ui/events/sld_update_coordinator.py explicitly imports SLDDocument and initializes its cached document field. |
+| RCA-004 / RCA-009 | ApplicationResult Core-object exposure | **OPEN — CONSUMER AUDIT REQUIRED** | core/application/results.py remains Core-object-capable; no speculative API change made. |
+| RCA-003-B35-001 | application.place_bus canonical-path classification | **CORRECTED — LEGACY COMPATIBILITY** | PlaceBusCommand emits canonical model.create_bus and PLACE_BUS aliases CREATE_BUS; former compound placement handler is absent. |
+| RCA-005-B29-001 / RCA-SLD-AUTH-001-B28 | Terminal identity / generic equipment terminal presentation identity | **OPEN** | EndpointIdentityAdapter remains Bus-level for the inspected path; generic multi-terminal identity is not statically proven. |
+
+### Current correction commits
+
+- 0b7db23bf61c6be875dff5c82a435f7bf4931f0f
+- 1fd1258f4edc19f9d732fe52a723a22933f5735b
+- 4bd90f998cc2417dae78f3fb07546d9859ca8543
+
+The parent RCA-SLD-AUTH-001 remains OPEN. The unresolved ApplicationResult and terminal-identity findings remain OPEN.
