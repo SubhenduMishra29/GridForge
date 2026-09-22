@@ -102,32 +102,6 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
 # Application-owned read metadata.  These descriptors are intentionally
 # generic and read-only: they describe the meaning exposed to projections
 # without duplicating Core validation or providing a UI mutation authority.
-_PARAMETER_METADATA: dict[str, dict[str, Any]] = {
-    "nominal_voltage_kv": {"unit": "kV", "datatype": "float"},
-    "voltage_pu": {"unit": "pu", "datatype": "float"},
-    "angle_deg": {"unit": "deg", "datatype": "float"},
-    "frequency_hz": {"unit": "Hz", "datatype": "float"},
-    "resistance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
-    "reactance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
-    "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "study_impact": True},
-    "length_km": {"unit": "km", "datatype": "float", "study_impact": True},
-    "rated_voltage_kv": {"unit": "kV", "datatype": "float"},
-    "rated_current_a": {"unit": "A", "datatype": "float"},
-    "rate_mva": {"unit": "MVA", "datatype": "float", "study_impact": True},
-    "impedance_basis": {"datatype": "enum", "choices": ("pu", "engineering"), "editable": False, "study_impact": True},
-    "impedance_base_mva": {"unit": "MVA", "datatype": "float", "editable": False, "study_impact": True},
-    "impedance_base_voltage_kv": {"unit": "kV", "datatype": "float", "editable": False, "study_impact": True},
-    "tap": {"datatype": "float", "study_impact": True},
-    "tap_ratio": {"datatype": "float", "derived": True, "study_impact": True},
-    "turns_ratio": {"datatype": "float", "derived": True, "study_impact": True},
-    "shift": {"unit": "rad", "datatype": "float", "study_impact": True},
-    "phase_shift_rad": {"unit": "rad", "datatype": "float", "derived": True, "study_impact": True},
-    "phase_shift_deg": {"unit": "deg", "datatype": "float", "derived": True, "study_impact": True},
-    "in_service": {"datatype": "bool", "topology_impact": True, "study_impact": True},
-    "p": {"unit": "MW", "datatype": "float", "study_impact": True},
-    "q": {"unit": "MVAr", "datatype": "float", "study_impact": True},
-}
-
 class ReadService(ABC):
     """Framework-neutral contract for Application network read operations."""
     @abstractmethod
@@ -204,7 +178,6 @@ class NetworkReadService(ReadService):
         object_id = str(getattr(model, "id")); name = getattr(model, "name", None); labels = {"name": str(name)} if name is not None else {}
         connectivity_refs, terminal_connectivity = NetworkReadService._connectivity(model); attributes = NetworkReadService._project_attributes(element_type, model)
         engineering_parameters = NetworkReadService._engineering_parameters(attributes)
-        engineering_parameters = NetworkReadService._engineering_parameters(attributes)
         endpoint_from_id, endpoint_to_id = NetworkReadService._branch_endpoint_ids(model)
         if endpoint_from_id is not None: attributes.update({"from_endpoint": endpoint_from_id, "endpoint_from_id": endpoint_from_id, "from_terminal": endpoint_from_id})
         if endpoint_to_id is not None: attributes.update({"to_endpoint": endpoint_to_id, "endpoint_to_id": endpoint_to_id, "to_terminal": endpoint_to_id})
@@ -218,42 +191,6 @@ class NetworkReadService(ReadService):
         basis = str(attributes.get("impedance_basis", "")).lower()
         for parameter_id, value in attributes.items():
             if parameter_id in {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}:
-                continue
-            metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
-            if parameter_id in {"r", "x"}:
-                metadata.setdefault("unit", "pu" if basis == "pu" else "ohm")
-                metadata.setdefault("study_impact", True)
-                metadata.setdefault("coupling_group", "transformer_impedance")
-            elif parameter_id == "b":
-                metadata.setdefault("unit", "pu" if basis == "pu" else "S")
-                metadata.setdefault("study_impact", True)
-                metadata.setdefault("coupling_group", "transformer_impedance")
-            if parameter_id in {"r", "x", "b"} and basis:
-                metadata["validation"] = {"depends_on": ("impedance_basis", "impedance_base_mva", "impedance_base_voltage_kv")}
-            result.append(EngineeringParameterReadModel(
-                parameter_id=parameter_id,
-                value=value,
-                unit=metadata.get("unit"),
-                datatype=metadata.get("datatype", type(value).__name__),
-                choices=tuple(metadata.get("choices", ())),
-                editable=bool(metadata.get("editable", False)),
-                derived=bool(metadata.get("derived", False)),
-                validation=metadata.get("validation", {}),
-                coupling_group=metadata.get("coupling_group"),
-                topology_impact=bool(metadata.get("topology_impact", False)),
-                study_impact=bool(metadata.get("study_impact", False)),
-            ))
-        return tuple(result)
-
-    @staticmethod
-    def _engineering_parameters(attributes: dict[str, Any]) -> tuple[Any, ...]:
-        from .read_models import EngineeringParameterReadModel
-
-        result: list[EngineeringParameterReadModel] = []
-        basis = str(attributes.get("impedance_basis", "")).lower()
-        excluded = {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}
-        for parameter_id, value in attributes.items():
-            if parameter_id in excluded:
                 continue
             metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
             if parameter_id in {"r", "x"}:

@@ -52,3 +52,12 @@ This companion table completes the required fields for the canonical findings in
 | GF-MASTER-0046 | `AUDIT_REPORT.md`; historical closure matrix | 2026-09-03 | 2026-09-16 | 0044,0047 | Current evidence | Historical closure traceability | None | Historical aligned findings preserved without false closure | NOT STARTED | Re-verify each historical aligned ID against current source |
 | GF-MASTER-0047 | mandatory resolved/aligned ID list supplied for consolidation | historical | 2026-09-16 | 0046,0048 | Recovery of source wording | Lossless historical mapping | None | IDs retained because source text was not recoverable in current registers | NOT STARTED | Recover original register revisions from Git history and map each ID individually |
 | GF-MASTER-0048 | mandatory unresolved-ID list supplied for consolidation | historical | 2026-09-16 | 0043,0047 | Recovery of source wording | Lossless historical mapping | None | IDs retained without invented root causes | NOT STARTED | Recover original register revisions from Git history and map each ID individually |
+
+
+## Post-B39 repository authority addendum — 2026-09-22
+
+Canonical register identity: `SubhenduMishra29/GridForge`.
+
+Historical repository identities are preserved only in historical evidence and are not active canonical repository metadata.
+
+Post-B39 findings GF-POST-B39-001 through GF-POST-B39-006 are CORRECTED — STATIC VERIFICATION COMPLETE. Required open RCA findings: RCA-016-B6-001, RCA-016-B6-004, RCA-017-010.
