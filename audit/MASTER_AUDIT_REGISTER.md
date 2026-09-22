@@ -455,7 +455,7 @@ Verification remains **deferred** exactly as required by the remediation scope.
 
 # WF-041-V1–V15 — Plugin Lifecycle Static Re-audit
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Repository authority:** `SubhenduMishra29/GridForge`  
 **Branch:** `main`  
 **Static-audit head after correction:** `a82e4b35ebbbb6a03d4eedee5a4bf0da5dbfb3f1`  
 **Verification mode:** static source inspection only. Tests, CI, application startup, GUI execution, and runtime verification were not performed.
