@@ -48,8 +48,13 @@ class SLDGraphicsItemFactory:
                 position=QPointF(node.x, node.y),
             )
         else:
+            if node.equipment_id is None:
+                # Presentation-only SLD nodes have no Core engineering identity.
+                graphics_object_id = f"presentation:{node.node_id}"
+            else:
+                graphics_object_id = node.equipment_id
             item = item_class(
-                object_id=node.node_id,
+                object_id=graphics_object_id,
                 position=QPointF(node.x, node.y),
                 radius=self._node_radius(node),
             )
