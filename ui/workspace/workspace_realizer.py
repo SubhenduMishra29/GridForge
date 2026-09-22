@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/workspace/workspace_realizer.py
 # GridForge V2 — Workspace Qt Realizer
+# Author: Subhendu Mishra
 # ============================================================
 
 """
