@@ -1,9 +1,9 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `SubhenduMishra29/GridForge`
+**Repository authority:** `pandaraseswari03-collab/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
-**Branch baseline:** `main` at `d5900e8c8dbd85eefa5e148fb07079a7125accc0`
+**Branch baseline:** `main` — current working repository authority
 **Consolidation date:** 2026-09-17
 **Authority:** frozen GridForge V2 architecture supplied for this audit.
 
@@ -277,3 +277,27 @@ Active HEAD 8eab2c14dde8f488748da8a9fce3732f653c5ece is the merge commit for PR 
 ## Final correction commit for this batch
 
 Final source correction HEAD: 5019b1b89ae5342165019e8e245866db27cf054e. The final adjustment scopes stale projection registry cleanup to the corresponding NETWORK or PROTECTION ownership domain. No tests, CI, startup, GUI execution, or runtime verification was run.
+## 2026-09-22 — Consolidated SLD Workflow / Terminal / Connection Remediation
+
+Static remediation and static self-review were performed against the current working repository only. No tests, CI, startup, GUI, or runtime verification were executed.
+
+| Register ID | Finding | Status | Source evidence / remediation |
+|---|---|---|---|
+| GF-MASTER-0057 | RCA-SLD-AUTH-001 — SLDUpdateCoordinator projection-manager initialization | **CLOSED** | `ui/events/sld_update_coordinator.py` reuses `synchronizer.projection_manager`; no second projection manager is constructed |
+| GF-MASTER-0058 | RCA-UI-DOCUMENT-002 — SLDController independent document authority | **CLOSED** | `SLDController.activate_document()` now requires `Application.presentation` identity and only reconciles downstream |
+| GF-MASTER-0059 | RCA-UI-DOCUMENT-004 — SLDService document-binding lifecycle invariant | **REMEDIATED — VERIFICATION DEFERRED** | `SLDService.bind_document()` rejects documents that are not the Application-authoritative presentation |
+| GF-MASTER-0060 | RCA-UI-DOCUMENT-006 — Project close stale SLD state | **CLOSED** | `SLDController` subscribes to `ProjectClosed` and clears active document/controller state |
+| GF-MASTER-0061 | RCA-UI-DOCUMENT-003 / RCA-UI-DOCUMENT-007 — PluginContext stale-document fallback | **REMEDIATED — VERIFICATION DEFERRED** | `PluginContext.active_presentation_document` provides lifecycle-safe Application presentation access; `sld_document` remains compatibility-only |
+| GF-MASTER-0062 | RCA-UI-BOOTSTRAP-003 — redundant startup project activation | **OPEN — SOURCE EVIDENCE PENDING** | Current `main.py` still contains the explicit project activation path; no second activation path was safely removed without broader lifecycle evidence |
+| GF-MASTER-0063 | RCA-UI-BOOTSTRAP-004 — projection bootstrap reconciliation | **CLOSED** | `SLDUpdateCoordinator.reconcile_current_state()` deterministically reconciles current Application read state after projection construction |
+| GF-MASTER-0064 | RCA-UI-BOOTSTRAP-005 — project hierarchy lifecycle authority | **REMEDIATED — VERIFICATION DEFERRED** | Workspace/project UI remains downstream of Application project lifecycle; no second Core project lifecycle was introduced |
+| GF-MASTER-0065 | RCA-UI-WORKSPACE-001 — workspace transition rollback integrity | **REMEDIATED — VERIFICATION DEFERRED** | `WorkspaceRealizer.realize()` compensates failed realization using the prior realized layout and surfaces restoration failure |
+| GF-MASTER-0066 | RCA-SLD-AUTH-002 — validate SLD equipment references | **CLOSED** | `SLDService._add_node()` validates bound equipment through Application network/protection read models before creating authored presentation state |
+| GF-MASTER-0067 | RCA-SLD-CONN-002 — canonical terminal identity / terminal realization | **OPEN — unresolved** | Complete Core Terminal → SLD terminal → anchor → snap resolution is not source-proven end-to-end |
+| GF-MASTER-0068 | RCA-SLD-PREVIEW-001 — Bus live cursor preview | **CLOSED** | `PreviewLayer.show_bus()` and `BusTool` preview lifecycle provide transient preview without Core mutation |
+| GF-MASTER-0069 | RCA-SLD-INTERACTION-002 — duplicate interaction state | **OPEN — unresolved** | Concrete tools retain local interaction state; no safe evidence justified broad consolidation with `ToolInteraction` in this pass |
+| GF-MASTER-0070 | RCA-APP-ID-001 — measurement command identity vocabulary | **OPEN — SOURCE EVIDENCE PENDING** | No compatibility alias/consumer sweep was changed without direct source proof for historical `transformer_id` vocabulary |
+| GF-MASTER-0071 | RCA-SLD-CMD-001 — placement command vocabulary | **CLOSED** | Existing canonical creation commands and `PlaceBusCommand` compatibility path remain registered without a second command-handler authority |
+| GF-MASTER-0072 | RCA-APP-VALIDATION-001 — ModelService validation boundary | **REMEDIATED — VERIFICATION DEFERRED** | SLD association validation is Application-level read validation; electrical endpoint mutation still delegates terminal/domain invariants to Core |
+| GF-MASTER-0073 | RCA-APP-ENDPOINT-001 — Endpoint vocabulary reconciliation | **CLOSED** | `EndpointReference` remains canonical; `resolve_terminal_reference()` supports unconnected-terminal use cases without a second identity model |
+| GF-MASTER-0074 | RCA-SLD-CONN-001 — canonical electrical connection/reconnection workflow | **REMEDIATED — VERIFICATION DEFERRED** | Added connect/disconnect/reconnect commands, Application service/handlers, EndpointReference resolution, Core Terminal attach/detach, Network invalidation, transaction undo, semantic topology events, and downstream SLD reconciliation |
