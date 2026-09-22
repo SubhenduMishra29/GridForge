@@ -274,11 +274,14 @@ class SLDReadSynchronizer:
             if connection.source_node_id == node.node_id
             or connection.target_node_id == node.node_id
         )
+        connection_ownership = {
+            connection.connection_id: self._connection_ownership(connection)
+            for connection in attached_connections
+        }
         engineer_owned_connections = tuple(
             connection
             for connection in attached_connections
-            if connection.properties.get("projection_source")
-            not in (_PROJECTION_SOURCE, _PROTECTION_PROJECTION_SOURCE)
+            if connection_ownership[connection.connection_id] == "engineer"
         )
 
         source = node.properties.get("projection_source")
@@ -304,11 +307,23 @@ class SLDReadSynchronizer:
                             f"for equipment ID: {equipment_id!r}"
                         )
             node.equipment_id = None
-            node.properties.pop("projection_source", None)
-            node.properties.pop("element_type", None)
+            for key in (
+                "projection_source",
+                "element_type",
+                "labels",
+                "attributes",
+            ):
+                node.properties.pop(key, None)
             return
 
         for connection in attached_connections:
+            # Ownership was established above for every attached connection;
+            # unknown ownership therefore cannot be silently deleted.
+            if connection_ownership[connection.connection_id] != "projection":
+                raise ValueError(
+                    f"Unexpected connection ownership during stale cleanup: "
+                    f"{connection.connection_id!r}"
+                )
             document.model.remove_connection(connection.connection_id)
 
         if equipment_id is not None:
@@ -324,6 +339,33 @@ class SLDReadSynchronizer:
                         f"for equipment ID: {equipment_id!r}"
                     )
         document.model.remove_node(node.node_id)
+
+    @staticmethod
+    def _connection_ownership(connection: SLDConnection) -> str:
+        """Classify connection ownership without silently adopting unknown data."""
+        projection_source = connection.properties.get("projection_source")
+        engineer_owner = connection.properties.get("presentation_owner")
+
+        if projection_source in (_PROJECTION_SOURCE, _PROTECTION_PROJECTION_SOURCE):
+            if engineer_owner is not None:
+                raise ValueError(
+                    f"Connection {connection.connection_id!r} has conflicting "
+                    "projection and engineer ownership metadata."
+                )
+            return "projection"
+
+        if engineer_owner == "engineer":
+            return "engineer"
+
+        if projection_source is None and engineer_owner is None:
+            raise ValueError(
+                f"Connection {connection.connection_id!r} has unknown ownership; "
+                "stale reconciliation cannot classify it safely."
+            )
+
+        raise ValueError(
+            f"Connection {connection.connection_id!r} has invalid ownership metadata."
+        )
 
     @staticmethod
     def _projection_domain_for_source(source: str | None) -> ProjectionDomain:
