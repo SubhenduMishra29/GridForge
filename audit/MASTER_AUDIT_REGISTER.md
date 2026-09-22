@@ -2,7 +2,7 @@
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
 **Repository authority:** `SubhenduMishra29/GridForge`
-**Correction-pass implementation source:** `pandaraseswari03-collab/GridForge` `main`
+**Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Branch baseline:** `main` at `d5900e8c8dbd85eefa5e148fb07079a7125accc0`
 **Consolidation date:** 2026-09-17
 **Authority:** frozen GridForge V2 architecture supplied for this audit.
