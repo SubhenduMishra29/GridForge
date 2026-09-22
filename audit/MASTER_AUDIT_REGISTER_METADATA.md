@@ -58,6 +58,6 @@ This companion table completes the required fields for the canonical findings in
 
 Canonical register identity: `SubhenduMishra29/GridForge`.
 
-The correction-pass implementation source was the explicitly scoped `pandaraseswari03-collab/GridForge` `main`; that identity is not the canonical repository identity for the active master register.
+Historical repository identities are preserved only in historical evidence and are not active canonical repository metadata.
 
 Post-B39 findings GF-POST-B39-001 through GF-POST-B39-006 are CORRECTED — STATIC VERIFICATION COMPLETE. Required open RCA findings: RCA-016-B6-001, RCA-016-B6-004, RCA-017-010.
