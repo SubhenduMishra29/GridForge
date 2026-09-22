@@ -71,8 +71,13 @@ class SLDReadSynchronizer:
         element_type: str,
         object_id: str,
     ) -> SLDProjection:
-        """Synchronize one network projection from the Application read model."""
+        """Synchronize one NETWORK projection from the Application read model."""
         read_model = self._require_application().read_element(element_type, object_id)
+        if semantic_type(read_model.element_type) == "RELAY":
+            raise ValueError(
+                "Relay presentation is owned by the protection projection "
+                "domain; use synchronize_protection() instead."
+            )
         document = self._require_document()
         return self._synchronize_element(document, read_model)
 
@@ -106,6 +111,7 @@ class SLDReadSynchronizer:
             for element in adapted.elements
         )
         self._synchronize_connections(document, adapted)
+        self._projection_manager.reconcile_network(active_ids)
         return nodes
 
     def synchronize_protection(self, document: SLDDocument, read_model: ProtectionReadModel) -> tuple[SLDNode, ...]:
@@ -191,15 +197,17 @@ class SLDReadSynchronizer:
 
         # Backward-compatible reconciliation for older documents whose
         # presentation node ID was also the equipment ID but equipment_id
-        # had not been persisted explicitly.
+        # had not been persisted explicitly. Legacy recovery is allowed only
+        # when the persisted ownership domain exactly matches the requested
+        # projection domain. Ownership is never converted during migration.
         if node is None:
             legacy_node = document.model.get_node_optional(equipment_id)
             if legacy_node is not None:
-                legacy_source = legacy_node.properties.get("projection_source")
-                if legacy_source not in (_PROJECTION_SOURCE, _PROTECTION_PROJECTION_SOURCE):
-                    raise ValueError(
-                        f"Ambiguous SLD node identity collision for equipment ID: {equipment_id!r}"
-                    )
+                self._require_projection_ownership(
+                    legacy_node,
+                    projection_source=projection_source,
+                    equipment_id=equipment_id,
+                )
                 if legacy_node.equipment_id not in (None, equipment_id):
                     raise ValueError(
                         f"SLD node ID conflicts with equipment ID: {equipment_id!r}"
@@ -227,14 +235,11 @@ class SLDReadSynchronizer:
         if node.equipment_id not in (None, read_model.object_id):
             raise ValueError(f"SLD node ID conflicts with equipment ID: {read_model.object_id!r}")
 
-        existing_source = node.properties.get("projection_source")
-        if existing_source not in (
-            projection_source,
-        ):
-            raise ValueError(
-                f"SLD node ownership collision for equipment ID: {read_model.object_id!r}; "
-                f"existing presentation source is {existing_source!r}"
-            )
+        self._require_projection_ownership(
+            node,
+            projection_source=projection_source,
+            equipment_id=read_model.object_id,
+        )
 
         node.equipment_id = read_model.object_id
         node.properties.update({
@@ -245,7 +250,23 @@ class SLDReadSynchronizer:
         })
         return node
 
-    def _remove_stale_projection_node(document: SLDDocument, node: SLDNode) -> None:
+    @staticmethod
+    def _require_projection_ownership(
+        node: SLDNode,
+        *,
+        projection_source: str,
+        equipment_id: str,
+    ) -> None:
+        """Enforce one projection-domain ownership invariant for reconciliation."""
+        existing_source = node.properties.get("projection_source")
+        if existing_source != projection_source:
+            raise ValueError(
+                f"SLD node ownership collision for equipment ID: {equipment_id!r}; "
+                f"requested projection source is {projection_source!r}, "
+                f"existing presentation source is {existing_source!r}"
+            )
+
+    def _remove_stale_projection_node(self, document: SLDDocument, node: SLDNode) -> None:
         """Remove a stale projection without deleting engineer-owned structure."""
         attached_connections = tuple(
             connection
@@ -260,11 +281,28 @@ class SLDReadSynchronizer:
             not in (_PROJECTION_SOURCE, _PROTECTION_PROJECTION_SOURCE)
         )
 
+        source = node.properties.get("projection_source")
+        domain = self._projection_domain_for_source(source)
+        equipment_id = node.equipment_id
+
         if engineer_owned_connections:
             # The node is no longer projection-owned, but its persisted
-            # presentation structure is still engineer-owned. Preserve the
-            # node, its document identity, and its geometry rather than
-            # deleting unrelated presentation structure.
+            # presentation structure is still engineer-owned. Remove the
+            # stale semantic registry entry before clearing projection
+            # metadata; preserve node identity, geometry, and engineer-owned
+            # connections.
+            if equipment_id is not None:
+                registered = self._projection_manager.get(equipment_id)
+                if registered is not None:
+                    removed = self._projection_manager.remove(
+                        equipment_id,
+                        domain=domain,
+                    )
+                    if removed is None:
+                        raise ValueError(
+                            f"Projection ownership mismatch during stale cleanup "
+                            f"for equipment ID: {equipment_id!r}"
+                        )
             node.equipment_id = None
             node.properties.pop("projection_source", None)
             node.properties.pop("element_type", None)
@@ -273,15 +311,29 @@ class SLDReadSynchronizer:
         for connection in attached_connections:
             document.model.remove_connection(connection.connection_id)
 
-        equipment_id = node.equipment_id
         if equipment_id is not None:
-            domain = (
-                ProjectionDomain.NETWORK
-                if node.properties.get("projection_source") == _PROJECTION_SOURCE
-                else ProjectionDomain.PROTECTION
-            )
-            self._projection_manager.remove(equipment_id, domain=domain)
+            registered = self._projection_manager.get(equipment_id)
+            if registered is not None:
+                removed = self._projection_manager.remove(
+                    equipment_id,
+                    domain=domain,
+                )
+                if removed is None:
+                    raise ValueError(
+                        f"Projection ownership mismatch during stale cleanup "
+                        f"for equipment ID: {equipment_id!r}"
+                    )
         document.model.remove_node(node.node_id)
+
+    @staticmethod
+    def _projection_domain_for_source(source: str | None) -> ProjectionDomain:
+        if source == _PROJECTION_SOURCE:
+            return ProjectionDomain.NETWORK
+        if source == _PROTECTION_PROJECTION_SOURCE:
+            return ProjectionDomain.PROTECTION
+        raise ValueError(
+            f"Cannot determine projection domain for source: {source!r}"
+        )
 
     def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
         """Project unambiguous branch endpoint identities into SLD structure."""
