@@ -245,7 +245,6 @@ class SLDReadSynchronizer:
         })
         return node
 
-    @staticmethod
     def _remove_stale_projection_node(document: SLDDocument, node: SLDNode) -> None:
         """Remove a stale projection without deleting engineer-owned structure."""
         attached_connections = tuple(
@@ -276,9 +275,7 @@ class SLDReadSynchronizer:
 
         equipment_id = node.equipment_id
         if equipment_id is not None:
-            # Projection registry cleanup is intentionally best-effort here;
-            # the document remains the authoritative presentation container.
-            pass
+            self._projection_manager.remove(equipment_id)
         document.model.remove_node(node.node_id)
 
     def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
