@@ -259,7 +259,7 @@ class Application:
         self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
-        metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation}
+        metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation}
         if command.command_type.startswith("model."):
             self._publish_model_event(command, metadata, operation=operation)
             self._publish_network_changed(command, metadata)
