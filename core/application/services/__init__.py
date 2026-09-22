@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/services/__init__.py
 # GridForge V2 — Headless Application Services
+# Author: Subhendu Mishra
 # ============================================================
 """
 GridForge V2
