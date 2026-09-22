@@ -25,6 +25,7 @@ from core.application.events import (
 )
 
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
+from ui.sld.sld_document import SLDDocument
 
 CanvasRefresh = Callable[[], None]
 
@@ -64,6 +65,7 @@ class SLDUpdateCoordinator:
         self._application = application
         self._synchronizer = synchronizer
         self._canvas_refresh = canvas_refresh
+        self._document: SLDDocument | None = None
         self._disposed = False
         self._last_reconciliation_error: Exception | None = None
 
@@ -103,6 +105,7 @@ class SLDUpdateCoordinator:
             raise TypeError("event must be an ApplicationEvent")
 
         if isinstance(event, ProjectClosed):
+            self.detach_document()
             self._canvas_refresh()
             return
 
@@ -110,27 +113,55 @@ class SLDUpdateCoordinator:
             presentation = self._application.presentation
             if isinstance(presentation, SLDDocument):
                 self.bind_document(presentation)
-        if isinstance(event, self.event_types):
-            document = self.document
-            if document is None:
+
+        document = self.document
+        if document is None:
+            return
+
+        try:
+            if isinstance(event, ProtectionChanged):
+                self._synchronizer.synchronize_protection(
+                    document,
+                    self._application.read_protection(),
+                )
+            elif isinstance(event, SLDPresentationChanged):
+                # The SLD service already owns presentation mutation. This
+                # event only invalidates the canvas; it must not rebuild the
+                # network projection.
+                self._canvas_refresh()
                 return
-            initial_positions = {}
-            if isinstance(event, ElementCreated):
-                x = event.metadata.get("presentation_x")
-                y = event.metadata.get("presentation_y")
-                if x is not None and y is not None:
-                    initial_positions[event.element_id] = (float(x), float(y))
-            try:
+            elif isinstance(event, (ElementCreated, ElementUpdated, ElementRemoved)):
+                element_type = str(event.payload.get("element_type", "")).strip().upper()
+                if element_type == "RELAY":
+                    self._synchronizer.synchronize_protection(
+                        document,
+                        self._application.read_protection(),
+                    )
+                else:
+                    initial_positions = {}
+                    if isinstance(event, ElementCreated):
+                        x = event.payload.get("presentation_x")
+                        y = event.payload.get("presentation_y")
+                        element_id = event.payload.get("element_id")
+                        if x is not None and y is not None and isinstance(element_id, str):
+                            initial_positions[element_id] = (float(x), float(y))
+                    self._synchronizer.synchronize_network(
+                        document,
+                        self._application.read_network(),
+                        initial_positions=initial_positions,
+                    )
+            elif isinstance(event, (TopologyChanged, NetworkChanged, ProjectLoaded)):
                 self._synchronizer.synchronize_network(
                     document,
                     self._application.read_network(),
-                    initial_positions=initial_positions,
                 )
-            except Exception as exc:
-                self._last_reconciliation_error = exc
-                raise
-            self._last_reconciliation_error = None
-            self._canvas_refresh()
+            else:
+                return
+        except Exception as exc:
+            self._last_reconciliation_error = exc
+            raise
+        self._last_reconciliation_error = None
+        self._canvas_refresh()
 
     def dispose(self) -> None:
         if self._disposed:

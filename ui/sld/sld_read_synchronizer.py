@@ -15,7 +15,13 @@ from ui.projection.projection_registry import ProjectionDomain
 from .sld_projection import SLDProjection
 from .sld_vocabulary import semantic_type
 from .sld_projection_manager import SLDProjectionManager
+from .sld_document import SLDDocument
+from .sld_model import SLDConnection, SLDNode
 from .sld_read_adapter import SLDReadAdapter
+
+
+_PROJECTION_SOURCE = "application_read_model"
+_PROTECTION_PROJECTION_SOURCE = "protection_read_model"
 
 
 class SLDReadSynchronizer:
@@ -52,11 +58,13 @@ class SLDReadSynchronizer:
 
     def synchronize_network_from_application(self) -> tuple[SLDProjection, ...]:
         """Synchronize the network projection from the Application read model."""
-        return self.synchronize_network(self._require_application().read_network())
+        document = self._require_document()
+        return self.synchronize_network(document, self._require_application().read_network())
 
     def synchronize_protection_from_application(self) -> tuple[SLDProjection, ...]:
         """Synchronize the protection projection from the Application read model."""
-        return self.synchronize_protection(self._require_application().read_protection())
+        document = self._require_document()
+        return self.synchronize_protection(document, self._require_application().read_protection())
 
     def synchronize_element_from_application(
         self,
@@ -65,7 +73,8 @@ class SLDReadSynchronizer:
     ) -> SLDProjection:
         """Synchronize one network projection from the Application read model."""
         read_model = self._require_application().read_element(element_type, object_id)
-        return self.synchronize_element(read_model)
+        document = self._require_document()
+        return self._synchronize_element(document, read_model)
 
     def synchronize_network(
         self,
@@ -102,7 +111,7 @@ class SLDReadSynchronizer:
         return nodes
 
     def synchronize_protection(self, document: SLDDocument, read_model: ProtectionReadModel) -> tuple[SLDNode, ...]:
-        """Reconcile protection-domain Relay snapshots through the existing SLD projection boundary."""
+        """Reconcile protection-domain Relay snapshots into SLD presentation state."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument")
         if not isinstance(read_model, ProtectionReadModel):
@@ -110,8 +119,25 @@ class SLDReadSynchronizer:
         adapted = self._read_adapter.protection(read_model)
         projections = self._projection_manager.project_protection(adapted)
         active_ids = {element.object_id for element in adapted.elements}
+
+        for node in tuple(document.model.nodes):
+            if (
+                node.properties.get("projection_source") == _PROTECTION_PROJECTION_SOURCE
+                and node.equipment_id not in active_ids
+            ):
+                document.model.remove_node(node.node_id)
+
+        nodes = tuple(
+            self._synchronize_element(
+                document,
+                element,
+                initial_position=None,
+                projection_source=_PROTECTION_PROJECTION_SOURCE,
+            )
+            for element in adapted.elements
+        )
         self._projection_manager.reconcile_protection(active_ids)
-        return projections
+        return nodes
 
     def synchronize_element(
         self,
@@ -135,6 +161,13 @@ class SLDReadSynchronizer:
         adapted = self._read_adapter.element(read_model)
         return self._projection_manager.project_network_element(adapted)
 
+    def _require_document(self) -> SLDDocument:
+        application = self._require_application()
+        presentation = application.presentation
+        if not isinstance(presentation, SLDDocument):
+            raise RuntimeError("Active Application presentation is not an SLDDocument")
+        return presentation
+
     def _require_application(self) -> Any:
         if self._application is None:
             raise RuntimeError("SLD Application read facade is not configured")
@@ -146,6 +179,7 @@ class SLDReadSynchronizer:
         read_model: ElementReadModel,
         *,
         initial_position: tuple[float, float] | None = None,
+        projection_source: str = _PROJECTION_SOURCE,
     ) -> SLDNode:
         equipment_id = read_model.object_id
         node = document.model.get_node_by_equipment_id_optional(equipment_id)
@@ -156,6 +190,11 @@ class SLDReadSynchronizer:
         if node is None:
             legacy_node = document.model.get_node_optional(equipment_id)
             if legacy_node is not None:
+                legacy_source = legacy_node.properties.get("projection_source")
+                if legacy_source not in (_PROJECTION_SOURCE, _PROTECTION_PROJECTION_SOURCE):
+                    raise ValueError(
+                        f"Ambiguous SLD node identity collision for equipment ID: {equipment_id!r}"
+                    )
                 if legacy_node.equipment_id not in (None, equipment_id):
                     raise ValueError(
                         f"SLD node ID conflicts with equipment ID: {equipment_id!r}"
@@ -171,7 +210,7 @@ class SLDReadSynchronizer:
                 x=float(x),
                 y=float(y),
                 properties={
-                    "projection_source": _PROJECTION_SOURCE,
+                    "projection_source": projection_source,
                     "element_type": read_model.element_type,
                     "labels": dict(read_model.labels),
                     "attributes": dict(read_model.attributes),
@@ -185,7 +224,7 @@ class SLDReadSynchronizer:
 
         node.equipment_id = read_model.object_id
         node.properties.update({
-            "projection_source": _PROJECTION_SOURCE,
+            "projection_source": projection_source,
             "element_type": read_model.element_type,
             "labels": dict(read_model.labels),
             "attributes": dict(read_model.attributes),
