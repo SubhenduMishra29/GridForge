@@ -1042,3 +1042,283 @@ Verification boundary:
     No tests, CI, application startup, GUI execution, or runtime
     verification performed.
 
+
+
+======================================================================
+CONSOLIDATED MASTER CORRECTION PASS — 2026-09-22
+======================================================================
+
+Repository authority:
+    pandaraseswari03-collab/GridForge
+    branch: main
+
+Verification boundary:
+    STATIC SOURCE / REGISTER AUDIT ONLY.
+    No tests, pytest, CI, application startup, GUI execution, or runtime
+    verification was performed.
+
+RCA mapping:
+    Dynamics API                  -> RCA-011 / RCA-013
+    Power Flow / study prep      -> RCA-011 / RCA-016
+    Protection / measurement     -> RCA-010 / RCA-005
+    Persistence                  -> RCA-006 / RCA-016
+    Legacy/parallel subsystems   -> applicable canonical RCA per subsystem
+    Command/transaction/history  -> RCA-003 / RCA-012
+    SLD identity/topology        -> RCA-001 / RCA-005 / RCA-008
+    Workspace/panels             -> RCA-007 / RCA-008 / RCA-014
+    Events/revision/validation   -> RCA-004 / RCA-012 / RCA-015
+    Hover/readout                -> RCA-008 / RCA-009
+    Runtime verification         -> evidence state only; no speculative code
+
+----------------------------------------------------------------------
+RCA-DYN-API-001 / GF-MASTER-0011..0013
+----------------------------------------------------------------------
+Static evidence:
+    core/solver/dynamics/machine_models.py is the active machine-model
+    implementation and defines ClassicalMachineParameters and
+    ClassicalSynchronousMachine.
+    core/solver/dynamics/__init__.py exports those current machine-model
+    classes and does not export DynamicMachineModel.
+    No active core/solver/dynamics/state_vector.py exists at the inspected
+    main-branch path.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The current public API is identifiable, but repository-wide consumer
+    reconciliation could not be established from the available indexed
+    search results. No DynamicMachineModel compatibility implementation was
+    introduced. Historical findings remain traceable.
+
+----------------------------------------------------------------------
+GF-MASTER-0021..0026 — Power Flow / study preparation
+----------------------------------------------------------------------
+Static evidence:
+    core/analysis/power_flow_preparation.py is the authoritative live-model
+    to detached numerical preparation boundary.
+    It uses core.base.per_unit.PerUnitSystem.
+    PreparedPowerFlow is immutable/detached.
+    core/numerical/ybus.py defines immutable YBus and YBusBuilder, with
+    YBusBuilder consuming prepared data rather than Network.
+    core/solver/power_flow/preparation.py is explicitly a compatibility
+    facade delegating to core.analysis.power_flow_preparation.
+    core/analysis/power_flow.py consumes the prepared snapshot for solver
+    execution and engineering-result conversion.
+
+Disposition:
+    GF-MASTER-0021 — STATICALLY VERIFIED
+    GF-MASTER-0022 — STATICALLY VERIFIED
+    GF-MASTER-0023 — STATICALLY VERIFIED
+    GF-MASTER-0024 — OPEN — RE-AUDIT REQUIRED
+    GF-MASTER-0025 — OPEN — SOURCE EVIDENCE PENDING
+    GF-MASTER-0026 — OPEN — SOURCE EVIDENCE PENDING
+
+Reason:
+    Detached preparation, PerUnitSystem use, and YBus separation are
+    directly evidenced. Short-circuit identity and complete conversion
+    coverage were not sufficiently established for closure.
+
+----------------------------------------------------------------------
+GF-MASTER-0027..0029 / GF-MASTER-0034 — Protection / measurement
+----------------------------------------------------------------------
+Static evidence:
+    core/protection/decision.py defines ProtectionDecision as an immutable
+    result contract and explicitly states that it does not operate breakers,
+    modify Relay state, modify MeasurementChannel state, or modify network
+    topology.
+    core/protection/__init__.py exposes ProtectionDecision as the public
+    protection result type.
+    MeasurementChannel remains a measurement representation and its source
+    references are read/association data.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The decision contract is consistent with the frozen boundary, but the
+    complete decision-to-command-to-Core-switching consumer chain was not
+    sufficiently established for static closure.
+
+----------------------------------------------------------------------
+GF-MASTER-0030 / GF-MASTER-0033 — Dynamics capability / persistence
+----------------------------------------------------------------------
+Static evidence:
+    DynamicMachineModelAssociation is project-scoped and stores canonical
+    machine_id/bus_id references, model_type, typed parameters, project_id,
+    and activation_generation.
+    Project persistence reconstructs associations through
+    DynamicMachineModelAssociation.from_dict() and validates referenced
+    Network identities and element types.
+
+Disposition:
+    GF-MASTER-0030 — OPEN — SOURCE EVIDENCE PENDING
+    GF-MASTER-0033 — STATICALLY VERIFIED
+
+Reason:
+    Persistence association structure and deterministic Core identity
+    validation are directly evidenced. The complete implemented/deferred
+    Dynamics capability matrix still requires repository-wide consumer
+    reconciliation.
+
+----------------------------------------------------------------------
+GF-MASTER-0031 / RCA-006-PERSIST-001 — .gridforge package
+----------------------------------------------------------------------
+Correction:
+    ProjectPersistenceService.save() previously emitted project_id, name,
+    and engineering_state in manifest.json. Those fields are engineering/
+    project state and violate the frozen manifest ownership boundary.
+
+    The canonical manifest emission was corrected to:
+        {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
+
+    Project identity, network, SLD presentation, dynamic-model associations,
+    and protection configuration remain in project.json.
+
+Disposition:
+    AGENT CORRECTED — RE-AUDIT REQUIRED
+
+Evidence:
+    Static source correction committed on main.
+    Save/load/reconstruction consumer audit remains required.
+
+----------------------------------------------------------------------
+GF-MASTER-0043 — legacy/parallel subsystem cleanup
+----------------------------------------------------------------------
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    Current source contains explicit compatibility facades in at least the
+    Power Flow preparation boundary. Such facades are not automatically
+    defects when they delegate to the canonical implementation, but a
+    repository-wide classification of all legacy/current pairs remains
+    incomplete. No parallel production authority was introduced by this pass.
+
+----------------------------------------------------------------------
+GF-MASTER-0037 / RCA-003 — command / transaction / history
+----------------------------------------------------------------------
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The register already contains Batch 3 transaction/history remediation,
+    but this consolidated pass did not independently establish absence of
+    every UI/SLD/Controller/Tool/Plugin direct Core mutation path.
+    No second CommandManager or alternate history subsystem was introduced.
+
+----------------------------------------------------------------------
+GF-MASTER-0038..0040 / RCA-SLD-AUTH-001
+----------------------------------------------------------------------
+Static evidence:
+    Workspace/SLD architectural material continues to identify Core
+    Equipment and authoritative Terminals as engineering identity, with
+    Workspace/SLD as presentation state.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    Complete terminal-snap/connection-command/read-projection consumer
+    coverage was not established from indexed repository search. No generic
+    authoritative free-form wiring subsystem was introduced.
+
+----------------------------------------------------------------------
+GF-MASTER-0017..0020 / RCA-UI-WORKSPACE-001
+----------------------------------------------------------------------
+Static evidence:
+    ui/panels/panel_descriptor.py explicitly excludes workspace placement.
+    ui/panels/panel_state.py explicitly excludes area, floating placement,
+    geometry, and docking.
+    ui/workspace/workspace_layout.py owns immutable logical placement.
+    ui/workspace/workspace_realizer.py translates WorkspaceLayout to the
+    MainWindow host.
+    ui/main_window.py is the mechanical Qt dock host.
+
+Outstanding:
+    ui/plugins/panels_plugin.py still owns QDockWidget creation and performs
+    host removal during panel cleanup. It does not perform addDockWidget()
+    or tabifyDockWidget() placement; those operations are exposed by and
+    executed through MainWindow during WorkspaceRealizer realization.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The placement split is substantially represented in source, but the
+    plugin lifecycle/composition-to-realizer handoff requires direct
+    consumer reconciliation before this cluster can be closed.
+
+----------------------------------------------------------------------
+GF-MASTER-0035..0036 / RCA-004 / RCA-012 / RCA-015
+----------------------------------------------------------------------
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    Existing register evidence covers semantic event/read-model and
+    transaction boundaries, but this consolidated pass did not establish
+    repository-wide absence of competing revision, dirty-state, validation,
+    or mutation-event authorities.
+
+----------------------------------------------------------------------
+GF-MASTER-0045 — contextual SLD hover/readout
+----------------------------------------------------------------------
+Disposition:
+    OPEN — SOURCE EVIDENCE PENDING
+
+Reason:
+    No engineering attribute contract was invented. A complete
+    Canvas-hover -> presentation identity -> read-side resolution ->
+    contextual engineering readout workflow was not established strongly
+    enough to create or close an implementation finding.
+
+----------------------------------------------------------------------
+GF-MASTER-0044 — runtime verification
+----------------------------------------------------------------------
+Disposition:
+    DEFERRED — RUNTIME VERIFICATION
+
+Evidence boundary:
+    Runtime execution, tests, CI, startup, GUI execution, and runtime
+    workflow proof remain intentionally deferred. Static source changes
+    must not be described as runtime verification.
+
+======================================================================
+PASS SUMMARY
+======================================================================
+
+Corrected and statically verified:
+    GF-MASTER-0021
+    GF-MASTER-0022
+    GF-MASTER-0023
+    GF-MASTER-0033
+
+Corrected but re-audit required:
+    GF-MASTER-0031
+    RCA-006-PERSIST-001
+    Workspace/panel boundary cluster where source corrections already exist
+
+Open / evidence pending or re-audit required:
+    RCA-DYN-API-001 / GF-MASTER-0011..0013
+    GF-MASTER-0024..0026
+    GF-MASTER-0027..0029
+    GF-MASTER-0030
+    GF-MASTER-0034
+    GF-MASTER-0035..0040
+    GF-MASTER-0043
+    GF-MASTER-0045
+
+Runtime verification deferred:
+    GF-MASTER-0044
+    All source-only corrections remain non-runtime evidence.
+
+Historical IDs:
+    Preserved. No historical register identifier was deleted.
+
+Architecture:
+    No second Core, topology, CommandManager, project lifecycle,
+    workspace authority, study model, or compatibility production
+    authority was introduced by this pass.
+
+======================================================================
