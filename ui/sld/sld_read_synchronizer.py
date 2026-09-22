@@ -275,7 +275,12 @@ class SLDReadSynchronizer:
 
         equipment_id = node.equipment_id
         if equipment_id is not None:
-            self._projection_manager.remove(equipment_id)
+            domain = (
+                ProjectionDomain.NETWORK
+                if node.properties.get("projection_source") == _PROJECTION_SOURCE
+                else ProjectionDomain.PROTECTION
+            )
+            self._projection_manager.remove(equipment_id, domain=domain)
         document.model.remove_node(node.node_id)
 
     def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
