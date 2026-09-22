@@ -105,11 +105,20 @@ class SLDUpdateCoordinator:
             raise TypeError("event must be an ApplicationEvent")
 
         if isinstance(event, ProjectClosed):
+            # ProjectClosed is the authoritative successful transition boundary.
+            # Clear all projection-domain state so the next project cannot
+            # inherit registry entries from the closed project.
+            self._projection_manager.clear()
             self.detach_document()
             self._canvas_refresh()
             return
 
         if isinstance(event, ProjectLoaded):
+            # ProjectLoaded is emitted only after Application activation
+            # succeeds. Reset registry state here for new-project and
+            # project-replacement transitions while preserving old state
+            # during activation rollback (no ProjectLoaded event is emitted).
+            self._projection_manager.clear()
             presentation = self._application.presentation
             if isinstance(presentation, SLDDocument):
                 self.bind_document(presentation)
