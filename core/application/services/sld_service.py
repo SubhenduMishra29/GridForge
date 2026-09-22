@@ -36,8 +36,11 @@ class SLDService:
         "sld.remove_connection",
     })
 
-    def __init__(self, document: Any) -> None:
+    def __init__(self, document: Any, *, application: Any = None) -> None:
         self._document = None
+        self._application = application
+        if application is not None:
+            self.attach_application(application)
         self.bind_document(document)
 
     @property
@@ -51,10 +54,33 @@ class SLDService:
         return self._document is not None
 
     def bind_document(self, document: Any) -> None:
-        """Bind the service to the currently active presentation document."""
+        """Bind only the Application-authoritative active presentation document."""
         if document is None:
             raise TypeError("SLDService requires an SLD document.")
+        if self._application is not None:
+            presentation = getattr(self._application, "presentation", None)
+            if presentation is not document:
+                raise RuntimeError(
+                    "SLDService cannot bind a document that is not the "
+                    "Application-authoritative active presentation."
+                )
         self._document = document
+
+    def attach_application(self, application: Any) -> None:
+        """Attach the Application whose presentation state is authoritative."""
+        if application is None:
+            raise TypeError("application must not be None")
+        self._application = application
+        if self._document is not None:
+            presentation = getattr(application, "presentation", None)
+            if presentation is not self._document:
+                raise RuntimeError(
+                    "Existing SLD document does not match the Application presentation."
+                )
+
+    @property
+    def application(self) -> Any:
+        return self._application
 
     def detach_document(self) -> Any:
         """Detach the active document so closed projects cannot be mutated."""
