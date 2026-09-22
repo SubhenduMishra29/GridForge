@@ -174,9 +174,9 @@ class TransformerTool(ToolBase):
         if self._preview_layer is None:
             return
         if self._start_position is None or self._current_position is None:
-            self.preview_layer.clear()
+            self._preview_layer.clear()
             return
-        show_segment = getattr(self.preview_layer, "show_segment", None)
+        show_segment = getattr(self._preview_layer, "show_segment", None)
         if not callable(show_segment):
             raise TypeError("PreviewLayer must provide show_segment().")
         show_segment(self._start_position, self._current_position)
@@ -210,8 +210,8 @@ class TransformerTool(ToolBase):
         self._current_endpoint = None
         self._current_position = None
         self._preview_active = False
-        if self.preview_layer is not None:
-            clear = getattr(self.preview_layer, "clear", None)
+        if self._preview_layer is not None:
+            clear = getattr(self._preview_layer, "clear", None)
             if callable(clear):
                 clear()
 
