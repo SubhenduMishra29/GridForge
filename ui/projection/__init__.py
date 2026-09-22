@@ -1,5 +1,6 @@
 # ============================================================
 # GridForge V2 — Projection Package
+# Author: Subhendu Mishra
 # ============================================================
 """Public API for the generic UI projection subsystem."""
 
