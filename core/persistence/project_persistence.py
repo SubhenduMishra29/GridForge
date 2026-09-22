@@ -116,7 +116,7 @@ class ProjectPersistenceService:
         network_data = serialize_network(network)
         presentation_data = None if presentation is None else dict(presentation)
         dynamic_models_data = [item.to_dict() for item in dynamic_models]
-        manifest = {"format": "GridForgeProject", "package_version": PACKAGE_VERSION, "project_id": context.project_id, "name": context.name, "engineering_state": "project.json"}
+        manifest = {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
         project: dict[str, Any] = {"schema": 1, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "dynamic_models": dynamic_models_data}
         if presentation_data is not None: project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
