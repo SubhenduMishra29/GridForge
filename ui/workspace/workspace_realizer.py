@@ -391,7 +391,7 @@ class WorkspaceRealizer:
                 raise WorkspaceRealizationError(
                     "Workspace realization failed and prior presentation restoration also failed."
                 ) from restore_exc
-            raise exc
+            raise
 
     def _realize_unchecked(
         self,
