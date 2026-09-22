@@ -3,7 +3,8 @@
 Repository: madhuri196mishra-cpu/GridForge
 Branch: main
 Author/header: Subhendu Mishra
-Active HEAD: 8eab2c14dde8f488748da8a9fce3732f653c5ece
+Audit base HEAD: 8eab2c14dde8f488748da8a9fce3732f653c5ece
+Final correction HEAD: 5019b1b89ae5342165019e8e245866db27cf054e
 Merge provenance: PR #163, targeted corrections, from madhuri196mishra-cpu/main
 
 ## Operating boundary
@@ -18,6 +19,8 @@ No tests, pytest, CI, application startup, GUI execution, or runtime verificatio
 2. ui/sld/sld_read_adapter.py
 3. audit/MASTER_AUDIT_REGISTER.md
 4. audit/POST_REAUDIT_CORRECTION_2026-09-22.md
+
+Final source correction commit: 5019b1b89ae5342165019e8e245866db27cf054e
 
 ## Exact code changes
 
