@@ -25,6 +25,7 @@ class RevisionService:
 
     _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.")
     _TOPOLOGY_COMMANDS = frozenset({
+        "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.update_cable", "model.delete_cable",
