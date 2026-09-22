@@ -181,6 +181,13 @@ class SLDReadSynchronizer:
         initial_position: tuple[float, float] | None = None,
         projection_source: str = _PROJECTION_SOURCE,
     ) -> SLDNode:
+        # Identity contract:
+        #   * equipment_id is the canonical engineering identity.
+        #   * node_id is the SLD/document namespace identity.
+        #
+        # New Application projections use the same string for both as a
+        # deterministic default. Existing persisted documents may use a
+        # distinct node_id; equipment_id lookup preserves that mapping.
         equipment_id = read_model.object_id
         node = document.model.get_node_by_equipment_id_optional(equipment_id)
 
@@ -264,6 +271,12 @@ class SLDReadSynchronizer:
 
             if connection is None:
                 document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_node_id, target_node_id=target_node_id, properties=properties))
+            elif connection.properties.get("projection_source") != _PROJECTION_SOURCE:
+                # Never overwrite engineer-owned/presentation-only structure
+                # merely because an engineering branch uses the same ID.
+                raise ValueError(
+                    f"SLD connection identity collision for engineering element: {connection_id!r}"
+                )
             elif connection.source_node_id != source_node_id or connection.target_node_id != target_node_id:
                 document.model.remove_connection(connection_id)
                 document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_node_id, target_node_id=target_node_id, properties=properties))

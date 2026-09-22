@@ -40,7 +40,9 @@ class ApplicationResult(Generic[T]):
         Indicates whether the Application operation succeeded.
 
     value:
-        Canonical Core object returned by the service.
+        Canonical Core object returned by an Application-internal service.
+        This compatibility field must not be forwarded to UI-facing
+        consumers; UI projections consume Application ReadModels instead.
 
     message:
         Human-readable description of the operation.

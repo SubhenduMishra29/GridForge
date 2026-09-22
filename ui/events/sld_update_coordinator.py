@@ -150,10 +150,23 @@ class SLDUpdateCoordinator:
                         self._application.read_network(),
                         initial_positions=initial_positions,
                     )
-            elif isinstance(event, (TopologyChanged, NetworkChanged, ProjectLoaded)):
+            elif isinstance(event, (TopologyChanged, NetworkChanged)):
                 self._synchronizer.synchronize_network(
                     document,
                     self._application.read_network(),
+                )
+            elif isinstance(event, ProjectLoaded):
+                # Project activation crosses both Application read domains.
+                # Reconcile each authoritative read model directly; do not
+                # synthesize another event bus or rebuild network state from
+                # protection changes.
+                self._synchronizer.synchronize_network(
+                    document,
+                    self._application.read_network(),
+                )
+                self._synchronizer.synchronize_protection(
+                    document,
+                    self._application.read_protection(),
                 )
             else:
                 return
