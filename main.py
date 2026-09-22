@@ -150,7 +150,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         serializer=serialize_sld,
         deserializer=deserialize_sld,
     )
-    if not isinstance(sld_document, SLDDocument): raise RuntimeError("Application did not establish an SLDDocument for the active project.")
     sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.reconcile_presentation()
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
