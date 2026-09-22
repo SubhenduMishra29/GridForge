@@ -42,6 +42,7 @@ class TransformerTool(ToolBase):
         self._current_endpoint: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._preview_active = False
+        self._preview_layer = preview_layer
         self._engineering_parameters: dict[str, Any] = {}
 
     @property
@@ -170,7 +171,7 @@ class TransformerTool(ToolBase):
             raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
 
     def _update_preview(self) -> None:
-        if self.preview_layer is None:
+        if self._preview_layer is None:
             return
         if self._start_position is None or self._current_position is None:
             self.preview_layer.clear()

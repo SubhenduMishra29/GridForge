@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -51,6 +51,58 @@ def _freeze(value: Any) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
+class EngineeringParameterReadModel:
+    """Immutable Application read-side description of one engineering parameter.
+
+    This is read metadata, not engineering authority.  Values originate in the
+    authoritative Core model through the Application read service.
+    """
+
+    parameter_id: str
+    value: Any
+    unit: str | None = None
+    datatype: str = "unknown"
+    choices: tuple[str, ...] = ()
+    editable: bool = False
+    derived: bool = False
+    validation: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    coupling_group: str | None = None
+    topology_impact: bool = False
+    study_impact: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.parameter_id, str) or not self.parameter_id:
+            raise ValueError("EngineeringParameterReadModel.parameter_id must be non-empty")
+        object.__setattr__(self, "value", _freeze(self.value))
+        object.__setattr__(self, "choices", tuple(str(choice) for choice in self.choices))
+        object.__setattr__(self, "validation", _freeze(self.validation))
+
+
+@dataclass(frozen=True, slots=True)
+class EngineeringParameterReadModel:
+    """Immutable Application read-side description of one engineering parameter."""
+
+    parameter_id: str
+    value: Any
+    unit: str | None = None
+    datatype: str = "unknown"
+    choices: tuple[str, ...] = ()
+    editable: bool = False
+    derived: bool = False
+    validation: Mapping[str, Any] = MappingProxyType({})
+    coupling_group: str | None = None
+    topology_impact: bool = False
+    study_impact: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.parameter_id, str) or not self.parameter_id:
+            raise ValueError("EngineeringParameterReadModel.parameter_id must be non-empty")
+        object.__setattr__(self, "value", _freeze(self.value))
+        object.__setattr__(self, "choices", tuple(str(choice) for choice in self.choices))
+        object.__setattr__(self, "validation", _freeze(self.validation))
+
+
+@dataclass(frozen=True, slots=True)
 class ElementReadModel:
     """Stable, UI-neutral immutable snapshot of one network element."""
 
@@ -59,6 +111,7 @@ class ElementReadModel:
     labels: Mapping[str, str]
     connectivity_refs: tuple[str, ...]
     attributes: Mapping[str, Any]
+    engineering_parameters: tuple[EngineeringParameterReadModel, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.object_id, str) or not self.object_id:
@@ -71,12 +124,18 @@ class ElementReadModel:
             raise TypeError("ElementReadModel.connectivity_refs must be a tuple")
         if not isinstance(self.attributes, Mapping):
             raise TypeError("ElementReadModel.attributes must be a mapping")
+        if not isinstance(self.engineering_parameters, tuple):
+            raise TypeError("ElementReadModel.engineering_parameters must be a tuple")
+        if not all(isinstance(item, EngineeringParameterReadModel) for item in self.engineering_parameters):
+            raise TypeError("ElementReadModel.engineering_parameters must contain EngineeringParameterReadModel values")
         attributes = dict(self.attributes)
         semantic_type = self.element_type.strip().upper()
         for key in _CANONICAL_ATTRIBUTES.get(semantic_type, ()):
             attributes.setdefault(key, None)
         object.__setattr__(self, "labels", _freeze(self.labels))
         object.__setattr__(self, "attributes", _freeze(attributes))
+        object.__setattr__(self, "engineering_parameters", tuple(self.engineering_parameters))
+        object.__setattr__(self, "engineering_parameters", tuple(self.engineering_parameters))
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +184,8 @@ class ProtectionReadModel:
 
 __all__ = [
     "ElementReadModel",
+    "EngineeringParameterReadModel",
+    "EngineeringParameterReadModel",
     "NetworkReadModel",
     "ProtectionReadModel",
     "RelayInputBindingReadModel",
