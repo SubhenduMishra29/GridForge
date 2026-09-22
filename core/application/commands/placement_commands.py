@@ -1,4 +1,4 @@
-"""Immutable Application commands for atomic UI placement workflows."""
+"""Compatibility constructor for the canonical Bus creation command."""
 
 from __future__ import annotations
 
