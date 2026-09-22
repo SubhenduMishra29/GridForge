@@ -2,7 +2,8 @@
 
 **Author:** Subhendu Mishra  
 **Date:** 2026-09-03  
-**Repository:** `madhuri196mishra-cpu/GridForge`
+**Repository:** `SubhenduMishra29/GridForge`  
+**Implementation mirror / remediation workspace:** `madhuri196mishra-cpu/GridForge`
 
 ## Purpose
 
