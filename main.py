@@ -142,6 +142,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         activate_workspace=False,
     )
     sld_document = gridforge_application.presentation
+    if not isinstance(sld_document, SLDDocument):
+        raise RuntimeError("Application did not establish an SLDDocument for the active project.")
+    gridforge_application.attach_sld_service(SLDService(sld_document))
     gridforge_application.configure_project_presentation(
         presentation=sld_document,
         serializer=serialize_sld,
