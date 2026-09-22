@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+from .model_commands import CREATE_BUS
 from ..command import Command
 
 
-PLACE_BUS = "application.place_bus"
+PLACE_BUS = CREATE_BUS
 
 
 class PlaceBusCommand(Command):
-    """Create a Core bus and its SLD presentation atomically."""
+    """Compatibility constructor for the canonical Bus creation command."""
 
     def __init__(self, *, bus_id: str, name: str = "Bus", nominal_voltage_kv: float = 0.0,
                  voltage_pu: float = 1.0, angle_deg: float = 0.0, frequency_hz: float = 50.0,
@@ -19,7 +20,7 @@ class PlaceBusCommand(Command):
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(
-            command_type=PLACE_BUS,
+            command_type=CREATE_BUS,
             payload={
                 "bus_id": bus_id, "name": name,
                 "nominal_voltage_kv": nominal_voltage_kv,
