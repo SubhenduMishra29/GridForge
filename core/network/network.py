@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/network/network.py
+# GridForge V2 — Authoritative Network Aggregate
+# Author: Subhendu Mishra
+# ============================================================
+
 """Authoritative electrical Network aggregate."""
 
 from __future__ import annotations
@@ -74,6 +80,44 @@ class Network:
 
     def get_by_id(self, element_type: str, object_id: str) -> Any:
         return self.registry.get_by_id(element_type, object_id)
+
+    def get_by_identity(self, object_id: str) -> Any:
+        """Resolve one canonical Core object by its globally unique Network identity."""
+        return self.registry.get_by_identity(object_id)
+
+    def validate(self) -> bool:
+        """Validate the complete authoritative Network membership and endpoint graph."""
+        registered = {element.id: element for element in self.registry._objects.values()}
+        if len(registered) != len(self.registry._objects):
+            raise ValueError("Network contains duplicate canonical identities.")
+
+        from core.model.base import ElectricalObject
+
+        for element in self.registry._objects.values():
+            if not isinstance(element, ElectricalObject):
+                raise TypeError("Network contains a non-Core electrical object.")
+            element.validate()
+            if getattr(element, "_gridforge_network_token", None) is not self.registry._network_token:
+                raise ValueError(f"Network membership token is invalid for '{element.id}'.")
+
+            for terminal in getattr(element, "terminals", ()):
+                if terminal.owner is not element:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' is not owned by '{element.id}'."
+                    )
+                endpoint = terminal.endpoint
+                if endpoint is None:
+                    continue
+                if getattr(endpoint, "_gridforge_network_token", None) is not self.registry._network_token:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' references an object outside this Network."
+                    )
+                if registered.get(endpoint.id) is not endpoint:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' references an unregistered object '{endpoint.id}'."
+                    )
+
+        return True
 
     def _invalidate_topology(self, *, bus_membership: bool = False) -> None:
         self.state.invalidate_topology()

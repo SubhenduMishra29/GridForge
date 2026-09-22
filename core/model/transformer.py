@@ -16,9 +16,19 @@ No unit or base inference is performed by numerical builders.
 from __future__ import annotations
 
 import math
+from enum import Enum
 from typing import Any
 
+from core.base.per_unit import PerUnitSystem
+
 from .branch import Branch
+
+
+class ImpedanceBasis(str, Enum):
+    """Typed semantic basis for transformer r/x/b engineering values."""
+
+    PU = "pu"
+    ENGINEERING = "engineering"
 
 
 class Transformer(Branch):
@@ -37,7 +47,7 @@ class Transformer(Branch):
     """
 
     TYPE = "TRANSFORMER"
-    VALID_IMPEDANCE_BASES = frozenset({"pu", "engineering"})
+    VALID_IMPEDANCE_BASES = frozenset(ImpedanceBasis)
 
     __slots__ = (
         "_tap",
@@ -56,7 +66,7 @@ class Transformer(Branch):
         r: float = 0.0,
         x: float = 0.0,
         b: float = 0.0,
-        impedance_basis: str,
+        impedance_basis: ImpedanceBasis | str,
         impedance_base_mva: float | None = None,
         impedance_base_voltage_kv: float | None = None,
         tap: float = 1.0,
@@ -69,11 +79,16 @@ class Transformer(Branch):
             raise ValueError(
                 "Transformer impedance_basis is required; ambiguous r/x/b data is not accepted."
             )
-        impedance_basis = str(impedance_basis).strip().lower()
-        if impedance_basis not in self.VALID_IMPEDANCE_BASES:
+        try:
+            impedance_basis = (
+                impedance_basis
+                if isinstance(impedance_basis, ImpedanceBasis)
+                else ImpedanceBasis(str(impedance_basis).strip().lower())
+            )
+        except (TypeError, ValueError) as exc:
             raise ValueError(
                 "Transformer impedance_basis must be 'pu' or 'engineering'."
-            )
+            ) from exc
 
         # The existing Branch ``rate_mva`` is the transformer nameplate
         # rating. It is a valid original MVA basis only when explicitly
@@ -126,7 +141,7 @@ class Transformer(Branch):
         return self.TYPE
 
     @property
-    def impedance_basis(self) -> str:
+    def impedance_basis(self) -> ImpedanceBasis:
         """Return the declared basis of ``r/x/b``."""
         return self._impedance_basis
 
@@ -200,6 +215,125 @@ class Transformer(Branch):
     def set_phase_shift_degrees(self, degrees: float) -> None:
         self.phase_shift_deg = degrees
 
+    def update_configuration(
+        self,
+        *,
+        r: float | None = None,
+        x: float | None = None,
+        b: float | None = None,
+        impedance_basis: ImpedanceBasis | str | None = None,
+        impedance_base_mva: float | None = None,
+        tap: float | None = None,
+        shift: float | None = None,
+        rate_mva: float | None = None,
+        name: str | None = None,
+        in_service: bool | None = None,
+    ) -> None:
+        """Atomically apply a validated Transformer engineering configuration.
+
+        When the impedance basis or MVA base changes without explicit r/x/b
+        replacements, the existing physical impedance/admittance is preserved
+        through the canonical PerUnitSystem. Explicit r/x/b values are
+        interpreted in the requested target representation.
+
+        impedance_base_voltage_kv is intentionally absent: it is a reference
+        construction value and is not an ordinary editable Transformer field.
+        """
+        target_basis = self._normalize_impedance_basis(
+            self._impedance_basis if impedance_basis is None else impedance_basis
+        )
+        target_base_mva = self._impedance_base_mva if impedance_base_mva is None else self._validate_positive(
+            impedance_base_mva, "impedance_base_mva"
+        )
+
+        current_basis = self._impedance_basis
+        basis_changed = target_basis is not current_basis
+        base_changed = not math.isclose(
+            target_base_mva, self._impedance_base_mva, rel_tol=0.0, abs_tol=0.0
+        )
+        coupled_update = basis_changed or base_changed
+
+        target_r = self._r
+        target_x = self._x
+        target_b = self._b
+        if coupled_update:
+            z = complex(self._r, self._x)
+            y = complex(0.0, self._b)
+            if current_basis is ImpedanceBasis.PU:
+                source = PerUnitSystem(self._impedance_base_mva)
+                physical_z = source.from_pu_impedance(z, self._impedance_base_voltage_kv)
+                physical_y = source.from_pu_admittance(y, self._impedance_base_voltage_kv)
+            else:
+                physical_z = z
+                physical_y = y
+
+            if target_basis is ImpedanceBasis.PU:
+                target = PerUnitSystem(target_base_mva)
+                target_z = target.to_pu_impedance(physical_z, self._impedance_base_voltage_kv)
+                target_y = target.to_pu_admittance(physical_y, self._impedance_base_voltage_kv)
+            else:
+                target_z = physical_z
+                target_y = physical_y
+            target_r, target_x, target_b = target_z.real, target_z.imag, target_y.imag
+
+        if r is not None:
+            target_r = self._validate_finite(r, "r")
+        if x is not None:
+            target_x = self._validate_finite(x, "x")
+        if b is not None:
+            target_b = self._validate_finite(b, "b")
+
+        target_tap = self._tap if tap is None else self._validate_positive(tap, "tap")
+        target_shift = self._shift if shift is None else self._validate_finite(shift, "shift")
+        target_rate = self._rate_mva if rate_mva is None else self._validate_positive(rate_mva, "rate_mva")
+        target_name = self.name if name is None else name
+        if not isinstance(target_name, str):
+            raise TypeError("name must be a string.")
+        target_name = target_name.strip() or self.id
+        target_in_service = self._in_service if in_service is None else bool(in_service)
+
+        # Validate the complete candidate before mutating any authoritative state.
+        self._validate_finite(target_r, "r")
+        self._validate_finite(target_x, "x")
+        self._validate_finite(target_b, "b")
+        self._validate_positive(target_base_mva, "impedance_base_mva")
+        self._validate_positive(self._impedance_base_voltage_kv, "impedance_base_voltage_kv")
+
+        old_state = (
+            self._r, self._x, self._b, self._impedance_basis,
+            self._impedance_base_mva, self._tap, self._shift,
+            self._rate_mva, self.name, self._in_service,
+        )
+        try:
+            self._r = target_r
+            self._x = target_x
+            self._b = target_b
+            self._impedance_basis = target_basis
+            self._impedance_base_mva = target_base_mva
+            self._tap = target_tap
+            self._shift = target_shift
+            self._rate_mva = target_rate
+            self.name = target_name
+            self._in_service = target_in_service
+            self.validate()
+        except Exception:
+            (
+                self._r, self._x, self._b, self._impedance_basis,
+                self._impedance_base_mva, self._tap, self._shift,
+                self._rate_mva, old_name, self._in_service,
+            ) = old_state
+            self.name = old_name
+            raise
+
+    @staticmethod
+    def _normalize_impedance_basis(value: ImpedanceBasis | str) -> ImpedanceBasis:
+        if isinstance(value, ImpedanceBasis):
+            return value
+        try:
+            return ImpedanceBasis(str(value).strip().lower())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
+
     def validate_parameters(self) -> bool:
         Branch.validate_parameters(self)
         if self._impedance_basis not in self.VALID_IMPEDANCE_BASES:
@@ -263,4 +397,4 @@ class Transformer(Branch):
         return value
 
 
-__all__ = ["Transformer"]
+__all__ = ["ImpedanceBasis", "Transformer"]

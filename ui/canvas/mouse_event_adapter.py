@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ui.core.qt import QPointF
+from ui.core.qt import QGraphicsItem, QPointF
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,47 +96,42 @@ class MouseEventAdapter:
             return mapper(to_point())
 
     def _hit_test(self, scene_position: Any) -> Optional[Any]:
-        items_method = getattr(self._scene, "items", None)
-        if not callable(items_method):
-            raise TypeError("scene must provide items().")
-        for item in tuple(items_method(scene_position)):
-            candidate = self._selectable_ancestor(item)
-            if candidate is not None:
-                return getattr(candidate, "object_id", None)
-        return None
+        item_at = getattr(self._scene, "itemAt", None)
+        if not callable(item_at):
+            raise TypeError("scene must provide itemAt().")
+
+        x = float(scene_position.x())
+        y = float(scene_position.y())
+        transform = self._view.viewportTransform()
+
+        # Use QGraphicsScene.itemAt's scalar overload directly.  Passing
+        # Python QPointF objects through the overloaded dispatcher can enter
+        # PySide6's generated isinstance() machinery; the scalar overload
+        # avoids that path while preserving Qt's indexed topmost hit test.
+        item = item_at(x, y, transform)
+        if not self._is_selectable(item):
+            return None
+        return getattr(item, "object_id", None)
 
     @staticmethod
     def _is_selectable(item: Any) -> bool:
-        if item is None:
+        if item is None or getattr(item, "object_id", None) is None:
             return False
-        if getattr(item, "isVisible", lambda: True)() is False:
-            return False
-        if getattr(item, "isEnabled", lambda: True)() is False:
-            return False
-        if getattr(item, "object_id", None) is None:
-            return False
-        flags = getattr(item, "flags", None)
-        if not callable(flags):
-            return True
-        try:
-            value = flags()
-            flag_type = getattr(item, "GraphicsItemFlag", None)
-            selectable_flag = getattr(flag_type, "ItemIsSelectable", None)
-            if selectable_flag is None:
-                return True
-            return bool(value & selectable_flag)
-        except (TypeError, AttributeError):
-            return True
 
-    @classmethod
-    def _selectable_ancestor(cls, item: Any) -> Optional[Any]:
-        current = item
-        while current is not None:
-            if cls._is_selectable(current):
-                return current
-            parent_method = getattr(current, "parentItem", None)
-            current = parent_method() if callable(parent_method) else None
-        return None
+        is_visible = getattr(item, "isVisible", None)
+        is_enabled = getattr(item, "isEnabled", None)
+        flags = getattr(item, "flags", None)
+        if not callable(is_visible) or not callable(is_enabled) or not callable(flags):
+            return False
+
+        try:
+            return bool(
+                is_visible()
+                and is_enabled()
+                and flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            )
+        except (TypeError, AttributeError):
+            return False
 
     @staticmethod
     def _event_position(event: Any) -> Any:

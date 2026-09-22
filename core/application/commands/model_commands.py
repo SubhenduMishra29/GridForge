@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from ..command import Command
 from ..endpoint_reference import EndpointReference
+from ...model.transformer import ImpedanceBasis
 
 CREATE_BUS = "model.create_bus"
 UPDATE_BUS = "model.update_bus"
@@ -32,6 +33,7 @@ DELETE_SHUNT = "model.delete_shunt"
 CREATE_LINE = "model.create_line"
 DELETE_LINE = "model.delete_line"
 CREATE_TRANSFORMER = "model.create_transformer"
+UPDATE_TRANSFORMER = "model.update_transformer"
 DELETE_TRANSFORMER = "model.delete_transformer"
 CREATE_CABLE = "model.create_cable"
 UPDATE_CABLE = "model.update_cable"
@@ -194,26 +196,54 @@ class DeleteLineCommand(Command):
 
 class CreateTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
-                 r: float, x: float, impedance_basis: str, tap: float = 1.0, shift: float = 0.0,
+                 r: float, x: float, b: float = 0.0, impedance_basis: ImpedanceBasis | str = ImpedanceBasis.ENGINEERING, tap: float = 1.0, shift: float = 0.0,
                  name: str = "", rate_mva: float = 100.0,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
             raise TypeError("Transformer endpoints must be EndpointReference values.")
-        if not isinstance(impedance_basis, str) or not impedance_basis.strip():
-            raise ValueError("Transformer impedance_basis is required and must be a non-empty string.")
+        try:
+            normalized_basis = (
+                impedance_basis
+                if isinstance(impedance_basis, ImpedanceBasis)
+                else ImpedanceBasis(str(impedance_basis).strip().lower())
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
         super().__init__(**_command(CREATE_TRANSFORMER, {
             "transformer_id": transformer_id,
             "endpoint_from": endpoint_from,
             "endpoint_to": endpoint_to,
             "r": r,
             "x": x,
-            "impedance_basis": impedance_basis,
+            "b": b,
+            "impedance_basis": normalized_basis,
             "tap": tap,
             "shift": shift,
             "name": name,
             "rate_mva": rate_mva,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
+class UpdateTransformerCommand(Command):
+    def __init__(self, *, transformer_id: str, name: str | None = None, r: float | None = None,
+                 x: float | None = None, b: float | None = None,
+                 impedance_basis: ImpedanceBasis | str | None = None, impedance_base_mva: float | None = None,
+                 tap: float | None = None, shift: float | None = None, rate_mva: float | None = None,
+                 in_service: bool | None = None, command_id: UUID | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service)
+        if all(value is None for value in values):
+            raise ValueError("UpdateTransformerCommand requires at least one mutable Transformer field.")
+        normalized_basis = None
+        if impedance_basis is not None:
+            try:
+                normalized_basis = impedance_basis if isinstance(impedance_basis, ImpedanceBasis) else ImpedanceBasis(str(impedance_basis).strip().lower())
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
+        super().__init__(**_command(UPDATE_TRANSFORMER, {
+            "transformer_id": transformer_id, "name": name, "r": r, "x": x, "b": b,
+            "impedance_basis": normalized_basis, "impedance_base_mva": impedance_base_mva,
+            "tap": tap, "shift": shift, "rate_mva": rate_mva, "in_service": in_service,
+        }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_TRANSFORMER, {"transformer_id": transformer_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))

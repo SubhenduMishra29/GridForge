@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/read_service.py
 # GridForge V2 — Application Read Services
+# Author: Subhendu Mishra
 # ============================================================
 """Read-only Application boundaries for authoritative Core state."""
 
@@ -24,7 +25,7 @@ _ELEMENT_COLLECTIONS = (
     "buses", "grids", "generators", "synchronous_machines", "loads",
     "motors", "shunts", "capacitors", "reactors", "solar", "batteries",
     "current_transformers", "potential_transformers", "capacitive_voltage_transformers",
-    "relays", "lines", "cables", "transformers", "breakers", "switches",
+    "lines", "cables", "transformers", "breakers", "switches",
     "disconnectors", "fuses",
 )
 
@@ -39,7 +40,7 @@ _ELEMENT_TYPE_ALIASES = {
     "ct": "current_transformers", "current_transformer": "current_transformers", "current_transformers": "current_transformers",
     "pt": "potential_transformers", "potential_transformer": "potential_transformers", "potential_transformers": "potential_transformers",
     "cvt": "capacitive_voltage_transformers", "capacitive_voltage_transformer": "capacitive_voltage_transformers", "capacitive_voltage_transformers": "capacitive_voltage_transformers",
-    "relay": "relays", "relays": "relays", "line": "lines", "lines": "lines", "cable": "cables", "cables": "cables",
+"line": "lines", "lines": "lines", "cable": "cables", "cables": "cables",
     "transformer": "transformers", "transformers": "transformers", "breaker": "breakers", "breakers": "breakers",
     "switch": "switches", "switches": "switches", "disconnector": "disconnectors", "disconnectors": "disconnectors",
     "fuse": "fuses", "fuses": "fuses",
@@ -72,6 +73,35 @@ _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 
 _REQUIRED_FIELDS = {element_type: frozenset(canonical for canonical, _ in fields) for element_type, fields in _FIELD_CONTRACTS.items()}
 
+_PARAMETER_METADATA: dict[str, dict[str, Any]] = {
+    "nominal_voltage_kv": {"unit": "kV", "datatype": "float"},
+    "voltage_pu": {"unit": "pu", "datatype": "float"},
+    "angle_deg": {"unit": "deg", "datatype": "float"},
+    "frequency_hz": {"unit": "Hz", "datatype": "float"},
+    "resistance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
+    "reactance_ohm": {"unit": "ohm", "datatype": "float", "study_impact": True},
+    "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "study_impact": True},
+    "length_km": {"unit": "km", "datatype": "float", "study_impact": True},
+    "rated_voltage_kv": {"unit": "kV", "datatype": "float"},
+    "rated_current_a": {"unit": "A", "datatype": "float"},
+    "rate_mva": {"unit": "MVA", "datatype": "float", "study_impact": True},
+    "impedance_basis": {"datatype": "enum", "choices": ("pu", "engineering"), "editable": True, "study_impact": True},
+    "impedance_base_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True},
+    "impedance_base_voltage_kv": {"unit": "kV", "datatype": "float", "editable": False, "study_impact": True},
+    "tap": {"datatype": "float", "study_impact": True},
+    "tap_ratio": {"datatype": "float", "derived": True, "study_impact": True},
+    "turns_ratio": {"datatype": "float", "derived": True, "study_impact": True},
+    "shift": {"unit": "rad", "datatype": "float", "study_impact": True},
+    "phase_shift_rad": {"unit": "rad", "datatype": "float", "derived": True, "study_impact": True},
+    "phase_shift_deg": {"unit": "deg", "datatype": "float", "derived": True, "study_impact": True},
+    "in_service": {"datatype": "bool", "topology_impact": True, "study_impact": True},
+    "p": {"unit": "MW", "datatype": "float", "study_impact": True},
+    "q": {"unit": "MVAr", "datatype": "float", "study_impact": True},
+}
+
+# Application-owned read metadata.  These descriptors are intentionally
+# generic and read-only: they describe the meaning exposed to projections
+# without duplicating Core validation or providing a UI mutation authority.
 class ReadService(ABC):
     """Framework-neutral contract for Application network read operations."""
     @abstractmethod
@@ -85,13 +115,39 @@ class NetworkReadService(ReadService):
         if not isinstance(network, Network): raise TypeError("NetworkReadService requires a Network")
         self._network = network
     def network(self) -> NetworkReadModel:
+        """Return only NETWORK-domain presentation elements.
+
+        Relays remain authoritative Core Network objects and are exposed
+        through ProtectionReadService; they are intentionally excluded from
+        the network presentation read collection because Relay presentation
+        identity is owned exclusively by the PROTECTION projection domain.
+        """
         elements: list[ElementReadModel] = []
         for element_type in _ELEMENT_COLLECTIONS:
             for model in getattr(self._network, element_type): elements.append(self._to_read_model(element_type, model))
         return NetworkReadModel(elements=tuple(elements))
     def element(self, element_type: str, object_id: str) -> ElementReadModel:
-        requested = element_type.strip().lower(); key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
-        model = self._network.get_by_id(key, object_id); return self._to_read_model(key, model)
+        """Return one NETWORK-domain element read model.
+
+        Relay is a Core Network object, but its presentation/read ownership is
+        PROTECTION. Generic Network element reads therefore reject Relay
+        explicitly; callers needing Relay presentation data must use the
+        Application protection read boundary.
+        """
+        requested = element_type.strip().lower()
+        if requested in {"relay", "relays"}:
+            raise ValueError(
+                "Relay is owned by the protection read boundary; "
+                "use Application.read_relay() instead of read_element()."
+            )
+        key = _ELEMENT_TYPE_ALIASES.get(requested, requested)
+        if key == "relays":
+            raise ValueError(
+                "Relay is owned by the protection read boundary; "
+                "use Application.read_relay() instead of read_element()."
+            )
+        model = self._network.get_by_id(key, object_id)
+        return self._to_read_model(key, model)
     @staticmethod
     def _value(model: Any, names: tuple[str, ...]) -> Any:
         for name in names:
@@ -121,11 +177,55 @@ class NetworkReadService(ReadService):
     def _to_read_model(element_type: str, model: Any) -> ElementReadModel:
         object_id = str(getattr(model, "id")); name = getattr(model, "name", None); labels = {"name": str(name)} if name is not None else {}
         connectivity_refs, terminal_connectivity = NetworkReadService._connectivity(model); attributes = NetworkReadService._project_attributes(element_type, model)
+        engineering_parameters = NetworkReadService._engineering_parameters(
+            element_type,
+            attributes,
+        )
         endpoint_from_id, endpoint_to_id = NetworkReadService._branch_endpoint_ids(model)
         if endpoint_from_id is not None: attributes.update({"from_endpoint": endpoint_from_id, "endpoint_from_id": endpoint_from_id, "from_terminal": endpoint_from_id})
         if endpoint_to_id is not None: attributes.update({"to_endpoint": endpoint_to_id, "endpoint_to_id": endpoint_to_id, "to_terminal": endpoint_to_id})
         if terminal_connectivity: attributes["terminal_connectivity"] = terminal_connectivity
-        return ElementReadModel(object_id=object_id, element_type=element_type, labels=labels, connectivity_refs=connectivity_refs, attributes=attributes)
+        return ElementReadModel(object_id=object_id, element_type=element_type, labels=labels, connectivity_refs=connectivity_refs, attributes=attributes, engineering_parameters=engineering_parameters)
+    @staticmethod
+    def _engineering_parameters(
+        element_type: str,
+        attributes: dict[str, Any],
+    ) -> tuple[EngineeringParameterReadModel, ...]:
+        from .read_models import EngineeringParameterReadModel
+
+        result: list[EngineeringParameterReadModel] = []
+        basis = str(attributes.get("impedance_basis", "")).lower()
+        for parameter_id, value in attributes.items():
+            if parameter_id in {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}:
+                continue
+            metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
+            if element_type == "transformers" and parameter_id in {"r", "x", "b", "impedance_basis", "impedance_base_mva", "tap", "shift", "rate_mva", "in_service"}:
+                metadata["editable"] = True
+            if parameter_id in {"r", "x"}:
+                metadata.setdefault("unit", "pu" if basis == "pu" else "ohm")
+                metadata.setdefault("study_impact", True)
+                metadata.setdefault("coupling_group", "transformer_impedance")
+            elif parameter_id == "b":
+                metadata.setdefault("unit", "pu" if basis == "pu" else "S")
+                metadata.setdefault("study_impact", True)
+                metadata.setdefault("coupling_group", "transformer_impedance")
+            if parameter_id in {"r", "x", "b"} and basis:
+                metadata["validation"] = {"depends_on": ("impedance_basis", "impedance_base_mva", "impedance_base_voltage_kv")}
+            result.append(EngineeringParameterReadModel(
+                parameter_id=parameter_id,
+                value=value,
+                unit=metadata.get("unit"),
+                datatype=metadata.get("datatype", type(value).__name__),
+                choices=tuple(metadata.get("choices", ())),
+                editable=bool(metadata.get("editable", False)),
+                derived=bool(metadata.get("derived", False)),
+                validation=metadata.get("validation", {}),
+                coupling_group=metadata.get("coupling_group"),
+                topology_impact=bool(metadata.get("topology_impact", False)),
+                study_impact=bool(metadata.get("study_impact", False)),
+            ))
+        return tuple(result)
+
     @staticmethod
     def _connectivity(model: Any) -> tuple[tuple[str, ...], tuple[tuple[str, str | None], ...]]:
         refs: list[str] = []; terminal_connectivity: list[tuple[str, str | None]] = []; terminals = getattr(model, "terminals", None)

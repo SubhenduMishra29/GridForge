@@ -465,3 +465,860 @@ must NOT become independent canonical placement authorities.
 Workspace/Layout decides how editors are arranged.
 
 ======================================================================
+
+======================================================================
+GRIDFORGE V2 — BATCH 3 GF-INT CURRENT RECONCILIATION
+======================================================================
+
+The following entries are the current authoritative Batch 3
+GF-INT reconciliation. Historical audit material is preserved
+elsewhere and is not replaced by these current-status records.
+
+======================================================================
+GF-INT-018
+======================================================================
+
+Scope:
+    Application/Core endpoint resolution.
+
+Finding:
+    Endpoint resolution required a single canonical interpretation of
+    Terminal endpoint relationships and must not silently convert
+    malformed Core state into a disconnected endpoint.
+
+Correction:
+    The Network endpoint resolver validates the authoritative Terminal,
+    rejects unsupported endpoint forms, and resolves supported endpoint
+    relationships to the canonical Bus.
+
+Architectural requirement:
+    Endpoint interpretation remains read-only and within the
+    Application/Network boundary; Terminal does not own global topology.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-020
+======================================================================
+
+Scope:
+    Application endpoint reference validation.
+
+Finding:
+    Endpoint references required explicit validation and canonical Core
+    resolution rather than permissive or duplicated object lookup.
+
+Correction:
+    EndpointResolver resolves immutable endpoint references through the
+    active project context and canonical Network objects, with explicit
+    validation/error handling for unsupported or missing references.
+
+Architectural requirement:
+    Endpoint resolution is read-only Application orchestration over the
+    authoritative Core Network.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-021
+======================================================================
+
+Scope:
+    Network identity uniqueness.
+
+Finding:
+    Canonical object identity must be unique across the complete Network,
+    not merely within individual typed collections.
+
+Correction:
+    NetworkRegistry uses one canonical identity map and rejects duplicate
+    canonical IDs before registration.
+
+Architectural requirement:
+    NetworkRegistry is the single authority for Network membership and
+    canonical identity.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-023
+======================================================================
+
+Scope:
+    Network aggregate contract.
+
+Finding:
+    Network membership, identity, topology state and indexing required a
+    single authoritative aggregate boundary.
+
+Correction:
+    Network owns the authoritative Registry, NetworkState, BusIndex and
+    TopologyManager and exposes controlled mutation/validation boundaries.
+
+Architectural requirement:
+    Network remains the authoritative electrical aggregate; downstream
+    analysis does not become a competing state authority.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-024
+======================================================================
+
+Scope:
+    Typed Core membership.
+
+Finding:
+    Network registration must reject non-Core or unsupported object types
+    instead of allowing arbitrary objects into authoritative membership.
+
+Correction:
+    NetworkRegistry validates ElectricalObject membership and the supported
+    Core Network type set before registration.
+
+Architectural requirement:
+    Only supported Core ElectricalObject instances enter authoritative
+    Network membership.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-025
+======================================================================
+
+Scope:
+    Stale references during Network deletion.
+
+Finding:
+    Removing an object while another registered object still referenced it
+    could leave dangling Core endpoint references.
+
+Correction:
+    NetworkRegistry.remove() scans registered owners and rejects removal
+    while dependent Terminal references remain.
+
+Architectural requirement:
+    Network membership changes preserve endpoint/reference integrity.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-027
+======================================================================
+
+Scope:
+    Canonical identity lookup.
+
+Finding:
+    Object lookup required one canonical identity path rather than
+    independently authoritative typed collections.
+
+Correction:
+    Network.get_by_identity() delegates to NetworkRegistry's canonical
+    identity map; typed lookup remains a compatibility projection.
+
+Architectural requirement:
+    Canonical identity resolution is owned by NetworkRegistry.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-028
+======================================================================
+
+Scope:
+    Registry authority.
+
+Finding:
+    Typed collections must not become independent membership authorities.
+
+Correction:
+    NetworkRegistry derives typed collections from the canonical
+    _objects identity map and retains membership mutation in the registry.
+
+Architectural requirement:
+    There is one authoritative Network registry; typed views are
+    projections.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-030
+======================================================================
+
+Scope:
+    Dependent-reference protection.
+
+Finding:
+    Core deletion must protect dependent references and must not silently
+    leave owners pointing at removed objects.
+
+Correction:
+    NetworkRegistry.remove() explicitly checks all registered Terminal
+    owners and rejects deletion while a dependent reference exists.
+
+Architectural requirement:
+    Referential integrity is enforced at the authoritative Network
+    mutation boundary.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-035
+======================================================================
+
+Scope:
+    Canonical terminal-role handling.
+
+Finding:
+    Terminal ownership, semantic role and endpoint references require one
+    authoritative Core Terminal contract.
+
+Correction:
+    Terminal owns its endpoint and semantic role, validates its owner and
+    role, and retains the canonical role vocabulary without delegating
+    global topology interpretation to Terminal.
+
+Architectural requirement:
+    Terminal remains a Core domain value/relationship boundary; global
+    topology remains owned by Network.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-040
+======================================================================
+
+Scope:
+    Application transaction rollback state integrity.
+
+Finding:
+    Transaction lifecycle required explicit distinction between open,
+    committing, committed, rolling back, rolled back and rollback-failed
+    states.
+
+Correction:
+    Transaction records undo operations only while OPEN; commit creates the
+    immutable undo journal; rollback transitions through ROLLING_BACK,
+    attempts inverse operations, and represents rollback failure explicitly
+    while preserving the first rollback error.
+
+Architectural requirement:
+    Rollback is a pre-commit transaction concern and cannot be repeated
+    after a committed transaction.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-041
+======================================================================
+
+Scope:
+    Application undo/redo history transition.
+
+Finding:
+    Undo history transition required removal from undo history before the
+    record could enter redo history.
+
+Correction:
+    CommandManager performs:
+        pop_undo(record)
+        -> execute inverse UndoJournal
+        -> move_undo_to_redo(record)
+
+    CommandHistory.move_undo_to_redo() now accepts an already-removed
+    record and rejects a record that is still present in either stack.
+
+Architectural requirement:
+    CommandManager owns undo-operation execution and transition
+    orchestration; CommandHistory remains a state-only history container.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-042
+======================================================================
+
+Scope:
+    Application command transaction/history commit boundary.
+
+Finding:
+    PRE-COMMIT, COMMIT and POST-COMMIT behavior required explicit
+    separation so that post-commit history failure cannot roll back already
+    committed Core state.
+
+Correction:
+    CommandManager executes handler work before commit, obtains the
+    immutable UndoJournal at commit, and records history only after commit.
+    A post-commit history-recording failure marks the command boundary
+    degraded instead of attempting to roll back committed Core state.
+
+Architectural requirement:
+    Core transaction commit is authoritative; history recording is a
+    post-commit application concern.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-046
+======================================================================
+
+Scope:
+    Project runtime isolation.
+
+Finding:
+    Activating another project/network required a fresh project-bound
+    Application command/history runtime rather than retaining the prior
+    project's history boundary.
+
+Correction:
+    Bootstrap builds a fresh CommandManager/read/validation runtime for
+    the active Network and Application replaces the runtime atomically
+    during Network activation.
+
+Architectural requirement:
+    Project-scoped command/history state must not leak across active
+    project boundaries.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-047
+======================================================================
+
+Scope:
+    Project lifecycle activation integrity.
+
+Finding:
+    Project activation required validation and rollback-aware replacement
+    of project-bound runtime state.
+
+Correction:
+    ProjectLifecycleService validates the candidate and coordinates
+    presentation, Network and project-state activation with rollback
+    callbacks; incomplete rollback enters ROLLBACK_FAILED explicitly.
+
+Architectural requirement:
+    Project activation remains an Application lifecycle transaction and
+    does not expose partial project state as active.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-048
+======================================================================
+
+Scope:
+    Project identity and activation-generation isolation.
+
+Finding:
+    Project-scoped state and study/runtime references required explicit
+    project identity and activation-generation provenance.
+
+Correction:
+    Project lifecycle increments activation_generation across successful
+    transitions, ProjectSnapshot carries project_id and
+    activation_generation, and project-scoped runtime activation validates
+    the active project generation before use.
+
+Architectural requirement:
+    Project identity and activation generation remain explicit boundaries
+    for project-scoped state and downstream study preparation.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-050
+======================================================================
+
+Scope:
+    Network.validate() Core-domain validation boundary.
+
+Finding:
+    Generic object validation was insufficient for authoritative Network
+    validation.
+
+Correction:
+    Network.validate() explicitly requires Core ElectricalObject
+    membership, invokes each element's validate() contract, and checks
+    Network membership tokens and registered endpoint relationships.
+
+Architectural requirement:
+    Network validation operates on the Core ElectricalObject contract and
+    validates authoritative membership/reference integrity.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static source reconciliation completed.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+GF-INT-051
+======================================================================
+
+Scope:
+    Batch 3 audit/register synchronization.
+
+Finding:
+    The current Batch 3 implementation/remediation state was not
+    synchronized into Modification_Register.txt, creating a divergence
+    between source implementation and the authoritative audit register.
+
+Correction:
+    Synchronize the current Batch 3 findings and statuses into this
+    authoritative register while preserving existing IDs and historical
+    audit material.
+
+Architectural requirement:
+    Code state, audit findings and the modification register must form one
+    consistent audit authority. Register synchronization must not alter
+    the frozen GridForge V2 architecture.
+
+Status:
+    REMEDIATED — VERIFICATION DEFERRED
+
+Verification:
+    Static reconciliation only.
+    Runtime/tests/CI verification deferred.
+
+======================================================================
+BATCH 3 STATIC RECONCILIATION CHECK
+======================================================================
+
+Reconciled current Batch 3 findings:
+    18 current GF-INT findings are represented by one authoritative
+    current entry each.
+
+Additional current Batch 3 GF-INT identifiers:
+    None identified in the inspected authoritative register or current
+    repository audit/remediation material.
+
+Register integrity:
+    One current authoritative entry per reconciled GF-INT identifier.
+    No replacement identifiers introduced.
+
+Verification boundary:
+    Static source/register reconciliation only.
+    Runtime, tests and CI remain deferred and are not claimed.
+
+======================================================================
+
+======================================================================
+BATCH 18 — SLD / CORE DELETION INTENT AND TRANSACTION BOUNDARY
+======================================================================
+
+Architectural decision state:
+    No authoritative engineer-facing policy was found that makes
+    SLD-node deletion imply Core-equipment deletion, Core-equipment
+    deletion imply persistent SLD deletion, or both actions one
+    canonical use case.
+
+    ARCHITECTURAL DECISION REQUIRED.
+
+Correction:
+    RemoveSLDNodeCommand remains presentation-only.
+    Generic Core Delete*Command objects remain presentation-neutral.
+    SLDController.remove_node() and SLD selection are explicitly
+    documented as presentation/UI intent only.
+    No coordinated Core+SLD deletion command was introduced because
+    doing so would invent an engineer-facing deletion policy that the
+    repository does not currently authorize.
+
+Batch 18 findings:
+    SLD-WF-108 — No canonical Application equipment-representation
+                   deletion use case — CRITICAL — OPEN
+    SLD-WF-109 — Core and persistent SLD deletion are independent
+                   history boundaries — CRITICAL — OPEN
+    SLD-WF-110 — SLDController.remove_node() is presentation-only and
+                   has no equipment-deletion intent — HIGH — OPEN
+    SLD-WF-111 — SLD selection does not provide a verified
+                   equipment-deletion workflow — HIGH — OPEN
+    SLD-WF-112 — Core delete commands have no persistent SLD
+                   reconciliation boundary — CRITICAL — OPEN
+    SLD-WF-113 — Core delete undo cannot reconcile presentation
+                   because the command owns no SLD mutation — HIGH — OPEN
+    SLD-WF-114 — Runtime projection reconciliation is distinct from
+                   persistent SLD reconciliation — HIGH — OPEN
+    SLD-WF-115 — Engineer-facing meaning of SLD-node deletion versus
+                   equipment deletion is undefined — HIGH — OPEN
+
+Static verification:
+    Application transaction/history boundaries were traced.
+    RemoveSLDNodeCommand records only SLD restoration through the
+    existing Transaction.record_undo() mechanism.
+    Core deletion remains Core-scoped.
+    No nested Application.execute() composition was introduced.
+    Runtime projection does not receive authority to mutate the
+    persistent SLDDocument.
+
+Status:
+    CORRECTED — STATIC VERIFICATION COMPLETE
+    Batch 18 remains OPEN / RE-AUDIT REQUIRED pending the architectural
+    deletion-intent decision.
+
+Verification boundary:
+    No tests, CI, application startup, GUI execution, or runtime
+    verification performed.
+
+
+
+======================================================================
+CONSOLIDATED MASTER CORRECTION PASS — 2026-09-22
+======================================================================
+
+Repository authority:
+    pandaraseswari03-collab/GridForge
+    branch: main
+
+Verification boundary:
+    STATIC SOURCE / REGISTER AUDIT ONLY.
+    No tests, pytest, CI, application startup, GUI execution, or runtime
+    verification was performed.
+
+RCA mapping:
+    Dynamics API                  -> RCA-011 / RCA-013
+    Power Flow / study prep      -> RCA-011 / RCA-016
+    Protection / measurement     -> RCA-010 / RCA-005
+    Persistence                  -> RCA-006 / RCA-016
+    Legacy/parallel subsystems   -> applicable canonical RCA per subsystem
+    Command/transaction/history  -> RCA-003 / RCA-012
+    SLD identity/topology        -> RCA-001 / RCA-005 / RCA-008
+    Workspace/panels             -> RCA-007 / RCA-008 / RCA-014
+    Events/revision/validation   -> RCA-004 / RCA-012 / RCA-015
+    Hover/readout                -> RCA-008 / RCA-009
+    Runtime verification         -> evidence state only; no speculative code
+
+----------------------------------------------------------------------
+RCA-DYN-API-001 / GF-MASTER-0011..0013
+----------------------------------------------------------------------
+Static evidence:
+    core/solver/dynamics/machine_models.py is the active machine-model
+    implementation and defines ClassicalMachineParameters and
+    ClassicalSynchronousMachine.
+    core/solver/dynamics/__init__.py exports those current machine-model
+    classes and does not export DynamicMachineModel.
+    No active core/solver/dynamics/state_vector.py exists at the inspected
+    main-branch path.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The current public API is identifiable, but repository-wide consumer
+    reconciliation could not be established from the available indexed
+    search results. No DynamicMachineModel compatibility implementation was
+    introduced. Historical findings remain traceable.
+
+----------------------------------------------------------------------
+GF-MASTER-0021..0026 — Power Flow / study preparation
+----------------------------------------------------------------------
+Static evidence:
+    core/analysis/power_flow_preparation.py is the authoritative live-model
+    to detached numerical preparation boundary.
+    It uses core.base.per_unit.PerUnitSystem.
+    PreparedPowerFlow is immutable/detached.
+    core/numerical/ybus.py defines immutable YBus and YBusBuilder, with
+    YBusBuilder consuming prepared data rather than Network.
+    core/solver/power_flow/preparation.py is explicitly a compatibility
+    facade delegating to core.analysis.power_flow_preparation.
+    core/analysis/power_flow.py consumes the prepared snapshot for solver
+    execution and engineering-result conversion.
+
+Disposition:
+    GF-MASTER-0021 — STATICALLY VERIFIED
+    GF-MASTER-0022 — STATICALLY VERIFIED
+    GF-MASTER-0023 — STATICALLY VERIFIED
+    GF-MASTER-0024 — OPEN — RE-AUDIT REQUIRED
+    GF-MASTER-0025 — OPEN — SOURCE EVIDENCE PENDING
+    GF-MASTER-0026 — OPEN — SOURCE EVIDENCE PENDING
+
+Reason:
+    Detached preparation, PerUnitSystem use, and YBus separation are
+    directly evidenced. Short-circuit identity and complete conversion
+    coverage were not sufficiently established for closure.
+
+----------------------------------------------------------------------
+GF-MASTER-0027..0029 / GF-MASTER-0034 — Protection / measurement
+----------------------------------------------------------------------
+Static evidence:
+    core/protection/decision.py defines ProtectionDecision as an immutable
+    result contract and explicitly states that it does not operate breakers,
+    modify Relay state, modify MeasurementChannel state, or modify network
+    topology.
+    core/protection/__init__.py exposes ProtectionDecision as the public
+    protection result type.
+    MeasurementChannel remains a measurement representation and its source
+    references are read/association data.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The decision contract is consistent with the frozen boundary, but the
+    complete decision-to-command-to-Core-switching consumer chain was not
+    sufficiently established for static closure.
+
+----------------------------------------------------------------------
+GF-MASTER-0030 / GF-MASTER-0033 — Dynamics capability / persistence
+----------------------------------------------------------------------
+Static evidence:
+    DynamicMachineModelAssociation is project-scoped and stores canonical
+    machine_id/bus_id references, model_type, typed parameters, project_id,
+    and activation_generation.
+    Project persistence reconstructs associations through
+    DynamicMachineModelAssociation.from_dict() and validates referenced
+    Network identities and element types.
+
+Disposition:
+    GF-MASTER-0030 — OPEN — SOURCE EVIDENCE PENDING
+    GF-MASTER-0033 — STATICALLY VERIFIED
+
+Reason:
+    Persistence association structure and deterministic Core identity
+    validation are directly evidenced. The complete implemented/deferred
+    Dynamics capability matrix still requires repository-wide consumer
+    reconciliation.
+
+----------------------------------------------------------------------
+GF-MASTER-0031 / RCA-006-PERSIST-001 — .gridforge package
+----------------------------------------------------------------------
+Correction:
+    ProjectPersistenceService.save() previously emitted project_id, name,
+    and engineering_state in manifest.json. Those fields are engineering/
+    project state and violate the frozen manifest ownership boundary.
+
+    The canonical manifest emission was corrected to:
+        {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
+
+    Project identity, network, SLD presentation, dynamic-model associations,
+    and protection configuration remain in project.json.
+
+Disposition:
+    AGENT CORRECTED — RE-AUDIT REQUIRED
+
+Evidence:
+    Static source correction committed on main.
+    Save/load/reconstruction consumer audit remains required.
+
+----------------------------------------------------------------------
+GF-MASTER-0043 — legacy/parallel subsystem cleanup
+----------------------------------------------------------------------
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    Current source contains explicit compatibility facades in at least the
+    Power Flow preparation boundary. Such facades are not automatically
+    defects when they delegate to the canonical implementation, but a
+    repository-wide classification of all legacy/current pairs remains
+    incomplete. No parallel production authority was introduced by this pass.
+
+----------------------------------------------------------------------
+GF-MASTER-0037 / RCA-003 — command / transaction / history
+----------------------------------------------------------------------
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The register already contains Batch 3 transaction/history remediation,
+    but this consolidated pass did not independently establish absence of
+    every UI/SLD/Controller/Tool/Plugin direct Core mutation path.
+    No second CommandManager or alternate history subsystem was introduced.
+
+----------------------------------------------------------------------
+GF-MASTER-0038..0040 / RCA-SLD-AUTH-001
+----------------------------------------------------------------------
+Static evidence:
+    Workspace/SLD architectural material continues to identify Core
+    Equipment and authoritative Terminals as engineering identity, with
+    Workspace/SLD as presentation state.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    Complete terminal-snap/connection-command/read-projection consumer
+    coverage was not established from indexed repository search. No generic
+    authoritative free-form wiring subsystem was introduced.
+
+----------------------------------------------------------------------
+GF-MASTER-0017..0020 / RCA-UI-WORKSPACE-001
+----------------------------------------------------------------------
+Static evidence:
+    ui/panels/panel_descriptor.py explicitly excludes workspace placement.
+    ui/panels/panel_state.py explicitly excludes area, floating placement,
+    geometry, and docking.
+    ui/workspace/workspace_layout.py owns immutable logical placement.
+    ui/workspace/workspace_realizer.py translates WorkspaceLayout to the
+    MainWindow host.
+    ui/main_window.py is the mechanical Qt dock host.
+
+Outstanding:
+    ui/plugins/panels_plugin.py still owns QDockWidget creation and performs
+    host removal during panel cleanup. It does not perform addDockWidget()
+    or tabifyDockWidget() placement; those operations are exposed by and
+    executed through MainWindow during WorkspaceRealizer realization.
+
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    The placement split is substantially represented in source, but the
+    plugin lifecycle/composition-to-realizer handoff requires direct
+    consumer reconciliation before this cluster can be closed.
+
+----------------------------------------------------------------------
+GF-MASTER-0035..0036 / RCA-004 / RCA-012 / RCA-015
+----------------------------------------------------------------------
+Disposition:
+    OPEN — RE-AUDIT REQUIRED
+
+Reason:
+    Existing register evidence covers semantic event/read-model and
+    transaction boundaries, but this consolidated pass did not establish
+    repository-wide absence of competing revision, dirty-state, validation,
+    or mutation-event authorities.
+
+----------------------------------------------------------------------
+GF-MASTER-0045 — contextual SLD hover/readout
+----------------------------------------------------------------------
+Disposition:
+    OPEN — SOURCE EVIDENCE PENDING
+
+Reason:
+    No engineering attribute contract was invented. A complete
+    Canvas-hover -> presentation identity -> read-side resolution ->
+    contextual engineering readout workflow was not established strongly
+    enough to create or close an implementation finding.
+
+----------------------------------------------------------------------
+GF-MASTER-0044 — runtime verification
+----------------------------------------------------------------------
+Disposition:
+    DEFERRED — RUNTIME VERIFICATION
+
+Evidence boundary:
+    Runtime execution, tests, CI, startup, GUI execution, and runtime
+    workflow proof remain intentionally deferred. Static source changes
+    must not be described as runtime verification.
+
+======================================================================
+PASS SUMMARY
+======================================================================
+
+Corrected and statically verified:
+    GF-MASTER-0021
+    GF-MASTER-0022
+    GF-MASTER-0023
+    GF-MASTER-0033
+
+Corrected but re-audit required:
+    GF-MASTER-0031
+    RCA-006-PERSIST-001
+    Workspace/panel boundary cluster where source corrections already exist
+
+Open / evidence pending or re-audit required:
+    RCA-DYN-API-001 / GF-MASTER-0011..0013
+    GF-MASTER-0024..0026
+    GF-MASTER-0027..0029
+    GF-MASTER-0030
+    GF-MASTER-0034
+    GF-MASTER-0035..0040
+    GF-MASTER-0043
+    GF-MASTER-0045
+
+Runtime verification deferred:
+    GF-MASTER-0044
+    All source-only corrections remain non-runtime evidence.
+
+Historical IDs:
+    Preserved. No historical register identifier was deleted.
+
+Architecture:
+    No second Core, topology, CommandManager, project lifecycle,
+    workspace authority, study model, or compatibility production
+    authority was introduced by this pass.
+
+======================================================================

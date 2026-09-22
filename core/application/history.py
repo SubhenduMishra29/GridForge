@@ -250,6 +250,57 @@ class CommandHistory:
         self._undo_stack.append(record)
 
     # ========================================================
+    # STATE TRANSITIONS
+    # ========================================================
+
+    def restore_undo(self, record: CommandRecord) -> None:
+        """Restore one record to undo history after a clean undo failure."""
+        self._validate_record(record)
+        self._undo_stack.append(record)
+
+    def restore_redo(self, record: CommandRecord) -> None:
+        """Restore one record to redo history after a clean redo failure."""
+        self._validate_record(record)
+        self._redo_stack.append(record)
+
+    def move_undo_to_redo(self, record: CommandRecord) -> None:
+        """Append an already-removed undo record to redo history.
+
+        Contract
+        --------
+        CommandManager owns the removal step:
+
+            pop_undo() -> execute inverse journal -> move_undo_to_redo()
+
+        Therefore this state-only transition requires the supplied record
+        to be absent from both stacks before it is appended to redo. The
+        record itself is never mutated or recreated.
+
+        A transition failure is surfaced to CommandManager, which owns the
+        Core/history integrity decision after the Core undo has completed.
+        """
+        self._validate_record(record)
+
+        if any(existing is record for existing in self._undo_stack):
+            raise RuntimeError(
+                "Undo-to-redo transition received a record that is still "
+                "present in undo history."
+            )
+
+        if any(existing is record for existing in self._redo_stack):
+            raise RuntimeError(
+                "Undo-to-redo transition received a record that is already "
+                "present in redo history."
+            )
+
+        try:
+            self._redo_stack.append(record)
+        except Exception as exc:
+            raise RuntimeError(
+                "Undo-to-redo history transition failed."
+            ) from exc
+
+    # ========================================================
     # REDO
     # ========================================================
 

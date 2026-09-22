@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/persistence/type_registry.py
+# GridForge V2 — Persistence Model Type Registry
+# Author: Subhendu Mishra
+# ============================================================
+
 """Explicit, fail-fast mapping between persisted model types and Core classes."""
 
 from __future__ import annotations

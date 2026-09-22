@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping
 from uuid import UUID, uuid4
 
 from .event_bus import ApplicationEventBus
+from .revision import ProjectRevision
 from .events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
 
 
@@ -21,16 +22,26 @@ class StudyRequest:
     """Immutable request boundary for one Application study execution."""
 
     study_id: UUID = field(default_factory=uuid4)
+    project_id: str = ""
+    activation_generation: int = 0
+    source_revision: ProjectRevision | None = None
     study_type: str = ""
     configuration: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
             raise TypeError("study_id must be a UUID.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
         if not isinstance(self.study_type, str) or not self.study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
         if not isinstance(self.configuration, Mapping):
             raise TypeError("configuration must be a mapping.")
+        object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
         object.__setattr__(self, "configuration", MappingProxyType(dict(self.configuration)))
 
@@ -40,6 +51,9 @@ class StudyResult:
     """Immutable Application study result registration."""
 
     study_id: UUID
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
     study_type: str
     status: str
     value: Any = None
@@ -49,10 +63,17 @@ class StudyResult:
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
             raise TypeError("study_id must be a UUID.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
         if not isinstance(self.study_type, str) or not self.study_type.strip():
             raise ValueError("study_type must be a non-empty string.")
         if self.status not in {"completed", "failed", "cancelled"}:
             raise ValueError("status must be completed, failed, or cancelled.")
+        object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
         object.__setattr__(self, "message", str(self.message))
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -83,8 +104,8 @@ class StudyService:
             raise TypeError("event_bus must be an ApplicationEventBus.")
         self._event_bus = event_bus
         self._handlers: dict[str, StudyHandler] = {}
-        self._results: dict[UUID, StudyResult] = {}
-        self._tokens: dict[UUID, StudyCancellationToken] = {}
+        self._results: dict[tuple[str, int, UUID], StudyResult] = {}
+        self._tokens: dict[tuple[str, int, UUID], StudyCancellationToken] = {}
 
     @property
     def registered_study_types(self) -> tuple[str, ...]:
@@ -107,11 +128,16 @@ class StudyService:
         if handler is None:
             raise KeyError(f"No study handler registered for {request.study_type!r}.")
 
+        key = (request.project_id, request.activation_generation, request.study_id)
+        if key in self._tokens:
+            raise ValueError(f"Study is already active: {request.study_id}")
         token = StudyCancellationToken()
-        self._tokens[request.study_id] = token
+        self._tokens[key] = token
         self._event_bus.publish(StudyStarted(metadata={
             "study_id": str(request.study_id),
             "study_type": request.study_type,
+            "project_id": request.project_id,
+            "activation_generation": request.activation_generation,
         }))
 
         try:
@@ -119,58 +145,88 @@ class StudyService:
             if token.cancelled:
                 result = StudyResult(
                     study_id=request.study_id,
+                    project_id=request.project_id,
+                    activation_generation=request.activation_generation,
+                    source_revision=request.source_revision,
                     study_type=request.study_type,
                     status="cancelled",
                     message="Study cancelled.",
                 )
-                self._results[request.study_id] = result
+                self._results[key] = result
                 self._event_bus.publish(StudyCancelled(metadata={
                     "study_id": str(request.study_id),
                     "study_type": request.study_type,
+                    "project_id": request.project_id,
+                    "activation_generation": request.activation_generation,
                 }))
                 return result
 
             result = StudyResult(
                 study_id=request.study_id,
+                project_id=request.project_id,
+                activation_generation=request.activation_generation,
+                source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="completed",
                 value=value,
             )
-            self._results[request.study_id] = result
+            self._results[key] = result
             self._event_bus.publish(StudyCompleted(metadata={
                 "study_id": str(request.study_id),
                 "study_type": request.study_type,
+                "project_id": request.project_id,
+                "activation_generation": request.activation_generation,
             }))
             return result
         except Exception as exc:
             result = StudyResult(
                 study_id=request.study_id,
+                project_id=request.project_id,
+                activation_generation=request.activation_generation,
+                source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="failed",
                 message=str(exc),
             )
-            self._results[request.study_id] = result
+            self._results[key] = result
             self._event_bus.publish(StudyFailed(metadata={
                 "study_id": str(request.study_id),
                 "study_type": request.study_type,
+                "project_id": request.project_id,
+                "activation_generation": request.activation_generation,
                 "error": str(exc),
             }))
             raise
         finally:
-            self._tokens.pop(request.study_id, None)
+            self._tokens.pop(key, None)
 
-    def cancel(self, study_id: UUID) -> bool:
-        token = self._tokens.get(study_id)
+    @property
+    def has_active_studies(self) -> bool:
+        return bool(self._tokens)
+
+    def ensure_no_active_studies(self) -> None:
+        if self._tokens:
+            scopes = ", ".join(
+                f"{project_id}:{generation}:{study_id}"
+                for project_id, generation, study_id in self._tokens
+            )
+            raise RuntimeError(f"Project transition blocked by active study scope(s): {scopes}")
+
+    def cancel(self, study_id: UUID, *, project_id: str, activation_generation: int) -> bool:
+        token = self._tokens.get((project_id, activation_generation, study_id))
         if token is None:
             return False
         token.cancel()
         return True
 
-    def get_result(self, study_id: UUID) -> StudyResult | None:
-        return self._results.get(study_id)
+    def get_result(self, study_id: UUID, *, project_id: str, activation_generation: int) -> StudyResult | None:
+        return self._results.get((project_id, activation_generation, study_id))
 
-    def results(self) -> tuple[StudyResult, ...]:
-        return tuple(self._results.values())
+    def results(self, *, project_id: str | None = None, activation_generation: int | None = None) -> tuple[StudyResult, ...]:
+        values = tuple(self._results.values())
+        if project_id is None and activation_generation is None:
+            return values
+        return tuple(result for result in values if (project_id is None or result.project_id == project_id) and (activation_generation is None or result.activation_generation == activation_generation))
 
 
 __all__ = [

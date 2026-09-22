@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/projection/selection_projection_coordinator.py
 # GridForge V2 — Selection Projection Coordinator
+# Author: Subhendu Mishra
 # ============================================================
 """Project transient UI selection into the PropertiesPanel through Application."""
 
@@ -17,7 +18,7 @@ from core.application.events import (
     ProjectLoaded,
 )
 
-from .projection_state import ProjectionState
+from .projection_state import EngineeringParameterState, ProjectionState
 
 
 class SelectionProjectionCoordinator:
@@ -116,6 +117,22 @@ class SelectionProjectionCoordinator:
             labels=tuple(str(value) for value in element.labels.values()),
             connectivity_refs=tuple(element.connectivity_refs),
             status=self._status(element.attributes),
+            engineering_parameters=tuple(
+                EngineeringParameterState(
+                    parameter_id=item.parameter_id,
+                    value=item.value,
+                    unit=item.unit,
+                    datatype=item.datatype,
+                    choices=item.choices,
+                    editable=item.editable,
+                    derived=item.derived,
+                    validation=item.validation,
+                    coupling_group=item.coupling_group,
+                    topology_impact=item.topology_impact,
+                    study_impact=item.study_impact,
+                )
+                for item in getattr(element, "engineering_parameters", ())
+            ),
         )
         self._set_panel_target(state)
 

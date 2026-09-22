@@ -257,6 +257,12 @@ class WorkspaceRealizer:
             None,
         )
 
+    def detach_all_docks(self) -> tuple[DockBinding, ...]:
+        """Detach every runtime binding without destroying its owned dock."""
+        detached = tuple(self._bindings.values())
+        self._bindings.clear()
+        return detached
+
     def get_dock(
         self,
         panel_id: str,

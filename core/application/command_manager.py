@@ -129,6 +129,8 @@ class CommandManager:
             if history is not None
             else CommandHistory()
         )
+        self._integrity_state = "CLEAN"
+        self._integrity_error: Exception | None = None
 
     # ========================================================
     # PROPERTIES
@@ -143,6 +145,32 @@ class CommandManager:
     def registered_commands(self) -> tuple[str, ...]:
         """Return registered command types."""
         return tuple(self._handlers.keys())
+
+    @property
+    def integrity_state(self) -> str:
+        """Return CLEAN or DEGRADED for the command/Core synchronization boundary."""
+        return self._integrity_state
+
+    @property
+    def integrity_error(self) -> Exception | None:
+        """Return the failure that caused a degraded command boundary, if any."""
+        return self._integrity_error
+
+    def _require_healthy(self) -> None:
+        if self._integrity_state != "CLEAN":
+            raise ExecutionError(
+                code="COMMAND_MANAGER_DEGRADED",
+                message=(
+                    "Application command execution is blocked because the "
+                    "Core/history boundary is degraded and requires project recovery."
+                ),
+                details={"integrity_state": self._integrity_state},
+                cause=self._integrity_error,
+            )
+
+    def _mark_degraded(self, error: Exception) -> None:
+        self._integrity_state = "DEGRADED"
+        self._integrity_error = error
 
     # ========================================================
     # HANDLER REGISTRATION
@@ -239,6 +267,7 @@ class CommandManager:
         reached a terminal state.
         """
 
+        self._require_healthy()
         self._validate_command(command)
 
         handler = self._resolve_handler(command)
@@ -360,6 +389,7 @@ class CommandManager:
             raise
 
         except Exception as exc:
+            self._mark_degraded(exc)
             raise ExecutionError(
                 code="COMMAND_HISTORY_RECORD_FAILED",
                 message=(
@@ -422,6 +452,7 @@ class CommandManager:
         order.
         """
 
+        self._require_healthy()
         record = self._history.peek_undo()
 
         if record is None:
@@ -444,24 +475,50 @@ class CommandManager:
         record = self._history.pop_undo()
 
         if record is None:
-            raise ExecutionError(
-                code="UNDO_HISTORY_STATE_ERROR",
+            error = ExecutionError(
+                code="HISTORY_STATE_ERROR",
                 message=(
                     "Undo history changed unexpectedly "
                     "while preparing undo."
                 ),
                 details={},
             )
+            self._mark_degraded(error)
+            raise error
 
         try:
             self._execute_undo_journal(record)
 
-        except ApplicationError:
-            self._history.push_undo(record)
-            raise
+        except ExecutionError as exc:
+            completed = int(
+                (exc.details or {}).get(
+                    "completed_operations",
+                    0,
+                )
+            )
 
-        except Exception as exc:
-            self._history.push_undo(record)
+            if completed == 0:
+                try:
+                    self._history.restore_undo(record)
+                except Exception as restore_exc:
+                    self._mark_degraded(restore_exc)
+                    raise ExecutionError(
+                        code="HISTORY_RESTORE_FAILED",
+                        message=(
+                            "Undo inverse operations failed before any "
+                            "operation completed, and restoring the undo "
+                            "history record also failed."
+                        ),
+                        details={
+                            "command_type": record.command_type,
+                            "command_id": str(record.command_id),
+                            "completed_operations": 0,
+                            "original_error": exc,
+                        },
+                        cause=exc,
+                    ) from restore_exc
+            else:
+                self._mark_degraded(exc)
 
             raise ExecutionError(
                 code="UNDO_FAILED",
@@ -471,14 +528,29 @@ class CommandManager:
                 ),
                 details={
                     "command_type": record.command_type,
-                    "command_id": str(
-                        record.command_id
-                    ),
+                    "command_id": str(record.command_id),
+                    "completed_operations": completed,
                 },
                 cause=exc,
             ) from exc
 
-        self._history.push_redo(record)
+        try:
+            self._history.move_undo_to_redo(record)
+        except Exception as history_exc:
+            self._mark_degraded(history_exc)
+            raise ExecutionError(
+                code="HISTORY_TRANSITION_FAILED",
+                message=(
+                    "Core undo completed, but the undo-to-redo "
+                    "history transition failed."
+                ),
+                details={
+                    "command_type": record.command_type,
+                    "command_id": str(record.command_id),
+                    "core_undo_completed": True,
+                },
+                cause=history_exc,
+            ) from history_exc
 
         return ApplicationResult.success_result(
             value=None,
@@ -498,15 +570,21 @@ class CommandManager:
     @staticmethod
     def _execute_undo_journal(
         record: CommandRecord,
-    ) -> None:
-        """
-        Execute inverse operations in reverse order.
-        """
-
-        for operation in reversed(
-            record.undo_operations
-        ):
-            operation()
+    ) -> int:
+        """Execute inverse operations and report how many completed."""
+        completed = 0
+        for operation in reversed(record.undo_operations):
+            try:
+                operation()
+            except Exception as exc:
+                raise ExecutionError(
+                    code="UNDO_OPERATION_FAILED",
+                    message="An inverse operation failed during undo.",
+                    details={"completed_operations": completed},
+                    cause=exc,
+                ) from exc
+            completed += 1
+        return completed
 
     # ========================================================
     # REDO
@@ -523,6 +601,7 @@ class CommandManager:
         and UndoJournal.
         """
 
+        self._require_healthy()
         record = self._history.pop_redo()
 
         if record is None:
@@ -534,13 +613,58 @@ class CommandManager:
                 clear_redo=False,
             )
 
-        except ApplicationError:
-            self._history.push_redo(record)
+        except ApplicationError as exc:
+            if self._integrity_state == "CLEAN":
+                try:
+                    self._history.restore_redo(record)
+                except Exception as restore_exc:
+                    self._mark_degraded(restore_exc)
+                    raise ExecutionError(
+                        code="HISTORY_RESTORE_FAILED",
+                        message=(
+                            "Redo execution failed cleanly, but restoring "
+                            "the redo history record failed."
+                        ),
+                        details={
+                            "command_type": record.command_type,
+                            "command_id": str(record.command_id),
+                            "original_error": exc,
+                        },
+                        cause=exc,
+                    ) from restore_exc
             raise
 
-        except Exception:
-            self._history.push_redo(record)
-            raise
+        except Exception as exc:
+            if self._integrity_state == "CLEAN":
+                try:
+                    self._history.restore_redo(record)
+                except Exception as restore_exc:
+                    self._mark_degraded(restore_exc)
+                    raise ExecutionError(
+                        code="HISTORY_RESTORE_FAILED",
+                        message=(
+                            "Redo execution failed cleanly, but restoring "
+                            "the redo history record failed."
+                        ),
+                        details={
+                            "command_type": record.command_type,
+                            "command_id": str(record.command_id),
+                            "original_error": exc,
+                        },
+                        cause=exc,
+                    ) from restore_exc
+            raise ExecutionError(
+                code="REDO_FAILED",
+                message=(
+                    "Redo execution failed for command: "
+                    f"{record.command_type}"
+                ),
+                details={
+                    "command_type": record.command_type,
+                    "command_id": str(record.command_id),
+                },
+                cause=exc,
+            ) from exc
 
     # ========================================================
     # HISTORY STATE
@@ -549,12 +673,18 @@ class CommandManager:
     def can_undo(self) -> bool:
         """Return whether an undo operation is available."""
 
-        return self._history.can_undo()
+        return (
+            self._integrity_state == "CLEAN"
+            and self._history.can_undo()
+        )
 
     def can_redo(self) -> bool:
         """Return whether a redo operation is available."""
 
-        return self._history.can_redo()
+        return (
+            self._integrity_state == "CLEAN"
+            and self._history.can_redo()
+        )
 
     def undo_count(self) -> int:
         """Return the number of undo records."""
@@ -677,8 +807,8 @@ class CommandManager:
     # SAFE ROLLBACK
     # ========================================================
 
-    @staticmethod
     def _rollback_safely(
+        self,
         transaction: Transaction,
     ) -> None:
         """
@@ -703,6 +833,7 @@ class CommandManager:
             transaction.rollback()
 
         except Exception as exc:
+            self._mark_degraded(exc)
             raise ExecutionError(
                 code="TRANSACTION_ROLLBACK_FAILED",
                 message="Transaction rollback failed.",

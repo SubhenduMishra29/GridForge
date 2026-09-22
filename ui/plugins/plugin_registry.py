@@ -71,9 +71,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from threading import RLock
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .plugin_contract import validate_plugin
+from .plugin_events import PluginEvent, PluginEventSource
 from .plugin_state import PluginStateStore
 
 
@@ -200,6 +201,7 @@ class PluginRegistry:
         self,
         *,
         state_store: PluginStateStore | None = None,
+        event_sink: Callable[[PluginEvent], None] | None = None,
     ) -> None:
         if state_store is not None and not isinstance(
             state_store,
@@ -220,6 +222,9 @@ class PluginRegistry:
             PluginEntry,
         ] = {}
 
+        if event_sink is not None and not callable(event_sink):
+            raise TypeError("event_sink must be callable or None.")
+        self._event_sink = event_sink
         self._lock = RLock()
 
     # ========================================================
@@ -416,10 +421,7 @@ class PluginRegistry:
                     context
                 )
             except Exception as exc:
-                self._record_error(
-                    plugin_id,
-                    exc,
-                )
+                self._record_error(plugin_id, exc)
                 raise
 
             # ------------------------------------------------
@@ -427,31 +429,36 @@ class PluginRegistry:
             # plugin initialization.
             # ------------------------------------------------
 
+            # mark_initialized() is the canonical lifecycle commit point.
+            # It also clears last_error as part of the same state snapshot.
+            # Do not perform ancillary diagnostic writes after this commit:
+            # a diagnostic failure must never turn a committed initialization
+            # back into a failed pre-initialization attempt.
             try:
                 self._state_store.mark_initialized(
                     plugin_id
                 )
-
-                self._state_store.clear_last_error(
-                    plugin_id
-                )
-
             except Exception as exc:
-                # The plugin callback succeeded, but the canonical
-                # state transition failed. Record the failure if
-                # possible and propagate it rather than pretending
-                # initialization was fully committed.
-                try:
-                    self._record_error(
-                        plugin_id,
-                        exc,
-                    )
-                except Exception:
-                    pass
-
+                self._record_error(plugin_id, exc)
                 raise
 
             return result
+
+    def compensate_failed_initialization(self, plugin_id: str) -> None:
+        """
+        Execute the plugin shutdown callback after a failed initialization
+        attempt without fabricating an initialized -> uninitialized state
+        transition in PluginStateStore.
+
+        PluginManager owns the surrounding compensation event stream.
+        """
+        with self._lock:
+            entry = self._require_entry(plugin_id)
+            try:
+                entry.plugin.shutdown()
+            except Exception as exc:
+                self._record_error(plugin_id, exc)
+                raise
 
     # ========================================================
     # SHUTDOWN
@@ -899,6 +906,7 @@ class PluginRegistry:
 def create_plugin_registry(
     *,
     state_store: PluginStateStore | None = None,
+    event_sink: Callable[[PluginEvent], None] | None = None,
 ) -> PluginRegistry:
     """
     Create an empty PluginRegistry.
@@ -915,7 +923,8 @@ def create_plugin_registry(
     """
 
     return PluginRegistry(
-        state_store=state_store
+        state_store=state_store,
+        event_sink=event_sink,
     )
 
 

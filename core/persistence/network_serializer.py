@@ -1,3 +1,9 @@
+# ============================================================
+# File: core/persistence/network_serializer.py
+# GridForge V2 — Network Persistence Reconstruction
+# Author: Subhendu Mishra
+# ============================================================
+
 """Canonical serialization of Network membership and connectivity."""
 
 from __future__ import annotations
@@ -7,7 +13,7 @@ from typing import Any
 from core.model.terminal import Terminal
 from core.network import Network
 
-from .model_dto import ModelDTO, model_to_dto, restore_state
+from .model_dto import ModelDTO, model_to_dto, resolve_state_references, restore_state
 from .type_registry import ModelTypeRegistry, network_adder_name
 
 
@@ -22,19 +28,13 @@ _COLLECTIONS = (
     "transformers", "breakers", "switches", "disconnectors", "fuses",
 )
 
-_ENDPOINT_TYPES = {
-    "Bus": "bus", "Grid": "grid", "Generator": "generator", "SynchronousMachine": "synchronous_machine",
-    "Load": "load", "Motor": "motor", "Shunt": "shunt", "Capacitor": "capacitor", "Reactor": "reactor",
-    "Solar": "solar", "Battery": "battery", "CurrentTransformer": "current_transformer", "CT": "current_transformer",
-    "PT": "potential_transformer", "PotentialTransformer": "potential_transformer", "CVT": "capacitive_voltage_transformer",
-    "Line": "line", "Cable": "cable", "Transformer": "transformer", "Breaker": "breaker", "Switch": "switch",
-    "Disconnector": "disconnector", "Fuse": "fuse",
-}
-
-
 def serialize_network(network: Network) -> dict[str, Any]:
     """Return the complete canonical engineering Network representation."""
     if not isinstance(network, Network): raise TypeError("network must be a Network.")
+    try:
+        network.validate()
+    except Exception as exc:
+        raise NetworkSerializationError(f"Cannot serialize an invalid Network: {exc}") from exc
     elements: list[dict[str, Any]] = []
     seen: set[int] = set()
     for collection_name in _COLLECTIONS:
@@ -45,11 +45,6 @@ def serialize_network(network: Network) -> dict[str, Any]:
             elements.append(model_to_dto(element).to_dict())
     elements.sort(key=lambda item: (item["type"], item["id"]))
     return {"schema": 1, "elements": elements}
-
-
-def _endpoint_type(name: str) -> str:
-    try: return _ENDPOINT_TYPES[name]
-    except KeyError as exc: raise NetworkSerializationError(f"Unsupported endpoint model type in project: {name}") from exc
 
 
 def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | None = None) -> Network:
@@ -65,22 +60,96 @@ def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | N
         if dto.id.strip() == "": raise NetworkSerializationError("Persisted model ID cannot be empty.")
         model = object.__new__(model_type)
         restore_state(model, dto.state)
-        if getattr(model, "id", None) != dto.id: object.__setattr__(model, "_id", dto.id)
+        if getattr(model, "id", None) != dto.id:
+            object.__setattr__(model, "_id", dto.id)
         for terminal_data in dto.terminals:
             terminal = Terminal(owner=model, role=terminal_data.role)
             setattr(model, terminal_data.attribute, terminal)
             if terminal_data.endpoint_type is not None:
-                pending_terminals.append((terminal, {"type": terminal_data.endpoint_type, "id": terminal_data.endpoint_id}))
-        getattr(network, network_adder_name(model_type))(model)
+                pending_terminals.append(
+                    (terminal, {"type": terminal_data.endpoint_type, "id": terminal_data.endpoint_id})
+                )
+        try:
+            model.validate()
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Invalid reconstructed {model_type.__name__} '{dto.id}': {exc}"
+            ) from exc
+        try:
+            getattr(network, network_adder_name(model_type))(model)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise NetworkSerializationError(
+                f"Unable to register reconstructed {model_type.__name__} '{dto.id}': {exc}"
+            ) from exc
+
+    def resolve_reference(reference: dict[str, Any]) -> Any:
+        reference_type = reference.get("type")
+        reference_id = reference.get("id")
+        if not isinstance(reference_type, str) or not reference_type.strip():
+            raise NetworkSerializationError("Persisted object reference type cannot be empty.")
+        if not isinstance(reference_id, str) or not reference_id.strip():
+            raise NetworkSerializationError("Persisted object reference ID cannot be empty.")
+        try:
+            expected_type = type_registry.resolve(reference_type)
+            resolved = network.get_by_identity(reference_id)
+        except (KeyError, ValueError) as exc:
+            raise NetworkSerializationError(
+                f"Persisted object reference does not exist: {reference_type}:{reference_id}"
+            ) from exc
+        if not isinstance(resolved, expected_type):
+            raise NetworkSerializationError(
+                f"Persisted object reference type mismatch for {reference_id}: "
+                f"persisted={reference_type}, actual={type(resolved).__name__}"
+            )
+        return resolved
+
+    # All canonical objects are now registered. Resolve every deferred state
+    # reference through the single Network identity authority before terminals
+    # or topology can observe the reconstructed graph.
+    for model in tuple(network.registry._objects.values()):
+        try:
+            resolve_state_references(model, resolve_reference)
+            model.validate()
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Unable to resolve persisted state references for '{model.id}': {exc}"
+            ) from exc
+
     for terminal, endpoint_ref in pending_terminals:
-        endpoint_type = _endpoint_type(endpoint_ref["type"])
         endpoint_id = endpoint_ref["id"]
-        if endpoint_id is None: raise NetworkSerializationError("Terminal endpoint ID cannot be null.")
-        try: endpoint = network.get_by_id(endpoint_type, endpoint_id)
-        except KeyError as exc: raise NetworkSerializationError(f"Terminal endpoint does not exist: {endpoint_type}:{endpoint_id}") from exc
-        if isinstance(endpoint, Terminal): raise NetworkSerializationError("Terminal-to-Terminal connectivity is not supported.")
-        terminal.attach(endpoint)
-    network.rebuild_topology()
+        endpoint_type_name = endpoint_ref["type"]
+        if endpoint_id is None:
+            raise NetworkSerializationError("Terminal endpoint ID cannot be null.")
+        try:
+            endpoint_type = type_registry.resolve(endpoint_type_name)
+            endpoint = network.get_by_identity(endpoint_id)
+        except (KeyError, ValueError) as exc:
+            raise NetworkSerializationError(
+                f"Terminal endpoint does not exist: {endpoint_type_name}:{endpoint_id}"
+            ) from exc
+        if not isinstance(endpoint, endpoint_type):
+            raise NetworkSerializationError(
+                f"Terminal endpoint type mismatch for {endpoint_id}: "
+                f"persisted={endpoint_type_name}, actual={type(endpoint).__name__}"
+            )
+        if isinstance(endpoint, Terminal):
+            raise NetworkSerializationError(
+                "Terminal-to-Terminal connectivity is not supported."
+            )
+        try:
+            terminal.attach(endpoint)
+        except (TypeError, ValueError) as exc:
+            raise NetworkSerializationError(
+                f"Invalid terminal endpoint relationship for '{terminal.role}': {exc}"
+            ) from exc
+
+    try:
+        network.rebuild_topology()
+        network.validate()
+    except Exception as exc:
+        raise NetworkSerializationError(
+            f"Reconstructed Network failed final integrity validation: {exc}"
+        ) from exc
     return network
 
 

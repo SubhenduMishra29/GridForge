@@ -58,15 +58,11 @@ A Terminal endpoint is identified by:
     equipment_id
     terminal_role
 
-This is required because the current NetworkRegistry guarantees
-identifier uniqueness within an equipment family, not globally
-across all equipment families.
+Network object identity is globally unique within the authoritative
+Network registry. A Terminal intentionally has no independent persisted
+object ID; its reference identity remains:
 
-A Terminal does not receive a globally unique Terminal ID.
-
-Its identity remains:
-
-    owning equipment + terminal role
+    owning equipment identity + terminal role
 
 The reference therefore mirrors the existing Core identity
 contract rather than introducing a second identity system.
@@ -81,6 +77,13 @@ from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
+
+from core.model import (
+    Battery, Breaker, Bus, Cable, Capacitor, CVT, CurrentTransformer,
+    Disconnector, ElectricalObject, Fuse, Generator, Grid, Injection, Line,
+    Load, Motor, PT, Reactor, Relay, Shunt, Solar, Switch,
+    SynchronousMachine, Transformer, Branch,
+)
 
 
 # ============================================================
@@ -102,20 +105,32 @@ class EndpointReferenceKind(str, Enum):
 # ============================================================
 
 class EquipmentType(str, Enum):
-    """
-    Canonical Network equipment families that may own terminals.
+    """Canonical terminal-owning Core model families.
 
-    These values correspond to NetworkRegistry collections.
-
-    The enum is intentionally Application-facing. It does not
-    replace the Core model classes.
+    Values are derived from the Core model TYPE contract rather than a
+    manually maintained Application-only list.
     """
 
-    LINE = "line"
-    TRANSFORMER = "transformer"
-    GENERATOR = "generator"
-    LOAD = "load"
-    SHUNT = "shunt"
+
+_TERMINAL_OWNER_CLASSES = tuple(
+    cls
+    for cls in (
+        Battery, Breaker, Cable, Capacitor, CVT, CurrentTransformer,
+        Disconnector, Fuse, Generator, Grid, Line, Load, Motor, PT,
+        Reactor, Relay, Shunt, Solar, Switch, SynchronousMachine, Transformer,
+    )
+    if cls not in (Bus, Branch, Injection)
+    and isinstance(getattr(cls, "terminals", None), property)
+)
+
+EquipmentType = Enum(
+    "EquipmentType",
+    {
+        cls.__name__.upper(): str(getattr(cls, "TYPE", cls.__name__)).strip().lower()
+        for cls in _TERMINAL_OWNER_CLASSES
+    },
+    type=str,
+)
 
 
 # ============================================================
@@ -279,7 +294,7 @@ class EndpointReference:
         Parameters
         ----------
         equipment_type:
-            Canonical Network equipment family.
+            Canonical Core terminal-owning equipment family.
 
         equipment_id:
             Canonical identifier within that family.

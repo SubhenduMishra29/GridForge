@@ -19,6 +19,7 @@ from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
+from ui.equipment.equipment_registry import EquipmentRegistry
 from ui.core.qt import QApplication, QWidget
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
@@ -77,7 +78,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     app = QApplication.instance()
     if app is None: app = QApplication(sys.argv)
     network = Network(); gridforge_application = create_application(network)
-    sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager)
+    sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
     sld_controller: SLDController
 
     def serialize_sld(document: SLDDocument) -> dict:
@@ -91,7 +92,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     workspace_manager = WorkspaceManager(definitions={definition.workspace_id: definition for definition in default_workspaces()}, default_workspace_id=SLD_WORKSPACE_ID)
     controller = Controller(application=gridforge_application); canvas_composer = CanvasComposer(); canvas_preparation = canvas_composer.prepare(controller=controller)
-    tool_manager = ToolManager(controller=controller, application=gridforge_application, selection_manager=canvas_preparation.selection_manager, snap_system=canvas_preparation.snap_system)
+    tool_manager = ToolManager(controller=controller, application=gridforge_application, selection_manager=canvas_preparation.selection_manager, snap_system=canvas_preparation.snap_system, preview_layer=canvas_preparation.preview_layer)
     canvas_composition = canvas_composer.compose(controller=controller, tool_manager=tool_manager, preparation=canvas_preparation, parent=None)
 
     def wire_sld_node_movement(node_id: str, item: object) -> None:
@@ -126,32 +127,53 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if not hasattr(context, "project_id") or not hasattr(context, "name"): raise TypeError("presentation factory requires a ProjectContext")
         return SLDDocument(document_id=f"{context.project_id}:sld", name=f"{context.name} SLD", project_id=context.project_id)
 
-    project_workspace_adapter.application.project_lifecycle.configure_presentation_factory(create_sld_document); project_id = "gridforge-project"
+    lifecycle_service = project_workspace_adapter.application.project_lifecycle
+    lifecycle_service.configure_presentation_factory(create_sld_document)
+    initial_context = lifecycle_service.context
+    if initial_context is None:
+        raise RuntimeError("Application did not establish an initial ProjectContext.")
+    initial_sld_document = create_sld_document(initial_context)
+    gridforge_application.attach_sld_service(SLDService(initial_sld_document))
+    gridforge_application.configure_project_presentation(
+        presentation=initial_sld_document,
+        serializer=serialize_sld,
+        deserializer=deserialize_sld,
+    )
+    project_id = "gridforge-project"
     project_context = project_workspace_adapter.new_project(name="GridForge Project", project_id=project_id, activate_workspace=False)
     sld_document = gridforge_application.presentation
     if not isinstance(sld_document, SLDDocument): raise RuntimeError("Application did not establish an SLDDocument for the active project.")
-    gridforge_application.attach_sld_service(SLDService(sld_document)); sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.activate_document(sld_document.document_id); sld_read_synchronizer.synchronize_network(sld_document, gridforge_application.read_network())
+    sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.activate_document(sld_document.document_id); sld_read_synchronizer.synchronize_network(gridforge_application.read_network()); sld_read_synchronizer.synchronize_protection(gridforge_application.read_protection())
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
         if isinstance(document, SLDDocument): sld_controller.replace_document(document); sld_controller.activate_document(document.document_id); synchronize_canvas()
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed); sld_canvas_projection = SLDCanvasProjection(); sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
-    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge})
+    equipment_registry = EquipmentRegistry.create_default()
+    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, equipment_registry=equipment_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
-    for panel_id in ("project", "equipment", "properties", "element_list", "messages", "study_cases"):
-        dock = panels_plugin.get_dock(panel_id)
-        if dock is None: raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
-        workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
+    registered_docks: list[str] = []
+    try:
+        for panel_id in ("project", "equipment", "properties", "element_list", "messages", "study_cases"):
+            dock = panels_plugin.get_dock(panel_id)
+            if dock is None:
+                raise RuntimeError(f"PanelsPlugin did not expose required dock {panel_id!r}.")
+            workspace_realizer.register_dock(panel_id=panel_id, dock_widget=dock)
+            registered_docks.append(panel_id)
+    except BaseException:
+        for panel_id in reversed(registered_docks):
+            workspace_realizer.unregister_dock(panel_id)
+        raise
     workspace_controller.activate_default()
     synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
     if not callable(synchronize_canvas): raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
-    sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, document=sld_document, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
+    sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
     element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()

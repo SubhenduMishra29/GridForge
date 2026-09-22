@@ -1,3 +1,4 @@
+# Author: Subhendu Mishra
 """Detached transient-network state and machine/network algebraic coupling."""
 
 from __future__ import annotations
@@ -59,11 +60,22 @@ class PreparedTransientStability:
     """Complete detached input bundle for one transient-stability execution."""
 
     network: DetachedTransientNetworkState
+    project_id: str
+    activation_generation: int
+    source_revision: tuple[int, int, int, int]
     machines: tuple[ClassicalSynchronousMachine, ...]
     mechanical_powers: Mapping[str, float]
     initial_state: tuple[float, ...]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if len(self.source_revision) != 4 or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in self.source_revision):
+            raise ValueError("source_revision must contain four non-negative revision integers.")
+        object.__setattr__(self, "project_id", self.project_id.strip())
+        object.__setattr__(self, "source_revision", tuple(self.source_revision))
         object.__setattr__(self, "machines", tuple(self.machines))
         object.__setattr__(self, "mechanical_powers", MappingProxyType({str(k): float(v) for k, v in self.mechanical_powers.items()}))
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
@@ -74,6 +86,10 @@ class PreparedTransientStability:
         prepared_power_flow: PreparedPowerFlow,
         power_flow_result: PowerFlowResult,
         dynamic_models: DynamicMachineModelRegistry,
+        *,
+        project_id: str,
+        activation_generation: int,
+        source_revision: tuple[int, int, int, int],
     ) -> "PreparedTransientStability":
         if not isinstance(prepared_power_flow, PreparedPowerFlow):
             raise TypeError("prepared_power_flow must be PreparedPowerFlow.")
@@ -131,7 +147,7 @@ class PreparedTransientStability:
             },
             topology_revision=prepared_power_flow.topology_revision,
         )
-        return cls(network, tuple(machines), mechanical, tuple(initial_states))
+        return cls(network, project_id, activation_generation, source_revision, tuple(machines), mechanical, tuple(initial_states))
 
 
 class _PreparedTransientPassiveView:

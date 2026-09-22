@@ -1,7 +1,6 @@
 # ============================================================
-# File: core/ui/events/sld_update_coordinator.py
+# File: ui/events/sld_update_coordinator.py
 # GridForge V2 — SLD Update Coordinator
-# ============================================================
 # Author: Subhendu Mishra
 # ============================================================
 
@@ -20,18 +19,18 @@ from core.application.events import (
     NetworkChanged,
     ProjectLoaded,
     ProjectClosed,
+    ProtectionChanged,
     SLDPresentationChanged,
     TopologyChanged,
 )
 
-from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 
 CanvasRefresh = Callable[[], None]
 
 
 class SLDUpdateCoordinator:
-    """Apply authoritative Application semantic facts to the active SLD projection."""
+    """Project Application read state into domain-scoped SLD projections."""
 
     event_types = (
         ElementCreated,
@@ -39,23 +38,30 @@ class SLDUpdateCoordinator:
         ElementRemoved,
         TopologyChanged,
         NetworkChanged,
+        ProtectionChanged,
         SLDPresentationChanged,
         ProjectLoaded,
         ProjectClosed,
     )
 
-    def __init__(self, *, application: Application, document: SLDDocument,
-                 synchronizer: SLDReadSynchronizer, canvas_refresh: CanvasRefresh) -> None:
+    def __init__(
+        self,
+        *,
+        application: Application,
+        synchronizer: SLDReadSynchronizer,
+        canvas_refresh: CanvasRefresh,
+    ) -> None:
         if not isinstance(application, Application):
             raise TypeError("application must be an Application")
-        if not isinstance(document, SLDDocument):
-            raise TypeError("document must be an SLDDocument")
         if not isinstance(synchronizer, SLDReadSynchronizer):
             raise TypeError("synchronizer must be an SLDReadSynchronizer")
         if not callable(canvas_refresh):
             raise TypeError("canvas_refresh must be callable")
+        if synchronizer.application is not None and synchronizer.application is not application:
+            raise RuntimeError("SLDReadSynchronizer is already attached to another Application")
+        if synchronizer.application is None:
+            synchronizer.attach_application(application)
         self._application = application
-        self._document: SLDDocument | None = document
         self._synchronizer = synchronizer
         self._canvas_refresh = canvas_refresh
         self._disposed = False
@@ -90,15 +96,16 @@ class SLDUpdateCoordinator:
         return self._last_reconciliation_error
 
     def refresh(self, event: ApplicationEvent) -> None:
-        """Refresh the active presentation after an authoritative Application fact."""
+        """Refresh read-only projections after an authoritative Application fact."""
         if self._disposed:
             return
         if not isinstance(event, ApplicationEvent):
             raise TypeError("event must be an ApplicationEvent")
+
         if isinstance(event, ProjectClosed):
-            self.detach_document()
             self._canvas_refresh()
             return
+
         if isinstance(event, ProjectLoaded):
             presentation = self._application.presentation
             if isinstance(presentation, SLDDocument):
@@ -128,7 +135,6 @@ class SLDUpdateCoordinator:
     def dispose(self) -> None:
         if self._disposed:
             return
-        self.detach_document()
         self._canvas_refresh = lambda: None
         self._last_reconciliation_error = None
         self._disposed = True

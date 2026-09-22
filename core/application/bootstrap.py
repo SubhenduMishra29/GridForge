@@ -1,12 +1,14 @@
 # ============================================================
 # GridForge V2 — Application Composition Root
 # ============================================================
+# Author: Subhendu Mishra
 
 """Composition root for the headless GridForge Application layer."""
 
 from __future__ import annotations
 
 from typing import Any
+from dataclasses import replace
 from uuid import uuid4
 
 from core.analysis.power_flow import PowerFlowAnalysis
@@ -36,6 +38,7 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
@@ -44,6 +47,7 @@ from .project_lifecycle import ProjectLifecycleService
 from .protection_configuration_handlers import ProtectionConfigurationHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
+from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.relay_model_service import RelayModelService
@@ -58,28 +62,54 @@ def create_application(network: Any) -> Application:
         raise ValueError("network is required.")
 
     initial_context = ProjectContext(project_id=str(uuid4()), name="Untitled Project", path=None)
-    # The provider is intentionally late-bound to ProjectLifecycleService.
-    # It therefore always resolves the currently active Network rather than
-    # retaining the Network used during initial composition.
+    # The protection service may resolve the active Network for its own
+    # Application-scoped configuration checks. Study execution never uses this
+    # provider; studies capture an explicit detached ProjectSnapshot.
     lifecycle = None
     protection_configuration_service = ProtectionConfigurationService(
         ProtectionProjectConfiguration(initial_context.project_id),
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
     )
 
+    def register_handlers(target: dict[str, Any], source: Any, family: str) -> None:
+        """Merge one handler family into the single Application registry.
+
+        Duplicate command ownership is a composition error, not a last-write-wins
+        condition.  The composition root therefore rejects duplicate handlers
+        before constructing the CommandManager.
+        """
+        for command_type, handler in dict(source).items():
+            if command_type in target:
+                raise RuntimeError(
+                    f"Duplicate Application handler registration for {command_type!r} "
+                    f"while composing {family}."
+                )
+            target[command_type] = handler
+
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
         model_service = ModelService(network=active_network)
-        handlers = dict(build_model_command_handlers(model_service))
-        handlers.update(
+        handlers: dict[str, Any] = {}
+        register_handlers(handlers, build_model_command_handlers(model_service), "model")
+        register_handlers(
+            handlers,
             RelayCommandHandlers(
                 RelayModelService(
                     active_network,
                     protection_configuration_provider=lambda: protection_configuration_service.configuration,
                 )
-            ).handlers()
+            ).handlers(),
+            "protection relay",
         )
-        handlers.update(ProtectionConfigurationHandlers(protection_configuration_service).handlers())
+        register_handlers(
+            handlers,
+            ProtectionConfigurationHandlers(protection_configuration_service).handlers(),
+            "protection configuration",
+        )
+        # Control editing commands are composed into the same authoritative
+        # Application command registry as model and protection commands.
+        control_service = ControlApplicationService()
+        register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
@@ -94,37 +124,123 @@ def create_application(network: Any) -> Application:
     application.protection_runtime = ProtectionRuntime(network, protection_configuration_service.configuration)
     application._protection_read_service = ProtectionReadService(network)
 
-    def activate_network(active_network: Any) -> None:
-        # Network replacement invalidates all project-bound protection state until
-        # the corresponding project state has been installed below.
-        protection_configuration_service.deactivate()
-        application.protection_runtime = None
-        next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
-        application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
-        application._protection_read_service = ProtectionReadService(active_network)
+    def activate_network(active_network: Any):
+        """Replace project-bound Application runtime and return its rollback."""
+        previous_command_manager = application._command_manager
+        previous_read_service = application._read_service
+        previous_validation_service = application._validation_service
+        previous_protection_read_service = application._protection_read_service
+        previous_control_execution = application._control_execution
+
+        try:
+            next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
+            application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
+            application._protection_read_service = ProtectionReadService(active_network)
+        except Exception:
+            application._command_manager = previous_command_manager
+            application._read_service = previous_read_service
+            application._validation_service = previous_validation_service
+            application._protection_read_service = previous_protection_read_service
+            application._control_execution = previous_control_execution
+            raise
+
+        def rollback() -> None:
+            application._command_manager = previous_command_manager
+            application._read_service = previous_read_service
+            application._validation_service = previous_validation_service
+            application._protection_read_service = previous_protection_read_service
+            application._control_execution = previous_control_execution
+
+        return rollback
 
     persistence = ProjectPersistenceService()
     dynamic_models = DynamicMachineModelRegistry()
 
-    def activate_project_state(context: ProjectContext | None, loaded) -> None:
-        if context is None:
-            protection_configuration_service.deactivate()
-            application.protection_runtime = None
-            return
+    def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
+        """Install project-scoped protection/dynamic/revision state transactionally."""
+        previous_configuration = protection_configuration_service.configuration
+        previous_protection_runtime = application.protection_runtime
+        previous_dynamic_models = dynamic_models.snapshot()
+        previous_revision = application.revision_service.snapshot_state()
 
-        configuration = loaded.protection_configuration if loaded is not None and loaded.protection_configuration is not None else ProtectionProjectConfiguration(context.project_id)
-        if configuration.project_id != context.project_id:
-            raise ValueError(
-                f"Protection configuration project_id {configuration.project_id!r} does not match "
-                f"active project {context.project_id!r}."
-            )
-        protection_configuration_service.activate(configuration)
-        application.protection_runtime = ProtectionRuntime(lifecycle.network, configuration)
+        try:
+            if context is None:
+                protection_configuration_service.deactivate()
+                application.protection_runtime = None
+                dynamic_models.replace(())
+            else:
+                configuration = (
+                    loaded.protection_configuration
+                    if loaded is not None and loaded.protection_configuration is not None
+                    else ProtectionProjectConfiguration(context.project_id)
+                )
+                if configuration.project_id != context.project_id:
+                    raise ValueError(
+                        f"Protection configuration project_id {configuration.project_id!r} does not match "
+                        f"active project {context.project_id!r}."
+                    )
+                protection_configuration_service.activate(configuration)
+                if loaded is None:
+                    dynamic_models.replace(())
+                else:
+                    dynamic_models.replace(
+                        tuple(
+                            replace(item, activation_generation=generation)
+                            for item in loaded.dynamic_models
+                        )
+                    )
+                application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration)
+
+            application.revision_service.reset_for_project()
+        except Exception:
+            if previous_configuration is None:
+                protection_configuration_service.deactivate()
+            else:
+                protection_configuration_service.activate(previous_configuration)
+            application.protection_runtime = previous_protection_runtime
+            dynamic_models.replace(previous_dynamic_models)
+            application.revision_service.restore_state(previous_revision)
+            raise
+
+        def rollback() -> None:
+            if previous_configuration is None:
+                protection_configuration_service.deactivate()
+            else:
+                protection_configuration_service.activate(previous_configuration)
+            application.protection_runtime = previous_protection_runtime
+            dynamic_models.replace(previous_dynamic_models)
+            application.revision_service.restore_state(previous_revision)
+
+        return rollback
+
+    def validate_project_candidate(context: ProjectContext, loaded, candidate_network, presentation) -> None:
+        """Validate candidate identity/provenance without mutating active state."""
+        if candidate_network is None:
+            raise ValueError("Candidate Network is required.")
+        if presentation is None:
+            raise ValueError("Candidate presentation is required.")
+        if loaded is not None:
+            if loaded.context.project_id != context.project_id:
+                raise ValueError("Loaded ProjectContext does not match the candidate project.")
+            for association in loaded.dynamic_models:
+                if association.project_id != context.project_id:
+                    raise ValueError(
+                        f"Dynamic model association {association.machine_id!r} belongs to "
+                        f"project {association.project_id!r}, not {context.project_id!r}."
+                    )
+                if association.activation_generation < 1:
+                    raise ValueError(
+                        f"Dynamic model association {association.machine_id!r} has invalid persisted "
+                        "activation provenance."
+                    )
+            configuration = loaded.protection_configuration
+            if configuration is not None and configuration.project_id != context.project_id:
+                raise ValueError("Protection configuration project_id does not match the candidate project.")
 
     def load_project(path):
-        loaded = persistence.load(path)
-        dynamic_models.replace(loaded.dynamic_models)
-        return loaded
+        # Loading is side-effect free. Candidate dynamic/protection state is
+        # installed only by the successful activation transaction.
+        return persistence.load(path)
 
     def save_project(context, active_network, presentation, path):
         persistence.save(
@@ -137,7 +253,6 @@ def create_application(network: Any) -> Application:
         )
 
     def new_network() -> Network:
-        dynamic_models.replace(())
         return Network()
 
     application.dynamic_models = dynamic_models
@@ -145,15 +260,14 @@ def create_application(network: Any) -> Application:
     lifecycle = ProjectLifecycleService(
         network=network,
         network_factory=new_network,
-        activate_network=activate_network,
         context=initial_context,
         loader=load_project,
         saver=save_project,
+        activate_network=activate_network,
         project_state_activator=activate_project_state,
+        project_state_validator=validate_project_candidate,
     )
     application.attach_project_lifecycle(lifecycle)
-
-    study_preparation = StudyPreparationService(lambda: lifecycle.network)
 
     def study_configuration(request: StudyRequest, expected_type: type[Any]) -> Any:
         configuration = request.configuration.get("configuration", request.configuration)
@@ -168,7 +282,10 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         configuration = study_configuration(request, PowerFlowStudyConfiguration)
-        prepared = study_preparation.prepare_power_flow(configuration)
+        snapshot = application.capture_project_snapshot()
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
+            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
+        prepared = StudyPreparationService(snapshot).prepare_power_flow(configuration)
         if token.cancelled:
             return None
         analysis = PowerFlowAnalysis.from_prepared(prepared)
@@ -181,7 +298,10 @@ def create_application(network: Any) -> Application:
         if token.cancelled:
             return None
         configuration = study_configuration(request, ShortCircuitStudyConfiguration)
-        prepared = study_preparation.prepare_short_circuit(configuration)
+        snapshot = application.capture_project_snapshot()
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
+            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
+        prepared = StudyPreparationService(snapshot).prepare_short_circuit(configuration)
         if token.cancelled:
             return None
         analysis = ShortCircuitAnalysis.from_prepared(prepared)
@@ -218,7 +338,13 @@ def create_application(network: Any) -> Application:
         power_flow_result = request.configuration.get("power_flow_result")
         if not isinstance(prepared_power_flow, PreparedPowerFlow) or not isinstance(power_flow_result, PowerFlowResult):
             raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
-        prepared = study_preparation.prepare_transient_stability(configuration, prepared_power_flow, power_flow_result, dynamic_models)
+        snapshot = application.capture_project_snapshot()
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
+            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
+        prepared = StudyPreparationService(snapshot).prepare_transient_stability(
+            configuration, prepared_power_flow, power_flow_result,
+            DynamicMachineModelRegistry(snapshot.dynamic_models),
+        )
         if token.cancelled:
             return None
         machine_system = MultiMachineSystem(prepared.machines)

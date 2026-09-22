@@ -9,7 +9,7 @@ GridForge V2 — Application Endpoint Resolver
 =============================================
 
 Resolves immutable EndpointReference values into canonical
-Core Bus / Terminal objects.
+Core electrical endpoints.
 
 The resolver is read-only.
 
@@ -35,7 +35,7 @@ Terminal:
     equipment_id
     terminal_role
 
-A Terminal has no globally unique ID.
+A Terminal has no independent persisted identity; its reference is the owning equipment plus canonical terminal role.
 
 Its identity is the owning equipment plus terminal role.
 """
@@ -129,10 +129,12 @@ def _resolve_equipment_by_id(
     network = _get_network(context)
 
     try:
-        return network.get_by_id(
-            value,
-            object_id,
-        )
+        equipment = network.get_by_identity(object_id)
+        if str(getattr(equipment, "element_type", "")).strip().lower() != value.strip().lower():
+            raise KeyError(
+                f"Canonical identity '{object_id}' belongs to '{getattr(equipment, 'element_type', type(equipment).__name__)}', not '{value}'."
+            )
+        return equipment
     except KeyError as exc:
         raise ResourceError(
             code="EQUIPMENT_NOT_FOUND",
@@ -162,10 +164,7 @@ def _resolve_bus(
     network = _get_network(context)
 
     try:
-        return network.get_by_id(
-            "bus",
-            reference.object_id,
-        )
+        return network.get_by_identity(reference.object_id)
     except KeyError as exc:
         raise ResourceError(
             code="BUS_NOT_FOUND",
@@ -188,8 +187,8 @@ def _resolve_terminal(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve a Terminal EndpointReference to the canonical
-    Terminal owned by the referenced equipment.
+    Resolve a Terminal EndpointReference through the canonical Terminal
+    owned by the referenced equipment to its attached electrical endpoint.
 
     Exactly one terminal must satisfy both:
 
@@ -264,12 +263,10 @@ def _resolve_terminal(
             if reference.equipment_type is not None
             else "equipment"
         )
-
         raise ResourceError(
             code="AMBIGUOUS_TERMINAL",
             message=(
-                f"Terminal role '{requested_role}' is "
-                f"ambiguous on {equipment_type} "
+                f"Terminal role '{requested_role}' is ambiguous on {equipment_type} "
                 f"'{reference.object_id}'."
             ),
             details={
@@ -280,7 +277,21 @@ def _resolve_terminal(
             },
         )
 
-    return matches[0]
+    terminal = matches[0]
+    endpoint = terminal.endpoint
+    if endpoint is None:
+        raise ResourceError(
+            code="TERMINAL_UNCONNECTED",
+            message=(
+                f"Terminal '{requested_role}' on equipment '{reference.object_id}' "
+                "is valid but currently unconnected."
+            ),
+            details={
+                "equipment_id": reference.object_id,
+                "terminal_role": requested_role,
+            },
+        )
+    return endpoint
 
 
 # ============================================================
@@ -292,8 +303,8 @@ def resolve_endpoint(
     reference: EndpointReference,
 ) -> Any:
     """
-    Resolve an EndpointReference into the canonical Core
-    Bus or Terminal.
+    Resolve an EndpointReference into the canonical Core electrical
+    endpoint. Terminal objects are never returned as endpoints.
 
     No Core mutation occurs.
     """

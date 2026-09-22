@@ -3,7 +3,7 @@
 # GridForge V2 — SLD Read Synchronizer
 # Author: Subhendu Mishra
 # ============================================================
-"""Synchronize Application read snapshots into the SLD document model."""
+"""Project Application read models into SLD presentation projections only."""
 
 from __future__ import annotations
 
@@ -11,19 +11,15 @@ from typing import Any, Mapping
 
 from core.application.read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel
 
-from .sld_document import SLDDocument
-from .sld_model import SLDConnection, SLDNode
+from ui.projection.projection_registry import ProjectionDomain
+from .sld_projection import SLDProjection
+from .sld_vocabulary import semantic_type
 from .sld_projection_manager import SLDProjectionManager
 from .sld_read_adapter import SLDReadAdapter
-from .sld_vocabulary import semantic_type
-
-
-_PROJECTION_SOURCE = "application_read_model"
-_BRANCH_TYPES = frozenset({"LINE", "CABLE", "TRANSFORMER"})
 
 
 class SLDReadSynchronizer:
-    """Reconcile Application read data with an SLD document."""
+    """Project Application read data without persistent SLDDocument dependencies."""
 
     def __init__(
         self,
@@ -42,38 +38,34 @@ class SLDReadSynchronizer:
 
     @property
     def application(self) -> Any:
-        """Return the injected Application read facade."""
         return self._application
 
     def attach_application(self, application: Any) -> None:
-        """Attach the Application facade used for authoritative reads."""
         if application is None:
             raise TypeError("application must not be None")
         self._application = application
 
     def detach_application(self) -> Any:
-        """Detach and return the Application facade."""
         application = self._application
         self._application = None
         return application
 
-    def synchronize_network_from_application(self, document: SLDDocument) -> tuple[SLDNode, ...]:
-        """Read the network only through the Application facade, then project it."""
-        return self.synchronize_network(document, self._require_application().read_network())
+    def synchronize_network_from_application(self) -> tuple[SLDProjection, ...]:
+        """Synchronize the network projection from the Application read model."""
+        return self.synchronize_network(self._require_application().read_network())
 
-    def synchronize_protection_from_application(self, document: SLDDocument) -> tuple[SLDNode, ...]:
-        """Read protection data only through the Application facade, then project it."""
-        return self.synchronize_protection(document, self._require_application().read_protection())
+    def synchronize_protection_from_application(self) -> tuple[SLDProjection, ...]:
+        """Synchronize the protection projection from the Application read model."""
+        return self.synchronize_protection(self._require_application().read_protection())
 
     def synchronize_element_from_application(
         self,
-        document: SLDDocument,
         element_type: str,
         object_id: str,
-    ) -> SLDNode:
-        """Read one element only through the Application facade, then project it."""
+    ) -> SLDProjection:
+        """Synchronize one network projection from the Application read model."""
         read_model = self._require_application().read_element(element_type, object_id)
-        return self.synchronize_element(document, read_model)
+        return self.synchronize_element(read_model)
 
     def synchronize_network(
         self,
@@ -87,9 +79,8 @@ class SLDReadSynchronizer:
             raise TypeError("document must be an SLDDocument")
         if not isinstance(read_model, NetworkReadModel):
             raise TypeError("read_model must be a NetworkReadModel")
-
         adapted = self._read_adapter.network(read_model)
-        self._projection_manager.project_network(adapted)
+        projections = self._projection_manager.project_network(adapted)
         active_ids = {element.object_id for element in adapted.elements}
         positions = dict(initial_positions or {})
 
@@ -117,17 +108,32 @@ class SLDReadSynchronizer:
         if not isinstance(read_model, ProtectionReadModel):
             raise TypeError("read_model must be a ProtectionReadModel")
         adapted = self._read_adapter.protection(read_model)
-        return tuple(self._synchronize_element(document, element) for element in adapted.elements)
+        projections = self._projection_manager.project_protection(adapted)
+        active_ids = {element.object_id for element in adapted.elements}
+        self._projection_manager.reconcile_protection(active_ids)
+        return projections
 
-    def synchronize_element(self, document: SLDDocument, read_model: ElementReadModel) -> SLDNode:
-        """Reconcile one Application element into the SLD document."""
-        if not isinstance(document, SLDDocument):
-            raise TypeError("document must be an SLDDocument")
+    def synchronize_element(
+        self,
+        read_model: ElementReadModel,
+    ) -> SLDProjection:
+        """Synchronize one NETWORK-owned projection.
+
+        Relay is deliberately excluded from this generic path. A Relay
+        ElementReadModel is only valid here when its presentation ownership
+        is NETWORK, which the frozen contract does not permit. Protection
+        Relay presentation must enter through synchronize_protection(), where
+        SLDReadAdapter.protection() establishes the PROTECTION-domain source.
+        """
         if not isinstance(read_model, ElementReadModel):
             raise TypeError("read_model must be an ElementReadModel")
+        if semantic_type(read_model.element_type) == "RELAY":
+            raise ValueError(
+                "Relay presentation is owned by the protection projection "
+                "domain; use synchronize_protection() instead."
+            )
         adapted = self._read_adapter.element(read_model)
-        self._projection_manager.project(adapted)
-        return self._synchronize_element(document, adapted)
+        return self._projection_manager.project_network_element(adapted)
 
     def _require_application(self) -> Any:
         if self._application is None:

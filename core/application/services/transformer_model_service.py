@@ -10,6 +10,8 @@ not an inferred electrical value, and is persisted on the Transformer as
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
@@ -88,6 +90,71 @@ class TransformerModelService(ModelServiceSupport):
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
         return self._success(transformer, "transformer", transformer_id, f"Transformer created: {transformer_id}")
+
+    def update_transformer(
+        self,
+        *,
+        transformer_id: str,
+        name: str | None = None,
+        r: float | None = None,
+        x: float | None = None,
+        b: float | None = None,
+        impedance_basis: Any | None = None,
+        impedance_base_mva: float | None = None,
+        tap: float | None = None,
+        shift: float | None = None,
+        rate_mva: float | None = None,
+        in_service: bool | None = None,
+        transaction: Transaction,
+    ) -> ApplicationResult[Transformer]:
+        self._require_transaction(transaction)
+        self._require_id(transformer_id, "transformer_id")
+        transformer = self._get_required("transformer", transformer_id, "Transformer")
+        self._require_type(transformer, Transformer, transformer_id, "Transformer")
+
+        values = (
+            name, r, x, b, impedance_basis, impedance_base_mva,
+            tap, shift, rate_mva, in_service,
+        )
+        if all(value is None for value in values):
+            raise ValueError("At least one Transformer configuration field must be specified.")
+
+        old_state = {
+            "name": transformer.name,
+            "r": transformer.r,
+            "x": transformer.x,
+            "b": transformer.b,
+            "impedance_basis": transformer.impedance_basis,
+            "impedance_base_mva": transformer.impedance_base_mva,
+            "tap": transformer.tap,
+            "shift": transformer.shift,
+            "rate_mva": transformer.rate_mva,
+            "in_service": transformer.in_service,
+        }
+
+        transformer.update_configuration(
+            name=name,
+            r=r,
+            x=x,
+            b=b,
+            impedance_basis=impedance_basis,
+            impedance_base_mva=impedance_base_mva,
+            tap=tap,
+            shift=shift,
+            rate_mva=rate_mva,
+            in_service=in_service,
+        )
+
+        def restore() -> None:
+            transformer.update_configuration(**old_state)
+
+        transaction.record_undo(restore)
+        return self._success(
+            transformer,
+            "transformer",
+            transformer_id,
+            f"Transformer updated: {transformer_id}",
+        )
 
     def delete_transformer(self, *, transformer_id: str, transaction: Transaction) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
