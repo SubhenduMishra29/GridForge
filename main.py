@@ -20,10 +20,11 @@ from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
 from ui.equipment.equipment_registry import EquipmentRegistry
-from ui.core.qt import QApplication, QWidget
+from ui.core.qt import QApplication, QMessageBox, QWidget
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle
+from ui.lifecycle.project_close_controller import ProjectCloseController
 from ui.main_window import MainWindow
 from ui.panels.panel_presentation_bridge import PanelPresentationBridge
 from ui.plugins.plugin_context import PluginContext
@@ -178,7 +179,35 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
-    ui_lifecycle = UILifecycle(workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None, document_ready=lambda: project_workspace_adapter.state.document is not None, document_close=project_workspace_adapter.close_project, workspace_teardown=workspace_controller.close, cleanup=lambda: None); resources["ui_lifecycle"] = ui_lifecycle; ui_lifecycle.start(); ui_lifecycle.activate_document(); window.show()
+    ui_lifecycle = UILifecycle(workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None, document_ready=lambda: project_workspace_adapter.state.document is not None, document_close=project_workspace_adapter.close_project, workspace_teardown=workspace_controller.close, cleanup=lambda: None); resources["ui_lifecycle"] = ui_lifecycle
+
+    def project_transition_decision(context: object) -> object:
+        project_name = getattr(context, "name", "the active project")
+        result = QMessageBox.warning(
+            window,
+            "Unsaved Project Changes",
+            f"{project_name} has unsaved changes. Do you want to save before closing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if result == QMessageBox.StandardButton.Save:
+            from core.application.project_transition import ProjectTransitionDecision
+            return ProjectTransitionDecision.SAVE
+        if result == QMessageBox.StandardButton.Discard:
+            from core.application.project_transition import ProjectTransitionDecision
+            return ProjectTransitionDecision.DISCARD
+        from core.application.project_transition import ProjectTransitionDecision
+        return ProjectTransitionDecision.CANCEL
+
+    close_controller = ProjectCloseController(
+        application=gridforge_application,
+        decision_provider=project_transition_decision,
+    )
+    window.set_close_handler(close_controller.request_close)
+
+    ui_lifecycle.start(); ui_lifecycle.activate_document(); window.show()
     return app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle
 
 
