@@ -129,19 +129,24 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     lifecycle_service = project_workspace_adapter.application.project_lifecycle
     lifecycle_service.configure_presentation_factory(create_sld_document)
-    initial_context = lifecycle_service.context
-    if initial_context is None:
-        raise RuntimeError("Application did not establish an initial ProjectContext.")
-    initial_sld_document = create_sld_document(initial_context)
-    gridforge_application.attach_sld_service(SLDService(initial_sld_document))
+    # The lifecycle service starts with an internal bootstrap context, but the
+    # composition root must not materialize a presentation for that transient
+    # context and then immediately replace it with a second project activation.
+    # Configure the presentation factory first, then perform exactly one explicit
+    # initial project activation; that activation creates the authoritative SLD
+    # document for the project that the UI actually opens.
+    project_id = "gridforge-project"
+    project_context = project_workspace_adapter.new_project(
+        name="GridForge Project",
+        project_id=project_id,
+        activate_workspace=False,
+    )
+    sld_document = gridforge_application.presentation
     gridforge_application.configure_project_presentation(
-        presentation=initial_sld_document,
+        presentation=sld_document,
         serializer=serialize_sld,
         deserializer=deserialize_sld,
     )
-    project_id = "gridforge-project"
-    project_context = project_workspace_adapter.new_project(name="GridForge Project", project_id=project_id, activate_workspace=False)
-    sld_document = gridforge_application.presentation
     if not isinstance(sld_document, SLDDocument): raise RuntimeError("Application did not establish an SLDDocument for the active project.")
     sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.reconcile_presentation()
 
