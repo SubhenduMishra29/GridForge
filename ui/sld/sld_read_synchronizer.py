@@ -141,7 +141,7 @@ class SLDReadSynchronizer:
         *,
         initial_position: tuple[float, float] | None = None,
     ) -> SLDNode:
-        node = document.model.get_node_optional(read_model.object_id)
+        node = document.model.get_node_by_equipment_id_optional(read_model.object_id)
         if node is None:
             x, y = initial_position if initial_position is not None else (0.0, 0.0)
             node = SLDNode(
@@ -174,7 +174,7 @@ class SLDReadSynchronizer:
     def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
         """Project unambiguous branch endpoint identities into SLD structure."""
         active_connection_ids: set[str] = set()
-        active_node_ids = {node.node_id for node in document.model.nodes}
+        node_ids_by_equipment_id = {node.equipment_id: node.node_id for node in document.model.nodes if node.equipment_id is not None}
 
         for element in read_model.elements:
             try:
@@ -188,7 +188,9 @@ class SLDReadSynchronizer:
             target_id = element.attributes.get("endpoint_to_id")
             if not isinstance(source_id, str) or not isinstance(target_id, str):
                 continue
-            if source_id not in active_node_ids or target_id not in active_node_ids:
+            source_node_id = node_ids_by_equipment_id.get(source_id)
+            target_node_id = node_ids_by_equipment_id.get(target_id)
+            if source_node_id is None or target_node_id is None:
                 continue
 
             connection_id = element.object_id
@@ -201,7 +203,7 @@ class SLDReadSynchronizer:
             }
 
             if connection is None:
-                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_id, target_node_id=target_id, properties=properties))
+                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_node_id, target_node_id=target_node_id, properties=properties))
             elif connection.source_node_id != source_id or connection.target_node_id != target_id:
                 document.model.remove_connection(connection_id)
                 document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_id, target_node_id=target_id, properties=properties))
