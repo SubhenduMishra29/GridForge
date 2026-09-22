@@ -624,9 +624,9 @@ One concrete typed-semantic defect was confirmed in the transformer engineering 
 
 | Finding | Status | B39 boundary |
 |---|---|---|
-| RCA-016-B6-001 | **OPEN — SOURCE EVIDENCE PENDING** | Not changed by B39; broader configuration/units evidence remains outside this correction |
-| RCA-016-B6-004 | **OPEN — CONFIRMED** | Transformer update lifecycle remains separate and was intentionally not implemented |
-| RCA-017-010 | **OPEN — CONFIRMED** | Engineer-facing Transformer configuration workflow remains separate and was intentionally not implemented |
+| RCA-016-B6-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | Generic typed engineering-parameter editor/intent now consumes immutable ProjectionState metadata and submits one canonical immutable Transformer command; runtime/UI execution remains unverified |
+| RCA-016-B6-004 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | UPDATE_TRANSFORMER → handler → TransformerModelService → controlled Core atomic mutation → transaction undo → ElementUpdated path is present; runtime verification remains deferred |
+| RCA-017-010 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | PropertiesPanelWidget is bound to the generic engineering editor through PanelsPlugin context and submits typed edits to Application.execute(); runtime GUI verification remains deferred |
 
 RCA-016 remains **OPEN / RE-AUDIT REQUIRED** for the broader configuration/units workflow until the remaining study, persistence, Inspector, SLD, plugin, and project-isolation consumers are statically re-audited after this correction.
 
@@ -653,8 +653,38 @@ Static correction cleaned duplicate projection/read-source declarations introduc
 - GF-POST-B39-005 — Duplicate `SelectionProjectionCoordinator` `engineering_parameters=` mapping — **CORRECTED — STATIC VERIFICATION COMPLETE**
 - GF-POST-B39-006 — Transformer PreviewLayer attribute inconsistency — **CORRECTED — STATIC VERIFICATION COMPLETE**
 
-Required open findings remain: RCA-016-B6-001, RCA-016-B6-004, RCA-017-010.
+RCA-016-B6-001, RCA-016-B6-004, and RCA-017-010 are source-corrected but remain **RE-AUDIT REQUIRED** pending the mandated non-runtime re-audit/closure decision.
 
 B39 projection findings RCA-016-B6-005 and RCA-016-B6-008 remain remediated after duplicate-source cleanup.
 
 Verification boundary: no tests, pytest, CI, startup, GUI execution, or runtime verification performed.
+
+## RCA-016-B6-004 / RCA-016-B6-001 / RCA-017-010 — Transformer Configuration Static Correction Addendum — 2026-09-22
+
+### Static correction evidence
+
+| Finding | Static correction | Evidence path | Status |
+|---|---|---|---|
+| RCA-016-B6-004 | Added immutable `UPDATE_TRANSFORMER` / `UpdateTransformerCommand`; registered exactly once through `ModelCommandHandlers`; added `ModelService.update_transformer()` and `TransformerModelService.update_transformer()`; added controlled Core `Transformer.update_configuration()` with coupled basis/base conversion and atomic validation; undo captures the complete prior engineering/configuration state | `core/application/commands/model_commands.py`; `core/application/commands/transformer_commands.py`; `core/application/command_handlers.py`; `core/application/services/model_service.py`; `core/application/services/transformer_model_service.py`; `core/model/transformer.py` | **AGENT CORRECTED → RE-AUDIT REQUIRED** |
+| RCA-016-B6-001 | Generic `EngineeringParameterEditor` consumes immutable `ProjectionState.engineering_parameters`, rejects non-editable/derived values, creates typed immutable command intent, and does not retain engineering state | `ui/panels/engineering_parameter_editor.py`; `ui/projection/projection_state.py`; `core/application/read_models.py`; `core/application/read_service.py` | **AGENT CORRECTED → RE-AUDIT REQUIRED** |
+| RCA-017-010 | `PropertiesPanelWidget.bind_configuration_runtime()` binds the generic editor to the canonical Application; `configure_parameter()` submits through `Application.execute()`; `PanelsPlugin` performs the binding from its immutable `PluginContext.application` dependency | `ui/panels/default_panels.py`; `ui/plugins/panels_plugin.py`; `ui/panels/engineering_parameter_editor.py` | **AGENT CORRECTED → RE-AUDIT REQUIRED** |
+
+### Coupled Transformer semantics
+
+- `r/x/b` remain one coupled impedance/admittance representation.
+- Basis and MVA-base changes preserve physical meaning through the canonical `core.base.per_unit.PerUnitSystem`.
+- `impedance_base_voltage_kv` remains reference/construction-only and is not exposed as an ordinary editable parameter.
+- Explicit target `r/x/b` values override converted candidates only after the complete target representation has been established.
+- Core mutation validates the complete candidate before authoritative state is changed and restores the previous state if final Core validation fails.
+- Application undo restores name, r, x, b, impedance basis, base MVA, tap, shift, rate, and in-service state together.
+- `in_service` is classified as topology-sensitive; numerical engineering fields are not treated as topology mutation. Endpoint reassignment remains outside this correction.
+
+### Event/read/projection path
+
+Successful `model.update_transformer` execution is published by the existing Application semantic event path as `ElementUpdated`. The event is an invalidation signal; engineering values continue to originate from `Application.read_element()` / `ElementReadModel.engineering_parameters`. `SelectionProjectionCoordinator` consumes the read model through the existing `UIProjectionCoordinator` event route, and SLD/UI projections remain downstream consumers rather than mutation authorities.
+
+### Static verification boundary
+
+Source-level inspection confirms one canonical Transformer update command/handler/service path, one per-unit conversion authority, no Transformer-specific persistent UI state store, no endpoint reassignment addition, and no second CommandManager or SLD authority.
+
+**Tests/CI/application startup/GUI/runtime execution intentionally not performed.**
