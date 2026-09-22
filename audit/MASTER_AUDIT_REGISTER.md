@@ -221,3 +221,59 @@ Static source correction only; no tests, CI, startup, GUI execution, or runtime 
 - 4bd90f998cc2417dae78f3fb07546d9859ca8543
 
 The parent RCA-SLD-AUTH-001 remains OPEN. The unresolved ApplicationResult and terminal-identity findings remain OPEN.
+## 2026-09-22 — Post-Re-Audit Correction Batch — HEAD 8eab2c14dde8f488748da8a9fce3732f653c5ece
+
+Static source audit and correction only. No tests, pytest, CI, application startup, GUI execution, or runtime verification was performed.
+
+| Register ID | Finding / disposition | Status | Static evidence |
+|---|---|---|---|
+| GF-MASTER-0056 / RCA-SLD-AUTH-001 | Existing SLD node ownership was not guarded after equipment_id lookup; reconciliation could convert engineer-owned presentation state into projection-owned state. | REMEDIATED — VERIFICATION DEFERRED | ui/sld/sld_read_synchronizer.py now rejects an existing node whose projection_source is not the requested projection domain. |
+| GF-MASTER-0057 / RCA-SLD-AUTH-001 | Stale projection-node deletion could remove engineer-owned SLD connections indirectly through SLDModel.remove_node(). | REMEDIATED — VERIFICATION DEFERRED | ui/sld/sld_read_synchronizer.py now preserves a stale node when engineer-owned connections are attached; it removes only projection-owned structure when safe. |
+| GF-MASTER-0058 / RCA-016 | SLD read adaptation discarded EngineeringParameterReadModel values during Application ReadModel → SLD adaptation. | REMEDIATED — VERIFICATION DEFERRED | ui/sld/sld_read_adapter.py now carries engineering_parameters=read_model.engineering_parameters; the full transformer engineering-value consumer path remains open. |
+| GF-MASTER-0059 / RCA-005 | Generic terminal-aware SLD interaction remains incomplete: EndpointIdentityAdapter only constructs a canonical Bus reference or consumes a pre-existing EndpointReference; the inspected presentation terminal registry is not wired into the canonical Core terminal-reference path. | OPEN | ui/tools/endpoint_identity_adapter.py, ui/equipment/terminal.py, ui/connections/terminal_resolver.py, core/application/endpoint_reference.py. |
+| GF-MASTER-0060 / RCA-UI-LIFECYCLE-002 | UI shutdown still lacks a source-proven decision-provider chain from window shutdown through SAVE/DISCARD/CANCEL into Application.close_project(decision=...). | OPEN | ui/main_window.py is a mechanical Qt host without a shutdown decision hook; ui/lifecycle/ui_lifecycle.py closes through callbacks but has no project-transition decision provider. |
+
+### Canonical Bus path re-audit
+
+No Application.place_bus method was found in the active HEAD. The inspected canonical path is:
+
+BusTool → PlaceBusCommand → command type model.create_bus / CREATE_BUS → Application.execute → CommandManager → ModelCommandHandlers.create_bus → ModelService.create_bus → Core Network/Bus → semantic events → Application ReadModel → SLD reconciliation.
+
+core/application/commands/delete_bus.py remains a separate legacy-style command module with bus.delete and an older handler signature. It was not found in the inspected canonical ModelCommandHandlers registration path. It is therefore classified as LEGACY/UNVERIFIED, not removed speculatively.
+
+### ApplicationResult consumer re-audit
+
+ApplicationResult.value remains an Application-internal compatibility field. In the inspected Application layer, Application, CommandManager, ModelCommandHandlers, and control handler/dispatch types use ApplicationResult as the command/result contract. The observed .value forwarding is inside ModelCommandHandlers.create_bus(), where the Core result value remains inside the Application result while presentation coordinates are carried in metadata.
+
+No UI SLD synchronizer, projection, canvas, or tool source inspected in this batch consumes ApplicationResult.value. UI-facing SLD synchronization continues to consume Application.read_network() / read_protection() ReadModels.
+
+Because a repository-wide executable consumer proof was not performed, RCA-003 / RCA-009 remain OPEN.
+
+### Identity and stale-projection correction
+
+The active reconciliation seam remains:
+
+Application ReadModel → SLDReadAdapter → SLDProjectionManager → SLDReadSynchronizer → SLDDocument / SLDModel → SLDCanvasProjection → renderer.
+
+The correction does not introduce a second synchronization path. Existing persisted node_id values remain document-local. Existing equipment_id lookup remains the semantic reconciliation key.
+
+When a stale projection node has engineer-owned attached connections, the node is retained as presentation-only rather than allowing SLDModel.remove_node() to erase those connections. When no engineer-owned structure is attached, stale projection connections are removed and the projection node is removed.
+
+### Terminal identity disposition
+
+The Core terminal contract is explicit and stable as owner + role + endpoint, while EndpointReference.terminal() represents equipment_id + terminal_role. However, the inspected UI path still uses EquipmentTerminal(terminal_id, equipment_id, terminal_name) and TerminalResolver, while EndpointIdentityAdapter only emits EndpointReference.bus() for the current BusItem path or accepts a pre-existing EndpointReference.
+
+Therefore generic multi-terminal presentation → terminal intent → Application connection command → Core terminal resolution is not closed.
+
+### Runtime / verification boundary
+
+This batch is source-evidence only. No tests, pytest, CI, startup, GUI interaction, or runtime verification was run. Corrected findings use REMEDIATED — VERIFICATION DEFERRED, not CLOSED.
+
+### Merge provenance
+
+Active HEAD 8eab2c14dde8f488748da8a9fce3732f653c5ece is the merge commit for PR #163 (targeted corrections) from madhuri196mishra-cpu/main, authored by SubhenduMishra29 and committed through GitHub web flow. The resulting active tree is treated as authoritative for this re-audit.
+
+
+## Final correction commit for this batch
+
+Final source correction HEAD: 5019b1b89ae5342165019e8e245866db27cf054e. The final adjustment scopes stale projection registry cleanup to the corresponding NETWORK or PROTECTION ownership domain. No tests, CI, startup, GUI execution, or runtime verification was run.
