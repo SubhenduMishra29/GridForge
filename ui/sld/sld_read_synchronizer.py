@@ -314,6 +314,7 @@ class SLDReadSynchronizer:
                 "attributes",
             ):
                 node.properties.pop(key, None)
+            node.properties["presentation_owner"] = "engineer"
             return
 
         for connection in attached_connections:
