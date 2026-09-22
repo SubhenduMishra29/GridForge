@@ -616,6 +616,17 @@ One concrete typed-semantic defect was confirmed in the transformer engineering 
 - Existing persistence Enum support is reused; no parallel persistence format was added.
 - No tests, CI, application startup, GUI execution, or runtime verification was performed.
 
+| RCA-016-B6-005 | UI/Application Projection | `ui/projection/selection_projection_coordinator.py`; `ui/projection/projection_state.py` | Selection projection discarded authoritative engineering attributes before the Inspector boundary | Application ReadModel engineering information must reach immutable ProjectionState without UI/Core bypass | Existing selection projection now maps immutable ElementReadModel engineering parameters into generic immutable EngineeringParameterState values; PropertiesPanel remains unchanged and presentation-only | Application.read_element() → ElementReadModel → SelectionProjectionCoordinator → ProjectionState → PropertiesPanel | **REMEDIATED — STATICALLY VERIFIED** | Static source trace confirms engineering values originate in the Application ReadModel and are not taken from ElementUpdated.changes or Core objects | Runtime/tests/CI intentionally deferred; cross-link RCA-016-B6-001 and RCA-016-B6-004 preserved |
+| RCA-016-B6-008 | Application/UI Projection Contract | `core/application/read_models.py`; `core/application/read_service.py`; `ui/projection/projection_state.py` | ProjectionState had no generic semantic representation for authoritative engineering configuration | Generic immutable engineering representation must preserve parameter identity, value, unit, datatype, choices, editability, derived/coupled metadata, validation metadata, topology impact, and study impact | Added generic EngineeringParameterReadModel and EngineeringParameterState; Application read service supplies read metadata from canonical field contracts; no Transformer-specific projection/store introduced | Core model → Application ReadService → ElementReadModel.engineering_parameters → generic UI projection → PropertiesPanel | **REMEDIATED — STATICALLY VERIFIED** | Static source trace confirms immutable, equipment-independent contracts with no Core references and no command/event authority in ProjectionState | Runtime/tests/CI intentionally deferred; cross-link RCA-016-B6-004 and RCA-017-010 preserved |
+
+### B39 cross-linked remaining findings
+
+| Finding | Status | B39 boundary |
+|---|---|---|
+| RCA-016-B6-001 | **OPEN — SOURCE EVIDENCE PENDING** | Not changed by B39; broader configuration/units evidence remains outside this correction |
+| RCA-016-B6-004 | **OPEN — CONFIRMED** | Transformer update lifecycle remains separate and was intentionally not implemented |
+| RCA-017-010 | **OPEN — CONFIRMED** | Engineer-facing Transformer configuration workflow remains separate and was intentionally not implemented |
+
 RCA-016 remains **OPEN / RE-AUDIT REQUIRED** for the broader configuration/units workflow until the remaining study, persistence, Inspector, SLD, plugin, and project-isolation consumers are statically re-audited after this correction.
 
 ## RCA-017 — Static Correction Record
