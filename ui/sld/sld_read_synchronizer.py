@@ -266,7 +266,7 @@ class SLDReadSynchronizer:
                 f"existing presentation source is {existing_source!r}"
             )
 
-    def _remove_stale_projection_node(document: SLDDocument, node: SLDNode) -> None:
+    def _remove_stale_projection_node(self, document: SLDDocument, node: SLDNode) -> None:
         """Remove a stale projection without deleting engineer-owned structure."""
         attached_connections = tuple(
             connection
