@@ -59,6 +59,7 @@ class SLDUpdateCoordinator:
         self._synchronizer = synchronizer
         self._canvas_refresh = canvas_refresh
         self._disposed = False
+        self._last_reconciliation_error: Exception | None = None
 
     @property
     def document(self) -> SLDDocument | None:
@@ -81,6 +82,12 @@ class SLDUpdateCoordinator:
     def detach_document(self) -> None:
         """Drop the cached presentation reference during project close."""
         self._document = None
+
+
+    @property
+    def last_reconciliation_error(self) -> Exception | None:
+        """Return the most recent reconciliation failure, if any."""
+        return self._last_reconciliation_error
 
     def refresh(self, event: ApplicationEvent) -> None:
         """Refresh the active presentation after an authoritative Application fact."""
@@ -106,11 +113,16 @@ class SLDUpdateCoordinator:
                 y = event.metadata.get("presentation_y")
                 if x is not None and y is not None:
                     initial_positions[event.element_id] = (float(x), float(y))
-            self._synchronizer.synchronize_network(
-                document,
-                self._application.read_network(),
-                initial_positions=initial_positions,
-            )
+            try:
+                self._synchronizer.synchronize_network(
+                    document,
+                    self._application.read_network(),
+                    initial_positions=initial_positions,
+                )
+            except Exception as exc:
+                self._last_reconciliation_error = exc
+                raise
+            self._last_reconciliation_error = None
             self._canvas_refresh()
 
     def dispose(self) -> None:
@@ -118,6 +130,7 @@ class SLDUpdateCoordinator:
             return
         self.detach_document()
         self._canvas_refresh = lambda: None
+        self._last_reconciliation_error = None
         self._disposed = True
 
 
