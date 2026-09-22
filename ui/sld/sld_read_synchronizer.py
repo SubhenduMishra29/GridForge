@@ -190,6 +190,11 @@ class SLDReadSynchronizer:
         if node is None:
             legacy_node = document.model.get_node_optional(equipment_id)
             if legacy_node is not None:
+                legacy_source = legacy_node.properties.get("projection_source")
+                if legacy_source not in (_PROJECTION_SOURCE, _PROTECTION_PROJECTION_SOURCE):
+                    raise ValueError(
+                        f"Ambiguous SLD node identity collision for equipment ID: {equipment_id!r}"
+                    )
                 if legacy_node.equipment_id not in (None, equipment_id):
                     raise ValueError(
                         f"SLD node ID conflicts with equipment ID: {equipment_id!r}"
@@ -219,7 +224,7 @@ class SLDReadSynchronizer:
 
         node.equipment_id = read_model.object_id
         node.properties.update({
-            "projection_source": _PROJECTION_SOURCE,
+            "projection_source": projection_source,
             "element_type": read_model.element_type,
             "labels": dict(read_model.labels),
             "attributes": dict(read_model.attributes),
