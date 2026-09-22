@@ -65,6 +65,35 @@ class SLDUpdateCoordinator:
         self._synchronizer = synchronizer
         self._canvas_refresh = canvas_refresh
         self._disposed = False
+        self._last_reconciliation_error: Exception | None = None
+
+    @property
+    def document(self) -> SLDDocument | None:
+        """Return the currently bound presentation document."""
+        if self._disposed:
+            return None
+        presentation = self._application.presentation
+        if isinstance(presentation, SLDDocument):
+            self._document = presentation
+        return self._document
+
+    def bind_document(self, document: SLDDocument) -> None:
+        """Explicitly bind a newly active SLD document."""
+        if self._disposed:
+            raise RuntimeError("SLDUpdateCoordinator has been disposed")
+        if not isinstance(document, SLDDocument):
+            raise TypeError("document must be an SLDDocument")
+        self._document = document
+
+    def detach_document(self) -> None:
+        """Drop the cached presentation reference during project close."""
+        self._document = None
+
+
+    @property
+    def last_reconciliation_error(self) -> Exception | None:
+        """Return the most recent reconciliation failure, if any."""
+        return self._last_reconciliation_error
 
     def refresh(self, event: ApplicationEvent) -> None:
         """Refresh read-only projections after an authoritative Application fact."""
@@ -78,37 +107,36 @@ class SLDUpdateCoordinator:
             return
 
         if isinstance(event, ProjectLoaded):
-            self._synchronizer.synchronize_network_from_application()
-            self._synchronizer.synchronize_protection_from_application()
-            self._canvas_refresh()
-            return
-
-        if isinstance(event, ProtectionChanged):
-            self._synchronizer.synchronize_protection_from_application()
-            self._canvas_refresh()
-            return
-
-        if isinstance(event, (ElementCreated, ElementUpdated, ElementRemoved)):
-            element_type = str(event.payload.get("element_type", "")).lower()
-            if element_type == "relay":
-                self._synchronizer.synchronize_protection_from_application()
-            else:
-                self._synchronizer.synchronize_network_from_application()
-            self._canvas_refresh()
-            return
-
-        if isinstance(event, (TopologyChanged, NetworkChanged)):
-            self._synchronizer.synchronize_network_from_application()
-            self._canvas_refresh()
-            return
-
-        if isinstance(event, SLDPresentationChanged):
+            presentation = self._application.presentation
+            if isinstance(presentation, SLDDocument):
+                self.bind_document(presentation)
+        if isinstance(event, self.event_types):
+            document = self.document
+            if document is None:
+                return
+            initial_positions = {}
+            if isinstance(event, ElementCreated):
+                x = event.metadata.get("presentation_x")
+                y = event.metadata.get("presentation_y")
+                if x is not None and y is not None:
+                    initial_positions[event.element_id] = (float(x), float(y))
+            try:
+                self._synchronizer.synchronize_network(
+                    document,
+                    self._application.read_network(),
+                    initial_positions=initial_positions,
+                )
+            except Exception as exc:
+                self._last_reconciliation_error = exc
+                raise
+            self._last_reconciliation_error = None
             self._canvas_refresh()
 
     def dispose(self) -> None:
         if self._disposed:
             return
         self._canvas_refresh = lambda: None
+        self._last_reconciliation_error = None
         self._disposed = True
 
 

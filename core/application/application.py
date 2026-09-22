@@ -399,19 +399,16 @@ class Application:
                 "activation_generation": self.project_lifecycle.activation_generation}
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
-        metadata = {"command_id": str(command.command_id), "message": result.message, "operation": operation, **self._project_scope_metadata()}
+        metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation}
         if command.command_type.startswith("model."):
             self._publish_model_event(command, metadata, operation=operation); self._publish_network_changed(command, metadata)
         elif command.command_type.startswith("control."): self._publish_control_event(command, result, metadata, operation=operation)
         elif command.command_type.startswith("sld."):
-            payload = dict(result.metadata); payload.update(metadata)
-            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
-        elif command.command_type.startswith("protection."):
-            payload = dict(result.metadata); payload.update(metadata)
-            self._event_bus.publish(ProtectionChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
-        elif command.command_type == "application.place_bus":
-            payload = dict(result.metadata); payload.update(metadata)
-            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload, correlation_id=command.correlation_id, causation_id=command.causation_id))
+            payload = dict(result.metadata)
+            payload.update(metadata)
+            self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
+                                                          correlation_id=command.correlation_id,
+                                                          causation_id=command.causation_id))
 
     def _publish_control_event(self, command: Command, result: ApplicationResult, metadata: dict[str, object], *, operation: str) -> None:
         command_type = command.command_type; payload = dict(result.metadata); payload.update(metadata)

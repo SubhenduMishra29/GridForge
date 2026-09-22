@@ -103,7 +103,18 @@ class ModelCommandHandlers:
             if resolved.get(key) is not None: resolved[key] = EndpointResolver.resolve(context, resolved[key])
         return resolved
 
-    def create_bus(self, command, context, transaction): return self._model_service.create_bus(transaction=transaction, **command.payload)
+    def create_bus(self, command, context, transaction):
+        payload = dict(command.payload)
+        presentation_x = payload.pop("x", None)
+        presentation_y = payload.pop("y", None)
+        result = self._model_service.create_bus(transaction=transaction, **payload)
+        if presentation_x is None or presentation_y is None:
+            return result
+        return ApplicationResult.success_result(
+            value=result.value,
+            message=result.message,
+            metadata={**dict(result.metadata), "presentation_x": float(presentation_x), "presentation_y": float(presentation_y)},
+        )
     def update_bus(self, command, context, transaction): return self._model_service.update_bus(transaction=transaction, **command.payload)
     def delete_bus(self, command, context, transaction): return self._model_service.delete_bus(transaction=transaction, **command.payload)
     def create_grid(self, command, context, transaction): return self._model_service.create_grid(transaction=transaction, **command.payload)
