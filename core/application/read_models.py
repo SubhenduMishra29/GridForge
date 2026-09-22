@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -65,7 +65,7 @@ class EngineeringParameterReadModel:
     choices: tuple[str, ...] = ()
     editable: bool = False
     derived: bool = False
-    validation: Mapping[str, Any] = MappingProxyType({})
+    validation: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     coupling_group: str | None = None
     topology_impact: bool = False
     study_impact: bool = False
