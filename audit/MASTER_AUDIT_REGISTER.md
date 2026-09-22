@@ -272,3 +272,8 @@ This batch is source-evidence only. No tests, pytest, CI, startup, GUI interacti
 ### Merge provenance
 
 Active HEAD 8eab2c14dde8f488748da8a9fce3732f653c5ece is the merge commit for PR #163 (targeted corrections) from madhuri196mishra-cpu/main, authored by SubhenduMishra29 and committed through GitHub web flow. The resulting active tree is treated as authoritative for this re-audit.
+
+
+## Final correction commit for this batch
+
+Final source correction HEAD: 5019b1b89ae5342165019e8e245866db27cf054e. The final adjustment scopes stale projection registry cleanup to the corresponding NETWORK or PROTECTION ownership domain. No tests, CI, startup, GUI execution, or runtime verification was run.
