@@ -13,6 +13,7 @@ from ui.plugins.panels_plugin import PanelSpec
 from .element_list_panel import ElementListPanelWidget
 from .messages_panel import MessagesPanelWidget
 from .properties_panel import PropertiesPanel
+from .engineering_parameter_editor import EngineeringParameterEditor
 from .study_cases_panel import StudyCasesPanelWidget
 
 
@@ -137,6 +138,24 @@ class PropertiesPanelWidget(QWidget):
         self.setObjectName("GridForgePanel_properties")
         self.logical_panel = PropertiesPanel()
         self.logical_panel.on_create()
+        self._engineering_editor: EngineeringParameterEditor | None = None
+
+    def bind_configuration_runtime(self, application: Any) -> None:
+        """Bind the canonical Application command boundary for parameter edits."""
+        self._engineering_editor = EngineeringParameterEditor(application)
+
+    def configure_parameter(self, parameter_id: str, value: Any) -> Any:
+        """Submit one typed edit from the current immutable projection."""
+        if self._engineering_editor is None:
+            raise RuntimeError("Properties configuration runtime is not bound.")
+        target = self.logical_panel.target
+        if target is None:
+            raise RuntimeError("No projected element is selected.")
+        intent = self._engineering_editor.intent_from_projection(
+            target,
+            {parameter_id: value},
+        )
+        return self._engineering_editor.submit(intent)
 
     @property
     def target(self) -> Any | None:
