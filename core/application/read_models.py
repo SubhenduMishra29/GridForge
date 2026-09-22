@@ -79,6 +79,30 @@ class EngineeringParameterReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class EngineeringParameterReadModel:
+    """Immutable Application read-side description of one engineering parameter."""
+
+    parameter_id: str
+    value: Any
+    unit: str | None = None
+    datatype: str = "unknown"
+    choices: tuple[str, ...] = ()
+    editable: bool = False
+    derived: bool = False
+    validation: Mapping[str, Any] = MappingProxyType({})
+    coupling_group: str | None = None
+    topology_impact: bool = False
+    study_impact: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.parameter_id, str) or not self.parameter_id:
+            raise ValueError("EngineeringParameterReadModel.parameter_id must be non-empty")
+        object.__setattr__(self, "value", _freeze(self.value))
+        object.__setattr__(self, "choices", tuple(str(choice) for choice in self.choices))
+        object.__setattr__(self, "validation", _freeze(self.validation))
+
+
+@dataclass(frozen=True, slots=True)
 class ElementReadModel:
     """Stable, UI-neutral immutable snapshot of one network element."""
 
@@ -110,6 +134,7 @@ class ElementReadModel:
             attributes.setdefault(key, None)
         object.__setattr__(self, "labels", _freeze(self.labels))
         object.__setattr__(self, "attributes", _freeze(attributes))
+        object.__setattr__(self, "engineering_parameters", tuple(self.engineering_parameters))
         object.__setattr__(self, "engineering_parameters", tuple(self.engineering_parameters))
 
 
@@ -159,6 +184,7 @@ class ProtectionReadModel:
 
 __all__ = [
     "ElementReadModel",
+    "EngineeringParameterReadModel",
     "EngineeringParameterReadModel",
     "NetworkReadModel",
     "ProtectionReadModel",
