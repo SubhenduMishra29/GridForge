@@ -235,6 +235,15 @@ class SLDReadSynchronizer:
         if node.equipment_id not in (None, read_model.object_id):
             raise ValueError(f"SLD node ID conflicts with equipment ID: {read_model.object_id!r}")
 
+        # Engineer-authored nodes may bind to real equipment but are not
+        # generated projection objects. Preserve their node identity, geometry,
+        # and authored properties while allowing the read projection to continue
+        # reconciling independently.
+        if node.properties.get("presentation_ownership") == "engineer_authored":
+            if node.equipment_id != read_model.object_id:
+                raise ValueError(f"SLD authored node equipment binding conflicts with {read_model.object_id!r}")
+            return node
+
         self._require_projection_ownership(
             node,
             projection_source=projection_source,
