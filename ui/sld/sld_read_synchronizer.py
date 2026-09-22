@@ -141,12 +141,27 @@ class SLDReadSynchronizer:
         *,
         initial_position: tuple[float, float] | None = None,
     ) -> SLDNode:
-        node = document.model.get_node_by_equipment_id_optional(read_model.object_id)
+        equipment_id = read_model.object_id
+        node = document.model.get_node_by_equipment_id_optional(equipment_id)
+
+        # Backward-compatible reconciliation for older documents whose
+        # presentation node ID was also the equipment ID but equipment_id
+        # had not been persisted explicitly.
+        if node is None:
+            legacy_node = document.model.get_node_optional(equipment_id)
+            if legacy_node is not None:
+                if legacy_node.equipment_id not in (None, equipment_id):
+                    raise ValueError(
+                        f"SLD node ID conflicts with equipment ID: {equipment_id!r}"
+                    )
+                legacy_node.equipment_id = equipment_id
+                node = legacy_node
+
         if node is None:
             x, y = initial_position if initial_position is not None else (0.0, 0.0)
             node = SLDNode(
-                node_id=read_model.object_id,
-                equipment_id=read_model.object_id,
+                node_id=equipment_id,
+                equipment_id=equipment_id,
                 x=float(x),
                 y=float(y),
                 properties={
