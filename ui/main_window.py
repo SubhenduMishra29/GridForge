@@ -49,6 +49,8 @@ WorkspaceLayout objects into host operations exposed by this class.
 
 from __future__ import annotations
 
+from typing import Any
+
 from ui.core.qt import (
     QDockWidget,
     QMainWindow,
@@ -58,6 +60,8 @@ from ui.core.qt import (
 
 from ui.core.controller import Controller
 from ui.plugins.plugin_registry import PluginRegistry
+
+from collections.abc import Callable
 
 
 class MainWindow(QMainWindow):
@@ -78,11 +82,13 @@ class MainWindow(QMainWindow):
         plugin_registry: PluginRegistry | None = None,
         central_surface: QWidget | None = None,
         parent: QWidget | None = None,
+        close_handler: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._controller = controller
         self._plugin_registry = plugin_registry
+        self._close_handler = close_handler
 
         self._central_widget: QWidget | None = None
 
@@ -103,6 +109,22 @@ class MainWindow(QMainWindow):
     def central_surface(self) -> QWidget | None:
         """Return the canonical central presentation surface."""
         return self._central_widget
+
+    def set_close_handler(self, close_handler: Callable[[], bool] | None) -> None:
+        """Install the composition-owned project shutdown decision boundary."""
+        if close_handler is not None and not callable(close_handler):
+            raise TypeError("close_handler must be callable or None.")
+        self._close_handler = close_handler
+
+    def closeEvent(self, event: Any) -> None:
+        """Resolve dirty-project shutdown before allowing the Qt window to close."""
+        if self._close_handler is None:
+            event.accept()
+            return
+        if self._close_handler():
+            event.accept()
+        else:
+            event.ignore()
 
     def _initialize_window(self) -> None:
         """Initialize basic Qt window properties."""
