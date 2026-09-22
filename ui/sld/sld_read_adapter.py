@@ -25,6 +25,7 @@ class SLDReadAdapter:
             labels=read_model.labels,
             connectivity_refs=read_model.connectivity_refs,
             attributes=read_model.attributes,
+            engineering_parameters=read_model.engineering_parameters,
         )
 
     def network(self, read_model: NetworkReadModel) -> NetworkReadModel:
