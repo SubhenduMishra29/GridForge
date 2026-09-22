@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from core.application import Application
+from core.application.events import ProjectClosed, ProjectLoaded
 from core.application.commands.sld_commands import (
     AddSLDConnectionCommand,
     AddSLDNodeCommand,
@@ -42,6 +43,9 @@ class SLDController:
         self._projection_manager = projection_manager if projection_manager is not None else SLDProjectionManager()
         self._application = application
         self._documents: Dict[str, SLDDocument] = {}
+        if self._application is not None:
+            self._application.event_bus.subscribe(ProjectLoaded, self._on_project_loaded)
+            self._application.event_bus.subscribe(ProjectClosed, self._on_project_closed)
 
     @property
     def state(self) -> SLDState:
@@ -62,8 +66,13 @@ class SLDController:
         if document.document_id in self._documents:
             raise ValueError(f"Document already registered: {document.document_id}")
         self._documents[document.document_id] = document
-        if self._state.active_document_id is None:
-            self.activate_document(document.document_id)
+        if self._application is not None:
+            presentation = self._application.presentation
+            if presentation is document:
+                self._state.active_document_id = document.document_id
+                self._state.clear_selection()
+        elif self._state.active_document_id is None:
+            self._state.active_document_id = document.document_id
 
     def unregister_document(self, document_id: str) -> SLDDocument:
         if document_id not in self._documents:
@@ -94,10 +103,48 @@ class SLDController:
         document = self._documents.get(document_id)
         if document is None:
             raise KeyError(document_id)
+        presentation = self.application.presentation
+        if presentation is not document:
+            raise RuntimeError(
+                "SLDController cannot activate a document that is not the "
+                "Application-authoritative active presentation."
+            )
         self._state.active_document_id = document_id
         self._state.clear_selection()
-        self.application.sld_service.bind_document(document)
+        # The project lifecycle/SLDService binding is authoritative; this call
+        # only reconciles controller state downstream to that document.
+        if self.application.sld_service.document is not document:
+            self.application.sld_service.bind_document(document)
         return document
+
+    def reconcile_presentation(self) -> Optional[SLDDocument]:
+        """Reconcile controller state to the Application presentation authority."""
+        presentation = self.application.presentation
+        if presentation is None:
+            self._state.active_document_id = None
+            self._state.clear_selection()
+            return None
+        if not isinstance(presentation, SLDDocument):
+            raise TypeError("Application presentation must be an SLDDocument for the SLDController.")
+        if presentation.document_id not in self._documents:
+            self._documents[presentation.document_id] = presentation
+        self._state.active_document_id = presentation.document_id
+        self._state.clear_selection()
+        return presentation
+
+    def _on_project_loaded(self, _event: ProjectLoaded) -> None:
+        self.reconcile_presentation()
+
+    def _on_project_closed(self, _event: ProjectClosed) -> None:
+        self._state.reset()
+        self._documents.clear()
+
+    def dispose(self) -> None:
+        if self._application is not None:
+            self._application.event_bus.unsubscribe(ProjectLoaded, self._on_project_loaded)
+            self._application.event_bus.unsubscribe(ProjectClosed, self._on_project_closed)
+        self._documents.clear()
+        self._state.reset()
 
     @property
     def document_count(self) -> int:
