@@ -259,6 +259,15 @@ class SLDModel:
         """Return whether a node exists."""
         return node_id in self._nodes
 
+    def get_node_by_equipment_id_optional(self, equipment_id: str) -> Optional[SLDNode]:
+        """Return the projection node for an equipment identity, if present."""
+        if not isinstance(equipment_id, str) or not equipment_id:
+            raise ValueError("equipment_id must be a non-empty string")
+        for node in self._nodes.values():
+            if node.equipment_id == equipment_id:
+                return node
+        return None
+
     def remove_node(self, node_id: str) -> SLDNode:
         """
         Remove a node.
