@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/projection/selection_projection_coordinator.py
 # GridForge V2 — Selection Projection Coordinator
+# Author: Subhendu Mishra
 # ============================================================
 """Project transient UI selection into the PropertiesPanel through Application."""
 
