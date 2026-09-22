@@ -123,17 +123,38 @@ class SLDService:
 
     def _add_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
+        equipment_id = p.get("equipment_id")
+        if equipment_id is not None:
+            self._validate_equipment_reference(str(equipment_id))
         self.document.model.create_node(
             node_id=p["node_id"],
-            equipment_id=p.get("equipment_id"),
+            equipment_id=equipment_id,
             x=float(p["x"]),
             y=float(p["y"]),
+            properties={
+                "presentation_ownership": "engineer_authored",
+                "equipment_binding": equipment_id,
+            },
         )
         self.document.mark_modified()
         transaction.record_undo(lambda node_id=p["node_id"]: self.document.model.remove_node(node_id))
         return ApplicationResult.success_result(
             message="SLD node added.",
             metadata={"presentation_operation": "add_node", "node_id": p["node_id"]},
+        )
+
+    def _validate_equipment_reference(self, equipment_id: str) -> None:
+        """Validate an authored SLD equipment association through Application read state."""
+        if self._application is None:
+            raise RuntimeError("SLDService requires an Application to validate equipment references.")
+        read_model = self._application.read_network()
+        if any(element.object_id == equipment_id for element in read_model.elements):
+            return
+        protection = self._application.read_protection()
+        if any(element.object_id == equipment_id for element in protection.elements):
+            return
+        raise ValueError(
+            f"SLD node equipment reference {equipment_id!r} does not resolve to current Application read state."
         )
 
     def _remove_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
