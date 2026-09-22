@@ -85,8 +85,8 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "rated_voltage_kv": {"unit": "kV", "datatype": "float"},
     "rated_current_a": {"unit": "A", "datatype": "float"},
     "rate_mva": {"unit": "MVA", "datatype": "float", "study_impact": True},
-    "impedance_basis": {"datatype": "enum", "choices": ("pu", "engineering"), "editable": False, "study_impact": True},
-    "impedance_base_mva": {"unit": "MVA", "datatype": "float", "editable": False, "study_impact": True},
+    "impedance_basis": {"datatype": "enum", "choices": ("pu", "engineering"), "editable": True, "study_impact": True},
+    "impedance_base_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True},
     "impedance_base_voltage_kv": {"unit": "kV", "datatype": "float", "editable": False, "study_impact": True},
     "tap": {"datatype": "float", "study_impact": True},
     "tap_ratio": {"datatype": "float", "derived": True, "study_impact": True},
@@ -193,6 +193,8 @@ class NetworkReadService(ReadService):
             if parameter_id in {"from_endpoint", "endpoint_from_id", "from_terminal", "to_endpoint", "endpoint_to_id", "to_terminal", "terminal_connectivity"}:
                 continue
             metadata = dict(_PARAMETER_METADATA.get(parameter_id, {}))
+            if element_type == "transformers" and parameter_id in {"r", "x", "b", "impedance_basis", "impedance_base_mva", "tap", "shift", "rate_mva", "in_service"}:
+                metadata["editable"] = True
             if parameter_id in {"r", "x"}:
                 metadata.setdefault("unit", "pu" if basis == "pu" else "ohm")
                 metadata.setdefault("study_impact", True)

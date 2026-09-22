@@ -33,6 +33,7 @@ DELETE_SHUNT = "model.delete_shunt"
 CREATE_LINE = "model.create_line"
 DELETE_LINE = "model.delete_line"
 CREATE_TRANSFORMER = "model.create_transformer"
+UPDATE_TRANSFORMER = "model.update_transformer"
 DELETE_TRANSFORMER = "model.delete_transformer"
 CREATE_CABLE = "model.create_cable"
 UPDATE_CABLE = "model.update_cable"
@@ -222,6 +223,27 @@ class CreateTransformerCommand(Command):
             "rate_mva": rate_mva,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
+class UpdateTransformerCommand(Command):
+    def __init__(self, *, transformer_id: str, name: str | None = None, r: float | None = None,
+                 x: float | None = None, b: float | None = None,
+                 impedance_basis: ImpedanceBasis | str | None = None, impedance_base_mva: float | None = None,
+                 tap: float | None = None, shift: float | None = None, rate_mva: float | None = None,
+                 in_service: bool | None = None, command_id: UUID | None = None,
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service)
+        if all(value is None for value in values):
+            raise ValueError("UpdateTransformerCommand requires at least one mutable Transformer field.")
+        normalized_basis = None
+        if impedance_basis is not None:
+            try:
+                normalized_basis = impedance_basis if isinstance(impedance_basis, ImpedanceBasis) else ImpedanceBasis(str(impedance_basis).strip().lower())
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
+        super().__init__(**_command(UPDATE_TRANSFORMER, {
+            "transformer_id": transformer_id, "name": name, "r": r, "x": x, "b": b,
+            "impedance_basis": normalized_basis, "impedance_base_mva": impedance_base_mva,
+            "tap": tap, "shift": shift, "rate_mva": rate_mva, "in_service": in_service,
+        }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_TRANSFORMER, {"transformer_id": transformer_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))

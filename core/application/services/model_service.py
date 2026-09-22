@@ -118,6 +118,7 @@ class ModelService(ModelServiceSupport):
     def create_line(self, **kwargs): return self._line_service.create_line(**kwargs)
     def delete_line(self, **kwargs): return self._line_service.delete_line(**kwargs)
     def create_transformer(self, **kwargs): return self._transformer_service.create_transformer(**kwargs)
+    def update_transformer(self, **kwargs): return self._transformer_service.update_transformer(**kwargs)
     def delete_transformer(self, **kwargs): return self._transformer_service.delete_transformer(**kwargs)
     def create_cable(self, **kwargs): return self._cable_service.create_cable(**kwargs)
     def update_cable(self, **kwargs): return self._cable_service.update_cable(**kwargs)
