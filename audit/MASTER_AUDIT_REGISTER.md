@@ -177,3 +177,26 @@ Current `main` still has a public API inconsistency: `state_vector.py` imports `
 11. Protection measurement/preparation
 12. SLD projection ownership and presentation identity
 13. SLD command ownership and project-load reconciliation
+
+## 2026-09-22 — SLD RCA Correction Batch
+
+Static correction/re-audit completed for the corrected SLD seam. No tests, CI, startup, GUI execution, or runtime verification was performed.
+
+| Register ID | Finding | Status | Static evidence |
+|---|---|---|---|
+| RCA-SLD-AUTH-001 / GF-MASTER-0050 | Canonical semantic SLD reconciliation | **OPEN — CORRECTION IMPLEMENTED; STATIC RE-AUDIT COMPLETE FOR CORRECTED SEAM** | `ui/events/sld_update_coordinator.py` → `ui/sld/sld_read_synchronizer.py` → `SLDDocument.model` |
+| RCA-SLD-AUTH-001-B31-001 / GF-MASTER-0051 | Semantic projection/document integration | **CORRECTED — STATIC RE-AUDIT** | ReadModel reconciliation is centralized in `SLDReadSynchronizer`; deterministic initial placement hints are applied only to missing nodes |
+| RCA-SLD-AUTH-001-B32-001 / GF-MASTER-0052 | Canvas integration gap | **CORRECTED — STATIC RE-AUDIT** | `ui/canvas/sld_canvas_projection.py` → `ui/canvas/sld_canvas_render_system.py` → `ui/canvas/sld_graphics_item_factory.py` |
+| RCA-003-B35-001 / GF-MASTER-0053 | `application.place_bus` legacy/parallel path | **CORRECTED — LEGACY COMMAND RECONCILED** | `PlaceBusCommand` now emits canonical `model.create_bus`; compound placement handler and obsolete event branch removed |
+| ApplicationResult / GF-MASTER-0054 | Core-object-capable result contract | **OPEN — CONSUMER AUDIT / CONTRACT GAP** | `ApplicationResult.value` remains Core-object-capable; SLD path uses ReadModels |
+| Terminal identity / GF-MASTER-0055 | Generic multi-terminal identity | **OPEN — GENERIC MULTI-TERMINAL CONTRACT NOT YET PROVEN** | Inspected endpoint adapter remains Bus-level; no Core Terminal inspection introduced |
+
+### Correction commits
+
+- `340b841910674ab063936ccddb6b26518fe609cc` — deterministic SLD reconciliation / initial placement.
+- `0c2bcbaefd601095470482278effb17a3596d67f` — obsolete compound Bus placement handler removed.
+- `ce55b6dd076eb4eaddf1f76faf47ce9da2cda2b0` — obsolete `application.place_bus` semantic branch removed.
+- `cbd5ecfcf53b0cf61ecf3f071e0835142d0e19a8` — ApplicationResult metadata propagated into semantic events.
+
+The broader GF-MASTER-0037/0038/0039 clusters remain open where their scope exceeds this correction batch.
+
