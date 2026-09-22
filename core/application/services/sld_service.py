@@ -36,8 +36,11 @@ class SLDService:
         "sld.remove_connection",
     })
 
-    def __init__(self, document: Any) -> None:
+    def __init__(self, document: Any, *, application: Any = None) -> None:
         self._document = None
+        self._application = application
+        if application is not None:
+            self.attach_application(application)
         self.bind_document(document)
 
     @property
@@ -51,10 +54,33 @@ class SLDService:
         return self._document is not None
 
     def bind_document(self, document: Any) -> None:
-        """Bind the service to the currently active presentation document."""
+        """Bind only the Application-authoritative active presentation document."""
         if document is None:
             raise TypeError("SLDService requires an SLD document.")
+        if self._application is not None:
+            presentation = getattr(self._application, "presentation", None)
+            if presentation is not document:
+                raise RuntimeError(
+                    "SLDService cannot bind a document that is not the "
+                    "Application-authoritative active presentation."
+                )
         self._document = document
+
+    def attach_application(self, application: Any) -> None:
+        """Attach the Application whose presentation state is authoritative."""
+        if application is None:
+            raise TypeError("application must not be None")
+        self._application = application
+        if self._document is not None:
+            presentation = getattr(application, "presentation", None)
+            if presentation is not self._document:
+                raise RuntimeError(
+                    "Existing SLD document does not match the Application presentation."
+                )
+
+    @property
+    def application(self) -> Any:
+        return self._application
 
     def detach_document(self) -> Any:
         """Detach the active document so closed projects cannot be mutated."""
@@ -97,17 +123,38 @@ class SLDService:
 
     def _add_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
+        equipment_id = p.get("equipment_id")
+        if equipment_id is not None:
+            self._validate_equipment_reference(str(equipment_id))
         self.document.model.create_node(
             node_id=p["node_id"],
-            equipment_id=p.get("equipment_id"),
+            equipment_id=equipment_id,
             x=float(p["x"]),
             y=float(p["y"]),
+            properties={
+                "presentation_ownership": "engineer_authored",
+                "equipment_binding": equipment_id,
+            },
         )
         self.document.mark_modified()
         transaction.record_undo(lambda node_id=p["node_id"]: self.document.model.remove_node(node_id))
         return ApplicationResult.success_result(
             message="SLD node added.",
             metadata={"presentation_operation": "add_node", "node_id": p["node_id"]},
+        )
+
+    def _validate_equipment_reference(self, equipment_id: str) -> None:
+        """Validate an authored SLD equipment association through Application read state."""
+        if self._application is None:
+            raise RuntimeError("SLDService requires an Application to validate equipment references.")
+        read_model = self._application.read_network()
+        if any(element.object_id == equipment_id for element in read_model.elements):
+            return
+        protection = self._application.read_protection()
+        if any(element.object_id == equipment_id for element in protection.elements):
+            return
+        raise ValueError(
+            f"SLD node equipment reference {equipment_id!r} does not resolve to current Application read state."
         )
 
     def _remove_node(self, command: Command, transaction: Transaction) -> ApplicationResult:

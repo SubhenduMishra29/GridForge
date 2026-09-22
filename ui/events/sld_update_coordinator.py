@@ -64,6 +64,9 @@ class SLDUpdateCoordinator:
             synchronizer.attach_application(application)
         self._application = application
         self._synchronizer = synchronizer
+        # Reuse the synchronizer-owned projection manager. The coordinator
+        # must never construct or retain a second projection authority.
+        self._projection_manager = synchronizer.projection_manager
         self._canvas_refresh = canvas_refresh
         self._document: SLDDocument | None = None
         self._disposed = False
@@ -96,6 +99,24 @@ class SLDUpdateCoordinator:
     def last_reconciliation_error(self) -> Exception | None:
         """Return the most recent reconciliation failure, if any."""
         return self._last_reconciliation_error
+
+    def reconcile_current_state(self) -> None:
+        """Reconcile projections from current Application state without replaying events.
+
+        This is the deterministic bootstrap path for projections that become ready
+        after ProjectLoaded has already been emitted.
+        """
+        if self._disposed:
+            return
+        presentation = self._application.presentation
+        if not isinstance(presentation, SLDDocument):
+            self.detach_document()
+            return
+        self.bind_document(presentation)
+        self._synchronizer.synchronize_network(presentation, self._application.read_network())
+        self._synchronizer.synchronize_protection(presentation, self._application.read_protection())
+        self._last_reconciliation_error = None
+        self._canvas_refresh()
 
     def refresh(self, event: ApplicationEvent) -> None:
         """Refresh read-only projections after an authoritative Application fact."""

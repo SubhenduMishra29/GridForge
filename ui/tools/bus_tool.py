@@ -1,5 +1,6 @@
 # ============================================================
 # GridForge V2
+# Author: Subhendu Mishra
 # ============================================================
 # File:
 #     ui/tools/bus_tool.py
@@ -29,6 +30,7 @@ class BusTool(ToolBase):
         application: Any,
         selection_manager: Any,
         snap_system: Any,
+        preview_layer: Any = None,
     ) -> None:
         super().__init__(
             controller=controller,
@@ -38,6 +40,7 @@ class BusTool(ToolBase):
         )
         self._position: Optional[Tuple[float, float]] = None
         self._preview_active = False
+        self._preview_layer = preview_layer
 
     @property
     def tool_id(self) -> str:
@@ -64,6 +67,7 @@ class BusTool(ToolBase):
             return False
         self._position = position
         self._preview_active = True
+        self._show_preview(position)
         return True
 
     def on_mouse_move(self, event: Any) -> bool:
@@ -73,6 +77,7 @@ class BusTool(ToolBase):
             return False
         self._position = position
         self._preview_active = True
+        self._show_preview(position)
         return True
 
     def on_mouse_release(self, event: Any) -> bool:
@@ -148,9 +153,20 @@ class BusTool(ToolBase):
             key = event.get("key", key)
         return key in ("Escape", "escape", 0x01000000)
 
+    def _show_preview(self, position: Tuple[float, float]) -> None:
+        if self._preview_layer is None:
+            return
+        show_bus = getattr(self._preview_layer, "show_bus", None)
+        if callable(show_bus):
+            show_bus(position)
+
     def _clear_state(self) -> None:
         self._position = None
         self._preview_active = False
+        if self._preview_layer is not None:
+            clear = getattr(self._preview_layer, "clear", None)
+            if callable(clear):
+                clear()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()

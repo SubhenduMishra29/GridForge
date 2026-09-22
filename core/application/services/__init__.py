@@ -1,6 +1,7 @@
 # ============================================================
 # File: core/application/services/__init__.py
 # GridForge V2 — Headless Application Services
+# Author: Subhendu Mishra
 # ============================================================
 """
 GridForge V2
@@ -68,4 +69,6 @@ This package intentionally starts empty.
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from .electrical_connection_service import ElectricalConnectionCommandHandlers, ElectricalConnectionService
+
+__all__ = ["ElectricalConnectionCommandHandlers", "ElectricalConnectionService"]
