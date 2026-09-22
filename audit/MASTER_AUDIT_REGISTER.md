@@ -1,7 +1,8 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository:** `pandaraseswari03-collab/GridForge`
+**Repository authority:** `SubhenduMishra29/GridForge`
+**Correction-pass implementation source:** `pandaraseswari03-collab/GridForge` `main`
 **Branch baseline:** `main` at `d5900e8c8dbd85eefa5e148fb07079a7125accc0`
 **Consolidation date:** 2026-09-17
 **Authority:** frozen GridForge V2 architecture supplied for this audit.
@@ -639,3 +640,21 @@ RCA-017 equipment catalogue/tool activation correction is source-remediated with
 The re-audit identified one residual competing construction surface: `ui/tools/tool_factory.py` still contained concrete legacy constructors despite being documented as non-authoritative. It has now been reduced to a compatibility marker that raises on construction and exposes no concrete creation methods. Authoritative construction remains `ToolManager` → `create_default_tool_factories()`.
 
 Status remains **REMEDIATED — VERIFICATION DEFERRED**. No tests, CI, application startup, GUI execution, or runtime verification were performed.
+
+
+## Post-B39 static source-integrity reconciliation — 2026-09-22
+
+Static correction cleaned duplicate projection/read-source declarations introduced by the B39 correction. Runtime verification remains deferred.
+
+- GF-POST-B39-001 — Duplicate `EngineeringParameterState` declaration — **CORRECTED — STATIC VERIFICATION COMPLETE**
+- GF-POST-B39-002 — Duplicate `ProjectionState.engineering_parameters` field — **CORRECTED — STATIC VERIFICATION COMPLETE**
+- GF-POST-B39-003 — Duplicate `EngineeringParameterReadModel` declaration — **CORRECTED — STATIC VERIFICATION COMPLETE**
+- GF-POST-B39-004 — Duplicate `_PARAMETER_METADATA` / `_engineering_parameters()` implementation — **CORRECTED — STATIC VERIFICATION COMPLETE**
+- GF-POST-B39-005 — Duplicate `SelectionProjectionCoordinator` `engineering_parameters=` mapping — **CORRECTED — STATIC VERIFICATION COMPLETE**
+- GF-POST-B39-006 — Transformer PreviewLayer attribute inconsistency — **CORRECTED — STATIC VERIFICATION COMPLETE**
+
+Required open findings remain: RCA-016-B6-001, RCA-016-B6-004, RCA-017-010.
+
+B39 projection findings RCA-016-B6-005 and RCA-016-B6-008 remain remediated after duplicate-source cleanup.
+
+Verification boundary: no tests, pytest, CI, startup, GUI execution, or runtime verification performed.
