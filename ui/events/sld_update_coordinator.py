@@ -64,6 +64,9 @@ class SLDUpdateCoordinator:
             synchronizer.attach_application(application)
         self._application = application
         self._synchronizer = synchronizer
+        # Reuse the synchronizer-owned projection manager. The coordinator
+        # must never construct or retain a second projection authority.
+        self._projection_manager = synchronizer.projection_manager
         self._canvas_refresh = canvas_refresh
         self._document: SLDDocument | None = None
         self._disposed = False
