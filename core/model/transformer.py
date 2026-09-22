@@ -252,12 +252,11 @@ class Transformer(Branch):
             target_base_mva, self._impedance_base_mva, rel_tol=0.0, abs_tol=0.0
         )
         coupled_update = basis_changed or base_changed
-        explicit_coupled = any(value is not None for value in (r, x, b))
 
         target_r = self._r
         target_x = self._x
         target_b = self._b
-        if coupled_update and not explicit_coupled:
+        if coupled_update:
             z = complex(self._r, self._x)
             y = complex(0.0, self._b)
             if current_basis is ImpedanceBasis.PU:
