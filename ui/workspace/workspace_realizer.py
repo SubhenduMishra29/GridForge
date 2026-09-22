@@ -376,17 +376,27 @@ class WorkspaceRealizer:
         self,
         layout: WorkspaceLayout,
     ) -> None:
-        """
-        Realize the supplied logical workspace layout.
+        """Realize a layout and compensate partial Qt changes on failure."""
+        previous = self._realized_layout
+        try:
+            self._realize_unchecked(layout)
+        except BaseException as exc:
+            try:
+                if previous is None:
+                    self.clear_realization()
+                else:
+                    self._realize_unchecked(previous)
+            except BaseException as restore_exc:
+                raise WorkspaceRealizationError(
+                    "Workspace realization failed and prior presentation restoration also failed."
+                ) from restore_exc
+            raise exc
 
-        WorkspaceLayout owns the decision.
-        WorkspaceRealizer translates it.
-        MainWindow performs the Qt operations.
-
-        _realized_layout is updated only after every realization
-        operation succeeds.
-        """
-
+    def _realize_unchecked(
+        self,
+        layout: WorkspaceLayout,
+    ) -> None:
+        """Apply a layout without swallowing realization failures."""
         self._validate_layout(
             layout
         )
