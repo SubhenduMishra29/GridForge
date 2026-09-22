@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from core.application.read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel
 
@@ -75,7 +75,13 @@ class SLDReadSynchronizer:
         read_model = self._require_application().read_element(element_type, object_id)
         return self.synchronize_element(document, read_model)
 
-    def synchronize_network(self, document: SLDDocument, read_model: NetworkReadModel) -> tuple[SLDNode, ...]:
+    def synchronize_network(
+        self,
+        document: SLDDocument,
+        read_model: NetworkReadModel,
+        *,
+        initial_positions: Mapping[str, tuple[float, float]] | None = None,
+    ) -> tuple[SLDNode, ...]:
         """Reconcile network read data and branch connectivity."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument")
@@ -85,6 +91,7 @@ class SLDReadSynchronizer:
         adapted = self._read_adapter.network(read_model)
         self._projection_manager.project_network(adapted)
         active_ids = {element.object_id for element in adapted.elements}
+        positions = dict(initial_positions or {})
 
         for node in tuple(document.model.nodes):
             if node.properties.get("projection_source") == _PROJECTION_SOURCE and node.equipment_id not in active_ids:
@@ -92,7 +99,14 @@ class SLDReadSynchronizer:
                     self._projection_manager.remove(node.equipment_id)
                 document.model.remove_node(node.node_id)
 
-        nodes = tuple(self._synchronize_element(document, element) for element in adapted.elements)
+        nodes = tuple(
+            self._synchronize_element(
+                document,
+                element,
+                initial_position=positions.get(element.object_id),
+            )
+            for element in adapted.elements
+        )
         self._synchronize_connections(document, adapted)
         return nodes
 
@@ -120,14 +134,21 @@ class SLDReadSynchronizer:
             raise RuntimeError("SLD Application read facade is not configured")
         return self._application
 
-    def _synchronize_element(self, document: SLDDocument, read_model: ElementReadModel) -> SLDNode:
+    def _synchronize_element(
+        self,
+        document: SLDDocument,
+        read_model: ElementReadModel,
+        *,
+        initial_position: tuple[float, float] | None = None,
+    ) -> SLDNode:
         node = document.model.get_node_optional(read_model.object_id)
         if node is None:
+            x, y = initial_position if initial_position is not None else (0.0, 0.0)
             node = SLDNode(
                 node_id=read_model.object_id,
                 equipment_id=read_model.object_id,
-                x=0.0,
-                y=0.0,
+                x=float(x),
+                y=float(y),
                 properties={
                     "projection_source": _PROJECTION_SOURCE,
                     "element_type": read_model.element_type,
