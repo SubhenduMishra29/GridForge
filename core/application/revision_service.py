@@ -43,6 +43,7 @@ class RevisionService:
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status"})
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
+        "model.update_transformer",
         "model.update_breaker",
         "model.update_switch",
         "model.update_disconnector",
@@ -132,7 +133,7 @@ class RevisionService:
         if command_type in cls._TOPOLOGY_COMMANDS:
             return True
         if command_type in cls._TOPOLOGY_UPDATE_COMMANDS:
-            return any(field in command.payload for field in cls._TOPOLOGY_STATE_FIELDS)
+            return any(command.payload.get(field) is not None for field in cls._TOPOLOGY_STATE_FIELDS)
         return False
 
     @classmethod
