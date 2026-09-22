@@ -312,7 +312,17 @@ class SLDReadSynchronizer:
             document.model.remove_connection(connection.connection_id)
 
         if equipment_id is not None:
-            self._projection_manager.remove(equipment_id, domain=domain)
+            registered = self._projection_manager.get(equipment_id)
+            if registered is not None:
+                removed = self._projection_manager.remove(
+                    equipment_id,
+                    domain=domain,
+                )
+                if removed is None:
+                    raise ValueError(
+                        f"Projection ownership mismatch during stale cleanup "
+                        f"for equipment ID: {equipment_id!r}"
+                    )
         document.model.remove_node(node.node_id)
 
     @staticmethod
