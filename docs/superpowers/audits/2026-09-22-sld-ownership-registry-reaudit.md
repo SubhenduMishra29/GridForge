@@ -43,6 +43,19 @@ Disposition: REMEDIATED — VERIFICATION DEFERRED.
 
 Classification before correction: CONFIRMED IMPLEMENTATION DEFECT.
 
+### RCA-SLD-AUTH-001-C — Stale cleanup method binding defect
+
+Classification discovered during re-audit: CONFIRMED IMPLEMENTATION DEFECT.
+
+The stale-node helper was declared without the `self` parameter even though it is invoked as an instance method and uses `self._projection_manager`. This made the stale cleanup path structurally inconsistent with its call sites.
+
+Correction:
+- `_remove_stale_projection_node()` now has the explicit `self` receiver.
+- The existing domain-safe registry cleanup remains inside the method.
+
+Disposition: REMEDIATED — VERIFICATION DEFERRED.
+
+
 Correction:
 - Stale projection cleanup resolves the projection domain from the node's existing projection source before ownership metadata is removed.
 - When engineer-owned connections require retaining the node, the matching semantic projection registry entry is removed first.
@@ -175,6 +188,7 @@ It was not deleted.
 ### REMEDIATED — VERIFICATION DEFERRED
 - RCA-SLD-AUTH-001-A — legacy ownership bypass.
 - RCA-SLD-AUTH-001-B — stale projection registry cleanup.
+- RCA-SLD-AUTH-001-C — stale cleanup method binding defect.
 - Single-element Relay protection-domain rejection.
 - Network/protection projection registry reconciliation.
 - Existing node identity and geometry preservation remain intact.
