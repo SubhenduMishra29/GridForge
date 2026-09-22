@@ -143,7 +143,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_context = project_workspace_adapter.new_project(name="GridForge Project", project_id=project_id, activate_workspace=False)
     sld_document = gridforge_application.presentation
     if not isinstance(sld_document, SLDDocument): raise RuntimeError("Application did not establish an SLDDocument for the active project.")
-    sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.activate_document(sld_document.document_id); sld_read_synchronizer.synchronize_network(gridforge_application.read_network()); sld_read_synchronizer.synchronize_protection(gridforge_application.read_protection())
+    sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.reconcile_presentation()
 
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
