@@ -94,8 +94,10 @@ class EndpointIdentityAdapter:
         equipment_type = getattr(equipment, "equipment_type", None)
         if not isinstance(equipment_type, str) or not equipment_type.strip():
             raise ValueError("Terminal snap source does not expose canonical equipment_type.")
+        aliases = {"current_transformer": "ct", "potential_transformer": "pt", "cvt": "cvt"}
+        canonical_value = aliases.get(equipment_type, equipment_type)
         try:
-            canonical_type = EquipmentType(equipment_type)
+            canonical_type = EquipmentType(canonical_value)
         except ValueError as exc:
             raise ValueError(f"Unsupported snapped equipment type: {equipment_type!r}") from exc
         if terminal_id is None:
