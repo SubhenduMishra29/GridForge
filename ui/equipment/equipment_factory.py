@@ -33,6 +33,7 @@ from typing import Any, Mapping
 
 from .equipment_base import EquipmentBase
 from .equipment_registry import EquipmentRegistry
+from .terminal import EquipmentTerminal
 
 
 class EquipmentFactory:
@@ -148,11 +149,21 @@ class EquipmentFactory:
         # Runtime terminal identities
         # ----------------------------------------------------
 
-        terminal_ids = [
-            f"{equipment_id}:{terminal_name}"
-            for terminal_name
-            in definition.terminal_names
-        ]
+        symbol_registry = getattr(self._registry, "symbol_registry", None)
+        # Terminal geometry is sourced only from the canonical SymbolDefinition.
+        if symbol_registry is None:
+            raise RuntimeError("EquipmentRegistry must expose its composed SymbolRegistry for terminal realization.")
+        symbol = symbol_registry.require(definition.symbol_id)
+        terminals = []
+        for terminal_name in definition.terminal_names:
+            if not symbol.has_terminal_anchor(terminal_name):
+                raise ValueError(f"Missing terminal anchor {terminal_name!r} for symbol {definition.symbol_id!r}.")
+            terminals.append(EquipmentTerminal(
+                terminal_id=f"{equipment_id}:{terminal_name}",
+                equipment_id=equipment_id,
+                terminal_name=terminal_name,
+                local_position=symbol.get_terminal_anchor(terminal_name),
+            ))
 
         # ----------------------------------------------------
         # Equipment instance
@@ -168,7 +179,7 @@ class EquipmentFactory:
             ),
             position=position,
             properties=merged_properties,
-            terminal_ids=terminal_ids,
+            terminals=terminals,
         )
 
 
