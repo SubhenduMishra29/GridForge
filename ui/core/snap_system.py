@@ -1,6 +1,7 @@
 # ============================================================
 # File: ui/core/snap_system.py
 # GridForge V2 — Central Snap System
+# Author: Subhendu Mishra
 # ============================================================
 """
 Centralized spatial snapping service for the GridForge UI.
