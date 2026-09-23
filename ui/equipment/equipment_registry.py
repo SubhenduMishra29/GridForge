@@ -37,7 +37,10 @@ Qt-independent registry of available SLD equipment definitions.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Optional
+from typing import TYPE_CHECKING, Dict, Iterable, Optional
+
+if TYPE_CHECKING:
+    from .symbol.symbol_registry import SymbolRegistry
 
 from .equipment_definition import EquipmentDefinition
 
@@ -237,9 +240,9 @@ class EquipmentRegistry:
             ("solar", "Solar", ("terminal",), "generation"),
             ("battery", "Battery", ("terminal",), "storage"),
             ("grid", "Grid", ("terminal",), "source"),
-            ("current_transformer", "Current Transformer", ("primary", "secondary"), "measurement"),
-            ("potential_transformer", "Potential Transformer", ("primary", "secondary"), "measurement"),
-            ("cvt", "Capacitive Voltage Transformer", ("primary", "secondary"), "measurement"),
+            ("current_transformer", "Current Transformer", ("P1", "P2", "S1", "S2"), "measurement"),
+            ("potential_transformer", "Potential Transformer", ("primary_a", "primary_b", "secondary_a", "secondary_b"), "measurement"),
+            ("cvt", "Capacitive Voltage Transformer", ("H1", "H2", "X1", "X2"), "measurement"),
             ("relay", "Relay", (), "protection"),
         )
         for equipment_type, display_name, terminals, category in definitions:
@@ -253,6 +256,24 @@ class EquipmentRegistry:
                 )
             )
         return registry
+
+    # ========================================================
+    # PRESENTATION CONTRACT
+    # ========================================================
+
+    def validate_symbol_anchors(self, symbol_registry: "SymbolRegistry") -> None:
+        """Validate the canonical definition-to-symbol terminal contract."""
+        from .symbol.symbol_registry import SymbolRegistry
+        if not isinstance(symbol_registry, SymbolRegistry):
+            raise TypeError("symbol_registry must be a SymbolRegistry")
+        for definition in self._definitions.values():
+            symbol = symbol_registry.require(definition.symbol_id)
+            missing = [name for name in definition.terminal_names if not symbol.has_terminal_anchor(name)]
+            if missing:
+                raise ValueError(
+                    f"Equipment type {definition.equipment_type!r} requires terminal anchors {missing!r} "
+                    f"from symbol {definition.symbol_id!r}."
+                )
 
     # ========================================================
     # COLLECTION MANAGEMENT

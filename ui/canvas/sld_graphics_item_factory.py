@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from ui.core.qt import QPointF
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
+from ui.equipment.equipment_registry import EquipmentRegistry
+from ui.equipment.equipment_factory import EquipmentFactory
 from ui.items.bus_item import BusItem
 from ui.items.equipment_item import EquipmentItem
 from ui.items.line_item import LineItem
@@ -21,10 +23,15 @@ from .sld_canvas_projection import SLDCanvasConnection, SLDCanvasNode
 class SLDGraphicsItemFactory:
     """Construction boundary between resolved descriptors and graphics."""
 
-    def __init__(self, symbol_registry: SymbolRegistry) -> None:
+    def __init__(self, equipment_registry: EquipmentRegistry, symbol_registry: SymbolRegistry) -> None:
+        if not isinstance(equipment_registry, EquipmentRegistry):
+            raise TypeError("equipment_registry must be an EquipmentRegistry")
         if not isinstance(symbol_registry, SymbolRegistry):
             raise TypeError("symbol_registry must be a SymbolRegistry")
+        equipment_registry.validate_symbol_anchors(symbol_registry)
+        self._equipment_registry = equipment_registry
         self._symbol_registry = symbol_registry
+        self._equipment_factory = EquipmentFactory(equipment_registry, symbol_registry)
 
     @property
     def symbol_registry(self) -> SymbolRegistry:
@@ -41,10 +48,16 @@ class SLDGraphicsItemFactory:
             return BusItem(object_id=graphics_object_id, position=position,
                            radius=self._node_radius(node))
         definition = self._symbol_registry.require(selection.symbol_id)
+        equipment = self._equipment_factory.create(
+            selection.equipment_type,
+            graphics_object_id,
+            position=(node.x, node.y),
+        )
         return EquipmentItem(object_id=graphics_object_id,
                              element_type=selection.semantic_type,
                              position=position,
-                             symbol_definition=definition)
+                             symbol_definition=definition,
+                             equipment=equipment)
 
     def create_connection(self, connection: SLDCanvasConnection, source: QPointF, target: QPointF) -> LineItem:
         if not isinstance(connection, SLDCanvasConnection):

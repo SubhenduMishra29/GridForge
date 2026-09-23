@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from ui.core.qt import QGraphicsScene, QPen, QPointF
 
@@ -23,8 +23,7 @@ class SLDCanvasRenderSystem:
     CONNECTION_PEN_WIDTH = 2.0
 
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
-                 semantic_realization: SemanticPresentationRealization,
-                 on_node_realized: Callable[[str, Any], None] | None = None) -> None:
+                 semantic_realization: SemanticPresentationRealization) -> None:
         if scene is None:
             raise ValueError("scene must not be None")
         if not isinstance(item_factory, SLDGraphicsItemFactory):
@@ -34,7 +33,6 @@ class SLDCanvasRenderSystem:
         self._scene = scene
         self._item_factory = item_factory
         self._semantic_realization = semantic_realization
-        self._on_node_realized = on_node_realized
         self._items: dict[str, tuple[Any, ...]] = {}
 
     @property
@@ -79,8 +77,6 @@ class SLDCanvasRenderSystem:
             item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
-            if self._on_node_realized is not None:
-                self._on_node_realized(node.node_id, item)
 
     def clear(self) -> None:
         for items in tuple(self._items.values()):

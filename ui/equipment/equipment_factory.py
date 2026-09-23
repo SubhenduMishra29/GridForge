@@ -1,5 +1,6 @@
 # ============================================================
 # GridForge V2
+# Author: Subhendu Mishra
 # ============================================================
 # File:
 #     ui/equipment/equipment_factory.py
@@ -33,6 +34,8 @@ from typing import Any, Mapping
 
 from .equipment_base import EquipmentBase
 from .equipment_registry import EquipmentRegistry
+from .terminal import EquipmentTerminal
+from .symbol.symbol_registry import SymbolRegistry
 
 
 class EquipmentFactory:
@@ -44,6 +47,7 @@ class EquipmentFactory:
     def __init__(
         self,
         registry: EquipmentRegistry,
+        symbol_registry: SymbolRegistry,
     ) -> None:
         if registry is None:
             raise ValueError(
@@ -58,7 +62,10 @@ class EquipmentFactory:
                 "registry must be an EquipmentRegistry."
             )
 
+        if not isinstance(symbol_registry, SymbolRegistry):
+            raise TypeError("symbol_registry must be a SymbolRegistry.")
         self._registry = registry
+        self._symbol_registry = symbol_registry
 
     @property
     def registry(self) -> EquipmentRegistry:
@@ -148,11 +155,18 @@ class EquipmentFactory:
         # Runtime terminal identities
         # ----------------------------------------------------
 
-        terminal_ids = [
-            f"{equipment_id}:{terminal_name}"
-            for terminal_name
-            in definition.terminal_names
-        ]
+        # Terminal geometry is sourced only from the canonical SymbolDefinition.
+        symbol = self._symbol_registry.require(definition.symbol_id)
+        terminals = []
+        for terminal_name in definition.terminal_names:
+            if not symbol.has_terminal_anchor(terminal_name):
+                raise ValueError(f"Missing terminal anchor {terminal_name!r} for symbol {definition.symbol_id!r}.")
+            terminals.append(EquipmentTerminal(
+                terminal_id=f"{equipment_id}:{terminal_name}",
+                equipment_id=equipment_id,
+                terminal_name=terminal_name,
+                local_position=symbol.get_terminal_anchor(terminal_name),
+            ))
 
         # ----------------------------------------------------
         # Equipment instance
@@ -168,7 +182,7 @@ class EquipmentFactory:
             ),
             position=position,
             properties=merged_properties,
-            terminal_ids=terminal_ids,
+            terminals=terminals,
         )
 
 

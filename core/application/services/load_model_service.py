@@ -11,6 +11,8 @@ from core.application.results import ApplicationResult
 from core.application.services._model_service_support import ModelServiceSupport
 from core.application.transaction import Transaction
 from core.model.load import Load
+from core.model.bus import Bus
+from core.model.terminal import Terminal
 from core.network.network import Network
 
 
@@ -30,6 +32,7 @@ class LoadModelService(ModelServiceSupport):
         self,
         *,
         load_id: str,
+        endpoint: Bus | Terminal | None = None,
         p: float = 0.0,
         q: float = 0.0,
         name: str | None = None,
@@ -41,6 +44,7 @@ class LoadModelService(ModelServiceSupport):
         self._ensure_not_exists("load", load_id, "Load")
         load = Load(
             id=load_id,
+            bus=endpoint,
             p=p,
             q=q,
             name="" if name is None else name,
