@@ -32,7 +32,7 @@ class LoadModelService(ModelServiceSupport):
         self,
         *,
         load_id: str,
-        endpoint = None,
+        endpoint: Bus | Terminal | None = None,
         p: float = 0.0,
         q: float = 0.0,
         name: str | None = None,
@@ -44,7 +44,7 @@ class LoadModelService(ModelServiceSupport):
         self._ensure_not_exists("load", load_id, "Load")
         load = Load(
             id=load_id,
-            endpoint=endpoint,
+            bus=endpoint,
             p=p,
             q=q,
             name="" if name is None else name,
