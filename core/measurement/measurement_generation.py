@@ -22,6 +22,7 @@ from typing import Any, TypeAlias
 
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
+from core.application.endpoint_reference import EndpointReference
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.result import ShortCircuitResult
@@ -37,16 +38,20 @@ class PreparedMeasurementContext:
     """Immutable correlation-complete input to Measurement Generation."""
 
     source_id: str
-    source_terminal: str
+    source_terminal: EndpointReference
     bus_id: str
     electrical_side: str | None
     quantity: MeasurementQuantity
 
     def __post_init__(self) -> None:
-        for name in ("source_id", "source_terminal", "bus_id"):
-            value = getattr(self, name)
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"{name} must be a non-empty string.")
+        if not isinstance(self.source_id, str) or not self.source_id.strip():
+            raise ValueError("source_id must be a non-empty string.")
+        if not isinstance(self.source_terminal, EndpointReference) or not self.source_terminal.is_terminal:
+            raise TypeError("source_terminal must be a terminal EndpointReference.")
+        if self.source_terminal.equipment_id != self.source_id.strip():
+            raise ValueError("source_terminal equipment identity must match source_id.")
+        if not isinstance(self.bus_id, str) or not self.bus_id.strip():
+            raise ValueError("bus_id must be a non-empty string.")
         if self.electrical_side is not None and (
             not isinstance(self.electrical_side, str) or not self.electrical_side.strip()
         ):
@@ -294,9 +299,9 @@ class MeasurementGeneration:
         terminals = getattr(source, "terminals", None)
         if terminals is not None:
             roles = {getattr(terminal, "role", None) for terminal in terminals}
-            if context.source_terminal not in roles:
+            if context.source_terminal.terminal_role not in roles:
                 raise UnsupportedMeasurementQuantity(
-                    f"Prepared source_terminal={context.source_terminal!r} is not an authoritative "
+                    f"Prepared source_terminal={context.source_terminal.terminal_role!r} is not an authoritative "
                     f"terminal of source_id={context.source_id!r}."
                 )
 
