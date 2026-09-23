@@ -1046,7 +1046,7 @@ class MeasurementChannel:
         if self.source_terminal is None:
             return None
 
-        return self.source_terminal.id
+        return str(self.source_terminal)
 
     # =================================================================
     # SIGNAL INFORMATION
