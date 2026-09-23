@@ -172,6 +172,8 @@ from enum import Enum
 from math import isfinite
 from typing import Any, Optional
 
+from core.application.endpoint_reference import EndpointReference
+
 
 # =====================================================================
 # SIGNAL TYPE
@@ -401,10 +403,8 @@ class MeasurementChannel:
             )
 
         if source_terminal is not None:
-            self._validate_reference(
-                source_terminal,
-                "source_terminal",
-            )
+            if not isinstance(source_terminal, EndpointReference) or not source_terminal.is_terminal:
+                raise TypeError("source_terminal must be a canonical terminal EndpointReference.")
 
         self.source = source
         self.source_terminal = source_terminal
