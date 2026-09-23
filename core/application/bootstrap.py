@@ -69,6 +69,7 @@ def create_application(network: Any) -> Application:
     # provider; studies capture an explicit detached ProjectSnapshot.
     lifecycle = None
     measurement_channel_service = MeasurementChannelService()
+    measurement_channel_service.activate(initial_context, network, (), generation=1)
     protection_configuration_service = ProtectionConfigurationService(
         ProtectionProjectConfiguration(initial_context.project_id),
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
