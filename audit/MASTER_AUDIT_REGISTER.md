@@ -1,7 +1,7 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `pandaraseswari03-collab/GridForge`
+**Repository authority:** `madhuri196mishra-cpu/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Branch baseline:** `main` — current working repository authority
 **Consolidation date:** 2026-09-17
@@ -14,7 +14,7 @@ This register distinguishes current repository evidence from historical register
 
 ## 2026-09-23 — Consolidated SLD terminal/symbol/snap/protection remediation status
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Repository:** `madhuri196mishra-cpu/GridForge`  
 **Branch:** `main`  
 **Verification mode:** static source inspection only; pytest, CI, startup, GUI, and runtime integration execution were intentionally not performed.  
 **Status discipline:** source correction is not runtime closure. Findings corrected in this pass remain **AGENT CORRECTED → RE-AUDIT REQUIRED** unless explicitly stated otherwise.
@@ -342,3 +342,42 @@ This section records the post-correction source state for the residual SLD termi
 | GF-MASTER-0075 | RCA-TOPO-CONDUCT-001 | **CLOSED** | `core/network/topology.py` uses model-provided `conducts` when available and has explicit static fallback semantics for Breaker, Switch/Disconnector, Fuse, and generic Branch/Line/Cable/Transformer families. No unsupported switching family is silently accepted. |
 
 Runtime evidence remains intentionally outside this static classification.
+
+
+## 2026-09-23 — Coordinated five-workstream static re-audit
+
+**Verification mode:** static source/call-flow inspection only. Tests, CI, startup, GUI execution, and runtime integration execution were not performed. Runtime verification remains **UNVERIFIED / DEFERRED**.
+
+| Finding | Root cause | Affected modules | Architectural impact | Minimal remediation | Static verification status | Runtime verification status |
+|---|---|---|---|---|---|---|
+| GF-SLD-TERM-020 | Bus graphics item lacked the SnapSystem candidate contract. | `ui/items/bus_item.py`, `ui/core/snap_system.py` | Bus endpoints could not enter the canonical object-snap flow. | Added presentation-only `BusItem.snap_points()` returning scene-space `object_id` metadata. | **STATICALLY VERIFIED** — BusItem now exposes the candidate contract and SnapSystem consumes it. | **UNVERIFIED / DEFERRED** |
+| GF-SLD-TERM-021 | Terminal snap provenance was not explicitly carried through the object candidate path. | `ui/items/equipment_item.py`, `ui/core/snap_system.py` | Terminal role could be lost between symbol anchor and endpoint intent. | Preserve explicit `terminal_id`/role metadata in `SnapResult`; semantic identity uses role, not terminal_id. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-TERM-023 | Generic terminal identity depended on presentation metadata without a complete static proof. | `ui/equipment/terminal.py`, `ui/items/equipment_item.py`, `ui/tools/endpoint_identity_adapter.py` | UI/document terminal identity could be mistaken for Core semantic identity. | Keep `EquipmentTerminal.terminal_id` presentation-only and convert explicit terminal role to canonical `EndpointReference`. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-TERM-024 | Terminal geometry and semantic role required explicit separation. | `ui/equipment/equipment_factory.py`, `ui/items/equipment_item.py` | Geometry could become an accidental semantic identity source. | Terminal anchors supply position only; terminal role remains explicit metadata. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-TERM-025 | Endpoint conversion previously maintained a local CT/PT/CVT alias map. | `ui/tools/endpoint_identity_adapter.py`, `core/application/endpoint_reference.py` | Duplicate equipment-type normalization could diverge from Core authority. | Removed local alias map; match against canonical `EquipmentType` values. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-TERM-026 | Endpoint adaptation unnecessarily required UI terminal_id. | `ui/tools/endpoint_identity_adapter.py`, `ui/equipment/terminal.py` | Presentation identity could become a hidden semantic requirement. | Removed terminal_id requirement from semantic endpoint conversion; terminal role is authoritative. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-TERM-027 | Canonical endpoint reuse needed an explicit precedence rule. | `ui/tools/endpoint_identity_adapter.py` | Reconstructing an already canonical endpoint could create identity drift. | Existing source `EndpointReference` is returned directly. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-TERM-028 | Multi-terminal snap identity needed an explicit role contract. | `ui/core/snap_system.py`, `ui/items/equipment_item.py` | Terminal index/order could become a semantic fallback. | Snap candidates carry explicit `terminal_name`; adapter rejects missing terminal role instead of inferring it. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-SNAP-022 | SnapResult needed terminal-aware provenance across normalization. | `ui/core/snap_system.py` | Tools could receive a position without enough endpoint identity. | `SnapResult` retains object/source/terminal metadata through normalized candidates. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| RCA-SLD-CONN-002 | Complete Core Terminal → SLD anchor → snap → canonical endpoint chain was previously unproven. | `core/model/terminal.py`, `ui/equipment/equipment_factory.py`, `ui/items/equipment_item.py`, `ui/core/snap_system.py`, `ui/tools/endpoint_identity_adapter.py`, `core/application/endpoint_reference.py` | Connection intent could diverge from authoritative Core terminal identity. | Preserve explicit terminal role end-to-end and terminate at canonical `EndpointReference.terminal()`. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-MASTER-0067 | Master register retained the unresolved generic terminal/snap chain finding after source corrections. | Same SLD terminal/snap chain above | Register state could lag the corrected source contract. | Reconciled the finding with explicit static evidence and retained runtime status as deferred. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-PROT-035 | MeasurementChannel setter validated generic object identity instead of the canonical terminal reference contract. | `core/measurement/measurement_channel.py` | A non-canonical source-terminal representation could enter the channel. | Enforce terminal `EndpointReference` in `set_source_terminal()`. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-PROT-036 | Measurement generation context represented source terminal as a free-form string. | `core/measurement/measurement_generation.py` | Source provenance could be detached from canonical equipment identity. | `PreparedMeasurementContext.source_terminal` now requires terminal `EndpointReference`; generation validates equipment identity and uses `terminal_role`. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-PROT-037 | Measurement provisioning lacked a dedicated orchestration boundary. | `core/measurement/measurement_provisioning.py`, `core/application/endpoint_resolver.py` | Channel creation could be scattered across callers and bypass explicit terminal resolution. | Added the smallest provisioning boundary; it resolves the explicit endpoint through the existing resolver and creates the canonical channel. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-PROT-038 | CT/PT/CVT physical secondary terminals must remain Core-owned rather than recreated by measurement/protection layers. | `core/model/ct.py`, `core/model/pt.py`, `core/model/cvt.py`, measurement provisioning | Duplicate terminal authorities would break provenance. | Provisioning consumes explicit endpoint references to existing Core terminals; no MeasurementTerminal/ProtectionTerminal introduced. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-PROT-039 | Protection binding/protection runtime required preservation of explicit source-terminal provenance. | `core/protection/protection_measurement_binding.py`, `core/protection/relay_input.py`, `core/protection/runtime.py` | Protection could lose physical measurement provenance or generate channels in runtime composition. | Retain `source_terminal_reference: EndpointReference`; RelayInput remains channel-backed; ProtectionRuntime remains composition-only. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-PROT-040 | Measurement-to-protection ownership boundary required explicit static reconciliation. | `core/measurement/measurement_generation.py`, `core/measurement/measurement_provisioning.py`, `core/protection/runtime.py` | Protection runtime could become a hidden measurement generator. | Keep physical transformation in MeasurementGeneration and logical provisioning in MeasurementProvisioning; runtime consumes existing channels. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-PROT-042 | Source-terminal identity needed to remain explicit across the protection correlation chain. | `core/protection/protection_measurement_binding.py`, `core/application/endpoint_reference.py` | Result/protection correlation could fall back to Core Terminal.id or positional identity. | Binding correlation uses canonical terminal EndpointReference and explicit role. | **STATICALLY VERIFIED** | **UNVERIFIED / DEFERRED** |
+| GF-SLD-WF-TOOL-006 | LineTool role required reconciliation against the actual repository workflow. | `ui/tools/line_tool.py`, `core/application/commands/model_commands.py`, Application/CommandManager path | Graphical line preview could be confused with authoritative Core Line creation. | Retain LineTool as real-Line creation through immutable `CreateLineCommand`/Application path; preview state remains UI-local. | **STATICALLY VERIFIED** — current LineTool constructs `CreateLineCommand` and delegates through `execute_command()`; no alternate topology authority was introduced. | **UNVERIFIED / DEFERRED** |
+
+### Static dependency-chain evidence
+
+**A. Bus:** `BusItem → SnapSystem → SnapResult → EndpointIdentityAdapter → EndpointReference.bus()`.
+
+**B. Terminal:** `SymbolDefinition → EquipmentDefinition → EquipmentTerminal → EquipmentItem.snap_points() → SnapResult → EndpointIdentityAdapter → EndpointReference.terminal()`.
+
+**C. Measurement/protection:** `physical Core terminal → EndpointReference → MeasurementProvisioning → MeasurementChannel → RelayInput → ProtectionElement → ProtectionSystem → ProtectionDecision`. `ProtectionRuntime` remains a consumer/composition boundary and does not generate measurements.
+
+**D. Line:** `LineTool → immutable CreateLineCommand → ToolBase/Application execution boundary → CommandManager/handler → Core Line → semantic event/read model → SLD projection`.
+
+**Static-only closure statement:** The five coordinated workstreams are **SOURCE-REMEDIATED AND STATICALLY VERIFIED** at the inspected dependency boundaries. Runtime execution, GUI behavior, tests, CI, startup, and integration behavior remain **UNVERIFIED / DEFERRED** by explicit phase constraint.

@@ -87,21 +87,24 @@ class EndpointIdentityAdapter:
             return endpoint_reference
 
         terminal_name = getattr(result, "terminal_name", None)
-        terminal_id = getattr(result, "terminal_id", None)
         if terminal_name is None:
             raise ValueError("Terminal snap is missing its canonical terminal role.")
         equipment = getattr(source, "equipment", None)
         equipment_type = getattr(equipment, "equipment_type", None)
         if not isinstance(equipment_type, str) or not equipment_type.strip():
             raise ValueError("Terminal snap source does not expose canonical equipment_type.")
-        aliases = {"current_transformer": "ct", "potential_transformer": "pt", "cvt": "cvt"}
-        canonical_value = aliases.get(equipment_type, equipment_type)
-        try:
-            canonical_type = EquipmentType(canonical_value)
-        except ValueError as exc:
-            raise ValueError(f"Unsupported snapped equipment type: {equipment_type!r}") from exc
-        if terminal_id is None:
-            raise ValueError("Terminal snap is missing presentation terminal identity.")
+        canonical_type = next(
+            (
+                candidate
+                for candidate in EquipmentType
+                if candidate.value == equipment_type.strip().lower()
+            ),
+            None,
+        )
+        if canonical_type is None:
+            raise ValueError(
+                f"Unsupported snapped equipment type: {equipment_type!r}"
+            )
         return EndpointReference.terminal(
             equipment_type=canonical_type,
             equipment_id=str(object_id),
