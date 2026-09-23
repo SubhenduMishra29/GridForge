@@ -19,7 +19,7 @@ from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
-from ui.equipment.equipment_registry import EquipmentRegistry
+from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
 from ui.core.qt import QApplication, QMessageBox, QWidget
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
@@ -92,20 +92,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         return document
 
     workspace_manager = WorkspaceManager(definitions={definition.workspace_id: definition for definition in default_workspaces()}, default_workspace_id=SLD_WORKSPACE_ID)
+    presentation_bootstrap = PresentationBootstrap.create(workspace_manager=workspace_manager, application=gridforge_application, sld_read_synchronizer=sld_read_synchronizer)
     controller = Controller(application=gridforge_application); canvas_composer = CanvasComposer(); canvas_preparation = canvas_composer.prepare(controller=controller)
     tool_manager = ToolManager(controller=controller, application=gridforge_application, selection_manager=canvas_preparation.selection_manager, snap_system=canvas_preparation.snap_system, preview_layer=canvas_preparation.preview_layer)
     canvas_composition = canvas_composer.compose(controller=controller, tool_manager=tool_manager, preparation=canvas_preparation, parent=None)
 
-    def wire_sld_node_movement(node_id: str, item: object) -> None:
-        position_changed = getattr(item, "position_changed", None); connect = getattr(position_changed, "connect", None)
-        if not callable(connect): return
-        def persist_position(position: object) -> None:
-            x = getattr(position, "x", None); y = getattr(position, "y", None)
-            if not callable(x) or not callable(y): raise TypeError("position must provide x() and y()")
-            sld_controller.set_node_position(node_id, float(x()), float(y()))
-        connect(persist_position)
-
-    sld_canvas_render_system = SLDCanvasRenderSystem(scene=canvas_composition.scene, on_node_realized=wire_sld_node_movement)
+    sld_canvas_render_system = SLDCanvasRenderSystem(
+        scene=canvas_composition.scene,
+        item_factory=presentation_bootstrap.sld_graphics_item_factory,
+        semantic_realization=presentation_bootstrap.semantic_realization,
+    )
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
     canvas_entry = plugin_registry.get_entry("canvas"); panels_entry = plugin_registry.get_entry("panels")
     if canvas_entry is None: raise RuntimeError("CanvasPlugin is not registered.")
@@ -158,7 +154,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         if isinstance(document, SLDDocument): sld_controller.replace_document(document); sld_controller.activate_document(document.document_id); synchronize_canvas()
 
     project_workspace_adapter.subscribe(handle_project_workspace_changed); sld_canvas_projection = SLDCanvasProjection(); sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
-    equipment_registry = EquipmentRegistry.create_default()
+    equipment_registry = presentation_bootstrap.equipment_registry
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, equipment_registry=equipment_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
