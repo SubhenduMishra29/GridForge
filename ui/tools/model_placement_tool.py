@@ -24,6 +24,7 @@ class ModelPlacementTool(ToolBase):
     ID_FIELD = "equipment_id"
     ENDPOINT_FIELDS: tuple[str, ...] = ()
     COMMAND_DEFAULTS: dict[str, Any] = {}
+    ENDPOINT_ROLE_MAP: dict[str, str] = {}
 
     def __init__(
         self,
@@ -41,6 +42,7 @@ class ModelPlacementTool(ToolBase):
         self._position: Optional[Tuple[float, float]] = None
         self._preview_active = False
         self._endpoints: list[Any] = []
+        self._endpoint_by_field: dict[str, Any] = {}
 
     @property
     def tool_id(self) -> str:
@@ -69,7 +71,19 @@ class ModelPlacementTool(ToolBase):
         self._preview_active = True
         if self.ENDPOINT_FIELDS:
             endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
-            self._endpoints.append(endpoint)
+            terminal_name = getattr(snap_result, "terminal_name", None)
+            if self.ENDPOINT_ROLE_MAP:
+                if not isinstance(terminal_name, str) or terminal_name not in self.ENDPOINT_ROLE_MAP:
+                    raise ValueError(f"{self.MODEL_NAME} requires an explicit supported terminal role.")
+                field = self.ENDPOINT_ROLE_MAP[terminal_name]
+                if field in self._endpoint_by_field:
+                    raise ValueError(f"{self.MODEL_NAME} terminal role {terminal_name!r} was already selected.")
+                self._endpoint_by_field[field] = endpoint
+                self._endpoints = list(self._endpoint_by_field.values())
+            else:
+                if endpoint in self._endpoints:
+                    raise ValueError(f"{self.MODEL_NAME} requires distinct endpoint references.")
+                self._endpoints.append(endpoint)
             if len(self._endpoints) < len(self.ENDPOINT_FIELDS):
                 return True
         command = self._build_command()
@@ -139,7 +153,10 @@ class ModelPlacementTool(ToolBase):
             raise RuntimeError(f"{self.MODEL_NAME} placement is missing required endpoint references.")
         payload = dict(self.COMMAND_DEFAULTS)
         payload[self.ID_FIELD] = f"{self.TOOL_ID}-{uuid4().hex}"
-        payload.update(dict(zip(self.ENDPOINT_FIELDS, self._endpoints)))
+        if self.ENDPOINT_ROLE_MAP:
+            payload.update(self._endpoint_by_field)
+        else:
+            payload.update(dict(zip(self.ENDPOINT_FIELDS, self._endpoints)))
         return command_class(**payload)
 
     @staticmethod
@@ -165,6 +182,7 @@ class ModelPlacementTool(ToolBase):
         self._position = None
         self._preview_active = False
         self._endpoints.clear()
+        self._endpoint_by_field.clear()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
