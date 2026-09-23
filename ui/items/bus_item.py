@@ -120,6 +120,18 @@ class BusItem(BaseItem):
             self.position_changed.emit(QPointF(value.x(), value.y()))
         return result
 
+    def snap_points(self) -> tuple[dict[str, Any], ...]:
+        """Return the Bus graphical snap candidate in scene coordinates.
+
+        Bus snapping is presentation-only. A Bus has no terminal candidate
+        here; the stable object identity is the BusItem object_id itself.
+        """
+        position = self.scenePos()
+        return ({
+            "position": QPointF(float(position.x()), float(position.y())),
+            "object_id": self.object_id,
+        },)
+
     def boundingRect(self) -> QRectF:
         """Return the local Bus symbol bounds."""
         radius = self._radius
