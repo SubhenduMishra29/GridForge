@@ -39,6 +39,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, Optional
 
+from .terminal import EquipmentTerminal
+
 
 class EquipmentBase:
     """
@@ -64,6 +66,7 @@ class EquipmentBase:
         position: tuple[float, float] = (0.0, 0.0),
         properties: Optional[Mapping[str, Any]] = None,
         terminal_ids: Optional[Iterable[str]] = None,
+        terminals: Optional[Iterable[EquipmentTerminal]] = None,
     ) -> None:
         self._equipment_id = self._validate_identifier(
             equipment_id,
@@ -100,9 +103,12 @@ class EquipmentBase:
 
         if terminal_ids is not None:
             for terminal_id in terminal_ids:
-                self.add_terminal(
-                    terminal_id
-                )
+                self.add_terminal(terminal_id)
+
+        self._terminals: list[EquipmentTerminal] = []
+        if terminals is not None:
+            for terminal in terminals:
+                self.add_terminal_object(terminal)
 
     # ========================================================
     # INTERNAL VALIDATION
@@ -402,6 +408,27 @@ class EquipmentBase:
         self._terminal_ids.append(
             terminal_id
         )
+
+    # --------------------------------------------------------
+
+    @property
+    def terminals(self) -> tuple[EquipmentTerminal, ...]:
+        """Return the presentation terminal objects for this equipment."""
+        return tuple(self._terminals)
+
+    def add_terminal_object(self, terminal: EquipmentTerminal) -> None:
+        """Register one presentation terminal without creating Core identity."""
+        if not isinstance(terminal, EquipmentTerminal):
+            raise TypeError("terminal must be an EquipmentTerminal")
+        if terminal.equipment_id != self.equipment_id:
+            raise ValueError("terminal.equipment_id must match equipment_id")
+        if terminal.terminal_id in self._terminal_ids and not any(existing.terminal_id == terminal.terminal_id for existing in self._terminals):
+            raise ValueError(f"Terminal identifier already registered: {terminal.terminal_id}")
+        if any(existing.terminal_name == terminal.terminal_name for existing in self._terminals):
+            raise ValueError(f"Terminal role already exists: {terminal.terminal_name}")
+        if terminal.terminal_id not in self._terminal_ids:
+            self._terminal_ids.append(terminal.terminal_id)
+        self._terminals.append(terminal)
 
     # --------------------------------------------------------
 
