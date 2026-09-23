@@ -194,6 +194,8 @@ def create_application(network: Any) -> Application:
                     )
                 protection_configuration_service.activate(configuration)
                 for item in configuration.elements:
+                    protection_configuration_service.validate_configuration(item)
+                for item in configuration.elements:
                     relay = network.get_by_id("relay", item.relay_id)
                     for input_name, channel_id in item.input_channel_ids.items():
                         relay.bind_input(input_name, measurement_channel_service.require(channel_id))
