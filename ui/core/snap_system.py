@@ -166,6 +166,8 @@ class SnapResult:
     snap_type: SnapType = SnapType.NONE
     object_id: Any = None
     source: Any = None
+    terminal_id: Any = None
+    terminal_name: Any = None
     distance: float = 0.0
 
     @property
@@ -656,12 +658,7 @@ class SnapSystem:
             )
 
             for candidate in candidates:
-                position, object_id = (
-                    self._normalize_candidate(
-                        candidate,
-                        item,
-                    )
-                )
+                position, object_id, terminal_id, terminal_name = self._normalize_candidate(candidate, item)
 
                 distance = self._distance(
                     scene_pos,
@@ -677,6 +674,8 @@ class SnapSystem:
                         snap_type=SnapType.OBJECT,
                         object_id=object_id,
                         source=item,
+                        terminal_id=terminal_id,
+                        terminal_name=terminal_name,
                         distance=distance,
                     )
 
@@ -753,7 +752,7 @@ class SnapSystem:
     def _normalize_candidate(
         candidate: Any,
         item: Any,
-    ) -> tuple[Any, Any]:
+    ) -> tuple[Any, Any, Any, Any]:
         """
         Normalize one object snap candidate.
 
@@ -763,16 +762,11 @@ class SnapSystem:
         Candidate coordinates must already be in SCENE space.
         """
 
-        object_id = getattr(
-            item,
-            "object_id",
-            None,
-        )
+        object_id = getattr(item, "object_id", None)
+        terminal_id = None
+        terminal_name = None
 
-        if isinstance(
-            candidate,
-            dict,
-        ):
+        if isinstance(candidate, dict):
             if "position" not in candidate:
                 raise TypeError(
                     "Object snap candidate dictionary "
@@ -783,11 +777,9 @@ class SnapSystem:
                 "position"
             ]
 
-            object_id = candidate.get(
-                "object_id",
-                object_id,
-            )
-
+            object_id = candidate.get("object_id", object_id)
+            terminal_id = candidate.get("terminal_id")
+            terminal_name = candidate.get("terminal_name")
         else:
             position = candidate
 
@@ -796,10 +788,7 @@ class SnapSystem:
             "object snap candidate position",
         )
 
-        return (
-            position,
-            object_id,
-        )
+        return position, object_id, terminal_id, terminal_name
 
     # ========================================================
     # DIRECT OBJECT QUERY
