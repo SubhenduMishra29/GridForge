@@ -51,6 +51,7 @@ from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
+from .services.measurement_channel_service import MeasurementChannelService
 from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
@@ -67,9 +68,12 @@ def create_application(network: Any) -> Application:
     # Application-scoped configuration checks. Study execution never uses this
     # provider; studies capture an explicit detached ProjectSnapshot.
     lifecycle = None
+    measurement_channel_service = MeasurementChannelService()
+    measurement_channel_service.activate(initial_context, network, (), generation=1)
     protection_configuration_service = ProtectionConfigurationService(
         ProtectionProjectConfiguration(initial_context.project_id),
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
+        measurement_channel_provider=lambda: measurement_channel_service.channels,
     )
 
     def register_handlers(target: dict[str, Any], source: Any, family: str) -> None:
@@ -120,6 +124,7 @@ def create_application(network: Any) -> Application:
         command_manager=command_manager,
         read_service=read_service,
         validation_service=validation_service,
+        measurement_channel_service=measurement_channel_service,
     )
 
     application.protection_configuration_service = protection_configuration_service
@@ -162,15 +167,21 @@ def create_application(network: Any) -> Application:
         """Install project-scoped protection/dynamic/revision state transactionally."""
         previous_configuration = protection_configuration_service.configuration
         previous_protection_runtime = application.protection_runtime
+        previous_measurement = measurement_channel_service.serialize_definitions()
+        previous_measurement_project = measurement_channel_service.project_id
+        previous_measurement_generation = measurement_channel_service.activation_generation
         previous_dynamic_models = dynamic_models.snapshot()
         previous_revision = application.revision_service.snapshot_state()
 
         try:
             if context is None:
+                measurement_channel_service.activate(None, network, (), 0)
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
                 dynamic_models.replace(())
             else:
+                definitions = loaded.measurement_definitions if loaded is not None else ()
+                measurement_channel_service.activate(context, network, definitions, generation)
                 configuration = (
                     loaded.protection_configuration
                     if loaded is not None and loaded.protection_configuration is not None
@@ -182,6 +193,10 @@ def create_application(network: Any) -> Application:
                         f"active project {context.project_id!r}."
                     )
                 protection_configuration_service.activate(configuration)
+                for item in configuration.elements:
+                    relay = network.get_by_id("relay", item.relay_id)
+                    for input_name, channel_id in item.input_channel_ids.items():
+                        relay.bind_input(input_name, measurement_channel_service.require(channel_id))
                 if loaded is None:
                     dynamic_models.replace(())
                 else:
@@ -192,9 +207,19 @@ def create_application(network: Any) -> Application:
                         )
                     )
                 application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration)
+                application.protection_runtime.compose(measurement_channel_service.channels)
 
             application.revision_service.reset_for_project()
         except Exception:
+            if previous_measurement_project is None:
+                measurement_channel_service.deactivate()
+            else:
+                measurement_channel_service.activate(
+                    ProjectContext(previous_measurement_project, "restored", None),
+                    application.project_lifecycle.network,
+                    previous_measurement,
+                    previous_measurement_generation,
+                )
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
             else:
@@ -205,6 +230,15 @@ def create_application(network: Any) -> Application:
             raise
 
         def rollback() -> None:
+            if previous_measurement_project is None:
+                measurement_channel_service.deactivate()
+            else:
+                measurement_channel_service.activate(
+                    ProjectContext(previous_measurement_project, "restored", None),
+                    application.project_lifecycle.network,
+                    previous_measurement,
+                    previous_measurement_generation,
+                )
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
             else:
@@ -252,6 +286,7 @@ def create_application(network: Any) -> Application:
             path,
             dynamic_models=dynamic_models.all(),
             protection_configuration=protection_configuration_service.configuration,
+            measurement_definitions=measurement_channel_service.serialize_definitions(),
         )
 
     def new_network() -> Network:

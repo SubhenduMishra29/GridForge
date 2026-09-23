@@ -14,6 +14,7 @@ from core.application.errors import DomainError, ResourceError
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
 from core.network.network import Network
+from core.measurement.measurement_channel import MeasurementChannel
 from core.protection.factory import ProtectionFactory
 from core.protection.function_catalog import ProtectionFunctionStatus, get_protection_function
 from core.protection.project_configuration import (
@@ -25,10 +26,12 @@ from core.protection.project_configuration import (
 class ProtectionConfigurationService:
     """Own mutable project association state without owning physical equipment."""
 
-    def __init__(self, configuration: ProtectionProjectConfiguration, network_provider: Callable[[], Network | None] | None = None) -> None:
+    def __init__(self, configuration: ProtectionProjectConfiguration, network_provider: Callable[[], Network | None] | None = None, measurement_channel_provider: Callable[[], Mapping[str, MeasurementChannel]] | None = None) -> None:
         self._configuration: ProtectionProjectConfiguration | None = None
         if network_provider is not None and not callable(network_provider): raise TypeError("network_provider must be callable.")
-        self._network_provider = network_provider; self.activate(configuration)
+        if measurement_channel_provider is not None and not callable(measurement_channel_provider): raise TypeError("measurement_channel_provider must be callable.")
+        self._network_provider = network_provider
+        self._measurement_channel_provider = measurement_channel_provider; self.activate(configuration)
 
     @property
     def configuration(self) -> ProtectionProjectConfiguration | None: return self._configuration
@@ -48,6 +51,13 @@ class ProtectionConfigurationService:
         ProtectionFactory._build_settings(spec.implementation, configuration.settings)
         for name, channel_id in configuration.input_channel_ids.items():
             if not isinstance(name, str) or not name.strip() or not isinstance(channel_id, str) or not channel_id.strip(): raise ValueError("Protection input channel names and IDs must be non-empty strings.")
+        if self._measurement_channel_provider is not None:
+            channels = self._measurement_channel_provider()
+            for name, channel_id in configuration.input_channel_ids.items():
+                if channel_id not in channels:
+                    raise ResourceError(code="PROTECTION_CHANNEL_NOT_FOUND", message=f"Measurement channel not found for protection input {name}: {channel_id}", details={"channel_id": channel_id, "element_id": configuration.element_id, "input_name": name})
+                if not isinstance(channels[channel_id], MeasurementChannel):
+                    raise TypeError(f"Measurement channel provider returned an invalid channel for {channel_id}.")
         if self._network_provider is not None:
             network = self._network_provider()
             if network is None: raise RuntimeError("No active Network is available for protection configuration validation.")

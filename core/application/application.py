@@ -47,6 +47,7 @@ from .revision import ProjectRevision
 from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
+from .services.measurement_channel_service import MeasurementChannelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyResult, StudyService
 from .validation import ValidationResult
@@ -65,18 +66,21 @@ class Application:
                  event_bus: ApplicationEventBus | None = None,
                  protection_read_service: ProtectionReadService | None = None,
                  validation_service: ValidationService | None = None,
-                 sld_service: SLDService | None = None) -> None:
+                 sld_service: SLDService | None = None,
+                 measurement_channel_service: MeasurementChannelService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service must implement ReadService.")
         if event_bus is not None and not isinstance(event_bus, ApplicationEventBus): raise TypeError("Application event_bus must be an ApplicationEventBus.")
         if protection_read_service is not None and not isinstance(protection_read_service, ProtectionReadService): raise TypeError("Application protection_read_service must be a ProtectionReadService.")
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("Application validation_service must be a ValidationService.")
         if sld_service is not None and not isinstance(sld_service, SLDService): raise TypeError("Application sld_service must be an SLDService.")
+        if measurement_channel_service is not None and not isinstance(measurement_channel_service, MeasurementChannelService): raise TypeError("Application measurement_channel_service must be a MeasurementChannelService.")
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
         self._validation_service = validation_service
         self._sld_service = sld_service
+        self._measurement_channel_service = measurement_channel_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
         self._revision_service = RevisionService()
@@ -111,6 +115,10 @@ class Application:
         return self._sld_service
     @property
     def presentation(self) -> Any: return self.project_lifecycle.presentation
+    @property
+    def measurement_channel_service(self) -> MeasurementChannelService:
+        if self._measurement_channel_service is None: raise RuntimeError("Application measurement channel service is not configured.")
+        return self._measurement_channel_service
 
     def _register_sld_handlers(self, service: SLDService) -> None:
         for command_type, handler in SLDCommandHandlers(service).handlers().items():
