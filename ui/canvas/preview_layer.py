@@ -273,6 +273,17 @@ class PreviewLayer:
             )
         )
 
+    def show_bus(self, center: Any, *, half_length: float = 20.0) -> None:
+        """Show a transient bus-placement preview centered on the cursor."""
+        point = self._point(center)
+        length = float(half_length)
+        if length <= 0:
+            raise ValueError("half_length must be positive.")
+        self.show_segment(
+            (point.x() - length, point.y()),
+            (point.x() + length, point.y()),
+        )
+
     @staticmethod
     def _point(value: Any) -> QPointF:
         if hasattr(value, "x") and hasattr(value, "y"):

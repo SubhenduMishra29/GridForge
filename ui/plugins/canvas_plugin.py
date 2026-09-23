@@ -124,7 +124,6 @@ class CanvasPlugin:
             "controller",
             "application",
             "tool_manager",
-            "sld_document",
             "sld_canvas_projection",
             "sld_canvas_render_system",
         ))
@@ -134,10 +133,9 @@ class CanvasPlugin:
         document = getattr(application, "presentation", None)
         if isinstance(document, SLDDocument):
             return document
-        document = self._context.sld_document
-        if isinstance(document, SLDDocument):
-            return document
-        raise RuntimeError("CanvasPlugin has no active SLD document.")
+        raise RuntimeError(
+            "CanvasPlugin has no Application-authoritative active SLD document."
+        )
 
     def synchronize_sld(self) -> SLDCanvasSnapshot:
         if self._context is None:

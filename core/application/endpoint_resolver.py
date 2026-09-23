@@ -294,6 +294,60 @@ def _resolve_terminal(
     return endpoint
 
 
+
+def resolve_terminal_reference(context: Any, reference: EndpointReference) -> Any:
+    """Resolve a terminal EndpointReference to its authoritative Core Terminal.
+
+    This permits an unconnected terminal to be resolved for connection and
+    reconnection use cases; resolve_endpoint() intentionally requires an
+    attached endpoint and remains unchanged.
+    """
+    if not isinstance(reference, EndpointReference) or not reference.is_terminal:
+        raise ValidationError(
+            code="INVALID_TERMINAL_REFERENCE",
+            message="Terminal resolution requires a terminal EndpointReference.",
+            details={},
+        )
+    equipment = _resolve_equipment_by_id(
+        context,
+        equipment_type=reference.equipment_type,
+        object_id=reference.object_id,
+    )
+    terminals = getattr(equipment, "terminals", None)
+    if terminals is None:
+        raise ResourceError(
+            code="EQUIPMENT_TERMINALS_UNAVAILABLE",
+            message=f"Equipment '{reference.object_id}' does not expose its terminals.",
+            details={"equipment_id": reference.object_id},
+        )
+    matches = [
+        terminal for terminal in terminals
+        if terminal.role == reference.terminal_role and terminal.owner is equipment
+    ]
+    if not matches:
+        raise ResourceError(
+            code="TERMINAL_NOT_FOUND",
+            message=(
+                f"Terminal '{reference.terminal_role}' was not found on "
+                f"{reference.equipment_type.value} '{reference.object_id}'."
+            ),
+            details={"equipment_id": reference.object_id, "terminal_role": reference.terminal_role},
+        )
+    if len(matches) > 1:
+        raise ResourceError(
+            code="AMBIGUOUS_TERMINAL",
+            message=(
+                f"Terminal role '{reference.terminal_role}' is ambiguous on "
+                f"{reference.equipment_type.value} '{reference.object_id}'."
+            ),
+            details={
+                "equipment_id": reference.object_id,
+                "terminal_role": reference.terminal_role,
+                "match_count": len(matches),
+            },
+        )
+    return matches[0]
+
 # ============================================================
 # PUBLIC RESOLUTION FUNCTION
 # ============================================================
@@ -382,4 +436,5 @@ class EndpointResolver:
 __all__ = [
     "EndpointResolver",
     "resolve_endpoint",
+    "resolve_terminal_reference",
 ]

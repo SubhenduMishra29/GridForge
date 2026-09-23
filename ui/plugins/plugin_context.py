@@ -64,6 +64,16 @@ class PluginContext:
         object.__setattr__(self, "services", MappingProxyType(dict(self.services)))
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
+    @property
+    def active_presentation_document(self) -> Any:
+        """Return the lifecycle-safe Application presentation document.
+
+        ``sld_document`` remains a compatibility snapshot for legacy plugin
+        contracts; it is not an active-document authority.
+        """
+        application = self.application
+        return getattr(application, "presentation", None) if application is not None else None
+
     def service(self, name: str, default: Any = None) -> Any:
         self._validate_name(name, "name")
         return self.services.get(name, default)

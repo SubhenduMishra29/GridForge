@@ -64,6 +64,15 @@ def create_default_tool_factories(
             snap_system=snap_system,
         )
 
+    def bus_factory(**_ignored: Any) -> BusTool:
+        return BusTool(
+            controller=controller,
+            application=application,
+            selection_manager=selection_manager,
+            snap_system=snap_system,
+            preview_layer=preview_layer,
+        )
+
     def transformer_factory(**_ignored: Any) -> TransformerTool:
         return TransformerTool(
             controller=controller,
@@ -75,7 +84,7 @@ def create_default_tool_factories(
 
     return {
         "select": factory(SelectTool),
-        "bus": factory(BusTool),
+        "bus": bus_factory,
         "line": factory(LineTool),
         "cable": factory(CableTool),
         "transformer": transformer_factory,
