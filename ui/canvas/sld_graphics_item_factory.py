@@ -4,11 +4,12 @@
 # Author: Subhendu Mishra
 # ============================================================
 
-"""Construct presentation-only graphics items for the SLD canvas."""
+"""Construct presentation-only graphics items from resolved SLD descriptors."""
 
 from __future__ import annotations
 
 from ui.core.qt import QPointF
+from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.items.bus_item import BusItem
 from ui.items.equipment_item import EquipmentItem
 from ui.items.line_item import LineItem
@@ -18,51 +19,36 @@ from .sld_canvas_projection import SLDCanvasConnection, SLDCanvasNode
 
 
 class SLDGraphicsItemFactory:
-    """Create typed SLD graphics projections from renderer-neutral descriptors."""
+    """Construction boundary between resolved descriptors and graphics."""
 
-    _NODE_CONSTRUCTORS = {
-        "bus": BusItem,
-        "equipment": EquipmentItem,
-    }
+    def __init__(self, symbol_registry: SymbolRegistry) -> None:
+        if not isinstance(symbol_registry, SymbolRegistry):
+            raise TypeError("symbol_registry must be a SymbolRegistry")
+        self._symbol_registry = symbol_registry
+
+    @property
+    def symbol_registry(self) -> SymbolRegistry:
+        return self._symbol_registry
 
     def create_node(self, node: SLDCanvasNode, selection: PresentationSelection):
         if not isinstance(node, SLDCanvasNode):
-            raise TypeError("node must be an SLDCanvasNode.")
+            raise TypeError("node must be an SLDCanvasNode")
         if not isinstance(selection, PresentationSelection):
-            raise TypeError("selection must be a PresentationSelection.")
-        item_class = self._NODE_CONSTRUCTORS.get(selection.representation_id)
-        if item_class is None:
-            raise ValueError(f"Unsupported presentation representation: {selection.representation_id}")
-        if selection.representation_id == "equipment":
-            element_type = node.properties.get("element_type")
-            if node.equipment_id is None:
-                # Presentation-only SLD nodes do not represent Core equipment.
-                # Give the graphics item an explicitly presentation-scoped
-                # identity; never reuse node_id as an engineering identity.
-                graphics_object_id = f"presentation:{node.node_id}"
-            else:
-                graphics_object_id = node.equipment_id
-            item = item_class(
-                object_id=graphics_object_id,
-                element_type=str(element_type),
-                position=QPointF(node.x, node.y),
-            )
-        else:
-            if node.equipment_id is None:
-                # Presentation-only SLD nodes have no Core engineering identity.
-                graphics_object_id = f"presentation:{node.node_id}"
-            else:
-                graphics_object_id = node.equipment_id
-            item = item_class(
-                object_id=graphics_object_id,
-                position=QPointF(node.x, node.y),
-                radius=self._node_radius(node),
-            )
-        return item
+            raise TypeError("selection must be a PresentationSelection")
+        graphics_object_id = node.equipment_id or f"presentation:{node.node_id}"
+        position = QPointF(node.x, node.y)
+        if selection.equipment_type == "bus":
+            return BusItem(object_id=graphics_object_id, position=position,
+                           radius=self._node_radius(node))
+        definition = self._symbol_registry.require(selection.symbol_id)
+        return EquipmentItem(object_id=graphics_object_id,
+                             element_type=selection.semantic_type,
+                             position=position,
+                             symbol_definition=definition)
 
     def create_connection(self, connection: SLDCanvasConnection, source: QPointF, target: QPointF) -> LineItem:
         if not isinstance(connection, SLDCanvasConnection):
-            raise TypeError("connection must be an SLDCanvasConnection.")
+            raise TypeError("connection must be an SLDCanvasConnection")
         self._validate_point(source, "source")
         self._validate_point(target, "target")
         return LineItem(object_id=connection.connection_id, start=source, end=target)
@@ -77,11 +63,9 @@ class SLDGraphicsItemFactory:
     @staticmethod
     def _validate_point(point: QPointF, name: str) -> None:
         if point is None:
-            raise ValueError(f"{name} must not be None.")
-        if not callable(getattr(point, "x", None)):
-            raise TypeError(f"{name} must provide x().")
-        if not callable(getattr(point, "y", None)):
-            raise TypeError(f"{name} must provide y().")
+            raise ValueError(f"{name} must not be None")
+        if not callable(getattr(point, "x", None)) or not callable(getattr(point, "y", None)):
+            raise TypeError(f"{name} must provide x() and y()")
 
 
 __all__ = ["SLDGraphicsItemFactory"]

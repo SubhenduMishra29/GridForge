@@ -3,14 +3,7 @@
 # GridForge V2 — SLD Canvas Render System
 # Author: Subhendu Mishra
 # ============================================================
-
-"""Realize an SLD canvas snapshot as transient graphics projections.
-
-The render system is downstream of :class:`SLDCanvasProjection`. It consumes
-only renderer-neutral SLD canvas snapshots and realizes them as specialized
-presentation graphics. BusItem and LineItem are graphics implementations, not
-sources of electrical truth.
-"""
+"""Realize renderer-neutral SLD snapshots into transient graphics."""
 
 from __future__ import annotations
 
@@ -24,76 +17,62 @@ from .sld_graphics_item_factory import SLDGraphicsItemFactory
 
 
 class SLDCanvasRenderSystem:
-    """Render an :class:`SLDCanvasSnapshot` into a QGraphicsScene."""
+    """Render an SLD snapshot using explicitly composed dependencies."""
 
-    NODE_RADIUS = 8.0
     NODE_PEN_WIDTH = 1.5
     CONNECTION_PEN_WIDTH = 2.0
 
-    def __init__(
-        self,
-        scene: QGraphicsScene,
-        item_factory: SLDGraphicsItemFactory | None = None,
-        semantic_realization: SemanticPresentationRealization | None = None,
-        on_node_realized: Callable[[str, Any], None] | None = None,
-    ) -> None:
+    def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
+                 semantic_realization: SemanticPresentationRealization,
+                 on_node_realized: Callable[[str, Any], None] | None = None) -> None:
         if scene is None:
-            raise ValueError("scene must not be None.")
+            raise ValueError("scene must not be None")
+        if not isinstance(item_factory, SLDGraphicsItemFactory):
+            raise TypeError("item_factory must be an SLDGraphicsItemFactory")
+        if not isinstance(semantic_realization, SemanticPresentationRealization):
+            raise TypeError("semantic_realization must be a SemanticPresentationRealization")
         self._scene = scene
-        self._item_factory = item_factory or SLDGraphicsItemFactory()
-        self._semantic_realization = semantic_realization or SemanticPresentationRealization()
+        self._item_factory = item_factory
+        self._semantic_realization = semantic_realization
         self._on_node_realized = on_node_realized
         self._items: dict[str, tuple[Any, ...]] = {}
 
     @property
     def scene(self) -> QGraphicsScene:
-        """Return the target scene."""
         return self._scene
 
     @property
     def item_factory(self) -> SLDGraphicsItemFactory:
-        """Return the graphics-item construction boundary."""
         return self._item_factory
 
     @property
     def semantic_realization(self) -> SemanticPresentationRealization:
-        """Return the semantic presentation realization boundary."""
         return self._semantic_realization
 
     @staticmethod
     def _pen(width: float) -> QPen:
-        """Create a pen with a portable width-setting API."""
         pen = QPen()
-        set_width_f = getattr(pen, "setWidthF", None)
-        if callable(set_width_f):
-            set_width_f(float(width))
+        setter = getattr(pen, "setWidthF", None)
+        if callable(setter):
+            setter(float(width))
         else:
             pen.setWidth(int(round(width)))
         return pen
 
     def synchronize(self, snapshot: SLDCanvasSnapshot) -> None:
-        """Replace the graphical SLD projection from a renderer-neutral snapshot."""
         if not isinstance(snapshot, SLDCanvasSnapshot):
-            raise TypeError("snapshot must be an SLDCanvasSnapshot.")
-
+            raise TypeError("snapshot must be an SLDCanvasSnapshot")
         self.clear()
-
-        positions = {
-            node.node_id: QPointF(node.x, node.y)
-            for node in snapshot.nodes
-        }
-
+        positions = {node.node_id: QPointF(node.x, node.y) for node in snapshot.nodes}
         for connection in snapshot.connections:
             source = positions.get(connection.source_node_id)
             target = positions.get(connection.target_node_id)
             if source is None or target is None:
                 continue
-
             item = self._item_factory.create_connection(connection, source, target)
             item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[connection.connection_id] = (item,)
-
         for node in snapshot.nodes:
             selection = self._semantic_realization.realize(node)
             item = self._item_factory.create_node(node, selection)
@@ -104,7 +83,6 @@ class SLDCanvasRenderSystem:
                 self._on_node_realized(node.node_id, item)
 
     def clear(self) -> None:
-        """Remove only graphics owned by this SLD realization."""
         for items in tuple(self._items.values()):
             for item in items:
                 if item is not None and item.scene() is self._scene:
@@ -112,7 +90,6 @@ class SLDCanvasRenderSystem:
         self._items.clear()
 
     def dispose(self) -> None:
-        """Release the transient SLD graphical projection."""
         self.clear()
 
 
