@@ -70,5 +70,6 @@ This package intentionally starts empty.
 from __future__ import annotations
 
 from .electrical_connection_service import ElectricalConnectionCommandHandlers, ElectricalConnectionService
+from .measurement_channel_service import MeasurementChannelService
 
-__all__ = ["ElectricalConnectionCommandHandlers", "ElectricalConnectionService"]
+__all__ = ["ElectricalConnectionCommandHandlers", "ElectricalConnectionService", "MeasurementChannelService"]

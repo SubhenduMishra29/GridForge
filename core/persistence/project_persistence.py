@@ -35,6 +35,7 @@ class LoadedProject:
     presentation: Mapping[str, Any] | None = None
     dynamic_models: tuple[DynamicMachineModelAssociation, ...] = ()
     protection_configuration: ProtectionProjectConfiguration | None = None
+    measurement_definitions: tuple[Mapping[str, Any], ...] = ()
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -73,6 +74,11 @@ class ProjectPersistenceService:
             dynamic_models = tuple(DynamicMachineModelAssociation.from_dict(item, project_id=project_id) for item in dynamic_models_data)
         except (TypeError, ValueError, KeyError) as exc:
             raise ProjectPersistenceError(f"Invalid dynamic machine model association: {exc}") from exc
+        measurement_data = project.get("measurement", {})
+        if not isinstance(measurement_data, dict): raise ProjectPersistenceError("project.json measurement payload must be an object.")
+        measurement_definitions = measurement_data.get("channels", ())
+        if not isinstance(measurement_definitions, list) or any(not isinstance(item, dict) for item in measurement_definitions):
+            raise ProjectPersistenceError("project.json measurement.channels payload must be an array of objects.")
         protection_data = project.get("protection")
         protection_configuration = None
         if protection_data is not None:
@@ -81,13 +87,14 @@ class ProjectPersistenceService:
             except (TypeError, ValueError, KeyError) as exc: raise ProjectPersistenceError(f"Invalid protection configuration: {exc}") from exc
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(context, network, presentation, dynamic_models, protection_configuration)
-        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration)
+        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions))
 
     def save(self, context: ProjectContext, network: Network,
              presentation: Mapping[str, Any] | str | Path | None = None,
              path: str | Path | None = None,
              *, dynamic_models: Sequence[DynamicMachineModelAssociation] = (),
-             protection_configuration: ProtectionProjectConfiguration | None = None) -> None:
+             protection_configuration: ProtectionProjectConfiguration | None = None,
+             measurement_definitions: Sequence[Mapping[str, Any]] = ()) -> None:
         if path is None:
             path = presentation
             presentation = None
@@ -102,6 +109,7 @@ class ProjectPersistenceService:
         if len(dynamic_scopes) > 1:
             raise ProjectPersistenceError("dynamic_models contains mixed project-generation provenance.")
         if protection_configuration is not None and not isinstance(protection_configuration, ProtectionProjectConfiguration): raise TypeError("protection_configuration must be ProtectionProjectConfiguration or None.")
+        if not isinstance(measurement_definitions, Sequence) or any(not isinstance(item, Mapping) for item in measurement_definitions): raise TypeError("measurement_definitions must be a sequence of mappings.")
 
         target = normalize_package_path(path)
         parent = target.parent
@@ -117,7 +125,8 @@ class ProjectPersistenceService:
         presentation_data = None if presentation is None else dict(presentation)
         dynamic_models_data = [item.to_dict() for item in dynamic_models]
         manifest = {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
-        project: dict[str, Any] = {"schema": 1, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "dynamic_models": dynamic_models_data}
+        measurement_data = {"channels": [dict(item) for item in measurement_definitions]}
+        project: dict[str, Any] = {"schema": 1, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
         if presentation_data is not None: project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
 
