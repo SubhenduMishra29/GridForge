@@ -43,6 +43,10 @@ class ProtectionConfigurationService:
         if self._configuration is None: raise RuntimeError("No active project protection configuration.")
         return self._configuration
 
+    def validate_configuration(self, configuration: ProtectionFunctionConfiguration) -> None:
+        """Validate one protection configuration against active Application state."""
+        self._validate_configuration(configuration)
+
     def _validate_configuration(self, configuration: ProtectionFunctionConfiguration) -> None:
         if not isinstance(configuration.settings, Mapping): raise TypeError("Protection configuration settings must be a mapping.")
         spec = get_protection_function(configuration.function_code)
