@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QPainter, QPen, QRectF
+from ui.core.qt import QBrush, QPainter, QPen, QRectF, QPointF
+from ui.equipment.equipment_base import EquipmentBase
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 
 from .base_item import BaseItem
@@ -20,14 +21,18 @@ class EquipmentItem(BaseItem):
     HALF_SIZE = 24.0
 
     def __init__(self, object_id: Any, element_type: str, *, position: object = None,
-                 symbol_definition: SymbolDefinition, parent: Optional[BaseItem] = None) -> None:
+                 symbol_definition: SymbolDefinition, equipment: EquipmentBase,
+                 parent: Optional[BaseItem] = None) -> None:
         if not isinstance(element_type, str) or not element_type.strip():
             raise ValueError("element_type must be a non-empty string")
         if not isinstance(symbol_definition, SymbolDefinition):
             raise TypeError("symbol_definition must be a SymbolDefinition")
+        if not isinstance(equipment, EquipmentBase):
+            raise TypeError("equipment must be an EquipmentBase")
         super().__init__(object_id, parent)
         self._element_type = element_type
         self._symbol_definition = symbol_definition
+        self._equipment = equipment
         if position is not None:
             self.setPos(position)
 
@@ -38,6 +43,28 @@ class EquipmentItem(BaseItem):
     @property
     def symbol_definition(self) -> SymbolDefinition:
         return self._symbol_definition
+
+
+    @property
+    def equipment(self) -> EquipmentBase:
+        return self._equipment
+
+    @property
+    def terminals(self):
+        return self._equipment.terminals
+
+    def snap_points(self):
+        """Expose terminal-aware scene-space snap candidates."""
+        points = []
+        for terminal in self._equipment.terminals:
+            scene_point = self.mapToScene(QPointF(terminal.x, terminal.y))
+            points.append({
+                "position": scene_point,
+                "object_id": self.object_id,
+                "terminal_id": terminal.terminal_id,
+                "terminal_name": terminal.terminal_name,
+            })
+        return tuple(points)
 
     def boundingRect(self) -> QRectF:
         return QRectF(-self._symbol_definition.width / 2, -self._symbol_definition.height / 2,
