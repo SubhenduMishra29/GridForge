@@ -11,6 +11,30 @@
 
 This register distinguishes current repository evidence from historical register claims. A source change is not treated as resolution without executable/current verification. Historical IDs whose original wording is not present in the current repository are preserved in the Legacy ID Coverage Appendix and are **not silently deleted or declared duplicates**. This is a material evidence gap, not a closure.
 
+
+## 2026-09-23 — Consolidated SLD terminal/symbol/snap/protection remediation status
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Verification mode:** static source inspection only; pytest, CI, startup, GUI, and runtime integration execution were intentionally not performed.  
+**Status discipline:** source correction is not runtime closure. Findings corrected in this pass remain **AGENT CORRECTED → RE-AUDIT REQUIRED** unless explicitly stated otherwise.
+
+| Scope | Findings | Static status | Evidence boundary |
+|---|---|---|---|
+| SLD symbol realization | SLD-PRES-001; SLD-PRES-002; SLD-PRES-003; GF-SLD-SYM-004; GF-SLD-SYM-005; GF-SLD-SYM-006; GF-SLD-SYM-007; GF-SLD-SYM-008; GF-SLD-SYM-009; GF-SLD-SYM-010; GF-SLD-SYM-011; GF-SLD-SYM-012; GF-SLD-SYM-013; GF-SLD-SYM-014 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | PresentationBootstrap now composes one EquipmentRegistry/SymbolRegistry/SymbolFactory/SemanticPresentationRealization/SLDGraphicsItemFactory; built-in symbol definitions now carry explicit terminal anchors; definition-to-symbol validation fails explicitly on missing anchors. |
+| SLD terminal/snap identity | GF-SLD-TERM-015; GF-SLD-TERM-016; GF-SLD-TERM-017; GF-SLD-TERM-018; GF-SLD-TERM-019; GF-SLD-TERM-020; GF-SLD-TERM-021; GF-SLD-TERM-023; GF-SLD-TERM-024; GF-SLD-TERM-025; GF-SLD-TERM-026; GF-SLD-TERM-027; GF-SLD-TERM-028; RCA-SLD-CONN-002; GF-MASTER-0067 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | EquipmentFactory realizes EquipmentTerminal from SymbolDefinition anchors; EquipmentItem exposes terminal snap candidates; SnapResult preserves terminal_id/terminal_name; EndpointIdentityAdapter converts the terminal role to EndpointReference without Core Terminal.id. |
+| Concrete SLD placement workflows | GF-SLD-WF-TOOL-001; GF-SLD-WF-TOOL-002; GF-SLD-WF-TOOL-003; GF-SLD-WF-TOOL-004; GF-SLD-WF-TOOL-005; GF-SLD-WF-TOOL-006; GF-SLD-WF-TOOL-008; GF-SLD-WF-TOOL-009; GF-SLD-WF-TOOL-010 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | Concrete placement tools now declare their canonical immutable Application command constructor and endpoint field contract; ModelPlacementTool constructs and executes that command rather than terminating in the generic guard. |
+| Load/Grid command contracts | GF-SLD-WF-CMD-013; GF-SLD-WF-CMD-014 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | CreateLoadCommand/CreateGridCommand now carry EndpointReference; handlers resolve endpoints through EndpointResolver; LoadModelService passes the resolved endpoint into the authoritative single Load terminal; Grid already receives its authoritative endpoint. |
+| Protection/measurement identity | GF-PROT-035; GF-PROT-036; GF-PROT-037; GF-PROT-038; GF-PROT-039; GF-PROT-040; GF-PROT-042 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | MeasurementChannel source-terminal identity is canonical EndpointReference-based; ProtectionMeasurementBinding correlates a canonical terminal reference without Core Terminal.id; CT/PT/CVT UI definitions preserve P1/P2/S1/S2, primary_a/primary_b/secondary_a/secondary_b, and H1/H2/X1/X2; RelayInput remains channel-backed. |
+| Protection composition boundary | GF-PROT-041 | **VERIFIED CLOSED — RETAINED** | No new evidence in this pass reopens the existing ProtectionRuntime.compose() composition boundary. Runtime execution remains deferred. |
+
+### Static residuals requiring re-audit
+
+1. Runtime behavior of the complete palette→tool→snap→command→Application→Core→event→ReadModel→SLD projection chain remains unverified by design.
+2. Measurement-channel provisioning and full protection-channel end-to-end execution remain source-level only; this pass did not add a second channel registry or a second topology authority.
+3. The existing LineTool was inspected and retained as a canonical `CreateLineCommand` compatibility path; it does not directly mutate Core or create an uncontrolled graphical topology edge.
+4. No Core `Terminal.id`, `ProtectionTerminal`, `MeasurementTerminal`, generic `Port`, or parallel semantic/equipment mapping authority was introduced.
+
 ## Source registers discovered on `main`
 
 1. `AUDIT_REPORT.md`
