@@ -730,10 +730,10 @@ class MeasurementChannel:
         Associate the channel with a source measurement terminal.
         """
 
-        self._validate_reference(
-            terminal,
-            "source_terminal",
-        )
+        if not isinstance(terminal, EndpointReference) or not terminal.is_terminal:
+            raise TypeError(
+                "source_terminal must be a canonical terminal EndpointReference."
+            )
 
         self.source_terminal = terminal
 
