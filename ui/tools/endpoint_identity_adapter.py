@@ -31,12 +31,34 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.application.endpoint_reference import EndpointReference
+from core.application.endpoint_reference import EndpointReference, EquipmentType
+from ui.equipment.terminal import EquipmentTerminal
 
 
 class EndpointIdentityAdapter:
     """Convert a snapped presentation endpoint into an immutable reference."""
 
+    @staticmethod
+    def from_equipment_terminal(
+        terminal: EquipmentTerminal,
+        equipment_type: EquipmentType,
+    ) -> EndpointReference:
+        """Adapt a UI terminal to the canonical Core endpoint identity.
+
+        ``EquipmentTerminal.terminal_id`` is only the UI registry identity.
+        It is deliberately not copied into ``EndpointReference``. The Core
+        endpoint identity is ``equipment_id + terminal_role``; here
+        ``terminal_name`` is the presentation-side terminal role.
+        """
+        if not isinstance(terminal, EquipmentTerminal):
+            raise TypeError("terminal must be an EquipmentTerminal.")
+        if not isinstance(equipment_type, EquipmentType):
+            raise TypeError("equipment_type must be an EquipmentType.")
+        return EndpointReference.terminal(
+            equipment_type=equipment_type,
+            equipment_id=terminal.equipment_id,
+            terminal_role=terminal.terminal_name,
+        )
     @staticmethod
     def from_snap_result(result: Any) -> EndpointReference:
         """Return an EndpointReference for a supported object snap."""

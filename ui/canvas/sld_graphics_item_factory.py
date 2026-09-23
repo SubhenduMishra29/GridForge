@@ -35,14 +35,26 @@ class SLDGraphicsItemFactory:
             raise ValueError(f"Unsupported presentation representation: {selection.representation_id}")
         if selection.representation_id == "equipment":
             element_type = node.properties.get("element_type")
+            if node.equipment_id is None:
+                # Presentation-only SLD nodes do not represent Core equipment.
+                # Give the graphics item an explicitly presentation-scoped
+                # identity; never reuse node_id as an engineering identity.
+                graphics_object_id = f"presentation:{node.node_id}"
+            else:
+                graphics_object_id = node.equipment_id
             item = item_class(
-                object_id=node.node_id,
+                object_id=graphics_object_id,
                 element_type=str(element_type),
                 position=QPointF(node.x, node.y),
             )
         else:
+            if node.equipment_id is None:
+                # Presentation-only SLD nodes have no Core engineering identity.
+                graphics_object_id = f"presentation:{node.node_id}"
+            else:
+                graphics_object_id = node.equipment_id
             item = item_class(
-                object_id=node.node_id,
+                object_id=graphics_object_id,
                 position=QPointF(node.x, node.y),
                 radius=self._node_radius(node),
             )

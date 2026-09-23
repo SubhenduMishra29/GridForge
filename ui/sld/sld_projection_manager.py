@@ -109,6 +109,10 @@ class SLDProjectionManager:
                 removed.append(object_id)
         return tuple(removed)
 
+    def clear(self) -> None:
+        """Clear all projection-domain state at the lifecycle boundary."""
+        self._registry.clear()
+
     def arrange(self, object_ids: tuple[str, ...] | list[str]) -> tuple:
         """Generate deterministic dummy placements without persisting them."""
         return self._layout.arrange(object_ids)

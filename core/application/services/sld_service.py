@@ -131,10 +131,7 @@ class SLDService:
             equipment_id=equipment_id,
             x=float(p["x"]),
             y=float(p["y"]),
-            properties={
-                "presentation_ownership": "engineer_authored",
-                "equipment_binding": equipment_id,
-            },
+            properties={"presentation_owner": "engineer"},
         )
         self.document.mark_modified()
         transaction.record_undo(lambda node_id=p["node_id"]: self.document.model.remove_node(node_id))
@@ -160,6 +157,7 @@ class SLDService:
     def _remove_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
         node_id = command.payload["node_id"]
         node = self.document.model.get_node(node_id)
+        self._require_engineer_owned_node(node)
         node_snapshot = node.to_dict()
         connection_snapshots = tuple(
             connection.to_dict()
@@ -197,6 +195,7 @@ class SLDService:
             connection_id=p["connection_id"],
             source_node_id=p["source_node_id"],
             target_node_id=p["target_node_id"],
+            properties={"presentation_owner": "engineer"},
         )
         self.document.mark_modified()
         transaction.record_undo(
@@ -207,9 +206,38 @@ class SLDService:
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
         )
 
+    @staticmethod
+    def _require_engineer_owned_node(node: Any) -> None:
+        source = node.properties.get("projection_source")
+        owner = node.properties.get("presentation_owner")
+        if source in {"application_read_model", "protection_read_model"}:
+            raise ValueError(
+                "Projection-owned SLD nodes cannot be removed through "
+                "engineer-owned presentation commands."
+            )
+        if source is not None or owner not in (None, "engineer"):
+            raise ValueError(
+                "SLD node ownership is unknown or invalid; removal is rejected."
+            )
+
+    @staticmethod
+    def _require_engineer_owned_connection(connection: Any) -> None:
+        source = connection.properties.get("projection_source")
+        owner = connection.properties.get("presentation_owner")
+        if source in {"application_read_model", "protection_read_model"}:
+            raise ValueError(
+                "Projection-owned SLD connections cannot be removed through "
+                "engineer-owned presentation commands."
+            )
+        if owner != "engineer":
+            raise ValueError(
+                "SLD connection ownership is unknown; removal is rejected."
+            )
+
     def _remove_connection(self, command: Command, transaction: Transaction) -> ApplicationResult:
         connection_id = command.payload["connection_id"]
         connection = self.document.model.get_connection(connection_id)
+        self._require_engineer_owned_connection(connection)
         snapshot = connection.to_dict()
         self.document.model.remove_connection(connection_id)
         self.document.mark_modified()
