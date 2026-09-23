@@ -1,7 +1,7 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `madhuri196mishra-cpu/GridForge`
+**Repository authority:** `SubhenduMishra29/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Branch baseline:** `main` — current working repository authority
 **Consolidation date:** 2026-09-17
@@ -14,7 +14,7 @@ This register distinguishes current repository evidence from historical register
 
 ## 2026-09-23 — Consolidated SLD terminal/symbol/snap/protection remediation status
 
-**Repository:** `madhuri196mishra-cpu/GridForge`  
+**Repository:** `SubhenduMishra29/GridForge`  
 **Branch:** `main`  
 **Verification mode:** static source inspection only; pytest, CI, startup, GUI, and runtime integration execution were intentionally not performed.  
 **Status discipline:** source correction is not runtime closure. Findings corrected in this pass remain **AGENT CORRECTED → RE-AUDIT REQUIRED** unless explicitly stated otherwise.
@@ -28,12 +28,18 @@ This register distinguishes current repository evidence from historical register
 | Protection/measurement identity | GF-PROT-035; GF-PROT-036; GF-PROT-037; GF-PROT-038; GF-PROT-039; GF-PROT-040; GF-PROT-042 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | MeasurementChannel source-terminal identity is canonical EndpointReference-based; ProtectionMeasurementBinding correlates a canonical terminal reference without Core Terminal.id; CT/PT/CVT UI definitions preserve P1/P2/S1/S2, primary_a/primary_b/secondary_a/secondary_b, and H1/H2/X1/X2; RelayInput remains channel-backed. |
 | Protection composition boundary | GF-PROT-041 | **VERIFIED CLOSED — RETAINED** | No new evidence in this pass reopens the existing ProtectionRuntime.compose() composition boundary. Runtime execution remains deferred. |
 
-### Static residuals requiring re-audit
+### 2026-09-23 synchronized status
 
-1. Runtime behavior of the complete palette→tool→snap→command→Application→Core→event→ReadModel→SLD projection chain remains unverified by design.
-2. Measurement-channel provisioning and full protection-channel end-to-end execution remain source-level only; this pass did not add a second channel registry or a second topology authority.
-3. The existing LineTool was inspected and retained as a canonical `CreateLineCommand` compatibility path; it does not directly mutate Core or create an uncontrolled graphical topology edge.
-4. No Core `Terminal.id`, `ProtectionTerminal`, `MeasurementTerminal`, generic `Port`, or parallel semantic/equipment mapping authority was introduced.
+The findings in this remediation batch are synchronized to the latest static evidence:
+
+- GF-SLD-TERM-020, -021, -023 through -028, GF-SLD-SNAP-022, RCA-SLD-CONN-002, and GF-MASTER-0067 — **STATICALLY VERIFIED — CORRECTED**.
+- GF-PROT-035, -036, -038, -039, and -040 — **STATICALLY VERIFIED — CORRECTED**.
+- GF-PROT-037 — **STATICALLY VERIFIED — BOUNDARY ADDED**.
+- GF-PROT-042 — **OPEN — INTEGRATION GAP**. The repository does not statically establish the authoritative CT/PT/CVT → MeasurementProvisioning → channel registration/collection → protection mapping → ProtectionRuntime.compose() consumer path.
+- GF-SLD-WF-TOOL-006 — **STATICALLY VERIFIED — CORRECTED**.
+
+For all corrected items, **RUNTIME VERIFICATION — DEFERRED / UNVERIFIED**.
+
 
 ## Source registers discovered on `main`
 
