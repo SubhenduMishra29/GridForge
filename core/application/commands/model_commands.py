@@ -96,13 +96,14 @@ class DeleteBusCommand(Command):
         super().__init__(**_command(DELETE_BUS, {"bus_id": bus_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateGridCommand(Command):
-    def __init__(self, *, grid_id: str, name: str = "", nominal_voltage_kv: float = 0.0, frequency_hz: float = 50.0,
+    def __init__(self, *, grid_id: str, endpoint: EndpointReference | None = None, name: str = "", nominal_voltage_kv: float = 0.0, frequency_hz: float = 50.0,
                  voltage_pu: float = 1.0, angle_deg: float = 0.0, p_mw: float = 0.0, q_mvar: float = 0.0,
                  short_circuit_mva: float | None = None, x_over_r: float | None = None, z1_pu: complex | None = None,
                  z2_pu: complex | None = None, z0_pu: complex | None = None, in_service: bool = True,
                  grounded: bool = True, command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(CREATE_GRID, {"grid_id": grid_id, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
+        _endpoint(endpoint, "endpoint")
+        super().__init__(**_command(CREATE_GRID, {"grid_id": grid_id, "endpoint": endpoint, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
             "frequency_hz": frequency_hz, "voltage_pu": voltage_pu, "angle_deg": angle_deg, "p_mw": p_mw, "q_mvar": q_mvar,
             "short_circuit_mva": short_circuit_mva, "x_over_r": x_over_r, "z1_pu": z1_pu, "z2_pu": z2_pu, "z0_pu": z0_pu,
             "in_service": in_service, "grounded": grounded}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
@@ -146,9 +147,10 @@ class DeleteGeneratorCommand(Command):
         super().__init__(**_command(DELETE_GENERATOR, {"generator_id": generator_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateLoadCommand(Command):
-    def __init__(self, *, load_id: str, p: float = 0.0, q: float = 0.0, name: str = "", in_service: bool = True,
+    def __init__(self, *, load_id: str, endpoint: EndpointReference | None = None, p: float = 0.0, q: float = 0.0, name: str = "", in_service: bool = True,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(CREATE_LOAD, {"load_id": load_id, "p": p, "q": q, "name": name, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        _endpoint(endpoint, "endpoint")
+        super().__init__(**_command(CREATE_LOAD, {"load_id": load_id, "endpoint": endpoint, "p": p, "q": q, "name": name, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteLoadCommand(Command):
     def __init__(self, *, load_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_LOAD, {"load_id": load_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
