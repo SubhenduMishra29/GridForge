@@ -1,7 +1,7 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `pandaraseswari03-collab/GridForge`
+**Repository authority:** `madhuri196mishra-cpu/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Branch baseline:** `main` — current working repository authority
 **Consolidation date:** 2026-09-17
@@ -14,7 +14,7 @@ This register distinguishes current repository evidence from historical register
 
 ## 2026-09-23 — Consolidated SLD terminal/symbol/snap/protection remediation status
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Repository:** `madhuri196mishra-cpu/GridForge`  
 **Branch:** `main`  
 **Verification mode:** static source inspection only; pytest, CI, startup, GUI, and runtime integration execution were intentionally not performed.  
 **Status discipline:** source correction is not runtime closure. Findings corrected in this pass remain **AGENT CORRECTED → RE-AUDIT REQUIRED** unless explicitly stated otherwise.
