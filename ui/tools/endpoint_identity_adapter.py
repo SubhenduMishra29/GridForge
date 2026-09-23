@@ -87,7 +87,6 @@ class EndpointIdentityAdapter:
             return endpoint_reference
 
         terminal_name = getattr(result, "terminal_name", None)
-        terminal_id = getattr(result, "terminal_id", None)
         if terminal_name is None:
             raise ValueError("Terminal snap is missing its canonical terminal role.")
         equipment = getattr(source, "equipment", None)
@@ -106,8 +105,6 @@ class EndpointIdentityAdapter:
             raise ValueError(
                 f"Unsupported snapped equipment type: {equipment_type!r}"
             )
-        if terminal_id is None:
-            raise ValueError("Terminal snap is missing presentation terminal identity.")
         return EndpointReference.terminal(
             equipment_type=canonical_type,
             equipment_id=str(object_id),
