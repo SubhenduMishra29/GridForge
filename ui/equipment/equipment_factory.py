@@ -34,6 +34,7 @@ from typing import Any, Mapping
 from .equipment_base import EquipmentBase
 from .equipment_registry import EquipmentRegistry
 from .terminal import EquipmentTerminal
+from .symbol.symbol_registry import SymbolRegistry
 
 
 class EquipmentFactory:
@@ -45,6 +46,7 @@ class EquipmentFactory:
     def __init__(
         self,
         registry: EquipmentRegistry,
+        symbol_registry: SymbolRegistry,
     ) -> None:
         if registry is None:
             raise ValueError(
@@ -59,7 +61,10 @@ class EquipmentFactory:
                 "registry must be an EquipmentRegistry."
             )
 
+        if not isinstance(symbol_registry, SymbolRegistry):
+            raise TypeError("symbol_registry must be a SymbolRegistry.")
         self._registry = registry
+        self._symbol_registry = symbol_registry
 
     @property
     def registry(self) -> EquipmentRegistry:
@@ -149,11 +154,8 @@ class EquipmentFactory:
         # Runtime terminal identities
         # ----------------------------------------------------
 
-        symbol_registry = getattr(self._registry, "symbol_registry", None)
         # Terminal geometry is sourced only from the canonical SymbolDefinition.
-        if symbol_registry is None:
-            raise RuntimeError("EquipmentRegistry must expose its composed SymbolRegistry for terminal realization.")
-        symbol = symbol_registry.require(definition.symbol_id)
+        symbol = self._symbol_registry.require(definition.symbol_id)
         terminals = []
         for terminal_name in definition.terminal_names:
             if not symbol.has_terminal_anchor(terminal_name):
