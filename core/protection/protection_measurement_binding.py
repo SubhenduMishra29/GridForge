@@ -1,4 +1,4 @@
-"""Canonical SC/protection measurement binding contract.
+"""Canonical SC/protection measurement binding contract.\n\n# Author: Subhendu Mishra
 
 The binding is the explicit correlation point between an analysis result,
 physical measurement instrumentation, a logical MeasurementChannel, and a
