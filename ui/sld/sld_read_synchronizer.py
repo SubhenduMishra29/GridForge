@@ -244,6 +244,8 @@ class SLDReadSynchronizer:
                     "element_type": read_model.element_type,
                     "labels": dict(read_model.labels),
                     "attributes": dict(read_model.attributes),
+                    "terminal_ids": tuple(read_model.connectivity_refs),
+                    "terminal_connectivity": tuple(read_model.attributes.get("terminal_connectivity", ())),
                 },
             )
             document.model.add_node(node)
@@ -273,6 +275,8 @@ class SLDReadSynchronizer:
             "element_type": read_model.element_type,
             "labels": dict(read_model.labels),
             "attributes": dict(read_model.attributes),
+            "terminal_ids": tuple(read_model.connectivity_refs),
+            "terminal_connectivity": tuple(read_model.attributes.get("terminal_connectivity", ())),
         })
         return node
 
