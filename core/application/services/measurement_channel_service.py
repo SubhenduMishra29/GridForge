@@ -120,9 +120,10 @@ class MeasurementChannelService:
             raise ValueError(f"Measurement source '{source_id}' could not be resolved.")
         signal_type = self._enum_value(MeasurementSignalType, definition.get("signal_type"), "signal_type")
         phase = self._enum_value(MeasurementPhase, definition.get("phase", MeasurementPhase.NONE.value), "phase")
+        terminal = resolve_terminal_reference(context, reference)
         return MeasurementProvisioning.provision_channel(
-            context,
             source=source,
+            source_terminal=terminal,
             source_terminal_reference=reference,
             channel_id=channel_id,
             signal_type=signal_type,
