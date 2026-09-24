@@ -24,6 +24,8 @@ from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 
 
 @dataclass(frozen=True)
@@ -51,8 +53,8 @@ class CanvasComposition:
     snap_system: SnapSystem
     preview_layer: PreviewLayer
     application: Any
-    sld_canvas_projection: Any | None = None
-    sld_canvas_render_system: Any | None = None
+    sld_canvas_projection: SLDCanvasProjection
+    sld_canvas_render_system: SLDCanvasRenderSystem
     selection_projection: SelectionProjectionCoordinator | None = None
 
     @property
@@ -94,6 +96,8 @@ class CanvasComposer:
         preparation: CanvasCompositionPreparation,
         parent: Optional[QWidget] = None,
         properties_panel: Any = None,
+        sld_canvas_projection: SLDCanvasProjection | None = None,
+        sld_canvas_render_system: SLDCanvasRenderSystem | None = None,
     ) -> CanvasComposition:
         """Construct one complete Canvas service graph.
 
@@ -109,6 +113,10 @@ class CanvasComposer:
             raise ValueError("tool_manager must not be None.")
         if not isinstance(preparation, CanvasCompositionPreparation):
             raise TypeError("preparation must be CanvasCompositionPreparation.")
+        if not isinstance(sld_canvas_projection, SLDCanvasProjection):
+            raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
+        if not isinstance(sld_canvas_render_system, SLDCanvasRenderSystem):
+            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
 
         application = tool_manager.application
         if application is None:
@@ -172,6 +180,8 @@ class CanvasComposer:
             snap_system=snap_system,
             preview_layer=preview_layer,
             application=application,
+            sld_canvas_projection=sld_canvas_projection,
+            sld_canvas_render_system=sld_canvas_render_system,
             selection_projection=selection_projection,
         )
 
