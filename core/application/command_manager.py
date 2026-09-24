@@ -93,6 +93,10 @@ CommandHandler = Callable[
     [Command, Any, Transaction],
     ApplicationResult[Any],
 ]
+PreCommitHook = Callable[
+    [Command, ApplicationResult[Any], Transaction],
+    None,
+]
 
 
 # ============================================================
@@ -131,6 +135,7 @@ class CommandManager:
         )
         self._integrity_state = "CLEAN"
         self._integrity_error: Exception | None = None
+        self._pre_commit_hook: PreCommitHook | None = None
 
     # ========================================================
     # PROPERTIES
@@ -155,6 +160,12 @@ class CommandManager:
     def integrity_error(self) -> Exception | None:
         """Return the failure that caused a degraded command boundary, if any."""
         return self._integrity_error
+
+    def set_pre_commit_hook(self, hook: PreCommitHook | None) -> None:
+        """Install the Application-owned coordinated mutation hook."""
+        if hook is not None and not callable(hook):
+            raise TypeError("pre-commit hook must be callable or None.")
+        self._pre_commit_hook = hook
 
     def _require_healthy(self) -> None:
         if self._integrity_state != "CLEAN":
@@ -310,6 +321,9 @@ class CommandManager:
                         ),
                     },
                 )
+
+            if self._pre_commit_hook is not None:
+                self._pre_commit_hook(command, result, transaction)
 
         except ApplicationError:
             self._rollback_safely(transaction)
