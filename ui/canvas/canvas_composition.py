@@ -194,8 +194,6 @@ class CanvasComposer:
         if properties_panel is None:
             raise ValueError("properties_panel must not be None.")
         coordinator = composition.selection_projection
-        if coordinator is None:
-            raise RuntimeError("CanvasComposition must own its SelectionProjectionCoordinator.")
         coordinator.set_properties_panel(properties_panel)
         return coordinator
 
