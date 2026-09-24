@@ -22,7 +22,7 @@ from typing import Any, TypeAlias
 
 from core.analysis.line_flow import LineFlowResult
 from core.analysis.transformer_flow import TransformerFlowResult
-from core.application.endpoint_reference import EndpointReference
+from core.model import EndpointReference
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.result import ShortCircuitResult
