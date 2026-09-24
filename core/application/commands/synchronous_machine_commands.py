@@ -29,12 +29,12 @@ class CreateSynchronousMachineCommand(Command):
                  name: str = "", active_power_injection_mw: float = 0.0,
                  reactive_power_injection_mvar: float = 0.0, rated_power_mva: float | None = None,
                  rated_voltage_kv: float | None = None, frequency_hz: float = 50.0,
-                 in_service: bool = True, command_id: UUID | None = None,
+                 in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
         super().__init__(**_command(
             CREATE_SYNCHRONOUS_MACHINE,
-            {"synchronous_machine_id": synchronous_machine_id, "endpoint": endpoint, "name": name,
+            {"presentation_x": presentation_x, "presentation_y": presentation_y, "synchronous_machine_id": synchronous_machine_id, "endpoint": endpoint, "name": name,
              "active_power_injection_mw": active_power_injection_mw,
              "reactive_power_injection_mvar": reactive_power_injection_mvar,
              "rated_power_mva": rated_power_mva, "rated_voltage_kv": rated_voltage_kv,
