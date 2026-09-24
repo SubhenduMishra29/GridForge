@@ -100,10 +100,10 @@ class CreateGridCommand(Command):
                  voltage_pu: float = 1.0, angle_deg: float = 0.0, p_mw: float = 0.0, q_mvar: float = 0.0,
                  short_circuit_mva: float | None = None, x_over_r: float | None = None, z1_pu: complex | None = None,
                  z2_pu: complex | None = None, z0_pu: complex | None = None, in_service: bool = True,
-                 grounded: bool = True, command_id: UUID | None = None, correlation_id: UUID | None = None,
+                 grounded: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
-        super().__init__(**_command(CREATE_GRID, {"grid_id": grid_id, "endpoint": endpoint, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
+        super().__init__(**_command(CREATE_GRID, {"presentation_x": presentation_x, "presentation_y": presentation_y, "grid_id": grid_id, "endpoint": endpoint, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
             "frequency_hz": frequency_hz, "voltage_pu": voltage_pu, "angle_deg": angle_deg, "p_mw": p_mw, "q_mvar": q_mvar,
             "short_circuit_mva": short_circuit_mva, "x_over_r": x_over_r, "z1_pu": z1_pu, "z2_pu": z2_pu, "z0_pu": z0_pu,
             "in_service": in_service, "grounded": grounded}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
