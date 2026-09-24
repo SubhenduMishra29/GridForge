@@ -415,11 +415,13 @@ dependency.
 **Protection/UI correction:** Protection measurement binding and SLD endpoint
 identity adaptation consume the same Core endpoint identity contract.
 
-**Static verification:** **STATICALLY VERIFIED — CORRECTED** at the inspected
-Core Measurement/Protection, Application endpoint/command/service, and UI
-endpoint-adapter boundaries. Direct repository code-search indexing was not
-available from the GitHub connector, so verification was performed by direct
-source inspection of the affected and dependent boundary modules.
+**Final static verification:** **STATICALLY VERIFIED — CORRECTED**. Final
+source inspection confirms the affected Core Measurement/Protection,
+Application endpoint/command/service, and UI endpoint-adapter boundaries are
+using the canonical Core identity contract, and MeasurementProvisioning has
+no Application resolver dependency. Direct repository code-search indexing
+was not available from the GitHub connector; verification therefore used
+direct source inspection of the affected and dependent boundary modules.
 
 **Changed implementation files:**
 - `core/model/endpoint_reference.py`
