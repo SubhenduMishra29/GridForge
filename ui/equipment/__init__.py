@@ -18,8 +18,7 @@
 #     - expose equipment definitions;
 #     - expose the equipment registry;
 #     - expose the equipment factory;
-#     - expose the runtime equipment manager;
-#     - expose logical equipment terminals.
+##     - expose logical equipment terminals.
 #
 # Does NOT:
 #     - create Qt widgets;
@@ -45,7 +44,6 @@ from .equipment_base import EquipmentBase
 from .equipment_definition import EquipmentDefinition
 from .equipment_registry import EquipmentRegistry
 from .equipment_factory import EquipmentFactory
-from .equipment_manager import EquipmentManager
 from .terminal import EquipmentTerminal
 
 __all__ = [
@@ -53,6 +51,5 @@ __all__ = [
     "EquipmentDefinition",
     "EquipmentRegistry",
     "EquipmentFactory",
-    "EquipmentManager",
     "EquipmentTerminal",
 ]
