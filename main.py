@@ -174,7 +174,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         document = change.state.document
         if isinstance(document, SLDDocument): sld_controller.replace_document(document); sld_controller.activate_document(document.document_id); synchronize_canvas()
 
-    project_workspace_adapter.subscribe(handle_project_workspace_changed); sld_canvas_projection = SLDCanvasProjection(); sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
+    project_workspace_adapter.subscribe(handle_project_workspace_changed); sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
     equipment_registry = presentation_bootstrap.equipment_registry
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, equipment_registry=equipment_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
