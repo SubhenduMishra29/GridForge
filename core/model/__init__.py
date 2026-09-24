@@ -29,7 +29,6 @@ from .pt import PT
 PotentialTransformer = PT
 from .cvt import CVT
 from .relay import Relay
-from .endpoint_reference import EndpointReference, EndpointReferenceKind, EquipmentType
 
 # Relay is a physical Core model and participates in the canonical identity
 # contract without introducing a second identity implementation. The mature
@@ -50,6 +49,7 @@ def _relay_id_set(self, value):
 Relay.id = property(_relay_id_get, _relay_id_set)
 Relay.element_type = property(lambda self: "RELAY")
 ElectricalObject.register(Relay)
+from .endpoint_reference import EndpointReference, EndpointReferenceKind, EquipmentType
 
 __all__ = (
     "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "Line", "Cable", "ImpedanceBasis", "Transformer", "Switch",
