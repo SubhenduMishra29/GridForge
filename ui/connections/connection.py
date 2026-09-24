@@ -44,7 +44,9 @@
 #            ├── ConnectionPreview
 #            └── TopologyAdapter
 #
-# Core remains authoritative for electrical-network state.
+# Core remains authoritative for electrical-network state. Committed electrical
+topology is submitted as an immutable Application command; this class is
+presentation/interaction state only.
 #
 # ============================================================
 
