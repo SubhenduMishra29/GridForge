@@ -24,9 +24,9 @@ class CreateRelayCommand(Command):
     def __init__(self, *, relay_id: str, relay_type: str, name: str = "",
                  plugin_id: str | None = None, settings: Mapping[str, Any] | None = None,
                  in_service: bool = True, enabled: bool = True, blocked: bool = False,
-                 command_id: UUID | None = None, correlation_id: UUID | None = None,
+                 presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
-        super().__init__(**_command(CREATE_RELAY, {
+        super().__init__(**_command(CREATE_RELAY, {"presentation_x": presentation_x, "presentation_y": presentation_y, 
             "relay_id": relay_id, "element_id": relay_id, "relay_type": relay_type, "name": name,
             "plugin_id": plugin_id, "settings": dict(settings or {}),
             "in_service": in_service, "enabled": enabled, "blocked": blocked,
