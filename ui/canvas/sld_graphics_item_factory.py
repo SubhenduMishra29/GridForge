@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from core.application.read_models import ElementReadModel
 from ui.core.qt import QPointF
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.equipment.equipment_registry import EquipmentRegistry
@@ -23,14 +24,17 @@ from .sld_canvas_projection import SLDCanvasConnection, SLDCanvasNode
 class SLDGraphicsItemFactory:
     """Construction boundary between resolved descriptors and graphics."""
 
-    def __init__(self, equipment_registry: EquipmentRegistry, symbol_registry: SymbolRegistry) -> None:
+    def __init__(self, equipment_registry: EquipmentRegistry, symbol_registry: SymbolRegistry, application: object) -> None:
         if not isinstance(equipment_registry, EquipmentRegistry):
             raise TypeError("equipment_registry must be an EquipmentRegistry")
         if not isinstance(symbol_registry, SymbolRegistry):
             raise TypeError("symbol_registry must be a SymbolRegistry")
+        if application is None or not callable(getattr(application, "read_network", None)):
+            raise TypeError("application must provide the Application read-model API.")
         equipment_registry.validate_symbol_anchors(symbol_registry)
         self._equipment_registry = equipment_registry
         self._symbol_registry = symbol_registry
+        self._application = application
         self._equipment_factory = EquipmentFactory(equipment_registry, symbol_registry)
 
     @property
@@ -48,15 +52,11 @@ class SLDGraphicsItemFactory:
             return BusItem(object_id=graphics_object_id, position=position,
                            radius=self._node_radius(node))
         definition = self._symbol_registry.require(selection.symbol_id)
-        terminal_ids = tuple(
-            value for value in node.properties.get("terminal_ids", ())
-            if isinstance(value, str) and value
-        )
-        equipment = self._equipment_factory.create(
+        read_model = self._read_model_for(node.equipment_id)
+        equipment = self._equipment_factory.create_from_read_model(
+            read_model,
             selection.equipment_type,
-            graphics_object_id,
             position=(node.x, node.y),
-            terminal_ids=terminal_ids,
         )
         return EquipmentItem(object_id=graphics_object_id,
                              element_type=selection.semantic_type,
@@ -70,6 +70,27 @@ class SLDGraphicsItemFactory:
         self._validate_point(source, "source")
         self._validate_point(target, "target")
         return LineItem(object_id=connection.connection_id, start=source, end=target)
+
+    def _read_model_for(self, equipment_id: str | None) -> ElementReadModel:
+        if not isinstance(equipment_id, str) or not equipment_id:
+            raise ValueError("Renderable equipment nodes require a canonical equipment_id.")
+        network = self._application.read_network()
+        for element in network.elements:
+            if element.object_id == equipment_id:
+                return element
+        protection_reader = getattr(self._application, "read_protection", None)
+        if callable(protection_reader):
+            protection = protection_reader()
+            for relay in protection.relays:
+                if relay.object_id == equipment_id:
+                    return ElementReadModel(
+                        object_id=relay.object_id,
+                        element_type="RELAY",
+                        labels={"name": relay.name},
+                        connectivity_refs=(),
+                        attributes={},
+                    )
+        raise ValueError(f"SLD node equipment {equipment_id!r} is absent from Application read state.")
 
     @staticmethod
     def _node_radius(node: SLDCanvasNode) -> float:
