@@ -43,7 +43,7 @@ class PresentationBootstrap:
         self.equipment_factory = self.equipment_factory or EquipmentFactory(self.equipment_registry, self.symbol_registry)
         self.symbol_factory = self.symbol_factory or SymbolFactory(self.symbol_registry)
         self.semantic_realization = self.semantic_realization or SemanticPresentationRealization(
-            self.equipment_registry, self.symbol_registry
+            self.equipment_registry, self.symbol_registry, self.application
         )
         self.sld_graphics_item_factory = self.sld_graphics_item_factory or SLDGraphicsItemFactory(
             self.equipment_registry, self.symbol_registry
