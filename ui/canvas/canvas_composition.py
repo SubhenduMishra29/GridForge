@@ -18,6 +18,10 @@ from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.mouse_event_adapter import MouseEventAdapter
 from ui.canvas.navigation_controller import NavigationController
 from ui.canvas.preview_layer import PreviewLayer
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
+from ui.canvas.sld_graphics_item_factory import SLDGraphicsItemFactory
+from ui.canvas.semantic_presentation_realization import SemanticPresentationRealization
 from ui.core.controller import Controller
 from ui.core.qt import QWidget
 from ui.core.selection_manager import SelectionManager
@@ -52,6 +56,8 @@ class CanvasComposition:
     snap_system: SnapSystem
     preview_layer: PreviewLayer
     application: Any
+    sld_canvas_projection: SLDCanvasProjection
+    sld_canvas_render_system: SLDCanvasRenderSystem
     selection_projection: SelectionProjectionCoordinator | None = None
 
     @property
@@ -93,6 +99,10 @@ class CanvasComposer:
         preparation: CanvasCompositionPreparation,
         parent: Optional[QWidget] = None,
         properties_panel: Any = None,
+        sld_canvas_projection: SLDCanvasProjection | None = None,
+        sld_graphics_item_factory: SLDGraphicsItemFactory | None = None,
+        semantic_realization: SemanticPresentationRealization | None = None,
+        sld_canvas_render_system: SLDCanvasRenderSystem | None = None,
     ) -> CanvasComposition:
         """Construct one complete Canvas service graph.
 
@@ -112,6 +122,17 @@ class CanvasComposer:
         application = tool_manager.application
         if application is None:
             raise ValueError("tool_manager must retain the canonical Application.")
+        if sld_canvas_render_system is not None and not isinstance(sld_canvas_render_system, SLDCanvasRenderSystem):
+            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
+        if sld_canvas_projection is not None and not isinstance(sld_canvas_projection, SLDCanvasProjection):
+            raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
+
+        if sld_canvas_render_system is None:
+            if not isinstance(sld_graphics_item_factory, SLDGraphicsItemFactory):
+                raise ValueError("Canvas composition requires the canonical SLDGraphicsItemFactory.")
+            if not isinstance(semantic_realization, SemanticPresentationRealization):
+                raise ValueError("Canvas composition requires the canonical SemanticPresentationRealization.")
+        sld_canvas_projection = sld_canvas_projection or SLDCanvasProjection()
 
         selection_manager = preparation.selection_manager
         grid_system = preparation.grid_system
@@ -151,6 +172,14 @@ class CanvasComposer:
             navigation_controller=navigation_controller,
         )
         selection_manager.set_scene(scene)
+        if sld_canvas_render_system is None:
+            sld_canvas_render_system = SLDCanvasRenderSystem(
+                scene=scene,
+                item_factory=sld_graphics_item_factory,
+                semantic_realization=semantic_realization,
+            )
+        elif sld_canvas_render_system.scene is not scene:
+            raise ValueError("SLD canvas render system must target the composed Canvas scene.")
 
         tool_manager.register_tools(
             create_default_tool_factories(
@@ -181,6 +210,8 @@ class CanvasComposer:
             snap_system=snap_system,
             preview_layer=preview_layer,
             application=application,
+            sld_canvas_projection=sld_canvas_projection,
+            sld_canvas_render_system=sld_canvas_render_system,
             selection_projection=selection_projection,
         )
 
