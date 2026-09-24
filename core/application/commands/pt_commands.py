@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from ..command import Command
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 
 CREATE_PT = "model.create_potential_transformer"
 UPDATE_PT = "model.update_potential_transformer"
