@@ -17,8 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.application.endpoint_reference import EndpointReference
-from core.application.endpoint_resolver import resolve_terminal_reference
+from core.model import EndpointReference
 from core.measurement.measurement_channel import MeasurementChannel, MeasurementSignalType
 
 
@@ -27,20 +26,21 @@ class MeasurementProvisioning:
 
     @staticmethod
     def provision_channel(
-        context: Any,
         *,
         source: Any,
+        source_terminal: Any,
         source_terminal_reference: EndpointReference,
         channel_id: str,
         signal_type: MeasurementSignalType,
         name: str = "",
         **channel_kwargs: Any,
     ) -> MeasurementChannel:
-        """Provision one channel from an authoritative physical terminal.
+        """Provision one channel from an already-resolved Core terminal.
 
-        The endpoint reference is resolved through the existing canonical
-        resolver. No terminal registry or semantic identity map is created
-        here. The resolved Core Terminal remains authoritative.
+        Application resolves the EndpointReference before entering this
+        Core boundary. Provisioning therefore consumes the authoritative
+        Core Terminal and its canonical EndpointReference without reaching
+        back into Application services or project context.
         """
         if not isinstance(source_terminal_reference, EndpointReference):
             raise TypeError(
@@ -60,13 +60,16 @@ class MeasurementProvisioning:
                 "source_terminal_reference equipment identity must match source.id."
             )
 
-        terminal = resolve_terminal_reference(
-            context,
-            source_terminal_reference,
-        )
-        if getattr(terminal, "owner", None) is not source:
+        if source_terminal is None:
+            raise TypeError("source_terminal must be an authoritative Core Terminal.")
+        if getattr(source_terminal, "owner", None) is not source:
             raise ValueError(
-                "Resolved source terminal does not belong to the supplied source equipment."
+                "source_terminal does not belong to the supplied source equipment."
+            )
+        terminal_role = getattr(source_terminal, "role", None)
+        if terminal_role != source_terminal_reference.terminal_role:
+            raise ValueError(
+                "source_terminal role must match source_terminal_reference.terminal_role."
             )
 
         return MeasurementChannel(
