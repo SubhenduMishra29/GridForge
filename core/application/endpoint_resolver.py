@@ -44,10 +44,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .endpoint_reference import (
-    EndpointReference,
-    EndpointReferenceKind,
-)
+from core.model import EndpointReference, EndpointReferenceKind
 from .errors import ResourceError, ValidationError
 
 
