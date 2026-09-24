@@ -37,6 +37,7 @@ from ui.tools.solar_tool import SolarTool
 from ui.tools.switch_tool import SwitchTool
 from ui.tools.synchronous_machine_tool import SynchronousMachineTool
 from ui.tools.transformer_tool import TransformerTool
+from ui.tools.model_placement_tool import ModelPlacementTool
 
 
 ToolFactory = Callable[..., Any]
@@ -57,6 +58,14 @@ def create_default_tool_factories(
     """
 
     def factory(tool_class: type[Any]) -> ToolFactory:
+        if issubclass(tool_class, ModelPlacementTool):
+            return lambda **_ignored: tool_class(
+                controller=controller,
+                application=application,
+                selection_manager=selection_manager,
+                snap_system=snap_system,
+                preview_layer=preview_layer,
+            )
         return lambda **_ignored: tool_class(
             controller=controller,
             application=application,
