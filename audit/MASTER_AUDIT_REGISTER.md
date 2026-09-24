@@ -401,6 +401,8 @@ Runtime evidence remains intentionally outside this static classification.
 
 **Static verification:** **STATICALLY VERIFIED — CORRECTED**. Direct source inspection confirms the projection creation path no longer assigns Core `object_id` to new `SLDNode.node_id` values, and reconciliation remains association-based through `equipment_id`. Engineer-owned presentation metadata is recognized before projection ownership is asserted.
 
+**Additional WF-017 evidence:** `SLDGraphicsItemFactory` resolves the canonical `ElementReadModel` from Application read state and `EquipmentFactory.create_from_read_model()` derives the presentation equipment object from that snapshot; no UI equipment collection is used as an engineering registry.
+
 **Runtime verification:** **UNVERIFIED / DEFERRED**. No pytest, CI, startup, GUI, or runtime execution was performed.
 
 ## 2026-09-24 — GF-PROT-043 Core Endpoint Identity Boundary Remediation
