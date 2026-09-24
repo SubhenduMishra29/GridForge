@@ -23,9 +23,9 @@ class CreatePTCommand(Command):
                  accuracy_class: str = "0.5", burden_va: float = 100.0, phase_displacement_deg: float = 0.0,
                  in_service: bool = True, primary_a: EndpointReference | None = None, primary_b: EndpointReference | None = None,
                  secondary_a: EndpointReference | None = None, secondary_b: EndpointReference | None = None,
-                 command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+                 presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         for value, field in ((primary_a, "primary_a"), (primary_b, "primary_b"), (secondary_a, "secondary_a"), (secondary_b, "secondary_b")): _endpoint(value, field)
-        super().__init__(command_type=CREATE_PT, payload={"pt_id": pt_id, "name": name, "primary_voltage_kv": primary_voltage_kv, "secondary_voltage_v": secondary_voltage_v, "accuracy_class": accuracy_class, "burden_va": burden_va, "phase_displacement_deg": phase_displacement_deg, "in_service": in_service, "primary_a": primary_a, "primary_b": primary_b, "secondary_a": secondary_a, "secondary_b": secondary_b}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+        super().__init__(command_type=CREATE_PT, payload={"presentation_x": presentation_x, "presentation_y": presentation_y, "pt_id": pt_id, "name": name, "primary_voltage_kv": primary_voltage_kv, "secondary_voltage_v": secondary_voltage_v, "accuracy_class": accuracy_class, "burden_va": burden_va, "phase_displacement_deg": phase_displacement_deg, "in_service": in_service, "primary_a": primary_a, "primary_b": primary_b, "secondary_a": secondary_a, "secondary_b": secondary_b}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
 class UpdatePTCommand(Command):
