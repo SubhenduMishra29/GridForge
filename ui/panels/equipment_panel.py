@@ -19,11 +19,13 @@ from .panel_base import PanelBase
 
 class EquipmentPanel(PanelBase):
     """
-    Electrical equipment browser panel.
+    State-only compatibility panel for legacy logical-panel consumers.
 
-    This panel provides the logical presentation boundary for
-    selecting equipment types. It does not create electrical
-    model objects and does not manipulate the SLD canvas directly.
+    The live engineer-facing Equipment Palette is
+    ``ui.panels.default_panels.EquipmentPanelWidget``. This class is
+    intentionally retained only for non-Qt state compatibility and is not
+    composed into the visible workspace. It must not acquire its own
+    EquipmentRegistry or ToolManager.
     """
 
     _PANEL_ID = "equipment"
