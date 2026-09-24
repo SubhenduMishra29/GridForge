@@ -110,6 +110,10 @@ class SLDReadSynchronizer:
                 initial_position=positions.get(element.object_id),
             )
             for element in adapted.elements
+            if (
+                document.model.get_node_by_equipment_id_optional(element.object_id) is not None
+                or element.object_id in positions
+            )
         )
         self._synchronize_connections(document, adapted)
         self._projection_manager.reconcile_network(active_ids)
@@ -140,6 +144,7 @@ class SLDReadSynchronizer:
                 projection_source=_PROTECTION_PROJECTION_SOURCE,
             )
             for element in adapted.elements
+            if document.model.get_node_by_equipment_id_optional(element.object_id) is not None
         )
         self._projection_manager.reconcile_protection(active_ids)
         return nodes
