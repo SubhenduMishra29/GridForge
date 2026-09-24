@@ -55,7 +55,7 @@ class CanvasComposition:
     application: Any
     sld_canvas_projection: SLDCanvasProjection
     sld_canvas_render_system: SLDCanvasRenderSystem
-    selection_projection: SelectionProjectionCoordinator | None = None
+    selection_projection: SelectionProjectionCoordinator
 
     @property
     def widget(self) -> QWidget:
@@ -101,11 +101,10 @@ class CanvasComposer:
     ) -> CanvasComposition:
         """Construct one complete Canvas service graph.
 
-        The selection projection is intentionally deferred when the real
-        PropertiesPanel presentation has not yet been composed. The normal
-        application composition binds it before the Canvas is considered
-        fully wired, so a coordinator is never constructed with a missing
-        PropertiesPanel dependency.
+        The SelectionProjectionCoordinator is always composed with the
+        Canvas service graph. Its PropertiesPanel target may be bound later
+        through the same coordinator instance when the PanelsPlugin presents
+        the canonical PropertiesPanel.
         """
         if controller is None:
             raise ValueError("controller must not be None.")
