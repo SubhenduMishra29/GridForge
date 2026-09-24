@@ -143,6 +143,8 @@ class CableTool(ToolBase):
 
         command = CreateCableCommand(
             cable_id=f"cable-{uuid4().hex}",
+            presentation_x=float(self._current_position[0]),
+            presentation_y=float(self._current_position[1]),
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
             name=str(parameters.get("name", "")),

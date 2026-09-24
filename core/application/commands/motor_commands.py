@@ -40,12 +40,12 @@ class CreateMotorCommand(Command):
                  rated_mva: float = 1.0, rated_kv: float = 1.0, power_factor: float = 0.9,
                  p: float = 0.0, q: float = 0.0, efficiency: float = 1.0,
                  slip: float = 0.0, starting_current_pu: float = 0.0, running: bool = False,
-                 in_service: bool = True, name: str = "", command_id: UUID | None = None,
+                 in_service: bool = True, name: str = "", presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
         super().__init__(**_command(
             CREATE_MOTOR,
-            {"motor_id": motor_id, "endpoint": endpoint, "rated_mva": rated_mva, "rated_kv": rated_kv,
+            {"presentation_x": presentation_x, "presentation_y": presentation_y, "motor_id": motor_id, "endpoint": endpoint, "rated_mva": rated_mva, "rated_kv": rated_kv,
              "power_factor": power_factor, "p": p, "q": q, "efficiency": efficiency, "slip": slip,
              "starting_current_pu": starting_current_pu, "running": running, "in_service": in_service,
              "name": name},

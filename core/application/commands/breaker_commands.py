@@ -18,10 +18,10 @@ TAKE_BREAKER_OUT_OF_SERVICE = "model.take_breaker_out_of_service"
 
 
 class CreateBreakerCommand(Command):
-    def __init__(self, *, breaker_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", in_service: bool = True, closed: bool = True, failed: bool = False, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+    def __init__(self, *, breaker_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", in_service: bool = True, closed: bool = True, failed: bool = False, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if endpoint_from is not None and not isinstance(endpoint_from, EndpointReference): raise TypeError("endpoint_from must be an EndpointReference or None.")
         if endpoint_to is not None and not isinstance(endpoint_to, EndpointReference): raise TypeError("endpoint_to must be an EndpointReference or None.")
-        super().__init__(command_type=CREATE_BREAKER, payload={"breaker_id": breaker_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "in_service": in_service, "closed": closed, "failed": failed, "voltage_kv": voltage_kv, "current_a": current_a, "interrupting_ka": interrupting_ka}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+        super().__init__(command_type=CREATE_BREAKER, payload={"presentation_x": presentation_x, "presentation_y": presentation_y, "breaker_id": breaker_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "in_service": in_service, "closed": closed, "failed": failed, "voltage_kv": voltage_kv, "current_a": current_a, "interrupting_ka": interrupting_ka}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
 class UpdateBreakerCommand(Command):

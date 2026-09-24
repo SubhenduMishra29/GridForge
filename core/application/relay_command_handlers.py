@@ -20,13 +20,38 @@ class RelayCommandHandlers:
         self._relay_service = relay_service
 
     def handlers(self) -> Mapping[str, Any]:
-        return {
+        handlers = {
             CREATE_RELAY: self.create_relay,
             UPDATE_RELAY: self.update_relay,
             DELETE_RELAY: self.delete_relay,
             PUT_RELAY_IN_SERVICE: self.put_relay_in_service,
             TAKE_RELAY_OUT_OF_SERVICE: self.take_relay_out_of_service,
         }
+        handlers[CREATE_RELAY] = self._presentation_aware_create(self.create_relay)
+        return handlers
+
+    @staticmethod
+    def _presentation_aware_create(handler):
+        """Keep UI placement coordinates out of RelayModelService."""
+        def wrapped(command, context, transaction):
+            payload = dict(command.payload)
+            presentation_x = payload.pop("presentation_x", None)
+            presentation_y = payload.pop("presentation_y", None)
+            from types import SimpleNamespace
+            from .results import ApplicationResult
+            result = handler(SimpleNamespace(payload=payload), context, transaction)
+            if presentation_x is None or presentation_y is None:
+                return result
+            return ApplicationResult.success_result(
+                value=result.value,
+                message=result.message,
+                metadata={
+                    **dict(result.metadata),
+                    "presentation_x": float(presentation_x),
+                    "presentation_y": float(presentation_y),
+                },
+            )
+        return wrapped
 
     @staticmethod
     def _payload(command) -> dict[str, Any]:

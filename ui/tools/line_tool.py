@@ -140,6 +140,8 @@ class LineTool(ToolBase):
             )
         command = CreateLineCommand(
             line_id=f"line-{uuid4().hex}",
+            presentation_x=float(self._current_position[0]),
+            presentation_y=float(self._current_position[1]),
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
             resistance_ohm=float(parameters["resistance_ohm"]),

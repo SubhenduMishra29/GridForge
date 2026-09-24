@@ -32,6 +32,7 @@ class ModelPlacementTool(ToolBase):
         application: Any,
         selection_manager: Any,
         snap_system: Any,
+        preview_layer: Any = None,
     ) -> None:
         super().__init__(
             controller=controller,
@@ -41,6 +42,7 @@ class ModelPlacementTool(ToolBase):
         )
         self._position: Optional[Tuple[float, float]] = None
         self._preview_active = False
+        self._preview_layer = preview_layer
         self._endpoints: list[Any] = []
         self._endpoint_by_field: dict[str, Any] = {}
 
@@ -69,6 +71,7 @@ class ModelPlacementTool(ToolBase):
             return False
         self._position = self._position_tuple(snap_result.position)
         self._preview_active = True
+        self._show_preview(self._position)
         if self.ENDPOINT_FIELDS:
             endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
             terminal_name = getattr(snap_result, "terminal_name", None)
@@ -98,6 +101,7 @@ class ModelPlacementTool(ToolBase):
             return False
         self._position = position
         self._preview_active = True
+        self._show_preview(position)
         return True
 
     def on_mouse_release(self, event: Any) -> bool:
@@ -145,6 +149,17 @@ class ModelPlacementTool(ToolBase):
             return None
         return self._position_tuple(position)
 
+    def _show_preview(self, position: Tuple[float, float]) -> None:
+        """Show transient placement geometry only; never create Core state."""
+        if self._preview_layer is None:
+            return
+        show_segment = getattr(self._preview_layer, "show_segment", None)
+        if not callable(show_segment):
+            raise TypeError("PreviewLayer must provide show_segment().")
+        x, y = position
+        half_length = 12.0
+        show_segment((x - half_length, y), (x + half_length, y))
+
     def _build_command(self) -> Any:
         command_class = self.COMMAND_CLASS
         if command_class is None:
@@ -153,6 +168,10 @@ class ModelPlacementTool(ToolBase):
             raise RuntimeError(f"{self.MODEL_NAME} placement is missing required endpoint references.")
         payload = dict(self.COMMAND_DEFAULTS)
         payload[self.ID_FIELD] = f"{self.TOOL_ID}-{uuid4().hex}"
+        if self._position is None:
+            raise RuntimeError(f"{self.MODEL_NAME} placement has no committed position.")
+        payload["presentation_x"] = float(self._position[0])
+        payload["presentation_y"] = float(self._position[1])
         if self.ENDPOINT_ROLE_MAP:
             payload.update(self._endpoint_by_field)
         else:
@@ -181,6 +200,10 @@ class ModelPlacementTool(ToolBase):
     def _clear_state(self) -> None:
         self._position = None
         self._preview_active = False
+        if self._preview_layer is not None:
+            clear = getattr(self._preview_layer, "clear", None)
+            if callable(clear):
+                clear()
         self._endpoints.clear()
         self._endpoint_by_field.clear()
 

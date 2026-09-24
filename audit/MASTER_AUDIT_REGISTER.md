@@ -120,7 +120,7 @@ The following `GF-INT` findings are the authoritative current-head batch entries
 |---|---|---|---|---|---|
 | GF-INT-068 | SLDModel is isolated from Core/electrical logic | PASS / CLOSED | CLOSED | `ui/sld/sld_model.py`; SLDModel contains SLDNode/SLDConnection presentation structures and does not own electrical calculations, topology, rendering, input handling, or solver logic. | GF-MASTER-0038; GF-MASTER-0040 |
 | GF-INT-069 | SLDProjectionManager does not own persistent geometry | PASS / CLOSED | CLOSED | `ui/sld/sld_projection_manager.py`; ProjectionManager owns projection/layout behavior rather than persistent document geometry. | GF-MASTER-0040 |
-| GF-INT-070 | SLD node identity is coupled to Core object identity | HIGH | OPEN | `ui/sld/sld_read_synchronizer.py`; synchronization uses Application/Core `object_id` as SLD `node_id`, despite SLDNode having separate `node_id` and `equipment_id`. | GF-INT-071; GF-INT-077; GF-INT-078; GF-INT-0038 |
+| GF-INT-070 | SLD node identity is coupled to Core object identity | HIGH | STATICALLY VERIFIED — CORRECTED | `ui/sld/sld_read_synchronizer.py`; new projection nodes now receive independent `sld-node-*` presentation IDs, while reconciliation uses persisted `equipment_id`. Existing engineer-owned nodes are preserved and are not converted into projection-owned nodes merely because `node_id` matches a Core object ID. Legacy persisted nodes retain their existing presentation IDs. | GF-INT-071; GF-INT-077; GF-INT-078; GF-INT-0038 |
 | GF-INT-071 | Projection-source tagging exists but is not used as an ownership guard | HIGH | OPEN | `ui/sld/sld_read_synchronizer.py`; `projection_source="application_read_model"` is assigned and used for stale cleanup, but lookup occurs by `node_id/object_id` before ownership is established. | GF-INT-070; GF-INT-077 |
 | GF-INT-072 | Existing user geometry is preserved during projection | PASS / CLOSED | CLOSED | `ui/sld/sld_read_synchronizer.py`; existing projected nodes receive semantic/projection updates without overwriting their existing `x/y` position. | GF-INT-073; GF-INT-085 |
 | GF-INT-073 | Newly projected nodes default to `(0,0)` instead of using a persistent layout policy | MEDIUM | OPEN | `ui/sld/sld_read_synchronizer.py`; new projected nodes are created with `x=0.0`, `y=0.0`; projection synchronization does not establish a persistent initial-placement policy. | GF-INT-069; GF-INT-072; GF-INT-082 |
@@ -388,6 +388,20 @@ Runtime evidence remains intentionally outside this static classification.
 
 **Static-only closure statement:** The five coordinated workstreams are **SOURCE-REMEDIATED AND STATICALLY VERIFIED** at the inspected dependency boundaries. Runtime execution, GUI behavior, tests, CI, startup, and integration behavior remain **UNVERIFIED / DEFERRED** by explicit phase constraint.
 
+
+## 2026-09-24 — GF-INT-070 SLD Node Identity Boundary Remediation
+
+**Finding:** GF-INT-070 — SLD node identity was coupled to Core object identity.
+
+**RCA complete:** Yes.
+
+**Correction:** `ui/sld/sld_read_synchronizer.py` now treats `equipment_id` as the canonical engineering association and `node_id` as an independent SLD/document identity. Newly materialized projection nodes receive an independent `sld-node-*` presentation identifier. Reconciliation first resolves persisted nodes by `equipment_id`, preserving existing `node_id` and geometry.
+
+**Collision protection:** Engineer-owned SLD nodes are preserved during reconciliation. A persisted node whose `node_id` happens to equal a Core equipment `object_id` is not converted into projection ownership solely because of that collision. Legacy projection nodes retain their persisted identity and are migrated only through the existing explicit ownership guard.
+
+**Static verification:** **STATICALLY VERIFIED — CORRECTED**. Direct source inspection confirms the projection creation path no longer assigns Core `object_id` to new `SLDNode.node_id` values, and reconciliation remains association-based through `equipment_id`. Engineer-owned presentation metadata is recognized before projection ownership is asserted.
+
+**Runtime verification:** **UNVERIFIED / DEFERRED**. No pytest, CI, startup, GUI, or runtime execution was performed.
 
 ## 2026-09-24 — GF-PROT-043 Core Endpoint Identity Boundary Remediation
 

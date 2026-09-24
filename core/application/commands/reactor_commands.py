@@ -27,12 +27,12 @@ def _endpoint(value: EndpointReference | None, name: str) -> None:
 class CreateReactorCommand(Command):
     def __init__(self, *, reactor_id: str, endpoint: EndpointReference | None = None,
                  name: str = "", reactive_power_injection_mvar: float = -10.0,
-                 in_service: bool = True, command_id: UUID | None = None,
+                 in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
         super().__init__(**_command(
             CREATE_REACTOR,
-            {"reactor_id": reactor_id, "endpoint": endpoint, "name": name,
+            {"presentation_x": presentation_x, "presentation_y": presentation_y, "reactor_id": reactor_id, "endpoint": endpoint, "name": name,
              "reactive_power_injection_mvar": reactive_power_injection_mvar,
              "in_service": in_service},
             command_id=command_id, correlation_id=correlation_id, causation_id=causation_id,

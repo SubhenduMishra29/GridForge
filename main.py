@@ -94,7 +94,21 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     workspace_manager = WorkspaceManager(definitions={definition.workspace_id: definition for definition in default_workspaces()}, default_workspace_id=SLD_WORKSPACE_ID)
     presentation_bootstrap = PresentationBootstrap.create(workspace_manager=workspace_manager, application=gridforge_application, sld_read_synchronizer=sld_read_synchronizer)
     controller = Controller(application=gridforge_application); canvas_composer = CanvasComposer(); canvas_preparation = canvas_composer.prepare(controller=controller)
-    tool_manager = ToolManager(controller=controller, application=gridforge_application, selection_manager=canvas_preparation.selection_manager, snap_system=canvas_preparation.snap_system, preview_layer=canvas_preparation.preview_layer)
+    tool_registry = create_default_tool_factories(
+        controller=controller,
+        application=gridforge_application,
+        selection_manager=canvas_preparation.selection_manager,
+        snap_system=canvas_preparation.snap_system,
+        preview_layer=canvas_preparation.preview_layer,
+    )
+    tool_manager = ToolManager(
+        controller=controller,
+        application=gridforge_application,
+        selection_manager=canvas_preparation.selection_manager,
+        snap_system=canvas_preparation.snap_system,
+        tool_registry=tool_registry,
+        preview_layer=canvas_preparation.preview_layer,
+    )
     canvas_composition = canvas_composer.compose(controller=controller, tool_manager=tool_manager, preparation=canvas_preparation, parent=None)
 
     sld_canvas_render_system = SLDCanvasRenderSystem(

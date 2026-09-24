@@ -37,10 +37,10 @@ class CreateBatteryCommand(Command):
                  p_mw: float = 0.0, q_mvar: float = 0.0, max_charge_mw: float = 0.0,
                  max_discharge_mw: float = 0.0, energy_capacity_mwh: float = 0.0,
                  soc: float = 1.0, soc_min: float = 0.0, soc_max: float = 1.0,
-                 in_service: bool = True, command_id: UUID | None = None,
+                 in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint)
-        super().__init__(**_command(CREATE_BATTERY, {
+        super().__init__(**_command(CREATE_BATTERY, {"presentation_x": presentation_x, "presentation_y": presentation_y, 
             "battery_id": battery_id, "name": name, "endpoint": endpoint, "p_mw": p_mw,
             "q_mvar": q_mvar, "max_charge_mw": max_charge_mw, "max_discharge_mw": max_discharge_mw,
             "energy_capacity_mwh": energy_capacity_mwh, "soc": soc, "soc_min": soc_min,

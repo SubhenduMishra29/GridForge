@@ -58,7 +58,7 @@ class ModelCommandHandlers:
         self._model_service = model_service
 
     def handlers(self) -> Mapping[str, Handler]:
-        return {
+        handlers = {
             CREATE_BUS: self.create_bus, UPDATE_BUS: self.update_bus, DELETE_BUS: self.delete_bus,
             CREATE_GRID: self.create_grid, UPDATE_GRID: self.update_grid, DELETE_GRID: self.delete_grid,
             CREATE_GENERATOR: self.create_generator, UPDATE_GENERATOR: self.update_generator, DELETE_GENERATOR: self.delete_generator,
@@ -95,6 +95,32 @@ class ModelCommandHandlers:
             CREATE_BATTERY: self.create_battery, UPDATE_BATTERY: self.update_battery, DELETE_BATTERY: self.delete_battery,
             PUT_BATTERY_IN_SERVICE: self.put_battery_in_service, TAKE_BATTERY_OUT_OF_SERVICE: self.take_battery_out_of_service,
         }
+        for command_type, handler in tuple(handlers.items()):
+            if command_type.startswith("model.create_"):
+                handlers[command_type] = self._presentation_aware_create(handler)
+        return handlers
+
+    @staticmethod
+    def _presentation_aware_create(handler: Handler) -> Handler:
+        """Keep UI placement coordinates out of Core service payloads."""
+        def wrapped(command, context, transaction):
+            payload = dict(command.payload)
+            presentation_x = payload.pop("presentation_x", None)
+            presentation_y = payload.pop("presentation_y", None)
+            from types import SimpleNamespace
+            result = handler(SimpleNamespace(payload=payload), context, transaction)
+            if presentation_x is None or presentation_y is None:
+                return result
+            return ApplicationResult.success_result(
+                value=result.value,
+                message=result.message,
+                metadata={
+                    **dict(result.metadata),
+                    "presentation_x": float(presentation_x),
+                    "presentation_y": float(presentation_y),
+                },
+            )
+        return wrapped
 
     @staticmethod
     def _resolve(payload: dict[str, Any], context: Any, *keys: str) -> dict[str, Any]:
