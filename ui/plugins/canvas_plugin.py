@@ -88,9 +88,15 @@ class CanvasPlugin:
             if self._composition is None:
                 raise RuntimeError("CanvasPlugin requires an application-composed CanvasComposition.")
 
-            self._sld_canvas_render_system = self._context.sld_canvas_render_system
+            composed_render_system = getattr(self._composition, "sld_canvas_render_system", None)
+            context_render_system = self._context.sld_canvas_render_system
+            if composed_render_system is None:
+                raise RuntimeError("CanvasComposition must own the canonical SLDCanvasRenderSystem.")
+            if composed_render_system is not context_render_system:
+                raise RuntimeError("PluginContext render system must be the CanvasComposition render system.")
+            self._sld_canvas_render_system = composed_render_system
             if not isinstance(self._sld_canvas_render_system, SLDCanvasRenderSystem):
-                raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
+                raise TypeError("CanvasComposition.sld_canvas_render_system must be an SLDCanvasRenderSystem.")
             if self._sld_canvas_render_system.scene is not self.require_scene():
                 raise RuntimeError("SLD canvas render system must target the CanvasComposition scene.")
 
@@ -140,8 +146,12 @@ class CanvasPlugin:
     def synchronize_sld(self) -> SLDCanvasSnapshot:
         if self._context is None:
             raise RuntimeError("CanvasPlugin context is unavailable.")
-        projection = self._context.sld_canvas_projection
-        render_system = self._context.sld_canvas_render_system
+        projection = getattr(self._composition, "sld_canvas_projection", None)
+        render_system = getattr(self._composition, "sld_canvas_render_system", None)
+        if projection is None or render_system is None:
+            raise RuntimeError("CanvasComposition SLD projection/render dependencies are unavailable.")
+        if projection is not self._context.sld_canvas_projection or render_system is not self._context.sld_canvas_render_system:
+            raise RuntimeError("PluginContext SLD dependencies do not match CanvasComposition.")
         if projection is None or render_system is None:
             raise RuntimeError("SLD canvas projection dependencies are unavailable.")
         if getattr(self._context.application, "presentation", None) is None:
