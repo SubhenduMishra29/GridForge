@@ -24,7 +24,8 @@ from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
-from ui.tools.default_tool_registry import create_default_tool_factories
+from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,9 @@ class CanvasComposition:
     snap_system: SnapSystem
     preview_layer: PreviewLayer
     application: Any
-    sld_canvas_projection: Any | None = None
-    sld_canvas_render_system: Any | None = None
-    selection_projection: SelectionProjectionCoordinator | None = None
+    sld_canvas_projection: SLDCanvasProjection
+    sld_canvas_render_system: SLDCanvasRenderSystem
+    selection_projection: SelectionProjectionCoordinator
 
     @property
     def widget(self) -> QWidget:
@@ -95,14 +96,15 @@ class CanvasComposer:
         preparation: CanvasCompositionPreparation,
         parent: Optional[QWidget] = None,
         properties_panel: Any = None,
+        sld_canvas_projection: SLDCanvasProjection | None = None,
+        sld_canvas_render_system: SLDCanvasRenderSystem | None = None,
     ) -> CanvasComposition:
         """Construct one complete Canvas service graph.
 
-        The selection projection is intentionally deferred when the real
-        PropertiesPanel presentation has not yet been composed. The normal
-        application composition binds it before the Canvas is considered
-        fully wired, so a coordinator is never constructed with a missing
-        PropertiesPanel dependency.
+        The SelectionProjectionCoordinator is always composed with the
+        Canvas service graph. Its PropertiesPanel target may be bound later
+        through the same coordinator instance when the PanelsPlugin presents
+        the canonical PropertiesPanel.
         """
         if controller is None:
             raise ValueError("controller must not be None.")
@@ -110,6 +112,10 @@ class CanvasComposer:
             raise ValueError("tool_manager must not be None.")
         if not isinstance(preparation, CanvasCompositionPreparation):
             raise TypeError("preparation must be CanvasCompositionPreparation.")
+        if not isinstance(sld_canvas_projection, SLDCanvasProjection):
+            raise TypeError("sld_canvas_projection must be an SLDCanvasProjection.")
+        if not isinstance(sld_canvas_render_system, SLDCanvasRenderSystem):
+            raise TypeError("sld_canvas_render_system must be an SLDCanvasRenderSystem.")
 
         application = tool_manager.application
         if application is None:
@@ -154,23 +160,11 @@ class CanvasComposer:
         )
         selection_manager.set_scene(scene)
 
-        tool_manager.register_tools(
-            create_default_tool_factories(
-                controller=controller,
-                application=application,
-                selection_manager=selection_manager,
-                snap_system=snap_system,
-                preview_layer=preview_layer,
-            )
+        selection_projection = SelectionProjectionCoordinator(
+            selection_manager=selection_manager,
+            application=application,
+            properties_panel=properties_panel,
         )
-
-        selection_projection = None
-        if properties_panel is not None:
-            selection_projection = SelectionProjectionCoordinator(
-                selection_manager=selection_manager,
-                application=application,
-                properties_panel=properties_panel,
-            )
 
         return CanvasComposition(
             view=view,
@@ -183,6 +177,8 @@ class CanvasComposer:
             snap_system=snap_system,
             preview_layer=preview_layer,
             application=application,
+            sld_canvas_projection=sld_canvas_projection,
+            sld_canvas_render_system=sld_canvas_render_system,
             selection_projection=selection_projection,
         )
 
@@ -197,15 +193,8 @@ class CanvasComposer:
             raise TypeError("composition must be CanvasComposition.")
         if properties_panel is None:
             raise ValueError("properties_panel must not be None.")
-        if composition.selection_projection is not None:
-            raise RuntimeError("Canvas selection projection is already bound.")
-
-        coordinator = SelectionProjectionCoordinator(
-            selection_manager=composition.selection_manager,
-            application=composition.application,
-            properties_panel=properties_panel,
-        )
-        composition.selection_projection = coordinator
+        coordinator = composition.selection_projection
+        coordinator.set_properties_panel(properties_panel)
         return coordinator
 
 

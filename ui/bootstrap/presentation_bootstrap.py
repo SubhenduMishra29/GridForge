@@ -13,7 +13,6 @@ from typing import Any
 from ui.canvas.semantic_presentation_realization import SemanticPresentationRealization
 from ui.canvas.sld_graphics_item_factory import SLDGraphicsItemFactory
 from ui.equipment.equipment_registry import EquipmentRegistry
-from ui.equipment.equipment_factory import EquipmentFactory
 from ui.equipment.symbol.built_in_symbol_catalogue import register_builtin_symbols
 from ui.equipment.symbol.symbol_factory import SymbolFactory
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
@@ -32,7 +31,6 @@ class PresentationBootstrap:
     equipment_registry: EquipmentRegistry = field(default_factory=EquipmentRegistry.create_default)
     symbol_registry: SymbolRegistry = field(default_factory=SymbolRegistry)
     symbol_factory: SymbolFactory | None = None
-    equipment_factory: EquipmentFactory | None = None
     semantic_realization: SemanticPresentationRealization | None = None
     sld_graphics_item_factory: SLDGraphicsItemFactory | None = None
 
@@ -40,13 +38,12 @@ class PresentationBootstrap:
         if not self.symbol_registry.symbol_ids():
             register_builtin_symbols(self.symbol_registry)
         self.equipment_registry.validate_symbol_anchors(self.symbol_registry)
-        self.equipment_factory = self.equipment_factory or EquipmentFactory(self.equipment_registry, self.symbol_registry)
         self.symbol_factory = self.symbol_factory or SymbolFactory(self.symbol_registry)
         self.semantic_realization = self.semantic_realization or SemanticPresentationRealization(
             self.equipment_registry, self.symbol_registry
         )
         self.sld_graphics_item_factory = self.sld_graphics_item_factory or SLDGraphicsItemFactory(
-            self.equipment_registry, self.symbol_registry
+            self.equipment_registry, self.symbol_registry, self.application
         )
 
     @classmethod

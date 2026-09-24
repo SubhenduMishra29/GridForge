@@ -1322,3 +1322,85 @@ Architecture:
     authority was introduced by this pass.
 
 ======================================================================
+
+
+======================================================================
+2026-09-24 — GF-SLD-WF-014..021 — SLD WORKFLOW RE-AUDIT 2
+======================================================================
+
+Repository:
+    pandaraseswari03-collab/GridForge
+
+Branch:
+    main
+
+Author:
+    Subhendu Mishra
+
+Verification mode:
+    STATIC SOURCE INSPECTION ONLY
+
+Runtime/test status:
+    pytest, unit/integration tests, CI, startup, GUI, smoke tests, and
+    application runtime execution were NOT performed.
+
+Disposition:
+    GF-SLD-WF-014  CLOSED — STATIC SOURCE RE-AUDIT
+    GF-SLD-WF-015  CLOSED — STATIC SOURCE RE-AUDIT
+    GF-SLD-WF-016  CLOSED — STATIC SOURCE RE-AUDIT
+    GF-SLD-WF-017  CLOSED — STATIC SOURCE RE-AUDIT
+    GF-SLD-WF-018  CLOSED — STATIC SOURCE RE-AUDIT
+    GF-SLD-WF-019  CLOSED — STATIC SOURCE RE-AUDIT
+    GF-SLD-WF-020  CLOSED — STATIC SOURCE RE-AUDIT
+    GF-SLD-WF-021  CLOSED — STATIC SOURCE RE-AUDIT
+
+Key corrections:
+    - CommandManager now provides one Application-owned pre-commit hook.
+    - Placement projection is executed by SLDService in the same Transaction
+      as Core creation, producing one history operation.
+    - SLDUpdateCoordinator no longer starts AddSLDNodeCommand or
+      RemoveSLDNodeCommand as a secondary projection transaction.
+    - SLDReadSynchronizer remains the canonical reconciliation authority and
+      no longer invents (0,0) positions for elements lacking placement intent.
+    - CanvasComposition requires SLDCanvasProjection and
+      SLDCanvasRenderSystem and owns SelectionProjectionCoordinator.
+    - CanvasPlugin identity checks remain composition/context authoritative.
+    - EquipmentManager, UI EquipmentConnection, and UI ConnectionManager
+      were retired from the active SLD architecture.
+    - ui/connections/topology_adapter.py was removed; UI no longer owns a
+      UI-to-Core topology mutation adapter.
+    - Presentation equipment terminal IDs are sourced from Application
+      read-model connectivity_refs.
+
+Affected implementation files:
+    core/application/command_manager.py
+    core/application/application.py
+    ui/events/sld_update_coordinator.py
+    ui/sld/sld_read_synchronizer.py
+    ui/canvas/canvas_composition.py
+    ui/canvas/sld_graphics_item_factory.py
+    ui/equipment/equipment_factory.py
+    ui/equipment/__init__.py
+    ui/connections/__init__.py
+    main.py
+
+Retired duplicate architecture:
+    ui/equipment/equipment_manager.py
+    ui/equipment/connection.py
+    ui/equipment/connection_manager.py
+    ui/connections/topology_adapter.py
+
+Static evidence boundary:
+    Placement: ModelPlacementTool -> immutable command metadata ->
+    Application.execute -> CommandManager Transaction -> Core handler ->
+    Application pre-commit SLD projection -> semantic event ->
+    SLDReadSynchronizer -> SLDCanvasProjection -> snapshot ->
+    SLDCanvasRenderSystem.
+
+    Undo/redo: projection inverse is registered in the same transaction
+    journal as Core mutation; redo re-executes the original command and uses
+    deterministic sld-node-{equipment_id} projection identity.
+
+Runtime verification:
+    UNVERIFIED / DEFERRED.
+======================================================================

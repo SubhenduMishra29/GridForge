@@ -16,6 +16,7 @@ from core.control.engine import ControlEngine
 
 from .command import Command
 from .command_manager import CommandManager
+from .commands.sld_commands import AddSLDNodeCommand
 from .commands.control_commands import (
     ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
@@ -86,6 +87,7 @@ class Application:
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
+        self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._sld_service is not None:
             self._register_sld_handlers(self._sld_service)
 
@@ -184,6 +186,8 @@ class Application:
         if not isinstance(service, SLDService): raise TypeError("service must be an SLDService.")
         if self._sld_service is not None and self._sld_service is not service: raise RuntimeError("Application SLD service is already configured.")
         self._sld_service = service
+        service.attach_application(self)
+        self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._project_lifecycle is not None:
             self._project_lifecycle.configure_presentation_activator(
                 lambda context, value: self._bind_sld_transactionally(service, value)
@@ -311,6 +315,41 @@ class Application:
                 command_manager.register_handler(command_type, handler)
         next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
+        self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
+
+    def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
+        """Coordinate placement presentation mutation inside the same transaction."""
+        if self._sld_service is None or command.command_type not in {"model.create_relay"} and not command.command_type.startswith("model.create_"):
+            return
+        x = command.payload.get("presentation_x")
+        y = command.payload.get("presentation_y")
+        if x is None or y is None:
+            return
+        element_id = self._element_id(command)
+        element_type = self._element_type(command)
+        if element_id is None or element_type is None:
+            raise ValueError("Placement command must expose canonical element identity and type.")
+        source = "protection_read_model" if element_type.upper() == "RELAY" else "application_read_model"
+        existing = self._sld_service.document.model.get_node_by_equipment_id_optional(element_id)
+        if existing is not None:
+            if existing.properties.get("projection_source") != source:
+                raise ValueError(f"Placement projection ownership collision for equipment ID: {element_id!r}")
+            return
+        projection_result = self._sld_service.execute(
+            AddSLDNodeCommand(
+                node_id=f"sld-node-{element_id}",
+                equipment_id=element_id,
+                x=float(x),
+                y=float(y),
+                presentation_owner="projection",
+                projection_source=source,
+                correlation_id=command.correlation_id,
+                causation_id=command.command_id,
+            ),
+            transaction,
+        )
+        if not projection_result.success:
+            raise RuntimeError(projection_result.message)
 
     def mark_project_persisted(self) -> ProjectRevision: return self._revision_service.mark_persisted()
     def record_presentation_change(self) -> ProjectRevision: return self._revision_service.record_presentation_change()

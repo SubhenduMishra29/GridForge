@@ -41,7 +41,6 @@ from .connection_preview import ConnectionPreview
 from .connection_router import ConnectionRouter
 from .connection_validator import ConnectionValidator
 from .terminal_resolver import TerminalResolver
-from .topology_adapter import TopologyAdapter
 
 __all__ = [
     "Connection",
@@ -49,5 +48,4 @@ __all__ = [
     "ConnectionRouter",
     "ConnectionValidator",
     "TerminalResolver",
-    "TopologyAdapter",
 ]
