@@ -126,12 +126,21 @@ class SLDService:
         equipment_id = p.get("equipment_id")
         if equipment_id is not None:
             self._validate_equipment_reference(str(equipment_id))
+        presentation_owner = str(p.get("presentation_owner", "engineer"))
+        projection_source = p.get("projection_source")
+        if presentation_owner not in {"engineer", "projection"}:
+            raise ValueError("presentation_owner must be 'engineer' or 'projection'.")
+        if projection_source is not None and presentation_owner != "projection":
+            raise ValueError("projection_source requires presentation_owner='projection'.")
+        properties = {"presentation_owner": presentation_owner}
+        if projection_source is not None:
+            properties["projection_source"] = str(projection_source)
         self.document.model.create_node(
             node_id=p["node_id"],
             equipment_id=equipment_id,
             x=float(p["x"]),
             y=float(p["y"]),
-            properties={"presentation_owner": "engineer"},
+            properties=properties,
         )
         self.document.mark_modified()
         transaction.record_undo(lambda node_id=p["node_id"]: self.document.model.remove_node(node_id))
@@ -157,7 +166,12 @@ class SLDService:
     def _remove_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
         node_id = command.payload["node_id"]
         node = self.document.model.get_node(node_id)
-        self._require_engineer_owned_node(node)
+        projection_source = command.payload.get("projection_source")
+        if projection_source is None:
+            self._require_engineer_owned_node(node)
+        else:
+            if node.properties.get("projection_source") != projection_source:
+                raise ValueError("SLD node projection ownership does not match the removal command.")
         node_snapshot = node.to_dict()
         connection_snapshots = tuple(
             connection.to_dict()

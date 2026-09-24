@@ -52,6 +52,8 @@ class CanvasComposition:
     snap_system: SnapSystem
     preview_layer: PreviewLayer
     application: Any
+    sld_canvas_projection: Any | None = None
+    sld_canvas_render_system: Any | None = None
     selection_projection: SelectionProjectionCoordinator | None = None
 
     @property

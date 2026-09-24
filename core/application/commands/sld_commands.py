@@ -30,18 +30,37 @@ class SetSLDNodePositionCommand(Command):
 class AddSLDNodeCommand(Command):
     def __init__(self, *, node_id: str, equipment_id: str | None = None,
                  x: float = 0.0, y: float = 0.0,
+                 presentation_owner: str = "engineer",
+                 projection_source: str | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
-        super().__init__(command_type=ADD_SLD_NODE,
-                         payload={"node_id": node_id, "equipment_id": equipment_id, "x": float(x), "y": float(y)},
-                         command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+        super().__init__(
+            command_type=ADD_SLD_NODE,
+            payload={
+                "node_id": node_id,
+                "equipment_id": equipment_id,
+                "x": float(x),
+                "y": float(y),
+                "presentation_owner": presentation_owner,
+                "projection_source": projection_source,
+            },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
 
 
 class RemoveSLDNodeCommand(Command):
-    def __init__(self, *, node_id: str, command_id: UUID | None = None,
+    def __init__(self, *, node_id: str, projection_source: str | None = None,
+                 command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        super().__init__(command_type=REMOVE_SLD_NODE, payload={"node_id": node_id},
-                         command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+        super().__init__(
+            command_type=REMOVE_SLD_NODE,
+            payload={"node_id": node_id, "projection_source": projection_source},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
 
 
 class AddSLDConnectionCommand(Command):

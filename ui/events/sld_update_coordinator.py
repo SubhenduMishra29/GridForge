@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from core.application.application import Application
+from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand
 from core.application.events import (
     ApplicationEvent,
     ElementCreated,
@@ -162,6 +163,15 @@ class SLDUpdateCoordinator:
                 return
             elif isinstance(event, (ElementCreated, ElementUpdated, ElementRemoved)):
                 element_type = str(event.payload.get("element_type", "")).strip().upper()
+                element_id = event.payload.get("element_id")
+                if not isinstance(element_id, str) or not element_id:
+                    raise ValueError("Element lifecycle event must contain a canonical element_id.")
+
+                if isinstance(event, ElementCreated):
+                    self._consume_placement_coordinates(document, element_id, element_type, event)
+                elif isinstance(event, ElementRemoved):
+                    self._remove_projection_node(document, element_id, element_type)
+
                 if element_type == "RELAY":
                     self._synchronizer.synchronize_protection(
                         document,
@@ -172,8 +182,7 @@ class SLDUpdateCoordinator:
                     if isinstance(event, ElementCreated):
                         x = event.payload.get("presentation_x")
                         y = event.payload.get("presentation_y")
-                        element_id = event.payload.get("element_id")
-                        if x is not None and y is not None and isinstance(element_id, str):
+                        if x is not None and y is not None:
                             initial_positions[element_id] = (float(x), float(y))
                     self._synchronizer.synchronize_network(
                         document,
@@ -205,6 +214,51 @@ class SLDUpdateCoordinator:
             raise
         self._last_reconciliation_error = None
         self._canvas_refresh()
+
+    def _consume_placement_coordinates(self, document: SLDDocument, element_id: str, element_type: str, event: ApplicationEvent) -> None:
+        """Consume placement metadata at the Application presentation boundary.
+
+        The PlacementTool only contributes immutable command payload metadata.
+        This coordinator is the explicit consumer that converts committed Core
+        creation into a projection-owned SLD node through the Application SLD
+        command path.
+        """
+        existing = document.model.get_node_by_equipment_id_optional(element_id)
+        if existing is not None:
+            return
+        x = event.payload.get("presentation_x", 0.0)
+        y = event.payload.get("presentation_y", 0.0)
+        source = "protection_read_model" if element_type == "RELAY" else "application_read_model"
+        result = self._application.execute(
+            AddSLDNodeCommand(
+                node_id=f"sld-node-{element_id}",
+                equipment_id=element_id,
+                x=float(x),
+                y=float(y),
+                presentation_owner="projection",
+                projection_source=source,
+            )
+        )
+        if not result.success:
+            raise RuntimeError(result.message)
+
+    def _remove_projection_node(self, document: SLDDocument, element_id: str, element_type: str) -> None:
+        """Remove only the projection owned by the removed Core element."""
+        node = document.model.get_node_by_equipment_id_optional(element_id)
+        if node is None:
+            return
+        source = node.properties.get("projection_source")
+        expected = "protection_read_model" if element_type == "RELAY" else "application_read_model"
+        if source != expected:
+            return
+        result = self._application.execute(
+            RemoveSLDNodeCommand(
+                node_id=node.node_id,
+                projection_source=source,
+            )
+        )
+        if not result.success:
+            raise RuntimeError(result.message)
 
     def dispose(self) -> None:
         if self._disposed:
