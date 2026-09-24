@@ -32,6 +32,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from core.application.read_models import ElementReadModel
+
 from .equipment_base import EquipmentBase
 from .equipment_registry import EquipmentRegistry
 from .terminal import EquipmentTerminal
@@ -71,6 +73,25 @@ class EquipmentFactory:
     def registry(self) -> EquipmentRegistry:
         """Return the equipment-definition registry."""
         return self._registry
+
+    def create_from_read_model(
+        self,
+        read_model: ElementReadModel,
+        equipment_type: str,
+        *,
+        position: tuple[float, float] = (0.0, 0.0),
+    ) -> EquipmentBase:
+        """Create a presentation object strictly from an Application snapshot."""
+        if not isinstance(read_model, ElementReadModel):
+            raise TypeError("read_model must be an ElementReadModel.")
+        return self.create(
+            equipment_type,
+            read_model.object_id,
+            name=read_model.labels.get("name"),
+            position=position,
+            properties=read_model.attributes,
+            terminal_ids=tuple(read_model.connectivity_refs),
+        )
 
     def create(
         self,
