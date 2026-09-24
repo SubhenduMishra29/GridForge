@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from core.application.endpoint_resolver import resolve_terminal_reference
 from core.model import EndpointReference, EquipmentType
 from core.measurement.measurement_channel import (
     MeasurementChannel,
