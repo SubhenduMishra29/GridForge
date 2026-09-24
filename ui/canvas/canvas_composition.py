@@ -161,13 +161,11 @@ class CanvasComposer:
         )
         selection_manager.set_scene(scene)
 
-        selection_projection = None
-        if properties_panel is not None:
-            selection_projection = SelectionProjectionCoordinator(
-                selection_manager=selection_manager,
-                application=application,
-                properties_panel=properties_panel,
-            )
+        selection_projection = SelectionProjectionCoordinator(
+            selection_manager=selection_manager,
+            application=application,
+            properties_panel=properties_panel,
+        )
 
         return CanvasComposition(
             view=view,
@@ -196,15 +194,10 @@ class CanvasComposer:
             raise TypeError("composition must be CanvasComposition.")
         if properties_panel is None:
             raise ValueError("properties_panel must not be None.")
-        if composition.selection_projection is not None:
-            raise RuntimeError("Canvas selection projection is already bound.")
-
-        coordinator = SelectionProjectionCoordinator(
-            selection_manager=composition.selection_manager,
-            application=composition.application,
-            properties_panel=properties_panel,
-        )
-        composition.selection_projection = coordinator
+        coordinator = composition.selection_projection
+        if coordinator is None:
+            raise RuntimeError("CanvasComposition must own its SelectionProjectionCoordinator.")
+        coordinator.set_properties_panel(properties_panel)
         return coordinator
 
 
