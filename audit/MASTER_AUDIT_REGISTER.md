@@ -387,3 +387,74 @@ Runtime evidence remains intentionally outside this static classification.
 **D. Line:** `LineTool → immutable CreateLineCommand → ToolBase/Application execution boundary → CommandManager/handler → Core Line → semantic event/read model → SLD projection`.
 
 **Static-only closure statement:** The five coordinated workstreams are **SOURCE-REMEDIATED AND STATICALLY VERIFIED** at the inspected dependency boundaries. Runtime execution, GUI behavior, tests, CI, startup, and integration behavior remain **UNVERIFIED / DEFERRED** by explicit phase constraint.
+
+
+## 2026-09-24 — GF-PROT-043 Core Endpoint Identity Boundary Remediation
+
+**Finding:** GF-PROT-043 — Core Measurement/Protection depended on an Application-owned endpoint identity contract.
+
+**RCA complete:** Yes.
+
+**Correction:** Canonical endpoint identity semantics were moved to
+`core/model/endpoint_reference.py`. `EndpointReferenceKind`,
+`EquipmentType`, and `EndpointReference` are now Core-owned and exported
+from `core.model`. The former Application module is only a compatibility
+re-export and contains no independent definitions.
+
+**Application resolution boundary:** `core/application/endpoint_resolver.py`
+remains the sole resolver. `resolve_terminal_reference()` continues to
+return a valid Core Terminal even when it has no attached electrical endpoint;
+`resolve_endpoint()` continues to require an attached endpoint.
+
+**Measurement correction:** `MeasurementChannelService` now resolves the
+canonical Core Terminal in Application and passes that resolved Core object
+to `MeasurementProvisioning`. `MeasurementProvisioning` no longer imports
+or invokes the Application resolver and has no Application project-context
+dependency.
+
+**Protection/UI correction:** Protection measurement binding and SLD endpoint
+identity adaptation consume the same Core endpoint identity contract.
+
+**Static verification:** **STATICALLY VERIFIED — CORRECTED** at the inspected
+Core Measurement/Protection, Application endpoint/command/service, and UI
+endpoint-adapter boundaries. Direct repository code-search indexing was not
+available from the GitHub connector, so verification was performed by direct
+source inspection of the affected and dependent boundary modules.
+
+**Changed implementation files:**
+- `core/model/endpoint_reference.py`
+- `core/model/__init__.py`
+- `core/application/endpoint_reference.py` (compatibility re-export only)
+- `core/application/endpoint_resolver.py`
+- `core/application/commands/battery_commands.py`
+- `core/application/commands/breaker_commands.py`
+- `core/application/commands/capacitor_commands.py`
+- `core/application/commands/connection_commands.py`
+- `core/application/commands/measurement_commands.py`
+- `core/application/commands/model_commands.py`
+- `core/application/commands/motor_commands.py`
+- `core/application/commands/pt_commands.py`
+- `core/application/commands/reactor_commands.py`
+- `core/application/commands/solar_commands.py`
+- `core/application/commands/synchronous_machine_commands.py`
+- `core/application/services/electrical_connection_service.py`
+- `core/application/services/measurement_channel_service.py`
+- `core/measurement/measurement_channel.py`
+- `core/measurement/measurement_generation.py`
+- `core/measurement/measurement_provisioning.py`
+- `core/protection/protection_measurement_binding.py`
+- `ui/tools/endpoint_identity_adapter.py`
+
+**Dependency evidence:** No inspected Core Measurement/Protection module
+imports `core.application.endpoint_reference` or
+`core.application.endpoint_resolver`. Measurement provisioning now accepts
+an already-resolved Core Terminal. Application consumers use
+`core.model.EndpointReference`, and the SLD adapter uses the same Core
+contract.
+
+**Persistence:** Existing `EndpointReference.to_mapping()` semantics were
+preserved; Bus mappings remain `kind + object_id`, while terminal mappings
+remain `kind + object_id + equipment_type + terminal_role`.
+
+**Runtime verification:** **UNVERIFIED / DEFERRED**. No pytest, CI, startup,
+GUI, or runtime execution was performed.
