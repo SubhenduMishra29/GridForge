@@ -15,8 +15,6 @@ from core.application.services.sld_service import SLDService
 from core.network.network import Network
 
 from ui.canvas.canvas_composition import CanvasComposer
-from ui.canvas.sld_canvas_projection import SLDCanvasProjection
-from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
@@ -109,13 +107,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         tool_registry=tool_registry,
         preview_layer=canvas_preparation.preview_layer,
     )
-    canvas_composition = canvas_composer.compose(controller=controller, tool_manager=tool_manager, preparation=canvas_preparation, parent=None)
-
-    sld_canvas_render_system = SLDCanvasRenderSystem(
-        scene=canvas_composition.scene,
-        item_factory=presentation_bootstrap.sld_graphics_item_factory,
+    canvas_composition = canvas_composer.compose(
+        controller=controller,
+        tool_manager=tool_manager,
+        preparation=canvas_preparation,
+        parent=None,
+        sld_graphics_item_factory=presentation_bootstrap.sld_graphics_item_factory,
         semantic_realization=presentation_bootstrap.semantic_realization,
     )
+    sld_canvas_projection = canvas_composition.sld_canvas_projection
+    sld_canvas_render_system = canvas_composition.sld_canvas_render_system
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
     canvas_entry = plugin_registry.get_entry("canvas"); panels_entry = plugin_registry.get_entry("panels")
     if canvas_entry is None: raise RuntimeError("CanvasPlugin is not registered.")
