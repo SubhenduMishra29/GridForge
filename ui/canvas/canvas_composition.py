@@ -24,7 +24,6 @@ from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
-from ui.tools.default_tool_registry import create_default_tool_factories
 
 
 @dataclass(frozen=True)
@@ -153,16 +152,6 @@ class CanvasComposer:
             navigation_controller=navigation_controller,
         )
         selection_manager.set_scene(scene)
-
-        tool_manager.register_tools(
-            create_default_tool_factories(
-                controller=controller,
-                application=application,
-                selection_manager=selection_manager,
-                snap_system=snap_system,
-                preview_layer=preview_layer,
-            )
-        )
 
         selection_projection = None
         if properties_panel is not None:
