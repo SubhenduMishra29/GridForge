@@ -10,7 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from core.application.endpoint_reference import EndpointReference, EquipmentType
+from core.application.endpoint_resolver import resolve_terminal_reference
+from core.model import EndpointReference, EquipmentType
 from core.measurement.measurement_channel import (
     MeasurementChannel,
     MeasurementPhase,
@@ -120,9 +121,10 @@ class MeasurementChannelService:
             raise ValueError(f"Measurement source '{source_id}' could not be resolved.")
         signal_type = self._enum_value(MeasurementSignalType, definition.get("signal_type"), "signal_type")
         phase = self._enum_value(MeasurementPhase, definition.get("phase", MeasurementPhase.NONE.value), "phase")
+        terminal = resolve_terminal_reference(context, reference)
         return MeasurementProvisioning.provision_channel(
-            context,
             source=source,
+            source_terminal=terminal,
             source_terminal_reference=reference,
             channel_id=channel_id,
             signal_type=signal_type,

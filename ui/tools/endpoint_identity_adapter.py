@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.application.endpoint_reference import EndpointReference, EquipmentType
+from core.model import EndpointReference, EquipmentType
 from ui.equipment.terminal import EquipmentTerminal
 
 

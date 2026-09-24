@@ -11,7 +11,7 @@ from typing import Any
 
 from ..command import Command
 from ..commands.connection_commands import CONNECT_TERMINAL, DISCONNECT_TERMINAL, RECONNECT_TERMINAL
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 from ..endpoint_resolver import EndpointResolver, resolve_terminal_reference
 from ..errors import ResourceError, ValidationError
 from ..results import ApplicationResult

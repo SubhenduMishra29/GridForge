@@ -11,7 +11,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from ..command import Command
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 
 
 CONNECT_TERMINAL = "model.connect_terminal"

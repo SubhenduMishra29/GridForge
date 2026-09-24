@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from ..command import Command
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 
 CREATE_CURRENT_TRANSFORMER = "model.create_current_transformer"
 UPDATE_CURRENT_TRANSFORMER = "model.update_current_transformer"

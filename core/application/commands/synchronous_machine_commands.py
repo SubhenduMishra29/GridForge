@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from ..command import Command
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 
 CREATE_SYNCHRONOUS_MACHINE = "model.create_synchronous_machine"
 UPDATE_SYNCHRONOUS_MACHINE = "model.update_synchronous_machine"

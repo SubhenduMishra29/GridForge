@@ -172,7 +172,7 @@ from enum import Enum
 from math import isfinite
 from typing import Any, Optional
 
-from core.application.endpoint_reference import EndpointReference
+from core.model import EndpointReference
 
 
 # =====================================================================

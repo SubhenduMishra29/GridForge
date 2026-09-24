@@ -49,10 +49,11 @@ def _relay_id_set(self, value):
 Relay.id = property(_relay_id_get, _relay_id_set)
 Relay.element_type = property(lambda self: "RELAY")
 ElectricalObject.register(Relay)
+from .endpoint_reference import EndpointReference, EndpointReferenceKind, EquipmentType
 
 __all__ = (
     "ElectricalObject", "Terminal", "Injection", "Bus", "Branch", "Line", "Cable", "ImpedanceBasis", "Transformer", "Switch",
     "Breaker", "Disconnector", "Fuse", "Load", "Generator", "SynchronousMachine", "SyncMachine", "Motor",
     "Shunt", "Capacitor", "Reactor", "Solar", "Battery", "Grid", "CTPolarity", "CurrentTransformer", "PT",
-    "PotentialTransformer", "CVT", "Relay",
+    "PotentialTransformer", "CVT", "Relay", "EndpointReference", "EndpointReferenceKind", "EquipmentType",
 )
