@@ -15,10 +15,10 @@ TAKE_CAPACITOR_OUT_OF_SERVICE = "model.take_capacitor_out_of_service"
 
 
 class CreateCapacitorCommand(Command):
-    def __init__(self, *, capacitor_id: str, name: str = "", endpoint: EndpointReference | None = None, reactive_power_injection_mvar: float = 0.0, in_service: bool = True, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+    def __init__(self, *, capacitor_id: str, name: str = "", endpoint: EndpointReference | None = None, reactive_power_injection_mvar: float = 0.0, in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if endpoint is not None and not isinstance(endpoint, EndpointReference):
             raise TypeError("endpoint must be an EndpointReference or None.")
-        super().__init__(command_type=CREATE_CAPACITOR, payload={"capacitor_id": capacitor_id, "name": name, "endpoint": endpoint, "reactive_power_injection_mvar": reactive_power_injection_mvar, "in_service": in_service}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+        super().__init__(command_type=CREATE_CAPACITOR, payload={"presentation_x": presentation_x, "presentation_y": presentation_y, "capacitor_id": capacitor_id, "name": name, "endpoint": endpoint, "reactive_power_injection_mvar": reactive_power_injection_mvar, "in_service": in_service}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
 class UpdateCapacitorCommand(Command):
