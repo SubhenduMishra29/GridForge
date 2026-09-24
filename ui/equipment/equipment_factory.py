@@ -80,6 +80,7 @@ class EquipmentFactory:
         name: str | None = None,
         position: tuple[float, float] = (0.0, 0.0),
         properties: Mapping[str, Any] | None = None,
+        terminal_ids: tuple[str, ...] | None = None,
     ) -> EquipmentBase:
         """
         Create one logical equipment instance.
