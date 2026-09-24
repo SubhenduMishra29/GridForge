@@ -129,9 +129,9 @@ class UpdateGridCommand(Command):
 class CreateGeneratorCommand(Command):
     def __init__(self, *, generator_id: str, endpoint: EndpointReference | None = None, p: float = 0.0, q: float = 0.0,
                  V_setpoint: float = 1.0, q_limits: tuple[float, float] = (-float("inf"), float("inf")), name: str = "",
-                 in_service: bool = True, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+                 in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
-        super().__init__(**_command(CREATE_GENERATOR, {"generator_id": generator_id, "endpoint": endpoint, "p": p, "q": q,
+        super().__init__(**_command(CREATE_GENERATOR, {"presentation_x": presentation_x, "presentation_y": presentation_y, "generator_id": generator_id, "endpoint": endpoint, "p": p, "q": q,
             "V_setpoint": V_setpoint, "q_limits": q_limits, "name": name, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class UpdateGeneratorCommand(Command):
@@ -148,9 +148,9 @@ class DeleteGeneratorCommand(Command):
 
 class CreateLoadCommand(Command):
     def __init__(self, *, load_id: str, endpoint: EndpointReference | None = None, p: float = 0.0, q: float = 0.0, name: str = "", in_service: bool = True,
-                 command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+                 presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
-        super().__init__(**_command(CREATE_LOAD, {"load_id": load_id, "endpoint": endpoint, "p": p, "q": q, "name": name, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_LOAD, {"presentation_x": presentation_x, "presentation_y": presentation_y, "load_id": load_id, "endpoint": endpoint, "p": p, "q": q, "name": name, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteLoadCommand(Command):
     def __init__(self, *, load_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_command(DELETE_LOAD, {"load_id": load_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
@@ -162,9 +162,9 @@ class UpdateLoadCommand(Command):
 
 class CreateShuntCommand(Command):
     def __init__(self, *, shunt_id: str, name: str = "", endpoint: EndpointReference | None = None, g_pu: float = 0.0, b_pu: float = 0.0, in_service: bool = True,
-                 command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+                 presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
-        super().__init__(**_command(CREATE_SHUNT, {"shunt_id": shunt_id, "name": name, "endpoint": endpoint, "g_pu": g_pu, "b_pu": b_pu, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_SHUNT, {"presentation_x": presentation_x, "presentation_y": presentation_y, "shunt_id": shunt_id, "name": name, "endpoint": endpoint, "g_pu": g_pu, "b_pu": b_pu, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class UpdateShuntCommand(Command):
     def __init__(self, *, shunt_id: str, name: str | None = None, g_pu: float | None = None, b_pu: float | None = None, in_service: bool | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
@@ -178,10 +178,10 @@ class CreateLineCommand(Command):
     def __init__(self, *, line_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
                  resistance_ohm: float, reactance_ohm: float, shunt_susceptance_siemens: float = 0.0,
                  name: str = "", rate_mva: float = 100.0,
-                 command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+                 presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
             raise TypeError("Line endpoints must be EndpointReference values.")
-        super().__init__(**_command(CREATE_LINE, {
+        super().__init__(**_command(CREATE_LINE, {"presentation_x": presentation_x, "presentation_y": presentation_y, 
             "line_id": line_id,
             "endpoint_from": endpoint_from,
             "endpoint_to": endpoint_to,
@@ -200,7 +200,7 @@ class CreateTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
                  r: float, x: float, b: float = 0.0, impedance_basis: ImpedanceBasis | str = ImpedanceBasis.ENGINEERING, tap: float = 1.0, shift: float = 0.0,
                  name: str = "", rate_mva: float = 100.0,
-                 command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+                 presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
             raise TypeError("Transformer endpoints must be EndpointReference values.")
         try:
@@ -211,7 +211,7 @@ class CreateTransformerCommand(Command):
             )
         except (TypeError, ValueError) as exc:
             raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
-        super().__init__(**_command(CREATE_TRANSFORMER, {
+        super().__init__(**_command(CREATE_TRANSFORMER, {"presentation_x": presentation_x, "presentation_y": presentation_y, 
             "transformer_id": transformer_id,
             "endpoint_from": endpoint_from,
             "endpoint_to": endpoint_to,
@@ -251,9 +251,9 @@ class DeleteTransformerCommand(Command):
         super().__init__(**_command(DELETE_TRANSFORMER, {"transformer_id": transformer_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateCableCommand(Command):
-    def __init__(self, *, cable_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", length_km: float = 0.0, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float = 0.0, x1_ohm_per_km: float = 0.0, b1_us_per_km: float = 0.0, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool = True, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+    def __init__(self, *, cable_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", length_km: float = 0.0, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float = 0.0, x1_ohm_per_km: float = 0.0, b1_us_per_km: float = 0.0, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from"); _endpoint(endpoint_to, "endpoint_to")
-        super().__init__(**_command(CREATE_CABLE, {"cable_id": cable_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_CABLE, {"presentation_x": presentation_x, "presentation_y": presentation_y, "cable_id": cable_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "length_km": length_km, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a, "r1_ohm_per_km": r1_ohm_per_km, "x1_ohm_per_km": x1_ohm_per_km, "b1_us_per_km": b1_us_per_km, "r0_ohm_per_km": r0_ohm_per_km, "x0_ohm_per_km": x0_ohm_per_km, "b0_us_per_km": b0_us_per_km, "in_service": in_service}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class UpdateCableCommand(Command):
     def __init__(self, *, cable_id: str, name: str | None = None, length_km: float | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, r1_ohm_per_km: float | None = None, x1_ohm_per_km: float | None = None, b1_us_per_km: float | None = None, r0_ohm_per_km: float | None = None, x0_ohm_per_km: float | None = None, b0_us_per_km: float | None = None, in_service: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if all(v is None for v in (name, length_km, rated_voltage_kv, rated_current_a, r1_ohm_per_km, x1_ohm_per_km, b1_us_per_km, r0_ohm_per_km, x0_ohm_per_km, b0_us_per_km, in_service)): raise ValueError("UpdateCableCommand requires at least one mutable Cable field.")
@@ -263,9 +263,9 @@ class DeleteCableCommand(Command):
         super().__init__(**_command(DELETE_CABLE, {"cable_id": cable_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateSwitchCommand(Command):
-    def __init__(self, *, switch_id: str, endpoint_a: EndpointReference | None = None, endpoint_b: EndpointReference | None = None, name: str = "", closed: bool = False, in_service: bool = True, normally_closed: bool | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+    def __init__(self, *, switch_id: str, endpoint_a: EndpointReference | None = None, endpoint_b: EndpointReference | None = None, name: str = "", closed: bool = False, in_service: bool = True, normally_closed: bool | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_a, "endpoint_a"); _endpoint(endpoint_b, "endpoint_b")
-        super().__init__(**_command(CREATE_SWITCH, {"switch_id": switch_id, "endpoint_a": endpoint_a, "endpoint_b": endpoint_b, "name": name, "closed": closed, "in_service": in_service, "normally_closed": normally_closed, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_SWITCH, {"presentation_x": presentation_x, "presentation_y": presentation_y, "switch_id": switch_id, "endpoint_a": endpoint_a, "endpoint_b": endpoint_b, "name": name, "closed": closed, "in_service": in_service, "normally_closed": normally_closed, "rated_voltage_kv": rated_voltage_kv, "rated_current_a": rated_current_a}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class UpdateSwitchCommand(Command):
     def __init__(self, *, switch_id: str, name: str | None = None, closed: bool | None = None, in_service: bool | None = None, normally_closed: bool | None = None, rated_voltage_kv: float | None = None, rated_current_a: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if all(v is None for v in (name, closed, in_service, normally_closed, rated_voltage_kv, rated_current_a)): raise ValueError("UpdateSwitchCommand requires at least one mutable Switch field.")
@@ -287,9 +287,9 @@ class TakeSwitchOutOfServiceCommand(Command):
         super().__init__(**_command(TAKE_SWITCH_OUT_OF_SERVICE, {"switch_id": switch_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateDisconnectorCommand(Command):
-    def __init__(self, *, disconnector_id: str, voltage_kv: float, rated_current_a: float, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, operating_time: float = 1.0, closed: bool = True, in_service: bool = True, name: str = "", command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+    def __init__(self, *, disconnector_id: str, voltage_kv: float, rated_current_a: float, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, operating_time: float = 1.0, closed: bool = True, in_service: bool = True, name: str = "", presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from"); _endpoint(endpoint_to, "endpoint_to")
-        super().__init__(**_command(CREATE_DISCONNECTOR, {"disconnector_id": disconnector_id, "voltage_kv": voltage_kv, "rated_current_a": rated_current_a, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "operating_time": operating_time, "closed": closed, "in_service": in_service, "name": name}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_DISCONNECTOR, {"presentation_x": presentation_x, "presentation_y": presentation_y, "disconnector_id": disconnector_id, "voltage_kv": voltage_kv, "rated_current_a": rated_current_a, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "operating_time": operating_time, "closed": closed, "in_service": in_service, "name": name}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class UpdateDisconnectorCommand(Command):
     def __init__(self, *, disconnector_id: str, voltage_kv: float | None = None, rated_current_a: float | None = None, operating_time: float | None = None, closed: bool | None = None, in_service: bool | None = None, name: str | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if all(v is None for v in (voltage_kv, rated_current_a, operating_time, closed, in_service, name)): raise ValueError("UpdateDisconnectorCommand requires at least one mutable Disconnector field.")
@@ -311,9 +311,9 @@ class TakeDisconnectorOutOfServiceCommand(Command):
         super().__init__(**_command(TAKE_DISCONNECTOR_OUT_OF_SERVICE, {"disconnector_id": disconnector_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateFuseCommand(Command):
-    def __init__(self, *, fuse_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", rated_current_a: float = 1.0, rated_voltage_v: float = 1.0, interrupting_rating_ka: float = 0.0, in_service: bool = True, blown: bool = False, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+    def __init__(self, *, fuse_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None, name: str = "", rated_current_a: float = 1.0, rated_voltage_v: float = 1.0, interrupting_rating_ka: float = 0.0, in_service: bool = True, blown: bool = False, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from"); _endpoint(endpoint_to, "endpoint_to")
-        super().__init__(**_command(CREATE_FUSE, {"fuse_id": fuse_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "rated_current_a": rated_current_a, "rated_voltage_v": rated_voltage_v, "interrupting_rating_ka": interrupting_rating_ka, "in_service": in_service, "blown": blown}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+        super().__init__(**_command(CREATE_FUSE, {"presentation_x": presentation_x, "presentation_y": presentation_y, "fuse_id": fuse_id, "endpoint_from": endpoint_from, "endpoint_to": endpoint_to, "name": name, "rated_current_a": rated_current_a, "rated_voltage_v": rated_voltage_v, "interrupting_rating_ka": interrupting_rating_ka, "in_service": in_service, "blown": blown}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class UpdateFuseCommand(Command):
     def __init__(self, *, fuse_id: str, name: str | None = None, rated_current_a: float | None = None, rated_voltage_v: float | None = None, interrupting_rating_ka: float | None = None, in_service: bool | None = None, blown: bool | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if all(v is None for v in (name, rated_current_a, rated_voltage_v, interrupting_rating_ka, in_service, blown)): raise ValueError("UpdateFuseCommand requires at least one mutable Fuse field.")
