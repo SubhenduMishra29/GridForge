@@ -48,10 +48,15 @@ class SLDGraphicsItemFactory:
             return BusItem(object_id=graphics_object_id, position=position,
                            radius=self._node_radius(node))
         definition = self._symbol_registry.require(selection.symbol_id)
+        terminal_ids = tuple(
+            value for value in node.properties.get("terminal_ids", ())
+            if isinstance(value, str) and value
+        )
         equipment = self._equipment_factory.create(
             selection.equipment_type,
             graphics_object_id,
             position=(node.x, node.y),
+            terminal_ids=terminal_ids,
         )
         return EquipmentItem(object_id=graphics_object_id,
                              element_type=selection.semantic_type,
