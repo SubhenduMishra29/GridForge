@@ -319,7 +319,7 @@ class Application:
 
     def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
         """Coordinate placement presentation mutation inside the same transaction."""
-        if self._sld_service is None or not command.command_type.startswith("model.create_"):
+        if self._sld_service is None or command.command_type not in {"model.create_relay"} and not command.command_type.startswith("model.create_"):
             return
         x = command.payload.get("presentation_x")
         y = command.payload.get("presentation_y")
