@@ -29,12 +29,12 @@ class CreateSolarCommand(Command):
                  name: str = "", p_mw: float = 0.0, q_mvar: float = 0.0,
                  p_max_mw: float | None = None, p_min_mw: float = 0.0,
                  q_max_mvar: float | None = None, q_min_mvar: float | None = None,
-                 in_service: bool = True, command_id: UUID | None = None,
+                 in_service: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
         super().__init__(**_command(
             CREATE_SOLAR,
-            {"solar_id": solar_id, "endpoint": endpoint, "name": name, "p_mw": p_mw,
+            {"presentation_x": presentation_x, "presentation_y": presentation_y, "solar_id": solar_id, "endpoint": endpoint, "name": name, "p_mw": p_mw,
              "q_mvar": q_mvar, "p_max_mw": p_max_mw, "p_min_mw": p_min_mw,
              "q_max_mvar": q_max_mvar, "q_min_mvar": q_min_mvar, "in_service": in_service},
             command_id=command_id, correlation_id=correlation_id, causation_id=causation_id,
