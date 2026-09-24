@@ -251,7 +251,7 @@ class SLDReadSynchronizer:
         # generated projection objects. Preserve their node identity, geometry,
         # and authored properties while allowing the read projection to continue
         # reconciling independently.
-        if node.properties.get("presentation_ownership") == "engineer_authored":
+        if node.properties.get("presentation_ownership") == "engineer_authored" or node.properties.get("presentation_owner") == "engineer":
             if node.equipment_id != read_model.object_id:
                 raise ValueError(f"SLD authored node equipment binding conflicts with {read_model.object_id!r}")
             return node
