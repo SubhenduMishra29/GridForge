@@ -148,6 +148,8 @@ class TransformerTool(ToolBase):
             )
         command = CreateTransformerCommand(
             transformer_id=f"transformer-{uuid4().hex}",
+            presentation_x=float(self._current_position[0]),
+            presentation_y=float(self._current_position[1]),
             endpoint_from=endpoint_from,
             endpoint_to=endpoint_to,
             r=float(parameters["r"]),
