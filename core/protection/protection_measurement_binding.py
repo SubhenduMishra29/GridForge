@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from core.application.endpoint_reference import EndpointReference, EquipmentType
+from core.model import EndpointReference, EquipmentType
 
 
 @dataclass(frozen=True, slots=True)
