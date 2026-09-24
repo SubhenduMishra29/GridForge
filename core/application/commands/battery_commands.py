@@ -12,7 +12,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from ..command import Command
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 
 CREATE_BATTERY = "model.create_battery"
 UPDATE_BATTERY = "model.update_battery"
