@@ -153,6 +153,10 @@ class ModelPlacementTool(ToolBase):
             raise RuntimeError(f"{self.MODEL_NAME} placement is missing required endpoint references.")
         payload = dict(self.COMMAND_DEFAULTS)
         payload[self.ID_FIELD] = f"{self.TOOL_ID}-{uuid4().hex}"
+        if self._position is None:
+            raise RuntimeError(f"{self.MODEL_NAME} placement has no committed position.")
+        payload["presentation_x"] = float(self._position[0])
+        payload["presentation_y"] = float(self._position[1])
         if self.ENDPOINT_ROLE_MAP:
             payload.update(self._endpoint_by_field)
         else:
