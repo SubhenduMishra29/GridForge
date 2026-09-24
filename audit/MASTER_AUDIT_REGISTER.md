@@ -1,7 +1,7 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `SubhenduMishra29/GridForge`
+**Repository authority:** `pandaraseswari03-collab/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Branch baseline:** `main` — current working repository authority
 **Consolidation date:** 2026-09-17
@@ -474,3 +474,32 @@ remain `kind + object_id + equipment_type + terminal_role`.
 
 **Runtime verification:** **UNVERIFIED / DEFERRED**. No pytest, CI, startup,
 GUI, or runtime execution was performed.
+
+
+## 2026-09-24 — SLD Workflow Re-Audit 2 — static closure
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only. pytest, unit/integration execution, CI, startup, GUI/runtime smoke tests, and application execution were not performed.
+
+| Finding | Status | Static evidence |
+|---|---|---|
+| GF-SLD-WF-014 | **CLOSED — STATIC SOURCE RE-AUDIT** | Existing canonical SLD presentation command boundary retained; no regression found in the affected workflow. |
+| GF-SLD-WF-015 | **CLOSED — STATIC SOURCE RE-AUDIT** | `ModelPlacementTool._build_command()` carries `presentation_x/presentation_y`; Application pre-commit coordination consumes those values in the same CommandManager transaction; SLD projection preserves committed coordinates; canvas projection snapshots SLD coordinates. |
+| GF-SLD-WF-016 | **CLOSED — STATIC SOURCE RE-AUDIT** | Core electrical connections remain Application/Core-owned; `SLDConnection` remains document/presentation-only; UI `EquipmentConnection` and `ConnectionManager` were retired; UI `TopologyAdapter` was removed. |
+| GF-SLD-WF-017 | **CLOSED — STATIC SOURCE RE-AUDIT** | `EquipmentManager` was retired. Renderer-facing `EquipmentBase` is now reached through `EquipmentFactory` as presentation state; terminal IDs are supplied from Application read-model `connectivity_refs` rather than synthesized as UI authority. |
+| GF-SLD-WF-018 | **CLOSED — STATIC SOURCE RE-AUDIT** | `CanvasComposition` now requires application-composed `SLDCanvasProjection`, `SLDCanvasRenderSystem`, and owns `SelectionProjectionCoordinator`; main composition no longer injects SLD projection/render dependencies after construction. |
+| GF-SLD-WF-019 | **CLOSED — STATIC SOURCE RE-AUDIT** | `CanvasPlugin` consumes and identity-checks the same projection/render instances held by `CanvasComposition`; render-system scene identity is checked against the composition scene. |
+| GF-SLD-WF-020 | **CLOSED — STATIC SOURCE RE-AUDIT** | `ProjectLoaded` clears/rebinds/reconciles projection state; `ProjectClosed` clears the projection registry and detaches the document; CanvasPlugin clears the render system when Application presentation is absent. Element lifecycle events reconcile from Application read models. |
+| GF-SLD-WF-021 | **CLOSED — STATIC SOURCE RE-AUDIT** | CommandManager now exposes an Application pre-commit hook. Application placement coordination invokes `SLDService.execute(AddSLDNodeCommand, transaction)` before the same transaction commits. The coordinator no longer issues Add/Remove SLD commands as a second transaction. Undo reverses SLD projection before Core creation inverse; redo re-executes the original placement command and recreates exactly one deterministic projection node. |
+
+### Closure evidence — affected call relationships
+
+- **Placement:** `ModelPlacementTool._build_command()` → immutable model command metadata → `Application.execute()` → `CommandManager` transaction → Core model handler → Application pre-commit placement coordinator → `SLDService` → `SLDDocument` → post-commit semantic event → `SLDReadSynchronizer` reconciliation → `SLDCanvasProjection` → `SLDCanvasSnapshot` → `SLDCanvasRenderSystem`.
+- **Removal:** Core delete command → Application `ElementRemoved` → `SLDReadSynchronizer.synchronize_network()` stale projection reconciliation → canvas snapshot/render. No independent SLD delete transaction is initiated by `SLDUpdateCoordinator`.
+- **Project replacement:** `ProjectClosed` → projection registry clear/document detach → canvas refresh/clear; `ProjectLoaded` → projection registry clear → Application presentation bind → network/protection reconciliation → canvas projection/render.
+- **Undo/redo:** the coordinated placement projection mutation is recorded in the same Transaction undo journal as the Core mutation; no second CommandManager history entry is created.
+- **Ownership:** projection-owned SLD nodes remain tagged with `projection_source`; engineer-owned nodes are not overwritten by projection reconciliation.
+
+**Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
