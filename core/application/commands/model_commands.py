@@ -12,7 +12,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from ..command import Command
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 from ...model.transformer import ImpedanceBasis
 
 CREATE_BUS = "model.create_bus"
