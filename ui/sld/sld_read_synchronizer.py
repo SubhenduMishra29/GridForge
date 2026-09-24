@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
+from uuid import uuid4
 
 from core.application.read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel
 
@@ -187,11 +188,11 @@ class SLDReadSynchronizer:
     ) -> SLDNode:
         # Identity contract:
         #   * equipment_id is the canonical engineering identity.
-        #   * node_id is the SLD/document namespace identity.
+        #   * node_id is the independent SLD/document namespace identity.
         #
-        # New Application projections use the same string for both as a
-        # deterministic default. Existing persisted documents may use a
-        # distinct node_id; equipment_id lookup preserves that mapping.
+        # Existing persisted documents may use any presentation node_id;
+        # equipment_id lookup preserves that mapping. New projection nodes
+        # receive an independent presentation identifier.
         equipment_id = read_model.object_id
         node = document.model.get_node_by_equipment_id_optional(equipment_id)
 
@@ -217,8 +218,19 @@ class SLDReadSynchronizer:
 
         if node is None:
             x, y = initial_position if initial_position is not None else (0.0, 0.0)
+
+            # A newly materialized projection receives an SLD/document identity
+            # that is independent of the authoritative Core equipment identity.
+            # Reconciliation is keyed by the persisted equipment_id association,
+            # not by node_id. This prevents a Core object ID collision from
+            # converting an engineer-authored/persisted SLD node into a
+            # projection merely because both strings happen to match.
+            node_id = f"sld-node-{uuid4().hex}"
+            while document.model.has_node(node_id):
+                node_id = f"sld-node-{uuid4().hex}"
+
             node = SLDNode(
-                node_id=equipment_id,
+                node_id=node_id,
                 equipment_id=equipment_id,
                 x=float(x),
                 y=float(y),
