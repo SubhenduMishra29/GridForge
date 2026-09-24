@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from ..command import Command
-from ..endpoint_reference import EndpointReference
+from core.model import EndpointReference
 
 CREATE_CAPACITOR = "model.create_capacitor"
 UPDATE_CAPACITOR = "model.update_capacitor"
