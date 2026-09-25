@@ -33,6 +33,7 @@ from typing import Any
 
 from core.model import EndpointReference, EquipmentType
 from ui.equipment.terminal import EquipmentTerminal
+from ui.items.bus_item import BusItem
 
 
 class EndpointIdentityAdapter:
@@ -79,20 +80,44 @@ class EndpointIdentityAdapter:
                 "Line connection requires an object endpoint snap."
             )
 
-        if source is not None and source.__class__.__name__ == "BusItem":
+        if isinstance(source, BusItem):
+            # A Bus is an endpoint kind of its own. Never manufacture a
+            # terminal role for a Bus snap.
             return EndpointReference.bus(str(object_id))
 
         endpoint_reference = getattr(source, "endpoint_reference", None)
         if isinstance(endpoint_reference, EndpointReference):
             return endpoint_reference
 
+        terminal_id = getattr(result, "terminal_id", None)
         terminal_name = getattr(result, "terminal_name", None)
         if terminal_name is None:
             raise ValueError("Terminal snap is missing its canonical terminal role.")
+
         equipment = getattr(source, "equipment", None)
         equipment_type = getattr(equipment, "equipment_type", None)
         if not isinstance(equipment_type, str) or not equipment_type.strip():
             raise ValueError("Terminal snap source does not expose canonical equipment_type.")
+
+        # The presentation terminal role is valid only when it resolves to
+        # exactly one terminal owned by the snapped presentation equipment.
+        # terminal_id remains diagnostic/presentation identity; role is the
+        # canonical Application/Core identity component.
+        terminals = tuple(getattr(equipment, "terminals", ()) or ())
+        matches = [
+            terminal
+            for terminal in terminals
+            if terminal.equipment_id == str(object_id)
+            and terminal.terminal_name == str(terminal_name)
+            and (terminal_id is None or terminal.terminal_id == str(terminal_id))
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Terminal snap identity must resolve to exactly one presentation terminal: "
+                f"equipment_id={object_id!r}, terminal_id={terminal_id!r}, "
+                f"terminal_role={terminal_name!r}, matches={len(matches)}."
+            )
+
         canonical_type = next(
             (
                 candidate
@@ -108,7 +133,7 @@ class EndpointIdentityAdapter:
         return EndpointReference.terminal(
             equipment_type=canonical_type,
             equipment_id=str(object_id),
-            terminal_role=str(terminal_name),
+            terminal_role=matches[0].terminal_name,
         )
 
 
