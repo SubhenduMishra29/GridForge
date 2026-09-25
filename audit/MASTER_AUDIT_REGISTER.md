@@ -535,3 +535,19 @@ EquipmentPanelWidget._on_item_clicked() → activate_equipment() → EquipmentRe
 3. Re-audited the affected paths after those corrections and recorded the result in this master register.
 
 **Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
+
+
+## 2026-09-25 — SLD Engineer Entry Surface / Equipment Palette Remediation
+
+**Repository:** madhuri196mishra-cpu/GridForge  
+**Branch:** main  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only. pytest, CI, startup, GUI/runtime execution were not performed.
+
+| Finding | Status | Static evidence |
+|---|---|---|
+| GF-SLD-UI-PALETTE-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | PresentationBootstrap.equipment_registry is the single EquipmentRegistry.create_default() catalogue; PluginContext passes that exact instance to PanelsPlugin; PanelsPlugin.initialize() composes EquipmentPanelWidget and calls bind_equipment_runtime(context.equipment_registry, context.tool_manager); the widget populates its QListWidget from catalogue(); canonical SLD_WORKSPACE places equipment on PanelArea.LEFT with visible=True; main.py registers the equipment dock with WorkspaceRealizer before WorkspaceController.activate_default(). No second live EquipmentRegistry is composed by the Browser. |
+| GF-SLD-UI-PALETTE-002 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | EquipmentPanelWidget._on_item_clicked() resolves the canonical equipment type and activate_equipment() calls EquipmentRegistry.require() → definition.tool_id → ToolManager.activate(). create_default_tool_factories() provides factories for every default catalogue tool ID. Concrete tools route through SnapSystem, transient preview state, immutable Application command construction, ToolBase.execute_command() → Application.execute() → CommandManager → Core handlers. Line/Cable/Transformer use the same Application boundary and do not perform direct Core mutation. |
+| GF-UI-COMPOSE-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | main.py now resolves and validates canvas_plugin.synchronize_sld before defining/subscribing handle_project_workspace_changed; the callback therefore cannot reference an uninitialized synchronization local. |
+
+Register status discipline: these findings are not marked CLOSED. Static correction is recorded as AGENT CORRECTED → RE-AUDIT REQUIRED. Runtime verification remains deferred.
