@@ -48,21 +48,41 @@ class SLDGraphicsItemFactory:
             raise TypeError("selection must be a PresentationSelection")
         graphics_object_id = node.equipment_id or f"presentation:{node.node_id}"
         position = QPointF(node.x, node.y)
+        symbol_instance = selection.symbol_instance
+        if symbol_instance is None:
+            raise ValueError("PresentationSelection must contain a canonical symbol instance.")
+        if selection.representation_id != symbol_instance.representation_id:
+            raise ValueError("Presentation selection representation does not match its symbol instance.")
+        if selection.representation_id != "symbol":
+            raise ValueError(f"Unsupported SLD representation: {selection.representation_id!r}")
+
         if selection.equipment_type == "bus":
-            return BusItem(object_id=graphics_object_id, position=position,
-                           radius=self._node_radius(node))
-        definition = self._symbol_registry.require(selection.symbol_id)
+            item = BusItem(
+                object_id=graphics_object_id,
+                position=position,
+                radius=self._node_radius(node),
+            )
+            item.setScale(symbol_instance.scale)
+            item.setRotation(symbol_instance.rotation)
+            item.setVisible(symbol_instance.visible)
+            return item
+
+        definition = self._symbol_registry.require(symbol_instance.symbol_id)
         read_model = self._read_model_for(node.equipment_id)
         equipment = self._equipment_factory.create_from_read_model(
             read_model,
             selection.equipment_type,
             position=(node.x, node.y),
+            symbol_instance=symbol_instance,
         )
-        return EquipmentItem(object_id=graphics_object_id,
-                             element_type=selection.semantic_type,
-                             position=position,
-                             symbol_definition=definition,
-                             equipment=equipment)
+        return EquipmentItem(
+            object_id=graphics_object_id,
+            element_type=selection.semantic_type,
+            position=position,
+            symbol_definition=definition,
+            equipment=equipment,
+            symbol_instance=symbol_instance,
+        )
 
     def create_connection(self, connection: SLDCanvasConnection, source: QPointF, target: QPointF) -> LineItem:
         if not isinstance(connection, SLDCanvasConnection):
