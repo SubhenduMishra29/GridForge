@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.model.terminal import Terminal
-from core.network import Network
+from core.network import Network, SimpleWireConnection
 
 from .model_dto import ModelDTO, model_to_dto, resolve_state_references, restore_state
 from .type_registry import ModelTypeRegistry, network_adder_name
@@ -44,7 +44,18 @@ def serialize_network(network: Network) -> dict[str, Any]:
             seen.add(identity)
             elements.append(model_to_dto(element).to_dict())
     elements.sort(key=lambda item: (item["type"], item["id"]))
-    return {"schema": 1, "elements": elements}
+    simple_wires = sorted(
+        (connection.to_dict() for connection in network.connectivity.connections),
+        key=lambda item: item["connection_id"],
+    )
+    return {
+        "schema": 1,
+        "elements": elements,
+        "connectivity": {
+            "schema": 1,
+            "simple_wires": simple_wires,
+        },
+    }
 
 
 def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | None = None) -> Network:
@@ -141,6 +152,28 @@ def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | N
         except (TypeError, ValueError) as exc:
             raise NetworkSerializationError(
                 f"Invalid terminal endpoint relationship for '{terminal.role}': {exc}"
+            ) from exc
+
+    connectivity_data = data.get("connectivity", {})
+    if connectivity_data is None:
+        connectivity_data = {}
+    if not isinstance(connectivity_data, dict):
+        raise NetworkSerializationError("Persisted connectivity payload must be an object.")
+    connectivity_schema = connectivity_data.get("schema", 1)
+    if connectivity_schema != 1:
+        raise NetworkSerializationError(
+            f"Unsupported project connectivity schema: {connectivity_schema!r}"
+        )
+    simple_wires = connectivity_data.get("simple_wires", ())
+    if not isinstance(simple_wires, list):
+        raise NetworkSerializationError("Persisted connectivity.simple_wires payload must be an array.")
+    for raw_connection in simple_wires:
+        try:
+            connection = SimpleWireConnection.from_dict(raw_connection)
+            network.add_simple_wire_connection(connection)
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Invalid persisted Simple Wire relationship: {exc}"
             ) from exc
 
     try:
