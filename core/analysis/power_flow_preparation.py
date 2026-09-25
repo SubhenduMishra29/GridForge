@@ -24,7 +24,6 @@ from core.model.injection import Injection
 from core.model.line import Line
 from core.model.reactor import Reactor
 from core.model.transformer import Transformer
-from core.network.endpoint import resolve_terminal_bus
 from core.network.topology_snapshot import TopologySnapshot
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
@@ -167,6 +166,11 @@ class PowerFlowPreparation:
         self.network = network
         self.power_flow_configuration = power_flow_configuration
         self.topology_snapshot = topology_snapshot
+        if self.topology_snapshot is None:
+            self.network.rebuild_topology()
+            self.topology_snapshot = self.network.topology_snapshot
+            if self.topology_snapshot is None:
+                raise ValueError('Power Flow requires a canonical TopologySnapshot.')
         self._validate_network()
         if not isinstance(power_flow_configuration, PowerFlowStudyConfiguration):
             raise TypeError("power_flow_configuration must be a PowerFlowStudyConfiguration.")
@@ -377,30 +381,18 @@ class PowerFlowPreparation:
         return tuple(prepared)
 
     def _resolve_branch_endpoints(self, branch: Any) -> tuple[Any, Any]:
-        if self.topology_snapshot is not None:
-            records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self.topology_snapshot.equipment_bus_attachments}
-            from_id = records.get((str(branch.id), getattr(branch.from_terminal, 'role', '')))
-            to_id = records.get((str(branch.id), getattr(branch.to_terminal, 'role', '')))
-            if from_id and to_id:
-                return self.network.get_by_identity(from_id), self.network.get_by_identity(to_id)
-            raise ValueError(f"Element '{getattr(branch, 'id', branch)}' has unresolved branch terminals in the canonical TopologySnapshot.")
-        try:
-            from_bus = resolve_terminal_bus(branch.from_terminal); to_bus = resolve_terminal_bus(branch.to_terminal)
-        except Exception as exc:
-            raise ValueError(f"Element '{getattr(branch, 'id', branch)}' has unresolved branch terminals.") from exc
-        if from_bus is None or to_bus is None: raise ValueError(f"Element '{getattr(branch, 'id', branch)}' has unresolved branch terminals.")
-        return from_bus, to_bus
+        records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self.topology_snapshot.equipment_bus_attachments}
+        from_id = records.get((str(branch.id), getattr(branch.from_terminal, 'role', '')))
+        to_id = records.get((str(branch.id), getattr(branch.to_terminal, 'role', '')))
+        if from_id and to_id:
+            return self.network.get_by_identity(from_id), self.network.get_by_identity(to_id)
+        raise ValueError(f"Element '{getattr(branch, 'id', branch)}' has unresolved branch terminals in the canonical TopologySnapshot.")
 
     def _resolve_shunt_bus(self, shunt: Any) -> Any:
-        if self.topology_snapshot is not None:
-            role = getattr(getattr(shunt, 'terminal', None), 'role', '')
-            bus_id = next((r.bus_id for r in self.topology_snapshot.equipment_bus_attachments if r.equipment_id == str(shunt.id) and r.terminal_role == role), None)
-            if bus_id: return self.network.get_by_identity(bus_id)
-            raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal in the canonical TopologySnapshot.")
-        try: bus = resolve_terminal_bus(shunt.terminal)
-        except Exception as exc: raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal.") from exc
-        if bus is None: raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal.")
-        return bus
+        role = getattr(getattr(shunt, 'terminal', None), 'role', '')
+        bus_id = next((r.bus_id for r in self.topology_snapshot.equipment_bus_attachments if r.equipment_id == str(shunt.id) and r.terminal_role == role), None)
+        if bus_id: return self.network.get_by_identity(bus_id)
+        raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal in the canonical TopologySnapshot.")
 
     def _common_branch_voltage(self, from_bus: Any, to_bus: Any, voltage_bases: Mapping[str, float], branch: Any) -> float:
         from_kv = voltage_bases[str(from_bus.id)]
