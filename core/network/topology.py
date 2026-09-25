@@ -4,9 +4,14 @@ from core.model import Branch,Breaker,Cable,Disconnector,Fuse,Line,Switch,Transf
 from core.model.endpoint_reference import EndpointReference
 from .connectivity import ConnectivityResolver
 from .electrical_boundary import ElectricalBoundaryResolver,ElectricalBoundaryType,EndpointCompatibilityError,conduction_state
-from .endpoint import resolve_terminal_bus
 from .topology_snapshot import ConductiveEdge,EquipmentBusAttachment,TopologySnapshot
 class TopologyManager:
+    """Build and expose topology through the Network-owned lifecycle only.
+
+    ``build()`` is a compatibility entry point; it delegates to
+    ``Network.rebuild_topology()``. The latter is the sole lifecycle authority
+    that constructs the snapshot and commits NetworkState.topology_rebuilt().
+    """
     _TOPOLOGY_TYPES=(Branch,Line,Cable,Transformer,Breaker,Switch,Disconnector,Fuse)
     def __init__(self,network): self.network=network;self._graph={};self._edges={};self._snapshot=None
     @property
@@ -42,9 +47,11 @@ class TopologyManager:
             terminals=tuple(getattr(e,"terminals",()))
             if len(terminals)!=2:
                 continue
-            bus_a=resolve_terminal_bus(terminals[0]); bus_b=resolve_terminal_bus(terminals[1])
-            if bus_a is None or bus_b is None:
+            a=boundary.resolve(self._reference_for_terminal(e,terminals[0].role))
+            b=boundary.resolve(self._reference_for_terminal(e,terminals[1].role))
+            if a.attached_bus_id is None or b.attached_bus_id is None:
                 raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
+            bus_a=self.network.get_by_identity(a.attached_bus_id); bus_b=self.network.get_by_identity(b.attached_bus_id)
             if bus_a is not bus_b:
                 graph.setdefault(bus_a,set()).add(bus_b)
                 graph.setdefault(bus_b,set()).add(bus_a)
@@ -52,16 +59,21 @@ class TopologyManager:
                 adjacency[bus_b.id].add(bus_a.id)
         for e in self._topology_elements():
             if conduction_state(e) and isinstance(e,(Line,Cable,Transformer)):
-                a=resolve_terminal_bus(e.from_terminal);b=resolve_terminal_bus(e.to_terminal)
-                if a is None or b is None:raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
-                if a is not b:self._edges.setdefault(self._edge_key(a,b),[]).append(e)
+                a=boundary.resolve(self._reference_for_terminal(e,e.from_terminal.role))
+                b=boundary.resolve(self._reference_for_terminal(e,e.to_terminal.role))
+                if a.attached_bus_id is None or b.attached_bus_id is None:raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
+                bus_a=self.network.get_by_identity(a.attached_bus_id);bus_b=self.network.get_by_identity(b.attached_bus_id)
+                if bus_a is not bus_b:self._edges.setdefault(self._edge_key(bus_a,bus_b),[]).append(e)
         self._graph=graph;self._snapshot=self._make_snapshot(adjacency,attachments,boundary);return graph
     def _physical_attachments(self):
-        out=[];seen=set()
+        out=[];seen=set();boundary=ElectricalBoundaryResolver(self.network)
         for e in self._registered_equipment():
             for t in sorted(getattr(e,"terminals",()),key=lambda x:x.role):
-                bus=resolve_terminal_bus(t)
-                if bus is None:continue
+                reference=self._reference_for_terminal(e,t.role)
+                resolved=boundary.resolve(reference)
+                bus_id=resolved.attached_bus_id
+                if bus_id is None:continue
+                bus=self.network.get_by_identity(bus_id)
                 if bus not in self.network.buses:raise EndpointCompatibilityError(f"Equipment '{e.id}' terminal '{t.role}' resolves to an unregistered Bus.")
                 key=(e.id,t.role,bus.id)
                 if key not in seen:seen.add(key);out.append(EquipmentBusAttachment(*key))
