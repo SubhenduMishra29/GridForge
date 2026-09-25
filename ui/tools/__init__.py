@@ -66,3 +66,5 @@ __all__ = [
     "CVTTool",
     "RelayTool",
 ]
+
+from .wire_tool import WireTool
