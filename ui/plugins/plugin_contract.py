@@ -390,4 +390,4 @@ __all__ = [
 ]
 
 
-Initialization compensation contract: PluginRegistry may invoke shutdown() after a failed initialize callback while initialized remains false; plugin shutdown must therefore safely compensate partial resource acquisition.
+# Initialization compensation contract: PluginRegistry may invoke shutdown() after a failed initialize callback while initialized remains false; plugin shutdown must therefore safely compensate partial resource acquisition.
