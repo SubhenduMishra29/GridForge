@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .connectivity import ConnectivityStore, SimpleWireConnection
+from .electrical_boundary import EndpointCompatibility, conduction_state
 from .indexing import BusIndex
 from .registry import NetworkRegistry
 from .state import NetworkState
@@ -210,7 +211,8 @@ class Network:
                 raise ValueError(
                     f"Simple Wire endpoint {endpoint} must resolve to exactly one owned terminal."
                 )
-        self.connectivity.add(connection)
+        EndpointCompatibility.validate_pair(connection.endpoint_a, connection.endpoint_b, self)
+        self.connectivity.add(connection, self)
         self._invalidate_topology()
 
     def remove_simple_wire_connection(self, connection_id: str) -> SimpleWireConnection:
@@ -223,8 +225,21 @@ class Network:
 
     def rebuild_topology(self) -> dict[Any, set[Any]]:
         graph = self.topology.build()
-        self.state.topology_rebuilt()
+        if self.topology.snapshot is None:
+            self.state.topology_rebuilt(valid=False)
+            raise RuntimeError("TopologyManager did not produce a valid TopologySnapshot.")
+        self.state.topology_rebuilt(valid=True)
         return graph
+
+    @property
+    def topology_snapshot(self):
+        """Return the current immutable runtime-derived topology snapshot."""
+        if self.topology_dirty:
+            return None
+        return self.topology.snapshot
+
+    def conduction_state(self, element: Any) -> bool:
+        return conduction_state(element)
 
     def ensure_bus_index(self) -> None:
         self.index.ensure(self.buses)
