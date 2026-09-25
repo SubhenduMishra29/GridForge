@@ -552,3 +552,32 @@ EquipmentPanelWidget._on_item_clicked() → activate_equipment() → EquipmentRe
 | GF-UI-COMPOSE-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | main.py now resolves and validates canvas_plugin.synchronize_sld before defining/subscribing handle_project_workspace_changed; the callback therefore cannot reference an uninitialized synchronization local. |
 
 Register status discipline: these findings are not marked CLOSED. Static correction is recorded as AGENT CORRECTED → RE-AUDIT REQUIRED. Runtime verification remains deferred.
+
+
+## UI-01 Consolidated Remediation — 2026-09-25
+
+**Working repository:** `madhuri196mishra-cpu/GridForge`  
+**Canonical repository authority:** `SubhenduMishra29/GridForge`  
+**Branch:** `main`  
+**Verification boundary:** static source inspection only; no tests, CI, application startup, GUI execution, or runtime verification performed.
+
+| Master ID | Finding | Static evidence | Closure state |
+|---|---|---|---|
+| GF-MASTER-0049 | GF-UI-01-001 Application Menu | `ui/plugins/menu_plugin.py` defines the canonical File/Edit/View/Project/Tools/Study/Protection/Control/Help composition and requires every menu action to resolve through `UIActionRouter`; `main.py` registers all handlers. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0050 | GF-UI-01-002 Toolbar action model | `ui/plugins/toolbar_plugin.py` exposes Select, Bus, Wire, Equipment, and Fit; `ui/tools/wire_tool.py` submits `ConnectTerminalCommand`; `ui/tools/default_tool_registry.py` registers Wire while retaining Line/Cable only for explicit future configuration. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0051 | GF-UI-01-003 Application action routing | `ui/core/action_router.py` is the single presentation routing boundary; menu and toolbar non-tool actions dispatch through it; File actions delegate to project lifecycle/application persistence; Undo/Redo delegate to Controller/Application history. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0052 | GF-UI-01-004 Styling integration | `main.py` composes `StyleManager` immediately after `QApplication` creation and calls `apply`; `stylesheet.qss` covers window/menu/toolbar/docks/status/canvas, engineering panels, hover/selection/disabled states. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0053 | GF-UI-01-005 Status integration | `ui/plugins/status_plugin.py` projects Controller, Application event, selection, cursor, project-workspace, validation, and workspace state into existing status fields without owning a second state model; `ui/canvas/graphics_view.py` exposes cursor presentation state. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0054 | GF-REG-01-001 Register synchronization | `audit/MASTER_AUDIT_REGISTER.md` now declares `SubhenduMishra29/GridForge`, branch `main`; historical repository identities remain explicitly preserved in historical sections. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0055 | Duplicate reconciliation | UI-01 findings are represented as canonical master-register entries; historical register identities are preserved rather than silently deleted. | STATIC CLOSED / RUNTIME UNVERIFIED |
+
+### Architectural boundary re-audit
+
+- MainWindow remains a mechanical Qt host; no Application/Core authority was moved into it.
+- ShellPlugin remains a composition component consuming already-created widgets.
+- WorkspaceRealizer remains the logical-layout → Qt realization boundary.
+- MenuPlugin and ToolbarPlugin do not mutate Core directly.
+- No second command manager or history manager was introduced.
+- Equipment Browser remains catalogue-driven through the existing EquipmentRegistry/ToolManager composition.
+- Simple Wire creation is a topology connection workflow and does not implicitly instantiate a Line or Cable object.
+- No runtime verification is claimed from this source inspection.
