@@ -37,6 +37,7 @@ from core.application.read_models import ElementReadModel
 from .equipment_base import EquipmentBase
 from .equipment_registry import EquipmentRegistry
 from .terminal import EquipmentTerminal
+from .symbol.symbol_base import SymbolBase
 from .symbol.symbol_registry import SymbolRegistry
 
 
@@ -80,6 +81,7 @@ class EquipmentFactory:
         equipment_type: str,
         *,
         position: tuple[float, float] = (0.0, 0.0),
+        symbol_instance: SymbolBase | None = None,
     ) -> EquipmentBase:
         """Create a presentation object strictly from an Application snapshot."""
         if not isinstance(read_model, ElementReadModel):
@@ -91,6 +93,7 @@ class EquipmentFactory:
             position=position,
             properties=read_model.attributes,
             terminal_ids=tuple(read_model.connectivity_refs),
+            symbol_instance=symbol_instance,
         )
 
     def create(
@@ -102,6 +105,7 @@ class EquipmentFactory:
         position: tuple[float, float] = (0.0, 0.0),
         properties: Mapping[str, Any] | None = None,
         terminal_ids: tuple[str, ...] | None = None,
+        symbol_instance: SymbolBase | None = None,
     ) -> EquipmentBase:
         """
         Create one logical equipment instance.
