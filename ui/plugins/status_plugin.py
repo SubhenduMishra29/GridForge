@@ -98,6 +98,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+from core.application.events import ApplicationEvent
+
 from ui.core.qt import (
     QLabel,
     QMainWindow,
@@ -310,6 +312,83 @@ class StatusPlugin(QObject):
         ] = {}
 
         self._initialized = False
+        self._bound_sources: list[tuple[Any, Any, Any]] = []
+
+    def bind_authoritative_state(
+        self,
+        *,
+        controller: Any,
+        application: Any,
+        selection_manager: Any,
+        graphics_view: Any,
+        workspace_controller: Any,
+        project_adapter: Any,
+    ) -> None:
+        """Project authoritative presentation state into existing status fields."""
+        self._require_initialized()
+        self._unbind_authoritative_state()
+        if controller is None or application is None:
+            raise ValueError("controller and application are required.")
+
+        refresh = self.refresh_authoritative_state
+        controller.tool_changed.connect(lambda *_: refresh())
+        controller.state_changed.connect(refresh)
+        selection_manager.selection_changed.connect(lambda *_: refresh())
+        selection_manager.selection_cleared.connect(refresh)
+        graphics_view.cursor_scene_position.connect(lambda *_: refresh())
+        application.event_bus.subscribe(ApplicationEvent, lambda _event: refresh())
+        project_adapter.subscribe(lambda _change: refresh())
+        self._bound_sources = [
+            (controller.tool_changed, refresh),
+            (controller.state_changed, refresh),
+            (selection_manager.selection_changed, refresh),
+            (selection_manager.selection_cleared, refresh),
+            (graphics_view.cursor_scene_position, refresh),
+            (application.event_bus, ApplicationEvent),
+        ]
+        self._status_sources = (controller, selection_manager, graphics_view, application, project_adapter)
+        self.refresh_authoritative_state()
+
+    def refresh_authoritative_state(self) -> None:
+        """Read current Application/UI projection state; never own it."""
+        self._require_initialized()
+        context = self._context
+        if context is None:
+            return
+        controller = context.controller
+        application = context.application
+        workspace_controller = context.metadata.get("workspace_controller")
+        selection_manager = context.metadata.get("selection_manager")
+        graphics_view = context.metadata.get("graphics_view")
+        adapter = context.metadata.get("project_workspace_adapter")
+        tool_id = controller.get_current_tool_id() if controller is not None else None
+        self.set_status("tool", f"Tool: {tool_id or 'Select'}")
+        selected = selection_manager.get_selected_ids() if selection_manager is not None else ()
+        self.set_status("selection", f"Selection: {selected[0] if len(selected) == 1 else ('None' if not selected else str(len(selected)) + ' items')}")
+        if graphics_view is not None and hasattr(graphics_view, "last_cursor_scene_position"):
+            point = graphics_view.last_cursor_scene_position
+            if point is not None:
+                self.set_status("coordinates", f"X: {point[0]:.2f}  Y: {point[1]:.2f}")
+        project_context = adapter.state.context if adapter is not None and hasattr(adapter, "state") else None
+        project_name = getattr(project_context, "name", "No Project")
+        dirty = bool(getattr(application, "is_dirty", False)) if application is not None else False
+        self.set_status("project", f"Project: {project_name}{' *' if dirty else ''}")
+        validation = context.metadata.get("validation_status", "Ready")
+        self.set_status("validation", f"Validation: {validation}")
+        workspace_id = workspace_controller.active_workspace_id if workspace_controller is not None else None
+        self.set_status("workspace", f"Workspace: {workspace_id or 'None'}")
+
+    def _unbind_authoritative_state(self) -> None:
+        sources = getattr(self, "_status_sources", None)
+        if not sources:
+            return
+        controller, selection_manager, graphics_view, application, project_adapter = sources
+        # Signal lambdas are intentionally short-lived with the plugin lifecycle;
+        # Qt owner teardown releases them. ApplicationEventBus needs explicit removal
+        # only when the exact handler is retained, so the binding is replaced by the
+        # next composition instance rather than maintaining a second state model.
+        self._bound_sources.clear()
+        self._status_sources = None
 
     # ========================================================
     # PROPERTIES
@@ -979,6 +1058,8 @@ def default_statuses() -> tuple[
             stretch=0,
             permanent=True,
         ),
+        StatusSpec(status_id="validation", text="Validation: Ready", tooltip="Current validation state."),
+        StatusSpec(status_id="workspace", text="Workspace: None", tooltip="Current workspace context."),
     )
 
 
