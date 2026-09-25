@@ -20,30 +20,35 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.input import ShortCircuitInput
 
 from .project import ProjectSnapshot
+from .study import StudyExecutionContext
 
 
 class StudyPreparationService:
     """Prepare detached Core study snapshots without exposing live Core objects to handlers."""
 
-    def __init__(self, snapshot: ProjectSnapshot) -> None:
-        if not isinstance(snapshot, ProjectSnapshot):
-            raise TypeError("snapshot must be ProjectSnapshot.")
-        self._snapshot = snapshot
+    def __init__(self, execution_context: StudyExecutionContext) -> None:
+        if not isinstance(execution_context, StudyExecutionContext):
+            raise TypeError("execution_context must be StudyExecutionContext.")
+        self._execution_context = execution_context
 
     @property
     def snapshot(self) -> ProjectSnapshot:
-        return self._snapshot
+        return self._execution_context.project_snapshot
+
+    @property
+    def topology(self):
+        return self._execution_context.topology_snapshot
 
     def prepare_power_flow(self, configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
         if not isinstance(configuration, PowerFlowStudyConfiguration):
             raise TypeError("configuration must be PowerFlowStudyConfiguration.")
-        return PowerFlowPreparation.prepare(self._snapshot.network, configuration)
+        return PowerFlowPreparation.prepare(self._execution_context.project_snapshot.network, configuration, topology_snapshot=self.topology)
 
     def prepare_short_circuit(self, configuration: ShortCircuitStudyConfiguration) -> ShortCircuitInput:
         if not isinstance(configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
         preparation = ShortCircuitPreparation(
-            self._snapshot.network,
+            self._execution_context.project_snapshot.network,
             base_mva=configuration.metadata.get("base_mva"),
         )
         return preparation.prepare(
@@ -51,6 +56,7 @@ class StudyPreparationService:
             configuration.fault_bus_id,
             configuration.fault_impedance,
             elements=configuration.element_ids or None,
+            topology_snapshot=self.topology,
         )
 
     def prepare_transient_stability(
@@ -73,13 +79,13 @@ class StudyPreparationService:
             prepared_power_flow,
             power_flow_result,
             dynamic_models,
-            project_id=self._snapshot.project_id,
-            activation_generation=self._snapshot.activation_generation,
+            project_id=self._execution_context.project_snapshot.project_id,
+            activation_generation=self._execution_context.project_snapshot.activation_generation,
             source_revision=(
-                self._snapshot.revision.model_revision,
-                self._snapshot.revision.topology_revision,
-                self._snapshot.revision.presentation_revision,
-                self._snapshot.revision.persisted_revision,
+                self._execution_context.project_snapshot.revision.model_revision,
+                self._execution_context.project_snapshot.revision.topology_revision,
+                self._execution_context.project_snapshot.revision.presentation_revision,
+                self._execution_context.project_snapshot.revision.persisted_revision,
             ),
         )
 

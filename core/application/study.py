@@ -15,7 +15,26 @@ from uuid import UUID, uuid4
 from .event_bus import ApplicationEventBus
 from .revision import ProjectRevision
 from .events import StudyCancelled, StudyCompleted, StudyFailed, StudyStarted
+from core.network.topology_snapshot import TopologySnapshot
 
+
+@dataclass(frozen=True, slots=True)
+class StudyExecutionContext:
+    """Detached execution-time study context carrying canonical topology provenance."""
+    project_id: str
+    activation_generation: int
+    source_revision: ProjectRevision
+    topology_snapshot: TopologySnapshot
+    project_snapshot: Any
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_revision, ProjectRevision): raise TypeError("source_revision must be ProjectRevision.")
+        if not isinstance(self.topology_snapshot, TopologySnapshot): raise TypeError("topology_snapshot must be TopologySnapshot.")
+        if self.topology_snapshot.project_id != self.project_id or self.topology_snapshot.activation_generation != self.activation_generation:
+            raise ValueError("TopologySnapshot provenance does not match study execution context.")
+        if self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
+            raise ValueError("TopologySnapshot revision does not match source revision.")
+        if self.project_snapshot is None: raise ValueError("project_snapshot is required.")
 
 @dataclass(frozen=True, slots=True)
 class StudyRequest:
@@ -93,7 +112,7 @@ class StudyCancellationToken:
         self._cancelled = True
 
 
-StudyHandler = Callable[[StudyRequest, StudyCancellationToken], Any]
+StudyHandler = Callable[[StudyRequest, StudyExecutionContext, StudyCancellationToken], Any]
 
 
 class StudyService:
@@ -121,9 +140,15 @@ class StudyService:
             raise ValueError(f"Study type already registered: {key!r}")
         self._handlers[key] = handler
 
-    def execute(self, request: StudyRequest) -> StudyResult:
+    def execute(self, request: StudyRequest, execution_context: StudyExecutionContext) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
+        if not isinstance(execution_context, StudyExecutionContext):
+            raise TypeError("execution_context must be StudyExecutionContext.")
+        if execution_context.project_id != request.project_id or execution_context.activation_generation != request.activation_generation:
+            raise ValueError("Study execution context does not match StudyRequest scope.")
+        if execution_context.source_revision != request.source_revision:
+            raise ValueError("Study execution context does not match StudyRequest revision.")
         handler = self._handlers.get(request.study_type)
         if handler is None:
             raise KeyError(f"No study handler registered for {request.study_type!r}.")
@@ -141,7 +166,7 @@ class StudyService:
         }))
 
         try:
-            value = handler(request, token)
+            value = handler(request, execution_context, token)
             if token.cancelled:
                 result = StudyResult(
                     study_id=request.study_id,
@@ -230,6 +255,7 @@ class StudyService:
 
 
 __all__ = [
+    "StudyExecutionContext",
     "StudyRequest",
     "StudyResult",
     "StudyCancellationToken",

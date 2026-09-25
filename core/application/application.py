@@ -51,7 +51,7 @@ from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.validation_service import ValidationService
-from .study import StudyRequest, StudyResult, StudyService
+from .study import StudyExecutionContext, StudyRequest, StudyResult, StudyService
 from .validation import ValidationResult
 
 
@@ -291,15 +291,40 @@ class Application:
                                revision=self.revision, network=network_snapshot, dynamic_models=dynamic_models)
 
     def execute_study(self, request: StudyRequest) -> StudyResult:
-        if not isinstance(request, StudyRequest): raise TypeError("request must be a StudyRequest.")
+        if not isinstance(request, StudyRequest):
+            raise TypeError("request must be a StudyRequest.")
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        if context is None: raise RuntimeError("Cannot start a study without an active project.")
+        if context is None:
+            raise RuntimeError("Cannot start a study without an active project.")
         if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
             raise ValueError("StudyRequest project scope does not match the active project generation.")
         if request.source_revision != self.revision:
             raise ValueError("StudyRequest source_revision does not match the active project revision.")
-        return self._study_service.execute(request)
+        network = lifecycle.network
+        # Runtime-only provenance metadata; never authoritative persisted state.
+        network.project_id = context.project_id
+        network.activation_generation = lifecycle.activation_generation
+        if network.state.topology_revision != request.source_revision.topology_revision:
+            raise ValueError("Network topology revision does not match StudyRequest source revision.")
+        if network.state.topology_dirty or not network.state.topology_valid:
+            network.rebuild_topology()
+        if network.state.topology_dirty or not network.state.topology_valid:
+            raise ValueError("Topology normalization did not produce a valid study-ready state.")
+        snapshot = network.topology_snapshot
+        if snapshot is None:
+            raise ValueError("Canonical TopologySnapshot is unavailable.")
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation or snapshot.topology_revision != request.source_revision.topology_revision:
+            raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
+        project_snapshot = self.capture_project_snapshot()
+        execution_context = StudyExecutionContext(
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            topology_snapshot=snapshot,
+            project_snapshot=project_snapshot,
+        )
+        return self._study_service.execute(request, execution_context)
 
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
         return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)

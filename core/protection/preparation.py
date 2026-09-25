@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from core.measurement.measurement_channel import MeasurementChannel
+from core.network.topology_snapshot import TopologySnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,7 @@ class PreparedProtectionInput:
     in_service: bool
     enabled: bool
     blocked: bool
+    topology_snapshot: TopologySnapshot | None = None
 
     def __post_init__(self) -> None:
         for name in ("relay_id", "element_id", "function_code"):
@@ -53,6 +55,7 @@ class ProtectionPreparation:
         *,
         element_id: str,
         function_code: str | None = None,
+        topology_snapshot: TopologySnapshot | None = None,
     ) -> PreparedProtectionInput:
         if relay is None or not isinstance(getattr(relay, "id", None), str):
             raise TypeError("relay must expose a string id.")
@@ -95,6 +98,7 @@ class ProtectionPreparation:
             in_service=bool(getattr(relay, "in_service", True)),
             enabled=bool(getattr(relay, "enabled", True)),
             blocked=bool(getattr(relay, "blocked", False)),
+            topology_snapshot=topology_snapshot,
         )
 
 
