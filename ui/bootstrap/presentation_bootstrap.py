@@ -85,11 +85,40 @@ class PresentationBootstrap:
             raise RuntimeError("Presentation Application facade is not configured")
         return self.application
 
-    def default_symbol_presentation(self, element_type: str) -> dict[str, Any]:
-        """Resolve the canonical EquipmentDefinition default into SymbolBase state."""
-        if not isinstance(element_type, str) or not element_type.strip():
-            raise ValueError("element_type must be a non-empty string")
-        equipment_type = equipment_type_for_semantic(element_type)
+    def default_symbol_presentation(self, identifier: str) -> dict[str, Any]:
+        """Resolve an equipment semantic or identity to the canonical default symbol state."""
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError("symbol presentation identifier must be a non-empty string.")
+
+        equipment_type = identifier.strip()
+        if not self.equipment_registry.contains(equipment_type):
+            application = self.application
+            if application is None:
+                raise KeyError(f"Unknown equipment presentation identity: {identifier!r}")
+            read_network = application.read_network()
+            matches = [
+                element
+                for element in read_network.elements
+                if element.object_id == identifier
+            ]
+            if not matches:
+                protection_reader = getattr(application, "read_protection", None)
+                if callable(protection_reader):
+                    protection = protection_reader()
+                    matches = [
+                        element
+                        for element in protection.elements
+                        if element.object_id == identifier
+                    ]
+            if not matches:
+                raise KeyError(f"Unknown equipment presentation identity: {identifier!r}")
+            equipment_type = equipment_type_for_semantic(matches[0].element_type)
+        else:
+            equipment_type = equipment_type
+
+        if not self.equipment_registry.contains(equipment_type):
+            equipment_type = equipment_type_for_semantic(equipment_type)
+
         definition = self.equipment_registry.require(equipment_type)
         if self.symbol_factory is None:
             raise RuntimeError("SymbolFactory is not configured")
