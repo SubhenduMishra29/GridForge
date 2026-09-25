@@ -67,8 +67,17 @@ class TopologySnapshot:
             if any(bus_id not in adjacency.get(neighbour, ()) for neighbour in neighbours):
                 raise ValueError("bus_adjacency must be symmetric.")
         object.__setattr__(self, "bus_adjacency", MappingProxyType(adjacency))
-        object.__setattr__(self, "equipment_bus_attachments", tuple(sorted(self.equipment_bus_attachments, key=lambda x:(x.equipment_id,x.terminal_role,x.bus_id))))
-        object.__setattr__(self, "conductive_edges", tuple(sorted(self.conductive_edges, key=lambda x:(x.equipment_id,x.from_bus_id,x.to_bus_id))))
+        attachments = tuple(self.equipment_bus_attachments)
+        attachment_keys = [(x.equipment_id, x.terminal_role) for x in attachments]
+        if len(attachment_keys) != len(set(attachment_keys)):
+            raise ValueError("equipment_bus_attachments contains duplicate (equipment_id, terminal_role) identities.")
+        if any(x.bus_id not in buses for x in attachments):
+            raise ValueError("equipment_bus_attachments references an unknown Bus.")
+        object.__setattr__(self, "equipment_bus_attachments", tuple(sorted(attachments, key=lambda x:(x.equipment_id,x.terminal_role,x.bus_id))))
+        edges = tuple(self.conductive_edges)
+        if any(edge.from_bus_id not in buses or edge.to_bus_id not in buses for edge in edges):
+            raise ValueError("conductive_edges references an unknown Bus.")
+        object.__setattr__(self, "conductive_edges", tuple(sorted(edges, key=lambda x:(x.equipment_id,x.from_bus_id,x.to_bus_id))))
         normalized = tuple(sorted(tuple(sorted(set(island))) for island in self.islands))
         flattened = [bus for island in normalized for bus in island]
         if tuple(sorted(flattened)) != buses or len(flattened) != len(set(flattened)):
