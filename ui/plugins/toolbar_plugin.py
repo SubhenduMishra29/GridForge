@@ -92,6 +92,7 @@ from ui.core.qt import (
 )
 
 from ui.plugins.plugin_context import PluginContext
+from ui.core.action_router import UIActionRouter
 
 
 # ============================================================
@@ -501,6 +502,9 @@ class ToolbarPlugin(QObject):
                     "get_current_tool_id()."
                 )
             )
+
+        if not isinstance(context.action_router, UIActionRouter):
+            raise TypeError("ToolbarPlugin requires PluginContext.action_router.")
 
     # ========================================================
     # TOOLBAR CREATION
@@ -976,7 +980,10 @@ class ToolbarPlugin(QObject):
         if spec.tool_id is not None:
             self.select_tool(spec.tool_id)
         else:
-            self.action_triggered.emit(action_id)
+            router = self._context.action_router if self._context is not None else None
+            if not isinstance(router, UIActionRouter):
+                raise RuntimeError("ToolbarPlugin has no canonical UIActionRouter.")
+            router.dispatch(action_id)
 
     # ========================================================
     # PRESENTATION SYNCHRONIZATION
@@ -1214,14 +1221,14 @@ class ToolbarPlugin(QObject):
         if tool_id not in {
             "select",
             "bus",
-            "line",
+            "wire",
         }:
             raise ValueError(
                 (
                     f"Unsupported GridForge tool: "
                     f"{tool_id!r}. "
-                    "The concrete tool set is limited to "
-                    "select, bus, and line."
+                    "The toolbar tool set is limited to "
+                    "select, bus, and wire."
                 )
             )
 
@@ -1231,45 +1238,15 @@ class ToolbarPlugin(QObject):
 # ============================================================
 
 
-def default_tool_actions() -> tuple[
-    ToolbarActionSpec,
-    ...
-]:
-    """
-    Return the canonical GridForge toolbar tool actions.
-
-    Exactly three concrete tools are exposed:
-
-        SelectTool
-        BusTool
-        LineTool
-    """
-
+def default_tool_actions() -> tuple[ToolbarActionSpec, ...]:
+    """Return the canonical engineer-entry toolbar workflow."""
     return (
-        ToolbarActionSpec(
-            action_id="tool.select",
-            text="Select",
-            tool_id="select",
-            tooltip="Select and inspect objects.",
-            checkable=True,
-            checked=True,
-        ),
-        ToolbarActionSpec(
-            action_id="tool.bus",
-            text="Bus",
-            tool_id="bus",
-            tooltip="Create a bus.",
-            checkable=True,
-        ),
-        ToolbarActionSpec(
-            action_id="tool.line",
-            text="Line",
-            tool_id="line",
-            tooltip="Create a line connection.",
-            checkable=True,
-        ),
+        ToolbarActionSpec(action_id="tool.select", text="Select", tool_id="select", tooltip="Select and inspect objects.", checkable=True, checked=True),
+        ToolbarActionSpec(action_id="tool.bus", text="Bus", tool_id="bus", tooltip="Create a bus.", checkable=True),
+        ToolbarActionSpec(action_id="tool.wire", text="Wire", tool_id="wire", tooltip="Create a simple terminal-to-terminal connection.", checkable=True),
+        ToolbarActionSpec(action_id="view.equipment_browser", text="Equipment", tooltip="Open the catalogue-driven Equipment Browser.", separator_before=True),
+        ToolbarActionSpec(action_id="view.fit", text="Fit", tooltip="Fit the SLD view."),
     )
-
 
 # ============================================================
 # FACTORY
