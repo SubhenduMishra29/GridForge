@@ -14,6 +14,7 @@ from core.solver.short_circuit.sequence_snapshot import (
     SequenceSourceSnapshot,
 )
 from .sequence_network_preparation import SequenceNetworkPreparation
+from core.network.topology_snapshot import TopologySnapshot
 
 
 class ShortCircuitPreparation:
@@ -33,7 +34,7 @@ class ShortCircuitPreparation:
         self._sequence_network = sequence_network
         self.base_mva = base_mva
 
-    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None) -> ShortCircuitInput:
+    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None) -> ShortCircuitInput:
         network = self._network
         if network is None:
             raise RuntimeError("Short Circuit preparation has already been consumed.")
@@ -45,7 +46,7 @@ class ShortCircuitPreparation:
             bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
             prefault_voltages = tuple(self._prepare_prefault_voltage(network, index) for index in range(len(bus_ids)))
             prefault_voltage = prefault_voltages[bus_index]
-            snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids)
+            snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids, topology_snapshot)
 
             positive_matrix = snapshot.get_matrix("positive")
             zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
@@ -79,12 +80,12 @@ class ShortCircuitPreparation:
             self._network = None
             self._sequence_network = None
 
-    def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...]) -> SequenceNetworkSnapshot:
+    def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...], topology_snapshot: TopologySnapshot | None = None) -> SequenceNetworkSnapshot:
         if self._sequence_network is not None:
             sequence_network = self._sequence_network
         else:
             required = ("positive", "negative", "zero") if fault_type.is_unbalanced else ("positive",)
-            sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva).prepare(required)
+            sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva, topology_snapshot=topology_snapshot).prepare(required)
         return SequenceNetworkSnapshot.from_sequence_network(
             sequence_network,
             bus_ids=bus_ids,
