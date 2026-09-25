@@ -289,6 +289,13 @@ class ProjectLifecycleService:
 
         rollback_stack: list[Callable[[], None]] = []
         try:
+            # Establish the candidate presentation as the lifecycle's
+            # Application-authoritative presentation before invoking any
+            # presentation activator. SLDService.bind_document() deliberately
+            # rejects documents that are not Application.presentation, so this
+            # is the transactional authority-binding phase of activation.
+            self._presentation = presentation
+
             rollback = self._activate_presentation(context, presentation)
             if rollback is not None:
                 rollback_stack.append(rollback)
@@ -303,12 +310,17 @@ class ProjectLifecycleService:
 
             self._network = network
             self._context = context
-            self._presentation = presentation
             self._activation_generation = next_generation
             self._state = "ACTIVE" if context is not None else "NO_PROJECT"
             self._rollback_error = None
             return context if context is not None else previous_context
         except Exception as activation_error:
+            # Restore the previous Application presentation authority before
+            # compensation callbacks run. This is required because SLDService
+            # rollback itself is guarded by the same authoritative identity
+            # invariant as forward binding.
+            self._presentation = old_presentation
+
             rollback_errors: list[Exception] = []
             for rollback in reversed(rollback_stack):
                 try:
@@ -318,7 +330,6 @@ class ProjectLifecycleService:
 
             self._network = old_network
             self._context = old_context
-            self._presentation = old_presentation
             self._activation_generation = old_generation
 
             if rollback_errors:
