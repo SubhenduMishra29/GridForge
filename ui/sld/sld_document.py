@@ -64,9 +64,14 @@ class SLDDocument(Document):
             if node.presentation is not None:
                 continue
             element_type = node.properties.get("element_type")
-            if not isinstance(element_type, str) or not element_type.strip():
+            identifier = (
+                element_type
+                if isinstance(element_type, str) and element_type.strip()
+                else node.equipment_id
+            )
+            if not isinstance(identifier, str) or not identifier.strip():
                 continue
-            node.presentation = SymbolBase.from_dict(factory(element_type))
+            node.presentation = SymbolBase.from_dict(factory(identifier))
 
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
         """Persist graphical position in the SLD document model."""
