@@ -48,7 +48,7 @@ class StudyPreparationService:
         if not isinstance(configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
         preparation = ShortCircuitPreparation(
-            self._snapshot.network,
+            self._execution_context.project_snapshot.network,
             base_mva=configuration.metadata.get("base_mva"),
         )
         return preparation.prepare(
@@ -83,9 +83,9 @@ class StudyPreparationService:
             activation_generation=self._execution_context.project_snapshot.activation_generation,
             source_revision=(
                 self._execution_context.project_snapshot.revision.model_revision,
-                self._snapshot.revision.topology_revision,
-                self._snapshot.revision.presentation_revision,
-                self._snapshot.revision.persisted_revision,
+                self._execution_context.project_snapshot.revision.topology_revision,
+                self._execution_context.project_snapshot.revision.presentation_revision,
+                self._execution_context.project_snapshot.revision.persisted_revision,
             ),
         )
 
