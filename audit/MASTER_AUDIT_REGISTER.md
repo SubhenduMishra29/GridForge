@@ -628,3 +628,25 @@ Final static checks:
 - No tests, CI, startup, GUI, or runtime execution was performed.
 
 **Final UI-02 status: CLOSED — STATIC SOURCE RE-AUDIT. Runtime verification: UNVERIFIED / DEFERRED.**
+
+
+## 2026-09-25 — GF-SLD-CANVAS-039 — Project Presentation Activation Order Correction
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only; no pytest, CI, application startup, GUI execution, or runtime verification performed.
+
+| Finding | Severity | Status | Static evidence |
+|---|---|---|---|
+| GF-SLD-CANVAS-039 | CRITICAL | **AGENT CORRECTED → RE-AUDIT REQUIRED** | `ProjectLifecycleService._activate_candidate()` now establishes the candidate SLD presentation as `self._presentation` before invoking the presentation activator, so `Application.presentation` is authoritative when `SLDService.bind_document()` executes. On failure, the previous presentation authority is restored before compensation callbacks, allowing guarded SLD rollback to bind the previous authoritative document. Activation generation is still committed only after all activation phases succeed. |
+
+**Root cause:** The lifecycle invoked the presentation activator before assigning the candidate to `ProjectLifecycleService._presentation`. Because `Application.presentation` delegates to that lifecycle property, `SLDService.bind_document(candidate)` correctly rejected the candidate as non-authoritative.
+
+**Architectural correction:** Candidate presentation authority is now established as a transactional authority-binding phase before presentation activation; final project/network/generation commit remains unchanged. No SLDService invariant was weakened and no second presentation authority was introduced.
+
+**Rollback:** Failed activation restores the previous presentation authority before rollback callbacks, then restores the previous network, context, generation, and lifecycle state. Existing rollback/`ROLLBACK_FAILED` handling remains authoritative.
+
+**Event behavior:** `Application.new_project()` still publishes `ProjectLoaded` only after `ProjectLifecycle.new_project()` returns successfully. No event ordering was moved into the lifecycle.
+
+**Runtime verification:** **UNVERIFIED / DEFERRED by instruction.** Static re-audit is required before closure.
