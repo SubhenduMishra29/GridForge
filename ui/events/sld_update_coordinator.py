@@ -175,7 +175,6 @@ class SLDUpdateCoordinator:
                     self._synchronizer.synchronize_network(
                         document,
                         self._application.read_network(),
-                        initial_positions=initial_positions,
                     )
             elif isinstance(event, (TopologyChanged, NetworkChanged)):
                 self._synchronizer.synchronize_network(
