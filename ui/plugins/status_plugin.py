@@ -312,7 +312,9 @@ class StatusPlugin(QObject):
         ] = {}
 
         self._initialized = False
-        self._bound_sources: list[tuple[Any, Any, Any]] = []
+        self._status_callbacks: list[tuple[Any, Any]] = []
+        self._application_event_handler: Any = None
+        self._project_change_handler: Any = None
 
     def bind_authoritative_state(
         self,
@@ -331,22 +333,30 @@ class StatusPlugin(QObject):
             raise ValueError("controller and application are required.")
 
         refresh = self.refresh_authoritative_state
-        controller.tool_changed.connect(lambda *_: refresh())
-        controller.state_changed.connect(refresh)
-        selection_manager.selection_changed.connect(lambda *_: refresh())
-        selection_manager.selection_cleared.connect(refresh)
-        graphics_view.cursor_scene_position.connect(lambda *_: refresh())
-        application.event_bus.subscribe(ApplicationEvent, lambda _event: refresh())
-        project_adapter.subscribe(lambda _change: refresh())
-        self._bound_sources = [
-            (controller.tool_changed, refresh),
-            (controller.state_changed, refresh),
-            (selection_manager.selection_changed, refresh),
-            (selection_manager.selection_cleared, refresh),
-            (graphics_view.cursor_scene_position, refresh),
-            (application.event_bus, ApplicationEvent),
+        controller_tool = lambda *_: refresh()
+        controller_state = lambda: refresh()
+        selection_changed = lambda *_: refresh()
+        selection_cleared = lambda: refresh()
+        cursor_changed = lambda *_: refresh()
+        application_event = lambda _event: refresh()
+        project_changed = lambda _change: refresh()
+        controller.tool_changed.connect(controller_tool)
+        controller.state_changed.connect(controller_state)
+        selection_manager.selection_changed.connect(selection_changed)
+        selection_manager.selection_cleared.connect(selection_cleared)
+        graphics_view.cursor_scene_position.connect(cursor_changed)
+        application.event_bus.subscribe(ApplicationEvent, application_event)
+        project_adapter.subscribe(project_changed)
+        self._status_callbacks = [
+            (controller.tool_changed, controller_tool),
+            (controller.state_changed, controller_state),
+            (selection_manager.selection_changed, selection_changed),
+            (selection_manager.selection_cleared, selection_cleared),
+            (graphics_view.cursor_scene_position, cursor_changed),
         ]
-        self._status_sources = (controller, selection_manager, graphics_view, application, project_adapter)
+        self._application_event_handler = application_event
+        self._project_change_handler = project_changed
+        self._status_sources = (application.event_bus, application, project_adapter)
         self.refresh_authoritative_state()
 
     def refresh_authoritative_state(self) -> None:
@@ -364,30 +374,38 @@ class StatusPlugin(QObject):
         tool_id = controller.get_current_tool_id() if controller is not None else None
         self.set_status("tool", f"Tool: {tool_id or 'Select'}")
         selected = selection_manager.get_selected_ids() if selection_manager is not None else ()
-        self.set_status("selection", f"Selection: {selected[0] if len(selected) == 1 else ('None' if not selected else str(len(selected)) + ' items')}")
-        if graphics_view is not None and hasattr(graphics_view, "last_cursor_scene_position"):
-            point = graphics_view.last_cursor_scene_position
-            if point is not None:
-                self.set_status("coordinates", f"X: {point[0]:.2f}  Y: {point[1]:.2f}")
-        project_context = adapter.state.context if adapter is not None and hasattr(adapter, "state") else None
+        selection_text = "None" if not selected else (str(selected[0]) if len(selected) == 1 else f"{len(selected)} items")
+        self.set_status("selection", f"Selection: {selection_text}")
+        point = graphics_view.last_cursor_scene_position if graphics_view is not None else None
+        if point is not None:
+            self.set_status("coordinates", f"X: {point[0]:.2f}  Y: {point[1]:.2f}")
+        project_context = getattr(getattr(adapter, "state", None), "context", None)
         project_name = getattr(project_context, "name", "No Project")
         dirty = bool(getattr(application, "is_dirty", False)) if application is not None else False
         self.set_status("project", f"Project: {project_name}{' *' if dirty else ''}")
-        validation = context.metadata.get("validation_status", "Ready")
-        self.set_status("validation", f"Validation: {validation}")
+        self.set_status("validation", "Validation: Application events current")
         workspace_id = workspace_controller.active_workspace_id if workspace_controller is not None else None
         self.set_status("workspace", f"Workspace: {workspace_id or 'None'}")
 
     def _unbind_authoritative_state(self) -> None:
+        for signal, callback in getattr(self, "_status_callbacks", ()):
+            try:
+                signal.disconnect(callback)
+            except (RuntimeError, TypeError):
+                pass
+        self._status_callbacks = []
         sources = getattr(self, "_status_sources", None)
-        if not sources:
-            return
-        controller, selection_manager, graphics_view, application, project_adapter = sources
-        # Signal lambdas are intentionally short-lived with the plugin lifecycle;
-        # Qt owner teardown releases them. ApplicationEventBus needs explicit removal
-        # only when the exact handler is retained, so the binding is replaced by the
-        # next composition instance rather than maintaining a second state model.
-        self._bound_sources.clear()
+        if sources is not None:
+            event_bus, _application, project_adapter = sources
+            if self._application_event_handler is not None:
+                event_bus.unsubscribe(ApplicationEvent, self._application_event_handler)
+            if self._project_change_handler is not None:
+                try:
+                    project_adapter.unsubscribe(self._project_change_handler)
+                except (AttributeError, RuntimeError, TypeError):
+                    pass
+        self._application_event_handler = None
+        self._project_change_handler = None
         self._status_sources = None
 
     # ========================================================
