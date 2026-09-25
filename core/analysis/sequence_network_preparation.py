@@ -116,10 +116,16 @@ class SequenceNetworkPreparation:
         return result
 
     def _end_buses(self, element: Any) -> tuple[Any | None, Any | None]:
-        records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self.topology_snapshot.equipment_bus_attachments}
+        records = {
+            (r.equipment_id, r.terminal_role): r.bus_id
+            for r in self.topology_snapshot.equipment_bus_attachments
+        }
         from_id = records.get((str(element.id), getattr(element.from_terminal, 'role', '')))
         to_id = records.get((str(element.id), getattr(element.to_terminal, 'role', '')))
-        return (self.network.get_by_identity(from_id) if from_id else None, self.network.get_by_identity(to_id) if to_id else None)
+        return (
+            self.network.get_by_identity(from_id) if from_id else None,
+            self.network.get_by_identity(to_id) if to_id else None,
+        )
 
     def _single_bus(self, element: Any) -> Any | None:
         role = getattr(getattr(element, 'terminal', None), 'role', '')
