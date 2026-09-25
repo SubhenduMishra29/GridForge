@@ -61,6 +61,7 @@ from core.model.line import Line
 from core.model.switch import Switch
 from core.model.transformer import Transformer
 
+from .connectivity import ConnectivityResolver
 from .endpoint import resolve_terminal_bus
 
 
@@ -145,11 +146,50 @@ class TopologyManager:
             key = self._edge_key(bus_a, bus_b)
             edges.setdefault(key, []).append(element)
 
+        self._apply_simple_wire_connectivity(graph)
+
         self._graph = graph
         self._edges = edges
 
         return self._graph
 
+    def _apply_simple_wire_connectivity(self, graph: dict[Any, set[Any]]) -> None:
+        """Project normalized Simple Wire terminal components onto Bus topology.
+
+        Simple Wire remains a relationship, never an electrical branch. Only
+        terminal endpoints that already resolve to Buses contribute Bus-to-Bus
+        adjacency. Equipment terminal boundaries are never traversed implicitly.
+        """
+        if not self.network.connectivity.connections:
+            return
+        resolved = ConnectivityResolver(self.network)
+        seen_components: set[Any] = set()
+        for connection in self.network.connectivity.connections:
+            for start in (connection.endpoint_a, connection.endpoint_b):
+                if start in seen_components:
+                    continue
+                component = resolved.terminal_component(start)
+                seen_components.update(component)
+                buses = []
+                for endpoint in component:
+                    bus = self._resolve_reference_bus(endpoint)
+                    if bus is not None and bus not in buses:
+                        buses.append(bus)
+                buses.sort(key=lambda item: str(getattr(item, "id", "")))
+                for index, bus_a in enumerate(buses):
+                    for bus_b in buses[index + 1:]:
+                        if bus_a is bus_b:
+                            continue
+                        graph.setdefault(bus_a, set()).add(bus_b)
+                        graph.setdefault(bus_b, set()).add(bus_a)
+
+    def _resolve_reference_bus(self, reference: Any) -> Any | None:
+        equipment = self.network.get_by_identity(reference.object_id)
+        terminals = tuple(getattr(equipment, "terminals", ()))
+        matches = [terminal for terminal in terminals if terminal.owner is equipment and terminal.role == reference.terminal_role]
+        if len(matches) != 1:
+            raise ValueError(f"Simple Wire endpoint {reference} does not resolve to exactly one terminal.")
+        return resolve_terminal_bus(matches[0])
     # ========================================================
     # INVALIDATION
     # ========================================================
