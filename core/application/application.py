@@ -302,6 +302,9 @@ class Application:
         if request.source_revision != self.revision:
             raise ValueError("StudyRequest source_revision does not match the active project revision.")
         network = lifecycle.network
+        # Runtime-only provenance metadata; never authoritative persisted state.
+        network.project_id = context.project_id
+        network.activation_generation = lifecycle.activation_generation
         if network.state.topology_revision != request.source_revision.topology_revision:
             raise ValueError("Network topology revision does not match StudyRequest source revision.")
         if network.state.topology_dirty or not network.state.topology_valid:
