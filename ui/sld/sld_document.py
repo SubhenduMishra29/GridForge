@@ -19,6 +19,7 @@ from typing import Any, Dict, Mapping, Optional
 from ui.workspace.document import Document
 
 from .sld_model import SLDModel
+from ui.equipment.symbol.symbol_base import SymbolBase
 
 
 class SLDDocument(Document):
@@ -65,7 +66,7 @@ class SLDDocument(Document):
             element_type = node.properties.get("element_type")
             if not isinstance(element_type, str) or not element_type.strip():
                 continue
-            node.presentation = factory(element_type)
+            node.presentation = SymbolBase.from_dict(factory(element_type))
 
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
         """Persist graphical position in the SLD document model."""
