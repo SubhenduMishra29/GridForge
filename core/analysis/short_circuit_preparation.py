@@ -82,6 +82,9 @@ class ShortCircuitPreparation:
                 sequence_snapshot=snapshot,
                 sequence_elements=sequence_elements,
                 prefault_voltages=prefault_voltages,
+                project_id=topology_snapshot.project_id,
+                activation_generation=topology_snapshot.activation_generation,
+                topology_revision=topology_snapshot.topology_revision,
             )
         finally:
             self._network = None
