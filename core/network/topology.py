@@ -23,15 +23,18 @@ class TopologyManager:
     def _build(self):
         graph={b:set() for b in self.network.buses};self._edges={};boundary=ElectricalBoundaryResolver(self.network)
         self.network.connectivity.validate(self.network);attachments=self._physical_attachments();self._validate_conductive_elements(boundary)
+        resolved_connectivity=ConnectivityResolver(self.network).resolve()
         zero={}
         for b in self.network.buses:self._node(zero,("bus",b.id))
         for a in attachments:self._edge(zero,("terminal",a.equipment_id+"::"+a.terminal_role),("bus",a.bus_id))
-        for c in self.network.connectivity.connections:
-            for e in (c.endpoint_a,c.endpoint_b): self._node(zero,self._node_for_reference(e))
-            na=self._node_for_reference(c.endpoint_a);nb=self._node_for_reference(c.endpoint_b);self._edge(zero,na,nb)
-            for e,n in ((c.endpoint_a,na),(c.endpoint_b,nb)):
-                b=boundary.resolve(e)
-                if e.is_terminal and b.boundary_type is ElectricalBoundaryType.SWITCHING_BOUNDARY and b.conductive and b.opposite_terminal is not None:self._edge(zero,n,self._node_for_reference(b.opposite_terminal))
+        for source,targets in resolved_connectivity.terminal_adjacency:
+            for target in targets:
+                self._node(zero,self._node_for_reference(source));self._node(zero,self._node_for_reference(target))
+                self._edge(zero,self._node_for_reference(source),self._node_for_reference(target))
+            if source.is_terminal:
+                b=boundary.resolve(source)
+                if b.boundary_type is ElectricalBoundaryType.SWITCHING_BOUNDARY and b.conductive and b.opposite_terminal is not None:
+                    self._edge(zero,self._node_for_reference(source),self._node_for_reference(b.opposite_terminal))
         adjacency={b.id:set() for b in self.network.buses}
         for component in self._components(zero):
             buses=sorted(n[1] for n in component if n[0]=="bus")
