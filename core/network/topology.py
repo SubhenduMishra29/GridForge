@@ -12,6 +12,10 @@ class TopologyManager:
     @property
     def snapshot(self): return self._snapshot
     def build(self):
+        """Rebuild through the canonical Network-owned lifecycle."""
+        return self.network.rebuild_topology()
+
+    def _build(self):
         graph={b:set() for b in self.network.buses};self._edges={};boundary=ElectricalBoundaryResolver(self.network)
         self.network.connectivity.validate(self.network);attachments=self._physical_attachments();self._validate_conductive_elements(boundary)
         zero={}
