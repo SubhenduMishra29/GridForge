@@ -470,10 +470,20 @@ class Application:
             if operation == "undo":
                 action = "remove" if action == "create" else "create"
             event_type = SimpleWireConnectionCreated if action == "create" else SimpleWireConnectionRemoved
+            endpoint_a = metadata.get("endpoint_a") or getattr(command, "payload", {}).get("endpoint_a")
+            endpoint_b = metadata.get("endpoint_b") or getattr(command, "payload", {}).get("endpoint_b")
+            if endpoint_a is None or endpoint_b is None:
+                raise RuntimeError(
+                    f"Simple Wire semantic event lacks endpoint snapshots for {metadata.get('connection_id')!r}."
+                )
+            if hasattr(endpoint_a, "to_mapping"):
+                endpoint_a = endpoint_a.to_mapping()
+            if hasattr(endpoint_b, "to_mapping"):
+                endpoint_b = endpoint_b.to_mapping()
             self._event_bus.publish(event_type(
-                connection_id=str(metadata["connection_id"]),
-                endpoint_a=metadata["endpoint_a"],
-                endpoint_b=metadata["endpoint_b"],
+                connection_id=str(metadata.get("connection_id") or getattr(command, "payload", {}).get("connection_id")),
+                endpoint_a=endpoint_a,
+                endpoint_b=endpoint_b,
                 correlation_id=command.correlation_id,
                 causation_id=command.causation_id,
                 metadata=metadata,
