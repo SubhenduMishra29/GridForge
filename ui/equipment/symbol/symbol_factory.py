@@ -25,13 +25,15 @@ class SymbolFactory:
         return self._registry
 
     def create(self, symbol_id: str, *, scale: float = 1.0, rotation: float = 0.0,
-               visible: bool = True, properties: dict[str, Any] | None = None) -> SymbolBase:
+               visible: bool = True, representation_id: str = "symbol",
+               properties: dict[str, Any] | None = None) -> SymbolBase:
         """Create a logical symbol instance for a registered symbol ID."""
         definition = self._registry.require(symbol_id)
         return SymbolBase(symbol_id=definition.symbol_id,
                           definition_id=definition.symbol_id,
                           scale=scale, rotation=rotation,
-                          visible=visible, properties=properties)
+                          visible=visible, representation_id=representation_id,
+                          properties=properties)
 
 
 __all__ = ["SymbolFactory"]
