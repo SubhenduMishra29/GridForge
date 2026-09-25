@@ -311,7 +311,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         return ProjectTransitionDecision.CANCEL
 
     close_controller = ProjectCloseController(
-        application=gridforge_application,
+        application=project_workspace_adapter,
         decision_provider=project_transition_decision,
     )
     window.set_close_handler(close_controller.request_close)
