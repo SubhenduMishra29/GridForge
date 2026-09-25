@@ -31,6 +31,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping, Optional, Tuple
 
+from ui.equipment.symbol.symbol_base import SymbolBase
+
 
 # ============================================================
 # SLD Node
@@ -50,6 +52,7 @@ class SLDNode:
     equipment_id: Optional[str] = None
     x: float = 0.0
     y: float = 0.0
+    presentation: SymbolBase | Mapping[str, Any] | None = None
     properties: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -69,6 +72,14 @@ class SLDNode:
 
         self.x = float(self.x)
         self.y = float(self.y)
+
+        if self.presentation is not None:
+            if isinstance(self.presentation, SymbolBase):
+                self.presentation = SymbolBase.from_dict(self.presentation.to_dict())
+            elif isinstance(self.presentation, Mapping):
+                self.presentation = SymbolBase.from_dict(self.presentation)
+            else:
+                raise TypeError("presentation must be a SymbolBase, mapping, or None")
 
         self.properties = dict(self.properties)
 
@@ -95,6 +106,11 @@ class SLDNode:
             "equipment_id": self.equipment_id,
             "x": self.x,
             "y": self.y,
+            "presentation": (
+                None
+                if self.presentation is None
+                else self.presentation.to_dict()
+            ),
             "properties": dict(self.properties),
         }
 
@@ -110,6 +126,7 @@ class SLDNode:
             ),
             x=data.get("x", 0.0),
             y=data.get("y", 0.0),
+            presentation=data.get("presentation"),
             properties=dict(data.get("properties", {})),
         )
 
@@ -233,6 +250,7 @@ class SLDModel:
         x: float = 0.0,
         y: float = 0.0,
         properties: Optional[Mapping[str, Any]] = None,
+        presentation: SymbolBase | Mapping[str, Any] | None = None,
     ) -> SLDNode:
         """Create and add an SLD node."""
         node = SLDNode(
@@ -240,6 +258,7 @@ class SLDModel:
             equipment_id=equipment_id,
             x=x,
             y=y,
+            presentation=presentation,
             properties=dict(properties or {}),
         )
         return self.add_node(node)
