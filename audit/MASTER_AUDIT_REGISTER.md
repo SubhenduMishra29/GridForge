@@ -505,3 +505,33 @@ GUI, or runtime execution was performed.
 - **Ownership:** projection-owned SLD nodes remain tagged with `projection_source`; engineer-owned nodes are not overwritten by projection reconciliation.
 
 **Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
+
+## 2026-09-25 — GF-SLD-WF-014..021 — final consolidated SLD workflow re-audit
+
+**Repository:** madhuri196mishra-cpu/GridForge  
+**Branch:** main  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only. pytest, unit/integration execution, CI, startup, GUI/runtime smoke tests, and application execution were not performed.
+
+| Finding | Status | Static evidence |
+|---|---|---|
+| GF-SLD-WF-014 | **CLOSED** | PanelsPlugin.initialize() creates the visible EquipmentPanelWidget and binds the canonical PluginContext.equipment_registry and tool_manager; EquipmentPanelWidget.activate_equipment() resolves the definition through that registry and activates the canonical ToolManager. The legacy logical EquipmentPanel is not composed as the visible widget. |
+| GF-SLD-WF-015 | **CLOSED** | ModelPlacementTool._build_command() carries presentation_x/presentation_y; BusTool carries x/y into canonical CREATE_BUS and Application._coordinate_pre_commit() now normalizes that compatibility form and resolves bus_id. The Application pre-commit hook projects the SLD node in the same transaction. SLDReadSynchronizer, SLDCanvasProjection, and the renderer preserve the committed presentation coordinates. |
+| GF-SLD-WF-016 | **CLOSED** | Retired ui/equipment/EquipmentConnection, ConnectionManager, and topology adapter are absent from the active tree. ui/sld/sld_model.py owns SLDConnection as presentation/document state, while Core terminal connectivity is represented by Application/Core connection commands. Remaining ui/connections/Connection is non-authoritative interaction/presentation state and does not mutate Core. |
+| GF-SLD-WF-017 | **CLOSED** | EquipmentManager is retired. SLDGraphicsItemFactory resolves ElementReadModel from Application.read_network() / protection read state and EquipmentFactory.create_from_read_model() creates transient presentation equipment. No UI equipment collection is the engineering authority. |
+| GF-SLD-WF-018 | **CLOSED** | PresentationBootstrap composes the canonical equipment/symbol registries, semantic realization, and SLDGraphicsItemFactory; main.py constructs one SLDCanvasProjection and one SLDCanvasRenderSystem, then injects both into the single CanvasComposition. SLDCanvasRenderSystem.synchronize() consumes only immutable SLDCanvasSnapshot data. |
+| GF-SLD-WF-019 | **CLOSED** | CanvasComposition owns the scene, ToolManager-related canvas services, SLD projection, render system, and selection projection. CanvasPlugin only consumes that composition and asserts identity against the same PluginContext projection/render instances and scene. |
+| GF-SLD-WF-020 | **CLOSED** | UIUpdateBoundary is the single Application-event ingress; UIProjectionCoordinator routes lifecycle/model events to SLDUpdateCoordinator. ProjectLoaded clears projection state, binds the new presentation, reconciles network/protection, and refreshes the canvas. ProjectClosed clears projection state, detaches the document, and invokes the CanvasPlugin synchronization path, which clears the render system when no active presentation exists. |
+| GF-SLD-WF-021 | **CLOSED** | Application._coordinate_pre_commit() invokes SLDService.execute(AddSLDNodeCommand, transaction) before CommandManager commits. SLDService records the SLD inverse in that same Transaction. A projection failure therefore causes the canonical transaction to roll back rather than creating a second SLD history operation. |
+
+### Final end-to-end static proof
+
+EquipmentPanelWidget._on_item_clicked() → activate_equipment() → EquipmentRegistry.require() → canonical ToolManager.activate() → concrete placement Tool → live PreviewLayer only → immutable model command → ToolBase.execute_command() → Application.execute() → CommandManager._execute_command() → Core handler → Application pre-commit SLD projection → SLDService / SLDDocument transaction mutation → commit → semantic ElementCreated/related event → UIUpdateBoundary → UIProjectionCoordinator → SLDUpdateCoordinator.refresh() → SLDReadSynchronizer → SLDDocument/SLDModel → SLDCanvasProjection.project() → SLDCanvasSnapshot → SLDCanvasRenderSystem.synchronize() → SLDGraphicsItemFactory / semantic realization → GridScene.
+
+### Final corrections made during this pass
+
+1. Removed the stale initial_positions reference from ui/events/sld_update_coordinator.py; the current event-driven path now reconciles directly from Application read state.
+2. Normalized the Bus compatibility placement path in core/application/application.py so PlaceBusCommand's presentation-only x/y and bus_id participate in the same Application pre-commit SLD transaction as all other placement commands.
+3. Re-audited the affected paths after those corrections and recorded the result in this master register.
+
+**Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
