@@ -279,3 +279,6 @@ __all__ = [
 # =====================================================================
 
 __version__ = "2.0.0"
+
+from .electrical_boundary import ElectricalBoundary, ElectricalBoundaryResolver, ElectricalBoundaryType, EndpointCompatibility, EndpointCompatibilityError, conduction_state
+from .topology_snapshot import ConductiveEdge, EquipmentBusAttachment, TopologyProvenance, TopologySnapshot
