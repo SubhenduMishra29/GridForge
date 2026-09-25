@@ -112,6 +112,30 @@ class NetworkChanged(ApplicationEvent):
 
 
 @dataclass(frozen=True)
+class SimpleWireConnectionCreated(ApplicationEvent):
+    """Semantic fact that an authoritative Simple Wire was created."""
+
+    def __init__(self, *, connection_id: str, endpoint_a: Mapping[str, Any], endpoint_b: Mapping[str, Any],
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None,
+                 metadata: Mapping[str, Any] | None = None) -> None:
+        payload = {"connection_id": connection_id, "endpoint_a": dict(endpoint_a), "endpoint_b": dict(endpoint_b)}
+        if metadata: payload.update(metadata)
+        super().__init__("simple_wire.created", payload, correlation_id=correlation_id, causation_id=causation_id)
+
+
+@dataclass(frozen=True)
+class SimpleWireConnectionRemoved(ApplicationEvent):
+    """Semantic fact that an authoritative Simple Wire was removed."""
+
+    def __init__(self, *, connection_id: str, endpoint_a: Mapping[str, Any], endpoint_b: Mapping[str, Any],
+                 correlation_id: UUID | None = None, causation_id: UUID | None = None,
+                 metadata: Mapping[str, Any] | None = None) -> None:
+        payload = {"connection_id": connection_id, "endpoint_a": dict(endpoint_a), "endpoint_b": dict(endpoint_b)}
+        if metadata: payload.update(metadata)
+        super().__init__("simple_wire.removed", payload, correlation_id=correlation_id, causation_id=causation_id)
+
+
+@dataclass(frozen=True)
 class ProtectionChanged(ApplicationEvent):
     """Semantic fact that Application-owned protection read state changed."""
 
@@ -241,7 +265,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
-    "TopologyChanged", "NetworkChanged", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
+    "TopologyChanged", "NetworkChanged", "SimpleWireConnectionCreated", "SimpleWireConnectionRemoved", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
     "ProtectionTripRequested",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed",
     "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
