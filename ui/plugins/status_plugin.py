@@ -386,7 +386,8 @@ class StatusPlugin(QObject):
         point = graphics_view.last_cursor_scene_position if graphics_view is not None else None
         if point is not None:
             self.set_status("coordinates", f"X: {point[0]:.2f}  Y: {point[1]:.2f}")
-        project_context = getattr(getattr(adapter, "state", None), "context", None)
+        project_state = getattr(adapter, "state", None)
+        project_context = getattr(project_state, "project", None)
         project_name = getattr(project_context, "name", "No Project")
         dirty = bool(getattr(application, "is_dirty", False)) if application is not None else False
         self.set_status("project", f"Project: {project_name}{' *' if dirty else ''}")
