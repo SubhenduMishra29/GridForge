@@ -29,8 +29,8 @@ class SLDCanvasNode:
     equipment_id: str | None
     x: float
     y: float
-    presentation: SymbolBase | None
     properties: Mapping[str, Any]
+    presentation: SymbolBase | None = None
 
 
 @dataclass(frozen=True, slots=True)
