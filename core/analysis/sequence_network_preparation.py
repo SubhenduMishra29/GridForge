@@ -10,13 +10,14 @@ from core.model.cable import Cable
 from core.model.line import Line
 from core.model.transformer import Transformer
 from core.network.endpoint import resolve_terminal_bus
+from core.network.topology_snapshot import TopologySnapshot
 from core.solver.short_circuit.sequence_network import SequenceNetwork
 
 
 class SequenceNetworkPreparation:
     """Build sequence-network data from an authoritative Network."""
 
-    def __init__(self, network: Any, *, base_mva: float | None = None) -> None:
+    def __init__(self, network: Any, *, base_mva: float | None = None, topology_snapshot: TopologySnapshot | None = None) -> None:
         if network is None or not hasattr(network, "buses"):
             raise ValueError("Sequence preparation requires an authoritative Network.")
         if not network.buses:
@@ -25,6 +26,9 @@ class SequenceNetworkPreparation:
             raise ValueError("base_mva must be finite and greater than zero.")
         self.network = network
         self.base_mva = None if base_mva is None else float(base_mva)
+        self.topology_snapshot = topology_snapshot
+        if topology_snapshot is not None and topology_snapshot.topology_revision != getattr(network, 'topology_revision', None):
+            raise ValueError('Sequence topology snapshot is stale relative to the Network.')
 
     def prepare(self, sequences: Iterable[str] = ("positive", "negative", "zero")) -> SequenceNetwork:
         """Prepare the requested sequence networks without mutating Core."""
