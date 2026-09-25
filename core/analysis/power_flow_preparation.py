@@ -183,10 +183,10 @@ class PowerFlowPreparation:
         self._per_unit = PerUnitSystem(power_flow_configuration.base_mva)
 
     def _prepare(self) -> PreparedPowerFlow:
-        buses = tuple(self.network.buses)
-        if not buses:
+        bus_ids = tuple(self.topology_snapshot.bus_ids)
+        if not bus_ids:
             raise ValueError("Power Flow preparation requires at least one bus.")
-        bus_ids = tuple(str(bus.id) for bus in buses)
+        buses = tuple(self.network.get_by_identity(bus_id) for bus_id in bus_ids)
         classification = self._prepare_bus_types(bus_ids)
         voltage_bases = self._prepare_voltage_bases(buses)
 
@@ -429,6 +429,11 @@ class PowerFlowPreparation:
 
     def _bus_power_spec(self, bus: Any) -> tuple[float, float, float | None, float | None]:
         p = q = 0.0
+        attachment_keys = {
+            (record.equipment_id, record.terminal_role): record.bus_id
+            for record in self.topology_snapshot.equipment_bus_attachments
+        }
+        bus_id = str(bus.id)
         q_min: float | None = None
         q_max: float | None = None
         for collection_name in self._INJECTION_COLLECTIONS:
@@ -436,8 +441,9 @@ class PowerFlowPreparation:
                 if not isinstance(equipment, Injection) or not getattr(equipment, "in_service", True):
                     continue
                 terminal = getattr(equipment, "terminal", None)
-                endpoint = getattr(terminal, "endpoint", None)
-                if endpoint is not bus and getattr(endpoint, "id", None) != getattr(bus, "id", None):
+                role = getattr(terminal, "role", "")
+                attached_bus_id = attachment_keys.get((str(getattr(equipment, "id", equipment)), role))
+                if attached_bus_id != bus_id:
                     continue
                 ep, eq = equipment.get_power()
                 p += self._finite(ep, f"Injection '{getattr(equipment, 'id', equipment)}' active power")
