@@ -11,8 +11,7 @@ import copy
 from core.analysis.power_flow import PowerFlowAnalysis
 from core.analysis.line_flow import LineFlowCalculator
 from core.analysis.transformer_flow import TransformerFlowCalculator
-from core.network.endpoint import resolve_terminal_bus
-from core.solver.power_flow.preparation import PowerFlowPreparation, PreparedPowerFlow
+from core.analysis.power_flow_preparation import PowerFlowPreparation, PreparedPowerFlow
 from core.solver.power_flow.study_configuration import PowerFlowStudyConfiguration
 
 
@@ -119,7 +118,15 @@ class ContingencyAnalysis:
         case_result = ContingencyCaseResult(case_id=self._make_case_id(outages), outages=outages)
         try:
             case_network = self._create_outage_case(outages)
-            prepared = PowerFlowPreparation(case_network, self.power_flow_configuration).prepare()
+            case_network.rebuild_topology()
+            case_snapshot = case_network.topology_snapshot
+            if case_snapshot is None:
+                raise ValueError("Contingency case did not produce a canonical TopologySnapshot.")
+            prepared = PowerFlowPreparation.prepare(
+                case_network,
+                self.power_flow_configuration,
+                topology_snapshot=case_snapshot,
+            )
             power_flow = PowerFlowAnalysis(prepared.input, prepared.ybus, options=power_flow_options, prepared=prepared)
             power_flow_result = power_flow.solve()
             case_result.power_flow_result = power_flow_result
@@ -148,7 +155,7 @@ class ContingencyAnalysis:
                 raise KeyError(f"Contingency element {element_id!r} was not found in the isolated case Network.")
             if self._is_bus(element):
                 self._set_in_service(element, False)
-                self._disable_connected_equipment(case_network, element)
+                self._disable_connected_equipment(case_network, element, case_snapshot)
             else:
                 self._set_in_service(element, False)
         return case_network
@@ -170,30 +177,17 @@ class ContingencyAnalysis:
             setter(bool(in_service))
 
     @classmethod
-    def _disable_connected_equipment(cls, network: Any, bus: Any) -> None:
+    def _disable_connected_equipment(cls, network: Any, bus: Any, topology_snapshot: Any) -> None:
+        bus_id = str(getattr(bus, "id", bus))
+        attached_ids = {
+            str(record.equipment_id)
+            for record in topology_snapshot.equipment_bus_attachments
+            if str(record.bus_id) == bus_id
+        }
         for collection_name in ("lines", "transformers", "generators", "loads", "shunts", "cables"):
             for element in getattr(network, collection_name, ()):
-                if cls._element_connected_to_bus(element, bus):
+                if str(element.id) in attached_ids:
                     cls._set_in_service(element, False)
-
-    @staticmethod
-    def _element_connected_to_bus(element: Any, bus: Any) -> bool:
-        terminals = getattr(element, "terminals", None)
-        if terminals is None:
-            terminal = getattr(element, "terminal", None)
-            terminals = (terminal,) if terminal is not None else ()
-        for terminal in terminals:
-            if terminal is None:
-                continue
-            try:
-                resolved_bus = resolve_terminal_bus(terminal)
-            except (TypeError, ValueError):
-                continue
-            if resolved_bus is bus:
-                return True
-            if getattr(resolved_bus, "id", None) == getattr(bus, "id", None):
-                return True
-        return False
 
     def _get_candidates(self, *, elements: Optional[Sequence[Any]], element_types: Optional[Sequence[str]]) -> List[Any]:
         normalized_types = self._normalize_element_types(element_types)
