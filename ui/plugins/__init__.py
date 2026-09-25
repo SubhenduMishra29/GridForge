@@ -244,3 +244,5 @@ __all__ = [
     "StatusPlugin",
     "create_status_plugin",
 ]
+
+from .menu_plugin import MenuActionSpec, MenuPlugin, MenuSpec, create_menu_plugin, default_menus
