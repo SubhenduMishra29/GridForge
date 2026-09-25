@@ -224,7 +224,7 @@ class Network:
         return self.connectivity.get(connection_id)
 
     def rebuild_topology(self) -> dict[Any, set[Any]]:
-        graph = self.topology.build()
+        graph = self.topology._build()
         if self.topology.snapshot is None:
             self.state.topology_rebuilt(valid=False)
             raise RuntimeError("TopologyManager did not produce a valid TopologySnapshot.")
