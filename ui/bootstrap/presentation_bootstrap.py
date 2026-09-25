@@ -17,6 +17,7 @@ from ui.equipment.symbol.built_in_symbol_catalogue import register_builtin_symbo
 from ui.equipment.symbol.symbol_factory import SymbolFactory
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
+from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.workspace.workspace_manager import WorkspaceManager
 
 
@@ -83,6 +84,19 @@ class PresentationBootstrap:
         if self.application is None:
             raise RuntimeError("Presentation Application facade is not configured")
         return self.application
+
+    def default_symbol_presentation(self, element_type: str) -> dict[str, Any]:
+        """Resolve the canonical EquipmentDefinition default into SymbolBase state."""
+        if not isinstance(element_type, str) or not element_type.strip():
+            raise ValueError("element_type must be a non-empty string")
+        equipment_type = equipment_type_for_semantic(element_type)
+        definition = self.equipment_registry.require(equipment_type)
+        if self.symbol_factory is None:
+            raise RuntimeError("SymbolFactory is not configured")
+        return self.symbol_factory.create(
+            definition.symbol_id,
+            representation_id="symbol",
+        ).to_dict()
 
     def attach_shell(self, shell: Any) -> None:
         self.shell = shell
