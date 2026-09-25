@@ -29,6 +29,9 @@ class ShortCircuitInput:
     sequence_snapshot: SequenceNetworkSnapshot | None = None
     sequence_elements: tuple[Any, ...] = ()
     prefault_voltages: tuple[complex, ...] | None = None
+    project_id: str | None = None
+    activation_generation: int | None = None
+    topology_revision: int | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.fault_bus_index, bool) or not isinstance(self.fault_bus_index, int):
@@ -55,3 +58,9 @@ class ShortCircuitInput:
             object.__setattr__(self, "zbus", zbus)
         if self.thevenin_impedance is not None:
             object.__setattr__(self, "thevenin_impedance", complex(self.thevenin_impedance))
+        if self.project_id is not None and not str(self.project_id).strip():
+            raise ValueError("Short Circuit project_id must be non-empty when supplied.")
+        if self.activation_generation is not None and (isinstance(self.activation_generation, bool) or int(self.activation_generation) < 1):
+            raise ValueError("Short Circuit activation_generation must be positive when supplied.")
+        if self.topology_revision is not None and (isinstance(self.topology_revision, bool) or int(self.topology_revision) < 0):
+            raise ValueError("Short Circuit topology_revision must be non-negative when supplied.")
