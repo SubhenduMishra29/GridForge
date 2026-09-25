@@ -295,10 +295,15 @@ class Application:
             raise TypeError("request must be a StudyRequest.")
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        if context is None:
-            raise RuntimeError("Cannot start a study without an active project.")
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot start a study without a valid active project activation.")
         if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
             raise ValueError("StudyRequest project scope does not match the active project generation.")
+        # Project validation is an Application study gate. A study cannot
+        # publish StudyStarted until authoritative project validation succeeds.
+        validation = self.validate_project()
+        if not validation.valid:
+            raise ValueError("Project validation failed; study execution is blocked before StudyStarted.")
         if request.source_revision != self.revision:
             raise ValueError("StudyRequest source_revision does not match the active project revision.")
         network = lifecycle.network
