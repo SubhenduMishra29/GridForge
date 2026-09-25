@@ -41,7 +41,7 @@ from .events import (
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
-from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
+from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -446,6 +446,13 @@ class Application:
         self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
         self._require_read_service(); return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
+    def read_simple_wire(self, connection_id: str) -> SimpleWireReadModel:
+        network = self.read_network()
+        for connection in network.simple_wires:
+            if connection.connection_id == connection_id:
+                return connection
+        raise KeyError(f"Simple Wire connection '{connection_id}' is not represented by the Application read model.")
+
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
     def read_relay(self, relay_id: str) -> RelayReadModel:
