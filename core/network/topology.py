@@ -127,7 +127,7 @@ class TopologyManager:
                         ts[1].role,
                     )
                 )
-        return tuple(out)
+        return tuple(sorted(out, key=lambda edge: edge.edge_identity))
     def _make_snapshot(self,adjacency,attachments,resolver):
         buses=tuple(sorted(adjacency));remaining=set(buses);islands=[]
         while remaining:
