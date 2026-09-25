@@ -161,7 +161,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _open_project() -> None:
-        path, _ = QFileDialog.getOpenFileName(window, "Open GridForge Project", "", "GridForge Project (*.gfpkg);;All Files (*)")
+        path, _ = QFileDialog.getOpenFileName(window, "Open GridForge Project", "", "GridForge Project (*.gridforge);;All Files (*)")
         if path:
             project_workspace_adapter.open_project(path)
             _refresh_status()
@@ -176,7 +176,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         _refresh_status()
 
     def _save_project_as() -> None:
-        path, _ = QFileDialog.getSaveFileName(window, "Save GridForge Project", "", "GridForge Project (*.gfpkg)")
+        path, _ = QFileDialog.getSaveFileName(window, "Save GridForge Project", "", "GridForge Project (*.gridforge)")
         if path:
             gridforge_application.save_project_as(path)
             _refresh_status()
