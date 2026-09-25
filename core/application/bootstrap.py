@@ -41,6 +41,7 @@ from .application import Application
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
+from .services.simple_wire_service import SimpleWireConnectionCommandHandlers
 from .command_manager import CommandManager
 from .context import ApplicationContext
 from .project import ProjectContext
@@ -97,6 +98,7 @@ def create_application(network: Any) -> Application:
         handlers: dict[str, Any] = {}
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
+        register_handlers(handlers, SimpleWireConnectionCommandHandlers().handlers(), "simple wire connectivity")
         register_handlers(
             handlers,
             RelayCommandHandlers(
