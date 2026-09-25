@@ -214,7 +214,7 @@ class PowerFlowPreparation:
         branches = self._prepare_branches(voltage_bases)
         transformers = self._prepare_transformers(voltage_bases)
         shunts = self._prepare_shunts(voltage_bases)
-        topology_revision = getattr(self.network, "topology_revision", None)
+        topology_revision = self.topology_snapshot.topology_revision
         snapshot = PreparedPowerFlow(
             input=input_data,
             ybus=YBus(matrix=self._empty_ybus_matrix(len(bus_ids)), bus_ids=bus_ids, topology_revision=topology_revision),
