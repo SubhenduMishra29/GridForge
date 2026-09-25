@@ -650,3 +650,38 @@ Final static checks:
 **Event behavior:** `Application.new_project()` still publishes `ProjectLoaded` only after `ProjectLifecycle.new_project()` returns successfully. No event ordering was moved into the lifecycle.
 
 **Runtime verification:** **UNVERIFIED / DEFERRED by instruction.** Static re-audit is required before closure.
+
+
+## 2026-09-25 — GF-SLD-CANVAS-022/023/015/016/017/018 — Canonical SLD Presentation Instance Correction
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only; no pytest, CI, application startup, GUI execution, or runtime verification performed.
+
+| Finding | Severity | Status | RCA | Affected modules / static correction |
+|---|---|---|---|---|
+| GF-SLD-CANVAS-022 | HIGH | **AGENT CORRECTED → STATIC RE-AUDIT PASSED → RUNTIME VERIFICATION DEFERRED** | SLDNode previously had only generic properties, leaving symbol instance identity and transforms implicit. | `ui/sld/sld_model.py`, `ui/sld/sld_document.py`, `ui/equipment/symbol/symbol_base.py`: canonical SymbolBase-backed presentation state now carries symbol_id, representation_id, scale, rotation, visible, and properties and is serialized with the SLD node. |
+| GF-SLD-CANVAS-023 | CRITICAL | **AGENT CORRECTED → STATIC RE-AUDIT PASSED → RUNTIME VERIFICATION DEFERRED** | Reconstruction selected symbols from EquipmentDefinition instead of treating persisted SLD symbol identity as authoritative. | `ui/canvas/semantic_presentation_realization.py`, `ui/canvas/sld_canvas_projection.py`, `ui/sld/sld_document.py`: persisted presentation.symbol_id resolves through SymbolRegistry; legacy/incomplete nodes materialize the explicit EquipmentDefinition default without replacing existing authored state; invalid persisted IDs fail at realization. |
+| GF-SLD-CANVAS-015 | CRITICAL | **AGENT CORRECTED → STATIC RE-AUDIT PASSED → RUNTIME VERIFICATION DEFERRED** | Graphics factory resolved SymbolDefinition independently of the SLD symbol instance. | `ui/canvas/sld_graphics_item_factory.py`, `ui/items/equipment_item.py`: graphics realization now receives the canonical SymbolBase state and resolves its SymbolDefinition through SymbolRegistry. |
+| GF-SLD-CANVAS-016 | CRITICAL | **AGENT CORRECTED → STATIC RE-AUDIT PASSED → RUNTIME VERIFICATION DEFERRED** | Runtime scale/rotation state was not consumed by graphical realization. | `ui/items/equipment_item.py`, `ui/canvas/sld_graphics_item_factory.py`: scale and rotation are applied to the realized QGraphics item from the same symbol instance used for geometry. |
+| GF-SLD-CANVAS-017 | HIGH | **AGENT CORRECTED → STATIC RE-AUDIT PASSED → RUNTIME VERIFICATION DEFERRED** | Persisted visibility was not consumed by reconstruction. | `ui/items/equipment_item.py`, `ui/canvas/sld_graphics_item_factory.py`: visible=False suppresses graphical presentation while leaving SLD/Core identity untouched. |
+| GF-SLD-CANVAS-018 | CRITICAL | **AGENT CORRECTED → STATIC RE-AUDIT PASSED → RUNTIME VERIFICATION DEFERRED** | Terminal anchors were sourced from the EquipmentDefinition symbol even when rendering used another symbol, allowing geometry divergence. | `ui/equipment/equipment_factory.py`, `ui/items/equipment_item.py`: terminal local anchors now resolve from the selected SymbolBase.symbol_id; the QGraphics item applies the same scale/rotation/translation, so snap points derive through the same scene transform. |
+
+### Static acceptance proof
+
+- Persisted `SLDNode.presentation.symbol_id` → `SymbolRegistry.require()` → immutable `SymbolDefinition`.
+- One canonical runtime symbol-instance state is carried by `SLDNode.presentation` as `SymbolBase`; no second mutable symbol-definition authority was introduced.
+- `representation_id="symbol"` is operational; unsupported representation IDs fail deterministically during semantic realization.
+- Legacy/incomplete presentation state defaults through the configured presentation factory and is materialized without overwriting an existing presentation.
+- Rendering and terminal/snap geometry share the same symbol instance, selected SymbolDefinition, and QGraphics transform.
+- `visible=False` is consumed by the graphical realization and does not remove the SLD node or Core equipment.
+- `project.json` round-trips the complete SLD presentation mapping through the existing SLDDocument/SLDModel serializer; no Qt objects are persisted.
+- Engineer-owned placement now creates the initial SLD node with `presentation_owner="engineer"` and no `projection_source`, inside the existing Application pre-commit transaction.
+- Engineer-authored presentation mutation is available through `SetSLDNodePresentationCommand` → Application/CommandManager → SLDService transaction, preserving the existing history boundary.
+- Projection reconciliation only materializes missing presentation state; it does not replace an existing engineer-authored symbol, representation, transform, visibility, properties, or position.
+- No connection-geometry findings are being closed by this batch.
+
+**Architecture compliance:** Core electrical identity remains separate from graphical terminal geometry; SymbolDefinition remains immutable; Application remains the persistent mutation boundary; SLD remains presentation/document state; Canvas projection remains renderer-neutral; Qt remains confined to runtime realization.
+
+**Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
