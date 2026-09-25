@@ -116,6 +116,8 @@ class PreparedPowerFlow:
     branches: tuple[PreparedBranch, ...] = ()
     transformers: tuple[PreparedTransformer, ...] = ()
     shunts: tuple[PreparedShunt, ...] = ()
+    project_id: str | None = None
+    activation_generation: int | None = None
     topology_revision: int | None = None
 
     def __post_init__(self) -> None:
@@ -138,6 +140,10 @@ class PreparedPowerFlow:
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "transformers", tuple(self.transformers))
         object.__setattr__(self, "shunts", tuple(self.shunts))
+        if self.project_id is not None and not str(self.project_id).strip():
+            raise ValueError("Prepared Power Flow project_id must be non-empty when supplied.")
+        if self.activation_generation is not None and (isinstance(self.activation_generation, bool) or int(self.activation_generation) < 1):
+            raise ValueError("Prepared Power Flow activation_generation must be positive when supplied.")
 
     @property
     def bus_ids(self) -> tuple[str, ...]:
@@ -223,6 +229,8 @@ class PowerFlowPreparation:
             branches=branches,
             transformers=transformers,
             shunts=shunts,
+            project_id=self.topology_snapshot.project_id,
+            activation_generation=self.topology_snapshot.activation_generation,
             topology_revision=topology_revision,
         )
         ybus = YBusBuilder().build(snapshot)
