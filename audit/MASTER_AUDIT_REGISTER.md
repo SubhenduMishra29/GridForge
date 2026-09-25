@@ -612,3 +612,19 @@ Register status discipline: these findings are not marked CLOSED. Static correct
 12. Master register updated with this fresh static re-audit; runtime verification remains deferred.
 
 **Closure discipline:** UI-02 is **STATICALLY CLOSED** only. Runtime verification remains **UNVERIFIED / DEFERRED**.
+
+
+## UI-02 Final Post-Correction Static Re-Audit — 2026-09-25
+
+After the UI-02 remediation commits, the affected source was inspected again on main. One composition correction identified during re-audit was applied: MainWindow close now supplies ProjectWorkspaceApplicationAdapter to ProjectCloseController rather than the raw Application, ensuring the canonical adapter publication path is used for window close.
+
+Final static checks:
+- main.py contains zero gfpkg references and uses GridForge Project (*.gridforge) for Open and Save As.
+- core/persistence/project_package.py remains the canonical .gridforge / manifest.json / project.json contract.
+- ProjectCloseController delegates close to the supplied lifecycle boundary; main.py supplies ProjectWorkspaceApplicationAdapter.
+- ProjectWorkspaceApplicationAdapter resolves CANCEL before lifecycle presentation configuration, publishes only after Application transition success, and restores captured presentation configuration when transition setup/activation fails.
+- ProjectLifecycleService now exposes PresentationConfigurationSnapshot capture/restore as the single transactional configuration boundary; existing activation rollback and ROLLBACK_FAILED handling remain unchanged.
+- Successful close clears ProjectWorkspaceLifecycle project/document/view/workspace state; ProjectWorkspaceChanged(close) then reconciles SLDController/canvas presentation to the empty Application presentation.
+- No tests, CI, startup, GUI, or runtime execution was performed.
+
+**Final UI-02 status: CLOSED — STATIC SOURCE RE-AUDIT. Runtime verification: UNVERIFIED / DEFERRED.**
