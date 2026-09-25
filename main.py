@@ -315,6 +315,16 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         decision_provider=project_transition_decision,
     )
     window.set_close_handler(close_controller.request_close)
+    if status_plugin is None:
+        raise RuntimeError("StatusPlugin is required for authoritative status integration.")
+    status_plugin.bind_authoritative_state(
+        controller=controller,
+        application=gridforge_application,
+        selection_manager=canvas_composition.selection_manager,
+        graphics_view=canvas_composition.view,
+        workspace_controller=workspace_controller,
+        project_adapter=project_workspace_adapter,
+    )
 
     ui_lifecycle.start(); ui_lifecycle.activate_document(); window.show()
     return app, window, plugin_manager, workspace_controller, ui_update_boundary, ui_lifecycle
