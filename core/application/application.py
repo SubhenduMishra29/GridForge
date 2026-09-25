@@ -321,8 +321,18 @@ class Application:
         """Coordinate placement presentation mutation inside the same transaction."""
         if self._sld_service is None or command.command_type not in {"model.create_relay"} and not command.command_type.startswith("model.create_"):
             return
+        # Most placement tools carry presentation_x/presentation_y.
+        # PlaceBusCommand is a compatibility constructor whose canonical
+        # CREATE_BUS payload still carries x/y; the Bus command handler removes
+        # those fields before Core mutation. Normalize both forms here so Bus
+        # placement participates in the same Application transaction without
+        # treating coordinates as Core electrical properties.
         x = command.payload.get("presentation_x")
         y = command.payload.get("presentation_y")
+        if x is None and command.command_type == "model.create_bus":
+            x = command.payload.get("x")
+        if y is None and command.command_type == "model.create_bus":
+            y = command.payload.get("y")
         if x is None or y is None:
             return
         element_id = self._element_id(command)
@@ -517,7 +527,7 @@ class Application:
     def _element_id(command: Command) -> str | None:
         payload = command.payload; value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
         if value is None:
-            for key in ("breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
+            for key in ("bus_id", "breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
                 if key in payload: value = payload[key]; break
         return str(value) if value is not None else None
 

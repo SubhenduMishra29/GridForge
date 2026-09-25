@@ -61,3 +61,16 @@ Canonical register identity: `SubhenduMishra29/GridForge`.
 Historical repository identities are preserved only in historical evidence and are not active canonical repository metadata.
 
 Post-B39 findings GF-POST-B39-001 through GF-POST-B39-006 are CORRECTED — STATIC VERIFICATION COMPLETE. Required open RCA findings: RCA-016-B6-001, RCA-016-B6-004, RCA-017-010.
+
+
+## UI-01 metadata synchronization — 2026-09-25
+
+| Master ID | Evidence / Location | Last Verified | Remediation State | Verification Method |
+|---|---|---|---|---|
+| GF-MASTER-0049 | `ui/plugins/menu_plugin.py`; `ui/core/action_router.py`; `main.py` | 2026-09-25 | STATIC CLOSED / RUNTIME UNVERIFIED | Static source inspection of menu composition and all registered action IDs |
+| GF-MASTER-0050 | `ui/plugins/toolbar_plugin.py`; `ui/tools/wire_tool.py`; `ui/tools/default_tool_registry.py` | 2026-09-25 | STATIC CLOSED / RUNTIME UNVERIFIED | Static source inspection of toolbar vocabulary and tool registry |
+| GF-MASTER-0051 | `ui/core/action_router.py`; `ui/plugins/menu_plugin.py`; `ui/plugins/toolbar_plugin.py`; `main.py` | 2026-09-25 | STATIC CLOSED / RUNTIME UNVERIFIED | Static route-to-controller/application inspection |
+| GF-MASTER-0052 | `main.py`; `ui/styling/style_manager.py`; `ui/styling/stylesheet.qss` | 2026-09-25 | STATIC CLOSED / RUNTIME UNVERIFIED | Static composition and selector coverage inspection |
+| GF-MASTER-0053 | `ui/plugins/status_plugin.py`; `ui/canvas/graphics_view.py`; `main.py` | 2026-09-25 | STATIC CLOSED / RUNTIME UNVERIFIED | Static authoritative-state subscription/projection inspection |
+| GF-MASTER-0054 | `audit/MASTER_AUDIT_REGISTER.md`; `audit/MASTER_AUDIT_REGISTER_METADATA.md` | 2026-09-25 | STATIC CLOSED / RUNTIME UNVERIFIED | Static canonical repository identity inspection |
+| GF-MASTER-0055 | `audit/MASTER_AUDIT_REGISTER.csv`; historical register documents | 2026-09-25 | STATIC CLOSED / RUNTIME UNVERIFIED | Static duplicate reconciliation and historical-preservation inspection |

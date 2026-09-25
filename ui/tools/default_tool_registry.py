@@ -26,6 +26,7 @@ from ui.tools.fuse_tool import FuseTool
 from ui.tools.generator_tool import GeneratorTool
 from ui.tools.grid_tool import GridTool
 from ui.tools.line_tool import LineTool
+from ui.tools.wire_tool import WireTool
 from ui.tools.load_tool import LoadTool
 from ui.tools.motor_tool import MotorTool
 from ui.tools.potential_transformer_tool import PotentialTransformerTool
@@ -94,6 +95,7 @@ def create_default_tool_factories(
     return {
         "select": factory(SelectTool),
         "bus": bus_factory,
+        "wire": factory(WireTool),
         "line": factory(LineTool),
         "cable": factory(CableTool),
         "transformer": transformer_factory,
