@@ -179,21 +179,31 @@ class EquipmentFactory:
 
         # ----------------------------------------------------
         # Runtime terminal identities
-        # ----------------------------------------------------
 
-        # Terminal geometry is sourced only from the canonical SymbolDefinition.
-        symbol = self._symbol_registry.require(definition.symbol_id)
+        # Existing SLD nodes supply the same symbol instance used by the
+        # renderer. The EquipmentDefinition symbol is used only when creating
+        # a new/default equipment instance.
+        if symbol_instance is None:
+            symbol_instance = SymbolBase(
+                symbol_id=definition.symbol_id,
+                definition_id=definition.symbol_id,
+            )
+        if symbol_instance.definition_id != symbol_instance.symbol_id:
+            raise ValueError("symbol_instance definition identity must match symbol_id.")
+        symbol = self._symbol_registry.require(symbol_instance.symbol_id)
         terminals = []
         for terminal_name in definition.terminal_names:
             if not symbol.has_terminal_anchor(terminal_name):
-                raise ValueError(f"Missing terminal anchor {terminal_name!r} for symbol {definition.symbol_id!r}.")
+                raise ValueError(
+                    f"Missing terminal anchor {terminal_name!r} for symbol "
+                    f"{symbol_instance.symbol_id!r}."
+                )
             terminals.append(EquipmentTerminal(
                 terminal_id=f"{equipment_id}:{terminal_name}",
                 equipment_id=equipment_id,
                 terminal_name=terminal_name,
                 local_position=symbol.get_terminal_anchor(terminal_name),
             ))
-
         # ----------------------------------------------------
         # Equipment instance
         # ----------------------------------------------------
