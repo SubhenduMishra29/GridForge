@@ -167,8 +167,6 @@ class PowerFlowPreparation:
         self.network = network
         self.power_flow_configuration = power_flow_configuration
         self.topology_snapshot = topology_snapshot
-        if topology_snapshot is not None and topology_snapshot.topology_revision != getattr(network, 'topology_revision', None):
-            raise ValueError('Power Flow topology snapshot is stale relative to the Network.')
         self._validate_network()
         if not isinstance(power_flow_configuration, PowerFlowStudyConfiguration):
             raise TypeError("power_flow_configuration must be a PowerFlowStudyConfiguration.")
