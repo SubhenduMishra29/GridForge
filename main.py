@@ -46,7 +46,7 @@ from ui.workspace.workspace_controller import WorkspaceController
 from ui.workspace.workspace_defaults import SLD_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
-
+from ui.tools.default_tool_registry import create_default_tool_factories
 Cleanup = Callable[[], None]
 
 
