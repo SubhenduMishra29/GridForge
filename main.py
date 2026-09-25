@@ -170,11 +170,22 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.reconcile_presentation()
 
+    # Resolve the canonical canvas synchronization callable before registering
+    # lifecycle callbacks that may invoke it. This removes the composition-order
+    # dependency on a later local binding.
+    synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
+    if not callable(synchronize_canvas):
+        raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
+
     def handle_project_workspace_changed(change: ProjectWorkspaceChanged) -> None:
         document = change.state.document
-        if isinstance(document, SLDDocument): sld_controller.replace_document(document); sld_controller.activate_document(document.document_id); synchronize_canvas()
+        if isinstance(document, SLDDocument):
+            sld_controller.replace_document(document)
+            sld_controller.activate_document(document.document_id)
+            synchronize_canvas()
 
-    project_workspace_adapter.subscribe(handle_project_workspace_changed); sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
+    project_workspace_adapter.subscribe(handle_project_workspace_changed)
+    sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
     equipment_registry = presentation_bootstrap.equipment_registry
     context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, equipment_registry=equipment_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
@@ -196,8 +207,6 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
             workspace_realizer.unregister_dock(panel_id)
         raise
     workspace_controller.activate_default()
-    synchronize_canvas = getattr(canvas_plugin, "synchronize_sld", None)
-    if not callable(synchronize_canvas): raise RuntimeError("CanvasPlugin does not expose synchronize_sld().")
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
     element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
