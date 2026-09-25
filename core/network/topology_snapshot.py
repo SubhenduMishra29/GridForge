@@ -11,6 +11,13 @@ class EquipmentBusAttachment:
 
 @dataclass(frozen=True, slots=True)
 class ConductiveEdge:
+    """Conductive edge for switching equipment only.
+
+    This structure deliberately models switching conductive state
+    (Breaker/Switch/Disconnector/Fuse). It is not the numerical branch
+    representation: Line/Cable/Transformer boundaries remain separate in
+    equipment_bus_attachments and numerical preparation.
+    """
     equipment_id: str
     equipment_type: str
     from_bus_id: str
