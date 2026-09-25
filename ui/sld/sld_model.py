@@ -88,6 +88,15 @@ class SLDNode:
         """Return the logical SLD position."""
         return self.x, self.y
 
+    def set_presentation(self, presentation: SymbolBase | Mapping[str, Any]) -> None:
+        """Replace the canonical renderer-neutral symbol presentation state."""
+        if isinstance(presentation, SymbolBase):
+            self.presentation = SymbolBase.from_dict(presentation.to_dict())
+        elif isinstance(presentation, Mapping):
+            self.presentation = SymbolBase.from_dict(presentation)
+        else:
+            raise TypeError("presentation must be a SymbolBase or mapping")
+
     def set_position(self, x: float, y: float) -> None:
         """Update the logical SLD position."""
         if isinstance(x, bool) or not isinstance(x, (int, float)):
