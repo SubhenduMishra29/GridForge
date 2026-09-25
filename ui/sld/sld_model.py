@@ -97,6 +97,10 @@ class SLDNode:
         else:
             raise TypeError("presentation must be a SymbolBase or mapping")
 
+    def clear_presentation(self) -> None:
+        """Remove presentation state so a configured default can be materialized."""
+        self.presentation = None
+
     def set_position(self, x: float, y: float) -> None:
         """Update the logical SLD position."""
         if isinstance(x, bool) or not isinstance(x, (int, float)):
