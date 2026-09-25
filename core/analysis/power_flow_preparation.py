@@ -25,6 +25,7 @@ from core.model.line import Line
 from core.model.reactor import Reactor
 from core.model.transformer import Transformer
 from core.network.endpoint import resolve_terminal_bus
+from core.network.topology_snapshot import TopologySnapshot
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
 
@@ -159,12 +160,15 @@ class PowerFlowPreparation:
     )
 
     @staticmethod
-    def prepare(network: Any, power_flow_configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
-        return PowerFlowPreparation(network, power_flow_configuration)._prepare()
+    def prepare(network: Any, power_flow_configuration: PowerFlowStudyConfiguration, *, topology_snapshot: TopologySnapshot | None = None) -> PreparedPowerFlow:
+        return PowerFlowPreparation(network, power_flow_configuration, topology_snapshot=topology_snapshot)._prepare()
 
-    def __init__(self, network: Any, power_flow_configuration: PowerFlowStudyConfiguration) -> None:
+    def __init__(self, network: Any, power_flow_configuration: PowerFlowStudyConfiguration, *, topology_snapshot: TopologySnapshot | None = None) -> None:
         self.network = network
         self.power_flow_configuration = power_flow_configuration
+        self.topology_snapshot = topology_snapshot
+        if topology_snapshot is not None and topology_snapshot.topology_revision != getattr(network, 'topology_revision', None):
+            raise ValueError('Power Flow topology snapshot is stale relative to the Network.')
         self._validate_network()
         if not isinstance(power_flow_configuration, PowerFlowStudyConfiguration):
             raise TypeError("power_flow_configuration must be a PowerFlowStudyConfiguration.")
