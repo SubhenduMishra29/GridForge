@@ -31,10 +31,10 @@ class CreateSimpleWireConnectionCommand(ReversibleCommand):
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
     ) -> None:
-        if not isinstance(endpoint_a, EndpointReference) or not endpoint_a.is_terminal:
-            raise TypeError("endpoint_a must be a terminal EndpointReference.")
-        if not isinstance(endpoint_b, EndpointReference) or not endpoint_b.is_terminal:
-            raise TypeError("endpoint_b must be a terminal EndpointReference.")
+        if not isinstance(endpoint_a, EndpointReference):
+            raise TypeError("endpoint_a must be an EndpointReference.")
+        if not isinstance(endpoint_b, EndpointReference):
+            raise TypeError("endpoint_b must be an EndpointReference.")
         self._connection_id = connection_id or f"SWC-{uuid4().hex}"
         super().__init__(
             command_type=CREATE_SIMPLE_WIRE,
