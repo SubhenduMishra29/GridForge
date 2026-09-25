@@ -338,7 +338,7 @@ class StatusPlugin(QObject):
         selection_changed = lambda *_: refresh()
         selection_cleared = lambda: refresh()
         cursor_changed = lambda *_: refresh()
-        application_event = lambda _event: refresh()
+        application_event = self._handle_application_event
         project_changed = lambda _change: refresh()
         controller.tool_changed.connect(controller_tool)
         controller.state_changed.connect(controller_state)
@@ -358,6 +358,13 @@ class StatusPlugin(QObject):
         self._project_change_handler = project_changed
         self._status_sources = (application.event_bus, application, project_adapter)
         self.refresh_authoritative_state()
+
+    def _handle_application_event(self, event: ApplicationEvent) -> None:
+        self.refresh_authoritative_state()
+        if event.event_type == "validation.changed":
+            self.set_status("validation", "Validation: Changed")
+        elif event.event_type in {"project.saved", "project.loaded", "project.closed"}:
+            self.set_status("validation", "Validation: Current")
 
     def refresh_authoritative_state(self) -> None:
         """Read current Application/UI projection state; never own it."""
