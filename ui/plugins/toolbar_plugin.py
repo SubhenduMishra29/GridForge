@@ -59,7 +59,7 @@ Concrete tools are frozen at exactly:
 
     SelectTool
     BusTool
-    LineTool
+    WireTool
 
 Canonical identifiers:
 
