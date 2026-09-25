@@ -47,6 +47,7 @@ class SymbolBase:
         scale: float = 1.0,
         rotation: float = 0.0,
         visible: bool = True,
+        representation_id: str = "symbol",
         properties: Mapping[str, Any] | None = None,
     ) -> None:
         # ----------------------------------------------------
@@ -93,6 +94,18 @@ class SymbolBase:
             ) from exc
 
         # ----------------------------------------------------
+        # Representation validation
+        # ----------------------------------------------------
+
+        if (
+            not isinstance(representation_id, str)
+            or not representation_id.strip()
+        ):
+            raise ValueError(
+                "representation_id must be a non-empty string."
+            )
+
+        # ----------------------------------------------------
         # Properties validation
         # ----------------------------------------------------
 
@@ -129,6 +142,7 @@ class SymbolBase:
         self._scale = normalized_scale
         self._rotation = normalized_rotation
         self._visible = bool(visible)
+        self._representation_id = representation_id.strip()
         self._properties = normalized_properties
 
     # ========================================================
@@ -193,6 +207,21 @@ class SymbolBase:
             raise TypeError(
                 "rotation must be a real numeric value."
             ) from exc
+
+    # ========================================================
+    # REPRESENTATION
+    # ========================================================
+
+    @property
+    def representation_id(self) -> str:
+        """Return the renderer-neutral representation identity."""
+        return self._representation_id
+
+    @representation_id.setter
+    def representation_id(self, value: str) -> None:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("representation_id must be a non-empty string.")
+        self._representation_id = value.strip()
 
     # ========================================================
     # VISIBILITY
@@ -301,6 +330,7 @@ class SymbolBase:
         return {
             "symbol_id": self.symbol_id,
             "definition_id": self.definition_id,
+            "representation_id": self.representation_id,
             "scale": self.scale,
             "rotation": self.rotation,
             "visible": self.visible,
@@ -327,7 +357,7 @@ class SymbolBase:
 
         return cls(
             symbol_id=data["symbol_id"],
-            definition_id=data["definition_id"],
+            definition_id=data.get("definition_id", data["symbol_id"]),
             scale=data.get(
                 "scale",
                 1.0,
@@ -339,6 +369,10 @@ class SymbolBase:
             visible=data.get(
                 "visible",
                 True,
+            ),
+            representation_id=data.get(
+                "representation_id",
+                "symbol",
             ),
             properties=data.get(
                 "properties",
@@ -355,6 +389,7 @@ class SymbolBase:
             "SymbolBase("
             f"symbol_id={self.symbol_id!r}, "
             f"definition_id={self.definition_id!r}, "
+            f"representation_id={self.representation_id!r}, "
             f"scale={self.scale!r}, "
             f"rotation={self.rotation!r}, "
             f"visible={self.visible!r}"

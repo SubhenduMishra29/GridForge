@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ui.equipment.equipment_registry import EquipmentRegistry
-from ui.equipment.symbol.symbol_definition import SymbolDefinition
+from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.sld.sld_vocabulary import semantic_type
@@ -26,6 +26,7 @@ class PresentationSelection:
     equipment_type: str
     symbol_id: str
     representation_id: str = "symbol"
+    symbol_instance: SymbolBase | None = None
 
     def __post_init__(self) -> None:
         for name in ("semantic_type", "equipment_type", "symbol_id", "representation_id"):
@@ -60,12 +61,33 @@ class SemanticPresentationRealization:
         canonical_semantic = semantic_type(element_type)
         equipment_type = equipment_type_for_semantic(canonical_semantic)
         definition = self._equipment_registry.require(equipment_type)
-        symbol_id = definition.symbol_id
-        self._symbol_registry.require(symbol_id)
+
+        if node.presentation is None:
+            symbol_instance = SymbolBase(
+                symbol_id=definition.symbol_id,
+                definition_id=definition.symbol_id,
+            )
+        else:
+            symbol_instance = node.presentation
+
+        if symbol_instance.definition_id != symbol_instance.symbol_id:
+            raise ValueError(
+                f"SLD symbol presentation definition identity mismatch: "
+                f"{symbol_instance.definition_id!r} != {symbol_instance.symbol_id!r}"
+            )
+        if symbol_instance.representation_id != "symbol":
+            raise ValueError(
+                f"Unsupported SLD symbol representation: "
+                f"{symbol_instance.representation_id!r}"
+            )
+
+        self._symbol_registry.require(symbol_instance.symbol_id)
         return PresentationSelection(
             semantic_type=canonical_semantic,
             equipment_type=equipment_type,
-            symbol_id=symbol_id,
+            symbol_id=symbol_instance.symbol_id,
+            representation_id=symbol_instance.representation_id,
+            symbol_instance=SymbolBase.from_dict(symbol_instance.to_dict()),
         )
 
 

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from ..command import Command
@@ -30,15 +31,23 @@ class SLDService:
 
     COMMAND_TYPES = frozenset({
         "sld.set_node_position",
+        "sld.set_node_presentation",
         "sld.add_node",
         "sld.remove_node",
         "sld.add_connection",
         "sld.remove_connection",
     })
 
-    def __init__(self, document: Any, *, application: Any = None) -> None:
+    def __init__(
+        self,
+        document: Any,
+        *,
+        application: Any = None,
+        symbol_presentation_factory: Callable[[str], Mapping[str, Any]] | None = None,
+    ) -> None:
         self._document = None
         self._application = application
+        self._symbol_presentation_factory = symbol_presentation_factory
         if application is not None:
             self.attach_application(application)
         self.bind_document(document)
@@ -101,6 +110,7 @@ class SLDService:
             raise ValueError(f"Unsupported SLD command: {command.command_type}")
         handler = {
             "sld.set_node_position": self._set_node_position,
+            "sld.set_node_presentation": self._set_node_presentation,
             "sld.add_node": self._add_node,
             "sld.remove_node": self._remove_node,
             "sld.add_connection": self._add_connection,
@@ -121,6 +131,26 @@ class SLDService:
             metadata={"presentation_operation": "set_node_position", "node_id": p["node_id"]},
         )
 
+    def _set_node_presentation(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        p = command.payload
+        node = self.document.model.get_node(p["node_id"])
+        self._require_engineer_owned_node(node)
+        previous = None if node.presentation is None else node.presentation.to_dict()
+        node.set_presentation(p["presentation"])
+        self.document.mark_modified()
+        if previous is None:
+            transaction.record_undo(
+                lambda node_id=p["node_id"]: self.document.model.get_node(node_id).clear_presentation()
+            )
+        else:
+            transaction.record_undo(
+                lambda node_id=p["node_id"], snapshot=previous: self.document.model.get_node(node_id).set_presentation(snapshot)
+            )
+        return ApplicationResult.success_result(
+            message="SLD node presentation updated.",
+            metadata={"presentation_operation": "set_node_presentation", "node_id": p["node_id"]},
+        )
+
     def _add_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
         equipment_id = p.get("equipment_id")
@@ -133,13 +163,27 @@ class SLDService:
         if projection_source is not None and presentation_owner != "projection":
             raise ValueError("projection_source requires presentation_owner='projection'.")
         properties = {"presentation_owner": presentation_owner}
+        element_type = p.get("element_type")
+        if element_type is not None:
+            properties["element_type"] = str(element_type)
         if projection_source is not None:
             properties["projection_source"] = str(projection_source)
+
+        presentation = p.get("presentation")
+        if presentation is None and self._symbol_presentation_factory is not None:
+            if not isinstance(element_type, str) or not element_type.strip():
+                raise ValueError(
+                    "SLD node creation requires element_type when a default "
+                    "symbol presentation factory is configured."
+                )
+            presentation = self._symbol_presentation_factory(element_type)
+
         self.document.model.create_node(
             node_id=p["node_id"],
             equipment_id=equipment_id,
             x=float(p["x"]),
             y=float(p["y"]),
+            presentation=presentation,
             properties=properties,
         )
         self.document.mark_modified()

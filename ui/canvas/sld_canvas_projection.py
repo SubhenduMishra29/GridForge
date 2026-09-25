@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.sld.sld_model import SLDConnection, SLDModel, SLDNode
 
 
@@ -29,6 +30,7 @@ class SLDCanvasNode:
     x: float
     y: float
     properties: Mapping[str, Any]
+    presentation: SymbolBase | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +73,11 @@ class SLDCanvasProjection:
             equipment_id=node.equipment_id,
             x=node.x,
             y=node.y,
+            presentation=(
+                None
+                if node.presentation is None
+                else SymbolBase.from_dict(node.presentation.to_dict())
+            ),
             properties=MappingProxyType(dict(node.properties)),
         )
 

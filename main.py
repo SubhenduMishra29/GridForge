@@ -91,7 +91,10 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         return document.to_dict()
 
     def deserialize_sld(data: dict) -> SLDDocument:
-        document = SLDDocument.from_dict(data)
+        document = SLDDocument.from_dict(
+            data,
+            default_symbol_presentation_factory=presentation_bootstrap.default_symbol_presentation,
+        )
         if not isinstance(document, SLDDocument): raise TypeError("Persistent presentation must deserialize to an SLDDocument")
         return document
 
@@ -147,8 +150,14 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
 
     def create_sld_document(context: object) -> SLDDocument:
-        if not hasattr(context, "project_id") or not hasattr(context, "name"): raise TypeError("presentation factory requires a ProjectContext")
-        return SLDDocument(document_id=f"{context.project_id}:sld", name=f"{context.name} SLD", project_id=context.project_id)
+        if not hasattr(context, "project_id") or not hasattr(context, "name"):
+            raise TypeError("presentation factory requires a ProjectContext")
+        return SLDDocument(
+            document_id=f"{context.project_id}:sld",
+            name=f"{context.name} SLD",
+            project_id=context.project_id,
+            default_symbol_presentation_factory=presentation_bootstrap.default_symbol_presentation,
+        )
 
     status_plugin = None
 
@@ -245,7 +254,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     sld_document = gridforge_application.presentation
     if not isinstance(sld_document, SLDDocument):
         raise RuntimeError("Application did not establish an SLDDocument for the active project.")
-    gridforge_application.attach_sld_service(SLDService(sld_document))
+    gridforge_application.attach_sld_service(
+        SLDService(
+            sld_document,
+            symbol_presentation_factory=presentation_bootstrap.default_symbol_presentation,
+        )
+    )
     gridforge_application.configure_project_presentation(
         presentation=sld_document,
         serializer=serialize_sld,

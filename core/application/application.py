@@ -373,6 +373,9 @@ class Application:
         source = "protection_read_model" if element_type.upper() == "RELAY" else "application_read_model"
         existing = self._sld_service.document.model.get_node_by_equipment_id_optional(element_id)
         if existing is not None:
+            owner = existing.properties.get("presentation_owner")
+            if owner == "engineer" and existing.properties.get("projection_source") is None:
+                return
             if existing.properties.get("projection_source") != source:
                 raise ValueError(f"Placement projection ownership collision for equipment ID: {element_id!r}")
             return
@@ -382,8 +385,9 @@ class Application:
                 equipment_id=element_id,
                 x=float(x),
                 y=float(y),
-                presentation_owner="projection",
-                projection_source=source,
+                presentation_owner="engineer",
+                projection_source=None,
+                element_type=element_type,
                 correlation_id=command.correlation_id,
                 causation_id=command.command_id,
             ),

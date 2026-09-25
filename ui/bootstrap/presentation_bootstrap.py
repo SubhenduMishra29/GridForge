@@ -17,6 +17,7 @@ from ui.equipment.symbol.built_in_symbol_catalogue import register_builtin_symbo
 from ui.equipment.symbol.symbol_factory import SymbolFactory
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
+from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.workspace.workspace_manager import WorkspaceManager
 
 
@@ -83,6 +84,55 @@ class PresentationBootstrap:
         if self.application is None:
             raise RuntimeError("Presentation Application facade is not configured")
         return self.application
+
+    def default_symbol_presentation(self, identifier: str) -> dict[str, Any]:
+        """Resolve an equipment semantic or identity to the canonical default symbol state."""
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError("symbol presentation identifier must be a non-empty string.")
+
+        identifier = identifier.strip()
+        equipment_type: str | None = None
+
+        if self.equipment_registry.contains(identifier):
+            equipment_type = identifier
+        else:
+            try:
+                semantic_equipment_type = equipment_type_for_semantic(identifier)
+            except (TypeError, ValueError):
+                semantic_equipment_type = ""
+            if semantic_equipment_type and self.equipment_registry.contains(semantic_equipment_type):
+                equipment_type = semantic_equipment_type
+
+        if equipment_type is None:
+            application = self.application
+            if application is None:
+                raise KeyError(f"Unknown equipment presentation identity: {identifier!r}")
+            read_network = application.read_network()
+            matches = [
+                element
+                for element in read_network.elements
+                if element.object_id == identifier
+            ]
+            if not matches:
+                protection_reader = getattr(application, "read_protection", None)
+                if callable(protection_reader):
+                    protection = protection_reader()
+                    matches = [
+                        element
+                        for element in protection.elements
+                        if element.object_id == identifier
+                    ]
+            if not matches:
+                raise KeyError(f"Unknown equipment presentation identity: {identifier!r}")
+            equipment_type = equipment_type_for_semantic(matches[0].element_type)
+
+        definition = self.equipment_registry.require(equipment_type)
+        if self.symbol_factory is None:
+            raise RuntimeError("SymbolFactory is not configured")
+        return self.symbol_factory.create(
+            definition.symbol_id,
+            representation_id="symbol",
+        ).to_dict()
 
     def attach_shell(self, shell: Any) -> None:
         self.shell = shell

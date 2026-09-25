@@ -14,6 +14,7 @@ from ..command import Command
 SET_SLD_NODE_POSITION = "sld.set_node_position"
 ADD_SLD_NODE = "sld.add_node"
 REMOVE_SLD_NODE = "sld.remove_node"
+SET_SLD_NODE_PRESENTATION = "sld.set_node_presentation"
 ADD_SLD_CONNECTION = "sld.add_connection"
 REMOVE_SLD_CONNECTION = "sld.remove_connection"
 
@@ -32,6 +33,8 @@ class AddSLDNodeCommand(Command):
                  x: float = 0.0, y: float = 0.0,
                  presentation_owner: str = "engineer",
                  projection_source: str | None = None,
+                 element_type: str | None = None,
+                 presentation: dict | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(
@@ -43,7 +46,30 @@ class AddSLDNodeCommand(Command):
                 "y": float(y),
                 "presentation_owner": presentation_owner,
                 "projection_source": projection_source,
+                "element_type": element_type,
+                "presentation": None if presentation is None else dict(presentation),
             },
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class SetSLDNodePresentationCommand(Command):
+    def __init__(
+        self,
+        *,
+        node_id: str,
+        presentation: dict,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(presentation, dict):
+            raise TypeError("presentation must be a dictionary")
+        super().__init__(
+            command_type=SET_SLD_NODE_PRESENTATION,
+            payload={"node_id": node_id, "presentation": dict(presentation)},
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
             causation_id=causation_id,
@@ -80,8 +106,8 @@ class RemoveSLDConnectionCommand(Command):
 
 
 __all__ = [
-    "SET_SLD_NODE_POSITION", "ADD_SLD_NODE", "REMOVE_SLD_NODE",
+    "SET_SLD_NODE_POSITION", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
     "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION",
-    "SetSLDNodePositionCommand", "AddSLDNodeCommand", "RemoveSLDNodeCommand",
+    "SetSLDNodePositionCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
     "AddSLDConnectionCommand", "RemoveSLDConnectionCommand",
 ]

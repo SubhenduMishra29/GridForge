@@ -116,6 +116,7 @@ class SLDReadSynchronizer:
             )
         )
         self._synchronize_connections(document, adapted)
+        document.materialize_missing_symbol_presentations()
         self._projection_manager.reconcile_network(active_ids)
         return nodes
 
@@ -146,6 +147,7 @@ class SLDReadSynchronizer:
             for element in adapted.elements
             if document.model.get_node_by_equipment_id_optional(element.object_id) is not None
         )
+        document.materialize_missing_symbol_presentations()
         self._projection_manager.reconcile_protection(active_ids)
         return nodes
 
