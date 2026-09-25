@@ -1,8 +1,9 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `madhuri196mishra-cpu/GridForge`
+**Repository authority:** `SubhenduMishra29/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
+**Active branch:** `main`
 **Branch baseline:** `main` — current working repository authority
 **Consolidation date:** 2026-09-17
 **Authority:** frozen GridForge V2 architecture supplied for this audit.
