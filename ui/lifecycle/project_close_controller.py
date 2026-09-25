@@ -15,29 +15,42 @@ from core.application.project_transition import ProjectTransitionDecision, Proje
 
 
 DecisionProvider = Callable[[Any], ProjectTransitionDecision | str]
+SaveAsPathProvider = Callable[[Any], str | None]
 
 
 class ProjectCloseController:
     """Bridge the window-close request to the Application transition contract."""
 
-    def __init__(self, *, application: Any, decision_provider: DecisionProvider) -> None:
+    def __init__(
+        self,
+        *,
+        application: Any,
+        decision_provider: DecisionProvider,
+        save_as_path_provider: SaveAsPathProvider | None = None,
+    ) -> None:
         if application is None:
             raise TypeError("application is required.")
         if not callable(decision_provider):
             raise TypeError("decision_provider must be callable.")
+        if save_as_path_provider is not None and not callable(save_as_path_provider):
+            raise TypeError("save_as_path_provider must be callable or None.")
         self._application = application
         self._decision_provider = decision_provider
+        self._save_as_path_provider = save_as_path_provider
 
     @property
     def application(self) -> Any:
         return self._application
 
     def request_close(self) -> bool:
-        """Return True only when Application project closure may proceed."""
+        """Return True only after the complete project-close transition succeeds."""
         application = self._application
         if not bool(application.is_dirty):
-            application.close_project()
-            return True
+            try:
+                application.close_project()
+                return True
+            except Exception:
+                return False
 
         context = application.project_lifecycle.context
         try:
@@ -50,12 +63,28 @@ class ProjectCloseController:
             if normalized is ProjectTransitionDecision.CANCEL:
                 # CANCEL is a completed UI decision, not an exception path.
                 return False
+
+            if normalized is ProjectTransitionDecision.SAVE and (
+                context is not None and context.path is None
+            ):
+                if self._save_as_path_provider is None:
+                    return False
+                path = self._save_as_path_provider(context)
+                if not path:
+                    # Save As cancellation is a transition cancellation:
+                    # keep the dirty project active and do not call close.
+                    return False
+                application.save_project_as(path)
+
+            # Named SAVE reaches Application.close_project() after persistence.
+            # For unnamed SAVE, save_project_as() above marks the project clean,
+            # so this close call does not attempt a second path-less save.
             application.close_project(decision=normalized)
             return True
-        except ProjectTransitionRequired:
-            # A provider that fails to resolve the required decision must
-            # keep the window open rather than accidentally closing it.
+        except Exception:
+            # Any unresolved decision, Save As failure, or close-transition
+            # failure must keep the window open and preserve the active project.
             return False
 
 
-__all__ = ["DecisionProvider", "ProjectCloseController"]
+__all__ = ["DecisionProvider", "SaveAsPathProvider", "ProjectCloseController"]

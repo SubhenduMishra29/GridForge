@@ -220,6 +220,12 @@ class ProjectWorkspaceApplicationAdapter:
             raise RuntimeError("Open project transition did not return a project context.")
         return context
 
+    def save_project_as(self, path: str) -> ProjectContext:
+        """Persist through the Application facade using a UI-resolved Save As path."""
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("A non-empty Save As path is required.")
+        return self._application.save_project_as(path)
+
     def close_project(
         self,
         *,
