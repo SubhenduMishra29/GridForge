@@ -9,7 +9,6 @@ import numpy as np
 from core.model.cable import Cable
 from core.model.line import Line
 from core.model.transformer import Transformer
-from core.network.endpoint import resolve_terminal_bus
 from core.network.topology_snapshot import TopologySnapshot
 from core.solver.short_circuit.sequence_network import SequenceNetwork
 
@@ -27,6 +26,11 @@ class SequenceNetworkPreparation:
         self.network = network
         self.base_mva = None if base_mva is None else float(base_mva)
         self.topology_snapshot = topology_snapshot
+        if self.topology_snapshot is None:
+            self.network.rebuild_topology()
+            self.topology_snapshot = self.network.topology_snapshot
+            if self.topology_snapshot is None:
+                raise ValueError('Sequence preparation requires a canonical TopologySnapshot.')
 
     def prepare(self, sequences: Iterable[str] = ("positive", "negative", "zero")) -> SequenceNetwork:
         """Prepare the requested sequence networks without mutating Core."""
@@ -107,22 +111,16 @@ class SequenceNetworkPreparation:
 
     @staticmethod
     def _end_buses(self, element: Any) -> tuple[Any | None, Any | None]:
-        if self.topology_snapshot is not None:
-            records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self.topology_snapshot.equipment_bus_attachments}
-            from_id = records.get((str(element.id), getattr(element.from_terminal, 'role', '')))
-            to_id = records.get((str(element.id), getattr(element.to_terminal, 'role', '')))
-            return (self.network.get_by_identity(from_id) if from_id else None, self.network.get_by_identity(to_id) if to_id else None)
-        terminals = (getattr(element, "from_terminal", None), getattr(element, "to_terminal", None))
-        return tuple(None if terminal is None else resolve_terminal_bus(terminal) for terminal in terminals)  # type: ignore[return-value]
+        records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self.topology_snapshot.equipment_bus_attachments}
+        from_id = records.get((str(element.id), getattr(element.from_terminal, 'role', '')))
+        to_id = records.get((str(element.id), getattr(element.to_terminal, 'role', '')))
+        return (self.network.get_by_identity(from_id) if from_id else None, self.network.get_by_identity(to_id) if to_id else None)
 
     @staticmethod
     def _single_bus(self, element: Any) -> Any | None:
-        if self.topology_snapshot is not None:
-            role = getattr(getattr(element, 'terminal', None), 'role', '')
-            bus_id = next((r.bus_id for r in self.topology_snapshot.equipment_bus_attachments if r.equipment_id == str(element.id) and r.terminal_role == role), None)
-            return self.network.get_by_identity(bus_id) if bus_id else None
-        terminal = getattr(element, 'terminal', None)
-        return None if terminal is None else resolve_terminal_bus(terminal)
+        role = getattr(getattr(element, 'terminal', None), 'role', '')
+        bus_id = next((r.bus_id for r in self.topology_snapshot.equipment_bus_attachments if r.equipment_id == str(element.id) and r.terminal_role == role), None)
+        return self.network.get_by_identity(bus_id) if bus_id else None
 
     def _require_base(self) -> float:
         if self.base_mva is None:
