@@ -28,6 +28,7 @@ from .read_models import (
     ProtectionReadModel,
     RelayInputBindingReadModel,
     RelayReadModel,
+    SimpleWireReadModel,
 )
 from .read_service import NetworkReadService, ProtectionReadService, ReadService
 from .revision import ProjectRevision
@@ -59,6 +60,7 @@ __all__ = [
     "ProtectionReadModel",
     "RelayInputBindingReadModel",
     "RelayReadModel",
+    "SimpleWireReadModel",
     "NetworkReadService",
     "ProtectionReadService",
     "ReadService",
