@@ -242,6 +242,8 @@ class PowerFlowPreparation:
             branches=branches,
             transformers=transformers,
             shunts=shunts,
+            project_id=snapshot.project_id,
+            activation_generation=snapshot.activation_generation,
             topology_revision=snapshot.topology_revision,
         )
 
