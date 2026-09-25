@@ -375,7 +375,7 @@ def create_application(network: Any) -> Application:
             raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
         prepared = StudyPreparationService(execution_context).prepare_transient_stability(
             configuration, prepared_power_flow, power_flow_result,
-            DynamicMachineModelRegistry(snapshot.dynamic_models),
+            DynamicMachineModelRegistry(execution_context.project_snapshot.dynamic_models),
         )
         if token.cancelled:
             return None
