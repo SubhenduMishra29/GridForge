@@ -453,6 +453,53 @@ class SLDReadSynchronizer:
             else:
                 connection.properties.update(properties)
 
+        for simple_wire in getattr(read_model, "simple_wires", ()):
+            endpoint_a = simple_wire.endpoint_a
+            endpoint_b = simple_wire.endpoint_b
+            source_equipment = endpoint_a.get("object_id")
+            target_equipment = endpoint_b.get("object_id")
+            source_node_id = node_ids_by_equipment_id.get(source_equipment)
+            target_node_id = node_ids_by_equipment_id.get(target_equipment)
+            if source_node_id is None or target_node_id is None:
+                continue
+            connection_id = simple_wire.connection_id
+            active_connection_ids.add(connection_id)
+            properties = {
+                "projection_source": _PROJECTION_SOURCE,
+                "connection_kind": simple_wire.kind,
+                "endpoint_a": dict(endpoint_a),
+                "endpoint_b": dict(endpoint_b),
+            }
+            connection = document.model.get_connection_optional(connection_id)
+            if connection is None:
+                document.model.add_connection(
+                    SLDConnection(
+                        connection_id=connection_id,
+                        source_node_id=source_node_id,
+                        target_node_id=target_node_id,
+                        properties=properties,
+                    )
+                )
+            elif connection.properties.get("projection_source") != _PROJECTION_SOURCE:
+                raise ValueError(
+                    f"SLD connection identity collision for Simple Wire: {connection_id!r}"
+                )
+            elif (
+                connection.source_node_id != source_node_id
+                or connection.target_node_id != target_node_id
+            ):
+                document.model.remove_connection(connection_id)
+                document.model.add_connection(
+                    SLDConnection(
+                        connection_id=connection_id,
+                        source_node_id=source_node_id,
+                        target_node_id=target_node_id,
+                        properties=properties,
+                    )
+                )
+            else:
+                connection.properties.update(properties)
+
         for connection in tuple(document.model.connections):
             if connection.properties.get("projection_source") == _PROJECTION_SOURCE and connection.connection_id not in active_connection_ids:
                 document.model.remove_connection(connection.connection_id)
