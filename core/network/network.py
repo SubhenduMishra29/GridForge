@@ -195,22 +195,11 @@ class Network:
     def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
         if not isinstance(connection, SimpleWireConnection):
             raise TypeError("connection must be a SimpleWireConnection.")
-        for endpoint in (connection.endpoint_a, connection.endpoint_b):
-            equipment = self.get_by_identity(endpoint.object_id)
-            expected_type = endpoint.equipment_type.value if endpoint.equipment_type is not None else None
-            actual_type = str(getattr(equipment, "element_type", "")).strip().lower()
-            if expected_type != actual_type:
-                raise ValueError(
-                    f"Simple Wire endpoint {endpoint} resolves to '{actual_type}', not '{expected_type}'."
-                )
-            matches = [
-                terminal for terminal in getattr(equipment, "terminals", ())
-                if terminal.owner is equipment and terminal.role == endpoint.terminal_role
-            ]
-            if len(matches) != 1:
-                raise ValueError(
-                    f"Simple Wire endpoint {endpoint} must resolve to exactly one owned terminal."
-                )
+        # EndpointReference is the single canonical endpoint contract.
+        # validate_reference handles both BUS and TERMINAL endpoints; Network
+        # must not duplicate terminal-only interpretation here.
+        EndpointCompatibility.validate_reference(connection.endpoint_a, self)
+        EndpointCompatibility.validate_reference(connection.endpoint_b, self)
         EndpointCompatibility.validate_pair(connection.endpoint_a, connection.endpoint_b, self)
         self.connectivity.add(connection, self)
         self._invalidate_topology()
