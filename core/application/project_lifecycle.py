@@ -296,7 +296,11 @@ class ProjectLifecycleService:
             # is the transactional authority-binding phase of activation.
             self._presentation = presentation
 
-            rollback = self._activate_presentation(context, presentation)
+            rollback = self._activate_presentation(
+                context,
+                presentation,
+                previous_presentation=old_presentation,
+            )
             if rollback is not None:
                 rollback_stack.append(rollback)
 
@@ -348,10 +352,20 @@ class ProjectLifecycleService:
         self,
         context: ProjectContext | None,
         presentation: Any | None,
+        *,
+        previous_presentation: Any | None,
     ) -> Callable[[], None] | None:
         if self._presentation_activator is None:
             return None
-        return self._presentation_activator(context, presentation)
+        try:
+            return self._presentation_activator(context, presentation)
+        except BaseException:
+            # An activator may fail before returning its rollback callback.
+            # Restore the previous Application-authoritative presentation
+            # before the activator propagates the failure so its own guarded
+            # compensation can still bind the previous document.
+            self._presentation = previous_presentation
+            raise
 
     def _validate_candidate(
         self,
