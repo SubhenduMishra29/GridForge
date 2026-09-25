@@ -140,7 +140,7 @@ class SLDService:
         self.document.mark_modified()
         if previous is None:
             transaction.record_undo(
-                lambda node_id=p["node_id"]: self.document.model.get_node(node_id).__setattr__("presentation", None)
+                lambda node_id=p["node_id"]: self.document.model.get_node(node_id).clear_presentation()
             )
         else:
             transaction.record_undo(
