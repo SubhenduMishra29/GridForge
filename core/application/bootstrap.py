@@ -319,14 +319,11 @@ def create_application(network: Any) -> Application:
             )
         return configuration
 
-    def run_power_flow(request: StudyRequest, token: StudyCancellationToken) -> Any:
+    def run_power_flow(request: StudyRequest, execution_context, token: StudyCancellationToken) -> Any:
         if token.cancelled:
             return None
         configuration = study_configuration(request, PowerFlowStudyConfiguration)
-        snapshot = application.capture_project_snapshot()
-        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
-            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
-        prepared = StudyPreparationService(snapshot).prepare_power_flow(configuration)
+        prepared = StudyPreparationService(execution_context).prepare_power_flow(configuration)
         if token.cancelled:
             return None
         analysis = PowerFlowAnalysis.from_prepared(prepared)
@@ -335,14 +332,11 @@ def create_application(network: Any) -> Application:
             return None
         return analysis.to_engineering_result()
 
-    def run_short_circuit(request: StudyRequest, token: StudyCancellationToken) -> Any:
+    def run_short_circuit(request: StudyRequest, execution_context, token: StudyCancellationToken) -> Any:
         if token.cancelled:
             return None
         configuration = study_configuration(request, ShortCircuitStudyConfiguration)
-        snapshot = application.capture_project_snapshot()
-        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
-            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
-        prepared = StudyPreparationService(snapshot).prepare_short_circuit(configuration)
+        prepared = StudyPreparationService(execution_context).prepare_short_circuit(configuration)
         if token.cancelled:
             return None
         analysis = ShortCircuitAnalysis.from_prepared(prepared)
@@ -371,7 +365,7 @@ def create_application(network: Any) -> Application:
             else:
                 raise ValueError(f"Unsupported transient event type: {kind!r}.")
 
-    def run_transient_stability(request: StudyRequest, token: StudyCancellationToken) -> Any:
+    def run_transient_stability(request: StudyRequest, execution_context, token: StudyCancellationToken) -> Any:
         if token.cancelled:
             return None
         configuration = study_configuration(request, TransientStabilityStudyConfiguration)
@@ -379,10 +373,7 @@ def create_application(network: Any) -> Application:
         power_flow_result = request.configuration.get("power_flow_result")
         if not isinstance(prepared_power_flow, PreparedPowerFlow) or not isinstance(power_flow_result, PowerFlowResult):
             raise TypeError("transient_stability requires prepared_power_flow and power_flow_result in the study request.")
-        snapshot = application.capture_project_snapshot()
-        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation:
-            raise RuntimeError("Study snapshot no longer matches the requested project generation.")
-        prepared = StudyPreparationService(snapshot).prepare_transient_stability(
+        prepared = StudyPreparationService(execution_context).prepare_transient_stability(
             configuration, prepared_power_flow, power_flow_result,
             DynamicMachineModelRegistry(snapshot.dynamic_models),
         )
