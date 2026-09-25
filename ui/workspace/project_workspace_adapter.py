@@ -44,6 +44,10 @@ class ProjectWorkspaceApplicationAdapter:
     @property
     def lifecycle(self) -> ProjectWorkspaceLifecycle: return self._lifecycle
     @property
+    def project_lifecycle(self): return self._application.project_lifecycle
+    @property
+    def is_dirty(self) -> bool: return self._application.is_dirty
+    @property
     def state(self) -> ProjectWorkspaceState: return self._lifecycle.state
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
@@ -129,6 +133,40 @@ class ProjectWorkspaceApplicationAdapter:
             )
         )
 
+    def _run_transition(
+        self,
+        *,
+        operation: str,
+        configure: Callable[[], None],
+        transition: Callable[[], ProjectContext | None],
+        decision: ProjectTransitionDecision | str | None,
+    ) -> ProjectContext | None:
+        # CANCEL is resolved before any lifecycle configuration is touched.
+        if self._is_cancel(decision):
+            current = self._application.project_lifecycle.context
+            if current is None:
+                raise RuntimeError("Cancel cannot leave the Application without an active project.")
+            return current
+
+        configuration = self._application.project_lifecycle.capture_presentation_configuration()
+        try:
+            configure()
+            context = transition()
+            # Application owns the authoritative transition result. The adapter
+            # publishes only after Application success, so SAVE/DISCARD produce
+            # one presentation transition and failures publish nothing.
+            if self._is_cancel(decision):
+                return context
+            if context is not None:
+                self._publish(operation, self._lifecycle.state, context.project_id)
+            return context
+        except BaseException:
+            # A failed Application/UI activation must restore the exact prior
+            # presentation contract as well as the workspace rollback performed
+            # by the lifecycle activator.
+            self._application.project_lifecycle.restore_presentation_configuration(configuration)
+            raise
+
     def new_project(
         self,
         name: str = "Untitled Project",
@@ -143,15 +181,18 @@ class ProjectWorkspaceApplicationAdapter:
             if current is None:
                 raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
-        self._configure_presentation_transaction(
-            document,
-            open_existing=False,
-            activate_workspace=activate_workspace,
+        context = self._run_transition(
+            operation="new",
+            configure=lambda: self._configure_presentation_transaction(
+                document,
+                open_existing=False,
+                activate_workspace=activate_workspace,
+            ),
+            transition=lambda: self._application.new_project(name, project_id=project_id, decision=decision),
+            decision=decision,
         )
-        context = self._application.new_project(name, project_id=project_id, decision=decision)
-        if self._is_cancel(decision):
-            return context
-        self._publish("new", self._lifecycle.state, context.project_id)
+        if context is None:
+            raise RuntimeError("New project transition did not return a project context.")
         return context
 
     def open_project(
@@ -166,14 +207,17 @@ class ProjectWorkspaceApplicationAdapter:
             if current is None:
                 raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
-        self._configure_presentation_transaction(
-            open_existing=True,
-            activate_workspace=activate_workspace,
+        context = self._run_transition(
+            operation="open",
+            configure=lambda: self._configure_presentation_transaction(
+                open_existing=True,
+                activate_workspace=activate_workspace,
+            ),
+            transition=lambda: self._application.open_project(path, decision=decision),
+            decision=decision,
         )
-        context = self._application.open_project(path, decision=decision)
-        if self._is_cancel(decision):
-            return context
-        self._publish("open", self._lifecycle.state, context.project_id)
+        if context is None:
+            raise RuntimeError("Open project transition did not return a project context.")
         return context
 
     def close_project(
@@ -183,13 +227,15 @@ class ProjectWorkspaceApplicationAdapter:
     ) -> ProjectContext | None:
         if self._application.is_dirty and self._is_cancel(decision):
             return self._application.project_lifecycle.context
-        self._configure_presentation_transaction(open_existing=False, activate_workspace=False)
-        context = self._application.close_project(decision=decision)
-        if self._is_cancel(decision):
-            return context
-        if context is not None:
-            self._publish("close", self._lifecycle.state, context.project_id)
-        return context
+        return self._run_transition(
+            operation="close",
+            configure=lambda: self._configure_presentation_transaction(
+                open_existing=False,
+                activate_workspace=False,
+            ),
+            transition=lambda: self._application.close_project(decision=decision),
+            decision=decision,
+        )
 
     def _publish(self, operation: str, state: ProjectWorkspaceState, project_id: str) -> None:
         event = ProjectWorkspaceChanged(operation=operation, state=state, project_id=project_id)
