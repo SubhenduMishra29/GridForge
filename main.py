@@ -18,9 +18,10 @@ from ui.canvas.canvas_composition import CanvasComposer
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
+from ui.core.action_router import UIActionRouter
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
-from ui.core.qt import QApplication, QMessageBox, QWidget
+from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle
@@ -28,6 +29,7 @@ from ui.lifecycle.project_close_controller import ProjectCloseController
 from ui.main_window import MainWindow
 from ui.panels.panel_presentation_bridge import PanelPresentationBridge
 from ui.plugins.plugin_context import PluginContext
+from ui.styling.style_manager import StyleManager
 from ui.plugins.plugin_manager import PluginManager
 from ui.projection.element_list_projection import ElementListProjection
 from ui.projection.project_hierarchy_projection import ProjectHierarchyProjection
@@ -78,6 +80,8 @@ def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: Wor
 def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle]:
     app = QApplication.instance()
     if app is None: app = QApplication(sys.argv)
+    style_manager = StyleManager()
+    style_manager.apply(app)
     network = Network(); gridforge_application = create_application(network)
     sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
     sld_controller: SLDController
@@ -139,11 +143,81 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     window = MainWindow(controller=controller, plugin_registry=plugin_registry, central_surface=root_widget)
 
     workspace_realizer = WorkspaceRealizer(main_window=window); workspace_controller = WorkspaceController(manager=workspace_manager, realizer=workspace_realizer); resources["workspace_controller"] = workspace_controller
+    action_router = UIActionRouter()
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(workspace_controller=workspace_controller); project_workspace_adapter = ProjectWorkspaceApplicationAdapter(application=gridforge_application, lifecycle=project_workspace_lifecycle); resources["project_workspace_adapter"] = project_workspace_adapter
 
     def create_sld_document(context: object) -> SLDDocument:
         if not hasattr(context, "project_id") or not hasattr(context, "name"): raise TypeError("presentation factory requires a ProjectContext")
         return SLDDocument(document_id=f"{context.project_id}:sld", name=f"{context.name} SLD", project_id=context.project_id)
+
+    status_plugin = None
+
+    def _refresh_status() -> None:
+        if status_plugin is not None:
+            status_plugin.refresh_authoritative_state()
+
+    def _new_project() -> None:
+        project_workspace_adapter.new_project(name="Untitled Project")
+        _refresh_status()
+
+    def _open_project() -> None:
+        path, _ = QFileDialog.getOpenFileName(window, "Open GridForge Project", "", "GridForge Project (*.gfpkg);;All Files (*)")
+        if path:
+            project_workspace_adapter.open_project(path)
+            _refresh_status()
+
+    def _save_project() -> None:
+        context = gridforge_application.project_lifecycle.context
+        path = str(context.path) if context is not None and context.path is not None else ""
+        if not path:
+            _save_project_as()
+            return
+        gridforge_application.save_project(path)
+        _refresh_status()
+
+    def _save_project_as() -> None:
+        path, _ = QFileDialog.getSaveFileName(window, "Save GridForge Project", "", "GridForge Project (*.gfpkg)")
+        if path:
+            gridforge_application.save_project_as(path)
+            _refresh_status()
+
+    def _close_project() -> None:
+        close_controller.request_close()
+        _refresh_status()
+
+    def _show_equipment_browser() -> None:
+        dock = workspace_realizer.get_dock("equipment")
+        if dock is not None:
+            dock.show(); dock.raise_()
+
+    def _show_study_cases() -> None:
+        dock = workspace_realizer.get_dock("study_cases")
+        if dock is not None:
+            dock.show(); dock.raise_()
+
+    def _show_unconfigured_surface(title: str) -> None:
+        QMessageBox.information(window, title, f"{title} presentation is not configured in the current workspace.")
+
+    action_router.register_many({
+        "project.new": _new_project,
+        "project.open": _open_project,
+        "project.save": _save_project,
+        "project.save_as": _save_project_as,
+        "project.close": _close_project,
+        "application.exit": window.close,
+        "edit.undo": controller.undo,
+        "edit.redo": controller.redo,
+        "view.sld_workspace": workspace_controller.activate_default,
+        "view.equipment_browser": _show_equipment_browser,
+        "view.fit": canvas_composition.navigation_controller.fit_content,
+        "tool.select": lambda: controller.set_tool("select"),
+        "tool.bus": lambda: controller.set_tool("bus"),
+        "tool.wire": lambda: controller.set_tool("wire"),
+        "study.cases": _show_study_cases,
+        "protection.panel": lambda: _show_unconfigured_surface("Protection"),
+        "control.panel": lambda: _show_unconfigured_surface("Control"),
+        "help.about": lambda: QMessageBox.information(window, "About GridForge", "GridForge V2 — power-system engineering platform."),
+    })
 
     lifecycle_service = project_workspace_adapter.application.project_lifecycle
     lifecycle_service.configure_presentation_factory(create_sld_document)
@@ -187,8 +261,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_workspace_adapter.subscribe(handle_project_workspace_changed)
     sld_canvas_snapshot = sld_canvas_projection.project(sld_document.model)
     equipment_registry = presentation_bootstrap.equipment_registry
-    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, equipment_registry=equipment_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge})
+    context = PluginContext(main_window=window, parent=window, application=gridforge_application, root_widget=root_widget, controller=controller, action_router=action_router, equipment_registry=equipment_registry, sld_document=sld_document, sld_canvas_projection=sld_canvas_projection, sld_canvas_render_system=sld_canvas_render_system, tool_manager=tool_manager, metadata={"sld_canvas_snapshot": sld_canvas_snapshot, "project_id": project_context.project_id, "project_workspace_adapter": project_workspace_adapter, "panel_presentation_bridge": panel_presentation_bridge, "workspace_controller": workspace_controller, "selection_manager": canvas_composition.selection_manager, "graphics_view": canvas_composition.view})
     contexts = {plugin_id: context for plugin_id in plugin_manager.plugin_ids}; plugin_manager.set_contexts(contexts); plugin_manager.initialize_all()
+    status_plugin = plugin_registry.get_entry("status").plugin if plugin_registry.get_entry("status") is not None else None
     properties_panel = panels_plugin.get_panel("properties"); project_panel = panels_plugin.get_panel("project"); element_list_panel = panels_plugin.get_panel("element_list"); messages_panel = panels_plugin.get_panel("messages"); study_cases_panel = panels_plugin.get_panel("study_cases")
     for panel_id, panel in (("properties", properties_panel), ("project", project_panel), ("element_list", element_list_panel), ("messages", messages_panel), ("study_cases", study_cases_panel)):
         if panel is None: raise RuntimeError(f"PanelsPlugin did not create required {panel_id!r} presentation.")
