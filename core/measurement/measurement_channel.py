@@ -1,4 +1,5 @@
-# Author: Subhendu Mishra\n"""
+# Author: Subhendu Mishra 
+"""
 GridForge Measurement Channel
 =============================
 
