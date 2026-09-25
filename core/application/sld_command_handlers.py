@@ -40,8 +40,8 @@ class SLDCommandHandlers:
             REMOVE_SLD_CONNECTION: self.remove_connection,
         }
 
-    def _execute(self, command: Command, _context: Any, transaction: Transaction) -> ApplicationResult:
-        return self._service.execute(command, transaction)
+    def _execute(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._service.execute(command, transaction, context=context)
 
     def set_node_position(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         return self._execute(command, context, transaction)
