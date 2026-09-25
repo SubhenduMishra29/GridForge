@@ -81,7 +81,7 @@ class ProjectCloseController:
             # so this close call does not attempt a second path-less save.
             application.close_project(decision=normalized)
             return True
-        except (ProjectTransitionRequired, Exception):
+        except Exception:
             # Any unresolved decision, Save As failure, or close-transition
             # failure must keep the window open and preserve the active project.
             return False
