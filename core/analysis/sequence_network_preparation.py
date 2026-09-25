@@ -27,8 +27,6 @@ class SequenceNetworkPreparation:
         self.network = network
         self.base_mva = None if base_mva is None else float(base_mva)
         self.topology_snapshot = topology_snapshot
-        if topology_snapshot is not None and topology_snapshot.topology_revision != getattr(network, 'topology_revision', None):
-            raise ValueError('Sequence topology snapshot is stale relative to the Network.')
 
     def prepare(self, sequences: Iterable[str] = ("positive", "negative", "zero")) -> SequenceNetwork:
         """Prepare the requested sequence networks without mutating Core."""
