@@ -599,3 +599,37 @@ QWidget:disabled {
 /* ============================================================
    END OF GRIDFORGE BASE STYLESHEET
    ============================================================ */
+
+
+/* ============================================================
+   GRIDFORGE ENGINEERING PANELS
+   ============================================================ */
+
+QWidget#GridForgePanel_equipment,
+QWidget#GridForgePanel_properties,
+QWidget#GridForgePanel_messages,
+QWidget#GridForgePanel_study_cases,
+QWidget#GridForgePanel_project {
+    background-color: #25272B;
+    color: #E8EAED;
+    border: 1px solid #3A3D42;
+}
+
+QWidget#GridForgePanel_equipment QLabel,
+QWidget#GridForgePanel_properties QLabel,
+QWidget#GridForgePanel_messages QLabel,
+QWidget#GridForgePanel_study_cases QLabel {
+    color: #E8EAED;
+}
+
+QWidget#GridForgePanel_equipment QPushButton:hover,
+QWidget#GridForgePanel_properties QPushButton:hover,
+QWidget#GridForgePanel_study_cases QPushButton:hover {
+    border: 1px solid #4DA3FF;
+}
+
+QWidget#GridForgePanel_equipment QPushButton:disabled,
+QWidget#GridForgePanel_properties QPushButton:disabled,
+QWidget#GridForgePanel_study_cases QPushButton:disabled {
+    color: #686D75;
+}
