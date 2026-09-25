@@ -78,8 +78,15 @@ class TopologyManager:
                 if bus_id is None:continue
                 bus=self.network.get_by_identity(bus_id)
                 if bus not in self.network.buses:raise EndpointCompatibilityError(f"Equipment '{e.id}' terminal '{t.role}' resolves to an unregistered Bus.")
-                key=(e.id,t.role,bus.id)
-                if key not in seen:seen.add(key);out.append(EquipmentBusAttachment(*key))
+                equipment_type = reference.equipment_type
+                if equipment_type is None:
+                    raise EndpointCompatibilityError(
+                        f"Equipment '{e.id}' terminal '{t.role}' has no canonical equipment type."
+                    )
+                key=(e.id,equipment_type.value,t.role,bus.id)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(EquipmentBusAttachment(*key))
         return tuple(out)
     def _registered_equipment(self):
         names=("grids","generators","synchronous_machines","loads","motors","shunts","capacitors","reactors","solar","batteries","current_transformers","capacitive_voltage_transformers","potential_transformers","relays","lines","cables","transformers","breakers","switches","disconnectors","fuses")
@@ -101,7 +108,25 @@ class TopologyManager:
             ts=tuple(e.terminals)
             if len(ts)!=2:raise EndpointCompatibilityError(f"Switching element '{e.id}' must have exactly two terminals.")
             a=resolver.resolve(self._reference_for_terminal(e,ts[0].role));b=resolver.resolve(self._reference_for_terminal(e,ts[1].role))
-            if a.attached_bus_id and b.attached_bus_id and a.attached_bus_id!=b.attached_bus_id:out.append(ConductiveEdge(e.id,str(e.element_type).lower(),a.attached_bus_id,b.attached_bus_id,ts[0].role,ts[1].role))
+            if a.attached_bus_id and b.attached_bus_id and a.attached_bus_id!=b.attached_bus_id:
+                if a.equipment_type is None or b.equipment_type is None:
+                    raise EndpointCompatibilityError(
+                        f"Switching element '{e.id}' has no canonical equipment type."
+                    )
+                if a.equipment_type is not b.equipment_type:
+                    raise EndpointCompatibilityError(
+                        f"Switching element '{e.id}' resolved to inconsistent equipment types."
+                    )
+                out.append(
+                    ConductiveEdge(
+                        e.id,
+                        a.equipment_type.value,
+                        a.attached_bus_id,
+                        b.attached_bus_id,
+                        ts[0].role,
+                        ts[1].role,
+                    )
+                )
         return tuple(out)
     def _make_snapshot(self,adjacency,attachments,resolver):
         buses=tuple(sorted(adjacency));remaining=set(buses);islands=[]
