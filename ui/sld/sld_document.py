@@ -13,6 +13,7 @@ presentation geometry. It never owns authoritative electrical truth.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Dict, Mapping, Optional
 
 from ui.workspace.document import Document
@@ -32,6 +33,7 @@ class SLDDocument(Document):
         model: Optional[SLDModel] = None,
         *,
         project_id: str | None = None,
+        default_symbol_presentation_factory: Callable[[str], Mapping[str, Any]] | None = None,
     ) -> None:
         super().__init__(
             document_id=document_id,
@@ -40,11 +42,30 @@ class SLDDocument(Document):
             project_id=project_id,
         )
         self._model = model if model is not None else SLDModel()
+        self._default_symbol_presentation_factory = default_symbol_presentation_factory
 
     @property
     def model(self) -> SLDModel:
         """Return the presentation-owned SLD structural model."""
         return self._model
+
+    @property
+    def default_symbol_presentation_factory(self) -> Callable[[str], Mapping[str, Any]] | None:
+        """Return the presentation-layer default symbol factory."""
+        return self._default_symbol_presentation_factory
+
+    def materialize_missing_symbol_presentations(self) -> None:
+        """Materialize defaults only for nodes that have no authored presentation state."""
+        factory = self._default_symbol_presentation_factory
+        if factory is None:
+            return
+        for node in self._model.nodes:
+            if node.presentation is not None:
+                continue
+            element_type = node.properties.get("element_type")
+            if not isinstance(element_type, str) or not element_type.strip():
+                continue
+            node.presentation = factory(element_type)
 
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
         """Persist graphical position in the SLD document model."""
@@ -63,14 +84,21 @@ class SLDDocument(Document):
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "SLDDocument":
-        """Restore an SLD document from presentation data."""
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        default_symbol_presentation_factory: Callable[[str], Mapping[str, Any]] | None = None,
+    ) -> "SLDDocument":
+        """Restore an SLD document and materialize missing symbol presentation defaults."""
         document = cls(
             document_id=str(data["document_id"]),
             name=str(data.get("name", "Untitled SLD")),
             project_id=data.get("project_id"),
             model=SLDModel.from_dict(data.get("model", {})),
+            default_symbol_presentation_factory=default_symbol_presentation_factory,
         )
+        document.materialize_missing_symbol_presentations()
         if bool(data.get("modified", False)):
             document.mark_modified()
         return document
