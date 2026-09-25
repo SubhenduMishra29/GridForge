@@ -90,8 +90,20 @@ class PresentationBootstrap:
         if not isinstance(identifier, str) or not identifier.strip():
             raise ValueError("symbol presentation identifier must be a non-empty string.")
 
-        equipment_type = identifier.strip()
-        if not self.equipment_registry.contains(equipment_type):
+        identifier = identifier.strip()
+        equipment_type: str | None = None
+
+        if self.equipment_registry.contains(identifier):
+            equipment_type = identifier
+        else:
+            try:
+                semantic_equipment_type = equipment_type_for_semantic(identifier)
+            except (TypeError, ValueError):
+                semantic_equipment_type = ""
+            if semantic_equipment_type and self.equipment_registry.contains(semantic_equipment_type):
+                equipment_type = semantic_equipment_type
+
+        if equipment_type is None:
             application = self.application
             if application is None:
                 raise KeyError(f"Unknown equipment presentation identity: {identifier!r}")
@@ -113,11 +125,6 @@ class PresentationBootstrap:
             if not matches:
                 raise KeyError(f"Unknown equipment presentation identity: {identifier!r}")
             equipment_type = equipment_type_for_semantic(matches[0].element_type)
-        else:
-            equipment_type = equipment_type
-
-        if not self.equipment_registry.contains(equipment_type):
-            equipment_type = equipment_type_for_semantic(equipment_type)
 
         definition = self.equipment_registry.require(equipment_type)
         if self.symbol_factory is None:
