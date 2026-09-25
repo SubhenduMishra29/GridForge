@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.model import EndpointReference, EndpointReferenceKind
+from core.model import Bus, EndpointReference, EndpointReferenceKind
 from .errors import ResourceError, ValidationError
 
 
@@ -161,7 +161,12 @@ def _resolve_bus(
     network = _get_network(context)
 
     try:
-        return network.get_by_identity(reference.object_id)
+        bus = network.get_by_identity(reference.object_id)
+        if not isinstance(bus, Bus):
+            raise KeyError(
+                f"Canonical identity '{reference.object_id}' is not a Core Bus."
+            )
+        return bus
     except KeyError as exc:
         raise ResourceError(
             code="BUS_NOT_FOUND",

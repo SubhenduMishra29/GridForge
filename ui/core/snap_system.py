@@ -117,6 +117,8 @@ from math import hypot, isfinite
 from typing import Any, Optional
 
 from ui.core.qt import QPointF
+from ui.items.bus_item import BusItem
+from ui.items.equipment_item import EquipmentItem
 
 
 # ============================================================
@@ -774,10 +776,7 @@ class SnapSystem:
                     "must contain 'position'."
                 )
 
-            position = candidate[
-                "position"
-            ]
-
+            position = candidate["position"]
             object_id = candidate.get("object_id", object_id)
             terminal_id = candidate.get("terminal_id")
             terminal_name = candidate.get("terminal_name")
@@ -788,6 +787,27 @@ class SnapSystem:
             position,
             "object snap candidate position",
         )
+
+        # Electrical object snapping is intentionally restricted to the two
+        # canonical presentation target kinds. A graphics item cannot become
+        # an electrical endpoint merely by exposing arbitrary geometry.
+        if isinstance(item, BusItem):
+            if terminal_id is not None or terminal_name is not None:
+                raise ValueError("Bus snap candidates must not expose terminal identity.")
+            if object_id is None:
+                raise ValueError("Bus snap candidates require a stable bus object_id.")
+        elif isinstance(item, EquipmentItem):
+            if object_id is None:
+                raise ValueError("Equipment terminal snap candidates require object_id.")
+            if terminal_id is None or terminal_name is None:
+                raise ValueError(
+                    "Equipment snap candidates require terminal_id and terminal_name."
+                )
+        else:
+            raise ValueError(
+                "Unsupported electrical snap target: only BusItem and EquipmentItem "
+                "may expose electrical snap points."
+            )
 
         return position, object_id, terminal_id, terminal_name
 

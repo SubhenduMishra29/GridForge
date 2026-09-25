@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.network import SimpleWireConnection
+from core.model import EndpointReference
+from core.network import EndpointCompatibility, EndpointCompatibilityError, SimpleWireConnection
 from ..command import Command
 from ..commands.simple_wire_commands import CREATE_SIMPLE_WIRE, REMOVE_SIMPLE_WIRE
 from ..endpoint_resolver import resolve_terminal_reference
@@ -66,10 +67,12 @@ class SimpleWireConnectionService:
                 details={},
             ) from exc
 
-        # Resolve exact terminal ownership without requiring an attached
-        # endpoint. The relationship itself establishes connectivity.
-        resolve_terminal_reference(context, endpoint_a)
-        resolve_terminal_reference(context, endpoint_b)
+        # Resolve terminal ownership without requiring an attached endpoint.
+        # Bus references are already validated by EndpointCompatibility.
+        if endpoint_a.is_terminal:
+            resolve_terminal_reference(context, endpoint_a)
+        if endpoint_b.is_terminal:
+            resolve_terminal_reference(context, endpoint_b)
 
         connection = SimpleWireConnection(
             connection_id=str(command.payload["connection_id"]),
@@ -81,7 +84,7 @@ class SimpleWireConnectionService:
             lambda connection_id=connection.connection_id, network=network: network.remove_simple_wire_connection(connection_id)
         )
         return ApplicationResult.success_result(
-            value=connection,
+            value=None,
             message=f"Simple Wire {connection.connection_id} created.",
             metadata={
                 "connection_id": connection.connection_id,
@@ -100,7 +103,7 @@ class SimpleWireConnectionService:
             lambda connection=removed, network=network: network.add_simple_wire_connection(connection)
         )
         return ApplicationResult.success_result(
-            value=removed,
+            value=None,
             message=f"Simple Wire {connection_id} removed.",
             metadata={
                 "connection_id": connection_id,

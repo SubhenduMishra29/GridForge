@@ -3,7 +3,7 @@
 # GridForge V2 — Simple Wired Connection Tool
 # Author: Subhendu Mishra
 # ============================================================
-"""Create a logical terminal-to-terminal connection without Line/Cable semantics."""
+"""Create a logical endpoint-to-endpoint connection without Line/Cable semantics."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from .tool_base import ToolBase
 
 
 class WireTool(ToolBase):
-    """Capture two terminal endpoints and submit one canonical connection command."""
+    """Capture two valid electrical endpoints and submit one canonical connection command."""
 
     TOOL_ID = "wire"
 
@@ -39,7 +39,7 @@ class WireTool(ToolBase):
 
     @property
     def description(self) -> str:
-        return "Connect two SLD terminals without creating a Line or Cable object."
+        return "Connect two SLD endpoints without creating a Line or Cable object."
 
     def on_activate(self) -> None:
         self._clear_state()
@@ -115,8 +115,10 @@ class WireTool(ToolBase):
         return result
 
     def _execute_connection(self, endpoint_from: Any, endpoint_to: Any) -> Any:
-        if not getattr(endpoint_from, "is_terminal", False) or not getattr(endpoint_to, "is_terminal", False):
-            raise ValueError("Simple Wired Connection requires two terminal snaps.")
+        if not getattr(endpoint_from, "is_terminal", False) and not getattr(endpoint_from, "is_bus", False):
+            raise ValueError("Simple Wired Connection requires valid electrical endpoint snaps.")
+        if not getattr(endpoint_to, "is_terminal", False) and not getattr(endpoint_to, "is_bus", False):
+            raise ValueError("Simple Wired Connection requires valid electrical endpoint snaps.")
         command = CreateSimpleWireConnectionCommand(endpoint_a=endpoint_from, endpoint_b=endpoint_to)
         return self.execute_command(command)
 
