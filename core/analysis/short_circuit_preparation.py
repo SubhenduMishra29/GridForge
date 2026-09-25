@@ -47,11 +47,16 @@ class ShortCircuitPreparation:
             raise RuntimeError("Short Circuit preparation has already been consumed.")
         try:
             normalized_type = FaultType.from_value(fault_type)
-            bus_ids = tuple(str(bus.id) for bus in network.buses)
+            bus_ids = tuple(topology_snapshot.bus_ids)
+            if not bus_ids:
+                raise ValueError("TopologySnapshot must contain at least one Bus for Short Circuit preparation.")
             if len(set(bus_ids)) != len(bus_ids):
-                raise ValueError("Network bus IDs must be unique for Short Circuit preparation.")
+                raise ValueError("TopologySnapshot bus IDs must be unique for Short Circuit preparation.")
             bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
-            prefault_voltages = tuple(self._prepare_prefault_voltage(network, index) for index in range(len(bus_ids)))
+            prefault_voltages = tuple(
+                self._prepare_prefault_voltage(network, bus_id)
+                for bus_id in bus_ids
+            )
             prefault_voltage = prefault_voltages[bus_index]
             snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids, topology_snapshot)
 
@@ -228,8 +233,8 @@ class ShortCircuitPreparation:
         return self._network.get_by_identity(bus_id) if bus_id else None
 
     @staticmethod
-    def _prepare_prefault_voltage(network: Any, bus_index: int) -> complex:
-        bus = network.buses[bus_index]
+    def _prepare_prefault_voltage(network: Any, bus_id: str) -> complex:
+        bus = network.get_by_identity(bus_id)
         try:
             magnitude = float(bus.V)
             angle = float(bus.theta)
