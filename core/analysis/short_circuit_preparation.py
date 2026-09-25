@@ -37,6 +37,11 @@ class ShortCircuitPreparation:
 
     def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None) -> ShortCircuitInput:
         network = self._network
+        if topology_snapshot is None:
+            network.rebuild_topology()
+            topology_snapshot = network.topology_snapshot
+            if topology_snapshot is None:
+                raise ValueError('Short Circuit requires a canonical TopologySnapshot.')
         self._topology_snapshot = topology_snapshot
         if network is None:
             raise RuntimeError("Short Circuit preparation has already been consumed.")
@@ -210,24 +215,16 @@ class ShortCircuitPreparation:
 
     @staticmethod
     def _end_buses(self, element: Any) -> tuple[Any | None, Any | None]:
-        if getattr(self, '_topology_snapshot', None) is not None:
-            records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self._topology_snapshot.equipment_bus_attachments}
-            from_id = records.get((str(element.id), getattr(element.from_terminal, 'role', '')))
-            to_id = records.get((str(element.id), getattr(element.to_terminal, 'role', '')))
-            return (self._network.get_by_identity(from_id) if from_id else None, self._network.get_by_identity(to_id) if to_id else None)
-        from core.network.endpoint import resolve_terminal_bus
-        terminals = (getattr(element, "from_terminal", None), getattr(element, "to_terminal", None))
-        return tuple(None if terminal is None else resolve_terminal_bus(terminal) for terminal in terminals)  # type: ignore[return-value]
+        records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self._topology_snapshot.equipment_bus_attachments}
+        from_id = records.get((str(element.id), getattr(element.from_terminal, 'role', '')))
+        to_id = records.get((str(element.id), getattr(element.to_terminal, 'role', '')))
+        return (self._network.get_by_identity(from_id) if from_id else None, self._network.get_by_identity(to_id) if to_id else None)
 
     @staticmethod
     def _single_bus(self, element: Any) -> Any | None:
-        if getattr(self, '_topology_snapshot', None) is not None:
-            role = getattr(getattr(element, 'terminal', None), 'role', '')
-            bus_id = next((r.bus_id for r in self._topology_snapshot.equipment_bus_attachments if r.equipment_id == str(element.id) and r.terminal_role == role), None)
-            return self._network.get_by_identity(bus_id) if bus_id else None
-        from core.network.endpoint import resolve_terminal_bus
-        terminal = getattr(element, 'terminal', None)
-        return None if terminal is None else resolve_terminal_bus(terminal)
+        role = getattr(getattr(element, 'terminal', None), 'role', '')
+        bus_id = next((r.bus_id for r in self._topology_snapshot.equipment_bus_attachments if r.equipment_id == str(element.id) and r.terminal_role == role), None)
+        return self._network.get_by_identity(bus_id) if bus_id else None
 
     @staticmethod
     def _prepare_prefault_voltage(network: Any, bus_index: int) -> complex:
