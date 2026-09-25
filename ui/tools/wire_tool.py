@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Tuple
 
-from core.application.commands.connection_commands import ConnectTerminalCommand
+from core.application.commands.simple_wire_commands import CreateSimpleWireConnectionCommand
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 from .tool_base import ToolBase
@@ -20,13 +20,14 @@ class WireTool(ToolBase):
 
     TOOL_ID = "wire"
 
-    def __init__(self, controller: Any, application: Any, selection_manager: Any, snap_system: Any) -> None:
+    def __init__(self, controller: Any, application: Any, selection_manager: Any, snap_system: Any, preview_layer: Any = None) -> None:
         super().__init__(controller=controller, application=application, selection_manager=selection_manager, snap_system=snap_system)
         self._start_position: Optional[Tuple[float, float]] = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._start_endpoint: Any = None
         self._current_endpoint: Any = None
         self._preview_active = False
+        self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
 
     @property
     def tool_id(self) -> str:
@@ -59,6 +60,7 @@ class WireTool(ToolBase):
             self._current_endpoint = endpoint
             self._current_position = position
             self._preview_active = True
+            self._show_preview()
             return True
         self._current_endpoint = endpoint
         self._current_position = position
@@ -76,6 +78,7 @@ class WireTool(ToolBase):
         self._current_position = self._position_tuple(snap_result.position)
         self._current_endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         self._preview_active = True
+        self._show_preview()
         return True
 
     def on_mouse_release(self, event: Any) -> bool:
@@ -112,8 +115,18 @@ class WireTool(ToolBase):
         return result
 
     def _execute_connection(self, endpoint_from: Any, endpoint_to: Any) -> Any:
-        command = ConnectTerminalCommand(terminal=endpoint_from, target=endpoint_to)
+        if not getattr(endpoint_from, "is_terminal", False) or not getattr(endpoint_to, "is_terminal", False):
+            raise ValueError("Simple Wired Connection requires two terminal snaps.")
+        command = CreateSimpleWireConnectionCommand(endpoint_a=endpoint_from, endpoint_b=endpoint_to)
         return self.execute_command(command)
+
+    def _show_preview(self) -> None:
+        layer = self._preview_layer
+        if layer is None or not callable(getattr(layer, "show_segment", None)):
+            return
+        if self._start_position is None or self._current_position is None:
+            return
+        layer.show_segment(self._start_position, self._current_position)
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -135,6 +148,8 @@ class WireTool(ToolBase):
         return key in ("Escape", "escape", 0x01000000)
 
     def _clear_state(self) -> None:
+        if self._preview_layer is not None and callable(getattr(self._preview_layer, "clear", None)):
+            self._preview_layer.clear()
         self._start_position = None
         self._current_position = None
         self._start_endpoint = None

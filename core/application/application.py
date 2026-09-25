@@ -36,11 +36,12 @@ from .events import (
     ElementCreated, ElementRemoved, ElementUpdated,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
     SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged,
+    SimpleWireConnectionCreated, SimpleWireConnectionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
-from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
+from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -445,6 +446,13 @@ class Application:
         self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
         self._require_read_service(); return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
+    def read_simple_wire(self, connection_id: str) -> SimpleWireReadModel:
+        network = self.read_network()
+        for connection in network.simple_wires:
+            if connection.connection_id == connection_id:
+                return connection
+        raise KeyError(f"Simple Wire connection '{connection_id}' is not represented by the Application read model.")
+
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
     def read_relay(self, relay_id: str) -> RelayReadModel:
@@ -457,7 +465,32 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation}
-        if command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
+        if command.command_type in {"connectivity.create_simple_wire", "connectivity.remove_simple_wire"}:
+            action = "create" if command.command_type.endswith("create_simple_wire") else "remove"
+            if operation == "undo":
+                action = "remove" if action == "create" else "create"
+            event_type = SimpleWireConnectionCreated if action == "create" else SimpleWireConnectionRemoved
+            endpoint_a = metadata.get("endpoint_a") or getattr(command, "payload", {}).get("endpoint_a")
+            endpoint_b = metadata.get("endpoint_b") or getattr(command, "payload", {}).get("endpoint_b")
+            if endpoint_a is None or endpoint_b is None:
+                raise RuntimeError(
+                    f"Simple Wire semantic event lacks endpoint snapshots for {metadata.get('connection_id')!r}."
+                )
+            if hasattr(endpoint_a, "to_mapping"):
+                endpoint_a = endpoint_a.to_mapping()
+            if hasattr(endpoint_b, "to_mapping"):
+                endpoint_b = endpoint_b.to_mapping()
+            self._event_bus.publish(event_type(
+                connection_id=str(metadata.get("connection_id") or getattr(command, "payload", {}).get("connection_id")),
+                endpoint_a=endpoint_a,
+                endpoint_b=endpoint_b,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+            self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+        elif command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
             self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
         elif command.command_type.startswith("model."):

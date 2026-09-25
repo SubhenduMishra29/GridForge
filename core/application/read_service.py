@@ -19,6 +19,7 @@ from .read_models import (
     ProtectionReadModel,
     RelayInputBindingReadModel,
     RelayReadModel,
+    SimpleWireReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
@@ -125,7 +126,16 @@ class NetworkReadService(ReadService):
         elements: list[ElementReadModel] = []
         for element_type in _ELEMENT_COLLECTIONS:
             for model in getattr(self._network, element_type): elements.append(self._to_read_model(element_type, model))
-        return NetworkReadModel(elements=tuple(elements))
+        simple_wires = tuple(
+            SimpleWireReadModel(
+                connection_id=connection.connection_id,
+                endpoint_a=connection.endpoint_a.to_mapping(),
+                endpoint_b=connection.endpoint_b.to_mapping(),
+                kind=connection.kind,
+            )
+            for connection in self._network.connectivity.connections
+        )
+        return NetworkReadModel(elements=tuple(elements), simple_wires=simple_wires)
     def element(self, element_type: str, object_id: str) -> ElementReadModel:
         """Return one NETWORK-domain element read model.
 
@@ -191,7 +201,7 @@ class NetworkReadService(ReadService):
         element_type: str,
         attributes: dict[str, Any],
     ) -> tuple[EngineeringParameterReadModel, ...]:
-        from .read_models import EngineeringParameterReadModel
+        from .read_models import EngineeringParameterReadModel, SimpleWireReadModel
 
         result: list[EngineeringParameterReadModel] = []
         basis = str(attributes.get("impedance_basis", "")).lower()
