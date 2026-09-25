@@ -51,12 +51,20 @@ class SimpleWireConnectionService:
         network = self._network(context)
         endpoint_a = command.payload["endpoint_a"]
         endpoint_b = command.payload["endpoint_b"]
-        if not getattr(endpoint_a, "is_terminal", False) or not getattr(endpoint_b, "is_terminal", False):
+        if not isinstance(endpoint_a, EndpointReference) or not isinstance(endpoint_b, EndpointReference):
             raise ValidationError(
                 code="INVALID_SIMPLE_WIRE_ENDPOINT",
-                message="Simple Wire requires two terminal EndpointReferences.",
+                message="Simple Wire requires EndpointReference values.",
                 details={},
             )
+        try:
+            EndpointCompatibility.validate_pair(endpoint_a, endpoint_b, network)
+        except EndpointCompatibilityError as exc:
+            raise ValidationError(
+                code="INVALID_SIMPLE_WIRE_ENDPOINT",
+                message=str(exc),
+                details={},
+            ) from exc
 
         # Resolve exact terminal ownership without requiring an attached
         # endpoint. The relationship itself establishes connectivity.
