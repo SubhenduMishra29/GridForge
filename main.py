@@ -175,8 +175,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         gridforge_application.save_project(path)
         _refresh_status()
 
+    def _choose_save_as_path(context: object) -> str | None:
+        path, _ = QFileDialog.getSaveFileName(
+            window,
+            "Save GridForge Project",
+            "",
+            "GridForge Project (*.gridforge)",
+        )
+        return path or None
+
     def _save_project_as() -> None:
-        path, _ = QFileDialog.getSaveFileName(window, "Save GridForge Project", "", "GridForge Project (*.gridforge)")
+        path = _choose_save_as_path(gridforge_application.project_lifecycle.context)
         if path:
             gridforge_application.save_project_as(path)
             _refresh_status()
@@ -288,7 +297,17 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
     element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
-    ui_lifecycle = UILifecycle(workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None, document_ready=lambda: project_workspace_adapter.state.document is not None, document_close=project_workspace_adapter.close_project, workspace_teardown=workspace_controller.close, cleanup=lambda: None); resources["ui_lifecycle"] = ui_lifecycle
+    # Project close is already completed by MainWindow.closeEvent before
+    # UILifecycle.shutdown. Shutdown must only release remaining presentation
+    # document state; it must never re-run the Application project transition
+    # and accidentally prompt/save a dirty project a second time.
+    ui_lifecycle = UILifecycle(
+        workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
+        document_ready=lambda: project_workspace_adapter.state.document is not None,
+        document_close=project_workspace_lifecycle.close_document,
+        workspace_teardown=workspace_controller.close,
+        cleanup=lambda: None,
+    ); resources["ui_lifecycle"] = ui_lifecycle
 
     def project_transition_decision(context: object) -> object:
         project_name = getattr(context, "name", "the active project")
@@ -313,6 +332,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     close_controller = ProjectCloseController(
         application=project_workspace_adapter,
         decision_provider=project_transition_decision,
+        save_as_path_provider=_choose_save_as_path,
     )
     window.set_close_handler(close_controller.request_close)
     if status_plugin is None:
