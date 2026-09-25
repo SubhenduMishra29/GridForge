@@ -36,6 +36,7 @@ from .events import (
     ElementCreated, ElementRemoved, ElementUpdated,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
     SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged,
+    SimpleWireConnectionCreated, SimpleWireConnectionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
@@ -457,7 +458,22 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation}
-        if command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
+        if command.command_type in {"connectivity.create_simple_wire", "connectivity.remove_simple_wire"}:
+            action = "create" if command.command_type.endswith("create_simple_wire") else "remove"
+            if operation == "undo":
+                action = "remove" if action == "create" else "create"
+            event_type = SimpleWireConnectionCreated if action == "create" else SimpleWireConnectionRemoved
+            self._event_bus.publish(event_type(
+                connection_id=str(metadata["connection_id"]),
+                endpoint_a=metadata["endpoint_a"],
+                endpoint_b=metadata["endpoint_b"],
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+            self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+        elif command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
             self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
         elif command.command_type.startswith("model."):
