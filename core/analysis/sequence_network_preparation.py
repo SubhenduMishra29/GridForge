@@ -37,10 +37,12 @@ class SequenceNetworkPreparation:
         requested = tuple(self._normalize_sequence(value) for value in sequences)
         if not requested:
             raise ValueError("At least one sequence is required.")
-        bus_ids = tuple(str(bus.id) for bus in self.network.buses)
+        bus_ids = tuple(self.topology_snapshot.bus_ids)
+        if not bus_ids:
+            raise ValueError("TopologySnapshot must contain at least one Bus for sequence preparation.")
         if len(set(bus_ids)) != len(bus_ids):
-            raise ValueError("Network bus IDs must be unique for sequence preparation.")
-        index = {bus: i for i, bus in enumerate(self.network.buses)}
+            raise ValueError("TopologySnapshot bus IDs must be unique for sequence preparation.")
+        index = {bus_id: i for i, bus_id in enumerate(bus_ids)}
         sequence = SequenceNetwork()
         branch_data: list[tuple[int, int, dict[str, complex | None], str]] = []
 
@@ -56,7 +58,9 @@ class SequenceNetworkPreparation:
                 if data[name] is None:
                     raise ValueError(f"{type(element).__name__} '{element_id}' lacks explicit {name}-sequence engineering data.")
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
-            branch_data.append((index[bus_a], index[bus_b], data, str(element_id)))
+            from_id = str(bus_a.id)
+            to_id = str(bus_b.id)
+            branch_data.append((index[from_id], index[to_id], data, str(element_id)))
 
         for source in self.network.grids:
             if not bool(getattr(source, "in_service", True)):
@@ -70,7 +74,8 @@ class SequenceNetworkPreparation:
                     raise ValueError(f"Grid '{getattr(source, 'id', source)}' is missing required {name}-sequence impedance.")
             element_id = getattr(source, "id", source)
             sequence.add_element(element_id, data["positive"], data["negative"], data["zero"])
-            branch_data.append((index[bus], index[bus], data, str(element_id)))
+            bus_id = str(bus.id)
+            branch_data.append((index[bus_id], index[bus_id], data, str(element_id)))
 
         for collection_name in ("generators", "synchronous_machines", "motors"):
             for machine in getattr(self.network, collection_name, ()):
@@ -86,7 +91,8 @@ class SequenceNetworkPreparation:
                         raise ValueError(f"{type(machine).__name__} '{getattr(machine, 'id', machine)}' lacks explicit {name}-sequence impedance.")
                 element_id = getattr(machine, "id", machine)
                 sequence.add_element(element_id, data["positive"], data.get("negative"), data.get("zero"))
-                branch_data.append((index[bus], index[bus], data, str(element_id)))
+                bus_id = str(bus.id)
+                branch_data.append((index[bus_id], index[bus_id], data, str(element_id)))
 
         for name in requested:
             sequence.set_matrix(name, self._build_matrix(len(bus_ids), branch_data, name))
