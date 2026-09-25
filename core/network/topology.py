@@ -28,7 +28,24 @@ class TopologyManager:
             buses=sorted(n[1] for n in component if n[0]=="bus")
             for i,a in enumerate(buses):
                 for b in buses[i+1:]:adjacency[a].add(b);adjacency[b].add(a)
-        for b in self.network.buses:graph[b]={self.network.get_by_identity(x) for x in sorted(adjacency[b.id])}
+        for b in self.network.buses:
+            graph[b]={self.network.get_by_identity(x) for x in sorted(adjacency[b.id])}
+        # Conductive equipment is an explicit electrical boundary. It contributes
+        # Bus adjacency, but Simple Wire never traverses its numerical branch.
+        for e in self._topology_elements():
+            if not conduction_state(e):
+                continue
+            terminals=tuple(getattr(e,"terminals",()))
+            if len(terminals)!=2:
+                continue
+            bus_a=resolve_terminal_bus(terminals[0]); bus_b=resolve_terminal_bus(terminals[1])
+            if bus_a is None or bus_b is None:
+                raise EndpointCompatibilityError(f"Conductive {type(e).__name__} '{e.id}' has unresolved terminals.")
+            if bus_a is not bus_b:
+                graph.setdefault(bus_a,set()).add(bus_b)
+                graph.setdefault(bus_b,set()).add(bus_a)
+                adjacency[bus_a.id].add(bus_b.id)
+                adjacency[bus_b.id].add(bus_a.id)
         for e in self._topology_elements():
             if conduction_state(e) and isinstance(e,(Line,Cable,Transformer)):
                 a=resolve_terminal_bus(e.from_terminal);b=resolve_terminal_bus(e.to_terminal)
