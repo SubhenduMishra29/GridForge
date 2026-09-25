@@ -581,3 +581,34 @@ Register status discipline: these findings are not marked CLOSED. Static correct
 - Equipment Browser remains catalogue-driven through the existing EquipmentRegistry/ToolManager composition.
 - Simple Wire creation is a topology connection workflow and does not implicitly instantiate a Line or Cable object.
 - No runtime verification is claimed from this source inspection.
+
+
+## 2026-09-25 — GF-UI-02 Lifecycle and Persistence Remediation / Fresh Static Re-Audit
+
+**Repository:** madhuri196mishra-cpu/GridForge  
+**Branch:** main  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only. No pytest, CI, application startup, GUI execution, or runtime verification performed.
+
+| Finding | Status | Static evidence |
+|---|---|---|
+| GF-UI-02-001 | **CLOSED — STATIC SOURCE RE-AUDIT** | main.py Open and Save As dialogs now expose only GridForge Project (*.gridforge); canonical core/persistence/project_package.py remains authoritative with PACKAGE_SUFFIX = ".gridforge" and normalize_package_path(). |
+| GF-UI-02-002 | **CLOSED — STATIC SOURCE RE-AUDIT** | ProjectCloseController is composed against ProjectWorkspaceApplicationAdapter, so successful close executes through the same Application lifecycle boundary and adapter publication path as New/Open. ProjectWorkspaceChanged(operation="close") is emitted only after Application.close_project() returns successfully. The close handler reconciles the SLDController to the Application empty presentation and synchronizes the canonical canvas path. ProjectClosed also remains subscribed by SLDController/UI projection infrastructure. CANCEL returns before configuration or lifecycle mutation. |
+| GF-UI-02-003 | **CLOSED — STATIC SOURCE RE-AUDIT** | ProjectWorkspaceApplicationAdapter resolves CANCEL before transition configuration and captures/restores the Application lifecycle presentation configuration on failed transition setup/activation. ProjectLifecycleService.PresentationConfigurationSnapshot captures factory, serializer, deserializer, and activator as one transactional configuration boundary. Application lifecycle rollback remains authoritative for project/network/presentation state and preserves ROLLBACK_FAILED handling. |
+
+### UI-02 acceptance proof
+
+1. No *.gfpkg reference remains in the active main.py project dialogs; the UI uses the canonical .gridforge package terminology.
+2. New/Open/Close route through ProjectWorkspaceApplicationAdapter, which delegates lifecycle mutation to Application.
+3. Save/Save As remain Application lifecycle persistence calls and use canonical package normalization in ProjectLifecycleService.
+4. Close no longer bypasses the workspace adapter; the same adapter publishes exactly one successful ProjectWorkspaceChanged(close, ...) after Application success.
+5. CANCEL is side-effect free at the adapter boundary and does not publish a workspace transition.
+6. SAVE is resolved by Application._prepare_project_transition() against the current project before replacement; DISCARD invokes discard_project_changes() before replacement.
+7. Application activation rollback remains the single lifecycle rollback authority; presentation/workspace rollback is composed into the Application presentation activator.
+8. Successful close clears project workspace/document/view state through ProjectWorkspaceLifecycle.close_project() and reconciles SLD/canvas presentation to no active document.
+9. SLDController continues to subscribe to ProjectClosed, while the adapter callback explicitly synchronizes the empty canvas after successful close.
+10. No second project lifecycle, persistence API, command manager, or UI-to-Core mutation path was introduced.
+11. Canonical package contents remain manifest.json + project.json.
+12. Master register updated with this fresh static re-audit; runtime verification remains deferred.
+
+**Closure discipline:** UI-02 is **STATICALLY CLOSED** only. Runtime verification remains **UNVERIFIED / DEFERRED**.
