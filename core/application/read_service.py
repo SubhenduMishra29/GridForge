@@ -19,6 +19,7 @@ from .read_models import (
     ProtectionReadModel,
     RelayInputBindingReadModel,
     RelayReadModel,
+    SimpleWireReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
