@@ -14,6 +14,7 @@ from core.solver.short_circuit.sequence_snapshot import (
     SequenceSourceSnapshot,
 )
 from .sequence_network_preparation import SequenceNetworkPreparation
+from core.network.topology_snapshot import TopologySnapshot
 
 
 class ShortCircuitPreparation:
@@ -32,20 +33,32 @@ class ShortCircuitPreparation:
         self._network = network
         self._sequence_network = sequence_network
         self.base_mva = base_mva
+        self._topology_snapshot = None
 
-    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None) -> ShortCircuitInput:
+    def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None) -> ShortCircuitInput:
         network = self._network
+        if topology_snapshot is None:
+            network.rebuild_topology()
+            topology_snapshot = network.topology_snapshot
+            if topology_snapshot is None:
+                raise ValueError('Short Circuit requires a canonical TopologySnapshot.')
+        self._topology_snapshot = topology_snapshot
         if network is None:
             raise RuntimeError("Short Circuit preparation has already been consumed.")
         try:
             normalized_type = FaultType.from_value(fault_type)
-            bus_ids = tuple(str(bus.id) for bus in network.buses)
+            bus_ids = tuple(topology_snapshot.bus_ids)
+            if not bus_ids:
+                raise ValueError("TopologySnapshot must contain at least one Bus for Short Circuit preparation.")
             if len(set(bus_ids)) != len(bus_ids):
-                raise ValueError("Network bus IDs must be unique for Short Circuit preparation.")
+                raise ValueError("TopologySnapshot bus IDs must be unique for Short Circuit preparation.")
             bus_index = self._resolve_fault_bus_index(fault_bus, bus_ids)
-            prefault_voltages = tuple(self._prepare_prefault_voltage(network, index) for index in range(len(bus_ids)))
+            prefault_voltages = tuple(
+                self._prepare_prefault_voltage(network, bus_id)
+                for bus_id in bus_ids
+            )
             prefault_voltage = prefault_voltages[bus_index]
-            snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids)
+            snapshot = self._prepare_sequence_snapshot(network, normalized_type, bus_ids, topology_snapshot)
 
             positive_matrix = snapshot.get_matrix("positive")
             zbus = tuple(tuple(complex(value) for value in row) for row in positive_matrix.tolist())
@@ -74,17 +87,20 @@ class ShortCircuitPreparation:
                 sequence_snapshot=snapshot,
                 sequence_elements=sequence_elements,
                 prefault_voltages=prefault_voltages,
+                project_id=topology_snapshot.project_id,
+                activation_generation=topology_snapshot.activation_generation,
+                topology_revision=topology_snapshot.topology_revision,
             )
         finally:
             self._network = None
             self._sequence_network = None
 
-    def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...]) -> SequenceNetworkSnapshot:
+    def _prepare_sequence_snapshot(self, network: Any, fault_type: FaultType, bus_ids: tuple[str, ...], topology_snapshot: TopologySnapshot | None = None) -> SequenceNetworkSnapshot:
         if self._sequence_network is not None:
             sequence_network = self._sequence_network
         else:
             required = ("positive", "negative", "zero") if fault_type.is_unbalanced else ("positive",)
-            sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva).prepare(required)
+            sequence_network = SequenceNetworkPreparation(network, base_mva=self.base_mva, topology_snapshot=topology_snapshot).prepare(required)
         return SequenceNetworkSnapshot.from_sequence_network(
             sequence_network,
             bus_ids=bus_ids,
@@ -205,21 +221,20 @@ class ShortCircuitPreparation:
                     result.append(element)
         return result
 
-    @staticmethod
-    def _end_buses(element: Any) -> tuple[Any | None, Any | None]:
-        from core.network.endpoint import resolve_terminal_bus
-        terminals = (getattr(element, "from_terminal", None), getattr(element, "to_terminal", None))
-        return tuple(None if terminal is None else resolve_terminal_bus(terminal) for terminal in terminals)  # type: ignore[return-value]
+    def _end_buses(self, element: Any) -> tuple[Any | None, Any | None]:
+        records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self._topology_snapshot.equipment_bus_attachments}
+        from_id = records.get((str(element.id), getattr(element.from_terminal, 'role', '')))
+        to_id = records.get((str(element.id), getattr(element.to_terminal, 'role', '')))
+        return (self._network.get_by_identity(from_id) if from_id else None, self._network.get_by_identity(to_id) if to_id else None)
+
+    def _single_bus(self, element: Any) -> Any | None:
+        role = getattr(getattr(element, 'terminal', None), 'role', '')
+        bus_id = next((r.bus_id for r in self._topology_snapshot.equipment_bus_attachments if r.equipment_id == str(element.id) and r.terminal_role == role), None)
+        return self._network.get_by_identity(bus_id) if bus_id else None
 
     @staticmethod
-    def _single_bus(element: Any) -> Any | None:
-        from core.network.endpoint import resolve_terminal_bus
-        terminal = getattr(element, "terminal", None)
-        return None if terminal is None else resolve_terminal_bus(terminal)
-
-    @staticmethod
-    def _prepare_prefault_voltage(network: Any, bus_index: int) -> complex:
-        bus = network.buses[bus_index]
+    def _prepare_prefault_voltage(network: Any, bus_id: str) -> complex:
+        bus = network.get_by_identity(bus_id)
         try:
             magnitude = float(bus.V)
             angle = float(bus.theta)

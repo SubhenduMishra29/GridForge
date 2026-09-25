@@ -207,7 +207,11 @@ class SLDController:
     def remove_connection(self, connection_id: str) -> SLDConnection:
         document = self._require_active_document()
         connection = document.model.get_connection(connection_id)
-        result = self.application.execute(RemoveSLDConnectionCommand(connection_id=connection_id))
+        if connection.properties.get("connection_kind") == "SIMPLE_WIRE":
+            from .simple_wire_selection import delete_selected_simple_wire
+            result = delete_selected_simple_wire(self.application, connection_id)
+        else:
+            result = self.application.execute(RemoveSLDConnectionCommand(connection_id=connection_id))
         if not result.success:
             raise RuntimeError(result.message)
         self._state.deselect_connection(connection_id)

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .connectivity import ConnectivityStore, SimpleWireConnection
+from .electrical_boundary import EndpointCompatibility, conduction_state
 from .indexing import BusIndex
 from .registry import NetworkRegistry
 from .state import NetworkState
@@ -19,10 +21,11 @@ from .topology import TopologyManager
 class Network:
     """Authoritative electrical network aggregate."""
 
-    def __init__(self, *, registry: Optional[NetworkRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None) -> None:
+    def __init__(self, *, registry: Optional[NetworkRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
         self.registry = registry or NetworkRegistry()
         self.state = state or NetworkState()
         self.index = index or BusIndex()
+        self.connectivity = connectivity or ConnectivityStore()
         if topology is None:
             self.topology = TopologyManager(self)
         else:
@@ -117,6 +120,7 @@ class Network:
                         f"Terminal '{terminal.role}' on '{element.id}' references an unregistered object '{endpoint.id}'."
                     )
 
+        self.connectivity.validate(self)
         return True
 
     def _invalidate_topology(self, *, bus_membership: bool = False) -> None:
@@ -134,6 +138,11 @@ class Network:
             self._invalidate_topology(bus_membership=affects_bus_index)
 
     def _remove(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
+        dependencies = self.connectivity.connections_for_equipment(getattr(element, "id", ""))
+        if dependencies:
+            raise ValueError(
+                f"Cannot remove '{getattr(element, 'id', element)}': dependent Simple Wire relationships exist."
+            )
         method(element)
         if affects_topology:
             self._invalidate_topology(bus_membership=affects_bus_index)
@@ -183,10 +192,43 @@ class Network:
     def add_fuse(self, fuse: Any) -> None: self._add(self.registry.add_fuse, fuse, affects_topology=True)
     def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
 
+    def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
+        if not isinstance(connection, SimpleWireConnection):
+            raise TypeError("connection must be a SimpleWireConnection.")
+        # EndpointReference is the single canonical endpoint contract.
+        # validate_reference handles both BUS and TERMINAL endpoints; Network
+        # must not duplicate terminal-only interpretation here.
+        EndpointCompatibility.validate_reference(connection.endpoint_a, self)
+        EndpointCompatibility.validate_reference(connection.endpoint_b, self)
+        EndpointCompatibility.validate_pair(connection.endpoint_a, connection.endpoint_b, self)
+        self.connectivity.add(connection, self)
+        self._invalidate_topology()
+
+    def remove_simple_wire_connection(self, connection_id: str) -> SimpleWireConnection:
+        connection = self.connectivity.remove(connection_id)
+        self._invalidate_topology()
+        return connection
+
+    def get_simple_wire_connection(self, connection_id: str) -> SimpleWireConnection:
+        return self.connectivity.get(connection_id)
+
     def rebuild_topology(self) -> dict[Any, set[Any]]:
-        graph = self.topology.build()
-        self.state.topology_rebuilt()
+        graph = self.topology._build()
+        if self.topology.snapshot is None:
+            self.state.topology_rebuilt(valid=False)
+            raise RuntimeError("TopologyManager did not produce a valid TopologySnapshot.")
+        self.state.topology_rebuilt(valid=True)
         return graph
+
+    @property
+    def topology_snapshot(self):
+        """Return the current immutable runtime-derived topology snapshot."""
+        if self.topology_dirty:
+            return None
+        return self.topology.snapshot
+
+    def conduction_state(self, element: Any) -> bool:
+        return conduction_state(element)
 
     def ensure_bus_index(self) -> None:
         self.index.ensure(self.buses)
@@ -201,7 +243,7 @@ class Network:
     def index_valid(self) -> bool: return self.index.valid
 
     def __repr__(self) -> str:
-        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
+        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
 
 
 __all__ = ["Network"]

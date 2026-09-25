@@ -23,9 +23,10 @@ class _RevisionTransition:
 class RevisionService:
     """Own the authoritative in-memory revision state for the active project."""
 
-    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.")
+    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.")
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
+        "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
         "model.create_line", "model.delete_line",
         "model.create_transformer", "model.delete_transformer",
         "model.create_cable", "model.update_cable", "model.delete_cable",

@@ -60,6 +60,9 @@ class ProjectPersistenceService:
         if manifest.get("package_version") != PACKAGE_VERSION: raise ProjectPersistenceError(f"Unsupported GridForge package version: {manifest.get('package_version')!r}")
         if manifest.get("format") != "GridForgeProject": raise ProjectPersistenceError("Invalid GridForge project manifest.")
         project = self._read_json(project_path(package))
+        project_schema = project.get("schema", 1)
+        if project_schema not in (1, 2):
+            raise ProjectPersistenceError(f"Unsupported GridForge project schema: {project_schema!r}")
         context_data = project.get("project")
         if not isinstance(context_data, dict): raise ProjectPersistenceError("project.json is missing project metadata.")
         project_id, name = context_data.get("project_id"), context_data.get("name")
@@ -126,7 +129,7 @@ class ProjectPersistenceService:
         dynamic_models_data = [item.to_dict() for item in dynamic_models]
         manifest = {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
         measurement_data = {"channels": [dict(item) for item in measurement_definitions]}
-        project: dict[str, Any] = {"schema": 1, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
+        project: dict[str, Any] = {"schema": 2, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
         if presentation_data is not None: project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
 

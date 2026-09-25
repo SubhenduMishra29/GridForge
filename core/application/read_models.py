@@ -114,10 +114,29 @@ class ElementReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class SimpleWireReadModel:
+    """Immutable Application snapshot of one authoritative Simple Wire relationship."""
+
+    connection_id: str
+    endpoint_a: Mapping[str, Any]
+    endpoint_b: Mapping[str, Any]
+    kind: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.connection_id, str) or not self.connection_id:
+            raise ValueError("SimpleWireReadModel.connection_id must be non-empty")
+        if not isinstance(self.kind, str) or self.kind != "SIMPLE_WIRE":
+            raise ValueError("SimpleWireReadModel.kind must be SIMPLE_WIRE")
+        object.__setattr__(self, "endpoint_a", _freeze(self.endpoint_a))
+        object.__setattr__(self, "endpoint_b", _freeze(self.endpoint_b))
+
+
+@dataclass(frozen=True, slots=True)
 class NetworkReadModel:
     """Immutable collection snapshot used by presentation projections."""
 
     elements: tuple[ElementReadModel, ...]
+    simple_wires: tuple[SimpleWireReadModel, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +180,7 @@ __all__ = [
     "ElementReadModel",
     "EngineeringParameterReadModel",
     "NetworkReadModel",
+    "SimpleWireReadModel",
     "ProtectionReadModel",
     "RelayInputBindingReadModel",
     "RelayReadModel",

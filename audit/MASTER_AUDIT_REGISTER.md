@@ -1,8 +1,9 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `pandaraseswari03-collab/GridForge`
+**Repository authority:** `SubhenduMishra29/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
+**Active branch:** `main`
 **Branch baseline:** `main` — current working repository authority
 **Consolidation date:** 2026-09-17
 **Authority:** frozen GridForge V2 architecture supplied for this audit.
@@ -505,3 +506,125 @@ GUI, or runtime execution was performed.
 - **Ownership:** projection-owned SLD nodes remain tagged with `projection_source`; engineer-owned nodes are not overwritten by projection reconciliation.
 
 **Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
+
+## 2026-09-25 — GF-SLD-WF-014..021 — final consolidated SLD workflow re-audit
+
+**Repository:** madhuri196mishra-cpu/GridForge  
+**Branch:** main  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only. pytest, unit/integration execution, CI, startup, GUI/runtime smoke tests, and application execution were not performed.
+
+| Finding | Status | Static evidence |
+|---|---|---|
+| GF-SLD-WF-014 | **CLOSED** | PanelsPlugin.initialize() creates the visible EquipmentPanelWidget and binds the canonical PluginContext.equipment_registry and tool_manager; EquipmentPanelWidget.activate_equipment() resolves the definition through that registry and activates the canonical ToolManager. The legacy logical EquipmentPanel is not composed as the visible widget. |
+| GF-SLD-WF-015 | **CLOSED** | ModelPlacementTool._build_command() carries presentation_x/presentation_y; BusTool carries x/y into canonical CREATE_BUS and Application._coordinate_pre_commit() now normalizes that compatibility form and resolves bus_id. The Application pre-commit hook projects the SLD node in the same transaction. SLDReadSynchronizer, SLDCanvasProjection, and the renderer preserve the committed presentation coordinates. |
+| GF-SLD-WF-016 | **CLOSED** | Retired ui/equipment/EquipmentConnection, ConnectionManager, and topology adapter are absent from the active tree. ui/sld/sld_model.py owns SLDConnection as presentation/document state, while Core terminal connectivity is represented by Application/Core connection commands. Remaining ui/connections/Connection is non-authoritative interaction/presentation state and does not mutate Core. |
+| GF-SLD-WF-017 | **CLOSED** | EquipmentManager is retired. SLDGraphicsItemFactory resolves ElementReadModel from Application.read_network() / protection read state and EquipmentFactory.create_from_read_model() creates transient presentation equipment. No UI equipment collection is the engineering authority. |
+| GF-SLD-WF-018 | **CLOSED** | PresentationBootstrap composes the canonical equipment/symbol registries, semantic realization, and SLDGraphicsItemFactory; main.py constructs one SLDCanvasProjection and one SLDCanvasRenderSystem, then injects both into the single CanvasComposition. SLDCanvasRenderSystem.synchronize() consumes only immutable SLDCanvasSnapshot data. |
+| GF-SLD-WF-019 | **CLOSED** | CanvasComposition owns the scene, ToolManager-related canvas services, SLD projection, render system, and selection projection. CanvasPlugin only consumes that composition and asserts identity against the same PluginContext projection/render instances and scene. |
+| GF-SLD-WF-020 | **CLOSED** | UIUpdateBoundary is the single Application-event ingress; UIProjectionCoordinator routes lifecycle/model events to SLDUpdateCoordinator. ProjectLoaded clears projection state, binds the new presentation, reconciles network/protection, and refreshes the canvas. ProjectClosed clears projection state, detaches the document, and invokes the CanvasPlugin synchronization path, which clears the render system when no active presentation exists. |
+| GF-SLD-WF-021 | **CLOSED** | Application._coordinate_pre_commit() invokes SLDService.execute(AddSLDNodeCommand, transaction) before CommandManager commits. SLDService records the SLD inverse in that same Transaction. A projection failure therefore causes the canonical transaction to roll back rather than creating a second SLD history operation. |
+
+### Final end-to-end static proof
+
+EquipmentPanelWidget._on_item_clicked() → activate_equipment() → EquipmentRegistry.require() → canonical ToolManager.activate() → concrete placement Tool → live PreviewLayer only → immutable model command → ToolBase.execute_command() → Application.execute() → CommandManager._execute_command() → Core handler → Application pre-commit SLD projection → SLDService / SLDDocument transaction mutation → commit → semantic ElementCreated/related event → UIUpdateBoundary → UIProjectionCoordinator → SLDUpdateCoordinator.refresh() → SLDReadSynchronizer → SLDDocument/SLDModel → SLDCanvasProjection.project() → SLDCanvasSnapshot → SLDCanvasRenderSystem.synchronize() → SLDGraphicsItemFactory / semantic realization → GridScene.
+
+### Final corrections made during this pass
+
+1. Removed the stale initial_positions reference from ui/events/sld_update_coordinator.py; the current event-driven path now reconciles directly from Application read state.
+2. Normalized the Bus compatibility placement path in core/application/application.py so PlaceBusCommand's presentation-only x/y and bus_id participate in the same Application pre-commit SLD transaction as all other placement commands.
+3. Re-audited the affected paths after those corrections and recorded the result in this master register.
+
+**Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
+
+
+## 2026-09-25 — SLD Engineer Entry Surface / Equipment Palette Remediation
+
+**Repository:** madhuri196mishra-cpu/GridForge  
+**Branch:** main  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only. pytest, CI, startup, GUI/runtime execution were not performed.
+
+| Finding | Status | Static evidence |
+|---|---|---|
+| GF-SLD-UI-PALETTE-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | PresentationBootstrap.equipment_registry is the single EquipmentRegistry.create_default() catalogue; PluginContext passes that exact instance to PanelsPlugin; PanelsPlugin.initialize() composes EquipmentPanelWidget and calls bind_equipment_runtime(context.equipment_registry, context.tool_manager); the widget populates its QListWidget from catalogue(); canonical SLD_WORKSPACE places equipment on PanelArea.LEFT with visible=True; main.py registers the equipment dock with WorkspaceRealizer before WorkspaceController.activate_default(). No second live EquipmentRegistry is composed by the Browser. |
+| GF-SLD-UI-PALETTE-002 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | EquipmentPanelWidget._on_item_clicked() resolves the canonical equipment type and activate_equipment() calls EquipmentRegistry.require() → definition.tool_id → ToolManager.activate(). create_default_tool_factories() provides factories for every default catalogue tool ID. Concrete tools route through SnapSystem, transient preview state, immutable Application command construction, ToolBase.execute_command() → Application.execute() → CommandManager → Core handlers. Line/Cable/Transformer use the same Application boundary and do not perform direct Core mutation. |
+| GF-UI-COMPOSE-001 | **AGENT CORRECTED → RE-AUDIT REQUIRED** | main.py now resolves and validates canvas_plugin.synchronize_sld before defining/subscribing handle_project_workspace_changed; the callback therefore cannot reference an uninitialized synchronization local. |
+
+Register status discipline: these findings are not marked CLOSED. Static correction is recorded as AGENT CORRECTED → RE-AUDIT REQUIRED. Runtime verification remains deferred.
+
+
+## UI-01 Consolidated Remediation — 2026-09-25
+
+**Working repository:** `madhuri196mishra-cpu/GridForge`  
+**Canonical repository authority:** `SubhenduMishra29/GridForge`  
+**Branch:** `main`  
+**Verification boundary:** static source inspection only; no tests, CI, application startup, GUI execution, or runtime verification performed.
+
+| Master ID | Finding | Static evidence | Closure state |
+|---|---|---|---|
+| GF-MASTER-0049 | GF-UI-01-001 Application Menu | `ui/plugins/menu_plugin.py` defines the canonical File/Edit/View/Project/Tools/Study/Protection/Control/Help composition and requires every menu action to resolve through `UIActionRouter`; `main.py` registers all handlers. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0050 | GF-UI-01-002 Toolbar action model | `ui/plugins/toolbar_plugin.py` exposes Select, Bus, Wire, Equipment, and Fit; `ui/tools/wire_tool.py` submits `ConnectTerminalCommand`; `ui/tools/default_tool_registry.py` registers Wire while retaining Line/Cable only for explicit future configuration. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0051 | GF-UI-01-003 Application action routing | `ui/core/action_router.py` is the single presentation routing boundary; menu and toolbar non-tool actions dispatch through it; File actions delegate to project lifecycle/application persistence; Undo/Redo delegate to Controller/Application history. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0052 | GF-UI-01-004 Styling integration | `main.py` composes `StyleManager` immediately after `QApplication` creation and calls `apply`; `stylesheet.qss` covers window/menu/toolbar/docks/status/canvas, engineering panels, hover/selection/disabled states. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0053 | GF-UI-01-005 Status integration | `ui/plugins/status_plugin.py` projects Controller, Application event, selection, cursor, project-workspace, validation, and workspace state into existing status fields without owning a second state model; `ui/canvas/graphics_view.py` exposes cursor presentation state. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0054 | GF-REG-01-001 Register synchronization | `audit/MASTER_AUDIT_REGISTER.md` now declares `SubhenduMishra29/GridForge`, branch `main`; historical repository identities remain explicitly preserved in historical sections. | STATIC CLOSED / RUNTIME UNVERIFIED |
+| GF-MASTER-0055 | Duplicate reconciliation | UI-01 findings are represented as canonical master-register entries; historical register identities are preserved rather than silently deleted. | STATIC CLOSED / RUNTIME UNVERIFIED |
+
+### Architectural boundary re-audit
+
+- MainWindow remains a mechanical Qt host; no Application/Core authority was moved into it.
+- ShellPlugin remains a composition component consuming already-created widgets.
+- WorkspaceRealizer remains the logical-layout → Qt realization boundary.
+- MenuPlugin and ToolbarPlugin do not mutate Core directly.
+- No second command manager or history manager was introduced.
+- Equipment Browser remains catalogue-driven through the existing EquipmentRegistry/ToolManager composition.
+- Simple Wire creation is a topology connection workflow and does not implicitly instantiate a Line or Cable object.
+- No runtime verification is claimed from this source inspection.
+
+
+## 2026-09-25 — GF-UI-02 Lifecycle and Persistence Remediation / Fresh Static Re-Audit
+
+**Repository:** madhuri196mishra-cpu/GridForge  
+**Branch:** main  
+**Author:** Subhendu Mishra  
+**Verification mode:** static source inspection only. No pytest, CI, application startup, GUI execution, or runtime verification performed.
+
+| Finding | Status | Static evidence |
+|---|---|---|
+| GF-UI-02-001 | **CLOSED — STATIC SOURCE RE-AUDIT** | main.py Open and Save As dialogs now expose only GridForge Project (*.gridforge); canonical core/persistence/project_package.py remains authoritative with PACKAGE_SUFFIX = ".gridforge" and normalize_package_path(). |
+| GF-UI-02-002 | **CLOSED — STATIC SOURCE RE-AUDIT** | ProjectCloseController is composed against ProjectWorkspaceApplicationAdapter, so successful close executes through the same Application lifecycle boundary and adapter publication path as New/Open. ProjectWorkspaceChanged(operation="close") is emitted only after Application.close_project() returns successfully. The close handler reconciles the SLDController to the Application empty presentation and synchronizes the canonical canvas path. ProjectClosed also remains subscribed by SLDController/UI projection infrastructure. CANCEL returns before configuration or lifecycle mutation. |
+| GF-UI-02-003 | **CLOSED — STATIC SOURCE RE-AUDIT** | ProjectWorkspaceApplicationAdapter resolves CANCEL before transition configuration and captures/restores the Application lifecycle presentation configuration on failed transition setup/activation. ProjectLifecycleService.PresentationConfigurationSnapshot captures factory, serializer, deserializer, and activator as one transactional configuration boundary. Application lifecycle rollback remains authoritative for project/network/presentation state and preserves ROLLBACK_FAILED handling. |
+
+### UI-02 acceptance proof
+
+1. No *.gfpkg reference remains in the active main.py project dialogs; the UI uses the canonical .gridforge package terminology.
+2. New/Open/Close route through ProjectWorkspaceApplicationAdapter, which delegates lifecycle mutation to Application.
+3. Save/Save As remain Application lifecycle persistence calls and use canonical package normalization in ProjectLifecycleService.
+4. Close no longer bypasses the workspace adapter; the same adapter publishes exactly one successful ProjectWorkspaceChanged(close, ...) after Application success.
+5. CANCEL is side-effect free at the adapter boundary and does not publish a workspace transition.
+6. SAVE is resolved by Application._prepare_project_transition() against the current project before replacement; DISCARD invokes discard_project_changes() before replacement.
+7. Application activation rollback remains the single lifecycle rollback authority; presentation/workspace rollback is composed into the Application presentation activator.
+8. Successful close clears project workspace/document/view state through ProjectWorkspaceLifecycle.close_project() and reconciles SLD/canvas presentation to no active document.
+9. SLDController continues to subscribe to ProjectClosed, while the adapter callback explicitly synchronizes the empty canvas after successful close.
+10. No second project lifecycle, persistence API, command manager, or UI-to-Core mutation path was introduced.
+11. Canonical package contents remain manifest.json + project.json.
+12. Master register updated with this fresh static re-audit; runtime verification remains deferred.
+
+**Closure discipline:** UI-02 is **STATICALLY CLOSED** only. Runtime verification remains **UNVERIFIED / DEFERRED**.
+
+
+## UI-02 Final Post-Correction Static Re-Audit — 2026-09-25
+
+After the UI-02 remediation commits, the affected source was inspected again on main. One composition correction identified during re-audit was applied: MainWindow close now supplies ProjectWorkspaceApplicationAdapter to ProjectCloseController rather than the raw Application, ensuring the canonical adapter publication path is used for window close.
+
+Final static checks:
+- main.py contains zero gfpkg references and uses GridForge Project (*.gridforge) for Open and Save As.
+- core/persistence/project_package.py remains the canonical .gridforge / manifest.json / project.json contract.
+- ProjectCloseController delegates close to the supplied lifecycle boundary; main.py supplies ProjectWorkspaceApplicationAdapter.
+- ProjectWorkspaceApplicationAdapter resolves CANCEL before lifecycle presentation configuration, publishes only after Application transition success, and restores captured presentation configuration when transition setup/activation fails.
+- ProjectLifecycleService now exposes PresentationConfigurationSnapshot capture/restore as the single transactional configuration boundary; existing activation rollback and ROLLBACK_FAILED handling remain unchanged.
+- Successful close clears ProjectWorkspaceLifecycle project/document/view/workspace state; ProjectWorkspaceChanged(close) then reconciles SLDController/canvas presentation to the empty Application presentation.
+- No tests, CI, startup, GUI, or runtime execution was performed.
+
+**Final UI-02 status: CLOSED — STATIC SOURCE RE-AUDIT. Runtime verification: UNVERIFIED / DEFERRED.**

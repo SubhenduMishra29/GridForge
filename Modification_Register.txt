@@ -1049,8 +1049,11 @@ CONSOLIDATED MASTER CORRECTION PASS — 2026-09-22
 ======================================================================
 
 Repository authority:
-    pandaraseswari03-collab/GridForge
+    SubhenduMishra29/GridForge
     branch: main
+
+Historical repository identity retained for evidence only:
+    pandaraseswari03-collab/GridForge
 
 Verification boundary:
     STATIC SOURCE / REGISTER AUDIT ONLY.
@@ -1404,3 +1407,22 @@ Static evidence boundary:
 Runtime verification:
     UNVERIFIED / DEFERRED.
 ======================================================================
+
+
+======================================================================
+UI-01 CONSOLIDATED REMEDIATION — 2026-09-25
+======================================================================
+Repository authority:
+    SubhenduMishra29/GridForge
+    branch: main
+
+Static verification only. No tests, CI, application startup, GUI execution,
+or runtime verification performed.
+
+GF-UI-01-001  -> STATIC CLOSED / RUNTIME UNVERIFIED
+GF-UI-01-002  -> STATIC CLOSED / RUNTIME UNVERIFIED
+GF-UI-01-003  -> STATIC CLOSED / RUNTIME UNVERIFIED
+GF-UI-01-004  -> STATIC CLOSED / RUNTIME UNVERIFIED
+GF-UI-01-005  -> STATIC CLOSED / RUNTIME UNVERIFIED
+GF-REG-01-001  -> STATIC CLOSED / RUNTIME UNVERIFIED
+Historical repository identities and prior findings remain preserved as evidence.

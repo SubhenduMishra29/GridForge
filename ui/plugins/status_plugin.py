@@ -98,6 +98,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+from core.application.events import ApplicationEvent
+
 from ui.core.qt import (
     QLabel,
     QMainWindow,
@@ -310,6 +312,109 @@ class StatusPlugin(QObject):
         ] = {}
 
         self._initialized = False
+        self._status_callbacks: list[tuple[Any, Any]] = []
+        self._application_event_handler: Any = None
+        self._project_change_handler: Any = None
+
+    def bind_authoritative_state(
+        self,
+        *,
+        controller: Any,
+        application: Any,
+        selection_manager: Any,
+        graphics_view: Any,
+        workspace_controller: Any,
+        project_adapter: Any,
+    ) -> None:
+        """Project authoritative presentation state into existing status fields."""
+        self._require_initialized()
+        self._unbind_authoritative_state()
+        if controller is None or application is None:
+            raise ValueError("controller and application are required.")
+
+        refresh = self.refresh_authoritative_state
+        controller_tool = lambda *_: refresh()
+        controller_state = lambda: refresh()
+        selection_changed = lambda *_: refresh()
+        selection_cleared = lambda: refresh()
+        cursor_changed = lambda *_: refresh()
+        application_event = self._handle_application_event
+        project_changed = lambda _change: refresh()
+        controller.tool_changed.connect(controller_tool)
+        controller.state_changed.connect(controller_state)
+        selection_manager.selection_changed.connect(selection_changed)
+        selection_manager.selection_cleared.connect(selection_cleared)
+        graphics_view.cursor_scene_position.connect(cursor_changed)
+        application.event_bus.subscribe(ApplicationEvent, application_event)
+        project_adapter.subscribe(project_changed)
+        self._status_callbacks = [
+            (controller.tool_changed, controller_tool),
+            (controller.state_changed, controller_state),
+            (selection_manager.selection_changed, selection_changed),
+            (selection_manager.selection_cleared, selection_cleared),
+            (graphics_view.cursor_scene_position, cursor_changed),
+        ]
+        self._application_event_handler = application_event
+        self._project_change_handler = project_changed
+        self._status_sources = (application.event_bus, application, project_adapter)
+        self.refresh_authoritative_state()
+
+    def _handle_application_event(self, event: ApplicationEvent) -> None:
+        self.refresh_authoritative_state()
+        if event.event_type == "validation.changed":
+            self.set_status("validation", "Validation: Changed")
+        elif event.event_type in {"project.saved", "project.loaded", "project.closed"}:
+            self.set_status("validation", "Validation: Current")
+
+    def refresh_authoritative_state(self) -> None:
+        """Read current Application/UI projection state; never own it."""
+        self._require_initialized()
+        context = self._context
+        if context is None:
+            return
+        controller = context.controller
+        application = context.application
+        workspace_controller = context.metadata.get("workspace_controller")
+        selection_manager = context.metadata.get("selection_manager")
+        graphics_view = context.metadata.get("graphics_view")
+        adapter = context.metadata.get("project_workspace_adapter")
+        tool_id = controller.get_current_tool_id() if controller is not None else None
+        self.set_status("tool", f"Tool: {tool_id or 'Select'}")
+        selected = selection_manager.get_selected_ids() if selection_manager is not None else ()
+        selection_text = "None" if not selected else (str(selected[0]) if len(selected) == 1 else f"{len(selected)} items")
+        self.set_status("selection", f"Selection: {selection_text}")
+        point = graphics_view.last_cursor_scene_position if graphics_view is not None else None
+        if point is not None:
+            self.set_status("coordinates", f"X: {point[0]:.2f}  Y: {point[1]:.2f}")
+        project_state = getattr(adapter, "state", None)
+        project_context = getattr(project_state, "project", None)
+        project_name = getattr(project_context, "name", "No Project")
+        dirty = bool(getattr(application, "is_dirty", False)) if application is not None else False
+        self.set_status("project", f"Project: {project_name}{' *' if dirty else ''}")
+        self.set_status("validation", "Validation: Application events current")
+        workspace_id = workspace_controller.active_workspace_id if workspace_controller is not None else None
+        self.set_status("workspace", f"Workspace: {workspace_id or 'None'}")
+
+    def _unbind_authoritative_state(self) -> None:
+        for signal, callback in getattr(self, "_status_callbacks", ()):
+            try:
+                signal.disconnect(callback)
+            except (RuntimeError, TypeError):
+                pass
+        self._status_callbacks = []
+        sources = getattr(self, "_status_sources", None)
+        if sources is not None:
+            event_bus, _application, project_adapter = sources
+            if self._application_event_handler is not None:
+                event_bus.unsubscribe(ApplicationEvent, self._application_event_handler)
+            if self._project_change_handler is not None:
+                try:
+                    project_adapter.unsubscribe(self._project_change_handler)
+                except (AttributeError, RuntimeError, TypeError):
+                    pass
+        self._application_event_handler = None
+        self._project_change_handler = None
+        self._status_sources = None
 
     # ========================================================
     # PROPERTIES
@@ -979,6 +1084,8 @@ def default_statuses() -> tuple[
             stretch=0,
             permanent=True,
         ),
+        StatusSpec(status_id="validation", text="Validation: Ready", tooltip="Current validation state."),
+        StatusSpec(status_id="workspace", text="Workspace: None", tooltip="Current workspace context."),
     )
 
 

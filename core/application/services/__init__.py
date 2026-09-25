@@ -73,3 +73,7 @@ from .electrical_connection_service import ElectricalConnectionCommandHandlers, 
 from .measurement_channel_service import MeasurementChannelService
 
 __all__ = ["ElectricalConnectionCommandHandlers", "ElectricalConnectionService", "MeasurementChannelService"]
+
+from .simple_wire_service import SimpleWireConnectionCommandHandlers, SimpleWireConnectionService
+
+__all__ = ["SimpleWireConnectionCommandHandlers", "SimpleWireConnectionService"]

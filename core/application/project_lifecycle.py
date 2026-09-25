@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
@@ -30,6 +31,14 @@ ProjectStateActivator = Callable[
 ]
 ProjectStateValidator = Callable[[ProjectContext, LoadedProject | None, Any, Any], None]
 PresentationActivator = Callable[[ProjectContext | None, Any | None], Callable[[], None] | None]
+
+
+@dataclass(frozen=True, slots=True)
+class PresentationConfigurationSnapshot:
+    factory: PresentationFactory | None
+    serializer: PresentationSerializer | None
+    deserializer: PresentationDeserializer | None
+    activator: PresentationActivator | None
 
 
 class ProjectLifecycleService:
@@ -108,6 +117,24 @@ class ProjectLifecycleService:
             or self._presentation_factory is not None
             or self._serialize_presentation is not None
         )
+
+    def capture_presentation_configuration(self) -> PresentationConfigurationSnapshot:
+        """Capture the exact presentation contract for transactional transition setup."""
+        return PresentationConfigurationSnapshot(
+            factory=self._presentation_factory,
+            serializer=self._serialize_presentation,
+            deserializer=self._deserialize_presentation,
+            activator=self._presentation_activator,
+        )
+
+    def restore_presentation_configuration(self, snapshot: PresentationConfigurationSnapshot) -> None:
+        """Restore a previously captured presentation contract without side effects."""
+        if not isinstance(snapshot, PresentationConfigurationSnapshot):
+            raise TypeError("snapshot must be a PresentationConfigurationSnapshot.")
+        self._presentation_factory = snapshot.factory
+        self._serialize_presentation = snapshot.serializer
+        self._deserialize_presentation = snapshot.deserializer
+        self._presentation_activator = snapshot.activator
 
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
@@ -386,4 +413,5 @@ __all__ = [
     "ProjectStateActivator",
     "ProjectStateValidator",
     "PresentationActivator",
+    "PresentationConfigurationSnapshot",
 ]

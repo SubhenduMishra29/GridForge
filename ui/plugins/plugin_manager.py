@@ -137,6 +137,7 @@ class PluginManager:
     def define_defaults(self) -> None:
         defaults = (
             PluginDefinition("canvas"),
+            PluginDefinition("menu"),
             PluginDefinition("panels", dependencies=("canvas",)),
             PluginDefinition("toolbar", dependencies=("canvas",)),
             PluginDefinition("status", dependencies=("canvas", "panels", "toolbar")),

@@ -35,13 +35,15 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QGraphicsScene, QGraphicsView, Qt
+from ui.core.qt import QGraphicsScene, QGraphicsView, Qt, Signal
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
 
 
 class GraphicsView(QGraphicsView):
     """Canonical GridForge Canvas viewport."""
+
+    cursor_scene_position = Signal(object)
 
     def __init__(
         self,
@@ -64,6 +66,7 @@ class GraphicsView(QGraphicsView):
         self.controller = controller
         self.tool_manager = tool_manager
         self._scene = scene
+        self._last_cursor_scene_position: tuple[float, float] | None = None
         self.interaction_manager = interaction_manager
         self.navigation_controller = navigation_controller
 
@@ -96,12 +99,19 @@ class GraphicsView(QGraphicsView):
     def graphics_scene(self) -> QGraphicsScene:
         return self._scene
 
+    @property
+    def last_cursor_scene_position(self) -> tuple[float, float] | None:
+        return self._last_cursor_scene_position
+
     def mousePressEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.mouse_press(event):
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: Any) -> None:
+        point = self.mapToScene(event.position().toPoint() if hasattr(event.position(), "toPoint") else event.pos())
+        self._last_cursor_scene_position = (float(point.x()), float(point.y()))
+        self.cursor_scene_position.emit(self._last_cursor_scene_position)
         if self.interaction_manager is not None and self.interaction_manager.mouse_move(event):
             return
         super().mouseMoveEvent(event)

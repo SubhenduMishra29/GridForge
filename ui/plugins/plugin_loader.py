@@ -262,6 +262,12 @@ DEFAULT_PLUGIN_IMPLEMENTATIONS: Mapping[
             class_name="CanvasPlugin",
         ),
 
+        "menu": PluginImplementation(
+            plugin_id="menu",
+            module_name="ui.plugins.menu_plugin",
+            class_name="MenuPlugin",
+        ),
+
         "panels": PluginImplementation(
             plugin_id="panels",
             module_name="ui.plugins.panels_plugin",

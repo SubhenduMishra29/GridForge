@@ -24,7 +24,7 @@ from core.model.injection import Injection
 from core.model.line import Line
 from core.model.reactor import Reactor
 from core.model.transformer import Transformer
-from core.network.endpoint import resolve_terminal_bus
+from core.network.topology_snapshot import TopologySnapshot
 from core.numerical.ybus import YBus, YBusBuilder
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
 
@@ -116,6 +116,8 @@ class PreparedPowerFlow:
     branches: tuple[PreparedBranch, ...] = ()
     transformers: tuple[PreparedTransformer, ...] = ()
     shunts: tuple[PreparedShunt, ...] = ()
+    project_id: str | None = None
+    activation_generation: int | None = None
     topology_revision: int | None = None
 
     def __post_init__(self) -> None:
@@ -138,6 +140,10 @@ class PreparedPowerFlow:
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "transformers", tuple(self.transformers))
         object.__setattr__(self, "shunts", tuple(self.shunts))
+        if self.project_id is not None and not str(self.project_id).strip():
+            raise ValueError("Prepared Power Flow project_id must be non-empty when supplied.")
+        if self.activation_generation is not None and (isinstance(self.activation_generation, bool) or int(self.activation_generation) < 1):
+            raise ValueError("Prepared Power Flow activation_generation must be positive when supplied.")
 
     @property
     def bus_ids(self) -> tuple[str, ...]:
@@ -159,22 +165,28 @@ class PowerFlowPreparation:
     )
 
     @staticmethod
-    def prepare(network: Any, power_flow_configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
-        return PowerFlowPreparation(network, power_flow_configuration)._prepare()
+    def prepare(network: Any, power_flow_configuration: PowerFlowStudyConfiguration, *, topology_snapshot: TopologySnapshot | None = None) -> PreparedPowerFlow:
+        return PowerFlowPreparation(network, power_flow_configuration, topology_snapshot=topology_snapshot)._prepare()
 
-    def __init__(self, network: Any, power_flow_configuration: PowerFlowStudyConfiguration) -> None:
+    def __init__(self, network: Any, power_flow_configuration: PowerFlowStudyConfiguration, *, topology_snapshot: TopologySnapshot | None = None) -> None:
         self.network = network
         self.power_flow_configuration = power_flow_configuration
+        self.topology_snapshot = topology_snapshot
+        if self.topology_snapshot is None:
+            self.network.rebuild_topology()
+            self.topology_snapshot = self.network.topology_snapshot
+            if self.topology_snapshot is None:
+                raise ValueError('Power Flow requires a canonical TopologySnapshot.')
         self._validate_network()
         if not isinstance(power_flow_configuration, PowerFlowStudyConfiguration):
             raise TypeError("power_flow_configuration must be a PowerFlowStudyConfiguration.")
         self._per_unit = PerUnitSystem(power_flow_configuration.base_mva)
 
     def _prepare(self) -> PreparedPowerFlow:
-        buses = tuple(self.network.buses)
-        if not buses:
+        bus_ids = tuple(self.topology_snapshot.bus_ids)
+        if not bus_ids:
             raise ValueError("Power Flow preparation requires at least one bus.")
-        bus_ids = tuple(str(bus.id) for bus in buses)
+        buses = tuple(self.network.get_by_identity(bus_id) for bus_id in bus_ids)
         classification = self._prepare_bus_types(bus_ids)
         voltage_bases = self._prepare_voltage_bases(buses)
 
@@ -208,7 +220,7 @@ class PowerFlowPreparation:
         branches = self._prepare_branches(voltage_bases)
         transformers = self._prepare_transformers(voltage_bases)
         shunts = self._prepare_shunts(voltage_bases)
-        topology_revision = getattr(self.network, "topology_revision", None)
+        topology_revision = self.topology_snapshot.topology_revision
         snapshot = PreparedPowerFlow(
             input=input_data,
             ybus=YBus(matrix=self._empty_ybus_matrix(len(bus_ids)), bus_ids=bus_ids, topology_revision=topology_revision),
@@ -217,6 +229,8 @@ class PowerFlowPreparation:
             branches=branches,
             transformers=transformers,
             shunts=shunts,
+            project_id=self.topology_snapshot.project_id,
+            activation_generation=self.topology_snapshot.activation_generation,
             topology_revision=topology_revision,
         )
         ybus = YBusBuilder().build(snapshot)
@@ -228,6 +242,8 @@ class PowerFlowPreparation:
             branches=branches,
             transformers=transformers,
             shunts=shunts,
+            project_id=snapshot.project_id,
+            activation_generation=snapshot.activation_generation,
             topology_revision=snapshot.topology_revision,
         )
 
@@ -374,26 +390,19 @@ class PowerFlowPreparation:
             )
         return tuple(prepared)
 
-    @staticmethod
-    def _resolve_branch_endpoints(branch: Any) -> tuple[Any, Any]:
-        try:
-            from_bus = resolve_terminal_bus(branch.from_terminal)
-            to_bus = resolve_terminal_bus(branch.to_terminal)
-        except Exception as exc:
-            raise ValueError(f"Element '{getattr(branch, 'id', branch)}' has unresolved branch terminals.") from exc
-        if from_bus is None or to_bus is None:
-            raise ValueError(f"Element '{getattr(branch, 'id', branch)}' has unresolved branch terminals.")
-        return from_bus, to_bus
+    def _resolve_branch_endpoints(self, branch: Any) -> tuple[Any, Any]:
+        records = {(r.equipment_id, r.terminal_role): r.bus_id for r in self.topology_snapshot.equipment_bus_attachments}
+        from_id = records.get((str(branch.id), getattr(branch.from_terminal, 'role', '')))
+        to_id = records.get((str(branch.id), getattr(branch.to_terminal, 'role', '')))
+        if from_id and to_id:
+            return self.network.get_by_identity(from_id), self.network.get_by_identity(to_id)
+        raise ValueError(f"Element '{getattr(branch, 'id', branch)}' has unresolved branch terminals in the canonical TopologySnapshot.")
 
-    @staticmethod
-    def _resolve_shunt_bus(shunt: Any) -> Any:
-        try:
-            bus = resolve_terminal_bus(shunt.terminal)
-        except Exception as exc:
-            raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal.") from exc
-        if bus is None:
-            raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal.")
-        return bus
+    def _resolve_shunt_bus(self, shunt: Any) -> Any:
+        role = getattr(getattr(shunt, 'terminal', None), 'role', '')
+        bus_id = next((r.bus_id for r in self.topology_snapshot.equipment_bus_attachments if r.equipment_id == str(shunt.id) and r.terminal_role == role), None)
+        if bus_id: return self.network.get_by_identity(bus_id)
+        raise ValueError(f"Shunt '{getattr(shunt, 'id', shunt)}' has an unresolved terminal in the canonical TopologySnapshot.")
 
     def _common_branch_voltage(self, from_bus: Any, to_bus: Any, voltage_bases: Mapping[str, float], branch: Any) -> float:
         from_kv = voltage_bases[str(from_bus.id)]
@@ -420,6 +429,11 @@ class PowerFlowPreparation:
 
     def _bus_power_spec(self, bus: Any) -> tuple[float, float, float | None, float | None]:
         p = q = 0.0
+        attachment_keys = {
+            (record.equipment_id, record.terminal_role): record.bus_id
+            for record in self.topology_snapshot.equipment_bus_attachments
+        }
+        bus_id = str(bus.id)
         q_min: float | None = None
         q_max: float | None = None
         for collection_name in self._INJECTION_COLLECTIONS:
@@ -427,8 +441,9 @@ class PowerFlowPreparation:
                 if not isinstance(equipment, Injection) or not getattr(equipment, "in_service", True):
                     continue
                 terminal = getattr(equipment, "terminal", None)
-                endpoint = getattr(terminal, "endpoint", None)
-                if endpoint is not bus and getattr(endpoint, "id", None) != getattr(bus, "id", None):
+                role = getattr(terminal, "role", "")
+                attached_bus_id = attachment_keys.get((str(getattr(equipment, "id", equipment)), role))
+                if attached_bus_id != bus_id:
                     continue
                 ep, eq = equipment.get_power()
                 p += self._finite(ep, f"Injection '{getattr(equipment, 'id', equipment)}' active power")

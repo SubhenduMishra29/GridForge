@@ -220,6 +220,15 @@ from .state import NetworkState
 # =====================================================================
 
 from .topology import TopologyManager
+from .connectivity import (
+    ConnectivityError,
+    ConnectivityResolver,
+    ConnectivityStore,
+    ResolvedConnectivity,
+    SIMPLE_WIRE_KIND,
+    SimpleWireCompatibility,
+    SimpleWireConnection,
+)
 
 
 # =====================================================================
@@ -252,6 +261,13 @@ __all__ = [
 
     # Derived network services
     "TopologyManager",
+    "ConnectivityError",
+    "ConnectivityResolver",
+    "ConnectivityStore",
+    "ResolvedConnectivity",
+    "SIMPLE_WIRE_KIND",
+    "SimpleWireCompatibility",
+    "SimpleWireConnection",
 
     # Base-layer service
     "PerUnitSystem",
@@ -263,3 +279,6 @@ __all__ = [
 # =====================================================================
 
 __version__ = "2.0.0"
+
+from .electrical_boundary import ElectricalBoundary, ElectricalBoundaryResolver, ElectricalBoundaryType, EndpointCompatibility, EndpointCompatibilityError, conduction_state
+from .topology_snapshot import ConductiveEdge, EquipmentBusAttachment, TopologyProvenance, TopologySnapshot

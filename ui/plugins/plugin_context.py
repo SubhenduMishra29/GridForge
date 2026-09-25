@@ -27,6 +27,7 @@ class PluginContext:
     application: Any = None
     root_widget: QWidget | None = None
     controller: Any = None
+    action_router: Any = None
 
     project: Any = None
     project_controller: Any = None

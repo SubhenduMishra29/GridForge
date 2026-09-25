@@ -36,11 +36,12 @@ from .events import (
     ElementCreated, ElementRemoved, ElementUpdated,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
     SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged,
+    SimpleWireConnectionCreated, SimpleWireConnectionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
-from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel
+from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
 from .read_service import ProtectionReadService, ReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -50,7 +51,7 @@ from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.validation_service import ValidationService
-from .study import StudyRequest, StudyResult, StudyService
+from .study import StudyExecutionContext, StudyRequest, StudyResult, StudyService
 from .validation import ValidationResult
 
 
@@ -290,15 +291,45 @@ class Application:
                                revision=self.revision, network=network_snapshot, dynamic_models=dynamic_models)
 
     def execute_study(self, request: StudyRequest) -> StudyResult:
-        if not isinstance(request, StudyRequest): raise TypeError("request must be a StudyRequest.")
+        if not isinstance(request, StudyRequest):
+            raise TypeError("request must be a StudyRequest.")
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        if context is None: raise RuntimeError("Cannot start a study without an active project.")
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot start a study without a valid active project activation.")
         if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
             raise ValueError("StudyRequest project scope does not match the active project generation.")
+        # Project validation is an Application study gate. A study cannot
+        # publish StudyStarted until authoritative project validation succeeds.
+        validation = self.validate_project()
+        if not validation.valid:
+            raise ValueError("Project validation failed; study execution is blocked before StudyStarted.")
         if request.source_revision != self.revision:
             raise ValueError("StudyRequest source_revision does not match the active project revision.")
-        return self._study_service.execute(request)
+        network = lifecycle.network
+        # Runtime-only provenance metadata; never authoritative persisted state.
+        network.project_id = context.project_id
+        network.activation_generation = lifecycle.activation_generation
+        if network.state.topology_revision != request.source_revision.topology_revision:
+            raise ValueError("Network topology revision does not match StudyRequest source revision.")
+        if network.state.topology_dirty or not network.state.topology_valid:
+            network.rebuild_topology()
+        if network.state.topology_dirty or not network.state.topology_valid:
+            raise ValueError("Topology normalization did not produce a valid study-ready state.")
+        snapshot = network.topology_snapshot
+        if snapshot is None:
+            raise ValueError("Canonical TopologySnapshot is unavailable.")
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation or snapshot.topology_revision != request.source_revision.topology_revision:
+            raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
+        project_snapshot = self.capture_project_snapshot()
+        execution_context = StudyExecutionContext(
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            topology_snapshot=snapshot,
+            project_snapshot=project_snapshot,
+        )
+        return self._study_service.execute(request, execution_context)
 
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
         return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)
@@ -321,8 +352,18 @@ class Application:
         """Coordinate placement presentation mutation inside the same transaction."""
         if self._sld_service is None or command.command_type not in {"model.create_relay"} and not command.command_type.startswith("model.create_"):
             return
+        # Most placement tools carry presentation_x/presentation_y.
+        # PlaceBusCommand is a compatibility constructor whose canonical
+        # CREATE_BUS payload still carries x/y; the Bus command handler removes
+        # those fields before Core mutation. Normalize both forms here so Bus
+        # placement participates in the same Application transaction without
+        # treating coordinates as Core electrical properties.
         x = command.payload.get("presentation_x")
         y = command.payload.get("presentation_y")
+        if x is None and command.command_type == "model.create_bus":
+            x = command.payload.get("x")
+        if y is None and command.command_type == "model.create_bus":
+            y = command.payload.get("y")
         if x is None or y is None:
             return
         element_id = self._element_id(command)
@@ -435,6 +476,13 @@ class Application:
         self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
         self._require_read_service(); return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
+    def read_simple_wire(self, connection_id: str) -> SimpleWireReadModel:
+        network = self.read_network()
+        for connection in network.simple_wires:
+            if connection.connection_id == connection_id:
+                return connection
+        raise KeyError(f"Simple Wire connection '{connection_id}' is not represented by the Application read model.")
+
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
     def read_relay(self, relay_id: str) -> RelayReadModel:
@@ -447,7 +495,32 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation}
-        if command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
+        if command.command_type in {"connectivity.create_simple_wire", "connectivity.remove_simple_wire"}:
+            action = "create" if command.command_type.endswith("create_simple_wire") else "remove"
+            if operation == "undo":
+                action = "remove" if action == "create" else "create"
+            event_type = SimpleWireConnectionCreated if action == "create" else SimpleWireConnectionRemoved
+            endpoint_a = metadata.get("endpoint_a") or getattr(command, "payload", {}).get("endpoint_a")
+            endpoint_b = metadata.get("endpoint_b") or getattr(command, "payload", {}).get("endpoint_b")
+            if endpoint_a is None or endpoint_b is None:
+                raise RuntimeError(
+                    f"Simple Wire semantic event lacks endpoint snapshots for {metadata.get('connection_id')!r}."
+                )
+            if hasattr(endpoint_a, "to_mapping"):
+                endpoint_a = endpoint_a.to_mapping()
+            if hasattr(endpoint_b, "to_mapping"):
+                endpoint_b = endpoint_b.to_mapping()
+            self._event_bus.publish(event_type(
+                connection_id=str(metadata.get("connection_id") or getattr(command, "payload", {}).get("connection_id")),
+                endpoint_a=endpoint_a,
+                endpoint_b=endpoint_b,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+            self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+            self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+        elif command.command_type in {"model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal"}:
             self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
             self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
         elif command.command_type.startswith("model."):
@@ -517,7 +590,7 @@ class Application:
     def _element_id(command: Command) -> str | None:
         payload = command.payload; value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
         if value is None:
-            for key in ("breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
+            for key in ("bus_id", "breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
                 if key in payload: value = payload[key]; break
         return str(value) if value is not None else None
 
