@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF
+from ui.core.qt import QBrush, QGraphicsItem, QPainter, QPen, QRectF, Qt
 from ui.equipment.symbol.symbol_definition import SymbolDefinition
 
 
@@ -29,7 +29,7 @@ class SymbolPreviewItem(QGraphicsItem):
         self._definition = definition
         self.setPos(self._point(position))
         self.setRotation(float(rotation))
-        self.setAcceptedMouseButtons(0)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
     def boundingRect(self) -> QRectF:
         return QRectF(
