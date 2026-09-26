@@ -1,4 +1,5 @@
 """Capability-driven Control/Ladder tool palette.
+Author: Subhendu Mishra
 
 The palette is presentation-only. A descriptor is shown only when its
 Application command contract is registered by the existing Application.
