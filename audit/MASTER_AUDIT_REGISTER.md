@@ -1,7 +1,8 @@
 # GridForge V2 — Master Audit Register
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
-**Repository authority:** `SubhenduMishra29/GridForge`
+**Canonical repository authority:** `SubhenduMishra29/GridForge`
+**Working/edit repository for this register batch:** `madhuri196mishra-cpu/GridForge`
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
 **Branch baseline:** `main` — current working repository authority
@@ -336,7 +337,7 @@ Static remediation and static self-review were performed against the current wor
 
 ## Post-correction static re-audit — 2026-09-22
 
-Repository: `pandaraseswari03-collab/GridForge`, branch `main`.
+Historical audit evidence — repository: `pandaraseswari03-collab/GridForge`, branch `main`.
 
 This section records the post-correction source state for the residual SLD terminal/connection/workflow pass. It supplements, and does not replace, the preserved Master IDs above.
 
@@ -685,3 +686,107 @@ Final static checks:
 **Architecture compliance:** Core electrical identity remains separate from graphical terminal geometry; SymbolDefinition remains immutable; Application remains the persistent mutation boundary; SLD remains presentation/document state; Canvas projection remains renderer-neutral; Qt remains confined to runtime realization.
 
 **Runtime verification:** **UNVERIFIED / DEFERRED by instruction.**
+
+## Batch 0 — Canonical effective-status index — 2026-09-26
+
+This is the single latest-effective-status index for the **75 active Master IDs** on canonical `SubhenduMishra29/GridForge/main`. The working/edit repository for this register batch is `madhuri196mishra-cpu/GridForge/main`. Earlier status phrases remain historical chronology and are not current status values.
+
+| Master ID | Domain | Subsystem | Finding Title | Severity | Latest Effective Status | Verification Requirement |
+|---|---|---|---|---|---|---|
+| GF-MASTER-0001 | Study | Contingency | Contingency result consumer incompatible with PowerFlowResult | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0002 | Study | Contingency | Bus outage semantics require topology reconciliation | HIGH | **OPEN** | Yes |
+| GF-MASTER-0003 | Core | Endpoint-Topology | Contingency endpoint fallback semantics not proven canonical | HIGH | **OPEN** | Yes |
+| GF-MASTER-0004 | SLD | Semantic presentation | SLD vocabulary exceeds current renderer coverage | HIGH | **OPEN** | Yes |
+| GF-MASTER-0005 | Documentation | Architecture-audit | Documentation and audit-state drift | MEDIUM | **OPEN** | Yes |
+| GF-MASTER-0006 | Runtime | Packaging | Runtime dependency and packaging authority fragmentation | HIGH | **OPEN** | Yes |
+| GF-MASTER-0007 | Runtime | CI-startup | Startup CI coverage not proven by successful run | HIGH | **OPEN** | Yes |
+| GF-MASTER-0008 | Runtime | Startup | Current-main startup unverified | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0009 | Runtime | Source integrity | Historical Markdown-fence finding is superseded by current repository structure | CRITICAL | **RECLASSIFIED** | Yes |
+| GF-MASTER-0010 | Runtime | CI integrity | CI source-repair workaround removed | HIGH | **STATIC CLOSED** | No |
+| GF-MASTER-0011 | Dynamics | Public API | Historical DynamicStateVector import defect is not present in current main | HIGH | **OPEN** | Yes |
+| GF-MASTER-0012 | Dynamics | Package exports | Historical DynamicState package-export defect is not present in current main | HIGH | **OPEN** | Yes |
+| GF-MASTER-0013 | Dynamics | Public API migration | Dynamics public symbols underwent incompatible contract migration | HIGH | **OPEN** | Yes |
+| GF-MASTER-0014 | Dynamics | Initialization | Initial-state bridge may derive electrical operating-point power from mechanical input rather than authoritative solved power | HIGH | **OPEN** | Yes |
+| GF-MASTER-0015 | Dynamics | Transient coupling | Canonical transient algebraic network coupling not proven | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0016 | UI | Workspace-lifecycle | Workspace project UI composition source-remediated but unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0017 | UI | Workspace consumers | Workspace consumer coverage inconclusive | MEDIUM | **OPEN** | Yes |
+| GF-MASTER-0018 | UI | Panel placement | Panel placement metadata duplicated Workspace authority | HIGH | **OPEN** | Yes |
+| GF-MASTER-0019 | UI | PanelsPlugin | PanelsPlugin direct docking ownership conflict | HIGH | **OPEN** | Yes |
+| GF-MASTER-0020 | UI | Plugin lifecycle | Plugin composition and shutdown handoff incomplete | HIGH | **OPEN** | Yes |
+| GF-MASTER-0021 | Study | Power Flow | Prepared PF boundary needs runtime and immutability proof | HIGH | **OPEN** | Yes |
+| GF-MASTER-0022 | Core | Engineering data | Engineering-data findings require study-by-study reconciliation | HIGH | **OPEN** | Yes |
+| GF-MASTER-0023 | Core | Transformer | Transformer impedance basis conversion and persistence incomplete | HIGH | **OPEN** | Yes |
+| GF-MASTER-0024 | Study | Reactive equipment | Prepared shunt integration lacks execution proof | HIGH | **OPEN** | Yes |
+| GF-MASTER-0025 | Study | PU-YBus | PU and YBus boundary deep immutability and sweep incomplete | HIGH | **OPEN** | Yes |
+| GF-MASTER-0026 | Study | Short Circuit | Detached SC preparation and result boundary unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0027 | Protection | Study preparation | Protection study and execution boundary unverified | HIGH | **OPEN** | Yes |
+| GF-MASTER-0028 | Protection | Measurement | Measurement architecture reconciled but tests unexecuted | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0029 | Protection | Breaker trip | Protection decision Application boundary unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0030 | Dynamics | Capability boundary | Dynamics capabilities deferred | HIGH | **DEFERRED** | Yes |
+| GF-MASTER-0031 | Persistence | Project package | Canonical project persistence round-trip unverified | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0032 | Persistence | Migration | Legacy engineering representation metadata handling unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0033 | Persistence | Dynamics association | Dynamic model persistence round-trip unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0034 | Persistence | Protection serialization | Relay and protection persistence reconstruction unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0035 | Application | Events | Semantic event propagation unverified | HIGH | **OPEN** | Yes |
+| GF-MASTER-0036 | Application | Revision-validation | Revision and validation coordination unverified | HIGH | **OPEN** | Yes |
+| GF-MASTER-0037 | Application | Command-transaction-history | Application mutation and undo-redo path divergence unverified | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0040 | SLD | Projection-rendering | Rendering separation exists but coverage and runtime unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
+| GF-MASTER-0041 | Core | Authority-topology-equipment | Broad Core authority findings require consumer verification | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0042 | Control | Control-automation | Control and ladder command integration incomplete | HIGH | **OPEN** | Yes |
+| GF-MASTER-0043 | Architecture | Migration-redundancy | Parallel subsystem migration cannot be declared complete | HIGH | **OPEN** | Yes |
+| GF-MASTER-0044 | Runtime | Verification | Source-level remediation lacks complete executable evidence | HIGH | **OPEN** | Yes |
+| GF-MASTER-0045 | UI-SLD | Canvas interaction | Contextual engineering-state hover and readout contract remains open | MEDIUM | **OPEN** | Yes |
+| GF-MASTER-0046 | Architecture | Historical aligned findings | Historical aligned findings lack fresh executable verification | MEDIUM | **OPEN** | Yes |
+| GF-MASTER-0047 | Architecture | Historical mandatory-ID coverage | Historical IDs preserved but source text not recovered | MEDIUM | **OPEN** | Yes |
+| GF-MASTER-0048 | Architecture-Core-Application-UI-SLD-Persistence-Study-Documentation | Historical mandatory-ID coverage | Preservation holding area for mandatory historical IDs | MEDIUM | **OPEN** | Yes |
+| GF-MASTER-0049 | Validation | Application Validation | Relay models are omitted from Application project validation sweep | HIGH | **STATIC CLOSED** | Yes |
+| GF-MASTER-0050 | SLD | Authority-integration | Canonical semantic SLD reconciliation seam required correction and re-audit | CRITICAL | **OPEN** | No runtime verification |
+| GF-MASTER-0051 | SLD | Projection-document bridge | Semantic ReadModel to SLDDocument reconciliation seam corrected | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
+| GF-MASTER-0052 | SLD | Presentation integration | Canvas rendering consumes the reconciled SLD document through renderer-neutral projection | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
+| GF-MASTER-0053 | Application | Command authority | Legacy application.place_bus compound path reconciled to canonical model.create_bus | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
+| GF-MASTER-0054 | Application | Result contract | ApplicationResult.value remains a Core-object-capable contract and UI consumer audit is incomplete | HIGH | **OPEN** | Consumer/runtime proof required |
+| GF-MASTER-0055 | SLD | Endpoint identity | Generic multi-terminal presentation identity is not yet statically proven end-to-end | HIGH | **OPEN** | End-to-end terminal workflow verification required |
+| GF-MASTER-0056 | SLD | Reconciliation runtime integrity | Reconciliation modules had unresolved runtime symbol/import references and event/document contract mismatches | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Static source correction only; no tests or CI |
+| GF-MASTER-0057 | SLD | Authority-integration | SLDUpdateCoordinator reuses canonical synchronizer projection manager | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
+| GF-MASTER-0058 | UI | Document authority | SLDController is downstream to Application presentation | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
+| GF-MASTER-0059 | UI | Document lifecycle | SLDService binding is constrained to Application-authoritative presentation | HIGH | **OPEN** | Runtime verification deferred |
+| GF-MASTER-0060 | UI | Document lifecycle | Project close clears stale SLD controller state | HIGH | **OPEN** | No runtime verification |
+| GF-MASTER-0061 | UI | Plugin context | Lifecycle-safe Application presentation accessor added to PluginContext | MEDIUM | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
+| GF-MASTER-0062 | UI | Bootstrap | Redundant startup project activation | HIGH | **OPEN** | Runtime verification deferred |
+| GF-MASTER-0063 | UI | Projection bootstrap | Deterministic current-state projection reconciliation added | HIGH | **STATIC CLOSED** | No runtime verification |
+| GF-MASTER-0064 | UI | Lifecycle authority | Workspace remains downstream of Application lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
+| GF-MASTER-0065 | UI | Workspace rollback | WorkspaceRealizer compensates failed realization using prior layout | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
+| GF-MASTER-0066 | SLD | Reference validation | Authored SLD equipment references are validated through Application read state | HIGH | **STATIC CLOSED** | No runtime verification |
+| GF-MASTER-0067 | STATICALLY VERIFIED — CORRECTED | Core Terminal → SLD anchor → EquipmentTerminal → EquipmentItem.snap_points() → SnapSystem → SnapResult → EndpointIdentityAdapter → EndpointReference | RUNTIME VERIFICATION — DEFERRED / UNVERIFIED | undefined | **STATICALLY VERIFIED** | Not established from current evidence |
+| GF-MASTER-0068 | SLD | Preview | Bus placement preview uses existing PreviewLayer architecture | MEDIUM | **STATIC CLOSED** | No runtime verification |
+| GF-MASTER-0069 | UI | Interaction state | Concrete tools still retain local interaction state | MEDIUM | **OPEN** | Source review required |
+| GF-MASTER-0070 | Application | Identity compatibility | Measurement identity vocabulary sweep remains source-pending | HIGH | **OPEN** | Source evidence pending |
+| GF-MASTER-0071 | Application | Command authority | Canonical placement command vocabulary retained | HIGH | **STATIC CLOSED** | No runtime verification |
+| GF-MASTER-0072 | Application | Validation boundary | Application use-case validation does not duplicate Core domain invariants | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
+| GF-MASTER-0073 | Application | Endpoint identity | Canonical EndpointReference now supports terminal resolution for unconnected terminals | CRITICAL | **STATIC CLOSED** | No runtime verification |
+| GF-MASTER-0074 | SLD | Connection workflow | Canonical Application electrical connection/reconnection use cases added | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
+| GF-MASTER-0075 | Core | Topology | Switching-family conduction contract | HIGH | **STATIC CLOSED** | Static source verification; runtime deferred |
+
+### Historical duplicate-ID handling
+
+The CSV previously contained a second set of rows for GF-MASTER-0049 through GF-MASTER-0055 representing later UI-01 register entries. Those rows are not silently treated as additional active findings. Their historical evidence remains in the Markdown chronology; the CSV now contains one canonical row per active Master ID.
+
+### Status vocabulary
+
+Only these current statuses are used: **OPEN**, **RE-AUDIT REQUIRED**, **REMEDIATED — VERIFICATION DEFERRED**, **STATICALLY VERIFIED**, **STATIC CLOSED**, **RUNTIME VERIFIED**, **DEFERRED**, **RECLASSIFIED**. No static correction is promoted to runtime verification.
+
+## Batch 0 register closure — 2026-09-26
+
+- **Canonical repository:** `SubhenduMishra29/GridForge`
+- **Canonical branch:** `main`
+- **Working/edit repository:** `madhuri196mishra-cpu/GridForge`
+- **Register files synchronized:** `audit/MASTER_AUDIT_REGISTER.md`, `audit/MASTER_AUDIT_REGISTER_METADATA.md`, `audit/MASTER_AUDIT_REGISTER.csv`
+- **Active Master IDs reconciled:** 75
+- **Historical repository references:** retained as historical evidence only
+- **Status vocabulary:** normalized to the eight canonical lifecycle values above
+- **Production source:** untouched
+- **Runtime verification:** not claimed
+
+**Batch 0 closes the register-consistency task only. The overall GridForge audit remains open and Batch 1 is not started.**
