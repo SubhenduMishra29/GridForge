@@ -260,9 +260,11 @@ class ToolManager:
         if self._disposed:
             return
         if self._active_tool is not None:
+            previous_id = self._active_tool_id
             self._active_tool.deactivate()
             self._active_tool = None
             self._active_tool_id = None
+            self._notify_controller_tool_change(previous_id, None)
         for tool_id, tool in tuple(self._tool_instances.items()):
             self._dispose_tool(tool)
             del self._tool_instances[tool_id]
