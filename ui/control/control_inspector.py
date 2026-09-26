@@ -1,4 +1,5 @@
 """Read-model based Control Inspector.
+Author: Subhendu Mishra
 
 Persistent changes are routed through immutable Application commands.
 """
