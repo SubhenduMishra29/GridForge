@@ -169,6 +169,24 @@ class LadderProgram:
                 break
         return component
 
+    def move_rung(self, rung_id: str, *, order: int) -> LadderRung:
+        rung = self.rung(rung_id)
+        target = int(order)
+        if target < 0:
+            raise LadderModelError("rung order cannot be negative.")
+        ordered = list(self.rungs())
+        ordered.remove(rung)
+        target = min(target, len(ordered))
+        ordered.insert(target, rung)
+        for index, current in enumerate(ordered):
+            self._rungs[current.rung_id] = LadderRung(
+                rung_id=current.rung_id,
+                order=index,
+                elements=current.elements,
+                enabled=current.enabled,
+            )
+        return self._rungs[rung_id]
+
     def set_rung_enabled(self, rung_id: str, enabled: bool) -> LadderRung:
         rung = self.rung(rung_id)
         updated = LadderRung(rung_id=rung.rung_id, order=rung.order, elements=rung.elements, enabled=bool(enabled))
