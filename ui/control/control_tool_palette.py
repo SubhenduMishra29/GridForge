@@ -66,6 +66,8 @@ class ControlToolRegistry:
             ControlToolDescriptor("signal.connect", "Connect Signal", "Control", "->", "control.connect_signals"),
             ControlToolDescriptor("signal.disconnect", "Disconnect Signal", "Control", "<-", "control.disconnect_signals"),
             ControlToolDescriptor("action_binding", "Action Binding", "Control", "=>", "control.add_action_binding"),
+            ControlToolDescriptor("component.move", "Move Component", "Control", "↔", "control.move_element"),
+            ControlToolDescriptor("component.remove", "Remove Component", "Control", "×", "control.remove_component"),
         )
 
 
