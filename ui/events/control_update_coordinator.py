@@ -54,8 +54,9 @@ _CONTROL_EVENTS = (
 
 
 class ControlUpdateCoordinator:
-    event_types = _CONTROL_EVENTS
     """Apply authoritative Application Control changes to the open canvas."""
+
+    event_types = _CONTROL_EVENTS
 
     def __init__(
         self,
