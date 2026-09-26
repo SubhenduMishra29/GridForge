@@ -102,10 +102,12 @@ class LadderProgram:
         return rung
 
     def remove_rung(self, rung_id: str) -> LadderRung:
-        try:
-            return self._rungs.pop(str(rung_id).strip())
-        except KeyError as exc:
-            raise LadderModelError(f"Unknown rung '{rung_id}'.") from exc
+        rung_id = str(rung_id).strip()
+        try: rung = self._rungs[rung_id]
+        except KeyError as exc: raise LadderModelError(f"Unknown rung '{rung_id}'.") from exc
+        if rung.elements: raise LadderModelError(f"Cannot remove non-empty rung '{rung_id}'; remove contained components first.")
+        del self._rungs[rung_id]
+        return rung
 
     def rung(self, rung_id: str) -> LadderRung:
         try:
@@ -128,6 +130,7 @@ class LadderProgram:
         if position < 0 or position > len(rung.elements):
             raise LadderModelError("Component position is outside the rung.")
         self._engine.register(component)
+        self._engine.set_component_enabled(component.component_id, rung.enabled)
         elements = list(rung.elements)
         elements.insert(position, LadderElementRef(component.component_id, position))
         self._replace_rung(rung, elements)
@@ -151,6 +154,7 @@ class LadderProgram:
         if position < 0 or position > len(rung.elements):
             raise LadderModelError("Component position is outside the rung.")
         self._engine.register(component, order=int(order), initial_state=dict(state))
+        self._engine.set_component_enabled(component.component_id, rung.enabled)
         elements = list(rung.elements)
         elements.insert(position, LadderElementRef(component.component_id, position))
         self._replace_rung(rung, elements)
@@ -164,6 +168,14 @@ class LadderProgram:
                 self._replace_rung(rung, elements)
                 break
         return component
+
+    def set_rung_enabled(self, rung_id: str, enabled: bool) -> LadderRung:
+        rung = self.rung(rung_id)
+        updated = LadderRung(rung_id=rung.rung_id, order=rung.order, elements=rung.elements, enabled=bool(enabled))
+        self._rungs[rung_id] = updated
+        for element in updated.elements:
+            self._engine.set_component_enabled(element.component_id, updated.enabled)
+        return updated
 
     def move_component(self, component_id: str, *, rung_id: str, position: int) -> None:
         component_id = str(component_id).strip()
@@ -180,6 +192,7 @@ class LadderProgram:
         elements = list(rung.elements)
         elements.insert(position, LadderElementRef(component_id, position))
         self._replace_rung(rung, elements)
+        self._engine.set_component_enabled(component_id, rung.enabled)
 
     def connections(self) -> tuple[LogicConnection, ...]:
         return self._engine.connections()

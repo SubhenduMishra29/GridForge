@@ -928,3 +928,20 @@ Static source audit on `main` reconciled the remaining SLD connection residue.
 
 **Runtime verification:** DEFERRED. No pytest, CI, application startup, GUI
 execution, or integration/runtime verification was performed for this batch.
+
+
+## 2026-09-26 — Consolidated Control subsystem remediation
+
+**Repository:** `pandaraseswari03-collab/GridForge`  
+**Branch:** `main`  
+**Verification mode:** static source re-audit only; no tests, CI, startup, GUI, or runtime execution.
+
+The supplied Control finding IDs are preserved here as one consolidated root-cause record because the current CSV register contains no `GF-CTRL-*` rows. They are not silently deleted, renamed, or individually declared closed.
+
+**Historical Control IDs:** GF-CTRL-B-004, GF-CTRL-D-003, GF-CTRL-D-004, GF-CTRL-E-002, GF-CTRL-E-006, GF-CTRL-I-001, GF-CTRL-I-002, GF-CTRL-I-004, GF-CTRL-I-008, GF-CTRL-J-003, GF-CTRL-J-004, GF-CTRL-K-001, GF-CTRL-K-005, GF-CTRL-L-001, GF-CTRL-L-002, GF-CTRL-L-003, GF-CTRL-L-004, GF-CTRL-M-001, GF-CTRL-M-006, GF-CTRL-N-001, GF-CTRL-N-002, GF-CTRL-N-003, GF-CTRL-O-001, GF-CTRL-P-001, GF-CTRL-P-002, GF-CTRL-P-003, GF-CTRL-P-004, GF-CTRL-Q-002, GF-CTRL-Q-003, GF-CTRL-R-001, GF-CTRL-R-002, GF-CTRL-R-003, GF-CTRL-R-004
+
+**Current implementation evidence:** one project-owned `core.control.configuration.ControlConfiguration`; one long-lived Application `ControlApplicationService`; Application `read_control()`; versioned `project.json.control` persistence and atomic validation/reconstruction; immutable Control commands; atomic LogicEngine rollback/time monotonicity; project-owned ActionBinding/Interlock/DynamicControl configuration; semantic execute/undo/redo event inversion; quality-aware interlock signal contracts; and a solver-neutral DynamicControl adapter/global-state-layout boundary.
+
+**Status:** `REMEDIATED — VERIFICATION DEFERRED` for the implemented configuration/lifecycle/logic/action/interlock boundaries. **Deferred:** full AVR/PSS physical excitation integration and complete controller-to-DAE runtime wiring because the existing classical machine model exposes fixed `Efd` rather than a dynamic excitation state. No unsupported physical behavior was introduced.
+
+**Evidence boundary:** per-ID historical wording is not present in the current register, so this consolidated record does not claim one-to-one per-ID closure. The IDs remain preserved for later exact register reconciliation.

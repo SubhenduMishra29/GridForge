@@ -14,9 +14,11 @@ from .results import ApplicationResult
 
 @dataclass(frozen=True, slots=True)
 class ControlExecutionResult:
-    """Immutable outcome of one Application-side Control execution cycle."""
+    """Immutable outcome; execution is not physical acknowledgement."""
 
     executed_decisions: tuple[ControlDecision, ...] = ()
+    acknowledged_decisions: tuple[ControlDecision, ...] = ()
+    mismatched_decisions: tuple[ControlDecision, ...] = ()
     invalid_decisions: tuple[ControlDecision, ...] = ()
     blocked_decisions: tuple[ControlDecision, ...] = ()
     failed_decisions: tuple[ControlDecision, ...] = ()
@@ -25,6 +27,8 @@ class ControlExecutionResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "executed_decisions", tuple(self.executed_decisions))
+        object.__setattr__(self, "acknowledged_decisions", tuple(self.acknowledged_decisions))
+        object.__setattr__(self, "mismatched_decisions", tuple(self.mismatched_decisions))
         object.__setattr__(self, "invalid_decisions", tuple(self.invalid_decisions))
         object.__setattr__(self, "blocked_decisions", tuple(self.blocked_decisions))
         object.__setattr__(self, "failed_decisions", tuple(self.failed_decisions))
