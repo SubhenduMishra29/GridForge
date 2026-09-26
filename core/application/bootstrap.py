@@ -51,7 +51,6 @@ from .protection_configuration_handlers import ProtectionConfigurationHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
-from core.control.configuration import ControlConfiguration
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
@@ -71,7 +70,6 @@ def create_application(network: Any) -> Application:
     # Application-scoped configuration checks. Study execution never uses this
     # provider; studies capture an explicit detached ProjectSnapshot.
     lifecycle = None
-    control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     measurement_channel_service = MeasurementChannelService()
     measurement_channel_service.activate(initial_context, network, (), generation=1)
     protection_configuration_service = ProtectionConfigurationService(
