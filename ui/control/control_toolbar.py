@@ -20,7 +20,6 @@ class ControlToolbar(QWidget):
         on_toggle_rung: Callable[[], None],
         on_move_rung_up: Callable[[], None],
         on_cancel_tool: Callable[[], None],
-        on_editing_changed: Callable[[bool], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -54,13 +53,10 @@ class ControlToolbar(QWidget):
         self._editing_widgets.append(cancel)
 
         layout.addStretch(1)
-        self._on_editing_changed = on_editing_changed
 
     def set_editing_enabled(self, enabled: bool) -> None:
         for widget in self._editing_widgets:
             widget.setEnabled(bool(enabled))
-        if self._on_editing_changed is not None:
-            self._on_editing_changed(bool(enabled))
 
 
 __all__ = ["ControlToolbar"]
