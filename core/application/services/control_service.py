@@ -24,7 +24,8 @@ from ...control.logic.interlocks import LogicInterlock
 from ...control.logic.latches import LogicLatch, LogicRSLatch, LogicSRLatch
 from ...control.logic.timers import LogicTOFTimer, LogicTONTimer, LogicTPTimer
 from ...control.action import ControlActionBinding
-from ...control.configuration import ControlConfiguration, DynamicControlAssociation
+from ...control.configuration import ControlConfiguration, DynamicControlAssociation, InterlockConfiguration
+from ...control.decision import ControlActionType
 from ..results import ApplicationResult
 from ..transaction import Transaction
 
@@ -241,6 +242,103 @@ class ControlApplicationService:
             raise ValueError("Control execution dependency does not exist.")
         transaction.record_undo(lambda: self.program.engine.add_dependency(**payload))
         return ApplicationResult.success_result(value=None, message="Control execution dependency removed.", metadata={"source_component": payload["source_component"], "target_component": payload["target_component"]})
+
+    def add_action_binding(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        data = dict(payload.get("binding") or {})
+        binding = ControlActionBinding(
+            control_id=str(data["control_id"]),
+            source_component=str(data["source_component"]),
+            source_output=str(data["source_output"]),
+            target_equipment_id=str(data["target_equipment_id"]),
+            action_type=ControlActionType(data["action_type"]),
+            reason=str(data.get("reason", "Control action")),
+            target_equipment_type=str(data.get("target_equipment_type", "breaker")),
+            interlock_id=data.get("interlock_id"),
+        )
+        if any(item.control_id == binding.control_id for item in self.action_bindings):
+            raise ValueError(f"Control action binding '{binding.control_id}' already exists.")
+        previous = self.action_bindings
+        self._configuration.action_bindings = previous + (binding,)
+        self._configuration.validate()
+        transaction.record_undo(lambda: setattr(self._configuration, "action_bindings", previous))
+        return ApplicationResult.success_result(
+            value=binding,
+            message=f"Control action binding '{binding.control_id}' created.",
+            metadata={"binding_id": binding.control_id},
+        )
+
+    def remove_action_binding(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        binding_id = str(payload["binding_id"])
+        previous = self.action_bindings
+        binding = next((item for item in previous if item.control_id == binding_id), None)
+        if binding is None:
+            raise ValueError(f"Unknown Control action binding '{binding_id}'.")
+        self._configuration.action_bindings = tuple(item for item in previous if item.control_id != binding_id)
+        transaction.record_undo(lambda: setattr(self._configuration, "action_bindings", previous))
+        return ApplicationResult.success_result(
+            value=binding,
+            message=f"Control action binding '{binding_id}' removed.",
+            metadata={"binding_id": binding_id},
+        )
+
+    def add_interlock(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        data = dict(payload.get("configuration") or {})
+        configuration = InterlockConfiguration.from_dict(data)
+        previous = self.interlocks
+        if any(item.interlock_id == configuration.interlock_id for item in previous):
+            raise ValueError(f"Control interlock '{configuration.interlock_id}' already exists.")
+        self._configuration.interlocks = previous + (configuration,)
+        self._configuration.validate()
+        transaction.record_undo(lambda: setattr(self._configuration, "interlocks", previous))
+        return ApplicationResult.success_result(
+            value=configuration,
+            message=f"Control interlock '{configuration.interlock_id}' created.",
+            metadata={"interlock_id": configuration.interlock_id},
+        )
+
+    def remove_interlock(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        interlock_id = str(payload["interlock_id"])
+        previous = self.interlocks
+        configuration = next((item for item in previous if item.interlock_id == interlock_id), None)
+        if configuration is None:
+            raise ValueError(f"Unknown Control interlock '{interlock_id}'.")
+        if any(binding.interlock_id == interlock_id for binding in self.action_bindings):
+            raise ValueError(f"Control interlock '{interlock_id}' is still referenced by an action binding.")
+        self._configuration.interlocks = tuple(item for item in previous if item.interlock_id != interlock_id)
+        transaction.record_undo(lambda: setattr(self._configuration, "interlocks", previous))
+        return ApplicationResult.success_result(
+            value=configuration,
+            message=f"Control interlock '{interlock_id}' removed.",
+            metadata={"interlock_id": interlock_id},
+        )
+
+    def add_dynamic_association(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        association = DynamicControlAssociation.from_dict(dict(payload.get("association") or {}))
+        previous = self.dynamic_control_associations
+        if any(item.association_id == association.association_id for item in previous):
+            raise ValueError(f"Dynamic Control association '{association.association_id}' already exists.")
+        self._configuration.dynamic_control_associations = previous + (association,)
+        self._configuration.validate()
+        transaction.record_undo(lambda: setattr(self._configuration, "dynamic_control_associations", previous))
+        return ApplicationResult.success_result(
+            value=association,
+            message=f"Dynamic Control association '{association.association_id}' created.",
+            metadata={"association_id": association.association_id},
+        )
+
+    def remove_dynamic_association(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        association_id = str(payload["association_id"])
+        previous = self.dynamic_control_associations
+        association = next((item for item in previous if item.association_id == association_id), None)
+        if association is None:
+            raise ValueError(f"Unknown Dynamic Control association '{association_id}'.")
+        self._configuration.dynamic_control_associations = tuple(item for item in previous if item.association_id != association_id)
+        transaction.record_undo(lambda: setattr(self._configuration, "dynamic_control_associations", previous))
+        return ApplicationResult.success_result(
+            value=association,
+            message=f"Dynamic Control association '{association_id}' removed.",
+            metadata={"association_id": association_id},
+        )
 
     def add_rung(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
         rung = self.program.add_rung(payload["rung_id"], order=payload.get("order"), enabled=payload.get("enabled", True))
