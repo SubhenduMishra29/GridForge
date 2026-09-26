@@ -51,7 +51,7 @@ from .protection_configuration_handlers import ProtectionConfigurationHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
-from .control_configuration import ControlConfiguration
+from core.control.configuration import ControlConfiguration
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService
@@ -95,7 +95,7 @@ def create_application(network: Any) -> Application:
                 )
             target[command_type] = handler
 
-    control_service = ControlApplicationService(ControlConfiguration(initial_context.project_id))
+    control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
 
     def build_runtime(active_network: Any) -> tuple[CommandManager, NetworkReadService, ValidationService]:
         context = ApplicationContext(network=active_network)
@@ -182,7 +182,7 @@ def create_application(network: Any) -> Application:
 
         try:
             if context is None:
-                control_service.activate(ControlConfiguration("closed-project"))
+                control_service.activate(ControlConfiguration.empty("closed-project"))
                 measurement_channel_service.activate(None, network, (), 0)
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
@@ -213,7 +213,7 @@ def create_application(network: Any) -> Application:
                 control_configuration = (
                     loaded.control_configuration
                     if loaded is not None and loaded.control_configuration is not None
-                    else ControlConfiguration(context.project_id)
+                    else ControlConfiguration.empty(context.project_id)
                 )
                 control_service.activate(control_configuration)
                 if loaded is None:
