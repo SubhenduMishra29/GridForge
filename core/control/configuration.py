@@ -186,9 +186,9 @@ class ControlConfiguration:
                 if factory is None:
                     raise ValueError(f"Unsupported persisted Control component type {component_type!r}.")
                 if factory is LogicInterlock:
-                component = factory(component_id, condition_count=int(configuration.get("condition_count", 1)))
-            else:
-                component = factory(component_id)
+                    component = factory(component_id, condition_count=int(configuration.get("condition_count", 1)))
+                else:
+                    component = factory(component_id)
             rung = next((r for r in rung_data if any(str(e["component_id"]) == component_id for e in r.get("elements", ()))), None)
             if rung is None:
                 raise ValueError(f"Persisted Control component {component_id!r} is not placed in a rung.")
