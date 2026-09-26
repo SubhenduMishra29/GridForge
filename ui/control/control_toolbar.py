@@ -46,6 +46,7 @@ class ControlToolbar(QWidget):
         redo = QPushButton("Redo", self)
         redo.clicked.connect(lambda _checked=False: application.redo())
         layout.addWidget(redo)
+        self._editing_widgets.extend((undo, redo))
 
         cancel = QPushButton("Cancel Tool", self)
         cancel.clicked.connect(lambda _checked=False, callback=on_cancel_tool: callback())
