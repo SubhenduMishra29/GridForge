@@ -1,5 +1,9 @@
 # Master Register — Required Field Metadata
 
+**Canonical repository authority:** `SubhenduMishra29/GridForge`
+**Canonical branch:** `main`
+**Historical repository provenance:** Any other repository identity appearing in historical evidence is provenance only and is not current audit authority.
+
 This companion table completes the required fields for the canonical findings in `MASTER_AUDIT_REGISTER.md`. It is part of the same audit-only register set; no production source is modified.
 
 | Master ID | Evidence / Location | First Detected | Last Verified | Related Findings | Depends On | Blocks | Resolution Evidence | Historical Notes | Remediation State | Verification Method |
