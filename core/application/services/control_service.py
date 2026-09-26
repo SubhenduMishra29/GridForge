@@ -24,8 +24,7 @@ from ...control.logic.interlocks import LogicInterlock
 from ...control.logic.latches import LogicLatch, LogicRSLatch, LogicSRLatch
 from ...control.logic.timers import LogicTOFTimer, LogicTONTimer, LogicTPTimer
 from ...control.action import ControlActionBinding
-from ...control.interlock import ControlInterlock
-from ..control_configuration import ControlConfiguration, DynamicControlAssociation
+from ...control.configuration import ControlConfiguration, DynamicControlAssociation
 from ..results import ApplicationResult
 from ..transaction import Transaction
 
@@ -146,7 +145,7 @@ class ControlApplicationService:
         return self._configuration.action_bindings
 
     @property
-    def interlocks(self) -> tuple[ControlInterlock, ...]:
+    def interlocks(self):
         return self._configuration.interlocks
 
     @property
