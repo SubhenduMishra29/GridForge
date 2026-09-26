@@ -102,12 +102,12 @@ Git history was also inspected for audit evolution and remediation lineage, incl
 | GF-MASTER-0035 | GF-AUD-018; Batch 1A semantic-event provenance | Application | Events | Batch 1A semantic-event provenance loss | HIGH | REMEDIATED — VERIFICATION DEFERRED | Generic model semantic-event publication omitted command correlation/causation; Application publication now forwards originating immutable Command provenance to model, topology, and network events | UI/read-model consumers can lose mutation lineage without this propagation | Core→Application→UI event direction; command provenance survives the Application boundary | Yes |
 | GF-MASTER-0036 | historical Application revision findings | Application | Revision/validation | Application/Core revision and validation coordination remains insufficiently runtime-proven | HIGH | UNVERIFIED | Multiple historical revisions/dirty-state concerns were reconciled in source but not fully executed | Stale study/result state or dirty-state inconsistency | Revision/validation state has one authoritative coordination path | Yes |
 | GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication preserves its correlation/causation metadata | Undo/redo events could otherwise lose originating command lineage; runtime verification remains deferred | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
-| GF-MASTER-0038 | historical SLD terminal/equipment findings | SLD | Identity | Parallel UI/equipment/terminal identity representations require full consumer reconciliation | CRITICAL | UNVERIFIED | SLD/UI can carry presentation identities while Core owns authoritative equipment/terminal identity; historical duplicate abstractions require traceability | Wrong endpoint/equipment can be edited, connected, rendered, or persisted | No authoritative duplicate Terminal/equipment model in UI | Yes |
+| GF-MASTER-0038 | historical SLD terminal/equipment findings | SLD | Identity | Parallel UI/equipment/terminal identity representations require full consumer reconciliation | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | SLD/UI can carry presentation identities while Core owns authoritative equipment/terminal identity; historical duplicate abstractions require traceability | Wrong endpoint/equipment can be edited, connected, rendered, or persisted | No authoritative duplicate Terminal/equipment model in UI | Yes |
 | GF-MASTER-0039 | historical SLD connection/topology findings | SLD | Connection lifecycle/topology | UI connection state and Core topology authority require complete migration proof | CRITICAL | UNVERIFIED | Historical connection/terminal concerns require Application/Core topology authority | SLD can diverge from actual connectivity | Core/network owns global topology | Yes |
 | GF-MASTER-0040 | historical SLD rendering/factory findings | SLD | Projection-rendering | Rendering boundary is structurally separated, but supported-type coverage and runtime rendering remain unverified | HIGH | UNVERIFIED | Factory/projection separation exists while semantic coverage is incomplete | Render failures or accidental engineering logic in presentation | QGraphicsItem is presentation-only | Yes |
-| GF-MASTER-0041 | historical Core architecture findings | Core | Authority-topology-equipment | Core authority is structurally defined but broad historical findings require current consumer-level verification | CRITICAL | UNVERIFIED | Multiple historical architecture concerns were source-reconciled in different batches without one executable repository-wide proof | Duplicate authority can re-emerge in consumers | Core owns authoritative engineering/domain truth | Yes |
+| GF-MASTER-0041 | historical Core architecture findings | Core | Authority-topology-equipment | Core authority is structurally defined but broad historical findings require current consumer-level verification | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Multiple historical architecture concerns were source-reconciled in different batches without one executable repository-wide proof | Duplicate authority can re-emerge in consumers | Core owns authoritative engineering/domain truth | Yes |
 | GF-MASTER-0042 | historical control findings; GF-EDM control-related records where applicable | Control | Control/automation | Control/ladder/simulation/command integration is not fully evidenced in the consolidated registers | HIGH | UNVERIFIED | Historical control scope is fragmented and current complete consumer chain was not demonstrated | Breaker/control interactions may bypass canonical Application events/commands | Control actions must use authoritative Application/Core boundaries | Yes |
-| GF-MASTER-0043 | historical redundancy/migration findings | Architecture | Migration/redundancy | Legacy/parallel subsystem migration cannot be declared complete from absence or source deletion alone | HIGH | UNVERIFIED | Historical audits repeatedly warn that indexed absence is insufficient evidence | Duplicate authorities may remain hidden in consumers | One responsibility/one owner; no speculative deletion | Yes |
+| GF-MASTER-0043 | historical redundancy/migration findings | Architecture | Migration/redundancy | Legacy/parallel subsystem migration cannot be declared complete from absence or source deletion alone | HIGH | REMEDIATED — VERIFICATION DEFERRED | Historical audits repeatedly warn that indexed absence is insufficient evidence | Duplicate authorities may remain hidden in consumers | One responsibility/one owner; no speculative deletion | Yes |
 | GF-MASTER-0044 | historical test/evidence findings | Runtime | Verification | Large portions of remediation are source-level only; executable evidence is incomplete | HIGH | UNVERIFIED | Test specifications/workflows exist but current successful runs were not established | False closure can mask startup, persistence, study, and UI defects | RESOLVED requires current executable evidence | Yes |
 | GF-MASTER-0045 | NEW — SLD contextual engineering-state hover/readout | UI/SLD | Canvas interaction | Canonical contextual hover/readout interaction contract is not composed | MEDIUM | OPEN | Application read-side state exists but no verified Canvas hover/readout contract was established | Users may lack contextual engineering-state feedback | UI consumes projections/read models; it does not invent authority | Yes |
 | GF-MASTER-0046 | GF-AUD-001; GF-AUD-002; GF-AUD-004; GF-AUD-008; GF-AUD-009; GF-AUD-010; GF-AUD-011 | Architecture | Historical aligned findings | Previously aligned architectural findings are preserved but not all have fresh executable verification | MEDIUM | UNVERIFIED | Historical closure claims relied on static/source evidence; current main differs | Historical confidence may exceed current executable evidence | Claims of alignment require current evidence | Yes |
@@ -731,12 +731,12 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0035 | Application | Events | Semantic event propagation unverified | HIGH | **OPEN** | Yes |
 | GF-MASTER-0036 | Application | Revision-validation | RevisionService is not integrated with project activation/replacement lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Application remains the sole project-transition revision coordinator via `_run_project_transition()`: it snapshots `RevisionService` before lifecycle transition, restores the exact prior revision state on failure, and resets revision only after successful activation; `bootstrap.activate_project_state()` no longer snapshots/restores/resets revision state; execute/undo/redo/presentation/save revision paths remain intact; runtime verification deferred | Yes |
 | GF-MASTER-0037 | Application | Command-transaction-history | Application mutation and undo-redo path divergence unverified | CRITICAL | **OPEN** | Yes |
-| GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0040 | SLD | Projection-rendering | Rendering separation exists but coverage and runtime unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
-| GF-MASTER-0041 | Core | Authority-topology-equipment | Broad Core authority findings require consumer verification | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0041 | Core | Authority-topology-equipment | Broad Core authority findings require consumer verification | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0042 | Control | Control-automation | Control and ladder command integration incomplete | HIGH | **OPEN** | Yes |
-| GF-MASTER-0043 | Architecture | Migration-redundancy | Parallel subsystem migration cannot be declared complete | HIGH | **OPEN** | Yes |
+| GF-MASTER-0043 | Architecture | Migration-redundancy | Parallel subsystem migration cannot be declared complete | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0044 | Runtime | Verification | Source-level remediation lacks complete executable evidence | HIGH | **OPEN** | Yes |
 | GF-MASTER-0045 | UI-SLD | Canvas interaction | Contextual engineering-state hover and readout contract remains open | MEDIUM | **OPEN** | Yes |
 | GF-MASTER-0046 | Architecture | Historical aligned findings | Historical aligned findings lack fresh executable verification | MEDIUM | **OPEN** | Yes |
@@ -904,3 +904,27 @@ Corrected `core/application/bootstrap.py` at the existing Application project-st
 **GF-MASTER-0049:** remains **STATIC CLOSED**
 
 Runtime verification remains deferred as required.
+
+
+## Batch 1E — SLD Connection Migration Reconciliation
+
+Static source audit on `main` reconciled the remaining SLD connection residue.
+
+- **GF-MASTER-0038 — REMEDIATED — VERIFICATION DEFERRED:** presentation
+  `EquipmentTerminal` / `SnapResult` identity is translated by
+  `EndpointIdentityAdapter` into canonical Core `EndpointReference`;
+  presentation `terminal_id` is not promoted to Core identity.
+- **GF-MASTER-0041 — REMEDIATED — VERIFICATION DEFERRED:** Core
+  `Network` owns registry, terminal ownership, connectivity, and topology
+  invalidation; Application commands and `Application.execute()` remain the
+  UI-to-Core mutation boundary.
+- **GF-MASTER-0043 — REMEDIATED — VERIFICATION DEFERRED:** historical
+  `ui.equipment.connection*` architecture is not used by the current
+  connection path; stale `ui.topology.TopologyValidator` implementation and
+  public export were removed; `TopologyAdapter` claims were removed from
+  `ui/connections/README.md`; `ConnectionPreview` is the common transient
+  logical preview state for Wire/Line/Cable; canonical Application/Core
+  mutation was preserved; historical audit evidence was retained.
+
+**Runtime verification:** DEFERRED. No pytest, CI, application startup, GUI
+execution, or integration/runtime verification was performed for this batch.
