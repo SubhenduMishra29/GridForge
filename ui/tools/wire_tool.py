@@ -14,7 +14,6 @@ from core.application.commands.simple_wire_commands import CreateSimpleWireConne
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
-from .sld_connection_presentation_adapter import SLDConnectionPresentationAdapter
 from .tool_base import ToolBase
 
 
@@ -125,7 +124,6 @@ class WireTool(ToolBase):
             raise ValueError("Simple Wired Connection requires valid electrical endpoint snaps.")
         command = CreateSimpleWireConnectionCommand(endpoint_a=endpoint_from, endpoint_b=endpoint_to)
         result = self.execute_command(command)
-        SLDConnectionPresentationAdapter.execute(self._application, self.execute_command, connection_id=command.connection_id, source_snap=source_snap, target_snap=target_snap)
         return result
 
     def _show_preview(self) -> None:
