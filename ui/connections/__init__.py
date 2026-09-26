@@ -5,36 +5,23 @@
 #     ui/connections/__init__.py
 #
 # Purpose:
-#     Public API boundary for the SLD connection subsystem.
+#     Public API boundary for the current V2 SLD connection
+#     presentation/interaction subsystem.
 #
 # Architectural Role:
-#     Provides the logical connection layer between SLD equipment
-#     terminals.
-#
-# Responsibilities:
-#     - expose logical connections;
-#     - expose terminal resolution;
-#     - expose structural validation;
-#     - expose connection management;
-#     - expose routing and preview abstractions;
-#     - expose the Core-topology synchronization boundary.
+#     Exposes logical connection state, transient preview state,
+#     structural validation, terminal lookup, and renderer-neutral
+#     routing.
 #
 # Does NOT:
-#     - render connection lines;
-#     - create QGraphicsItems;
-#     - perform electrical calculations;
-#     - directly manipulate Qt scenes.
-#
+#     - own electrical topology;
+#     - mutate Core directly;
+#     - expose a TopologyAdapter;
+#     - expose a ConnectionManager;
+#     - render Qt graphics.
 # ============================================================
 
-"""
-GridForge V2 — SLD Connection subsystem.
-
-This package defines the UI-level logical connection boundary
-for the Single Line Diagram.
-
-Core remains authoritative for electrical topology.
-"""
+"""GridForge V2 — current SLD connection presentation subsystem."""
 
 from .connection import Connection
 from .connection_preview import ConnectionPreview
