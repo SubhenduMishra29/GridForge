@@ -93,11 +93,12 @@ class DynamicControlAssociationReadModel:
     parameters: Mapping[str, Any]
     input_mappings: Mapping[str, str]
     output_mappings: Mapping[str, str]
-    initialization_policy: Mapping[str, Any]
+    initialization_policy: str
 
     def __post_init__(self) -> None:
-        for name in ("parameters", "input_mappings", "output_mappings", "initialization_policy"):
+        for name in ("parameters", "input_mappings", "output_mappings"):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        object.__setattr__(self, "initialization_policy", str(self.initialization_policy))
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,7 +305,7 @@ class ControlApplicationService:
         dynamic = tuple(
             DynamicControlAssociationReadModel(
                 a.association_id, a.machine_id, a.controller_id, a.controller_type,
-                a.plugin_type, a.parameters, a.input_mappings, a.output_mappings, a.initialization_policy,
+                a.plugin_id, a.parameters, a.input_mappings, a.output_mappings, a.initialization_policy,
             )
             for a in self.dynamic_control_associations
         )
