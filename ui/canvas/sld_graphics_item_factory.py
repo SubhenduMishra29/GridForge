@@ -57,13 +57,16 @@ class SLDGraphicsItemFactory:
             raise ValueError(f"Unsupported SLD representation: {selection.representation_id!r}")
 
         if selection.equipment_type == "bus":
+            start, end = self._bus_span(node)
             item = BusItem(
                 object_id=graphics_object_id,
                 position=position,
                 radius=self._node_radius(node),
+                start=start,
+                end=end,
             )
             item.setScale(symbol_instance.scale)
-            item.setRotation(symbol_instance.rotation)
+            item.setRotation(float(node.properties.get("orientation", symbol_instance.rotation)))
             item.setVisible(symbol_instance.visible)
             return item
 
@@ -111,6 +114,16 @@ class SLDGraphicsItemFactory:
                         attributes={},
                     )
         raise ValueError(f"SLD node equipment {equipment_id!r} is absent from Application read state.")
+
+    @staticmethod
+    def _bus_span(node: SLDCanvasNode) -> tuple[QPointF, QPointF]:
+        raw_start = node.properties.get("start", (-80.0, 0.0))
+        raw_end = node.properties.get("end", (80.0, 0.0))
+        if not isinstance(raw_start, (tuple, list)) or len(raw_start) != 2:
+            raise ValueError("SLD Bus start geometry must be a two-element sequence")
+        if not isinstance(raw_end, (tuple, list)) or len(raw_end) != 2:
+            raise ValueError("SLD Bus end geometry must be a two-element sequence")
+        return QPointF(float(raw_start[0]), float(raw_start[1])), QPointF(float(raw_end[0]), float(raw_end[1]))
 
     @staticmethod
     def _node_radius(node: SLDCanvasNode) -> float:
