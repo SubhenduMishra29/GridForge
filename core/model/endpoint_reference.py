@@ -166,6 +166,7 @@ class EndpointReference:
     object_id: str
     equipment_type: EquipmentType | None = None
     terminal_role: str | None = None
+    attachment_id: str | None = None
 
     # ========================================================
     # VALIDATION
@@ -215,6 +216,11 @@ class EndpointReference:
                     "terminal_role must be None "
                     "for a Bus endpoint."
                 )
+            if not isinstance(self.attachment_id, str) or not self.attachment_id.strip():
+                raise ValueError(
+                    "attachment_id must be a non-empty string for a Bus endpoint."
+                )
+            object.__setattr__(self, "attachment_id", self.attachment_id.strip())
 
             return
 
@@ -234,6 +240,8 @@ class EndpointReference:
                     "endpoint."
                 )
 
+            if self.attachment_id is not None:
+                raise ValueError("attachment_id must be None for a terminal endpoint.")
             if (
                 not isinstance(
                     self.terminal_role,
@@ -268,6 +276,7 @@ class EndpointReference:
     def bus(
         cls,
         bus_id: str,
+        attachment_id: str,
     ) -> "EndpointReference":
         """
         Create a Bus endpoint reference.
@@ -276,6 +285,7 @@ class EndpointReference:
         return cls(
             kind=EndpointReferenceKind.BUS,
             object_id=bus_id,
+            attachment_id=attachment_id,
         )
 
     @classmethod
@@ -370,6 +380,7 @@ class EndpointReference:
                 {
                     "kind": self.kind.value,
                     "object_id": self.object_id,
+                    "attachment_id": self.attachment_id,
                 }
             )
 

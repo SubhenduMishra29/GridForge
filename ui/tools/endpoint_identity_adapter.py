@@ -90,7 +90,13 @@ class EndpointIdentityAdapter:
         if isinstance(source, BusItem):
             # A Bus is an endpoint kind of its own. Never manufacture a
             # terminal role for a Bus snap.
-            return EndpointReference.bus(str(object_id))
+            attachment_id = getattr(result, "attachment_id", None)
+            if not isinstance(attachment_id, str) or not attachment_id:
+                raise ValueError("Bus snap identity requires a stable attachment_id.")
+            bus_id = getattr(result, "bus_id", object_id)
+            if str(bus_id) != str(object_id):
+                raise ValueError("Bus snap bus_id does not match the snapped object identity.")
+            return EndpointReference.bus(str(object_id), attachment_id)
 
         terminal_id = getattr(result, "terminal_id", None)
         terminal_name = getattr(result, "terminal_name", None)

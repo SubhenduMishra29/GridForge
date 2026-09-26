@@ -39,7 +39,7 @@ class Controller(QObject):
         if application is not None and not isinstance(application, Application):
             raise TypeError("application must be a core.application.Application.")
         self.application = application
-        self._tool_id: str | None = None
+        self._tool_manager: Any | None = None
         self._project: Any | None = None
         self._disposed = False
         self._subscriptions: dict[str, list[Any]] = {
@@ -60,34 +60,51 @@ class Controller(QObject):
         self.application = application
         self.state_changed.emit()
 
-    @property
-    def tool_id(self) -> str | None:
-        return self._tool_id
-
-    def get_tool_id(self) -> str | None:
-        return self._tool_id
-
-    def get_current_tool_id(self) -> str | None:
-        return self._tool_id
-
-    def set_tool(self, tool_id: str | None) -> None:
+    def bind_tool_manager(self, tool_manager: Any) -> None:
+        """Bind the authoritative ToolManager runtime state."""
         self._ensure_active()
-        if tool_id is not None:
-            if not isinstance(tool_id, str):
-                raise TypeError("tool_id must be a string or None.")
-            tool_id = tool_id.strip()
-            if not tool_id:
-                raise ValueError("tool_id must not be empty.")
+        if tool_manager is None:
+            raise ValueError("tool_manager must not be None.")
+        if not callable(getattr(tool_manager, "activate", None)) or not callable(getattr(tool_manager, "deactivate", None)):
+            raise TypeError("tool_manager must provide activate() and deactivate().")
+        if self._tool_manager is not None and self._tool_manager is not tool_manager:
+            raise RuntimeError("Controller is already bound to a different ToolManager.")
+        self._tool_manager = tool_manager
+        self.state_changed.emit()
 
-        previous_tool_id = self._tool_id
-        if previous_tool_id == tool_id:
+    def _on_tool_manager_changed(self, tool_id: str | None, previous_tool_id: str | None) -> None:
+        """Receive authoritative tool lifecycle changes from ToolManager."""
+        self._ensure_active()
+        if tool_id == previous_tool_id:
             return
-        self._tool_id = tool_id
         self.tool_changed.emit(tool_id, previous_tool_id)
         self.state_changed.emit()
 
+    @property
+    def tool_id(self) -> str | None:
+        manager = self._tool_manager
+        return None if manager is None else manager.active_tool_id
+
+    def get_tool_id(self) -> str | None:
+        return self.tool_id
+
+    def get_current_tool_id(self) -> str | None:
+        return self.tool_id
+
+    def set_tool(self, tool_id: str | None) -> None:
+        """Activate the canonical ToolManager tool."""
+        self._ensure_active()
+        manager = self._tool_manager
+        if manager is None:
+            raise RuntimeError("Controller requires the canonical ToolManager for tool activation.")
+        manager.activate(tool_id)
+
     def clear_tool(self) -> None:
-        self.set_tool(None)
+        self._ensure_active()
+        manager = self._tool_manager
+        if manager is None:
+            raise RuntimeError("Controller requires the canonical ToolManager for tool deactivation.")
+        manager.deactivate()
 
     @property
     def project(self) -> Any | None:
@@ -149,13 +166,12 @@ class Controller(QObject):
 
     def reset_state(self) -> None:
         self._ensure_active()
-        previous_tool_id = self._tool_id
+        manager = self._tool_manager
         had_project = self._project is not None
-        self._tool_id = None
+        if manager is not None:
+            manager.deactivate()
         self._project = None
 
-        if previous_tool_id is not None:
-            self.tool_changed.emit(None, previous_tool_id)
         if had_project:
             self.project_changed.emit(None)
         self.reset_requested.emit()
@@ -196,7 +212,7 @@ class Controller(QObject):
 
     def get_state(self) -> dict[str, Any]:
         return {
-            "tool_id": self._tool_id,
+            "tool_id": self.tool_id,
             "has_application": self.application is not None,
             "has_project": self._project is not None,
             "disposed": self._disposed,
@@ -213,7 +229,7 @@ class Controller(QObject):
                 except (RuntimeError, TypeError):
                     pass
             callbacks.clear()
-        self._tool_id = None
+        self._tool_manager = None
         self._project = None
         self.application = None
         self._disposed = True

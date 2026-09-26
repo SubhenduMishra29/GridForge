@@ -264,6 +264,15 @@ class SLDService:
         source_endpoint = p.get("source_endpoint")
         target_endpoint = p.get("target_endpoint")
         route = p.get("route")
+        presentation_owner = str(p.get("presentation_owner", "engineer"))
+        projection_source = p.get("projection_source")
+        if presentation_owner not in {"engineer", "projection"}:
+            raise ValueError("presentation_owner must be 'engineer' or 'projection'.")
+        if projection_source is not None and presentation_owner != "projection":
+            raise ValueError("projection_source requires presentation_owner='projection'.")
+        properties = {"presentation_owner": presentation_owner}
+        if projection_source is not None:
+            properties["projection_source"] = str(projection_source)
         self.document.model.create_connection(
             connection_id=p["connection_id"],
             source_node_id=p["source_node_id"],
@@ -271,7 +280,7 @@ class SLDService:
             source_endpoint=source_endpoint,
             target_endpoint=target_endpoint,
             route=route,
-            properties={"presentation_owner": "engineer"},
+            properties=properties,
         )
         self.document.mark_modified()
         transaction.record_undo(lambda connection_id=p["connection_id"]: self.document.model.remove_connection(connection_id))
