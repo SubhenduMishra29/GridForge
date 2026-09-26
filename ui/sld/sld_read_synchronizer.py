@@ -534,6 +534,7 @@ class SLDReadSynchronizer:
                 "endpoint_b": endpoint_b,
             }
             self._project_connection(
+                document,
                 connection_id=simple_wire.connection_id,
                 source_node_id=source_node_id,
                 target_node_id=target_node_id,
