@@ -15,7 +15,7 @@ from ui.equipment.equipment_registry import EquipmentRegistry
 from ui.equipment.equipment_factory import EquipmentFactory
 from ui.items.bus_item import BusItem
 from ui.items.equipment_item import EquipmentItem
-from ui.items.line_item import LineItem
+from ui.sld.items.sld_connection_item import SLDConnectionItem
 
 from .semantic_presentation_realization import PresentationSelection
 from .sld_canvas_projection import SLDCanvasConnection, SLDCanvasNode
@@ -87,12 +87,19 @@ class SLDGraphicsItemFactory:
             symbol_instance=symbol_instance,
         )
 
-    def create_connection(self, connection: SLDCanvasConnection, source: QPointF, target: QPointF) -> LineItem:
+    def create_connection(self, connection: SLDCanvasConnection, source: QPointF, target: QPointF) -> SLDConnectionItem:
         if not isinstance(connection, SLDCanvasConnection):
             raise TypeError("connection must be an SLDCanvasConnection")
         self._validate_point(source, "source")
         self._validate_point(target, "target")
-        return LineItem(object_id=connection.connection_id, start=source, end=target)
+        item = SLDConnectionItem(
+            object_id=connection.connection_id,
+            source_object_id=connection.source_node_id,
+            target_object_id=connection.target_node_id,
+        )
+        route = connection.route
+        item.set_visual_route(source, target, route.points, ownership=route.ownership)
+        return item
 
     def _read_model_for(self, equipment_id: str | None) -> ElementReadModel:
         if not isinstance(equipment_id, str) or not equipment_id:
