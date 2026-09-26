@@ -560,6 +560,18 @@ class Application:
         return result
 
     def supports(self, command_type: str) -> bool: return isinstance(command_type, str) and self._command_manager.is_registered(command_type)
+
+    def supports_control_component(self, component_type: str) -> bool:
+        """Return whether the active Application Control service can create a component type."""
+        if not isinstance(component_type, str) or not component_type.strip():
+            return False
+        service = self._control_service
+        return (
+            service is not None
+            and self.supports(ADD_CONTROL_COMPONENT)
+            and component_type.strip() in service.supported_component_types
+        )
+
     def command_types(self) -> tuple[str, ...]: return self._command_manager.registered_commands
 
     def undo(self) -> ApplicationResult | None:

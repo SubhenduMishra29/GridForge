@@ -83,7 +83,39 @@ class ControlUpdateCoordinator:
         if not isinstance(event, _CONTROL_EVENTS):
             return
 
-        self._canvas.project(self._application.read_control())
+        if isinstance(event, ProjectClosed):
+            reset = getattr(self._canvas, "reset_scene", None)
+            if callable(reset):
+                reset()
+            else:
+                self._canvas.clear()
+            self._canvas_refresh()
+            return
+
+        try:
+            read_model = self._application.read_control()
+        except RuntimeError:
+            reset = getattr(self._canvas, "reset_scene", None)
+            if callable(reset):
+                reset()
+            else:
+                self._canvas.clear()
+            self._canvas_refresh()
+            return
+
+        self._canvas.project(read_model)
+        self._canvas_refresh()
+
+    def refresh_current(self) -> None:
+        """Project the currently active Control read model, or clear when inactive."""
+        try:
+            self._canvas.project(self._application.read_control())
+        except RuntimeError:
+            reset = getattr(self._canvas, "reset_scene", None)
+            if callable(reset):
+                reset()
+            else:
+                self._canvas.clear()
         self._canvas_refresh()
 
     def dispose(self) -> None:

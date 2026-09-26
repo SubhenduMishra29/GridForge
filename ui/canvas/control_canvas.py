@@ -1,4 +1,4 @@
-"""Control/Ladder canvas projection.
+"""Control/Ladder canvas projection and presentation interaction helpers.
 
 Author: Subhendu Mishra
 
@@ -8,10 +8,13 @@ logic evaluation and no direct Core mutation path.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .grid_scene import GridScene
-from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QFont, QRectF
+from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QFont, QRectF, QPointF, QPen
+from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
+from ..items.control_items import ControlPortDirection, ControlPortPresentation
 from ..items.control_items import (
     ANDGateItem, CoilItem, ControlLogicItem, InterlockItem, LatchItem,
     NCContactItem, NOContactItem, NOTGateItem, ORGateItem, ResetCoilItem,
@@ -31,6 +34,19 @@ class _RungLabelItem(QGraphicsObject):
         del option, widget
         painter.setFont(QFont("Sans", 9))
         painter.drawText(self.boundingRect(), 0x84, self._text)
+
+
+class _ControlConnectionItem(QGraphicsLineItem):
+    """Selectable projection of one authoritative Control connection."""
+
+    def __init__(self, connection_identity: tuple[str, str, str, str], *args: Any) -> None:
+        super().__init__(*args)
+        self._connection_identity = connection_identity
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+
+    @property
+    def connection_identity(self) -> tuple[str, str, str, str]:
+        return self._connection_identity
 
 
 _ITEM_TYPES = {
@@ -60,6 +76,8 @@ class ControlCanvas(GridScene):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._control_read_model = None
+        self._preview_item: ControlLogicItem | None = None
+        self._connection_preview: QGraphicsLineItem | None = None
 
     @property
     def control_read_model(self):
@@ -71,46 +89,181 @@ class ControlCanvas(GridScene):
             raise ValueError("read_model must not be None.")
         self.clear()
         self._control_read_model = read_model
+        self._preview_item = None
+        self._connection_preview = None
 
-        # Rails and rung identifiers are presentation-only geometry.
         for rung in read_model.rungs:
-            y = float(rung.order * 80.0 + 24.0)
+            y = LadderGeometryPolicy.rung_line_y(rung.order)
             self.addItem(QGraphicsLineItem(0.0, y, 900.0, y))
             label = _RungLabelItem(f"Rung {rung.order + 1:03d}")
             label.setPos(-80.0, y - 14.0)
             self.addItem(label)
 
-        positions: dict[str, tuple[float, float]] = {}
-        enabled_by_component = {
-            component_id: rung.enabled
-            for rung in read_model.rungs
-            for component_id in rung.component_ids
-        }
+        component_items: dict[str, ControlLogicItem] = {}
+        port_positions: dict[tuple[str, str, str], tuple[float, float]] = {}
+
+        # Connections are projected first so component symbols remain the
+        # primary graphical hit targets during normal selection.
+        for connection in read_model.connections:
+            identity = (
+                str(connection.source_component),
+                str(connection.source_output),
+                str(connection.target_component),
+                str(connection.target_input),
+            )
+            item = _ControlConnectionItem(identity)
+            item.setZValue(-10.0)
+            item.setPen(QPen())
+            self.addItem(item)
+
         for component in read_model.components:
             item_class = _ITEM_TYPES.get(component.component_type, ControlLogicItem)
             if item_class is ControlLogicItem:
-                item = item_class(component.component_id, component.component_type,
-                                  state=bool(component.state.get("energized", component.state.get("q", False))))
+                item = item_class(
+                    component.component_id,
+                    component.component_type,
+                    state=bool(component.state.get("energized", component.state.get("q", False))),
+                )
             else:
-                state_value = component.state.get("energized", component.state.get("q", False))
-                item = item_class(component.component_id, state=bool(state_value))
-            rung_order = next((r.order for r in read_model.rungs if component.component_id in r.component_ids), 0)
-            position = next((e for r in read_model.rungs if component.component_id in r.component_ids
-                             for e in [r.component_ids.index(component.component_id)]), 0)
-            x = float(position * 120.0 + 8.0)
-            y = float(rung_order * 80.0)
-            item.set_scene_position(x, y)
-            item.setOpacity(1.0 if enabled_by_component.get(component.component_id, True) else 0.45)
-            self.addItem(item)
-            positions[component.component_id] = (x + 45.0, y + 23.0)
+                item = item_class(
+                    component.component_id,
+                    state=bool(component.state.get("energized", component.state.get("q", False))),
+                )
 
-        # Connections are derived from the read model, never from pixel proximity.
+            rung = next((r for r in read_model.rungs if r.rung_id == component.rung_id), None)
+            if rung is None and component.rung_id is not None:
+                rung = next((r for r in read_model.rungs if component.component_id in r.component_ids), None)
+            if rung is None:
+                continue
+
+            position = component.position
+            if position is None:
+                position = rung.positions.get(component.component_id)
+            if position is None:
+                continue
+
+            item.set_scene_position(
+                LadderGeometryPolicy.component_x(position),
+                LadderGeometryPolicy.rung_y(rung.order),
+            )
+            # Ports are derived directly from the immutable Application read model.
+            item.set_ports(
+                inputs=tuple((name, component.input_signal_types.get(name, "unknown")) for name in component.inputs),
+                outputs=tuple((name, component.output_signal_types.get(name, "unknown")) for name in component.outputs),
+            )
+            item.setOpacity(1.0 if rung.enabled else 0.45)
+            self.addItem(item)
+            component_items[component.component_id] = item
+
+            for port in item.port_presentations():
+                port_positions[(port.component_id, port.direction.value, port.port_name)] = port.scene_position
+
         for connection in read_model.connections:
-            source = positions.get(connection.source_component)
-            target = positions.get(connection.target_component)
+            source = port_positions.get(
+                (str(connection.source_component), ControlPortDirection.OUTPUT.value, str(connection.source_output))
+            )
+            target = port_positions.get(
+                (str(connection.target_component), ControlPortDirection.INPUT.value, str(connection.target_input))
+            )
             if source is None or target is None:
                 continue
-            self.addItem(QGraphicsLineItem(source[0], source[1], target[0], target[1]))
+            identity = (
+                str(connection.source_component),
+                str(connection.source_output),
+                str(connection.target_component),
+                str(connection.target_input),
+            )
+            item = next(
+                (candidate for candidate in self.items() if getattr(candidate, "connection_identity", None) == identity),
+                None,
+            )
+            if item is not None:
+                item.setLine(source[0], source[1], target[0], target[1])
+
+    def component_at(self, x: float, y: float) -> ControlLogicItem | None:
+        point = QPointF(float(x), float(y))
+        for item in self.items(point):
+            if isinstance(item, ControlLogicItem):
+                return item
+        return None
+
+    def connection_at(self, x: float, y: float) -> tuple[str, str, str, str] | None:
+        point = QPointF(float(x), float(y))
+        for item in self.items(point):
+            identity = getattr(item, "connection_identity", None)
+            if identity is not None:
+                return identity
+        return None
+
+    def rung_at(self, y: float) -> Any | None:
+        return LadderGeometryPolicy.snap_rung(float(y), getattr(self._control_read_model, "rungs", ()))
+
+    def port_at(self, x: float, y: float, *, direction: ControlPortDirection | None = None) -> ControlPortPresentation | None:
+        model = self._control_read_model
+        if model is None:
+            return None
+        best: ControlPortPresentation | None = None
+        best_distance = 11.0
+        for component in model.components:
+            item = self.find_item_by_object_id(component.component_id)
+            if not isinstance(item, ControlLogicItem):
+                continue
+            for port in item.port_presentations():
+                if direction is not None and port.direction is not direction:
+                    continue
+                distance = math.hypot(port.scene_position[0] - float(x), port.scene_position[1] - float(y))
+                if distance <= best_distance:
+                    best = port
+                    best_distance = distance
+        return best
+
+    def create_semantic_preview(self, component_type: str) -> None:
+        self.clear_transient_preview()
+        item_class = _ITEM_TYPES.get(component_type, ControlLogicItem)
+        if item_class is ControlLogicItem:
+            item = item_class("__control_preview__", component_type)
+        else:
+            item = item_class("__control_preview__")
+        item.setOpacity(0.45)
+        item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, False)
+        self.addItem(item)
+        self._preview_item = item
+
+    def update_semantic_preview(self, *, order: int, position: int) -> None:
+        if self._preview_item is None:
+            return
+        self._preview_item.set_scene_position(
+            LadderGeometryPolicy.component_x(position),
+            LadderGeometryPolicy.rung_y(order),
+        )
+
+    def show_connection_preview(self, start: tuple[float, float], end: tuple[float, float]) -> None:
+        if self._connection_preview is None:
+            self._connection_preview = QGraphicsLineItem()
+            self._connection_preview.setOpacity(0.55)
+            self.addItem(self._connection_preview)
+        self._connection_preview.setLine(start[0], start[1], end[0], end[1])
+
+    def clear_transient_preview(self) -> None:
+        for item in (self._preview_item, self._connection_preview):
+            if item is not None:
+                self.removeItem(item)
+        self._preview_item = None
+        self._connection_preview = None
+
+    def connection_identity_exists(self, identity: tuple[str, str, str, str]) -> bool:
+        model = self._control_read_model
+        if model is None:
+            return False
+        return any(
+            (
+                str(c.source_component),
+                str(c.source_output),
+                str(c.target_component),
+                str(c.target_input),
+            ) == identity
+            for c in model.connections
+        )
 
 
 __all__ = ["ControlCanvas"]

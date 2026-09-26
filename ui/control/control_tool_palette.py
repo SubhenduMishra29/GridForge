@@ -1,4 +1,5 @@
 """Capability-driven Control/Ladder tool palette.
+Author: Subhendu Mishra
 
 The palette is presentation-only. A descriptor is shown only when its
 Application command contract is registered by the existing Application.
@@ -35,7 +36,12 @@ class ControlToolRegistry:
     def register(self, descriptor: ControlToolDescriptor) -> None:
         if descriptor.tool_id in self._descriptors:
             raise ValueError(f"Control tool already registered: {descriptor.tool_id!r}")
-        if not self._application.supports(descriptor.command_type):
+        if descriptor.component_type is not None:
+            if not callable(getattr(self._application, "supports_control_component", None)):
+                return
+            if not self._application.supports_control_component(descriptor.component_type):
+                return
+        elif not self._application.supports(descriptor.command_type):
             return
         self._descriptors[descriptor.tool_id] = descriptor
 
@@ -62,7 +68,8 @@ class ControlToolRegistry:
             ControlToolDescriptor("and", "AND", "Logic", "[AND]", "control.add_component", "and_gate"),
             ControlToolDescriptor("or", "OR", "Logic", "[OR]", "control.add_component", "or_gate"),
             ControlToolDescriptor("not", "NOT", "Logic", "[NOT]", "control.add_component", "not_gate"),
-            ControlToolDescriptor("interlock", "Interlock", "Control", "[ILK]", "control.add_component", "interlock"),
+            ControlToolDescriptor("logic.interlock", "Logic Interlock", "Logic", "[ILK]", "control.add_component", "interlock"),
+            ControlToolDescriptor("control.interlock", "Control Interlock", "Control", "[C-ILK]", "control.add_interlock"),
             ControlToolDescriptor("signal.connect", "Connect Signal", "Control", "->", "control.connect_signals"),
             ControlToolDescriptor("signal.disconnect", "Disconnect Signal", "Control", "<-", "control.disconnect_signals"),
             ControlToolDescriptor("action_binding", "Action Binding", "Control", "=>", "control.add_action_binding"),
