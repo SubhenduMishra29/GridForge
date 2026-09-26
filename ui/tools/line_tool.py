@@ -15,6 +15,7 @@ from core.application.commands.model_commands import CreateLineCommand
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
+from .sld_connection_presentation_adapter import SLDConnectionPresentationAdapter
 from .tool_base import ToolBase
 
 
@@ -37,6 +38,7 @@ class LineTool(ToolBase):
             snap_system=snap_system,
         )
         self._start_position: Optional[Tuple[float, float]] = None
+        self._start_snap: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._preview = ConnectionPreview()
         self._engineering_parameters: dict[str, Any] = {}
@@ -74,6 +76,7 @@ class LineTool(ToolBase):
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         if self._preview.source_endpoint is None:
             self._preview.begin(endpoint)
+            self._start_snap = snap_result
             self._start_position = position
             self._current_position = position
             self._preview.update_cursor(position)
@@ -81,7 +84,7 @@ class LineTool(ToolBase):
         self._current_position = position
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
-        self._execute_line_command(*self._preview.get_endpoint_pair())
+        self._execute_line_command(*self._preview.get_endpoint_pair(), source_snap=self._start_snap, target_snap=snap_result)
         self._clear_state()
         return True
 
@@ -131,7 +134,7 @@ class LineTool(ToolBase):
             return None
         return result
 
-    def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
+    def _execute_line_command(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
         parameters = self._engineering_parameters
         required = ("resistance_ohm", "reactance_ohm", "rate_mva")
         missing = [name for name in required if name not in parameters]
@@ -139,8 +142,9 @@ class LineTool(ToolBase):
             raise RuntimeError(
                 "Line engineering parameters are incomplete: " + ", ".join(missing)
             )
+        line_id = f"line-{uuid4().hex}"
         command = CreateLineCommand(
-            line_id=f"line-{uuid4().hex}",
+            line_id=line_id,
             presentation_x=float(self._current_position[0]),
             presentation_y=float(self._current_position[1]),
             endpoint_from=endpoint_from,
@@ -151,7 +155,9 @@ class LineTool(ToolBase):
             name=str(parameters.get("name", "")),
             rate_mva=float(parameters["rate_mva"]),
         )
-        return self.execute_command(command)
+        result = self.execute_command(command)
+        SLDConnectionPresentationAdapter.execute(self._application, self.execute_command, connection_id=line_id, source_snap=source_snap, target_snap=target_snap)
+        return result
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -174,6 +180,7 @@ class LineTool(ToolBase):
 
     def _clear_state(self) -> None:
         self._start_position = None
+        self._start_snap = None
         self._current_position = None
         self._preview.reset()
 
