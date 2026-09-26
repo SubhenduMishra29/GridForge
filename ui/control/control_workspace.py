@@ -150,7 +150,7 @@ class ControlWorkspace(QWidget):
             self._status.set_status("Control Interlock mode: configure gating in the Inspector.")
             try:
                 model = self._application.read_control()
-                self._inspector.enter_control_interlock_mode(model)
+                self._inspector.enter_control_interlock_mode(model, self._interaction.selected_component_id)
             except RuntimeError:
                 return
             return
