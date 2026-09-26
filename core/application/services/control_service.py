@@ -263,6 +263,73 @@ class ControlApplicationService:
         transaction.record_undo(lambda: self.program.move_component(component_id, rung_id=old_rung.rung_id, position=old_position))
         return ApplicationResult.success_result(value=None, message=f"Ladder element '{component_id}' moved.", metadata={"component_id": component_id})
 
+    def update_component(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        component_id = str(payload["component_id"])
+        record = next((r for r in self.program.engine.records() if r.component_id == component_id), None)
+        if record is None:
+            raise ValueError(f"Unknown control component '{component_id}'.")
+        rung = next((r for r in self.program.rungs() if any(e.component_id == component_id for e in r.elements)), None)
+        if rung is None:
+            raise ValueError(f"Control component '{component_id}' is not placed in a Ladder rung.")
+        position = next(e.position for e in rung.elements if e.component_id == component_id)
+        old_component = record.component
+        old_state = dict(self.program.engine.state(component_id))
+        old_order = record.order
+        connections = tuple(c for c in self.program.connections() if c.source_component == component_id or c.target_component == component_id)
+        dependencies = tuple(d for d in self.program.dependencies() if d.source_component == component_id or d.target_component == component_id)
+        configuration = dict(payload.get("configuration") or {})
+        component_type = str(payload.get("component_type") or old_component.component_type)
+        self.program.remove_component(component_id)
+        replacement = self._create_component(component_id, component_type, configuration)
+        self.program.restore_component(
+            replacement, rung_id=rung.rung_id, position=position,
+            order=old_order, state=old_state,
+        )
+        for connection in connections:
+            self.program.engine.connect(
+                connection.source_component, connection.source_output,
+                connection.target_component, connection.target_input,
+            )
+        for dependency in dependencies:
+            self.program.engine.add_dependency(
+                dependency.source_component, dependency.target_component,
+            )
+
+        def restore(component=old_component):
+            self.program.remove_component(component_id)
+            self.program.restore_component(
+                component, rung_id=rung.rung_id, position=position,
+                order=old_order, state=old_state,
+            )
+            for connection in connections:
+                self.program.engine.connect(
+                    connection.source_component, connection.source_output,
+                    connection.target_component, connection.target_input,
+                )
+            for dependency in dependencies:
+                self.program.engine.add_dependency(
+                    dependency.source_component, dependency.target_component,
+                )
+
+        transaction.record_undo(restore)
+        return ApplicationResult.success_result(
+            value=replacement,
+            message=f"Control component '{component_id}' configured.",
+            metadata={"component_id": component_id, "component_type": component_type},
+        )
+
+    def set_rung_enabled(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        rung_id = str(payload["rung_id"])
+        rung = self.program.rung(rung_id)
+        previous = rung.enabled
+        updated = self.program.set_rung_enabled(rung_id, bool(payload["enabled"]))
+        transaction.record_undo(lambda: self.program.set_rung_enabled(rung_id, previous))
+        return ApplicationResult.success_result(
+            value=updated,
+            message=f"Ladder rung '{rung_id}' {'enabled' if updated.enabled else 'disabled'}.",
+            metadata={"rung_id": rung_id, "enabled": updated.enabled},
+        )
+
     def read(self) -> ControlProgramReadModel:
         locations = {
             element.component_id: (rung.rung_id, element.position)
@@ -323,11 +390,20 @@ class ControlApplicationService:
         )
 
     def _create_component(self, component_id: str, component_type: str, configuration: Mapping[str, Any]):
-        factory = self._FACTORIES.get(component_type)
+        normalized_type = str(component_type).strip()
+        if normalized_type in {"timer", "ton_timer", "tof_timer", "tp_timer"}:
+            mode = str(configuration.get("mode", "ton")).lower()
+            timer_factory = {
+                "ton": LogicTONTimer,
+                "tof": LogicTOFTimer,
+                "tp": LogicTPTimer,
+            }.get(mode)
+            if timer_factory is None:
+                raise ValueError(f"Unsupported timer mode: '{mode}'.")
+            return timer_factory(component_id, preset=float(configuration.get("preset", 1.0)))
+        factory = self._FACTORIES.get(normalized_type)
         if factory is None:
-            raise ValueError(f"Unsupported Control component type: '{component_type}'.")
-        if factory in (LogicTONTimer, LogicTOFTimer, LogicTPTimer):
-            return factory(component_id, preset=float(configuration.get("preset", 1.0)))
+            raise ValueError(f"Unsupported Control component type: '{normalized_type}'.")
         if factory is LogicLatch:
             return factory(component_id)
         if factory is LogicInterlock:
