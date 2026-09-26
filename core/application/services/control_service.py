@@ -40,10 +40,14 @@ class ControlComponentReadModel:
     configuration: Mapping[str, Any]
     rung_id: str | None = None
     position: int | None = None
+    input_signal_types: Mapping[str, str] = MappingProxyType({})
+    output_signal_types: Mapping[str, str] = MappingProxyType({})
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "state", MappingProxyType(dict(self.state)))
         object.__setattr__(self, "configuration", MappingProxyType(dict(self.configuration)))
+        object.__setattr__(self, "input_signal_types", MappingProxyType(dict(self.input_signal_types)))
+        object.__setattr__(self, "output_signal_types", MappingProxyType(dict(self.output_signal_types)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +141,10 @@ class ControlApplicationService:
     @property
     def configuration(self) -> ControlConfiguration:
         return self._configuration
+
+    @property
+    def supported_component_types(self) -> tuple[str, ...]:
+        return tuple(sorted(self._FACTORIES))
 
     @property
     def program(self) -> LadderProgram:
@@ -452,6 +460,8 @@ class ControlApplicationService:
                 component_type=c.component_type,
                 inputs=tuple(s.name for s in c.input_definition()),
                 outputs=tuple(s.name for s in c.output_definition()),
+                input_signal_types={s.name: s.value_type.__name__ for s in c.input_definition()},
+                output_signal_types={s.name: s.value_type.__name__ for s in c.output_definition()},
                 state=self.program.engine.state(c.component_id),
                 configuration=self._configuration(c),
                 rung_id=locations.get(c.component_id, (None, None))[0],
