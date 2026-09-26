@@ -569,6 +569,7 @@ class LogicEngine:
             str,
             dict[str, Any],
         ] = {}
+        self._enabled: dict[str, bool] = {}
 
         self._order_counter = 0
         self._last_evaluation_time: float | None = None
@@ -741,10 +742,8 @@ class LogicEngine:
             normalized_state
         )
 
-        self._signals.setdefault(
-            component_id,
-            {},
-        )
+        self._signals.setdefault(component_id, {})
+        self._enabled[component_id] = True
 
         self._order_counter = max(
             self._order_counter,
@@ -779,10 +778,8 @@ class LogicEngine:
             None,
         )
 
-        self._signals.pop(
-            component_id,
-            None,
-        )
+        self._signals.pop(component_id, None)
+        self._enabled.pop(component_id, None)
 
         self._connections = [
             connection
@@ -833,6 +830,7 @@ class LogicEngine:
         self._connection_dependencies.clear()
         self._states.clear()
         self._signals.clear()
+        self._enabled.clear()
         self._order_counter = 0
         self._last_evaluation_time = None
 
@@ -1254,6 +1252,16 @@ class LogicEngine:
         ] = dict(
             normalized
         )
+
+    def set_component_enabled(self, component_id: str, enabled: bool) -> None:
+        component_id = str(component_id).strip()
+        self._validate_component_exists(component_id)
+        self._enabled[component_id] = bool(enabled)
+
+    def component_enabled(self, component_id: str) -> bool:
+        component_id = str(component_id).strip()
+        self._validate_component_exists(component_id)
+        return self._enabled.get(component_id, True)
 
     def reset(
         self,
