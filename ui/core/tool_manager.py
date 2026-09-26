@@ -52,6 +52,10 @@ class ToolManager:
         self._active_tool: Any | None = None
         self._disposed = False
 
+        bind_controller = getattr(controller, "bind_tool_manager", None)
+        if callable(bind_controller):
+            bind_controller(self)
+
         if tool_registry is not None:
             self._load_registry(tool_registry)
 
@@ -181,6 +185,7 @@ class ToolManager:
 
         self._active_tool_id = tool_id
         self._active_tool = requested_tool
+        self._notify_controller_tool_change(previous_id, tool_id)
         return requested_tool
 
     def deactivate(self) -> None:
@@ -188,8 +193,15 @@ class ToolManager:
         if self._active_tool is None:
             return
         self._active_tool.deactivate()
+        previous_id = self._active_tool_id
         self._active_tool = None
         self._active_tool_id = None
+        self._notify_controller_tool_change(previous_id, None)
+
+    def _notify_controller_tool_change(self, previous_id: str | None, current_id: str | None) -> None:
+        callback = getattr(self.controller, "_on_tool_manager_changed", None)
+        if callable(callback):
+            callback(current_id, previous_id)
 
     # ========================================================
     # Canonical Canvas Input Dispatch
