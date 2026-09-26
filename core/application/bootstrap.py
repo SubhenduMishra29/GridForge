@@ -166,14 +166,13 @@ def create_application(network: Any) -> Application:
     dynamic_models = DynamicMachineModelRegistry()
 
     def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
-        """Install project-scoped protection/dynamic/revision state transactionally."""
+        """Install project-scoped protection/dynamic runtime state transactionally."""
         previous_configuration = protection_configuration_service.configuration
         previous_protection_runtime = application.protection_runtime
         previous_measurement = measurement_channel_service.serialize_definitions()
         previous_measurement_project = measurement_channel_service.project_id
         previous_measurement_generation = measurement_channel_service.activation_generation
         previous_dynamic_models = dynamic_models.snapshot()
-        previous_revision = application.revision_service.snapshot_state()
 
         try:
             if context is None:
@@ -213,12 +212,6 @@ def create_application(network: Any) -> Application:
                 application.protection_runtime = ProtectionRuntime(network=network, configuration=configuration)
                 application.protection_runtime.compose(measurement_channel_service.channels)
 
-            application.revision_service.reset_for_project()
-            # A successful project activation establishes a new validation-cache
-            # boundary.  ValidationService remains the sole cache authority;
-            # explicit validation is required before a result can describe the
-            # newly active project.
-            application.validation_service.invalidate()
         except Exception:
             if previous_measurement_project is None:
                 measurement_channel_service.deactivate()
@@ -235,7 +228,6 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             dynamic_models.replace(previous_dynamic_models)
-            application.revision_service.restore_state(previous_revision)
             raise
 
         def rollback() -> None:
