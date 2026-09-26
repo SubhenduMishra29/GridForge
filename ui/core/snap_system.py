@@ -171,6 +171,8 @@ class SnapResult:
     source: Any = None
     terminal_id: Any = None
     terminal_name: Any = None
+    bus_id: Any = None
+    attachment_id: Any = None
     distance: float = 0.0
 
     @property
@@ -661,7 +663,7 @@ class SnapSystem:
             )
 
             for candidate in candidates:
-                position, object_id, terminal_id, terminal_name = self._normalize_candidate(candidate, item)
+                position, object_id, terminal_id, terminal_name, bus_id, attachment_id = self._normalize_candidate(candidate, item)
 
                 distance = self._distance(
                     scene_pos,
@@ -679,6 +681,8 @@ class SnapSystem:
                         source=item,
                         terminal_id=terminal_id,
                         terminal_name=terminal_name,
+                        bus_id=bus_id,
+                        attachment_id=attachment_id,
                         distance=distance,
                     )
 
@@ -768,6 +772,8 @@ class SnapSystem:
         object_id = getattr(item, "object_id", None)
         terminal_id = None
         terminal_name = None
+        bus_id = None
+        attachment_id = None
 
         if isinstance(candidate, dict):
             if "position" not in candidate:
@@ -780,6 +786,8 @@ class SnapSystem:
             object_id = candidate.get("object_id", object_id)
             terminal_id = candidate.get("terminal_id")
             terminal_name = candidate.get("terminal_name")
+            bus_id = candidate.get("bus_id")
+            attachment_id = candidate.get("attachment_id")
         else:
             position = candidate
 
@@ -794,8 +802,8 @@ class SnapSystem:
         if isinstance(item, BusItem):
             if terminal_id is not None or terminal_name is not None:
                 raise ValueError("Bus snap candidates must not expose terminal identity.")
-            if object_id is None:
-                raise ValueError("Bus snap candidates require a stable bus object_id.")
+            if object_id is None or bus_id is None or attachment_id is None:
+                raise ValueError("Bus snap candidates require bus_id and attachment_id.")
         elif isinstance(item, EquipmentItem):
             if object_id is None:
                 raise ValueError("Equipment terminal snap candidates require object_id.")
@@ -809,7 +817,7 @@ class SnapSystem:
                 "may expose electrical snap points."
             )
 
-        return position, object_id, terminal_id, terminal_name
+        return position, object_id, terminal_id, terminal_name, bus_id, attachment_id
 
     # ========================================================
     # DIRECT OBJECT QUERY
