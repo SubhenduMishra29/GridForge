@@ -102,10 +102,18 @@ class LadderProgram:
         return rung
 
     def remove_rung(self, rung_id: str) -> LadderRung:
-        try:
-            return self._rungs.pop(str(rung_id).strip())
-        except KeyError as exc:
-            raise LadderModelError(f"Unknown rung '{rung_id}'.") from exc
+        rung_id = str(rung_id).strip()
+        try: rung = self._rungs[rung_id]
+        except KeyError as exc: raise LadderModelError(f"Unknown rung '{rung_id}'.") from exc
+        if rung.elements: raise LadderModelError(f"Cannot remove non-empty rung '{rung_id}'; remove contained components first.")
+        del self._rungs[rung_id]
+        return rung
+
+    def set_rung_enabled(self, rung_id: str, enabled: bool) -> LadderRung:
+        rung = self.rung(rung_id)
+        replacement = LadderRung(rung_id=rung.rung_id, order=rung.order, elements=rung.elements, enabled=bool(enabled))
+        self._rungs[rung_id] = replacement
+        return replacement
 
     def rung(self, rung_id: str) -> LadderRung:
         try:

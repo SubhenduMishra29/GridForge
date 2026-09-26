@@ -21,6 +21,7 @@ from core.analysis.dynamic_model_association import DynamicMachineModelAssociati
 from core.application.project import ProjectContext
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.control.configuration import ControlConfiguration
 from core.application.services.validation_service import ValidationService
 
 from .network_serializer import deserialize_network, serialize_network
@@ -36,6 +37,7 @@ class LoadedProject:
     dynamic_models: tuple[DynamicMachineModelAssociation, ...] = ()
     protection_configuration: ProtectionProjectConfiguration | None = None
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
+    control_configuration: ControlConfiguration | None = None
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -61,7 +63,7 @@ class ProjectPersistenceService:
         if manifest.get("format") != "GridForgeProject": raise ProjectPersistenceError("Invalid GridForge project manifest.")
         project = self._read_json(project_path(package))
         project_schema = project.get("schema", 1)
-        if project_schema not in (1, 2):
+        if project_schema not in (1, 2, 3):
             raise ProjectPersistenceError(f"Unsupported GridForge project schema: {project_schema!r}")
         context_data = project.get("project")
         if not isinstance(context_data, dict): raise ProjectPersistenceError("project.json is missing project metadata.")
@@ -82,6 +84,12 @@ class ProjectPersistenceService:
         measurement_definitions = measurement_data.get("channels", ())
         if not isinstance(measurement_definitions, list) or any(not isinstance(item, dict) for item in measurement_definitions):
             raise ProjectPersistenceError("project.json measurement.channels payload must be an array of objects.")
+        control_data=project.get("control")
+        if control_data is not None and not isinstance(control_data,dict): raise ProjectPersistenceError("project.json control payload must be an object.")
+        try: control_configuration=ControlConfiguration.from_dict(control_data) if control_data is not None else ControlConfiguration.empty(project_id)
+        except (TypeError,ValueError,KeyError) as exc: raise ProjectPersistenceError(f"Invalid Control configuration: {exc}") from exc
+        if control_configuration.project_id != project_id: raise ProjectPersistenceError("Control configuration project_id does not match project metadata.")
+        control_configuration.validate()
         protection_data = project.get("protection")
         protection_configuration = None
         if protection_data is not None:
@@ -89,15 +97,16 @@ class ProjectPersistenceService:
             try: protection_configuration = ProtectionProjectConfiguration.from_dict(protection_data)
             except (TypeError, ValueError, KeyError) as exc: raise ProjectPersistenceError(f"Invalid protection configuration: {exc}") from exc
         context = ProjectContext(project_id=project_id, name=name, path=package)
-        self._validate_project_state(context, network, presentation, dynamic_models, protection_configuration)
-        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions))
+        self._validate_project_state(context, network, presentation, dynamic_models, protection_configuration, control_configuration)
+        return LoadedProject(context=context, network=network, presentation=presentation, dynamic_models=dynamic_models, protection_configuration=protection_configuration, measurement_definitions=tuple(dict(item) for item in measurement_definitions), control_configuration=control_configuration)
 
     def save(self, context: ProjectContext, network: Network,
              presentation: Mapping[str, Any] | str | Path | None = None,
              path: str | Path | None = None,
              *, dynamic_models: Sequence[DynamicMachineModelAssociation] = (),
              protection_configuration: ProtectionProjectConfiguration | None = None,
-             measurement_definitions: Sequence[Mapping[str, Any]] = ()) -> None:
+             measurement_definitions: Sequence[Mapping[str, Any]] = (),
+             control_configuration: ControlConfiguration | None = None) -> None:
         if path is None:
             path = presentation
             presentation = None
@@ -113,6 +122,10 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError("dynamic_models contains mixed project-generation provenance.")
         if protection_configuration is not None and not isinstance(protection_configuration, ProtectionProjectConfiguration): raise TypeError("protection_configuration must be ProtectionProjectConfiguration or None.")
         if not isinstance(measurement_definitions, Sequence) or any(not isinstance(item, Mapping) for item in measurement_definitions): raise TypeError("measurement_definitions must be a sequence of mappings.")
+        if control_configuration is not None:
+            if not isinstance(control_configuration,ControlConfiguration): raise TypeError("control_configuration must be ControlConfiguration or None.")
+            if control_configuration.project_id != context.project_id: raise ProjectPersistenceError("Control configuration project_id does not match active project.")
+            control_configuration.validate()
 
         target = normalize_package_path(path)
         parent = target.parent
@@ -123,15 +136,16 @@ class ProjectPersistenceService:
             network.validate()
         except Exception as exc:
             raise ProjectPersistenceError(f"Project Network failed the persistence validation gate: {exc}") from exc
-        self._validate_project_state(context, network, presentation, tuple(dynamic_models), protection_configuration)
+        self._validate_project_state(context, network, presentation, tuple(dynamic_models), protection_configuration, control_configuration)
         network_data = serialize_network(network)
         presentation_data = None if presentation is None else dict(presentation)
         dynamic_models_data = [item.to_dict() for item in dynamic_models]
         manifest = {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
         measurement_data = {"channels": [dict(item) for item in measurement_definitions]}
-        project: dict[str, Any] = {"schema": 2, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
+        project: dict[str, Any] = {"schema": 3, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
         if presentation_data is not None: project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
+        if control_configuration is not None: project["control"] = control_configuration.to_dict()
 
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=parent))
         backup_dir: Path | None = None
@@ -165,7 +179,7 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Unable to save GridForge project to {target}: {exc}") from exc
 
     @staticmethod
-    def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None) -> None:
+    def _validate_project_state(context: ProjectContext, network: Network, presentation: Mapping[str, Any] | None, dynamic_models: Sequence[DynamicMachineModelAssociation], protection_configuration: ProtectionProjectConfiguration | None, control_configuration: ControlConfiguration | None = None) -> None:
         """Validate cross-domain project invariants at load/save boundaries."""
         if not isinstance(context, ProjectContext) or not isinstance(network, Network):
             raise ProjectPersistenceError("Project context or Network is invalid.")
@@ -195,6 +209,10 @@ class ProjectPersistenceService:
                 raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' does not reference a SynchronousMachine.")
             if bus.element_type != "BUS":
                 raise ProjectPersistenceError(f"Dynamic model association '{association.bus_id}' does not reference a Bus.")
+        if control_configuration is not None:
+            if control_configuration.project_id != context.project_id: raise ProjectPersistenceError("Control configuration project_id does not match active project.")
+            try: control_configuration.validate()
+            except (TypeError,ValueError) as exc: raise ProjectPersistenceError(f"Invalid Control configuration: {exc}") from exc
         if protection_configuration is not None:
             if protection_configuration.project_id != context.project_id:
                 raise ProjectPersistenceError("Protection configuration project_id does not match the active project.")

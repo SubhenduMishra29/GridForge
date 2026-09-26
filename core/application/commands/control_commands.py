@@ -19,6 +19,12 @@ REMOVE_LOGIC_DEPENDENCY = "control.remove_dependency"
 ADD_LADDER_RUNG = "control.add_rung"
 REMOVE_LADDER_RUNG = "control.remove_rung"
 MOVE_LADDER_ELEMENT = "control.move_element"
+ADD_CONTROL_ACTION_BINDING = "control.add_action_binding"
+REMOVE_CONTROL_ACTION_BINDING = "control.remove_action_binding"
+ADD_CONTROL_INTERLOCK = "control.add_interlock"
+REMOVE_CONTROL_INTERLOCK = "control.remove_interlock"
+ADD_DYNAMIC_CONTROL_ASSOCIATION = "control.add_dynamic_association"
+REMOVE_DYNAMIC_CONTROL_ASSOCIATION = "control.remove_dynamic_association"
 
 
 def _envelope(command_type: str, payload: Mapping[str, Any], *, command_id: UUID | None,
@@ -67,10 +73,10 @@ class ConnectControlSignals(Command):
                                      causation_id=causation_id))
 
 
-class DisconnectControlSignals(ConnectControlSignals):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        object.__setattr__(self, "command_type", DISCONNECT_CONTROL_SIGNALS)
+class DisconnectControlSignals(Command):
+    def __init__(self, *, source_component: str, source_output: str, target_component: str, target_input: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        payload = {"source_component": source_component, "source_output": source_output, "target_component": target_component, "target_input": target_input}
+        super().__init__(**_envelope(DISCONNECT_CONTROL_SIGNALS, payload, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
 class AddLogicDependency(Command):
@@ -83,10 +89,9 @@ class AddLogicDependency(Command):
                                      causation_id=causation_id))
 
 
-class RemoveLogicDependency(AddLogicDependency):
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        object.__setattr__(self, "command_type", REMOVE_LOGIC_DEPENDENCY)
+class RemoveLogicDependency(Command):
+    def __init__(self, *, source_component: str, target_component: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(REMOVE_LOGIC_DEPENDENCY, {"source_component": source_component, "target_component": target_component}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
 class AddLadderRung(Command):
@@ -118,6 +123,30 @@ class MoveLadderElement(Command):
                                      command_id=command_id, correlation_id=correlation_id,
                                      causation_id=causation_id))
 
+
+class AddControlActionBinding(Command):
+    def __init__(self, *, binding: Mapping[str, Any], command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(ADD_CONTROL_ACTION_BINDING, {"binding": dict(binding)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
+class RemoveControlActionBinding(Command):
+    def __init__(self, *, binding_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(REMOVE_CONTROL_ACTION_BINDING, {"binding_id": str(binding_id)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
+class AddControlInterlock(Command):
+    def __init__(self, *, configuration: Mapping[str, Any], command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(ADD_CONTROL_INTERLOCK, {"configuration": dict(configuration)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
+class RemoveControlInterlock(Command):
+    def __init__(self, *, interlock_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(REMOVE_CONTROL_INTERLOCK, {"interlock_id": str(interlock_id)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
+class AddDynamicControlAssociation(Command):
+    def __init__(self, *, association: Mapping[str, Any], command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(ADD_DYNAMIC_CONTROL_ASSOCIATION, {"association": dict(association)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
+
+class RemoveDynamicControlAssociation(Command):
+    def __init__(self, *, association_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(REMOVE_DYNAMIC_CONTROL_ASSOCIATION, {"association_id": str(association_id)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 __all__ = [name for name in globals() if name.isupper() or name in {
     "AddControlComponent", "RemoveControlComponent", "ConnectControlSignals",

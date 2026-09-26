@@ -32,6 +32,7 @@ from core.analysis.transient_stability import TransientStabilityAnalysis, Transi
 from core.network import Network
 from core.persistence import ProjectPersistenceService
 from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.control.configuration import ControlConfiguration
 from core.protection.runtime import ProtectionRuntime
 from core.solver.dynamics import DAESolver, EventManager, Integrator, MultiMachineSystem, TransientStabilitySolver
 from core.solver.power_flow.result import PowerFlowResult
@@ -69,6 +70,7 @@ def create_application(network: Any) -> Application:
     # Application-scoped configuration checks. Study execution never uses this
     # provider; studies capture an explicit detached ProjectSnapshot.
     lifecycle = None
+    control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     measurement_channel_service = MeasurementChannelService()
     measurement_channel_service.activate(initial_context, network, (), generation=1)
     protection_configuration_service = ProtectionConfigurationService(
@@ -116,7 +118,6 @@ def create_application(network: Any) -> Application:
         )
         # Control editing commands are composed into the same authoritative
         # Application command registry as model and protection commands.
-        control_service = ControlApplicationService()
         register_handlers(handlers, ControlCommandHandlers(control_service).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
@@ -127,6 +128,7 @@ def create_application(network: Any) -> Application:
         read_service=read_service,
         validation_service=validation_service,
         measurement_channel_service=measurement_channel_service,
+        control_service=control_service,
     )
 
     application.protection_configuration_service = protection_configuration_service
@@ -173,6 +175,7 @@ def create_application(network: Any) -> Application:
         previous_measurement_project = measurement_channel_service.project_id
         previous_measurement_generation = measurement_channel_service.activation_generation
         previous_dynamic_models = dynamic_models.snapshot()
+        previous_control_configuration = control_service.configuration
 
         try:
             if context is None:
@@ -200,6 +203,9 @@ def create_application(network: Any) -> Application:
                     relay = network.get_by_id("relay", item.relay_id)
                     for input_name, channel_id in item.input_channel_ids.items():
                         relay.bind_input(input_name, measurement_channel_service.require(channel_id))
+                control_configuration = loaded.control_configuration if loaded is not None and loaded.control_configuration is not None else ControlConfiguration.empty(context.project_id)
+                if control_configuration.project_id != context.project_id: raise ValueError("Control configuration project_id does not match the active project.")
+                control_configuration.validate(); control_service.activate(control_configuration)
                 if loaded is None:
                     dynamic_models.replace(())
                 else:
@@ -228,6 +234,7 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             dynamic_models.replace(previous_dynamic_models)
+            control_service.activate(previous_control_configuration)
             raise
 
         def rollback() -> None:
@@ -246,6 +253,7 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             dynamic_models.replace(previous_dynamic_models)
+            control_service.activate(previous_control_configuration)
 
         return rollback
 
@@ -272,6 +280,10 @@ def create_application(network: Any) -> Application:
             configuration = loaded.protection_configuration
             if configuration is not None and configuration.project_id != context.project_id:
                 raise ValueError("Protection configuration project_id does not match the candidate project.")
+            control_configuration = loaded.control_configuration
+            if control_configuration is not None:
+                if control_configuration.project_id != context.project_id: raise ValueError("Control configuration project_id does not match the candidate project.")
+                control_configuration.validate()
 
     def load_project(path):
         # Loading is side-effect free. Candidate dynamic/protection state is
@@ -287,12 +299,14 @@ def create_application(network: Any) -> Application:
             dynamic_models=dynamic_models.all(),
             protection_configuration=protection_configuration_service.configuration,
             measurement_definitions=measurement_channel_service.serialize_definitions(),
+            control_configuration=control_service.configuration,
         )
 
     def new_network() -> Network:
         return Network()
 
     application.dynamic_models = dynamic_models
+    application._control_service = control_service
 
     lifecycle = ProjectLifecycleService(
         network=network,

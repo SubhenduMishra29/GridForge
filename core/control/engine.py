@@ -6,19 +6,14 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .action import ControlActionBinding
+from .configuration import ControlConfiguration
 from .context import ControlExecutionContext
 from .decision import ControlActionType, ControlDecision
 from .interlock import ControlInterlock
 from .logic.engine import LogicEngine, LogicEngineResult
 
 
-_ACTION_PRIORITY = {
-    ControlActionType.TRIP: 400,
-    ControlActionType.OPEN: 300,
-    ControlActionType.CLOSE: 200,
-    ControlActionType.TAKE_OUT_OF_SERVICE: 100,
-    ControlActionType.PUT_IN_SERVICE: 50,
-}
+_ACTION_PRIORITY = {ControlActionType.TRIP:900, ControlActionType.BLOW:850, ControlActionType.OPEN:800, ControlActionType.STOP:700, ControlActionType.CLOSE:600, ControlActionType.START:550, ControlActionType.TAKE_OUT_OF_SERVICE:500, ControlActionType.RESET:400, ControlActionType.PUT_IN_SERVICE:300}
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,12 +59,20 @@ class ControlEngine:
     interlock permissives as inputs.
     """
 
-    def __init__(self, logic_engine: LogicEngine) -> None:
-        if not isinstance(logic_engine, LogicEngine):
-            raise TypeError("logic_engine must be a LogicEngine.")
-        self._logic_engine = logic_engine
-        self._bindings: tuple[ControlActionBinding, ...] = ()
-        self._interlocks: dict[str, ControlInterlock] = {}
+    def __init__(self, logic_engine: LogicEngine, configuration: ControlConfiguration | None = None) -> None:
+        if not isinstance(logic_engine, LogicEngine): raise TypeError("logic_engine must be a LogicEngine.")
+        self._logic_engine=logic_engine; self._bindings=(); self._interlocks={}; self._configuration=configuration
+        if configuration is not None: self.configure(configuration)
+
+    @property
+    def configuration(self) -> ControlConfiguration | None: return self._configuration
+
+    def configure(self, configuration: ControlConfiguration) -> None:
+        if not isinstance(configuration, ControlConfiguration): raise TypeError("configuration must be a ControlConfiguration.")
+        configuration.validate(); self._bindings=(); self._interlocks={}
+        for item in configuration.interlocks: self.bind_interlock(item.runtime())
+        for item in configuration.action_bindings: self.bind_action(item)
+        self._configuration=configuration
 
     @property
     def logic_engine(self) -> LogicEngine:

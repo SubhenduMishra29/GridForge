@@ -571,6 +571,7 @@ class LogicEngine:
         ] = {}
 
         self._order_counter = 0
+        self._last_evaluation_time: float | None = None
 
         if components is not None:
             for component in components:
@@ -833,6 +834,7 @@ class LogicEngine:
         self._states.clear()
         self._signals.clear()
         self._order_counter = 0
+        self._last_evaluation_time = None
 
     # ========================================================================
     # COMPONENT ACCESS
@@ -1301,28 +1303,17 @@ class LogicEngine:
         Evaluate the complete Logic network.
         """
 
-        time = _finite_float(
-            time,
-            "time",
-        )
-
-        external = self._normalize_external_inputs(
-            external_inputs
-        )
-
+        time = _finite_float(time, "time")
+        if self._last_evaluation_time is not None and time < self._last_evaluation_time: raise LogicEvaluationError(f"Logic evaluation time cannot move backwards from {self._last_evaluation_time} to {time}.")
+        external = self._normalize_external_inputs(external_inputs)
         self._validate_all_graph_contracts()
-
-        if self._mode is LogicEvaluationMode.SINGLE_PASS:
-            return self._evaluate_pass(
-                time=time,
-                external_inputs=external,
-                iteration=1,
-            )
-
-        return self._evaluate_propagated(
-            time=time,
-            external_inputs=external,
-        )
+        previous_states, previous_signals, previous_time = self.states(), self._signal_snapshot(), self._last_evaluation_time
+        try: result = self._evaluate_pass(time=time, external_inputs=external, iteration=1) if self._mode is LogicEvaluationMode.SINGLE_PASS else self._evaluate_propagated(time=time, external_inputs=external)
+        except Exception:
+            self._states = {k: dict(v) for k,v in previous_states.items()}; self._signals = {k: dict(v) for k,v in previous_signals.items()}; self._last_evaluation_time = previous_time
+            raise
+        self._last_evaluation_time = time
+        return result
 
     def evaluate_once(
         self,
@@ -1334,22 +1325,15 @@ class LogicEngine:
     ) -> LogicEngineResult:
         """Force exactly one deterministic evaluation pass."""
 
-        time = _finite_float(
-            time,
-            "time",
-        )
-
-        external = self._normalize_external_inputs(
-            external_inputs
-        )
-
-        self._validate_all_graph_contracts()
-
-        return self._evaluate_pass(
-            time=time,
-            external_inputs=external,
-            iteration=1,
-        )
+        time = _finite_float(time, "time")
+        if self._last_evaluation_time is not None and time < self._last_evaluation_time: raise LogicEvaluationError(f"Logic evaluation time cannot move backwards from {self._last_evaluation_time} to {time}.")
+        external = self._normalize_external_inputs(external_inputs); self._validate_all_graph_contracts()
+        previous_states, previous_signals, previous_time = self.states(), self._signal_snapshot(), self._last_evaluation_time
+        try: result = self._evaluate_pass(time=time, external_inputs=external, iteration=1)
+        except Exception:
+            self._states = {k: dict(v) for k,v in previous_states.items()}; self._signals = {k: dict(v) for k,v in previous_signals.items()}; self._last_evaluation_time = previous_time; raise
+        self._last_evaluation_time = time
+        return result
 
     # ========================================================================
     # SINGLE PASS
