@@ -523,6 +523,12 @@ class Application:
     def redo_commands(self) -> tuple: return self._command_manager.redo_commands()
     def clear_history(self) -> None: self._command_manager.clear_history()
 
+    def read_control(self):
+        service = getattr(self, "control_service", None)
+        if service is None:
+            raise RuntimeError("Application Control service is not configured.")
+        return service.read()
+
     def read_network(self) -> NetworkReadModel:
         self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
