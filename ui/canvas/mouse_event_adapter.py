@@ -87,13 +87,19 @@ class MouseEventAdapter:
         mapper = getattr(self._view, "mapToScene", None)
         if not callable(mapper):
             raise TypeError("view must provide mapToScene().")
+        # QGraphicsView.mapToScene() resolves through QPoint/QPolygon/
+        # QRect overloads in PySide6. Passing a QPointF directly can enter
+        # PySide6's parameterized-generic isinstance() path and emit:
+        # "qt_isinstance(...): isinstance() argument 2 cannot be a
+        # parameterized generic". Normalize the viewport coordinate to the
+        # canonical QPoint overload at the Qt boundary.
+        to_point = getattr(position, "toPoint", None)
+        if callable(to_point):
+            return mapper(to_point())
         try:
             return mapper(position)
         except (TypeError, AttributeError):
-            to_point = getattr(position, "toPoint", None)
-            if not callable(to_point):
-                raise
-            return mapper(to_point())
+            raise
 
     def _hit_test(self, scene_position: Any) -> Optional[Any]:
         item_at = getattr(self._scene, "itemAt", None)
