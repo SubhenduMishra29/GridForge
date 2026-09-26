@@ -6,7 +6,8 @@ Persistent changes are routed through immutable Application commands.
 from __future__ import annotations
 
 from typing import Any
-from ui.core.qt import QFormLayout, QLineEdit, QLabel, QPushButton, QComboBox, QWidget
+
+from ui.core.qt import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 from core.application.commands.control_commands import UpdateControlComponent
 
 
@@ -16,45 +17,73 @@ class ControlInspector(QWidget):
         self._application = application
         self._selected_id: str | None = None
         self._selected_type: str | None = None
-        self._preset = QLineEdit(self)
-        self._mode = QComboBox(self)
-        self._mode.addItems(["ton", "tof", "tp"])
-        self._apply = QPushButton("Apply", self)
+        self._preset = 1.0
+        self._mode = "ton"
+        self._component_label = QLabel("None", self)
+        self._configuration_label = QLabel("", self)
+        self._apply = QPushButton("Apply Timer Configuration", self)
         self._apply.clicked.connect(self._apply_configuration)
-        self._form = QFormLayout(self)
-        self._form.addRow(QLabel("Component", self), QLabel("None", self))
-        self._form.addRow(QLabel("Preset", self), self._preset)
-        self._form.addRow(QLabel("Timer Mode", self), self._mode)
-        self._form.addRow(self._apply)
-        self._apply.setEnabled(False)
+        self._preset_down = QPushButton("Preset -0.5", self)
+        self._preset_up = QPushButton("Preset +0.5", self)
+        self._preset_down.clicked.connect(lambda: self._adjust_preset(-0.5))
+        self._preset_up.clicked.connect(lambda: self._adjust_preset(0.5))
+        self._cycle_mode = QPushButton("Cycle TON / TOF / TP", self)
+        self._cycle_mode.clicked.connect(self._cycle_timer_mode)
+        root = QVBoxLayout(self)
+        root.addWidget(QLabel("Control Inspector", self))
+        root.addWidget(self._component_label)
+        root.addWidget(self._configuration_label)
+        controls = QHBoxLayout()
+        controls.addWidget(self._preset_down)
+        controls.addWidget(self._preset_up)
+        root.addLayout(controls)
+        root.addWidget(self._cycle_mode)
+        root.addWidget(self._apply)
+        self._set_enabled(False)
 
     def show_read_model(self, read_model: Any, component_id: str | None) -> None:
         self._selected_id = component_id
         component = next((c for c in read_model.components if c.component_id == component_id), None) if component_id else None
         if component is None:
             self._selected_type = None
-            self._preset.setText("")
-            self._apply.setEnabled(False)
+            self._component_label.setText("Component: None")
+            self._configuration_label.setText("")
+            self._set_enabled(False)
             return
         self._selected_type = component.component_type
-        self._preset.setText(str(component.configuration.get("preset", "")))
-        mode = str(component.configuration.get("mode", "ton")).lower()
-        index = max(0, self._mode.findText(mode))
-        self._mode.setCurrentIndex(index)
-        self._apply.setEnabled(component.component_type == "timer" and self._application.supports("control.update_component"))
+        configuration = dict(component.configuration)
+        self._preset = float(configuration.get("preset", 1.0))
+        self._mode = str(configuration.get("mode", "ton")).lower()
+        self._component_label.setText(f"Component: {component.component_id} ({component.component_type})")
+        self._configuration_label.setText(f"Configuration: {configuration}")
+        self._set_enabled(
+            component.component_type == "timer"
+            and self._application.supports("control.update_component")
+        )
+
+    def _adjust_preset(self, delta: float) -> None:
+        self._preset = max(0.0, self._preset + delta)
+        self._configuration_label.setText(f"Timer preset: {self._preset:g}; mode: {self._mode}")
+
+    def _cycle_timer_mode(self) -> None:
+        modes = ("ton", "tof", "tp")
+        self._mode = modes[(modes.index(self._mode) + 1) % len(modes)]
+        self._configuration_label.setText(f"Timer preset: {self._preset:g}; mode: {self._mode}")
 
     def _apply_configuration(self) -> None:
         if self._selected_id is None or self._selected_type != "timer":
             return
-        try:
-            preset = float(self._preset.text())
-        except ValueError as exc:
-            raise ValueError("Timer preset must be numeric.") from exc
         self._application.execute(UpdateControlComponent(
             component_id=self._selected_id,
             component_type="timer",
-            configuration={"preset": preset, "mode": self._mode.currentText()},
+            configuration={"preset": self._preset, "mode": self._mode},
         ))
+
+    def _set_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self._apply, self._preset_down, self._preset_up, self._cycle_mode,
+        ):
+            widget.setEnabled(bool(enabled))
 
 
 __all__ = ["ControlInspector"]
