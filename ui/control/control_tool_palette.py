@@ -63,6 +63,8 @@ class ControlToolRegistry:
             ControlToolDescriptor("or", "OR", "Logic", "[OR]", "control.add_component", "or_gate"),
             ControlToolDescriptor("not", "NOT", "Logic", "[NOT]", "control.add_component", "not_gate"),
             ControlToolDescriptor("interlock", "Interlock", "Control", "[ILK]", "control.add_component", "interlock"),
+            ControlToolDescriptor("signal.connect", "Connect Signal", "Control", "->", "control.connect_signals"),
+            ControlToolDescriptor("signal.disconnect", "Disconnect Signal", "Control", "<-", "control.disconnect_signals"),
             ControlToolDescriptor("action_binding", "Action Binding", "Control", "=>", "control.add_action_binding"),
         )
 
