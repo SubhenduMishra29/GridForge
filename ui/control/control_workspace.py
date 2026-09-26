@@ -106,16 +106,7 @@ class ControlWorkspace(QWidget):
         return self._interaction.selected_rung_id
 
     def refresh(self) -> None:
-        try:
-            lifecycle = self._application.project_lifecycle
-            if not lifecycle.has_project or lifecycle.state != "ACTIVE":
-                self._presentation_refresh()
-                return
-            self._canvas.project(self._application.read_control())
-            self._presentation_refresh()
-        except RuntimeError:
-            self._canvas.reset_scene()
-            self._presentation_refresh()
+        self._coordinator.refresh_current()
 
     def _presentation_refresh(self) -> None:
         try:
