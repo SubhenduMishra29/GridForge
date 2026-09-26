@@ -67,7 +67,7 @@ class SLDGraphicsItemFactory:
                 end=end,
             )
             item.setScale(symbol_instance.scale)
-            item.setRotation(float(node.properties.get("orientation", symbol_instance.rotation)))
+            item.setRotation(symbol_instance.rotation)
             item.setVisible(symbol_instance.visible)
             return item
 
