@@ -269,10 +269,11 @@ class EquipmentRegistry:
         for definition in self._definitions.values():
             symbol = symbol_registry.require(definition.symbol_id)
             missing = [name for name in definition.terminal_names if not symbol.has_terminal_anchor(name)]
-            if missing:
+            orphaned = [name for name in symbol.terminal_anchors if name not in definition.terminal_names]
+            if missing or orphaned:
                 raise ValueError(
-                    f"Equipment type {definition.equipment_type!r} requires terminal anchors {missing!r} "
-                    f"from symbol {definition.symbol_id!r}."
+                    f"Equipment type {definition.equipment_type!r} and symbol {definition.symbol_id!r} "
+                    f"have inconsistent connection anchors: missing={missing!r}, orphaned={orphaned!r}."
                 )
 
     # ========================================================
