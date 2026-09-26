@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ui.core.qt import QGraphicsPathItem, QPainterPath, QPen, QPointF
+from ui.core.qt import QGraphicsPathItem, QPainterPath, QPen, QPointF, Signal
 
 
 class SLDConnectionItem(QGraphicsPathItem):
+    route_edit_requested = Signal(object)
     """Render resolved semantic endpoints and engineer-owned route geometry."""
 
     def __init__(self, object_id: str, source_object_id: str, target_object_id: str) -> None:
@@ -66,6 +67,19 @@ class SLDConnectionItem(QGraphicsPathItem):
         path = self.path()
         return ((path.elementAt(0).x, path.elementAt(0).y),
                 (path.elementAt(path.elementCount() - 1).x, path.elementAt(path.elementCount() - 1).y))
+
+    def set_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
+        """Update one presentation bend and emit an Application-bound edit request."""
+        if index < 0 or index >= len(self._route_points):
+            raise IndexError(index)
+        points = list(self._route_points)
+        points[index] = (float(x), float(y))
+        self._route_points = tuple(points)
+        self.route_edit_requested.emit({
+            "connection_id": self._object_id,
+            "points": self._route_points,
+        })
+        return self._route_points
 
     def route_points(self) -> tuple[tuple[float, float], ...]:
         return self._route_points
