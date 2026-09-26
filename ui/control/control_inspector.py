@@ -143,12 +143,15 @@ class ControlInspector(QWidget):
         )
         self._configuration_label.setText(f"Positions: {dict(rung.positions)}")
 
-    def enter_control_interlock_mode(self, read_model: Any) -> None:
-        self._selected_id = None
+    def enter_control_interlock_mode(self, read_model: Any, component_id: str | None) -> None:
+        self._selected_id = component_id
         self._selected_type = None
-        self._component_label.setText("Control Interlock configuration")
+        component = next((item for item in read_model.components if item.component_id == component_id), None)
+        self._component_label.setText(
+            f"Control Interlock source: {component_id}" if component is not None else "Control Interlock source: select a logic component"
+        )
         self._rung_label.setText("Rung: configuration mode")
-        self._configuration_label.setText("Control Interlock: configure ControlDecision gating here.")
+        self._configuration_label.setText("Control Interlock: selected logic component is the gating input.")
         self._mode_label.setText("Control Interlock mode: distinct from LogicEngine interlocks.")
         self._targets.clear()
         self._actions.clear()
