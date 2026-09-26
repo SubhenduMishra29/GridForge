@@ -731,12 +731,12 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0035 | Application | Events | Semantic event propagation unverified | HIGH | **OPEN** | Yes |
 | GF-MASTER-0036 | Application | Revision-validation | RevisionService is not integrated with project activation/replacement lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Application remains the sole project-transition revision coordinator via `_run_project_transition()`: it snapshots `RevisionService` before lifecycle transition, restores the exact prior revision state on failure, and resets revision only after successful activation; `bootstrap.activate_project_state()` no longer snapshots/restores/resets revision state; execute/undo/redo/presentation/save revision paths remain intact; runtime verification deferred | Yes |
 | GF-MASTER-0037 | Application | Command-transaction-history | Application mutation and undo-redo path divergence unverified | CRITICAL | **OPEN** | Yes |
-| GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0040 | SLD | Projection-rendering | Rendering separation exists but coverage and runtime unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
-| GF-MASTER-0041 | Core | Authority-topology-equipment | Broad Core authority findings require consumer verification | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0041 | Core | Authority-topology-equipment | Broad Core authority findings require consumer verification | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0042 | Control | Control-automation | Control and ladder command integration incomplete | HIGH | **OPEN** | Yes |
-| GF-MASTER-0043 | Architecture | Migration-redundancy | Parallel subsystem migration cannot be declared complete | HIGH | **OPEN** | Yes |
+| GF-MASTER-0043 | Architecture | Migration-redundancy | Parallel subsystem migration cannot be declared complete | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0044 | Runtime | Verification | Source-level remediation lacks complete executable evidence | HIGH | **OPEN** | Yes |
 | GF-MASTER-0045 | UI-SLD | Canvas interaction | Contextual engineering-state hover and readout contract remains open | MEDIUM | **OPEN** | Yes |
 | GF-MASTER-0046 | Architecture | Historical aligned findings | Historical aligned findings lack fresh executable verification | MEDIUM | **OPEN** | Yes |
