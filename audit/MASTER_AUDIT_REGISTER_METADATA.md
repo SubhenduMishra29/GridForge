@@ -1,5 +1,9 @@
 # Master Register — Required Field Metadata
 
+**Canonical repository authority:** `SubhenduMishra29/GridForge`
+**Canonical branch:** `main`
+**Historical repository provenance:** Any other repository identity appearing in historical evidence is provenance only and is not current audit authority.
+
 This companion table completes the required fields for the canonical findings in `MASTER_AUDIT_REGISTER.md`. It is part of the same audit-only register set; no production source is modified.
 
 | Master ID | Evidence / Location | First Detected | Last Verified | Related Findings | Depends On | Blocks | Resolution Evidence | Historical Notes | Remediation State | Verification Method |
@@ -38,9 +42,9 @@ This companion table completes the required fields for the canonical findings in
 | GF-MASTER-0032 | `core/persistence/migration.py`; persistence audit | 2026-09-10 | 2026-09-16 | 0023,0031 | Legacy metadata | Project loading | None | Ambiguous data is rejected rather than guessed | IN PROGRESS | Corpus migration matrix and ambiguous-input regression |
 | GF-MASTER-0033 | dynamic-model persistence commits/history | 2026-09-15 | 2026-09-16 | 0031,0014 | Project persistence | Dynamic reconstruction | None | Source wiring exists; round-trip not executed | IN PROGRESS | Persist/reload/reconstruct dynamic association and compare IDs/config |
 | GF-MASTER-0034 | relay/protection persistence commits/history | 2026-09-15 | 2026-09-16 | 0028,0031 | Project persistence | Protection reconstruction | None | Source wiring exists; semantic round-trip not executed | IN PROGRESS | Persist/reload Relay and protection config and verify associations |
-| GF-MASTER-0035 | event audit/closure docs; Application/UI event paths | 2026-09-12 | 2026-09-16 | 0036,0037 | Event contract | UI/study synchronization | None | Event vocabulary narrowed historically | NOT STARTED | Execute representative mutation/study events and inspect subscribers |
+| GF-MASTER-0035 | `core/application/application.py`; `core/application/events.py`; Batch 1A static re-audit | 2026-09-12 | 2026-09-26 | 0036,0037 | ApplicationEvent provenance contract; Command correlation/causation | UI/read-model synchronization | `_publish_model_event()` and `_publish_network_changed()` now forward originating command correlation_id/causation_id; execute/undo/redo path re-audited statically | Historical runtime-propagation uncertainty retained; source correction does not imply runtime verification | REMEDIATED — VERIFICATION DEFERRED | Static source/call-flow inspection; runtime consumer verification deferred/unverified |
 | GF-MASTER-0036 | revision/dirty-state audit history | 2026-09-03 | 2026-09-16 | 0021,0031,0035 | Revision authority | Stale-result/dirty-state correctness | None | Multiple historical revision concerns | NOT STARTED | Mutate topology/equipment, inspect revisions/dirty state/result invalidation |
-| GF-MASTER-0037 | Application command/undo audit history | 2026-09-03 | 2026-09-16 | 0029,0035,0036 | Application command path | Mutation correctness | None | Historical direct mutation/divergence findings retained | NOT STARTED | Sweep UI/controller/plugin mutation call sites and exercise undo/redo/history |
+| GF-MASTER-0037 | `core/application/application.py`; `core/application/command_manager.py`; `core/application/history.py`; Batch 1A static re-audit | 2026-09-03 | 2026-09-26 | 0029,0035,0036 | Immutable Command retained by CommandManager history; Application semantic publication | Mutation correctness / provenance lineage | Original CommandRecord.command is reused for undo and redo; corrected semantic publication preserves its correlation_id/causation_id | Historical direct-mutation/divergence findings remain chronology; no runtime claim is made | REMEDIATED — VERIFICATION DEFERRED | Static source/call-flow inspection of execute, undo, redo and semantic publication; runtime verification deferred/unverified |
 | GF-MASTER-0038 | SLD/equipment/terminal audit history; `ui/items/bus_item.py` | 2026-09-03 | 2026-09-16 | 0003,0039,0040 | Core identity/EndpointReference | SLD connection/equipment correctness | None | GF-SLD-A32 corrected after BusItem discovery | NOT STARTED | Trace identity from SLD snap to Application to Core Terminal/Equipment |
 | GF-MASTER-0039 | SLD connection/topology audit; `contract.md` | 2026-08-12 | 2026-09-16 | 0003,0038,0041 | Core/network topology | Connectivity correctness | None | No speculative Connection class is authorized by baseline | NOT STARTED | Execute connection create/remove and compare Core topology vs SLD |
 | GF-MASTER-0040 | UI audit checkpoints; SLD projection/factory docs | 2026-09-03 | 2026-09-16 | 0004,0038,0045 | Application read model | Rendering | None | BusItem/LineItem locked presentation components | IN PROGRESS | Runtime-render each projected type and verify no Core access from graphics |
@@ -97,3 +101,17 @@ Canonical metadata completion for GF-MASTER-0049 through GF-MASTER-0075. Fields 
 | GF-MASTER-0075 | `core/network/topology.py` switching-family conduction contract | 2026-09-25 | 2026-09-25 | Not established from current evidence | Not established from current evidence | Not established from current evidence | See canonical effective-status index and historical evidence | Historical status transitions retained in MASTER_AUDIT_REGISTER.md | STATIC CLOSED | Current static source/register evidence supports closure; runtime verification not claimed |
 
 The current status authority is the Batch 0 effective-status index in `MASTER_AUDIT_REGISTER.md`. Historical status wording remains chronology only.
+
+
+## 2026-09-26 — Batch 1A Semantic Event Provenance Metadata
+
+| Scope | Static result | Runtime verification |
+|---|---|---|
+| Model ElementCreated / ElementRemoved / ElementUpdated | **PASS — command provenance preserved** | DEFERRED / UNVERIFIED |
+| Model TopologyChanged / NetworkChanged | **PASS — command provenance preserved** | DEFERRED / UNVERIFIED |
+| Undo semantic publication | **PASS — original Command provenance retained** | DEFERRED / UNVERIFIED |
+| Redo semantic publication | **PASS — original Command provenance retained** | DEFERRED / UNVERIFIED |
+| Existing simple-wire / control / SLD publication branches | **PASS — unchanged and provenance-preserving** | DEFERRED / UNVERIFIED |
+| ApplicationEvent / ApplicationEventBus / Core→UI boundary | **PASS — frozen architecture unchanged** | DEFERRED / UNVERIFIED |
+
+**Batch 1A gate:** STATIC RE-AUDIT PASS. Source correction is complete; runtime consumer verification remains deferred/unverified.

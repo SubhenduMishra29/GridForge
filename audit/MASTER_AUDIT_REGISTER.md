@@ -1,11 +1,11 @@
-# GridForge V2 — Master Audit Register
+| GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication now preserves that command correlation/causation metadata | Undo/redo events could otherwise lose the originating command lineage | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
 **Canonical repository authority:** `SubhenduMishra29/GridForge`
-**Working/edit repository for this register batch:** `madhuri196mishra-cpu/GridForge`
+**Repository provenance:** historical register updates were previously performed/reported against `madhuri196mishra-cpu/GridForge`; current audit authority is `SubhenduMishra29/GridForge/main`.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
-**Branch baseline:** `main` — current working repository authority
+**Branch baseline:** `main` — current canonical repository authority
 **Consolidation date:** 2026-09-17
 **Authority:** frozen GridForge V2 architecture supplied for this audit.
 
@@ -99,9 +99,9 @@ Git history was also inspected for audit evolution and remediation lineage, incl
 | GF-MASTER-0032 | GF-PERSIST-A7; GF-PERSIST-A8; GF-PERSIST-A11 | Persistence | Engineering-state migration | Legacy Cable/Transformer engineering representation requires explicit metadata and ambiguity handling | HIGH | UNVERIFIED | Migration rejects ambiguous data rather than guessing, but full corpus coverage is unverified | Legacy projects may fail to load or be misinterpreted | Persistence preserves engineering truth and representation metadata | Yes |
 | GF-MASTER-0033 | historical dynamic-model persistence commits | Persistence | Dynamics association | Project-scoped dynamic-model association persistence was added but round-trip proof is absent | HIGH | UNVERIFIED | Serialization/composition wiring exists without fresh reconstruction verification | Dynamic model identity/configuration can be lost across reload | Persistence reconstructs authoritative domain state | Yes |
 | GF-MASTER-0034 | historical relay/protection persistence commits | Persistence | Protection serialization | Relay and project protection configuration persistence was added but full reconstruction proof is absent | HIGH | UNVERIFIED | Source serialization coverage exists without complete semantic round-trip evidence | Protection configuration can be lost or detached from equipment | Canonical project persistence must preserve required engineering state | Yes |
-| GF-MASTER-0035 | GF-AUD-018; historical event audit | Application | Events | Semantic event vocabulary/restrictions have source-level reconciliation but runtime event propagation is unverified | HIGH | UNVERIFIED | Events are separated from presentation, but executable producer/consumer coverage is incomplete | UI projections/study lifecycle can become stale or over-react | Core→Application→UI event direction | Yes |
+| GF-MASTER-0035 | GF-AUD-018; Batch 1A semantic-event provenance | Application | Events | Batch 1A semantic-event provenance loss | HIGH | REMEDIATED — VERIFICATION DEFERRED | Generic model semantic-event publication omitted command correlation/causation; Application publication now forwards originating immutable Command provenance to model, topology, and network events | UI/read-model consumers can lose mutation lineage without this propagation | Core→Application→UI event direction; command provenance survives the Application boundary | Yes |
 | GF-MASTER-0036 | historical Application revision findings | Application | Revision/validation | Application/Core revision and validation coordination remains insufficiently runtime-proven | HIGH | UNVERIFIED | Multiple historical revisions/dirty-state concerns were reconciled in source but not fully executed | Stale study/result state or dirty-state inconsistency | Revision/validation state has one authoritative coordination path | Yes |
-| GF-MASTER-0037 | historical Application mutation findings | Application | Command/transaction/history | Application-only mutation boundary and undo/redo semantics require complete consumer verification | CRITICAL | UNVERIFIED | Historical findings identify direct mutation paths and divergent command handling; later source changes are not executable proof | Core state can change outside history/transaction/event guarantees | All meaningful UI/domain mutation uses immutable Command→Application.execute() | Yes |
+| GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication preserves its correlation/causation metadata | Undo/redo events could otherwise lose originating command lineage; runtime verification remains deferred | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
 | GF-MASTER-0038 | historical SLD terminal/equipment findings | SLD | Identity | Parallel UI/equipment/terminal identity representations require full consumer reconciliation | CRITICAL | UNVERIFIED | SLD/UI can carry presentation identities while Core owns authoritative equipment/terminal identity; historical duplicate abstractions require traceability | Wrong endpoint/equipment can be edited, connected, rendered, or persisted | No authoritative duplicate Terminal/equipment model in UI | Yes |
 | GF-MASTER-0039 | historical SLD connection/topology findings | SLD | Connection lifecycle/topology | UI connection state and Core topology authority require complete migration proof | CRITICAL | UNVERIFIED | Historical connection/terminal concerns require Application/Core topology authority | SLD can diverge from actual connectivity | Core/network owns global topology | Yes |
 | GF-MASTER-0040 | historical SLD rendering/factory findings | SLD | Projection-rendering | Rendering boundary is structurally separated, but supported-type coverage and runtime rendering remain unverified | HIGH | UNVERIFIED | Factory/projection separation exists while semantic coverage is incomplete | Render failures or accidental engineering logic in presentation | QGraphicsItem is presentation-only | Yes |
@@ -482,7 +482,7 @@ GUI, or runtime execution was performed.
 
 ## 2026-09-24 — SLD Workflow Re-Audit 2 — static closure
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Historical repository evidence:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. pytest, unit/integration execution, CI, startup, GUI/runtime smoke tests, and application execution were not performed.
@@ -510,8 +510,9 @@ GUI, or runtime execution was performed.
 
 ## 2026-09-25 — GF-SLD-WF-014..021 — final consolidated SLD workflow re-audit
 
-**Repository:** madhuri196mishra-cpu/GridForge  
-**Branch:** main  
+**Historical repository evidence:** `madhuri196mishra-cpu/GridForge`  
+**Historical branch:** `main`  
+**Current audit authority:** `SubhenduMishra29/GridForge/main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. pytest, unit/integration execution, CI, startup, GUI/runtime smoke tests, and application execution were not performed.
 
@@ -541,7 +542,7 @@ EquipmentPanelWidget._on_item_clicked() → activate_equipment() → EquipmentRe
 
 ## 2026-09-25 — SLD Engineer Entry Surface / Equipment Palette Remediation
 
-**Repository:** madhuri196mishra-cpu/GridForge  
+**Historical repository evidence:** `madhuri196mishra-cpu/GridForge`  
 **Branch:** main  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. pytest, CI, startup, GUI/runtime execution were not performed.
@@ -557,7 +558,7 @@ Register status discipline: these findings are not marked CLOSED. Static correct
 
 ## UI-01 Consolidated Remediation — 2026-09-25
 
-**Working repository:** `madhuri196mishra-cpu/GridForge`  
+**Historical working repository provenance:** `madhuri196mishra-cpu/GridForge`  
 **Canonical repository authority:** `SubhenduMishra29/GridForge`  
 **Branch:** `main`  
 **Verification boundary:** static source inspection only; no tests, CI, application startup, GUI execution, or runtime verification performed.
@@ -586,7 +587,7 @@ Register status discipline: these findings are not marked CLOSED. Static correct
 
 ## 2026-09-25 — GF-UI-02 Lifecycle and Persistence Remediation / Fresh Static Re-Audit
 
-**Repository:** madhuri196mishra-cpu/GridForge  
+**Historical repository evidence:** `madhuri196mishra-cpu/GridForge`  
 **Branch:** main  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. No pytest, CI, application startup, GUI execution, or runtime verification performed.
@@ -633,7 +634,7 @@ Final static checks:
 
 ## 2026-09-25 — GF-SLD-CANVAS-039 — Project Presentation Activation Order Correction
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Historical repository evidence:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only; no pytest, CI, application startup, GUI execution, or runtime verification performed.
@@ -655,7 +656,7 @@ Final static checks:
 
 ## 2026-09-25 — GF-SLD-CANVAS-022/023/015/016/017/018 — Canonical SLD Presentation Instance Correction
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Historical repository evidence:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only; no pytest, CI, application startup, GUI execution, or runtime verification performed.
@@ -689,7 +690,7 @@ Final static checks:
 
 ## Batch 0 — Canonical effective-status index — 2026-09-26
 
-This is the single latest-effective-status index for the **75 active Master IDs** on canonical `SubhenduMishra29/GridForge/main`. The working/edit repository for this register batch is `madhuri196mishra-cpu/GridForge/main`. Earlier status phrases remain historical chronology and are not current status values.
+This is the single latest-effective-status index for the **75 active Master IDs** on canonical `SubhenduMishra29/GridForge/main`. Historical remediation provenance may reference other repositories, but no historical repository is a current authority. Earlier status phrases remain historical chronology and are not current status values.
 
 | Master ID | Domain | Subsystem | Finding Title | Severity | Latest Effective Status | Verification Requirement |
 |---|---|---|---|---|---|---|
@@ -759,7 +760,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0064 | UI | Lifecycle authority | Workspace remains downstream of Application lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0065 | UI | Workspace rollback | WorkspaceRealizer compensates failed realization using prior layout | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0066 | SLD | Reference validation | Authored SLD equipment references are validated through Application read state | HIGH | **STATIC CLOSED** | No runtime verification |
-| GF-MASTER-0067 | STATICALLY VERIFIED — CORRECTED | Core Terminal → SLD anchor → EquipmentTerminal → EquipmentItem.snap_points() → SnapSystem → SnapResult → EndpointIdentityAdapter → EndpointReference | RUNTIME VERIFICATION — DEFERRED / UNVERIFIED | undefined | **STATICALLY VERIFIED** | Not established from current evidence |
+| GF-MASTER-0067 | SLD | Terminal/snap identity | Canonical terminal identity / terminal realization | HIGH | **STATICALLY VERIFIED** | RUNTIME VERIFICATION — DEFERRED / UNVERIFIED |
 | GF-MASTER-0068 | SLD | Preview | Bus placement preview uses existing PreviewLayer architecture | MEDIUM | **STATIC CLOSED** | No runtime verification |
 | GF-MASTER-0069 | UI | Interaction state | Concrete tools still retain local interaction state | MEDIUM | **OPEN** | Source review required |
 | GF-MASTER-0070 | Application | Identity compatibility | Measurement identity vocabulary sweep remains source-pending | HIGH | **OPEN** | Source evidence pending |
@@ -781,7 +782,7 @@ Only these current statuses are used: **OPEN**, **RE-AUDIT REQUIRED**, **REMEDIA
 
 - **Canonical repository:** `SubhenduMishra29/GridForge`
 - **Canonical branch:** `main`
-- **Working/edit repository:** `madhuri196mishra-cpu/GridForge`
+- **Historical repository provenance:** `madhuri196mishra-cpu/GridForge` was used for prior register edits; it is not current authority.
 - **Register files synchronized:** `audit/MASTER_AUDIT_REGISTER.md`, `audit/MASTER_AUDIT_REGISTER_METADATA.md`, `audit/MASTER_AUDIT_REGISTER.csv`
 - **Active Master IDs reconciled:** 75
 - **Historical repository references:** retained as historical evidence only
@@ -789,4 +790,57 @@ Only these current statuses are used: **OPEN**, **RE-AUDIT REQUIRED**, **REMEDIA
 - **Production source:** untouched
 - **Runtime verification:** not claimed
 
-**Batch 0 closes the register-consistency task only. The overall GridForge audit remains open and Batch 1 is not started.**
+**CLOSED — REGISTER RECONCILIATION COMPLETE**
+
+Batch 0 closes the register-consistency task only. The overall GridForge audit remains open; Batch 1 is not started.
+
+
+## 2026-09-26 — Batch 1A Semantic Event Provenance Correction and Static Re-Audit
+
+**Canonical repository:** `madhuri196mishra-cpu/GridForge`  
+**Canonical branch:** `main`  
+**Author:** Subhendu Mishra  
+**Audit mode:** static source inspection/correction/re-audit only. No pytest, unittest, CI, startup, GUI, integration, or runtime execution was performed.
+
+### Finding
+
+Batch 1A identified provenance loss in the generic Application model semantic-event path. The immutable `Command` already carries `command_id`, `correlation_id`, and `causation_id`; `ApplicationEvent` and the affected event constructors already accept the corresponding provenance fields. The defect was that `Application._publish_model_event()` and `Application._publish_network_changed()` did not pass the command correlation/causation values.
+
+### Source correction
+
+Corrected `core/application/application.py` only:
+
+- `_publish_model_event()` now passes `command.correlation_id` and `command.causation_id` to every `ElementCreated`, `ElementRemoved`, and `ElementUpdated` publication.
+- `_publish_network_changed()` now passes the same command provenance to `TopologyChanged` and `NetworkChanged`.
+- Existing event constructors in `core/application/events.py` already represented the required immutable provenance contract; no event vocabulary or mutability change was required.
+- Existing simple-wire, control, and SLD presentation branches already forward command provenance and were left unchanged.
+- No second EventBus, Core→UI event path, Application mutation path, CommandManager owner, or Core event publication path was introduced.
+
+**Source correction commit:** `dff26ad0b1e258920f37686ae0ddf37e51a63a15`.
+
+### Static re-audit evidence
+
+The affected path was re-read after correction:
+
+`Command` → `Application.execute()` → `CommandManager.execute()` → handler → `Transaction.commit()` → `Application._publish_semantic_events()` → `ApplicationEventBus.publish()`.
+
+- **Model ElementCreated:** PASS — `_publish_model_event()` forwards command correlation/causation.
+- **Model ElementRemoved:** PASS — same provenance forwarding; undo reverses create/delete semantic action without replacing the command.
+- **Model ElementUpdated:** PASS — provenance forwarded for update/open/close/reset/blow/trip/service-state semantic updates.
+- **TopologyChanged:** PASS — model topology publications in both the terminal branch and generic network-change branch forward command provenance.
+- **NetworkChanged:** PASS — model network publications forward command provenance.
+- **Undo:** PASS — `Application.undo()` obtains the original `CommandRecord.command`, `CommandManager.undo()` executes its stored inverse journal, and `_publish_history_events()` republishes semantic events using that same immutable command.
+- **Redo:** PASS — `Application.redo()` obtains the original redo `CommandRecord.command`; `CommandManager.redo()` re-executes that same command and Application republishes using its original provenance.
+- **Simple-wire/control/SLD:** PASS — pre-existing branches already pass command correlation/causation and were not changed.
+- **Protection:** PASS for the inspected Application protection boundary — protection execution translates decisions into Application-routed control commands; no new generic provenance rule was imposed on unrelated non-command study lifecycle events.
+- **EventBus:** PASS — only the existing `ApplicationEventBus` remains the publication boundary.
+- **Core/UI boundary:** PASS — no ApplicationEvent import/publication was added to Core; no Qt import was introduced into Core.
+
+### Batch 1A gate
+
+**STATIC RE-AUDIT: PASS.** The affected Application semantic-event path preserves originating command provenance for execute/undo/redo without changing the frozen architecture.
+
+**Batch 1A status:** **STATICALLY VERIFIED — CORRECTED; RUNTIME VERIFICATION DEFERRED / UNVERIFIED.**
+
+This does not constitute runtime closure. Runtime consumer behavior remains deferred.
+
