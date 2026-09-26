@@ -729,7 +729,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0033 | Persistence | Dynamics association | Dynamic model persistence round-trip unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0034 | Persistence | Protection serialization | Relay and protection persistence reconstruction unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0035 | Application | Events | Semantic event propagation unverified | HIGH | **OPEN** | Yes |
-| GF-MASTER-0036 | Application | Revision-validation | Revision and validation coordination unverified | HIGH | **OPEN** | Yes |
+| GF-MASTER-0036 | Application | Revision-validation | RevisionService is not integrated with project activation/replacement lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0037 | Application | Command-transaction-history | Application mutation and undo-redo path divergence unverified | CRITICAL | **OPEN** | Yes |
 | GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **OPEN** | Yes |
 | GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
@@ -747,7 +747,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0051 | SLD | Projection-document bridge | Semantic ReadModel to SLDDocument reconciliation seam corrected | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
 | GF-MASTER-0052 | SLD | Presentation integration | Canvas rendering consumes the reconciled SLD document through renderer-neutral projection | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
 | GF-MASTER-0053 | Application | Command authority | Legacy application.place_bus compound path reconciled to canonical model.create_bus | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
-| GF-MASTER-0054 | Application | Result contract | ApplicationResult.value remains a Core-object-capable contract and UI consumer audit is incomplete | HIGH | **OPEN** | Consumer/runtime proof required |
+| GF-MASTER-0054 | Application | Result contract | ApplicationResult.value remains an Application-internal Core/service result and is not forwarded to UI/SLD consumers | HIGH | **STATIC CLOSED** | ApplicationResult explicitly documents value as Application-internal; repository-wide static tracing found no concrete UI/SLD consumer forwarding value, and UI-facing architecture remains ReadModel/event/projection based |
 | GF-MASTER-0055 | SLD | Endpoint identity | Generic multi-terminal presentation identity is statically reconciled through SnapResult → EndpointIdentityAdapter → EndpointReference → immutable Application command intent; runtime remains deferred | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | EndpointIdentityAdapter now validates/reuses canonical EndpointReference, resolves presentation terminal role deterministically without promoting terminal_id, and canonical connection/line commands carry EndpointReference only |
 | GF-MASTER-0056 | SLD | Reconciliation runtime integrity | Reconciliation modules had unresolved runtime symbol/import references and event/document contract mismatches | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Static source correction only; no tests or CI |
 | GF-MASTER-0057 | SLD | Authority-integration | SLDUpdateCoordinator reuses canonical synchronizer projection manager | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
@@ -765,7 +765,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0069 | UI | Interaction state | Concrete tools still retain local interaction state | MEDIUM | **STATIC CLOSED** | Static source verification; runtime deferred |
 | GF-MASTER-0070 | Application | Identity compatibility | Measurement identity vocabulary sweep remains source-pending | HIGH | **OPEN** | Source evidence pending |
 | GF-MASTER-0071 | Application | Command authority | Canonical placement command vocabulary retained | HIGH | **STATIC CLOSED** | No runtime verification |
-| GF-MASTER-0072 | Application | Validation boundary | Application use-case validation does not duplicate Core domain invariants | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
+| GF-MASTER-0072 | Application | Validation lifecycle | ValidationService cached validation is invalidated/reset across project activation and replacement lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Historical validation-boundary evidence is retained; successful Application project activation now explicitly invalidates the active ValidationService cache after project-scoped runtime activation; rollback restores the previous runtime/cache object through the existing compensation path; runtime verification deferred |
 | GF-MASTER-0073 | Application | Endpoint identity | Canonical EndpointReference now supports terminal resolution for unconnected terminals | CRITICAL | **STATIC CLOSED** | No runtime verification |
 | GF-MASTER-0074 | SLD | Connection workflow | Canonical Application electrical connection/reconnection use cases added | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0075 | Core | Topology | Switching-family conduction contract | HIGH | **STATIC CLOSED** | Static source verification; runtime deferred |
@@ -861,3 +861,46 @@ Static source correction and re-audit only. No tests, CI, startup, GUI execution
 **Canonical static chain:** SLD snap → SnapResult → presentation terminal identity → EndpointIdentityAdapter → EndpointReference → immutable command → Application.execute()/CommandManager → Core terminal/topology service → semantic event → SLD/read projection boundary.
 
 **Batch gate:** **STATICALLY VERIFIED — Batch 1B complete.** Runtime verification remains separately deferred.
+
+
+## 2026-09-26 — Batch 1D Application Revision and Validation Lifecycle Correction
+
+**Canonical repository:** `madhuri196mishra-cpu/GridForge`  
+**Canonical branch:** `main`  
+**Author:** Subhendu Mishra  
+**Audit mode:** static source inspection/correction/re-audit only. No tests, CI, startup, GUI, integration, or runtime execution was performed.
+
+### Source correction
+
+Corrected `core/application/bootstrap.py` at the existing Application project-state activation boundary.
+
+- Existing `RevisionService.reset_for_project()` remains inside the successful project activation transaction.
+- Existing `RevisionService.snapshot_state()` / `restore_state()` compensation remains the rollback mechanism; no second revision authority or rollback mechanism was introduced.
+- Added an explicit `application.validation_service.invalidate()` immediately after successful project-scoped revision reset.
+- Existing `activate_network()` replaces the project-bound `ValidationService` and its rollback restores the previous validation-service instance on activation failure.
+- Existing `new_project()`, `open_project()`, discard transition, and `close_project()` continue through the same ProjectLifecycleService activation boundary.
+- Existing execute/undo/redo revision recording, presentation revision tracking, and successful-save `mark_persisted()` semantics were left unchanged.
+- `ApplicationResult.value` was not changed.
+
+### Static re-audit
+
+- **Revision authority:** PASS — `RevisionService` remains the sole Application dirty/revision authority.
+- **Project activation baseline:** PASS — successful activation invokes the existing `reset_for_project()`, producing the canonical new-project baseline; close uses the same lifecycle path and does not retain the previous project's revision history.
+- **Activation rollback:** PASS — prior revision state is captured and restored through the existing project activation compensation stack.
+- **Undo/redo/save/presentation:** PASS — existing `record_command_success()`, `record_undo()`, `record_redo()`, `record_presentation_change()`, and `mark_persisted()` paths remain intact.
+- **Validation cache authority:** PASS — `ValidationService` remains the sole cached-result owner.
+- **Project replacement invalidation:** PASS — successful project-scoped runtime activation explicitly calls `ValidationService.invalidate()`; the replacement service therefore has no stale cached result. Failed activation restores the prior validation-service instance through the existing network rollback.
+- **Close invalidation:** PASS — close activates the no-project runtime through the same lifecycle activation callback, where the validation cache is explicitly invalidated.
+- **Explicit validation:** PASS — validation remains an explicit operation against the active Application network; no automatic validation was introduced.
+- **ApplicationResult boundary:** PASS — `ApplicationResult.value` remains Application-internal and no new UI-facing forwarding path was introduced.
+
+### Batch 1D gate
+
+**STATIC RE-AUDIT: PASS.**
+
+**GF-MASTER-0036:** **REMEDIATED — VERIFICATION DEFERRED**  
+**GF-MASTER-0072:** **REMEDIATED — VERIFICATION DEFERRED**  
+**GF-MASTER-0054:** **STATIC CLOSED**  
+**GF-MASTER-0049:** remains **STATIC CLOSED**
+
+Runtime verification remains deferred as required.
