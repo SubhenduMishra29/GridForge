@@ -91,10 +91,19 @@ class RemoveSLDNodeCommand(Command):
 
 class AddSLDConnectionCommand(Command):
     def __init__(self, *, connection_id: str, source_node_id: str, target_node_id: str,
+                 source_endpoint: dict | None = None, target_endpoint: dict | None = None,
+                 route: dict | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(command_type=ADD_SLD_CONNECTION,
-                         payload={"connection_id": connection_id, "source_node_id": source_node_id, "target_node_id": target_node_id},
+                         payload={
+                             "connection_id": connection_id,
+                             "source_node_id": source_node_id,
+                             "target_node_id": target_node_id,
+                             "source_endpoint": None if source_endpoint is None else dict(source_endpoint),
+                             "target_endpoint": None if target_endpoint is None else dict(target_endpoint),
+                             "route": None if route is None else dict(route),
+                         },
                          command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
