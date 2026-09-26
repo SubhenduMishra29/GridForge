@@ -732,7 +732,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0036 | Application | Revision-validation | Revision and validation coordination unverified | HIGH | **OPEN** | Yes |
 | GF-MASTER-0037 | Application | Command-transaction-history | Application mutation and undo-redo path divergence unverified | CRITICAL | **OPEN** | Yes |
 | GF-MASTER-0038 | SLD | Identity | Parallel UI equipment and terminal identity requires reconciliation | CRITICAL | **OPEN** | Yes |
-| GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **OPEN** | Yes |
+| GF-MASTER-0039 | SLD | Topology | Connection lifecycle and topology migration unverified | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0040 | SLD | Projection-rendering | Rendering separation exists but coverage and runtime unverified | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Yes |
 | GF-MASTER-0041 | Core | Authority-topology-equipment | Broad Core authority findings require consumer verification | CRITICAL | **OPEN** | Yes |
 | GF-MASTER-0042 | Control | Control-automation | Control and ladder command integration incomplete | HIGH | **OPEN** | Yes |
@@ -743,7 +743,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0047 | Architecture | Historical mandatory-ID coverage | Historical IDs preserved but source text not recovered | MEDIUM | **OPEN** | Yes |
 | GF-MASTER-0048 | Architecture-Core-Application-UI-SLD-Persistence-Study-Documentation | Historical mandatory-ID coverage | Preservation holding area for mandatory historical IDs | MEDIUM | **OPEN** | Yes |
 | GF-MASTER-0049 | Validation | Application Validation | Relay models are omitted from Application project validation sweep | HIGH | **STATIC CLOSED** | Yes |
-| GF-MASTER-0050 | SLD | Authority-integration | Canonical semantic SLD reconciliation seam required correction and re-audit | CRITICAL | **OPEN** | No runtime verification |
+| GF-MASTER-0050 | SLD | Authority-integration | Canonical semantic SLD reconciliation seam required correction and re-audit | CRITICAL | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0051 | SLD | Projection-document bridge | Semantic ReadModel to SLDDocument reconciliation seam corrected | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
 | GF-MASTER-0052 | SLD | Presentation integration | Canvas rendering consumes the reconciled SLD document through renderer-neutral projection | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
 | GF-MASTER-0053 | Application | Command authority | Legacy application.place_bus compound path reconciled to canonical model.create_bus | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
@@ -752,8 +752,8 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0056 | SLD | Reconciliation runtime integrity | Reconciliation modules had unresolved runtime symbol/import references and event/document contract mismatches | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Static source correction only; no tests or CI |
 | GF-MASTER-0057 | SLD | Authority-integration | SLDUpdateCoordinator reuses canonical synchronizer projection manager | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0058 | UI | Document authority | SLDController is downstream to Application presentation | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
-| GF-MASTER-0059 | UI | Document lifecycle | SLDService binding is constrained to Application-authoritative presentation | HIGH | **OPEN** | Runtime verification deferred |
-| GF-MASTER-0060 | UI | Document lifecycle | Project close clears stale SLD controller state | HIGH | **OPEN** | No runtime verification |
+| GF-MASTER-0059 | UI | Document lifecycle | SLDService binding is constrained to Application-authoritative presentation | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
+| GF-MASTER-0060 | UI | Document lifecycle | Project close clears stale SLD controller state | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0061 | UI | Plugin context | Lifecycle-safe Application presentation accessor added to PluginContext | MEDIUM | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0062 | UI | Bootstrap | Redundant startup project activation | HIGH | **OPEN** | Runtime verification deferred |
 | GF-MASTER-0063 | UI | Projection bootstrap | Deterministic current-state projection reconciliation added | HIGH | **STATIC CLOSED** | No runtime verification |
@@ -762,7 +762,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0066 | SLD | Reference validation | Authored SLD equipment references are validated through Application read state | HIGH | **STATIC CLOSED** | No runtime verification |
 | GF-MASTER-0067 | SLD | Terminal/snap identity | Canonical terminal identity / terminal realization | HIGH | **STATICALLY VERIFIED** | RUNTIME VERIFICATION — DEFERRED / UNVERIFIED |
 | GF-MASTER-0068 | SLD | Preview | Bus placement preview uses existing PreviewLayer architecture | MEDIUM | **STATIC CLOSED** | No runtime verification |
-| GF-MASTER-0069 | UI | Interaction state | Concrete tools still retain local interaction state | MEDIUM | **OPEN** | Source review required |
+| GF-MASTER-0069 | UI | Interaction state | Concrete tools still retain local interaction state | MEDIUM | **STATIC CLOSED** | Static source verification; runtime deferred |
 | GF-MASTER-0070 | Application | Identity compatibility | Measurement identity vocabulary sweep remains source-pending | HIGH | **OPEN** | Source evidence pending |
 | GF-MASTER-0071 | Application | Command authority | Canonical placement command vocabulary retained | HIGH | **STATIC CLOSED** | No runtime verification |
 | GF-MASTER-0072 | Application | Validation boundary | Application use-case validation does not duplicate Core domain invariants | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
