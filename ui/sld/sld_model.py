@@ -3,6 +3,7 @@
 # ============================================================
 # File:
 #     ui/sld/sld_model.py
+# Author: Subhendu Mishra
 #
 # Purpose:
 #     UI-side structural model for the GridForge Single Line
