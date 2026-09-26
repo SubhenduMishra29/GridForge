@@ -5,10 +5,24 @@ Persistent changes are routed through immutable Application commands.
 
 from __future__ import annotations
 
+from uuid import uuid4
 from typing import Any
 
-from ui.core.qt import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
-from core.application.commands.control_commands import UpdateControlComponent
+from ui.core.qt import QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout, QWidget
+from core.application.commands.control_commands import (
+    AddControlActionBinding,
+    AddControlInterlock,
+    UpdateControlComponent,
+)
+
+
+_ACTIONS = {
+    "breaker": ("trip", "open", "close", "put_in_service", "take_out_of_service"),
+    "switch": ("open", "close", "put_in_service", "take_out_of_service"),
+    "disconnector": ("open", "close", "put_in_service", "take_out_of_service"),
+    "fuse": ("trip", "blow", "reset", "put_in_service", "take_out_of_service"),
+    "motor": ("start", "stop", "put_in_service", "take_out_of_service"),
+}
 
 
 class ControlInspector(QWidget):
@@ -19,7 +33,7 @@ class ControlInspector(QWidget):
         self._selected_type: str | None = None
         self._preset = 1.0
         self._mode = "ton"
-        self._component_label = QLabel("None", self)
+        self._component_label = QLabel("Component: None", self)
         self._configuration_label = QLabel("", self)
         self._apply = QPushButton("Apply Timer Configuration", self)
         self._apply.clicked.connect(self._apply_configuration)
@@ -29,6 +43,13 @@ class ControlInspector(QWidget):
         self._preset_up.clicked.connect(lambda: self._adjust_preset(0.5))
         self._cycle_mode = QPushButton("Cycle TON / TOF / TP", self)
         self._cycle_mode.clicked.connect(self._cycle_timer_mode)
+        self._targets = QListWidget(self)
+        self._actions = QListWidget(self)
+        self._bind_button = QPushButton("Create Action Binding", self)
+        self._bind_button.clicked.connect(self._create_action_binding)
+        self._interlock_button = QPushButton("Create Interlock", self)
+        self._interlock_button.clicked.connect(self._create_interlock)
+
         root = QVBoxLayout(self)
         root.addWidget(QLabel("Control Inspector", self))
         root.addWidget(self._component_label)
@@ -39,6 +60,12 @@ class ControlInspector(QWidget):
         root.addLayout(controls)
         root.addWidget(self._cycle_mode)
         root.addWidget(self._apply)
+        root.addWidget(QLabel("Action target", self))
+        root.addWidget(self._targets)
+        root.addWidget(QLabel("Action", self))
+        root.addWidget(self._actions)
+        root.addWidget(self._bind_button)
+        root.addWidget(self._interlock_button)
         self._set_enabled(False)
 
     def show_read_model(self, read_model: Any, component_id: str | None) -> None:
@@ -48,17 +75,41 @@ class ControlInspector(QWidget):
             self._selected_type = None
             self._component_label.setText("Component: None")
             self._configuration_label.setText("")
+            self._targets.clear()
+            self._actions.clear()
             self._set_enabled(False)
             return
+
         self._selected_type = component.component_type
         configuration = dict(component.configuration)
         self._preset = float(configuration.get("preset", 1.0))
         self._mode = str(configuration.get("mode", "ton")).lower()
         self._component_label.setText(f"Component: {component.component_id} ({component.component_type})")
         self._configuration_label.setText(f"Configuration: {configuration}")
-        self._set_enabled(
+        self._targets.clear()
+        try:
+            network = self._application.read_network()
+            for element in network.elements:
+                target_type = str(element.element_type).lower()
+                if target_type in _ACTIONS:
+                    self._targets.addItem(f"{target_type}:{element.object_id}")
+        except RuntimeError:
+            pass
+        self._actions.clear()
+        for action in _ACTIONS.get("breaker", ()):
+            self._actions.addItem(action)
+        self._set_enabled(True)
+        self._apply.setEnabled(
             component.component_type == "timer"
             and self._application.supports("control.update_component")
+        )
+        self._bind_button.setEnabled(
+            bool(component.outputs)
+            and bool(self._targets.count())
+            and self._application.supports("control.add_action_binding")
+        )
+        self._interlock_button.setEnabled(
+            self._application.supports("control.add_interlock")
         )
 
     def _adjust_preset(self, delta: float) -> None:
@@ -79,9 +130,39 @@ class ControlInspector(QWidget):
             configuration={"preset": self._preset, "mode": self._mode},
         ))
 
+    def _create_action_binding(self) -> None:
+        if self._selected_id is None or not self._targets.currentItem() or not self._actions.currentItem():
+            return
+        target_type, target_id = self._targets.currentItem().text().split(":", 1)
+        action = self._actions.currentItem().text()
+        read_model = self._application.read_control()
+        component = next(c for c in read_model.components if c.component_id == self._selected_id)
+        self._application.execute(AddControlActionBinding(
+            binding={
+                "control_id": f"binding-{uuid4().hex[:12]}",
+                "source_component": component.component_id,
+                "source_output": component.outputs[0],
+                "target_equipment_id": target_id,
+                "target_equipment_type": target_type,
+                "action_type": action,
+                "reason": "Configured from Control Inspector",
+            }
+        ))
+
+    def _create_interlock(self) -> None:
+        if self._selected_id is None:
+            return
+        self._application.execute(AddControlInterlock(
+            configuration={
+                "interlock_id": f"interlock-{uuid4().hex[:12]}",
+                "required_inputs": [self._selected_id],
+            }
+        ))
+
     def _set_enabled(self, enabled: bool) -> None:
         for widget in (
-            self._apply, self._preset_down, self._preset_up, self._cycle_mode,
+            self._preset_down, self._preset_up, self._cycle_mode,
+            self._bind_button, self._interlock_button,
         ):
             widget.setEnabled(bool(enabled))
 
