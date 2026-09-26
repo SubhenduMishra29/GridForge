@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from ui.core.qt import QGraphicsScene, QPen, QPointF
+from ui.connections.connection_router import ConnectionRouter
+from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 
 from .semantic_presentation_realization import SemanticPresentationRealization
 from .sld_canvas_projection import SLDCanvasSnapshot
@@ -34,6 +36,8 @@ class SLDCanvasRenderSystem:
         self._item_factory = item_factory
         self._semantic_realization = semantic_realization
         self._items: dict[str, tuple[Any, ...]] = {}
+        self._connection_router = ConnectionRouter()
+        self._endpoint_resolver = SLDEndpointResolver()
 
     @property
     def scene(self) -> QGraphicsScene:
@@ -61,22 +65,32 @@ class SLDCanvasRenderSystem:
         if not isinstance(snapshot, SLDCanvasSnapshot):
             raise TypeError("snapshot must be an SLDCanvasSnapshot")
         self.clear()
-        positions = {node.node_id: QPointF(node.x, node.y) for node in snapshot.nodes}
-        for connection in snapshot.connections:
-            source = positions.get(connection.source_node_id)
-            target = positions.get(connection.target_node_id)
-            if source is None or target is None:
-                continue
-            item = self._item_factory.create_connection(connection, source, target)
-            item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
-            self._scene.addItem(item)
-            self._items[connection.connection_id] = (item,)
+        realized: dict[str, Any] = {}
+        # Realize nodes first so semantic endpoint resolution can use canonical
+        # SymbolDefinition anchors and Bus attachment geometry.
         for node in snapshot.nodes:
             selection = self._semantic_realization.realize(node)
             item = self._item_factory.create_node(node, selection)
             item.set_pen(self._pen(self.NODE_PEN_WIDTH))
             self._scene.addItem(item)
             self._items[node.node_id] = (item,)
+            realized[node.node_id] = item
+
+        for connection in snapshot.connections:
+            if connection.source_endpoint is None or connection.target_endpoint is None:
+                # Legacy snapshots are intentionally not rendered from node centers.
+                continue
+            source = self._endpoint_resolver.resolve(connection.source_endpoint, realized)
+            target = self._endpoint_resolver.resolve(connection.target_endpoint, realized)
+            route_points = connection.route.points
+            if connection.route.ownership == "auto":
+                route = self._connection_router.route((source.x(), source.y()), (target.x(), target.y()))
+                route_points = tuple(route.points[1:-1])
+            item = self._item_factory.create_connection(connection, source, target)
+            item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
+            item.set_pen(self._pen(self.CONNECTION_PEN_WIDTH))
+            self._scene.addItem(item)
+            self._items[connection.connection_id] = (item,)
 
     def clear(self) -> None:
         for items in tuple(self._items.values()):
