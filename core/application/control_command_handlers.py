@@ -14,6 +14,8 @@ from .commands.control_commands import (
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
     ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY,
     ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT,
+    ADD_CONTROL_ACTION_BINDING, REMOVE_CONTROL_ACTION_BINDING, ADD_CONTROL_INTERLOCK, REMOVE_CONTROL_INTERLOCK,
+    ADD_DYNAMIC_CONTROL_ASSOCIATION, REMOVE_DYNAMIC_CONTROL_ASSOCIATION,
 )
 from .results import ApplicationResult
 from .transaction import Transaction
@@ -40,6 +42,9 @@ class ControlCommandHandlers:
             ADD_LADDER_RUNG: self.add_rung,
             REMOVE_LADDER_RUNG: self.remove_rung,
             MOVE_LADDER_ELEMENT: self.move_element,
+            ADD_CONTROL_ACTION_BINDING: self.add_action_binding, REMOVE_CONTROL_ACTION_BINDING: self.remove_action_binding,
+            ADD_CONTROL_INTERLOCK: self.add_interlock, REMOVE_CONTROL_INTERLOCK: self.remove_interlock,
+            ADD_DYNAMIC_CONTROL_ASSOCIATION: self.add_dynamic_association, REMOVE_DYNAMIC_CONTROL_ASSOCIATION: self.remove_dynamic_association,
         }
 
     def add_component(self, command, context, transaction):
@@ -68,6 +73,13 @@ class ControlCommandHandlers:
 
     def move_element(self, command, context, transaction):
         return self._service.move_element(transaction, **dict(command.payload))
+
+    def add_action_binding(self, command, context, transaction): return self._service.add_action_binding(transaction, **dict(command.payload))
+    def remove_action_binding(self, command, context, transaction): return self._service.remove_action_binding(transaction, **dict(command.payload))
+    def add_interlock(self, command, context, transaction): return self._service.add_interlock(transaction, **dict(command.payload))
+    def remove_interlock(self, command, context, transaction): return self._service.remove_interlock(transaction, **dict(command.payload))
+    def add_dynamic_association(self, command, context, transaction): return self._service.add_dynamic_association(transaction, **dict(command.payload))
+    def remove_dynamic_association(self, command, context, transaction): return self._service.remove_dynamic_association(transaction, **dict(command.payload))
 
 
 __all__ = ["ControlCommandHandlers", "Handler"]

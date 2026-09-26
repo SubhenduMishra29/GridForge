@@ -232,27 +232,13 @@ class LogicInterlock(
             ),
         )
 
-    @property
-    def blocked(self) -> bool:
-        """
-        Semantic convenience property.
+    @staticmethod
+    def blocked_from_state(state: State) -> bool:
+        return bool(state["blocked"])
 
-        This property does not own state; the engine remains authoritative.
-        """
-
-        return bool(
-            self._last_blocked
-        )
-
-    @property
-    def interlock_state(self) -> InterlockState:
-        """Return the semantic interpretation of the latest state."""
-
-        return (
-            InterlockState.BLOCKED
-            if self.blocked
-            else InterlockState.CLEAR
-        )
+    @staticmethod
+    def interlock_state_from_state(state: State) -> InterlockState:
+        return InterlockState.BLOCKED if LogicInterlock.blocked_from_state(state) else InterlockState.CLEAR
 
     # ========================================================================
     # RESET
@@ -267,8 +253,6 @@ class LogicInterlock(
         An interlock starts blocked until all permissive conditions are
         explicitly satisfied.
         """
-
-        self._last_blocked = True
 
         return {
             "blocked": True,
@@ -383,8 +367,6 @@ class LogicInterlock(
                     },
                 )
             )
-
-        self._last_blocked = blocked
 
         return LogicControlResult(
             outputs={

@@ -11,10 +11,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from enum import Enum
 from typing import Any, Mapping
 
 from .read_service import ReadService
 
+
+class ControlSignalQuality(str, Enum):
+    VALID="valid"; INVALID="invalid"; STALE="stale"; UNAVAILABLE="unavailable"; WRONG_TYPE="wrong_type"; MISSING="missing"
 
 @dataclass(frozen=True, slots=True, order=True)
 class ControlSignalSource:
@@ -72,6 +76,7 @@ class ControlSignalResolution:
 
     external_inputs: Mapping[str, Mapping[str, Any]]
     bindings: tuple[ControlSignalBinding, ...]
+    quality: Mapping[ControlSignalBinding, ControlSignalQuality] = field(default_factory=dict)
     diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -81,6 +86,7 @@ class ControlSignalResolution:
         }
         object.__setattr__(self, "external_inputs", MappingProxyType(frozen_inputs))
         object.__setattr__(self, "bindings", tuple(self.bindings))
+        object.__setattr__(self, "quality", MappingProxyType(dict(self.quality)))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
 
 
@@ -113,6 +119,7 @@ class ControlSignalMapping:
             raise TypeError("read_service must implement ReadService.")
 
         external_inputs: dict[str, dict[str, Any]] = {}
+        quality: dict[ControlSignalBinding, ControlSignalQuality] = {}
         diagnostics: list[str] = []
 
         for binding in self.bindings:
@@ -141,6 +148,15 @@ class ControlSignalMapping:
                 continue
 
             value = attributes[source.signal]
+            signal_quality=ControlSignalQuality.VALID
+            if isinstance(value, Mapping) and "value" in value:
+                try: signal_quality=ControlSignalQuality(str(value.get("quality","valid")))
+                except ValueError: signal_quality=ControlSignalQuality.WRONG_TYPE
+                value=value.get("value")
+            quality[binding]=signal_quality
+            if signal_quality is not ControlSignalQuality.VALID:
+                diagnostics.append(f"Signal '{source.signal}' on {source.element_type}:{source.object_id} has quality {signal_quality.value}.")
+                continue
             if source.expected_type is not None and not isinstance(value, source.expected_type):
                 expected = source.expected_type
                 expected_name = (
@@ -159,13 +175,11 @@ class ControlSignalMapping:
         if diagnostics:
             raise ControlSignalResolutionError(tuple(diagnostics))
 
-        return ControlSignalResolution(
-            external_inputs=external_inputs,
-            bindings=self.bindings,
-        )
+        return ControlSignalResolution(external_inputs=external_inputs, bindings=self.bindings, quality=quality)
 
 
 __all__ = [
+    "ControlSignalQuality",
     "ControlSignalSource",
     "ControlSignalDestination",
     "ControlSignalBinding",

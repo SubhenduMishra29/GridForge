@@ -32,3 +32,5 @@ __all__ = [
     "InterlockResult",
     "ControlInput",
 ]
+
+from .configuration import ControlConfiguration, InterlockConfiguration, DynamicControlAssociation

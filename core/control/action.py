@@ -51,7 +51,18 @@ class ControlActionBinding:
         if not isinstance(self.action_type, ControlActionType):
             object.__setattr__(self, "action_type", ControlActionType(self.action_type))
 
-    def decision(self, *, simulation_time: float) -> ControlDecision:
+    @property
+    def binding_id(self) -> str: return self.control_id
+    @property
+    def source_control_id(self) -> str: return self.control_id
+    @property
+    def target_type(self) -> str: return self.target_equipment_type
+    @property
+    def target_id(self) -> str: return self.target_equipment_id
+    @property
+    def action(self) -> ControlActionType: return self.action_type
+
+    def decision(self, *, simulation_time: float):
         """Produce an immutable intent from an asserted logic output."""
         return ControlDecision(
             control_id=self.control_id,

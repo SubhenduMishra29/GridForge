@@ -22,6 +22,8 @@ from .commands.control_commands import (
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
     ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT,
     ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY,
+    ADD_CONTROL_ACTION_BINDING, REMOVE_CONTROL_ACTION_BINDING, ADD_CONTROL_INTERLOCK, REMOVE_CONTROL_INTERLOCK,
+    ADD_DYNAMIC_CONTROL_ASSOCIATION, REMOVE_DYNAMIC_CONTROL_ASSOCIATION,
 )
 from .control_cycle import ControlCycleResult, ControlCycleService
 from .control_dispatch import ControlCommandDispatcher
@@ -29,7 +31,7 @@ from .control_execution import ControlExecutionService
 from .control_events import (
     ControlComponentCreated, ControlComponentRemoved,
     ControlConnectionCreated, ControlConnectionRemoved,
-    ControlProgramChanged,
+    ControlProgramChanged, ControlExecutionStarted, ControlExecutionCompleted, ControlExecutionFailed, ControlStateChanged,
 )
 from .event_bus import ApplicationEventBus
 from .events import (
@@ -69,7 +71,8 @@ class Application:
                  protection_read_service: ProtectionReadService | None = None,
                  validation_service: ValidationService | None = None,
                  sld_service: SLDService | None = None,
-                 measurement_channel_service: MeasurementChannelService | None = None) -> None:
+                 measurement_channel_service: MeasurementChannelService | None = None,
+                 control_service: ControlApplicationService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service must implement ReadService.")
         if event_bus is not None and not isinstance(event_bus, ApplicationEventBus): raise TypeError("Application event_bus must be an ApplicationEventBus.")
@@ -82,6 +85,7 @@ class Application:
         self._protection_read_service = protection_read_service
         self._validation_service = validation_service
         self._sld_service = sld_service
+        self._control_service = control_service
         self._measurement_channel_service = measurement_channel_service
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
@@ -96,6 +100,10 @@ class Application:
     def event_bus(self) -> ApplicationEventBus: return self._event_bus
     @property
     def control_execution(self) -> ControlExecutionService: return self._control_execution
+    @property
+    def control_service(self) -> ControlApplicationService:
+        if self._control_service is None: raise RuntimeError("Application Control service is not configured.")
+        return self._control_service
     @property
     def study_service(self) -> StudyService: return self._study_service
     @property
@@ -457,11 +465,15 @@ class Application:
         if context is None: return None
         return replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
 
-    def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None,
-                              external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
-                              context: ControlExecutionContext | None = None,
-                              interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None) -> ControlCycleResult:
-        return ControlCycleService(control_engine, self._control_execution).execute(simulation_time=simulation_time, external_inputs=external_inputs, context=context, interlock_inputs=interlock_inputs)
+    def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None, external_inputs: Mapping[str, Mapping[str, Any]] | None = None, context: ControlExecutionContext | None = None, interlock_inputs: Mapping[str, Mapping[str, Any]] | None = None) -> ControlCycleResult:
+        t=context.simulation_time if context is not None else simulation_time; scope=self._project_scope_metadata()
+        self._event_bus.publish(ControlExecutionStarted(metadata={**scope,"simulation_time":t}))
+        try: result=ControlCycleService(control_engine,self._control_execution,read_service=self._read_service).execute(simulation_time=simulation_time,external_inputs=external_inputs,context=context,interlock_inputs=interlock_inputs)
+        except Exception as exc:
+            self._event_bus.publish(ControlExecutionFailed(metadata={**scope,"simulation_time":t,"error":str(exc)})); raise
+        self._event_bus.publish(ControlExecutionCompleted(metadata={**scope,"simulation_time":result.simulation_time,"executed_count":len(result.execution.executed_decisions),"blocked_count":len(result.execution.blocked_decisions),"failed_count":len(result.execution.failed_decisions)}))
+        self._event_bus.publish(ControlStateChanged(metadata={**scope,"simulation_time":result.simulation_time,"state":"completed" if not result.execution.failed_decisions else "completed_with_failures"}))
+        return result
 
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command): raise TypeError("Application.execute requires a Command.")
@@ -510,6 +522,12 @@ class Application:
     def undo_commands(self) -> tuple: return self._command_manager.undo_commands()
     def redo_commands(self) -> tuple: return self._command_manager.redo_commands()
     def clear_history(self) -> None: self._command_manager.clear_history()
+
+    def read_control(self):
+        service = getattr(self, "control_service", None)
+        if service is None:
+            raise RuntimeError("Application Control service is not configured.")
+        return service.read()
 
     def read_network(self) -> NetworkReadModel:
         self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
@@ -573,13 +591,13 @@ class Application:
                                                           causation_id=command.causation_id))
 
     def _publish_control_event(self, command: Command, result: ApplicationResult, metadata: dict[str, object], *, operation: str) -> None:
-        command_type = command.command_type; payload = dict(result.metadata); payload.update(metadata)
-        cid, caid = command.correlation_id, command.causation_id
-        if command_type == ADD_CONTROL_COMPONENT: self._event_bus.publish(ControlComponentCreated(component_id=str(payload["component_id"]), component_type=str(payload["component_type"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type == REMOVE_CONTROL_COMPONENT: self._event_bus.publish(ControlComponentRemoved(component_id=str(payload["component_id"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type == CONNECT_CONTROL_SIGNALS: self._event_bus.publish(ControlConnectionCreated(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type == DISCONNECT_CONTROL_SIGNALS: self._event_bus.publish(ControlConnectionRemoved(source_id=str(command.payload["source_component"]), target_id=str(command.payload["target_component"]), metadata=payload, correlation_id=cid, causation_id=caid))
-        elif command_type in {ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT, ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY}: self._event_bus.publish(ControlProgramChanged(metadata={**payload, "command_type": command_type}, correlation_id=cid, causation_id=caid))
+        command_type=command.command_type; payload=dict(result.metadata); payload.update(metadata); cid,caid=command.correlation_id,command.causation_id
+        effective=command_type if operation!="undo" else {ADD_CONTROL_COMPONENT:REMOVE_CONTROL_COMPONENT,REMOVE_CONTROL_COMPONENT:ADD_CONTROL_COMPONENT,CONNECT_CONTROL_SIGNALS:DISCONNECT_CONTROL_SIGNALS,DISCONNECT_CONTROL_SIGNALS:CONNECT_CONTROL_SIGNALS,ADD_LADDER_RUNG:REMOVE_LADDER_RUNG,REMOVE_LADDER_RUNG:ADD_LADDER_RUNG,ADD_LOGIC_DEPENDENCY:REMOVE_LOGIC_DEPENDENCY,REMOVE_LOGIC_DEPENDENCY:ADD_LOGIC_DEPENDENCY,ADD_CONTROL_ACTION_BINDING:REMOVE_CONTROL_ACTION_BINDING,REMOVE_CONTROL_ACTION_BINDING:ADD_CONTROL_ACTION_BINDING,ADD_CONTROL_INTERLOCK:REMOVE_CONTROL_INTERLOCK,REMOVE_CONTROL_INTERLOCK:ADD_CONTROL_INTERLOCK,ADD_DYNAMIC_CONTROL_ASSOCIATION:REMOVE_DYNAMIC_CONTROL_ASSOCIATION,REMOVE_DYNAMIC_CONTROL_ASSOCIATION:ADD_DYNAMIC_CONTROL_ASSOCIATION}.get(command_type,command_type)
+        if effective==ADD_CONTROL_COMPONENT: self._event_bus.publish(ControlComponentCreated(component_id=str(payload["component_id"]),component_type=str(payload.get("component_type","")),metadata=payload,correlation_id=cid,causation_id=caid))
+        elif effective==REMOVE_CONTROL_COMPONENT: self._event_bus.publish(ControlComponentRemoved(component_id=str(payload["component_id"]),metadata=payload,correlation_id=cid,causation_id=caid))
+        elif effective==CONNECT_CONTROL_SIGNALS: self._event_bus.publish(ControlConnectionCreated(source_id=str(command.payload["source_component"]),target_id=str(command.payload["target_component"]),metadata=payload,correlation_id=cid,causation_id=caid))
+        elif effective==DISCONNECT_CONTROL_SIGNALS: self._event_bus.publish(ControlConnectionRemoved(source_id=str(command.payload["source_component"]),target_id=str(command.payload["target_component"]),metadata=payload,correlation_id=cid,causation_id=caid))
+        elif command_type.startswith("control."): self._event_bus.publish(ControlProgramChanged(metadata={**payload,"command_type":command_type,"effective_event":effective},correlation_id=cid,causation_id=caid))
 
     def _publish_history_events(self, command: Command | None, result: ApplicationResult, *, operation: str) -> None:
         if command is not None: self._publish_semantic_events(command, result, operation=operation)
