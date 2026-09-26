@@ -227,7 +227,7 @@ class Application:
         revision_state = self._revision_service.snapshot_state()
         try:
             result = transition()
-        except Exception:
+        except BaseException:
             self._revision_service.restore_state(revision_state)
             raise
 
