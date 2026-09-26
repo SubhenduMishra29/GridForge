@@ -945,3 +945,47 @@ The supplied Control finding IDs are preserved here as one consolidated root-cau
 **Status:** `REMEDIATED — VERIFICATION DEFERRED` for the implemented configuration/lifecycle/logic/action/interlock boundaries. **Deferred:** full AVR/PSS physical excitation integration and complete controller-to-DAE runtime wiring because the existing classical machine model exposes fixed `Efd` rather than a dynamic excitation state. No unsupported physical behavior was introduced.
 
 **Evidence boundary:** per-ID historical wording is not present in the current register, so this consolidated record does not claim one-to-one per-ID closure. The IDs remain preserved for later exact register reconciliation.
+
+## 2026-09-26 — Control runtime lifecycle remediation
+
+**Repository:** `madhuri196mishra-cpu/GridForge`  
+**Branch:** `main`  
+**Verification mode:** static source inspection only; no pytest, unittest, CI, startup, GUI, or runtime execution was performed.  
+**Status discipline:** source correction is **REMEDIATED — VERIFICATION DEFERRED** until runtime verification is separately performed.
+
+| ID | Finding | Severity | Static disposition | Evidence |
+|---|---|---|---|---|
+| GF-CTRL-ACT-001 | Control runtime not fully composed into Application | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | `core/application/application.py` now owns the canonical ControlEngine and ControlCycleService; bootstrap supplies the existing ControlApplicationService and ControlExecutionService. |
+| GF-CTRL-ACT-002 | ControlEngine must follow active LadderProgram.engine | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | `core/control/engine.py` atomically binds `configuration.program.engine`; Application cycle validation checks object identity. |
+| GF-CTRL-ACT-003 | Project activation/replacement must atomically synchronize Control runtime | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | `core/application/bootstrap.py` binds Control runtime during the existing ProjectLifecycleService project-state activation transaction and passes activation generation. |
+| GF-CTRL-ACT-004 | Close and rollback must restore/clear complete Control runtime | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Close calls ControlEngine.deactivate(); activation failure restores the prior ControlConfiguration and ControlEngine generation through lifecycle compensation. |
+| GF-CTRL-ACT-005 | No single Application-owned public Control-cycle boundary | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | `Application.execute_control_cycle()` no longer accepts an arbitrary ControlEngine and delegates only to the Application-owned ControlCycleService. |
+| GF-CTRL-ACT-006 | DynamicControlAssociation activation semantics require explicit contract | MEDIUM/HIGH | **REMEDIATED — VERIFICATION DEFERRED** | `DynamicControlAssociation` remains identifier-only persisted configuration; no live plugin object is serialized and no second dynamic-control authority was introduced. |
+| GF-CTRL-ACT-007 | Project identity/activation-generation runtime invariant | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Application cycle execution validates active project identity, ControlConfiguration identity, LogicEngine identity, and ControlEngine activation generation against ProjectLifecycleService. |
+
+### Static Control runtime composition
+
+```
+Project
+  ↓
+ControlApplicationService
+  ↓
+LadderProgram
+  ↓
+LogicEngine
+  ↓
+ControlEngine
+  ↓
+ControlCycleService
+  ↓
+ControlExecutionService
+  ↓
+Application.execute()
+  ↓
+CommandManager
+  ↓
+Core
+```
+
+Production construction audit found the canonical runtime construction confined to `core/application/application.py` and `core/application/bootstrap.py`. No ControlEngine/ControlCycleService/ControlExecutionService construction was found in the Control UI workspace, Control tools, Control plugins, or Control update coordinator inspected for this remediation.
+
