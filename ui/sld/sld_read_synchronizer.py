@@ -459,14 +459,18 @@ class SLDReadSynchronizer:
             ))
             return
         if existing.properties.get("presentation_owner") == "engineer":
-            # Projection reconciles semantic metadata but never destroys engineer-owned route state.
+            # Reconcile semantic endpoint identity only. Engineer ownership
+            # deliberately excludes projection_source so the next refresh
+            # cannot classify the route as projection-owned and overwrite it.
             existing.source_node_id = source_node_id
             existing.target_node_id = target_node_id
             if source_endpoint is not None:
                 existing.source_endpoint = source_endpoint
             if target_endpoint is not None:
                 existing.target_endpoint = target_endpoint
-            existing.properties.update(dict(properties))
+            semantic_properties = dict(properties)
+            semantic_properties.pop("projection_source", None)
+            existing.properties.update(semantic_properties)
             return
         route = existing.route
         existing.source_node_id = source_node_id
