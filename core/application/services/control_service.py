@@ -428,6 +428,18 @@ class ControlApplicationService:
             metadata={"rung_id": rung_id, "enabled": updated.enabled},
         )
 
+    def move_rung(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
+        rung_id = str(payload["rung_id"])
+        rung = self.program.rung(rung_id)
+        previous = rung.order
+        updated = self.program.move_rung(rung_id, order=int(payload["order"]))
+        transaction.record_undo(lambda: self.program.move_rung(rung_id, order=previous))
+        return ApplicationResult.success_result(
+            value=updated,
+            message=f"Ladder rung '{rung_id}' moved.",
+            metadata={"rung_id": rung_id, "order": updated.order},
+        )
+
     def read(self) -> ControlProgramReadModel:
         locations = {
             element.component_id: (rung.rung_id, element.position)
