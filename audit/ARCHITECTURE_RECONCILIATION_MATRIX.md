@@ -4,7 +4,7 @@ Baseline: `main` `4edcfd511300c868a30f2813ea1951fdc279374a`
 
 | Area | Frozen Requirement | Current Implementation Evidence | Status | Finding IDs | Root Cause |
 |---|---|---|---|---|---|
-| Core boundary | Core is authoritative electrical/domain truth; independent of Qt/UI | Current composition imports Core from `main.py`; historical audits retain Core authority as baseline | UNVERIFIED | GF-MASTER-0041 | Broad consumer-level proof is incomplete |
+| Core boundary | Core is authoritative electrical/domain truth; independent of Qt/UI | Current composition imports Core from `main.py`; historical audits retain Core authority as baseline | REMEDIATED — VERIFICATION DEFERRED | GF-MASTER-0041 | Broad consumer-level proof is incomplete |
 | Application boundary | Sole UI↔Core orchestration/mutation boundary | `main.py` creates Application; historical C9 read facade and protection command boundary are documented | UNVERIFIED | GF-MASTER-0016, 0029, 0037 | Runtime and consumer-wide proof incomplete |
 | UI/Core adapter | UI expresses intent through Application | Application/UI workspace adapters are present | UNVERIFIED | GF-MASTER-0016, 0037 | Execution path not fully verified |
 | Command pipeline | immutable Command → Application.execute → CommandManager → Core | Protection closure documents this exact path | UNVERIFIED | GF-MASTER-0029, 0037 | End-to-end execution evidence absent |
@@ -17,10 +17,10 @@ Baseline: `main` `4edcfd511300c868a30f2813ea1951fdc279374a`
 | Study provenance | Results must carry stable revision/identity provenance | Historical audit explicitly identified inconsistent revision/result provenance | OPEN | GF-MASTER-0021, 0026, 0036 | Result contracts evolved unevenly |
 | Persistence | `.gridforge` with manifest + project JSON is canonical | `pyproject` unrelated; historical persistence audit records package boundary | UNVERIFIED | GF-MASTER-0031, 0032 | Round-trip execution absent |
 | Project lifecycle | Application owns load/reconstruction; Network owns authoritative reconstructed state | Main composition creates Network then Application; lifecycle audit records adapters | UNVERIFIED | GF-MASTER-0016, 0031 | Runtime reconstruction not executed |
-| SLD model | SLD is projection, not second electrical database | SLDDocument/SLDProjection/SLDReadSynchronizer architecture documented | UNVERIFIED | GF-MASTER-0038, 0039, 0040 |
+| SLD model | SLD is projection, not second electrical database | SLDDocument/SLDProjection/SLDReadSynchronizer architecture documented | REMEDIATED — VERIFICATION DEFERRED | GF-MASTER-0038, 0039, 0040 |
 | SLD projection | Read models flow through projection to canvas | C9 and UI audit document the projection stack | UNVERIFIED | GF-MASTER-0016, 0040 |
 | SLD terminal identity | UI terminal identity ultimately resolves to Core Terminal | Historical terminal/equipment audit remains unresolved at consumer level | OPEN | GF-MASTER-0003, 0038 |
-| Equipment identity | Stable equipment IDs propagate through read/projection | `equipment_id` audit checkpoint established; complete current sweep not proven | UNVERIFIED | GF-MASTER-0038, 0040 |
+| Equipment identity | Stable equipment IDs propagate through read/projection | `equipment_id` audit checkpoint established; complete current sweep not proven | REMEDIATED — VERIFICATION DEFERRED | GF-MASTER-0038, 0040 |
 | EndpointReference | Canonical endpoint resolver owns endpoint interpretation | Historical current-head audit identified `core/network/endpoint.py` as canonical | UNVERIFIED | GF-MASTER-0003 |
 | Connection lifecycle | UI connection is not topology authority | Frozen architecture says `core/network` owns global connectivity | OPEN | GF-MASTER-0039 |
 | Topology | Core/network owns global connectivity | Contract explicitly states this | UNVERIFIED | GF-MASTER-0039, 0041 |
@@ -35,7 +35,7 @@ Baseline: `main` `4edcfd511300c868a30f2813ea1951fdc279374a`
 | Documentation | Documentation must reflect current architecture/evidence | Multiple historical closure docs conflict with current unresolved evidence | OPEN | GF-MASTER-0005 |
 | Runtime/startup | Fresh-process import/startup must be proven | Startup workflow exists; no successful run established; current Dynamics API is inconsistent | OPEN | GF-MASTER-0007, 0008, 0011, 0012 |
 | Testing | Resolution requires executable evidence | Registers repeatedly state tests were not executed | OPEN | GF-MASTER-0044 |
-| Migration/redundancy | One authority per responsibility; no deletion from search absence | Historical registers explicitly warn indexed absence is insufficient | UNVERIFIED | GF-MASTER-0043 |
+| Migration/redundancy | One authority per responsibility; no deletion from search absence | Historical registers explicitly warn indexed absence is insufficient | REMEDIATED — VERIFICATION DEFERRED | GF-MASTER-0043 |
 | Numerical PU | One canonical PU conversion authority; YBus consumes prepared PU | Current-head audit records `PerUnitSystem` and prepared YBus boundary | UNVERIFIED | GF-MASTER-0025 |
 | Transformer basis | Basis explicit; conversion in preparation/migration | Current-head audit records `pu`/`engineering` basis and pending verification | UNVERIFIED | GF-MASTER-0023 |
 | Reactive equipment | Capacitor/Reactor feed prepared shunt representation | Historical remediation records `PreparedShunt` integration | UNVERIFIED | GF-MASTER-0024 |
