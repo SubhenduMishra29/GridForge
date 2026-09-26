@@ -45,6 +45,7 @@ class ControlInspector(QWidget):
         self._cycle_mode.clicked.connect(self._cycle_timer_mode)
         self._targets = QListWidget(self)
         self._actions = QListWidget(self)
+        self._targets.currentItemChanged.connect(lambda *_: self._refresh_action_choices())
         self._bind_button = QPushButton("Create Action Binding", self)
         self._bind_button.clicked.connect(self._create_action_binding)
         self._interlock_button = QPushButton("Create Interlock", self)
@@ -95,9 +96,7 @@ class ControlInspector(QWidget):
                     self._targets.addItem(f"{target_type}:{element.object_id}")
         except RuntimeError:
             pass
-        self._actions.clear()
-        for action in _ACTIONS.get("breaker", ()):
-            self._actions.addItem(action)
+        self._refresh_action_choices()
         self._set_enabled(True)
         self._apply.setEnabled(
             component.component_type == "timer"
@@ -129,6 +128,15 @@ class ControlInspector(QWidget):
             component_type="timer",
             configuration={"preset": self._preset, "mode": self._mode},
         ))
+
+    def _refresh_action_choices(self) -> None:
+        self._actions.clear()
+        item = self._targets.currentItem()
+        if item is None:
+            return
+        target_type, _target_id = item.text().split(":", 1)
+        for action in _ACTIONS.get(target_type, ()):
+            self._actions.addItem(action)
 
     def _create_action_binding(self) -> None:
         if self._selected_id is None or not self._targets.currentItem() or not self._actions.currentItem():
