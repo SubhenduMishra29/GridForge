@@ -15,7 +15,6 @@ from core.application.commands.model_commands import CreateCableCommand
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
-from .sld_connection_presentation_adapter import SLDConnectionPresentationAdapter
 from .tool_base import ToolBase
 
 
@@ -165,7 +164,6 @@ class CableTool(ToolBase):
             in_service=bool(parameters.get("in_service", True)),
         )
         result = self.execute_command(command)
-        SLDConnectionPresentationAdapter.execute(self._application, self.execute_command, connection_id=cable_id, source_snap=source_snap, target_snap=target_snap)
         return result
 
     @staticmethod
