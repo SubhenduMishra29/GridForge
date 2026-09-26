@@ -45,6 +45,7 @@ class ControlInspector(QWidget):
         self._preset_up.clicked.connect(lambda _checked=False: self._adjust_preset(0.5))
         self._cycle_mode = QPushButton("Cycle TON / TOF / TP", self)
         self._cycle_mode.clicked.connect(lambda _checked=False: self._cycle_timer_mode())
+        self._outputs = QListWidget(self)
         self._targets = QListWidget(self)
         self._actions = QListWidget(self)
         self._targets.currentItemChanged.connect(lambda *_: self._refresh_action_choices())
@@ -65,6 +66,8 @@ class ControlInspector(QWidget):
         root.addLayout(controls)
         root.addWidget(self._cycle_mode)
         root.addWidget(self._apply)
+        root.addWidget(QLabel("Logic output", self))
+        root.addWidget(self._outputs)
         root.addWidget(QLabel("Action target", self))
         root.addWidget(self._targets)
         root.addWidget(QLabel("Action", self))
@@ -81,6 +84,7 @@ class ControlInspector(QWidget):
             self._component_label.setText("Component: None")
             self._configuration_label.setText("")
             self._rung_label.setText("Rung: None")
+            self._outputs.clear()
             self._targets.clear()
             self._actions.clear()
             self._set_enabled(False)
@@ -93,6 +97,9 @@ class ControlInspector(QWidget):
         self._component_label.setText(f"Component: {component.component_id} ({component.component_type})")
         self._rung_label.setText(f"Rung: {component.rung_id or 'None'} | position={component.position}")
         self._configuration_label.setText(f"Configuration: {configuration}")
+        self._outputs.clear()
+        for output in component.outputs:
+            self._outputs.addItem(output)
         self._targets.clear()
         try:
             network = self._application.read_network()
@@ -109,7 +116,7 @@ class ControlInspector(QWidget):
             and self._application.supports("control.update_component")
         )
         self._bind_button.setEnabled(
-            bool(component.outputs)
+            bool(self._outputs.currentItem())
             and bool(self._targets.count())
             and self._application.supports("control.add_action_binding")
         )
@@ -121,6 +128,7 @@ class ControlInspector(QWidget):
         self._selected_id = None
         self._selected_type = None
         self._set_enabled(False)
+        self._outputs.clear()
         self._targets.clear()
         self._actions.clear()
         rung = next((item for item in read_model.rungs if item.rung_id == rung_id), None) if rung_id else None
@@ -179,8 +187,9 @@ class ControlInspector(QWidget):
             self._actions.addItem(action)
 
     def _create_action_binding(self) -> None:
-        if self._selected_id is None or not self._targets.currentItem() or not self._actions.currentItem():
+        if self._selected_id is None or not self._outputs.currentItem() or not self._targets.currentItem() or not self._actions.currentItem():
             return
+        source_output = self._outputs.currentItem().text()
         target_type, target_id = self._targets.currentItem().text().split(":", 1)
         action = self._actions.currentItem().text()
         read_model = self._application.read_control()
@@ -189,7 +198,7 @@ class ControlInspector(QWidget):
             binding={
                 "control_id": f"binding-{uuid4().hex[:12]}",
                 "source_component": component.component_id,
-                "source_output": component.outputs[0],
+                "source_output": source_output,
                 "target_equipment_id": target_id,
                 "target_equipment_type": target_type,
                 "action_type": action,
