@@ -279,14 +279,14 @@ class SLDConnection:
             object.__setattr__(self, "route", SLDRoute.from_dict(self.route))
         elif not isinstance(self.route, SLDRoute):
             raise TypeError("route must be an SLDRoute or mapping")
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate endpoint identity against the connection's node identity."""
         if self.source_endpoint is not None and self.source_endpoint.node_id != self.source_node_id:
-            raise ValueError(
-                "source_endpoint.node_id must match source_node_id"
-            )
+            raise ValueError("source_endpoint.node_id must match source_node_id")
         if self.target_endpoint is not None and self.target_endpoint.node_id != self.target_node_id:
-            raise ValueError(
-                "target_endpoint.node_id must match target_node_id"
-            )
+            raise ValueError("target_endpoint.node_id must match target_node_id")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -473,6 +473,7 @@ class SLDModel:
                 f"{connection.target_node_id!r}"
             )
 
+        connection.validate()
         self._connections[connection.connection_id] = connection
         return connection
 
