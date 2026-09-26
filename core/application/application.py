@@ -553,15 +553,47 @@ class Application:
         action = self._action_from_command_type(command.command_type); element_type = self._element_type(command); element_id = self._element_id(command)
         if element_type is None or element_id is None: return
         effective_action = {"create": "delete", "delete": "create"}.get(action, action) if operation == "undo" else action
-        if effective_action == "create": self._event_bus.publish(ElementCreated(element_id=element_id, element_type=element_type, metadata=metadata))
-        elif effective_action == "delete": self._event_bus.publish(ElementRemoved(element_id=element_id, element_type=element_type, metadata=metadata))
-        elif effective_action in {"update", "open", "close", "reset", "blow", "trip", "put_in_service", "take_out_of_service"}: self._event_bus.publish(ElementUpdated(element_id=element_id, element_type=element_type, changes=metadata))
+        if effective_action == "create":
+            self._event_bus.publish(ElementCreated(
+                element_id=element_id,
+                element_type=element_type,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+        elif effective_action == "delete":
+            self._event_bus.publish(ElementRemoved(
+                element_id=element_id,
+                element_type=element_type,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+        elif effective_action in {"update", "open", "close", "reset", "blow", "trip", "put_in_service", "take_out_of_service"}:
+            self._event_bus.publish(ElementUpdated(
+                element_id=element_id,
+                element_type=element_type,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                changes=metadata,
+            ))
 
     def _publish_network_changed(self, command: Command, metadata: dict[str, object]) -> None:
         if not self._is_network_change_command(command): return
         operation = str(metadata.get("operation", "execute"))
-        if self._is_topology_command(command): self._event_bus.publish(TopologyChanged(operation=operation, metadata=metadata))
-        self._event_bus.publish(NetworkChanged(operation=operation, metadata=metadata))
+        if self._is_topology_command(command):
+            self._event_bus.publish(TopologyChanged(
+                operation=operation,
+                metadata=metadata,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
+        self._event_bus.publish(NetworkChanged(
+            operation=operation,
+            metadata=metadata,
+            correlation_id=command.correlation_id,
+            causation_id=command.causation_id,
+        ))
 
     @classmethod
     def _is_network_change_command(cls, command: Command) -> bool:
