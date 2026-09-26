@@ -58,6 +58,7 @@ class ControlWorkspace(QWidget):
             application=application,
             on_add_rung=self._add_rung,
             on_remove_rung=self._remove_rung,
+            on_toggle_rung=self._toggle_rung,
             on_cancel_tool=self._interaction.cancel,
         )
         self._view = _LadderView(interaction=self._interaction, scene=self._canvas)
@@ -96,6 +97,14 @@ class ControlWorkspace(QWidget):
         from core.application.commands.control_commands import AddLadderRung
         count = len(self._application.read_control().rungs)
         self._application.execute(AddLadderRung(rung_id=f"rung-{count + 1:03d}", order=count))
+
+    def _toggle_rung(self) -> None:
+        from core.application.commands.control_commands import SetLadderRungEnabled
+        model = self._application.read_control()
+        if not model.rungs:
+            return
+        rung = model.rungs[-1]
+        self._application.execute(SetLadderRungEnabled(rung_id=rung.rung_id, enabled=not rung.enabled))
 
     def _remove_rung(self) -> None:
         model = self._application.read_control()
