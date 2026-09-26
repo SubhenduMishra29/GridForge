@@ -914,7 +914,7 @@ class Application:
     def _element_id(command: Command) -> str | None:
         payload = command.payload; value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
         if value is None:
-            for key in ("bus_id", "breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
+            for key in ("bus_id", "grid_id", "generator_id", "synchronous_machine_id", "load_id", "motor_id", "shunt_id", "reactor_id", "solar_id", "battery_id", "capacitor_id", "breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
                 if key in payload: value = payload[key]; break
         return str(value) if value is not None else None
 
