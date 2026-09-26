@@ -181,14 +181,15 @@ def create_application(network: Any) -> Application:
         previous_dynamic_models = dynamic_models.snapshot()
         previous_control_configuration = control_service.configuration
         previous_control_generation = application.control_engine.activation_generation
+        previous_control_active = application.control_engine.configuration is not None
 
         def restore_control_runtime() -> None:
-            if previous_control_configuration is None:
+            if not previous_control_active:
                 application.control_engine.deactivate()
             else:
                 application.control_engine.configure(
                     previous_control_configuration,
-                    activation_generation=previous_control_generation or generation,
+                    activation_generation=previous_control_generation,
                 )
             control_service.activate(previous_control_configuration)
 
