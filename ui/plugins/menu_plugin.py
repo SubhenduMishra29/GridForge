@@ -136,6 +136,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
         )),
         MenuSpec("view", "View", (
             a("view.sld_workspace", "SLD Workspace"),
+            a("view.control_workspace", "Control Workspace"),
             a("view.equipment_browser", "Equipment Browser"),
             a("view.fit", "Fit SLD View"),
         )),
