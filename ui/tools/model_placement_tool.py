@@ -11,6 +11,7 @@ from typing import Any, Optional, Tuple
 from uuid import uuid4
 
 from .tool_base import ToolBase
+from ui.canvas.symbol_preview_item import SymbolPreviewItem
 
 
 class ModelPlacementTool(ToolBase):
@@ -145,14 +146,15 @@ class ModelPlacementTool(ToolBase):
         if not self.SYMBOL_ID:
             raise RuntimeError(f"{self.MODEL_NAME} has no canonical SYMBOL_ID.")
         definition = self._symbol_registry.require(self.SYMBOL_ID)
-        show_symbol = getattr(self._preview_layer, "show_symbol", None)
-        if not callable(show_symbol):
-            raise TypeError("PreviewLayer must provide show_symbol().")
-        show_symbol(
+        item = SymbolPreviewItem(
             definition,
-            position,
+            position=position,
             rotation=0.0,
         )
+        replace = getattr(self._preview_layer, "replace", None)
+        if not callable(replace):
+            raise TypeError("PreviewLayer must provide replace().")
+        replace((item,))
 
     def _build_command(self) -> Any:
         command_class = self.COMMAND_CLASS
