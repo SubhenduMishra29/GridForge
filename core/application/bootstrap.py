@@ -336,8 +336,6 @@ def create_application(network: Any) -> Application:
         return Network()
 
     application.dynamic_models = dynamic_models
-    application.control_service = control_service
-    application._control_service = control_service
 
     lifecycle = ProjectLifecycleService(
         network=network,
