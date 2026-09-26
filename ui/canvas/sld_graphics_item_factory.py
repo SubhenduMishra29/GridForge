@@ -18,6 +18,7 @@ from ui.items.equipment_item import EquipmentItem
 from ui.sld.items.sld_connection_item import SLDConnectionItem
 
 from .semantic_presentation_realization import PresentationSelection
+from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
 from .sld_canvas_projection import SLDCanvasConnection, SLDCanvasNode
 
 
@@ -124,8 +125,8 @@ class SLDGraphicsItemFactory:
 
     @staticmethod
     def _bus_span(node: SLDCanvasNode) -> tuple[QPointF, QPointF]:
-        raw_start = node.properties.get("start", (-80.0, 0.0))
-        raw_end = node.properties.get("end", (80.0, 0.0))
+        raw_start = node.properties.get("start", DEFAULT_SLD_BUS_PRESENTATION.start)
+        raw_end = node.properties.get("end", DEFAULT_SLD_BUS_PRESENTATION.end)
         if not isinstance(raw_start, (tuple, list)) or len(raw_start) != 2:
             raise ValueError("SLD Bus start geometry must be a two-element sequence")
         if not isinstance(raw_end, (tuple, list)) or len(raw_end) != 2:
