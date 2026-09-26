@@ -13,6 +13,7 @@ from typing import Any
 from ..command import Command
 from ..results import ApplicationResult
 from ..transaction import Transaction
+from ui.sld.sld_model import SLDEndpoint, SLDRoute
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,7 @@ class SLDService:
         "sld.remove_node",
         "sld.add_connection",
         "sld.remove_connection",
+        "sld.set_connection_route",
     })
 
     def __init__(
@@ -115,6 +117,7 @@ class SLDService:
             "sld.remove_node": self._remove_node,
             "sld.add_connection": self._add_connection,
             "sld.remove_connection": lambda cmd, tx: self._remove_connection(cmd, tx, context=context),
+            "sld.set_connection_route": self._set_connection_route,
         }[command.command_type]
         return handler(command, transaction)
 
@@ -250,19 +253,39 @@ class SLDService:
 
     def _add_connection(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
+        source_endpoint = None if p.get("source_endpoint") is None else SLDEndpoint.from_dict(p["source_endpoint"])
+        target_endpoint = None if p.get("target_endpoint") is None else SLDEndpoint.from_dict(p["target_endpoint"])
+        route = SLDRoute.from_dict(p.get("route"))
         self.document.model.create_connection(
             connection_id=p["connection_id"],
             source_node_id=p["source_node_id"],
             target_node_id=p["target_node_id"],
+            source_endpoint=source_endpoint,
+            target_endpoint=target_endpoint,
+            route=route,
             properties={"presentation_owner": "engineer"},
         )
         self.document.mark_modified()
-        transaction.record_undo(
-            lambda connection_id=p["connection_id"]: self.document.model.remove_connection(connection_id)
-        )
+        transaction.record_undo(lambda connection_id=p["connection_id"]: self.document.model.remove_connection(connection_id))
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
+        )
+
+    def _set_connection_route(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        p = command.payload
+        connection = self.document.model.get_connection(p["connection_id"])
+        self._require_engineer_owned_connection(connection)
+        previous = connection.route
+        updated = SLDRoute.from_dict(p["route"])
+        if updated.ownership != "engineer":
+            updated = SLDRoute(routing_mode=updated.routing_mode, ownership="engineer", points=updated.points)
+        connection.route = updated
+        self.document.mark_modified()
+        transaction.record_undo(lambda connection=connection, route=previous: setattr(connection, "route", route))
+        return ApplicationResult.success_result(
+            message="SLD connection route updated.",
+            metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
         )
 
     @staticmethod
