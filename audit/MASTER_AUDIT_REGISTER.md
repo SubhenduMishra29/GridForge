@@ -2,10 +2,10 @@
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
 **Canonical repository authority:** `SubhenduMishra29/GridForge`
-**Working/edit repository for this register batch:** `madhuri196mishra-cpu/GridForge`
+**Repository provenance:** historical register updates were previously performed/reported against `madhuri196mishra-cpu/GridForge`; current audit authority is `SubhenduMishra29/GridForge/main`.
 **Repository-evidence note:** historical repository identities remain only in historical evidence; they are not active canonical metadata.
 **Active branch:** `main`
-**Branch baseline:** `main` — current working repository authority
+**Branch baseline:** `main` — current canonical repository authority
 **Consolidation date:** 2026-09-17
 **Authority:** frozen GridForge V2 architecture supplied for this audit.
 
@@ -510,8 +510,9 @@ GUI, or runtime execution was performed.
 
 ## 2026-09-25 — GF-SLD-WF-014..021 — final consolidated SLD workflow re-audit
 
-**Repository:** madhuri196mishra-cpu/GridForge  
-**Branch:** main  
+**Historical repository evidence:** `madhuri196mishra-cpu/GridForge`  
+**Historical branch:** `main`  
+**Current audit authority:** `SubhenduMishra29/GridForge/main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. pytest, unit/integration execution, CI, startup, GUI/runtime smoke tests, and application execution were not performed.
 
@@ -557,7 +558,7 @@ Register status discipline: these findings are not marked CLOSED. Static correct
 
 ## UI-01 Consolidated Remediation — 2026-09-25
 
-**Working repository:** `madhuri196mishra-cpu/GridForge`  
+**Historical working repository provenance:** `madhuri196mishra-cpu/GridForge`  
 **Canonical repository authority:** `SubhenduMishra29/GridForge`  
 **Branch:** `main`  
 **Verification boundary:** static source inspection only; no tests, CI, application startup, GUI execution, or runtime verification performed.
@@ -689,7 +690,7 @@ Final static checks:
 
 ## Batch 0 — Canonical effective-status index — 2026-09-26
 
-This is the single latest-effective-status index for the **75 active Master IDs** on canonical `SubhenduMishra29/GridForge/main`. The working/edit repository for this register batch is `madhuri196mishra-cpu/GridForge/main`. Earlier status phrases remain historical chronology and are not current status values.
+This is the single latest-effective-status index for the **75 active Master IDs** on canonical `SubhenduMishra29/GridForge/main`. Historical remediation provenance may reference other repositories, but no historical repository is a current authority. Earlier status phrases remain historical chronology and are not current status values.
 
 | Master ID | Domain | Subsystem | Finding Title | Severity | Latest Effective Status | Verification Requirement |
 |---|---|---|---|---|---|---|
@@ -759,7 +760,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0064 | UI | Lifecycle authority | Workspace remains downstream of Application lifecycle | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0065 | UI | Workspace rollback | WorkspaceRealizer compensates failed realization using prior layout | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Runtime verification deferred |
 | GF-MASTER-0066 | SLD | Reference validation | Authored SLD equipment references are validated through Application read state | HIGH | **STATIC CLOSED** | No runtime verification |
-| GF-MASTER-0067 | STATICALLY VERIFIED — CORRECTED | Core Terminal → SLD anchor → EquipmentTerminal → EquipmentItem.snap_points() → SnapSystem → SnapResult → EndpointIdentityAdapter → EndpointReference | RUNTIME VERIFICATION — DEFERRED / UNVERIFIED | undefined | **STATICALLY VERIFIED** | Not established from current evidence |
+| GF-MASTER-0067 | SLD | Terminal/snap identity | Canonical terminal identity / terminal realization | HIGH | **STATICALLY VERIFIED** | RUNTIME VERIFICATION — DEFERRED / UNVERIFIED |
 | GF-MASTER-0068 | SLD | Preview | Bus placement preview uses existing PreviewLayer architecture | MEDIUM | **STATIC CLOSED** | No runtime verification |
 | GF-MASTER-0069 | UI | Interaction state | Concrete tools still retain local interaction state | MEDIUM | **OPEN** | Source review required |
 | GF-MASTER-0070 | Application | Identity compatibility | Measurement identity vocabulary sweep remains source-pending | HIGH | **OPEN** | Source evidence pending |
@@ -781,7 +782,7 @@ Only these current statuses are used: **OPEN**, **RE-AUDIT REQUIRED**, **REMEDIA
 
 - **Canonical repository:** `SubhenduMishra29/GridForge`
 - **Canonical branch:** `main`
-- **Working/edit repository:** `madhuri196mishra-cpu/GridForge`
+- **Historical repository provenance:** `madhuri196mishra-cpu/GridForge` was used for prior register edits; it is not current authority.
 - **Register files synchronized:** `audit/MASTER_AUDIT_REGISTER.md`, `audit/MASTER_AUDIT_REGISTER_METADATA.md`, `audit/MASTER_AUDIT_REGISTER.csv`
 - **Active Master IDs reconciled:** 75
 - **Historical repository references:** retained as historical evidence only
@@ -789,4 +790,6 @@ Only these current statuses are used: **OPEN**, **RE-AUDIT REQUIRED**, **REMEDIA
 - **Production source:** untouched
 - **Runtime verification:** not claimed
 
-**Batch 0 closes the register-consistency task only. The overall GridForge audit remains open and Batch 1 is not started.**
+**CLOSED — REGISTER RECONCILIATION COMPLETE**
+
+Batch 0 closes the register-consistency task only. The overall GridForge audit remains open; Batch 1 is not started.
