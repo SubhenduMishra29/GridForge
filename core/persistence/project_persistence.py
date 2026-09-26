@@ -22,7 +22,6 @@ from core.application.project import ProjectContext
 from core.control.configuration import ControlConfiguration
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration
-from core.control.configuration import ControlConfiguration
 from core.application.services.validation_service import ValidationService
 
 from .network_serializer import deserialize_network, serialize_network
@@ -38,7 +37,6 @@ class LoadedProject:
     dynamic_models: tuple[DynamicMachineModelAssociation, ...] = ()
     protection_configuration: ProtectionProjectConfiguration | None = None
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
-    control_configuration: ControlConfiguration | None = None
     control_configuration: ControlConfiguration | None = None
 
 
@@ -92,12 +90,6 @@ class ProjectPersistenceService:
         except (TypeError,ValueError,KeyError) as exc: raise ProjectPersistenceError(f"Invalid Control configuration: {exc}") from exc
         if control_configuration.project_id != project_id: raise ProjectPersistenceError("Control configuration project_id does not match project metadata.")
         control_configuration.validate()
-        control_data = project.get("control")
-        control_configuration = None
-        if control_data is not None:
-            if not isinstance(control_data, dict):
-                raise ProjectPersistenceError("project.json control payload must be an object.")
-            control_configuration = self._deserialize_control_configuration(control_data, project_id)
         protection_data = project.get("protection")
         protection_configuration = None
         if protection_data is not None:
@@ -134,11 +126,6 @@ class ProjectPersistenceService:
             if not isinstance(control_configuration, ControlConfiguration): raise TypeError("control_configuration must be a ControlConfiguration or None.")
             if control_configuration.project_id != context.project_id: raise ProjectPersistenceError("Control configuration project_id does not match the project.")
             control_configuration.validate()
-        if control_configuration is not None:
-            if not isinstance(control_configuration,ControlConfiguration): raise TypeError("control_configuration must be ControlConfiguration or None.")
-            if control_configuration.project_id != context.project_id: raise ProjectPersistenceError("Control configuration project_id does not match active project.")
-            control_configuration.validate()
-
         target = normalize_package_path(path)
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +144,6 @@ class ProjectPersistenceService:
         project: dict[str, Any] = {"schema": 3, "project": {"project_id": context.project_id, "name": context.name}, "network": network_data, "measurement": measurement_data, "dynamic_models": dynamic_models_data}
         if presentation_data is not None: project["sld"] = presentation_data
         if protection_configuration is not None: project["protection"] = protection_configuration.to_dict()
-        if control_configuration is not None: project["control"] = control_configuration.to_dict()
         if control_configuration is not None: project["control"] = control_configuration.to_dict()
 
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=parent))
