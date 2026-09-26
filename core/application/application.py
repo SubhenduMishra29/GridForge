@@ -540,8 +540,6 @@ class Application:
                 return connection
         raise KeyError(f"Simple Wire connection '{connection_id}' is not represented by the Application read model.")
 
-    def read_control(self): return self.control_service.read()
-
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
     def read_relay(self, relay_id: str) -> RelayReadModel:
