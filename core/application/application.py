@@ -566,7 +566,11 @@ class Application:
         if not isinstance(component_type, str) or not component_type.strip():
             return False
         service = self._control_service
-        return service is not None and component_type.strip() in service.supported_component_types
+        return (
+            service is not None
+            and self.supports(ADD_CONTROL_COMPONENT)
+            and component_type.strip() in service.supported_component_types
+        )
 
     def command_types(self) -> tuple[str, ...]: return self._command_manager.registered_commands
 
