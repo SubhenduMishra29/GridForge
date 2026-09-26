@@ -482,7 +482,7 @@ GUI, or runtime execution was performed.
 
 ## 2026-09-24 — SLD Workflow Re-Audit 2 — static closure
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Historical repository evidence:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. pytest, unit/integration execution, CI, startup, GUI/runtime smoke tests, and application execution were not performed.
@@ -542,7 +542,7 @@ EquipmentPanelWidget._on_item_clicked() → activate_equipment() → EquipmentRe
 
 ## 2026-09-25 — SLD Engineer Entry Surface / Equipment Palette Remediation
 
-**Repository:** madhuri196mishra-cpu/GridForge  
+**Historical repository evidence:** `madhuri196mishra-cpu/GridForge`  
 **Branch:** main  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. pytest, CI, startup, GUI/runtime execution were not performed.
@@ -587,7 +587,7 @@ Register status discipline: these findings are not marked CLOSED. Static correct
 
 ## 2026-09-25 — GF-UI-02 Lifecycle and Persistence Remediation / Fresh Static Re-Audit
 
-**Repository:** madhuri196mishra-cpu/GridForge  
+**Historical repository evidence:** `madhuri196mishra-cpu/GridForge`  
 **Branch:** main  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only. No pytest, CI, application startup, GUI execution, or runtime verification performed.
@@ -634,7 +634,7 @@ Final static checks:
 
 ## 2026-09-25 — GF-SLD-CANVAS-039 — Project Presentation Activation Order Correction
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Historical repository evidence:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only; no pytest, CI, application startup, GUI execution, or runtime verification performed.
@@ -656,7 +656,7 @@ Final static checks:
 
 ## 2026-09-25 — GF-SLD-CANVAS-022/023/015/016/017/018 — Canonical SLD Presentation Instance Correction
 
-**Repository:** `pandaraseswari03-collab/GridForge`  
+**Historical repository evidence:** `pandaraseswari03-collab/GridForge`  
 **Branch:** `main`  
 **Author:** Subhendu Mishra  
 **Verification mode:** static source inspection only; no pytest, CI, application startup, GUI execution, or runtime verification performed.
