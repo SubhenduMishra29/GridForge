@@ -279,6 +279,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         deserializer=deserialize_sld,
     )
     sld_controller = SLDController(projection_manager=sld_projection_manager, application=gridforge_application); sld_controller.register_document(sld_document); sld_controller.reconcile_presentation()
+    from ui.sld.sld_route_edit_controller import SLDRouteEditController
+    sld_canvas_render_system.bind_route_edit_controller(SLDRouteEditController(sld_controller))
 
     # Resolve the canonical canvas synchronization callable before registering
     # lifecycle callbacks that may invoke it. This removes the composition-order
