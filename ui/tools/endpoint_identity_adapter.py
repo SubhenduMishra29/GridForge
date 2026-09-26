@@ -70,6 +70,16 @@ class EndpointIdentityAdapter:
         source = getattr(result, "source", None)
         snap_type = getattr(result, "snap_type", None)
 
+        # The canonical SnapSystem carries object_id on SnapResult.  Retain
+        # the presentation source as a safe fallback for legacy/adapter
+        # paths that omit the duplicated field: only canonical electrical
+        # presentation items may supply this identity.
+        if object_id is None and isinstance(source, (BusItem, EquipmentTerminal)):
+            object_id = getattr(source, "object_id", None)
+        if object_id is None:
+            source_object_id = getattr(source, "object_id", None)
+            if isinstance(source_object_id, str) and source_object_id:
+                object_id = source_object_id
         if object_id is None:
             raise ValueError(
                 "Line connection requires an object snap with a stable object_id."
