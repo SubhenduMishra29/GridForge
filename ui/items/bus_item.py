@@ -59,10 +59,15 @@ class BusItem(BaseItem):
         position: Optional[QPointF] = None,
         radius: float = DEFAULT_RADIUS,
         parent: Optional[QGraphicsObject] = None,
+        start: Optional[QPointF] = None,
+        end: Optional[QPointF] = None,
     ) -> None:
         super().__init__(object_id=object_id, parent=parent)
         self._validate_radius(radius)
         self._radius = float(radius)
+        self._start = QPointF(-80.0, 0.0) if start is None else QPointF(float(start.x()), float(start.y()))
+        self._end = QPointF(80.0, 0.0) if end is None else QPointF(float(end.x()), float(end.y()))
+        self._validate_bus_span()
 
         self.setFlag(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
@@ -120,22 +125,64 @@ class BusItem(BaseItem):
             self.position_changed.emit(QPointF(value.x(), value.y()))
         return result
 
-    def snap_points(self) -> tuple[dict[str, Any], ...]:
-        """Return the Bus graphical snap candidate in scene coordinates.
+    @property
+    def start(self) -> QPointF:
+        return QPointF(self._start)
 
-        Bus snapping is presentation-only. A Bus has no terminal candidate
-        here; the stable object identity is the BusItem object_id itself.
-        """
-        position = self.scenePos()
-        return ({
-            "position": QPointF(float(position.x()), float(position.y())),
-            "object_id": self.object_id,
-        },)
+    @property
+    def end(self) -> QPointF:
+        return QPointF(self._end)
+
+    def set_span(self, start: QPointF, end: QPointF) -> None:
+        self._validate_point(start, "start")
+        self._validate_point(end, "end")
+        self.prepareGeometryChange()
+        self._start = QPointF(float(start.x()), float(start.y()))
+        self._end = QPointF(float(end.x()), float(end.y()))
+        self._validate_bus_span()
+        self.update()
+
+    def set_orientation(self, angle_deg: float) -> None:
+        self.setRotation(float(angle_deg))
+
+    def attachment_position(self, attachment_id: str) -> QPointF:
+        if not isinstance(attachment_id, str) or not attachment_id:
+            raise ValueError("attachment_id must be a non-empty string")
+        try:
+            index = int(attachment_id.rsplit("-", 1)[1])
+        except (ValueError, IndexError) as exc:
+            raise ValueError("attachment_id must use the canonical 'attachment-N' form") from exc
+        if index < 0:
+            raise ValueError("attachment index must be non-negative")
+        span = self._end - self._start
+        length_sq = span.x() * span.x() + span.y() * span.y()
+        if length_sq <= 0.0:
+            return QPointF(self._start)
+        # Deterministic attachment locations are encoded by normalized span fractions.
+        fraction = min(1.0, index / max(1.0, float(index + 1)))
+        local = QPointF(self._start.x() + span.x() * fraction, self._start.y() + span.y() * fraction)
+        return self.mapToScene(local)
+
+    def snap_points(self) -> tuple[dict[str, Any], ...]:
+        """Expose deterministic Bus attachment candidates, not only the Bus center."""
+        candidates = []
+        for index in range(0, 9):
+            attachment_id = f"attachment-{index}"
+            candidates.append({
+                "position": self.attachment_position(attachment_id),
+                "object_id": self.object_id,
+                "attachment_id": attachment_id,
+                "bus_id": str(self.object_id),
+            })
+        return tuple(candidates)
 
     def boundingRect(self) -> QRectF:
-        """Return the local Bus symbol bounds."""
-        radius = self._radius
-        return QRectF(-radius, -radius, radius * 2.0, radius * 2.0)
+        """Return the local Bus-bar bounds including the configured span."""
+        left = min(self._start.x(), self._end.x()) - self._radius
+        top = min(self._start.y(), self._end.y()) - self._radius
+        width = abs(self._end.x() - self._start.x()) + 2.0 * self._radius
+        height = abs(self._end.y() - self._start.y()) + 2.0 * self._radius
+        return QRectF(left, top, width, height)
 
     def paint(
         self,
@@ -149,7 +196,9 @@ class BusItem(BaseItem):
             return
         painter.setPen(self._pen)
         painter.setBrush(self._brush)
-        painter.drawEllipse(self.boundingRect())
+        painter.drawLine(self._start, self._end)
+        painter.drawEllipse(self._start.x() - self._radius, self._start.y() - self._radius, self._radius * 2.0, self._radius * 2.0)
+        painter.drawEllipse(self._end.x() - self._radius, self._end.y() - self._radius, self._radius * 2.0, self._radius * 2.0)
 
     def set_radius(self, radius: float) -> None:
         """Change visual Bus radius."""
@@ -201,6 +250,9 @@ class BusItem(BaseItem):
         state.update(
             {
                 "radius": self._radius,
+                "start": (self._start.x(), self._start.y()),
+                "end": (self._end.x(), self._end.y()),
+                "orientation": float(self.rotation()),
                 "movable": bool(
                     self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
                 ),
@@ -211,6 +263,12 @@ class BusItem(BaseItem):
             }
         )
         return state
+
+    def _validate_bus_span(self) -> None:
+        for point, name in ((self._start, "start"), (self._end, "end")):
+            self._validate_point(point, name)
+        if self._start.x() == self._end.x() and self._start.y() == self._end.y():
+            raise ValueError("Bus span must have non-zero length.")
 
     @staticmethod
     def _validate_coordinate(value: Any, name: str) -> None:
