@@ -446,10 +446,10 @@ class SLDReadSynchronizer:
             return SLDEndpoint(kind=SLDEndpointKind.EQUIPMENT, node_id=node_id, equipment_id=object_id, terminal_role=role)
         return None
 
-    def _project_connection(self, *, connection_id: str, source_node_id: str, target_node_id: str, properties: Mapping[str, Any], source_endpoint: SLDEndpoint | None, target_endpoint: SLDEndpoint | None) -> None:
-        existing = self._require_document().model.get_connection_optional(connection_id)
+    def _project_connection(self, document: SLDDocument, *, connection_id: str, source_node_id: str, target_node_id: str, properties: Mapping[str, Any], source_endpoint: SLDEndpoint | None, target_endpoint: SLDEndpoint | None) -> None:
+        existing = document.model.get_connection_optional(connection_id)
         if existing is None:
-            self._require_document().model.add_connection(SLDConnection(
+            document.model.add_connection(SLDConnection(
                 connection_id=connection_id,
                 source_node_id=source_node_id,
                 target_node_id=target_node_id,
@@ -508,6 +508,7 @@ class SLDReadSynchronizer:
             target_mapping = {"kind": str(element.attributes.get("endpoint_to_kind", "terminal")), "object_id": target_id, "terminal_role": self._terminal_role(element.attributes, "to", target_id)}
             properties = {"projection_source": _PROJECTION_SOURCE, "element_type": semantic, "equipment_id": element.object_id}
             self._project_connection(
+                document,
                 connection_id=element.object_id,
                 source_node_id=source_node_id,
                 target_node_id=target_node_id,
