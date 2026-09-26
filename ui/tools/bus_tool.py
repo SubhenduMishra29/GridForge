@@ -102,8 +102,9 @@ class BusTool(ToolBase):
             presentation_properties={
                 "start": DEFAULT_SLD_BUS_PRESENTATION.start,
                 "end": DEFAULT_SLD_BUS_PRESENTATION.end,
-                "orientation": 0.0,
+                "orientation": float(DEFAULT_SLD_BUS_PRESENTATION.orientation_deg),
                 "attachment_count": DEFAULT_SLD_BUS_PRESENTATION.attachment_count,
+                "half_length": float(DEFAULT_SLD_BUS_PRESENTATION.half_length),
             },
         )
         self.execute_command(command)
@@ -165,7 +166,7 @@ class BusTool(ToolBase):
             return
         show_bus = getattr(self._preview_layer, "show_bus", None)
         if callable(show_bus):
-            show_bus(position)
+            show_bus(position, presentation=DEFAULT_SLD_BUS_PRESENTATION)
 
     def _clear_state(self) -> None:
         self._position = None
