@@ -22,9 +22,11 @@ class SLDConnectionPresentationAdapter:
         source_snap: Any,
         target_snap: Any,
     ) -> Any:
-        service = getattr(application, "sld_service", None)
-        if service is None:
-            return None
+        raise RuntimeError(
+            "SLDConnectionPresentationAdapter is retired. "
+            "Connection presentation is coordinated by Application._coordinate_pre_commit() "
+            "inside the same CommandManager transaction."
+        )
         document = service.document
         source_endpoint = SLDConnectionPresentationAdapter._endpoint(document, source_snap)
         target_endpoint = SLDConnectionPresentationAdapter._endpoint(document, target_snap)
