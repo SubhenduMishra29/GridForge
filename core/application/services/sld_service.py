@@ -170,6 +170,10 @@ class SLDService:
             properties["element_type"] = str(element_type)
         if projection_source is not None:
             properties["projection_source"] = str(projection_source)
+        presentation_properties = p.get("presentation_properties", {})
+        if not isinstance(presentation_properties, Mapping):
+            raise TypeError("presentation_properties must be a mapping")
+        properties.update(dict(presentation_properties))
 
         presentation = p.get("presentation")
         if presentation is None and self._symbol_presentation_factory is not None:
