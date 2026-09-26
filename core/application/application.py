@@ -462,6 +462,7 @@ class Application:
                 presentation_owner="engineer",
                 projection_source=None,
                 element_type=element_type,
+                presentation_properties=(dict(command.payload.get("presentation_properties", {})) if command.command_type == "model.create_bus" else None),
                 correlation_id=command.correlation_id,
                 causation_id=command.command_id,
             ),

@@ -15,6 +15,7 @@ from typing import Any, Optional, Tuple
 from uuid import uuid4
 
 from core.application.commands.placement_commands import PlaceBusCommand
+from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
 
 from .tool_base import ToolBase
 
@@ -98,6 +99,12 @@ class BusTool(ToolBase):
             in_service=True,
             x=position[0],
             y=position[1],
+            presentation_properties={
+                "start": DEFAULT_SLD_BUS_PRESENTATION.start,
+                "end": DEFAULT_SLD_BUS_PRESENTATION.end,
+                "orientation": 0.0,
+                "attachment_count": DEFAULT_SLD_BUS_PRESENTATION.attachment_count,
+            },
         )
         self.execute_command(command)
         self._clear_state()

@@ -25,6 +25,8 @@ from core.application.commands.sld_commands import (
     RemoveSLDConnectionCommand,
     RemoveSLDNodeCommand,
     SetSLDNodePositionCommand,
+    SetSLDNodePropertiesCommand,
+    SetSLDConnectionRouteCommand,
 )
 
 from .sld_document import SLDDocument
@@ -159,6 +161,13 @@ class SLDController:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
 
+    def set_node_properties(self, node_id: str, properties: Dict[str, Any]) -> None:
+        self._require_active_document()
+        result = self.application.execute(SetSLDNodePropertiesCommand(node_id=node_id, properties=properties))
+        if not result.success:
+            raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
     def set_node_position(self, node_id: str, x: float, y: float) -> None:
         self._require_active_document()
         result = self.application.execute(SetSLDNodePositionCommand(node_id=node_id, x=x, y=y))
@@ -199,6 +208,19 @@ class SLDController:
             connection_id=connection.connection_id,
             source_node_id=connection.source_node_id,
             target_node_id=connection.target_node_id,
+            source_endpoint=None if connection.source_endpoint is None else connection.source_endpoint.to_dict(),
+            target_endpoint=None if connection.target_endpoint is None else connection.target_endpoint.to_dict(),
+            route=connection.route.to_dict(),
+        ))
+        if not result.success:
+            raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
+    def set_connection_route(self, connection_id: str, points: tuple[tuple[float, float], ...] | list[tuple[float, float]], *, routing_mode: str = "manual") -> None:
+        self._require_active_document()
+        result = self.application.execute(SetSLDConnectionRouteCommand(
+            connection_id=connection_id,
+            route={"routing_mode": routing_mode, "ownership": "engineer", "points": [list(point) for point in points]},
         ))
         if not result.success:
             raise RuntimeError(result.message)

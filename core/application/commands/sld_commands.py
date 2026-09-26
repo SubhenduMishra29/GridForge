@@ -17,6 +17,8 @@ REMOVE_SLD_NODE = "sld.remove_node"
 SET_SLD_NODE_PRESENTATION = "sld.set_node_presentation"
 ADD_SLD_CONNECTION = "sld.add_connection"
 REMOVE_SLD_CONNECTION = "sld.remove_connection"
+SET_SLD_CONNECTION_ROUTE = "sld.set_connection_route"
+SET_SLD_NODE_PROPERTIES = "sld.set_node_properties"
 
 
 class SetSLDNodePositionCommand(Command):
@@ -35,6 +37,7 @@ class AddSLDNodeCommand(Command):
                  projection_source: str | None = None,
                  element_type: str | None = None,
                  presentation: dict | None = None,
+                 presentation_properties: dict | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(
@@ -48,6 +51,7 @@ class AddSLDNodeCommand(Command):
                 "projection_source": projection_source,
                 "element_type": element_type,
                 "presentation": None if presentation is None else dict(presentation),
+                "presentation_properties": {} if presentation_properties is None else dict(presentation_properties),
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
@@ -91,10 +95,41 @@ class RemoveSLDNodeCommand(Command):
 
 class AddSLDConnectionCommand(Command):
     def __init__(self, *, connection_id: str, source_node_id: str, target_node_id: str,
+                 source_endpoint: dict | None = None, target_endpoint: dict | None = None,
+                 route: dict | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(command_type=ADD_SLD_CONNECTION,
-                         payload={"connection_id": connection_id, "source_node_id": source_node_id, "target_node_id": target_node_id},
+                         payload={
+                             "connection_id": connection_id,
+                             "source_node_id": source_node_id,
+                             "target_node_id": target_node_id,
+                             "source_endpoint": None if source_endpoint is None else dict(source_endpoint),
+                             "target_endpoint": None if target_endpoint is None else dict(target_endpoint),
+                             "route": None if route is None else dict(route),
+                         },
+                         command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
+class SetSLDNodePropertiesCommand(Command):
+    def __init__(self, *, node_id: str, properties: dict,
+                 command_id: UUID | None = None, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None) -> None:
+        if not isinstance(properties, dict):
+            raise TypeError("properties must be a dictionary")
+        super().__init__(command_type=SET_SLD_NODE_PROPERTIES,
+                         payload={"node_id": node_id, "properties": dict(properties)},
+                         command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
+class SetSLDConnectionRouteCommand(Command):
+    def __init__(self, *, connection_id: str, route: dict,
+                 command_id: UUID | None = None, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None) -> None:
+        if not isinstance(route, dict):
+            raise TypeError("route must be a dictionary")
+        super().__init__(command_type=SET_SLD_CONNECTION_ROUTE,
+                         payload={"connection_id": connection_id, "route": dict(route)},
                          command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
@@ -107,7 +142,7 @@ class RemoveSLDConnectionCommand(Command):
 
 __all__ = [
     "SET_SLD_NODE_POSITION", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
-    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION",
+    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES",
     "SetSLDNodePositionCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
-    "AddSLDConnectionCommand", "RemoveSLDConnectionCommand",
+    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand",
 ]

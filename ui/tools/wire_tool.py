@@ -14,6 +14,7 @@ from core.application.commands.simple_wire_commands import CreateSimpleWireConne
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
+from .sld_connection_presentation_adapter import SLDConnectionPresentationAdapter
 from .tool_base import ToolBase
 
 
@@ -25,6 +26,7 @@ class WireTool(ToolBase):
     def __init__(self, controller: Any, application: Any, selection_manager: Any, snap_system: Any, preview_layer: Any = None) -> None:
         super().__init__(controller=controller, application=application, selection_manager=selection_manager, snap_system=snap_system)
         self._start_position: Optional[Tuple[float, float]] = None
+        self._start_snap: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
@@ -56,6 +58,7 @@ class WireTool(ToolBase):
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         if self._preview.source_endpoint is None:
             self._preview.begin(endpoint)
+            self._start_snap = snap_result
             self._start_position = position
             self._current_position = position
             self._preview.update_cursor(position)
@@ -64,7 +67,7 @@ class WireTool(ToolBase):
         self._current_position = position
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
-        self._execute_connection(*self._preview.get_endpoint_pair())
+        self._execute_connection(*self._preview.get_endpoint_pair(), source_snap=self._start_snap, target_snap=snap_result)
         self._clear_state()
         return True
 
@@ -115,13 +118,15 @@ class WireTool(ToolBase):
             return None
         return result
 
-    def _execute_connection(self, endpoint_from: Any, endpoint_to: Any) -> Any:
+    def _execute_connection(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
         if not getattr(endpoint_from, "is_terminal", False) and not getattr(endpoint_from, "is_bus", False):
             raise ValueError("Simple Wired Connection requires valid electrical endpoint snaps.")
         if not getattr(endpoint_to, "is_terminal", False) and not getattr(endpoint_to, "is_bus", False):
             raise ValueError("Simple Wired Connection requires valid electrical endpoint snaps.")
         command = CreateSimpleWireConnectionCommand(endpoint_a=endpoint_from, endpoint_b=endpoint_to)
-        return self.execute_command(command)
+        result = self.execute_command(command)
+        SLDConnectionPresentationAdapter.execute(self._application, self.execute_command, connection_id=command.connection_id, source_snap=source_snap, target_snap=target_snap)
+        return result
 
     def _show_preview(self) -> None:
         layer = self._preview_layer
@@ -154,6 +159,7 @@ class WireTool(ToolBase):
         if self._preview_layer is not None and callable(getattr(self._preview_layer, "clear", None)):
             self._preview_layer.clear()
         self._start_position = None
+        self._start_snap = None
         self._current_position = None
         self._preview.reset()
 

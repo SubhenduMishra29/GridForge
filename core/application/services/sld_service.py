@@ -36,6 +36,8 @@ class SLDService:
         "sld.remove_node",
         "sld.add_connection",
         "sld.remove_connection",
+        "sld.set_connection_route",
+        "sld.set_node_properties",
     })
 
     def __init__(
@@ -115,6 +117,8 @@ class SLDService:
             "sld.remove_node": self._remove_node,
             "sld.add_connection": self._add_connection,
             "sld.remove_connection": lambda cmd, tx: self._remove_connection(cmd, tx, context=context),
+            "sld.set_connection_route": self._set_connection_route,
+            "sld.set_node_properties": self._set_node_properties,
         }[command.command_type]
         return handler(command, transaction)
 
@@ -168,6 +172,10 @@ class SLDService:
             properties["element_type"] = str(element_type)
         if projection_source is not None:
             properties["projection_source"] = str(projection_source)
+        presentation_properties = p.get("presentation_properties", {})
+        if not isinstance(presentation_properties, Mapping):
+            raise TypeError("presentation_properties must be a mapping")
+        properties.update(dict(presentation_properties))
 
         presentation = p.get("presentation")
         if presentation is None and self._symbol_presentation_factory is not None:
@@ -250,19 +258,60 @@ class SLDService:
 
     def _add_connection(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
+        source_endpoint = p.get("source_endpoint")
+        target_endpoint = p.get("target_endpoint")
+        route = p.get("route")
         self.document.model.create_connection(
             connection_id=p["connection_id"],
             source_node_id=p["source_node_id"],
             target_node_id=p["target_node_id"],
+            source_endpoint=source_endpoint,
+            target_endpoint=target_endpoint,
+            route=route,
             properties={"presentation_owner": "engineer"},
         )
         self.document.mark_modified()
-        transaction.record_undo(
-            lambda connection_id=p["connection_id"]: self.document.model.remove_connection(connection_id)
-        )
+        transaction.record_undo(lambda connection_id=p["connection_id"]: self.document.model.remove_connection(connection_id))
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
+        )
+
+    def _set_node_properties(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        p = command.payload
+        node = self.document.model.get_node(p["node_id"])
+        self._require_engineer_owned_node(node)
+        previous = dict(node.properties)
+        properties = p["properties"]
+        if not isinstance(properties, Mapping):
+            raise TypeError("properties must be a mapping")
+        node.properties.update(dict(properties))
+        self.document.mark_modified()
+        transaction.record_undo(lambda node=node, snapshot=previous: (node.properties.clear(), node.properties.update(snapshot)))
+        return ApplicationResult.success_result(
+            message="SLD node presentation properties updated.",
+            metadata={"presentation_operation": "set_node_properties", "node_id": p["node_id"]},
+        )
+
+    def _set_connection_route(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        p = command.payload
+        connection = self.document.model.get_connection(p["connection_id"])
+        owner = connection.properties.get("presentation_owner")
+        if owner not in (None, "engineer", "projection"):
+            raise ValueError("SLD connection ownership is unknown; route edit is rejected.")
+        previous = connection.route
+        previous_properties = dict(connection.properties)
+        updated = self.document.model.get_connection(p["connection_id"]).route.__class__.from_dict(p["route"])
+        if updated.ownership != "engineer":
+            updated = updated.__class__(routing_mode=updated.routing_mode, ownership="engineer", points=updated.points)
+        connection.route = updated
+        connection.properties.pop("projection_source", None)
+        connection.properties["presentation_owner"] = "engineer"
+        self.document.mark_modified()
+        transaction.record_undo(lambda connection=connection, route=previous, properties=previous_properties: (setattr(connection, "route", route), connection.properties.clear(), connection.properties.update(properties)))
+        return ApplicationResult.success_result(
+            message="SLD connection route updated.",
+            metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
         )
 
     @staticmethod
