@@ -13,7 +13,6 @@ from typing import Any
 from ..command import Command
 from ..results import ApplicationResult
 from ..transaction import Transaction
-from ui.sld.sld_model import SLDEndpoint, SLDRoute
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,9 +252,9 @@ class SLDService:
 
     def _add_connection(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
-        source_endpoint = None if p.get("source_endpoint") is None else SLDEndpoint.from_dict(p["source_endpoint"])
-        target_endpoint = None if p.get("target_endpoint") is None else SLDEndpoint.from_dict(p["target_endpoint"])
-        route = SLDRoute.from_dict(p.get("route"))
+        source_endpoint = p.get("source_endpoint")
+        target_endpoint = p.get("target_endpoint")
+        route = p.get("route")
         self.document.model.create_connection(
             connection_id=p["connection_id"],
             source_node_id=p["source_node_id"],
@@ -277,9 +276,10 @@ class SLDService:
         connection = self.document.model.get_connection(p["connection_id"])
         self._require_engineer_owned_connection(connection)
         previous = connection.route
-        updated = SLDRoute.from_dict(p["route"])
+        previous_dict = previous.to_dict()
+        updated = self.document.model.get_connection(p["connection_id"]).route.__class__.from_dict(p["route"])
         if updated.ownership != "engineer":
-            updated = SLDRoute(routing_mode=updated.routing_mode, ownership="engineer", points=updated.points)
+            updated = updated.__class__(routing_mode=updated.routing_mode, ownership="engineer", points=updated.points)
         connection.route = updated
         self.document.mark_modified()
         transaction.record_undo(lambda connection=connection, route=previous: setattr(connection, "route", route))
