@@ -1,4 +1,4 @@
-# GridForge V2 — Master Audit Register
+| GF-MASTER-0037 | Batch 1A semantic-event provenance; historical Application mutation findings | Application | Command/transaction/history | Application mutation and undo/redo semantic-event provenance | CRITICAL | REMEDIATED — VERIFICATION DEFERRED | Application.execute(), undo(), and redo() retain the original immutable Command through CommandManager history; semantic publication now preserves that command correlation/causation metadata | Undo/redo events could otherwise lose the originating command lineage | All meaningful mutation uses immutable Command→Application.execute() and preserves command provenance | Yes |
 
 **Purpose:** lossless audit-register consolidation; no production remediation.
 **Canonical repository authority:** `SubhenduMishra29/GridForge`
@@ -793,3 +793,54 @@ Only these current statuses are used: **OPEN**, **RE-AUDIT REQUIRED**, **REMEDIA
 **CLOSED — REGISTER RECONCILIATION COMPLETE**
 
 Batch 0 closes the register-consistency task only. The overall GridForge audit remains open; Batch 1 is not started.
+
+
+## 2026-09-26 — Batch 1A Semantic Event Provenance Correction and Static Re-Audit
+
+**Canonical repository:** `madhuri196mishra-cpu/GridForge`  
+**Canonical branch:** `main`  
+**Author:** Subhendu Mishra  
+**Audit mode:** static source inspection/correction/re-audit only. No pytest, unittest, CI, startup, GUI, integration, or runtime execution was performed.
+
+### Finding
+
+Batch 1A identified provenance loss in the generic Application model semantic-event path. The immutable `Command` already carries `command_id`, `correlation_id`, and `causation_id`; `ApplicationEvent` and the affected event constructors already accept the corresponding provenance fields. The defect was that `Application._publish_model_event()` and `Application._publish_network_changed()` did not pass the command correlation/causation values.
+
+### Source correction
+
+Corrected `core/application/application.py` only:
+
+- `_publish_model_event()` now passes `command.correlation_id` and `command.causation_id` to every `ElementCreated`, `ElementRemoved`, and `ElementUpdated` publication.
+- `_publish_network_changed()` now passes the same command provenance to `TopologyChanged` and `NetworkChanged`.
+- Existing event constructors in `core/application/events.py` already represented the required immutable provenance contract; no event vocabulary or mutability change was required.
+- Existing simple-wire, control, and SLD presentation branches already forward command provenance and were left unchanged.
+- No second EventBus, Core→UI event path, Application mutation path, CommandManager owner, or Core event publication path was introduced.
+
+**Source correction commit:** `dff26ad0b1e258920f37686ae0ddf37e51a63a15`.
+
+### Static re-audit evidence
+
+The affected path was re-read after correction:
+
+`Command` → `Application.execute()` → `CommandManager.execute()` → handler → `Transaction.commit()` → `Application._publish_semantic_events()` → `ApplicationEventBus.publish()`.
+
+- **Model ElementCreated:** PASS — `_publish_model_event()` forwards command correlation/causation.
+- **Model ElementRemoved:** PASS — same provenance forwarding; undo reverses create/delete semantic action without replacing the command.
+- **Model ElementUpdated:** PASS — provenance forwarded for update/open/close/reset/blow/trip/service-state semantic updates.
+- **TopologyChanged:** PASS — model topology publications in both the terminal branch and generic network-change branch forward command provenance.
+- **NetworkChanged:** PASS — model network publications forward command provenance.
+- **Undo:** PASS — `Application.undo()` obtains the original `CommandRecord.command`, `CommandManager.undo()` executes its stored inverse journal, and `_publish_history_events()` republishes semantic events using that same immutable command.
+- **Redo:** PASS — `Application.redo()` obtains the original redo `CommandRecord.command`; `CommandManager.redo()` re-executes that same command and Application republishes using its original provenance.
+- **Simple-wire/control/SLD:** PASS — pre-existing branches already pass command correlation/causation and were not changed.
+- **Protection:** PASS for the inspected Application protection boundary — protection execution translates decisions into Application-routed control commands; no new generic provenance rule was imposed on unrelated non-command study lifecycle events.
+- **EventBus:** PASS — only the existing `ApplicationEventBus` remains the publication boundary.
+- **Core/UI boundary:** PASS — no ApplicationEvent import/publication was added to Core; no Qt import was introduced into Core.
+
+### Batch 1A gate
+
+**STATIC RE-AUDIT: PASS.** The affected Application semantic-event path preserves originating command provenance for execute/undo/redo without changing the frozen architecture.
+
+**Batch 1A status:** **STATICALLY VERIFIED — CORRECTED; RUNTIME VERIFICATION DEFERRED / UNVERIFIED.**
+
+This does not constitute runtime closure. Runtime consumer behavior remains deferred.
+
