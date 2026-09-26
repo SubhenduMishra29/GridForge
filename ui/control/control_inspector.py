@@ -35,6 +35,8 @@ class ControlInspector(QWidget):
         self._mode = "ton"
         self._component_label = QLabel("Component: None", self)
         self._configuration_label = QLabel("", self)
+        self._rung_label = QLabel("Rung: None", self)
+        self._mode_label = QLabel("", self)
         self._apply = QPushButton("Apply Timer Configuration", self)
         self._apply.clicked.connect(lambda _checked=False: self._apply_configuration())
         self._preset_down = QPushButton("Preset -0.5", self)
@@ -55,6 +57,8 @@ class ControlInspector(QWidget):
         root.addWidget(QLabel("Control Inspector", self))
         root.addWidget(self._component_label)
         root.addWidget(self._configuration_label)
+        root.addWidget(self._rung_label)
+        root.addWidget(self._mode_label)
         controls = QHBoxLayout()
         controls.addWidget(self._preset_down)
         controls.addWidget(self._preset_up)
@@ -76,6 +80,7 @@ class ControlInspector(QWidget):
             self._selected_type = None
             self._component_label.setText("Component: None")
             self._configuration_label.setText("")
+            self._rung_label.setText("Rung: None")
             self._targets.clear()
             self._actions.clear()
             self._set_enabled(False)
@@ -86,6 +91,7 @@ class ControlInspector(QWidget):
         self._preset = float(configuration.get("preset", 1.0))
         self._mode = str(configuration.get("mode", "ton")).lower()
         self._component_label.setText(f"Component: {component.component_id} ({component.component_type})")
+        self._rung_label.setText(f"Rung: {component.rung_id or 'None'} | position={component.position}")
         self._configuration_label.setText(f"Configuration: {configuration}")
         self._targets.clear()
         try:
@@ -110,6 +116,28 @@ class ControlInspector(QWidget):
         self._interlock_button.setEnabled(
             self._application.supports("control.add_interlock")
         )
+
+    def show_rung(self, read_model: Any, rung_id: str | None) -> None:
+        self._selected_id = None
+        self._selected_type = None
+        self._set_enabled(False)
+        self._targets.clear()
+        self._actions.clear()
+        rung = next((item for item in read_model.rungs if item.rung_id == rung_id), None) if rung_id else None
+        if rung is None:
+            self._rung_label.setText("Rung: None")
+            self._configuration_label.setText("")
+            return
+        self._rung_label.setText(
+            f"Rung: {rung.rung_id} | order={rung.order} | "
+            f"{'enabled' if rung.enabled else 'disabled'} | components={len(rung.component_ids)}"
+        )
+        self._configuration_label.setText(f"Positions: {dict(rung.positions)}")
+
+    def enter_action_binding_mode(self, read_model: Any, component_id: str | None) -> None:
+        self._mode_label.setText("Action Binding mode: configure logic output -> equipment action.")
+        self.show_read_model(read_model, component_id)
+        self._mode_label.setText("Action Binding mode: configure logic output -> equipment action.")
 
     def _adjust_preset(self, delta: float) -> None:
         self._preset = max(0.0, self._preset + delta)
