@@ -184,6 +184,8 @@ class SLDService:
             properties["element_type"] = str(element_type)
         if projection_source is not None:
             properties["projection_source"] = str(projection_source)
+        if equipment_id is not None:
+            properties["lifecycle_state"] = "BOUND"
         presentation_properties = p.get("presentation_properties", {})
         if not isinstance(presentation_properties, Mapping):
             raise TypeError("presentation_properties must be a mapping")
@@ -499,6 +501,12 @@ class SLDService:
         if semantic_keys.intersection(properties):
             raise ValueError("SLD semantic binding fields are Application-owned and cannot be edited as presentation properties.")
         node.properties.update(dict(properties))
+        if "labels" in properties and "labels_owner" not in properties:
+            node.properties["labels_owner"] = "engineer"
+        if "visual_properties" in properties and "visual_properties_owner" not in properties:
+            node.properties["visual_properties_owner"] = "engineer"
+        if "manual_geometry" in properties and "manual_geometry_owner" not in properties:
+            node.properties["manual_geometry_owner"] = "engineer"
         self.document.mark_modified()
         transaction.record_undo(lambda node=node, snapshot=previous: (node.properties.clear(), node.properties.update(snapshot)))
         return ApplicationResult.success_result(
