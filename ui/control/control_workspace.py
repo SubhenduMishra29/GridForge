@@ -76,7 +76,6 @@ class ControlWorkspace(QWidget):
             on_toggle_rung=self._toggle_rung,
             on_move_rung_up=self._move_rung_up,
             on_cancel_tool=self._interaction.cancel,
-            on_editing_changed=self._set_editing_enabled,
         )
         self._view = _LadderView(interaction=self._interaction, scene=self._canvas)
         self._coordinator = ControlUpdateCoordinator(
