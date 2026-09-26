@@ -37,6 +37,7 @@ class SLDService:
         "sld.add_connection",
         "sld.remove_connection",
         "sld.set_connection_route",
+        "sld.set_node_properties",
     })
 
     def __init__(
@@ -117,6 +118,7 @@ class SLDService:
             "sld.add_connection": self._add_connection,
             "sld.remove_connection": lambda cmd, tx: self._remove_connection(cmd, tx, context=context),
             "sld.set_connection_route": self._set_connection_route,
+            "sld.set_node_properties": self._set_node_properties,
         }[command.command_type]
         return handler(command, transaction)
 
@@ -273,6 +275,22 @@ class SLDService:
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
+        )
+
+    def _set_node_properties(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        p = command.payload
+        node = self.document.model.get_node(p["node_id"])
+        self._require_engineer_owned_node(node)
+        previous = dict(node.properties)
+        properties = p["properties"]
+        if not isinstance(properties, Mapping):
+            raise TypeError("properties must be a mapping")
+        node.properties.update(dict(properties))
+        self.document.mark_modified()
+        transaction.record_undo(lambda node=node, snapshot=previous: (node.properties.clear(), node.properties.update(snapshot)))
+        return ApplicationResult.success_result(
+            message="SLD node presentation properties updated.",
+            metadata={"presentation_operation": "set_node_properties", "node_id": p["node_id"]},
         )
 
     def _set_connection_route(self, command: Command, transaction: Transaction) -> ApplicationResult:
