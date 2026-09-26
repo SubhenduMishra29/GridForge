@@ -76,3 +76,71 @@ Control Workspace
 Project persistence remains owned by the existing `ControlConfiguration` project persistence path; the UI does not serialize Qt objects or maintain a second Ladder database.
 
 No runtime, GUI, startup, test, pytest, unittest, CI, or integration verification was performed.
+
+
+## Control Runtime Lifecycle Batch — 2026-09-26
+
+### Scope
+
+Static correction of Control runtime composition, Application execution boundary, project activation/close/rollback, runtime identity, and activation generation.
+
+### Corrected source chain
+
+```
+Project
+  ↓
+ControlApplicationService
+  ↓
+LadderProgram
+  ↓
+LogicEngine
+  ↓
+ControlEngine
+  ↓
+ControlCycleService
+  ↓
+ControlExecutionService
+  ↓
+Application.execute()
+  ↓
+CommandManager
+  ↓
+Core
+```
+
+### Source corrections
+
+- `core/control/engine.py`
+  - `ControlEngine.configure()` now obtains the canonical `configuration.program.engine`.
+  - Candidate bindings and interlocks are validated before runtime state is committed.
+  - `activation_generation` is carried on the Application-owned runtime.
+  - `deactivate()` clears configuration, LogicEngine association, bindings, interlocks, and generation.
+  - Evaluation rejects an inactive runtime deterministically.
+- `core/application/application.py`
+  - Application owns one canonical `ControlEngine` and one canonical `ControlCycleService`.
+  - `execute_control_cycle()` no longer accepts an arbitrary engine.
+  - The cycle boundary validates active project identity, configuration identity, LogicEngine identity, and activation generation before evaluation.
+  - Project-bound command-manager replacement rebuilds the single ControlExecutionService and reattaches the existing canonical ControlEngine through one ControlCycleService.
+- `core/application/bootstrap.py`
+  - Initial generation-1 Control runtime is established after ProjectLifecycleService composition.
+  - Project activation loads/constructs the ControlConfiguration, rejects project-ID mismatch, validates it, binds its LadderProgram.engine to the canonical ControlEngine, and only then activates ControlApplicationService.
+  - Project close deactivates the Control runtime.
+  - Failed activation restores the previous ControlConfiguration and ControlEngine generation as part of the existing lifecycle rollback.
+- `audit/MASTER_AUDIT_REGISTER.md` and `audit/MASTER_AUDIT_REGISTER.csv`
+  - Added the seven consolidated GF-CTRL-ACT-001..007 active remediation entries without duplicating historical descendants.
+
+### Dynamic Control contract
+
+`DynamicControlAssociation` remains identifier-only persisted configuration. No live plugin/runtime object is serialized, and no second dynamic-control authority was introduced. Existing `DynamicControlRuntime` remains the adapter/runtime contract; solver-level controller-state composition remains outside this batch.
+
+### Static call-site audit
+
+The production Control UI workspace, Control surface host, Control palette, Control toolbar, Control inspector, Control tool, generic Control tools, and Control update coordinator contain no direct construction or direct execution calls for `ControlEngine`, `ControlCycleService`, or `ControlExecutionService`.
+
+Canonical production construction is confined to Application/bootstrap composition. Tests retain their own fixtures and are outside this production construction boundary.
+
+### Verification status
+
+**REMEDIATED — VERIFICATION DEFERRED.**
+
+No pytest, unittest, CI, application startup, GUI, simulator, or runtime execution was performed.
