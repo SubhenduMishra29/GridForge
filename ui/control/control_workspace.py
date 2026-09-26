@@ -19,7 +19,6 @@ from .control_inspector import ControlInspector
 from .control_toolbar import ControlToolbar
 from .control_status_bar import ControlStatusBar
 from .ladder.ladder_interaction import LadderInteraction
-from .ladder.ladder_projection import LadderProjection
 from ui.events.control_update_coordinator import ControlUpdateCoordinator
 
 
@@ -57,7 +56,6 @@ class ControlWorkspace(QWidget):
         self._application = application
         self._controller = controller
         self._canvas = ControlCanvas()
-        self._projection = LadderProjection(self._canvas)
         self._inspector = ControlInspector(application=application)
         self._status = ControlStatusBar()
         self._interaction = LadderInteraction(
@@ -159,7 +157,11 @@ class ControlWorkspace(QWidget):
         if descriptor.tool_id == "control.interlock":
             self._interaction.cancel()
             self._status.set_status("Control Interlock mode: configure gating in the Inspector.")
-            self._inspector._interlock_button.setEnabled(True)
+            try:
+                model = self._application.read_control()
+                self._inspector.enter_control_interlock_mode(model)
+            except RuntimeError:
+                return
             return
         self._interaction.activate(descriptor)
 
