@@ -1,5 +1,6 @@
 # ============================================================
 # GridForge V2 — Canonical SLD Bus presentation definition
+# Author: Subhendu Mishra
 # ============================================================
 """Renderer-neutral Bus-bar presentation geometry shared by preview and commit."""
 
