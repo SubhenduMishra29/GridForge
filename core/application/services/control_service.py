@@ -1,10 +1,9 @@
-"""Application boundary for Logic Control and Ladder editing.
+"""Application boundary for the project-owned Control configuration.
 
 Author: Subhendu Mishra
 
-This service is the only Application-owned orchestration surface used by
-Control commands. It delegates semantic mutation to the Core LadderProgram /
-LogicEngine and exposes immutable read snapshots for UI projections.
+The service is Application-owned for the lifetime of the process. Its active
+ControlConfiguration is replaced transactionally when the project changes.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from ...control.configuration import ControlConfiguration, DynamicControlAssociation, InterlockConfiguration
 from ...control.logic import LadderProgram
 from ...control.logic.contacts import NormallyClosedContact, NormallyOpenContact
 from ...control.logic.coils import LogicCoil, LogicResetCoil, LogicSetCoil
@@ -25,6 +23,9 @@ from ...control.logic.gates.xor_gate import XORGate
 from ...control.logic.interlocks import LogicInterlock
 from ...control.logic.latches import LogicLatch, LogicRSLatch, LogicSRLatch
 from ...control.logic.timers import LogicTOFTimer, LogicTONTimer, LogicTPTimer
+from ...control.action import ControlActionBinding
+from ...control.interlock import ControlInterlock
+from ..control_configuration import ControlConfiguration, DynamicControlAssociation
 from ..results import ApplicationResult
 from ..transaction import Transaction
 
@@ -37,6 +38,8 @@ class ControlComponentReadModel:
     outputs: tuple[str, ...]
     state: Mapping[str, Any]
     configuration: Mapping[str, Any]
+    rung_id: str | None = None
+    position: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "state", MappingProxyType(dict(self.state)))
@@ -57,24 +60,29 @@ class LadderRungReadModel:
     order: int
     enabled: bool
     component_ids: tuple[str, ...]
-    element_positions: tuple[tuple[str, int], ...] = ()
+    positions: Mapping[str, int]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "positions", MappingProxyType(dict(self.positions)))
+
 
 @dataclass(frozen=True, slots=True)
 class ControlActionBindingReadModel:
     binding_id: str
-    source_component: str
+    source_control_id: str
+    source_component_id: str
     source_output: str
-    target_equipment_id: str
-    target_equipment_type: str
+    target_type: str
+    target_id: str
     action: str
     interlock_id: str | None
+
 
 @dataclass(frozen=True, slots=True)
 class ControlInterlockReadModel:
     interlock_id: str
     required_inputs: tuple[str, ...]
-    condition: str
-    quality_policy: str
+
 
 @dataclass(frozen=True, slots=True)
 class DynamicControlAssociationReadModel:
@@ -82,17 +90,22 @@ class DynamicControlAssociationReadModel:
     machine_id: str
     controller_id: str
     controller_type: str
-    plugin_id: str
-    plugin_version: str | None
+    plugin_type: str
     parameters: Mapping[str, Any]
     input_mappings: Mapping[str, str]
     output_mappings: Mapping[str, str]
-    initialization_policy: str
+    initialization_policy: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        for name in ("parameters", "input_mappings", "output_mappings", "initialization_policy"):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
 
 
 @dataclass(frozen=True, slots=True)
 class ControlProgramReadModel:
+    project_id: str
     program_id: str
+    schema_version: int
     rungs: tuple[LadderRungReadModel, ...]
     components: tuple[ControlComponentReadModel, ...]
     connections: tuple[ControlConnectionReadModel, ...]
@@ -103,49 +116,47 @@ class ControlProgramReadModel:
 
 
 class ControlApplicationService:
-    """Application orchestration service for one Ladder Control program."""
+    """Canonical Application owner of the active project Control configuration."""
 
     _FACTORIES = {
         "normally_open_contact": NormallyOpenContact,
         "normally_closed_contact": NormallyClosedContact,
-        "and_gate": ANDGate,
-        "or_gate": ORGate,
-        "not_gate": NOTGate,
-        "xor_gate": XORGate,
-        "coil": LogicCoil,
-        "set_coil": LogicSetCoil,
-        "reset_coil": LogicResetCoil,
-        "timer": LogicTONTimer,
-        "ton_timer": LogicTONTimer,
-        "tof_timer": LogicTOFTimer,
-        "tp_timer": LogicTPTimer,
-        "latch": LogicLatch,
-        "sr_latch": LogicSRLatch,
-        "rs_latch": LogicRSLatch,
-        "interlock": LogicInterlock,
+        "and_gate": ANDGate, "or_gate": ORGate, "not_gate": NOTGate, "xor_gate": XORGate,
+        "coil": LogicCoil, "set_coil": LogicSetCoil, "reset_coil": LogicResetCoil,
+        "timer": LogicTONTimer, "ton_timer": LogicTONTimer, "tof_timer": LogicTOFTimer,
+        "tp_timer": LogicTPTimer, "latch": LogicLatch, "sr_latch": LogicSRLatch,
+        "rs_latch": LogicRSLatch, "interlock": LogicInterlock,
     }
 
-    def __init__(self, configuration: ControlConfiguration | None = None, program: LadderProgram | None = None) -> None:
-        if configuration is not None and program is not None: raise ValueError("Provide configuration or program, not both.")
-        self._configuration=configuration
-        self._program=configuration.program if configuration is not None else (program if program is not None else LadderProgram("control"))
+    def __init__(self, configuration: ControlConfiguration) -> None:
+        if not isinstance(configuration, ControlConfiguration):
+            raise TypeError("configuration must be a ControlConfiguration.")
+        self._configuration = configuration
 
     @property
     def configuration(self) -> ControlConfiguration:
-        if self._configuration is None: self._configuration=ControlConfiguration("unbound", self._program)
         return self._configuration
 
     @property
-    def program(self) -> LadderProgram: return self._program
+    def program(self) -> LadderProgram:
+        return self._configuration.program
+
+    @property
+    def action_bindings(self) -> tuple[ControlActionBinding, ...]:
+        return self._configuration.action_bindings
+
+    @property
+    def interlocks(self) -> tuple[ControlInterlock, ...]:
+        return self._configuration.interlocks
+
+    @property
+    def dynamic_control_associations(self) -> tuple[DynamicControlAssociation, ...]:
+        return self._configuration.dynamic_control_associations
 
     def activate(self, configuration: ControlConfiguration) -> None:
-        if not isinstance(configuration, ControlConfiguration): raise TypeError("configuration must be a ControlConfiguration.")
-        configuration.validate(); self._configuration=configuration; self._program=configuration.program
-
-    def serialize(self) -> dict[str, Any]: return self.configuration.to_dict()
-
-    @classmethod
-    def deserialize(cls, data: Mapping[str, Any]) -> ControlConfiguration: return ControlConfiguration.from_dict(data)
+        if not isinstance(configuration, ControlConfiguration):
+            raise TypeError("configuration must be a ControlConfiguration.")
+        self._configuration = configuration
 
     def add_component(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
         component_id = str(payload["component_id"]).strip()
@@ -153,176 +164,163 @@ class ControlApplicationService:
         rung_id = str(payload["rung_id"]).strip()
         configuration = dict(payload.get("configuration") or {})
         position = payload.get("position")
-        rung_exists = rung_id in {r.rung_id for r in self._program.rungs()}
-        created_rung=None
-        if not rung_exists: created_rung=self._program.add_rung(rung_id)
+        rung_exists = rung_id in {r.rung_id for r in self.program.rungs()}
+        created_rung = False
+        if not rung_exists:
+            self.program.add_rung(rung_id)
+            created_rung = True
         try:
-            component=self._create_component(component_id, component_type, configuration)
-            self._program.add_component(component, rung_id=rung_id, position=position)
+            component = self._create_component(component_id, component_type, configuration)
+            self.program.add_component(component, rung_id=rung_id, position=position)
         except Exception:
-            if created_rung is not None and not self._program.rung(rung_id).elements: self._program.remove_rung(rung_id)
+            if created_rung and not self.program.rung(rung_id).elements:
+                self.program.remove_rung(rung_id)
             raise
 
         def undo() -> None:
-            self._program.remove_component(component_id)
-            if not rung_exists and not self._program.rung(rung_id).elements:
-                self._program.remove_rung(rung_id)
+            self.program.remove_component(component_id)
+            if created_rung and not self.program.rung(rung_id).elements:
+                self.program.remove_rung(rung_id)
 
         transaction.record_undo(undo)
-        return ApplicationResult.success_result(value=component, message=f"Control component '{component_id}' created.", metadata={"component_id": component_id, "component_type": component_type})
+        return ApplicationResult.success_result(
+            value=component,
+            message=f"Control component '{component_id}' created.",
+            metadata={"component_id": component_id, "component_type": component_type},
+        )
 
     def remove_component(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
         component_id = str(payload["component_id"]).strip()
-        engine = self._program.engine
-        record = next((record for record in engine.records() if record.component_id == component_id), None)
+        engine = self.program.engine
+        record = next((r for r in engine.records() if r.component_id == component_id), None)
         if record is None:
             raise ValueError(f"Unknown control component '{component_id}'.")
-
-        component = record.component
-        order = record.order
-        previous_state = dict(engine.state(component_id))
-        source_rung = next(
-            (r for r in self._program.rungs() if any(e.component_id == component_id for e in r.elements)),
-            None,
-        )
+        source_rung = next((r for r in self.program.rungs() if any(e.component_id == component_id for e in r.elements)), None)
         if source_rung is None:
             raise ValueError(f"Control component '{component_id}' is not placed in a Ladder rung.")
         position = next(e.position for e in source_rung.elements if e.component_id == component_id)
-        affected_connections = tuple(
-            connection
-            for connection in engine.connections()
-            if connection.source_component == component_id or connection.target_component == component_id
-        )
-        affected_dependencies = tuple(
-            dependency
-            for dependency in engine.dependencies()
-            if dependency.source_component == component_id or dependency.target_component == component_id
-        )
-
-        self._program.remove_component(component_id)
+        affected_connections = tuple(c for c in engine.connections() if c.source_component == component_id or c.target_component == component_id)
+        affected_dependencies = tuple(d for d in engine.explicit_dependencies() if d.source_component == component_id or d.target_component == component_id)
+        component = record.component
+        order = record.order
+        previous_state = dict(engine.state(component_id))
+        self.program.remove_component(component_id)
 
         def undo() -> None:
-            self._program.restore_component(
-                component,
-                rung_id=source_rung.rung_id,
-                position=position,
-                order=order,
-                state=previous_state,
-            )
-            for connection in affected_connections:
-                if engine.contains(connection.source_component) and engine.contains(connection.target_component):
-                    engine.connect(
-                        connection.source_component,
-                        connection.source_output,
-                        connection.target_component,
-                        connection.target_input,
-                    )
-            for dependency in affected_dependencies:
-                if dependency not in engine.dependencies():
-                    engine.add_dependency(dependency.source_component, dependency.target_component)
+            self.program.restore_component(component, rung_id=source_rung.rung_id, position=position, order=order, state=previous_state)
+            for c in affected_connections:
+                engine.connect(c.source_component, c.source_output, c.target_component, c.target_input)
+            for d in affected_dependencies:
+                if d not in engine.explicit_dependencies():
+                    engine.add_dependency(d.source_component, d.target_component)
 
         transaction.record_undo(undo)
-        return ApplicationResult.success_result(value=component, message=f"Control component '{component_id}' removed.", metadata={"component_id": component_id})
+        return ApplicationResult.success_result(value=component, message=f"Control component '{component_id}' removed.", metadata={"component_id": component_id, "component_type": component.component_type})
 
     def connect_signals(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        connection = self._program.engine.connect(**payload)
-        transaction.record_undo(lambda: self._program.engine.disconnect(connection.source_component, connection.source_output, connection.target_component, connection.target_input))
+        connection = self.program.engine.connect(**payload)
+        transaction.record_undo(lambda: self.program.engine.disconnect(connection.source_component, connection.source_output, connection.target_component, connection.target_input))
         return ApplicationResult.success_result(value=connection, message="Control signal connection created.", metadata={"connection": connection})
 
     def disconnect_signals(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        existing = self._program.engine.connection_for_input(payload["target_component"], payload["target_input"])
+        existing = self.program.engine.connection_for_input(payload["target_component"], payload["target_input"])
         if existing is None or existing != LogicConnection(**payload):
             raise ValueError("Control signal connection does not exist.")
-        self._program.engine.disconnect(**payload)
-        transaction.record_undo(lambda: self._program.engine.connect(**payload))
+        self.program.engine.disconnect(**payload)
+        transaction.record_undo(lambda: self.program.engine.connect(**payload))
         return ApplicationResult.success_result(value=existing, message="Control signal connection removed.", metadata={"connection": existing})
 
     def add_dependency(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        dependency = self._program.engine.add_dependency(**payload)
-        transaction.record_undo(lambda: self._program.engine.remove_dependency(dependency.source_component, dependency.target_component))
+        dependency = self.program.engine.add_dependency(**payload)
+        transaction.record_undo(lambda: self.program.engine.remove_dependency(dependency.source_component, dependency.target_component))
         return ApplicationResult.success_result(value=dependency, message="Control execution dependency created.", metadata={"dependency": dependency})
 
     def remove_dependency(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        removed = self._program.engine.remove_dependency(**payload)
+        removed = self.program.engine.remove_dependency(**payload)
         if not removed:
             raise ValueError("Control execution dependency does not exist.")
-        transaction.record_undo(lambda: self._program.engine.add_dependency(**payload))
+        transaction.record_undo(lambda: self.program.engine.add_dependency(**payload))
         return ApplicationResult.success_result(value=None, message="Control execution dependency removed.", metadata={"source_component": payload["source_component"], "target_component": payload["target_component"]})
 
     def add_rung(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        rung = self._program.add_rung(payload["rung_id"], order=payload.get("order"), enabled=payload.get("enabled", True))
-        transaction.record_undo(lambda: self._program.remove_rung(rung.rung_id))
+        rung = self.program.add_rung(payload["rung_id"], order=payload.get("order"), enabled=payload.get("enabled", True))
+        transaction.record_undo(lambda: self.program.remove_rung(rung.rung_id))
         return ApplicationResult.success_result(value=rung, message=f"Ladder rung '{rung.rung_id}' created.", metadata={"rung_id": rung.rung_id})
 
     def remove_rung(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        rung = self._program.remove_rung(payload["rung_id"])
-        transaction.record_undo(lambda: self._program.add_rung(rung.rung_id, order=rung.order, enabled=rung.enabled))
+        rung = self.program.rung(payload["rung_id"])
+        if rung.elements:
+            raise ValueError("Cannot remove a non-empty Ladder rung; remove its components first.")
+        self.program.remove_rung(payload["rung_id"])
+        transaction.record_undo(lambda: self.program.add_rung(rung.rung_id, order=rung.order, enabled=rung.enabled))
         return ApplicationResult.success_result(value=rung, message=f"Ladder rung '{rung.rung_id}' removed.", metadata={"rung_id": rung.rung_id})
 
     def move_element(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
         component_id = payload["component_id"]
-        old_rung = next(r for r in self._program.rungs() if any(e.component_id == component_id for e in r.elements))
+        old_rung = next(r for r in self.program.rungs() if any(e.component_id == component_id for e in r.elements))
         old_position = next(e.position for e in old_rung.elements if e.component_id == component_id)
-        self._program.move_component(component_id, rung_id=payload["rung_id"], position=int(payload["position"]))
-        transaction.record_undo(lambda: self._program.move_component(component_id, rung_id=old_rung.rung_id, position=old_position))
+        self.program.move_component(component_id, rung_id=payload["rung_id"], position=int(payload["position"]))
+        transaction.record_undo(lambda: self.program.move_component(component_id, rung_id=old_rung.rung_id, position=old_position))
         return ApplicationResult.success_result(value=None, message=f"Ladder element '{component_id}' moved.", metadata={"component_id": component_id})
 
     def read(self) -> ControlProgramReadModel:
-        components = []
-        for component in self._program.engine.components():
-            components.append(ControlComponentReadModel(
-                component_id=component.component_id,
-                component_type=component.component_type,
-                inputs=tuple(signal.name for signal in component.input_definition()),
-                outputs=tuple(signal.name for signal in component.output_definition()),
-                state=self._program.engine.state(component.component_id),
-                configuration=self._configuration(component),
-            ))
-        rungs = tuple(LadderRungReadModel(r.rung_id, r.order, r.enabled, tuple(e.component_id for e in r.elements), tuple((e.component_id,e.position) for e in r.elements)) for r in self._program.rungs())
-        connections = tuple(ControlConnectionReadModel(c.source_component, c.source_output, c.target_component, c.target_input) for c in self._program.engine.connections())
-        bindings=tuple(ControlActionBindingReadModel(x.control_id,x.source_component,x.source_output,x.target_equipment_id,x.target_equipment_type,x.action_type.value,x.interlock_id) for x in self.configuration.action_bindings)
-        interlocks=tuple(ControlInterlockReadModel(x.interlock_id,x.required_inputs,x.condition,x.quality_policy) for x in self.configuration.interlocks)
-        associations=tuple(DynamicControlAssociationReadModel(x.association_id,x.machine_id,x.controller_id,x.controller_type,x.plugin_id,x.plugin_version,x.parameters,x.input_mappings,x.output_mappings,x.initialization_policy) for x in self.configuration.dynamic_control_associations)
-        return ControlProgramReadModel(self._program.program_id,rungs,tuple(components),connections,self._program.engine.dependencies(),bindings,interlocks,associations)
-
-
-    def add_action_binding(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        binding=ControlActionBinding(control_id=str(payload["control_id"]),source_component=str(payload["source_component"]),source_output=str(payload["source_output"]),target_equipment_id=str(payload["target_equipment_id"]),action_type=payload["action_type"],reason=str(payload.get("reason","Control action")),target_equipment_type=str(payload.get("target_equipment_type","breaker")),interlock_id=payload.get("interlock_id")); previous=self.configuration
-        if any(x.control_id==binding.control_id for x in previous.action_bindings): raise ValueError(f"Control action binding '{binding.control_id}' already exists.")
-        self._configuration=ControlConfiguration(previous.project_id,previous.program,previous.action_bindings+(binding,),previous.interlocks,previous.dynamic_control_associations,previous.schema_version); self._configuration.validate(); transaction.record_undo(lambda:self.activate(previous))
-        return ApplicationResult.success_result(value=binding,message=f"Control action binding '{binding.control_id}' created.",metadata={"binding_id":binding.control_id})
-
-    def remove_action_binding(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        binding_id=str(payload["binding_id"]).strip(); previous=self.configuration; binding=next((x for x in previous.action_bindings if x.control_id==binding_id),None)
-        if binding is None: raise ValueError(f"Unknown Control action binding '{binding_id}'.")
-        self._configuration=ControlConfiguration(previous.project_id,previous.program,tuple(x for x in previous.action_bindings if x.control_id!=binding_id),previous.interlocks,previous.dynamic_control_associations,previous.schema_version); transaction.record_undo(lambda:self.activate(previous))
-        return ApplicationResult.success_result(value=binding,message=f"Control action binding '{binding_id}' removed.",metadata={"binding_id":binding_id})
-
-    def add_interlock(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        item=InterlockConfiguration.from_dict(payload["configuration"]); previous=self.configuration
-        if any(x.interlock_id==item.interlock_id for x in previous.interlocks): raise ValueError(f"Control interlock '{item.interlock_id}' already exists.")
-        next_config=ControlConfiguration(previous.project_id,previous.program,previous.action_bindings,previous.interlocks+(item,),previous.dynamic_control_associations,previous.schema_version); next_config.validate(); self._configuration=next_config; transaction.record_undo(lambda:self.activate(previous))
-        return ApplicationResult.success_result(value=item,message=f"Control interlock '{item.interlock_id}' created.",metadata={"interlock_id":item.interlock_id})
-
-    def remove_interlock(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        interlock_id=str(payload["interlock_id"]).strip(); previous=self.configuration
-        if any(x.interlock_id==interlock_id for x in previous.action_bindings if x.interlock_id): raise ValueError(f"Control interlock '{interlock_id}' is still referenced by an ActionBinding.")
-        item=next((x for x in previous.interlocks if x.interlock_id==interlock_id),None)
-        if item is None: raise ValueError(f"Unknown Control interlock '{interlock_id}'.")
-        self._configuration=ControlConfiguration(previous.project_id,previous.program,previous.action_bindings,tuple(x for x in previous.interlocks if x.interlock_id!=interlock_id),previous.dynamic_control_associations,previous.schema_version); transaction.record_undo(lambda:self.activate(previous))
-        return ApplicationResult.success_result(value=item,message=f"Control interlock '{interlock_id}' removed.",metadata={"interlock_id":interlock_id})
-
-    def add_dynamic_association(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        item=DynamicControlAssociation.from_dict(payload["association"]); previous=self.configuration
-        if any(x.association_id==item.association_id for x in previous.dynamic_control_associations): raise ValueError(f"Dynamic Control association '{item.association_id}' already exists.")
-        self._configuration=ControlConfiguration(previous.project_id,previous.program,previous.action_bindings,previous.interlocks,previous.dynamic_control_associations+(item,),previous.schema_version); self._configuration.validate(); transaction.record_undo(lambda:self.activate(previous))
-        return ApplicationResult.success_result(value=item,message=f"Dynamic Control association '{item.association_id}' created.",metadata={"association_id":item.association_id})
-
-    def remove_dynamic_association(self, transaction: Transaction, **payload: Any) -> ApplicationResult:
-        association_id=str(payload["association_id"]).strip(); previous=self.configuration; item=next((x for x in previous.dynamic_control_associations if x.association_id==association_id),None)
-        if item is None: raise ValueError(f"Unknown Dynamic Control association '{association_id}'.")
-        self._configuration=ControlConfiguration(previous.project_id,previous.program,previous.action_bindings,previous.interlocks,tuple(x for x in previous.dynamic_control_associations if x.association_id!=association_id),previous.schema_version); transaction.record_undo(lambda:self.activate(previous))
-        return ApplicationResult.success_result(value=item,message=f"Dynamic Control association '{association_id}' removed.",metadata={"association_id":association_id})
+        locations = {
+            element.component_id: (rung.rung_id, element.position)
+            for rung in self.program.rungs()
+            for element in rung.elements
+        }
+        components = tuple(
+            ControlComponentReadModel(
+                component_id=c.component_id,
+                component_type=c.component_type,
+                inputs=tuple(s.name for s in c.input_definition()),
+                outputs=tuple(s.name for s in c.output_definition()),
+                state=self.program.engine.state(c.component_id),
+                configuration=self._configuration(c),
+                rung_id=locations.get(c.component_id, (None, None))[0],
+                position=locations.get(c.component_id, (None, None))[1],
+            )
+            for c in self.program.engine.components()
+        )
+        rungs = tuple(
+            LadderRungReadModel(
+                r.rung_id, r.order, r.enabled,
+                tuple(e.component_id for e in r.elements),
+                {e.component_id: e.position for e in r.elements},
+            )
+            for r in self.program.rungs()
+        )
+        connections = tuple(
+            ControlConnectionReadModel(c.source_component, c.source_output, c.target_component, c.target_input)
+            for c in self.program.connections()
+        )
+        bindings = tuple(
+            ControlActionBindingReadModel(
+                b.control_id, b.control_id, b.source_component, b.source_output,
+                b.target_equipment_type, b.target_equipment_id, b.action_type.value, b.interlock_id,
+            )
+            for b in self.action_bindings
+        )
+        interlocks = tuple(ControlInterlockReadModel(i.interlock_id, i.required_inputs) for i in self.interlocks)
+        dynamic = tuple(
+            DynamicControlAssociationReadModel(
+                a.association_id, a.machine_id, a.controller_id, a.controller_type,
+                a.plugin_type, a.parameters, a.input_mappings, a.output_mappings, a.initialization_policy,
+            )
+            for a in self.dynamic_control_associations
+        )
+        return ControlProgramReadModel(
+            project_id=self._configuration.project_id,
+            program_id=self.program.program_id,
+            schema_version=self._configuration.schema_version,
+            rungs=rungs,
+            components=components,
+            connections=connections,
+            dependencies=self.program.dependencies(),
+            action_bindings=bindings,
+            interlocks=interlocks,
+            dynamic_control_associations=dynamic,
+        )
 
     def _create_component(self, component_id: str, component_type: str, configuration: Mapping[str, Any]):
         factory = self._FACTORIES.get(component_type)
@@ -347,10 +345,7 @@ class ControlApplicationService:
 
 
 __all__ = [
-    "ControlComponentReadModel",
-    "ControlConnectionReadModel",
-    "LadderRungReadModel",
-    "ControlActionBindingReadModel","ControlInterlockReadModel","DynamicControlAssociationReadModel",
-    "ControlProgramReadModel",
-    "ControlApplicationService",
+    "ControlComponentReadModel", "ControlConnectionReadModel", "LadderRungReadModel",
+    "ControlActionBindingReadModel", "ControlInterlockReadModel",
+    "DynamicControlAssociationReadModel", "ControlProgramReadModel", "ControlApplicationService",
 ]
