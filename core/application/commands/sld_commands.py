@@ -17,6 +17,7 @@ REMOVE_SLD_NODE = "sld.remove_node"
 SET_SLD_NODE_PRESENTATION = "sld.set_node_presentation"
 ADD_SLD_CONNECTION = "sld.add_connection"
 REMOVE_SLD_CONNECTION = "sld.remove_connection"
+SET_SLD_CONNECTION_ROUTE = "sld.set_connection_route"
 
 
 class SetSLDNodePositionCommand(Command):
@@ -107,6 +108,17 @@ class AddSLDConnectionCommand(Command):
                          command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
+class SetSLDConnectionRouteCommand(Command):
+    def __init__(self, *, connection_id: str, route: dict,
+                 command_id: UUID | None = None, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None) -> None:
+        if not isinstance(route, dict):
+            raise TypeError("route must be a dictionary")
+        super().__init__(command_type=SET_SLD_CONNECTION_ROUTE,
+                         payload={"connection_id": connection_id, "route": dict(route)},
+                         command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
 class RemoveSLDConnectionCommand(Command):
     def __init__(self, *, connection_id: str, command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
@@ -116,7 +128,7 @@ class RemoveSLDConnectionCommand(Command):
 
 __all__ = [
     "SET_SLD_NODE_POSITION", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
-    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION",
+    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE",
     "SetSLDNodePositionCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
-    "AddSLDConnectionCommand", "RemoveSLDConnectionCommand",
+    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "RemoveSLDConnectionCommand",
 ]
