@@ -214,6 +214,11 @@ def create_application(network: Any) -> Application:
                 application.protection_runtime.compose(measurement_channel_service.channels)
 
             application.revision_service.reset_for_project()
+            # A successful project activation establishes a new validation-cache
+            # boundary.  ValidationService remains the sole cache authority;
+            # explicit validation is required before a result can describe the
+            # newly active project.
+            application.validation_service.invalidate()
         except Exception:
             if previous_measurement_project is None:
                 measurement_channel_service.deactivate()
