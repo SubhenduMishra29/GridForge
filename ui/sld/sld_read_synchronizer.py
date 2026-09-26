@@ -17,7 +17,7 @@ from .sld_projection import SLDProjection
 from .sld_vocabulary import semantic_type
 from .sld_projection_manager import SLDProjectionManager
 from .sld_document import SLDDocument
-from .sld_model import SLDConnection, SLDNode
+from .sld_model import SLDConnection, SLDNode, SLDEndpoint, SLDEndpointKind
 from .sld_read_adapter import SLDReadAdapter
 
 
@@ -410,11 +410,80 @@ class SLDReadSynchronizer:
             f"Cannot determine projection domain for source: {source!r}"
         )
 
-    def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
-        """Project unambiguous branch endpoint identities into SLD structure."""
-        active_connection_ids: set[str] = set()
-        node_ids_by_equipment_id = {node.equipment_id: node.node_id for node in document.model.nodes if node.equipment_id is not None}
+    @staticmethod
+    def _terminal_role(attributes: Mapping[str, Any], side: str, endpoint_id: str) -> str | None:
+        keys = (
+            f"endpoint_{side}_terminal_role",
+            f"endpoint_{side}_role",
+            f"{side}_terminal_role",
+            f"terminal_role_{side}",
+        )
+        for key in keys:
+            value = attributes.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        connectivity = attributes.get("terminal_connectivity", ())
+        for entry in connectivity if isinstance(connectivity, (tuple, list)) else ():
+            if not isinstance(entry, Mapping):
+                continue
+            object_id = entry.get("object_id") or entry.get("equipment_id")
+            role = entry.get("terminal_role") or entry.get("terminal_name") or entry.get(side)
+            if str(object_id) == str(endpoint_id) and isinstance(role, str) and role.strip():
+                return role.strip()
+        return None
 
+    @staticmethod
+    def _sld_endpoint(node_id: str, endpoint: Mapping[str, Any], *, fallback_role: str | None = None, fallback_bus_attachment: str | None = None) -> SLDEndpoint | None:
+        kind = str(endpoint.get("kind", "")).lower()
+        object_id = endpoint.get("object_id") or endpoint.get("equipment_id") or endpoint.get("bus_id")
+        if not isinstance(object_id, str) or not object_id:
+            return None
+        if kind == "bus":
+            attachment_id = endpoint.get("attachment_id") or fallback_bus_attachment or "attachment-0"
+            return SLDEndpoint(kind=SLDEndpointKind.BUS, node_id=node_id, bus_id=object_id, attachment_id=str(attachment_id))
+        role = endpoint.get("terminal_role") or endpoint.get("terminal_name") or fallback_role
+        if kind == "terminal" and isinstance(role, str) and role:
+            return SLDEndpoint(kind=SLDEndpointKind.EQUIPMENT, node_id=node_id, equipment_id=object_id, terminal_role=role)
+        return None
+
+    def _project_connection(self, *, connection_id: str, source_node_id: str, target_node_id: str, properties: Mapping[str, Any], source_endpoint: SLDEndpoint | None, target_endpoint: SLDEndpoint | None) -> None:
+        existing = self._require_document().model.get_connection_optional(connection_id)
+        if existing is None:
+            self._require_document().model.add_connection(SLDConnection(
+                connection_id=connection_id,
+                source_node_id=source_node_id,
+                target_node_id=target_node_id,
+                source_endpoint=source_endpoint,
+                target_endpoint=target_endpoint,
+                properties=dict(properties),
+            ))
+            return
+        if existing.properties.get("presentation_owner") == "engineer":
+            # Projection reconciles semantic metadata but never destroys engineer-owned route state.
+            existing.source_node_id = source_node_id
+            existing.target_node_id = target_node_id
+            if source_endpoint is not None:
+                existing.source_endpoint = source_endpoint
+            if target_endpoint is not None:
+                existing.target_endpoint = target_endpoint
+            existing.properties.update(dict(properties))
+            return
+        route = existing.route
+        existing.source_node_id = source_node_id
+        existing.target_node_id = target_node_id
+        existing.source_endpoint = source_endpoint
+        existing.target_endpoint = target_endpoint
+        existing.route = route
+        existing.properties.update(dict(properties))
+
+    def _synchronize_connections(self, document: SLDDocument, read_model: NetworkReadModel) -> None:
+        """Project semantic endpoint identities without replacing presentation-owned route state."""
+        active_connection_ids: set[str] = set()
+        node_ids_by_equipment_id = {
+            node.equipment_id: node.node_id
+            for node in document.model.nodes
+            if node.equipment_id is not None
+        }
         for element in read_model.elements:
             try:
                 semantic = semantic_type(element.element_type)
@@ -422,7 +491,6 @@ class SLDReadSynchronizer:
                 continue
             if semantic not in _BRANCH_TYPES:
                 continue
-
             source_id = element.attributes.get("endpoint_from_id")
             target_id = element.attributes.get("endpoint_to_id")
             if not isinstance(source_id, str) or not isinstance(target_id, str):
@@ -431,79 +499,48 @@ class SLDReadSynchronizer:
             target_node_id = node_ids_by_equipment_id.get(target_id)
             if source_node_id is None or target_node_id is None:
                 continue
-
-            connection_id = element.object_id
-            active_connection_ids.add(connection_id)
-            connection = document.model.get_connection_optional(connection_id)
-            properties = {
-                "projection_source": _PROJECTION_SOURCE,
-                "element_type": semantic,
-                "equipment_id": element.object_id,
-            }
-
-            if connection is None:
-                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_node_id, target_node_id=target_node_id, properties=properties))
-            elif connection.properties.get("projection_source") != _PROJECTION_SOURCE:
-                # Never overwrite engineer-owned/presentation-only structure
-                # merely because an engineering branch uses the same ID.
-                raise ValueError(
-                    f"SLD connection identity collision for engineering element: {connection_id!r}"
-                )
-            elif connection.source_node_id != source_node_id or connection.target_node_id != target_node_id:
-                document.model.remove_connection(connection_id)
-                document.model.add_connection(SLDConnection(connection_id=connection_id, source_node_id=source_node_id, target_node_id=target_node_id, properties=properties))
-            else:
-                connection.properties.update(properties)
+            active_connection_ids.add(element.object_id)
+            source_mapping = {"kind": str(element.attributes.get("endpoint_from_kind", "terminal")), "object_id": source_id, "terminal_role": self._terminal_role(element.attributes, "from", source_id)}
+            target_mapping = {"kind": str(element.attributes.get("endpoint_to_kind", "terminal")), "object_id": target_id, "terminal_role": self._terminal_role(element.attributes, "to", target_id)}
+            properties = {"projection_source": _PROJECTION_SOURCE, "element_type": semantic, "equipment_id": element.object_id}
+            self._project_connection(
+                connection_id=element.object_id,
+                source_node_id=source_node_id,
+                target_node_id=target_node_id,
+                source_endpoint=self._sld_endpoint(source_node_id, source_mapping),
+                target_endpoint=self._sld_endpoint(target_node_id, target_mapping),
+                properties=properties,
+            )
 
         for simple_wire in getattr(read_model, "simple_wires", ()):
-            endpoint_a = simple_wire.endpoint_a
-            endpoint_b = simple_wire.endpoint_b
+            endpoint_a = dict(simple_wire.endpoint_a)
+            endpoint_b = dict(simple_wire.endpoint_b)
             source_equipment = endpoint_a.get("object_id")
             target_equipment = endpoint_b.get("object_id")
             source_node_id = node_ids_by_equipment_id.get(source_equipment)
             target_node_id = node_ids_by_equipment_id.get(target_equipment)
             if source_node_id is None or target_node_id is None:
                 continue
-            connection_id = simple_wire.connection_id
-            active_connection_ids.add(connection_id)
+            active_connection_ids.add(simple_wire.connection_id)
             properties = {
                 "projection_source": _PROJECTION_SOURCE,
                 "connection_kind": simple_wire.kind,
-                "endpoint_a": dict(endpoint_a),
-                "endpoint_b": dict(endpoint_b),
+                "endpoint_a": endpoint_a,
+                "endpoint_b": endpoint_b,
             }
-            connection = document.model.get_connection_optional(connection_id)
-            if connection is None:
-                document.model.add_connection(
-                    SLDConnection(
-                        connection_id=connection_id,
-                        source_node_id=source_node_id,
-                        target_node_id=target_node_id,
-                        properties=properties,
-                    )
-                )
-            elif connection.properties.get("projection_source") != _PROJECTION_SOURCE:
-                raise ValueError(
-                    f"SLD connection identity collision for Simple Wire: {connection_id!r}"
-                )
-            elif (
-                connection.source_node_id != source_node_id
-                or connection.target_node_id != target_node_id
-            ):
-                document.model.remove_connection(connection_id)
-                document.model.add_connection(
-                    SLDConnection(
-                        connection_id=connection_id,
-                        source_node_id=source_node_id,
-                        target_node_id=target_node_id,
-                        properties=properties,
-                    )
-                )
-            else:
-                connection.properties.update(properties)
+            self._project_connection(
+                connection_id=simple_wire.connection_id,
+                source_node_id=source_node_id,
+                target_node_id=target_node_id,
+                source_endpoint=self._sld_endpoint(source_node_id, endpoint_a),
+                target_endpoint=self._sld_endpoint(target_node_id, endpoint_b),
+                properties=properties,
+            )
 
         for connection in tuple(document.model.connections):
             if connection.properties.get("projection_source") == _PROJECTION_SOURCE and connection.connection_id not in active_connection_ids:
+                if connection.properties.get("presentation_owner") == "engineer":
+                    continue
                 document.model.remove_connection(connection.connection_id)
 
 
