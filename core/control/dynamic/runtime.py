@@ -66,15 +66,24 @@ class DynamicControlAdapter(DynamicControlComponent):
     def derivatives(self, state, inputs, time):
         del time
         values = tuple(float(state[n]) for n in self.dynamic_state_names)
-        result = self._plugin.derivatives(values, **dict(inputs))
+        try:
+            result = self._plugin.derivatives(values, **dict(inputs))
+        except TypeError:
+            result = self._plugin.derivatives({n: v for n, v in zip(self.dynamic_state_names, values)}, dict(inputs))
+        if isinstance(result, Mapping):
+            result = tuple(result[n] for n in self.dynamic_state_names)
         if len(result) != self.dynamic_state_size: raise ValueError("Dynamic plugin derivative dimension mismatch.")
         return {n: float(v) for n, v in zip(self.dynamic_state_names, result)}
     def output(self, state, inputs, time):
         del time
         values = tuple(float(state[n]) for n in self.dynamic_state_names)
-        result = self._plugin.output(values, **dict(inputs))
+        try:
+            result = self._plugin.output(values, **dict(inputs))
+        except TypeError:
+            result = self._plugin.output({n: v for n, v in zip(self.dynamic_state_names, values)}, dict(inputs))
+        if isinstance(result, Mapping):
+            return {str(k): float(v) for k, v in result.items()}
         if len(self._output_names) == 1: return {self._output_names[0]: float(result)}
-        if isinstance(result, Mapping): return {str(k): float(v) for k, v in result.items()}
         raise ValueError("Dynamic plugin returned multiple outputs without a mapping.")
 
 class DynamicControlRuntime:
