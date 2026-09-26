@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from ui.equipment.symbol.symbol_base import SymbolBase
@@ -145,61 +146,154 @@ class SLDNode:
 
 
 # ============================================================
+# SLD Semantic Endpoint / Route Presentation Types
+# ============================================================
+
+
+class SLDEndpointKind(str, Enum):
+    """Presentation-side classification of an authoritative electrical endpoint."""
+    EQUIPMENT = "equipment"
+    BUS = "bus"
+
+
+@dataclass(frozen=True, slots=True)
+class SLDEndpoint:
+    """Immutable SLD endpoint descriptor; never an electrical topology authority."""
+
+    kind: SLDEndpointKind
+    node_id: str
+    equipment_id: str | None = None
+    terminal_role: str | None = None
+    bus_id: str | None = None
+    attachment_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, SLDEndpointKind):
+            raise TypeError("kind must be an SLDEndpointKind")
+        if not isinstance(self.node_id, str) or not self.node_id:
+            raise ValueError("node_id must be a non-empty string")
+        if self.kind is SLDEndpointKind.EQUIPMENT:
+            if not isinstance(self.equipment_id, str) or not self.equipment_id:
+                raise ValueError("equipment endpoints require equipment_id")
+            if not isinstance(self.terminal_role, str) or not self.terminal_role:
+                raise ValueError("equipment endpoints require terminal_role")
+            if self.bus_id is not None or self.attachment_id is not None:
+                raise ValueError("equipment endpoints cannot carry bus attachment identity")
+        else:
+            if not isinstance(self.bus_id, str) or not self.bus_id:
+                raise ValueError("bus endpoints require bus_id")
+            if not isinstance(self.attachment_id, str) or not self.attachment_id:
+                raise ValueError("bus endpoints require attachment_id")
+            if self.equipment_id is not None or self.terminal_role is not None:
+                raise ValueError("bus endpoints cannot carry equipment terminal identity")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "kind": self.kind.value,
+            "node_id": self.node_id,
+            "equipment_id": self.equipment_id,
+            "terminal_role": self.terminal_role,
+            "bus_id": self.bus_id,
+            "attachment_id": self.attachment_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "SLDEndpoint":
+        return cls(
+            kind=SLDEndpointKind(str(data["kind"])),
+            node_id=str(data["node_id"]),
+            equipment_id=data.get("equipment_id"),
+            terminal_role=data.get("terminal_role"),
+            bus_id=data.get("bus_id"),
+            attachment_id=data.get("attachment_id"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SLDRoute:
+    """Presentation-only route state with explicit automatic/engineer ownership."""
+
+    routing_mode: str = "orthogonal"
+    ownership: str = "auto"
+    points: tuple[tuple[float, float], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.routing_mode not in {"direct", "orthogonal", "manual"}:
+            raise ValueError("unsupported SLD routing_mode")
+        if self.ownership not in {"auto", "engineer"}:
+            raise ValueError("route ownership must be 'auto' or 'engineer'")
+        normalized = tuple((float(x), float(y)) for x, y in self.points)
+        object.__setattr__(self, "points", normalized)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"routing_mode": self.routing_mode, "ownership": self.ownership, "points": [list(p) for p in self.points]}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any] | None) -> "SLDRoute":
+        if not data:
+            return cls()
+        return cls(
+            routing_mode=str(data.get("routing_mode", "orthogonal")),
+            ownership=str(data.get("ownership", "auto")),
+            points=tuple(tuple(point) for point in data.get("points", ())),
+        )
+
+
+# ============================================================
 # SLD Connection
 # ============================================================
 
 
 @dataclass
 class SLDConnection:
-    """
-    Structural connection between two SLD nodes.
-
-    This class represents document structure only. It does not
-    validate or calculate electrical topology.
-    """
+    """Presentation-side connection carrying semantic endpoints and route state."""
 
     connection_id: str
     source_node_id: str
     target_node_id: str
     properties: Dict[str, Any] = field(default_factory=dict)
+    source_endpoint: SLDEndpoint | None = None
+    target_endpoint: SLDEndpoint | None = None
+    route: SLDRoute = field(default_factory=SLDRoute)
 
     def __post_init__(self) -> None:
         if not isinstance(self.connection_id, str) or not self.connection_id:
             raise ValueError("connection_id must be a non-empty string")
-
-        if (
-            not isinstance(self.source_node_id, str)
-            or not self.source_node_id
-        ):
+        if not isinstance(self.source_node_id, str) or not self.source_node_id:
             raise ValueError("source_node_id must be a non-empty string")
-
-        if (
-            not isinstance(self.target_node_id, str)
-            or not self.target_node_id
-        ):
+        if not isinstance(self.target_node_id, str) or not self.target_node_id:
             raise ValueError("target_node_id must be a non-empty string")
-
         self.connection_id = str(self.connection_id)
         self.source_node_id = str(self.source_node_id)
         self.target_node_id = str(self.target_node_id)
         self.properties = dict(self.properties)
+        if self.source_endpoint is not None and not isinstance(self.source_endpoint, SLDEndpoint):
+            raise TypeError("source_endpoint must be an SLDEndpoint or None")
+        if self.target_endpoint is not None and not isinstance(self.target_endpoint, SLDEndpoint):
+            raise TypeError("target_endpoint must be an SLDEndpoint or None")
+        if not isinstance(self.route, SLDRoute):
+            raise TypeError("route must be an SLDRoute")
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize this connection."""
         return {
             "connection_id": self.connection_id,
             "source_node_id": self.source_node_id,
             "target_node_id": self.target_node_id,
+            "source_endpoint": None if self.source_endpoint is None else self.source_endpoint.to_dict(),
+            "target_endpoint": None if self.target_endpoint is None else self.target_endpoint.to_dict(),
+            "route": self.route.to_dict(),
             "properties": dict(self.properties),
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDConnection":
-        """Deserialize an SLD connection."""
         return cls(
             connection_id=str(data["connection_id"]),
             source_node_id=str(data["source_node_id"]),
             target_node_id=str(data["target_node_id"]),
+            source_endpoint=(None if data.get("source_endpoint") is None else SLDEndpoint.from_dict(data["source_endpoint"])),
+            target_endpoint=(None if data.get("target_endpoint") is None else SLDEndpoint.from_dict(data["target_endpoint"])),
+            route=SLDRoute.from_dict(data.get("route")),
             properties=dict(data.get("properties", {})),
         )
 
