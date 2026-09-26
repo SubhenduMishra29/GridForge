@@ -19,7 +19,7 @@ from core.application.commands.control_commands import (
     RemoveControlComponent,
 )
 from ui.control.control_tool_palette import ControlToolDescriptor
-from ui.control.ladder.control_port import ControlPortDirection, ControlPortPresentation
+from ui.items.control_items import ControlPortDirection, ControlPortPresentation
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
 
 
