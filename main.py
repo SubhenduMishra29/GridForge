@@ -15,6 +15,9 @@ from core.application.services.sld_service import SLDService
 from core.network.network import Network
 
 from ui.canvas.canvas_composition import CanvasComposer
+from ui.events.control_update_coordinator import ControlUpdateCoordinator
+from ui.control.control_surface_host import ControlSurfaceHost
+from ui.control.control_workspace import ControlWorkspace
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.core.controller import Controller
@@ -43,7 +46,7 @@ from ui.sld.sld_read_synchronizer import SLDReadSynchronizer
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
 from ui.workspace.project_workspace_adapter import ProjectWorkspaceApplicationAdapter, ProjectWorkspaceChanged
 from ui.workspace.workspace_controller import WorkspaceController
-from ui.workspace.workspace_defaults import SLD_WORKSPACE_ID, default_workspaces
+from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, SLD_WORKSPACE_ID, default_workspaces
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.tools.default_tool_registry import create_default_tool_factories
@@ -130,6 +133,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
     )
+    control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, parent=None)
+    workspace_surface_host = ControlSurfaceHost(
+        sld_surface=canvas_composition.widget,
+        control_surface=control_workspace,
+        parent=None,
+    )
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
     canvas_entry = plugin_registry.get_entry("canvas"); panels_entry = plugin_registry.get_entry("panels")
     if canvas_entry is None: raise RuntimeError("CanvasPlugin is not registered.")
@@ -137,6 +146,9 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     canvas_plugin = canvas_entry.plugin; panels_plugin = panels_entry.plugin; set_composition = getattr(canvas_plugin, "set_composition", None)
     if not callable(set_composition): raise RuntimeError("CanvasPlugin does not expose set_composition().")
     set_composition(canvas_composition); panel_presentation_bridge = PanelPresentationBridge(panels_plugin)
+    set_workspace_surface = getattr(canvas_plugin, "set_workspace_surface", None)
+    if not callable(set_workspace_surface): raise RuntimeError("CanvasPlugin does not expose set_workspace_surface().")
+    set_workspace_surface(workspace_surface_host)
 
     # ShellPlugin owns the visible central widget composition. It requires a
     # distinct root widget so that its QVBoxLayout never becomes a child
@@ -225,7 +237,8 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "application.exit": window.close,
         "edit.undo": controller.undo,
         "edit.redo": controller.redo,
-        "view.sld_workspace": workspace_controller.activate_default,
+        "view.sld_workspace": lambda: (workspace_controller.activate(SLD_WORKSPACE_ID), workspace_surface_host.activate("sld")),
+        "view.control_workspace": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
         "view.equipment_browser": _show_equipment_browser,
         "view.fit": canvas_composition.navigation_controller.fit_content,
         "tool.select": lambda: controller.set_tool("select"),
@@ -233,7 +246,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         "tool.wire": lambda: controller.set_tool("wire"),
         "study.cases": _show_study_cases,
         "protection.panel": lambda: _show_unconfigured_surface("Protection"),
-        "control.panel": lambda: _show_unconfigured_surface("Control"),
+        "control.panel": lambda: (workspace_controller.activate(CONTROL_WORKSPACE_ID), workspace_surface_host.activate("control")),
         "help.about": lambda: QMessageBox.information(window, "About GridForge", "GridForge V2 — power-system engineering platform."),
     })
 
@@ -306,10 +319,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         raise
     workspace_controller.activate_default()
     sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas)
+    control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
     element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel)
-    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
+    projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
     ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
+    control_workspace.refresh()
     element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
     # Project close is already completed by MainWindow.closeEvent before
     # UILifecycle.shutdown. Shutdown must only release remaining presentation
