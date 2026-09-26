@@ -42,7 +42,7 @@
 #            │
 #            ├── ConnectionRouter
 #            ├── ConnectionPreview
-#            └── TopologyAdapter
+#            └── Application command boundary
 #
 # Core remains authoritative for electrical-network state. Committed electrical
 topology is submitted as an immutable Application command; this class is
