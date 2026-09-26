@@ -106,6 +106,18 @@ class ControlUpdateCoordinator:
         self._canvas.project(read_model)
         self._canvas_refresh()
 
+    def refresh_current(self) -> None:
+        """Project the currently active Control read model, or clear when inactive."""
+        try:
+            self._canvas.project(self._application.read_control())
+        except RuntimeError:
+            reset = getattr(self._canvas, "reset_scene", None)
+            if callable(reset):
+                reset()
+            else:
+                self._canvas.clear()
+        self._canvas_refresh()
+
     def dispose(self) -> None:
         """Release coordinator-owned presentation references."""
         self._canvas_refresh = lambda: None
