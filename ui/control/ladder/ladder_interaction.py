@@ -10,7 +10,7 @@ from uuid import uuid4
 from typing import Any
 
 from ui.core.qt import QGraphicsRectItem, QPen, QPointF, QTransform
-from core.application.commands.control_commands import AddControlComponent, ConnectControlSignals, DisconnectControlSignals
+from core.application.commands.control_commands import AddControlComponent, ConnectControlSignals, DisconnectControlSignals, MoveLadderElement, RemoveControlComponent
 from ui.control.control_tool_palette import ControlToolDescriptor
 
 
@@ -21,6 +21,7 @@ class LadderInteraction:
         self._active: ControlToolDescriptor | None = None
         self._preview = None
         self._signal_source: str | None = None
+        self._move_source: str | None = None
 
     @property
     def active_tool(self) -> ControlToolDescriptor | None:
@@ -36,6 +37,7 @@ class LadderInteraction:
             self._preview = None
         self._active = None
         self._signal_source = None
+        self._move_source = None
 
     def preview(self, x: float, y: float) -> None:
         if self._active is None or self._active.component_type is None:
@@ -51,6 +53,38 @@ class LadderInteraction:
         descriptor = self._active
         if descriptor is None:
             return None
+
+        if descriptor.tool_id in {"component.move", "component.remove"}:
+            item = self._canvas.itemAt(QPointF(float(x), float(y)), QTransform())
+            component_id = getattr(item, "object_id", None)
+            if component_id is None:
+                return None
+            component_id = str(component_id)
+            if descriptor.tool_id == "component.remove":
+                result = self._application.execute(RemoveControlComponent(component_id=component_id))
+                self.cancel()
+                return result
+            if self._move_source is None:
+                self._move_source = component_id
+                return None
+            source_id = self._move_source
+            self._move_source = None
+            read_model = self._application.read_control()
+            target_rung = min(
+                read_model.rungs,
+                key=lambda rung: abs(float(rung.order * 80.0) - float(y)),
+                default=None,
+            )
+            if target_rung is None:
+                return None
+            position = max(0, int(float(x) // 120.0))
+            return self._application.execute(
+                MoveLadderElement(
+                    component_id=source_id,
+                    rung_id=target_rung.rung_id,
+                    position=position,
+                )
+            )
 
         if descriptor.tool_id in {"signal.connect", "signal.disconnect"}:
             item = self._canvas.itemAt(QPointF(float(x), float(y)), QTransform())
