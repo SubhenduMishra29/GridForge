@@ -36,6 +36,7 @@ class AddSLDNodeCommand(Command):
                  projection_source: str | None = None,
                  element_type: str | None = None,
                  presentation: dict | None = None,
+                 presentation_properties: dict | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(
@@ -49,6 +50,7 @@ class AddSLDNodeCommand(Command):
                 "projection_source": projection_source,
                 "element_type": element_type,
                 "presentation": None if presentation is None else dict(presentation),
+                "presentation_properties": {} if presentation_properties is None else dict(presentation_properties),
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
