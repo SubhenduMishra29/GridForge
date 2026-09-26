@@ -81,7 +81,10 @@ class EquipmentItem(BaseItem):
         """Expose terminal-aware scene-space snap candidates."""
         points = []
         for terminal in self._equipment.terminals:
-            scene_point = self.mapToScene(QPointF(terminal.x, terminal.y))
+            # SymbolDefinition is the sole graphical anchor authority. The
+            # terminal registry identity is retained only as presentation identity.
+            local_anchor = self._symbol_definition.get_terminal_anchor(terminal.terminal_name)
+            scene_point = self.mapToScene(QPointF(local_anchor[0], local_anchor[1]))
             points.append({
                 "position": scene_point,
                 "object_id": self.object_id,
