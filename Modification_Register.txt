@@ -1426,3 +1426,14 @@ GF-UI-01-004  -> STATIC CLOSED / RUNTIME UNVERIFIED
 GF-UI-01-005  -> STATIC CLOSED / RUNTIME UNVERIFIED
 GF-REG-01-001  -> STATIC CLOSED / RUNTIME UNVERIFIED
 Historical repository identities and prior findings remain preserved as evidence.
+
+
+GF-MASTER-0038 / GF-MASTER-0041 / GF-MASTER-0043 — Batch 1E SLD connection migration reconciliation
+    STATUS: REMEDIATED — VERIFICATION DEFERRED
+    - Retired stale ui.topology.TopologyValidator implementation/public export.
+    - Reconciled ui.connections documentation to EndpointIdentityAdapter → EndpointReference → immutable Application command → Core Network.
+    - Unified WireTool/LineTool/CableTool logical transient preview ownership under ConnectionPreview.
+    - Preserved Wire PreviewLayer rendering and canonical Application/Core mutation.
+    - Did not introduce TopologyAdapter or a parallel topology authority.
+    - Historical audit evidence remains preserved.
+    - Runtime verification deferred by frozen static-only audit mode.
