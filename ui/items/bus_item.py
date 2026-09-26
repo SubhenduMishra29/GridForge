@@ -43,6 +43,7 @@ from ui.core.qt import (
 )
 
 from .base_item import BaseItem
+from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
 
 
 class BusItem(BaseItem):
@@ -65,8 +66,8 @@ class BusItem(BaseItem):
         super().__init__(object_id=object_id, parent=parent)
         self._validate_radius(radius)
         self._radius = float(radius)
-        self._start = QPointF(-80.0, 0.0) if start is None else QPointF(float(start.x()), float(start.y()))
-        self._end = QPointF(80.0, 0.0) if end is None else QPointF(float(end.x()), float(end.y()))
+        self._start = QPointF(*DEFAULT_SLD_BUS_PRESENTATION.start) if start is None else QPointF(float(start.x()), float(start.y()))
+        self._end = QPointF(*DEFAULT_SLD_BUS_PRESENTATION.end) if end is None else QPointF(float(end.x()), float(end.y()))
         self._validate_bus_span()
 
         self.setFlag(
@@ -166,7 +167,7 @@ class BusItem(BaseItem):
     def snap_points(self) -> tuple[dict[str, Any], ...]:
         """Expose deterministic Bus attachment candidates, not only the Bus center."""
         candidates = []
-        for index in range(0, 9):
+        for index in range(0, DEFAULT_SLD_BUS_PRESENTATION.attachment_count):
             attachment_id = f"attachment-{index}"
             candidates.append({
                 "position": self.attachment_position(attachment_id),
