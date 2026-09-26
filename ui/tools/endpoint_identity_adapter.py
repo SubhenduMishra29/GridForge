@@ -34,6 +34,7 @@ from typing import Any
 from core.model import EndpointReference, EquipmentType
 from ui.equipment.terminal import EquipmentTerminal
 from ui.items.bus_item import BusItem
+from ui.items.equipment_item import EquipmentItem
 
 
 class EndpointIdentityAdapter:
@@ -74,12 +75,8 @@ class EndpointIdentityAdapter:
         # the presentation source as a safe fallback for legacy/adapter
         # paths that omit the duplicated field: only canonical electrical
         # presentation items may supply this identity.
-        if object_id is None and isinstance(source, (BusItem, EquipmentTerminal)):
+        if object_id is None and isinstance(source, (BusItem, EquipmentItem)):
             object_id = getattr(source, "object_id", None)
-        if object_id is None:
-            source_object_id = getattr(source, "object_id", None)
-            if isinstance(source_object_id, str) and source_object_id:
-                object_id = source_object_id
         if object_id is None:
             raise ValueError(
                 "Line connection requires an object snap with a stable object_id."
