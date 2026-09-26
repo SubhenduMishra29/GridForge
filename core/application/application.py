@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from core.control.context import ControlExecutionContext
 from core.control.engine import ControlEngine
+from core.model import EndpointReference
 
 from .command import Command
 from .command_manager import CommandManager
@@ -423,8 +424,23 @@ class Application:
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
 
     def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
-        """Coordinate placement presentation mutation inside the same transaction."""
-        if self._sld_service is None or command.command_type not in {"model.create_relay"} and not command.command_type.startswith("model.create_"):
+        """Coordinate Core and persistent SLD presentation mutations in one Application transaction.
+
+        Placement commands create their SLD node here, while connection commands
+        create the endpoint-aware SLD connection here. UI tools therefore submit
+        exactly one engineering command and never open a second presentation
+        transaction after Core commit.
+        """
+        if self._sld_service is None:
+            return
+        if command.command_type in {
+            "connectivity.create_simple_wire",
+            "model.create_line",
+            "model.create_cable",
+        }:
+            self._coordinate_connection_pre_commit(command, transaction)
+            return
+        if command.command_type not in {"model.create_relay"} and not command.command_type.startswith("model.create_"):
             return
         # Most placement tools carry presentation_x/presentation_y.
         # PlaceBusCommand is a compatibility constructor whose canonical
@@ -470,6 +486,74 @@ class Application:
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
+
+    def _coordinate_connection_pre_commit(self, command: Command, transaction: Any) -> None:
+        """Create the semantic SLD connection companion before the Core transaction commits."""
+        if self._sld_service is None:
+            return
+
+        if command.command_type == "connectivity.create_simple_wire":
+            source_ref = command.payload["endpoint_a"]
+            target_ref = command.payload["endpoint_b"]
+            connection_id = str(command.payload["connection_id"])
+        else:
+            source_ref = command.payload["endpoint_from"]
+            target_ref = command.payload["endpoint_to"]
+            connection_id = str(command.payload.get("line_id") or command.payload.get("cable_id"))
+
+        if not isinstance(source_ref, EndpointReference) or not isinstance(target_ref, EndpointReference):
+            raise ValueError("Connection commands require canonical EndpointReference endpoints.")
+        if source_ref == target_ref:
+            raise ValueError("Connection endpoints must be distinct.")
+
+        source = self._sld_endpoint_for_reference(source_ref)
+        target = self._sld_endpoint_for_reference(target_ref)
+        projection_result = self._sld_service.execute(
+            AddSLDConnectionCommand(
+                connection_id=connection_id,
+                source_node_id=source["node_id"],
+                target_node_id=target["node_id"],
+                source_endpoint=source,
+                target_endpoint=target,
+                route={"routing_mode": "orthogonal", "ownership": "auto", "points": []},
+                presentation_owner="projection",
+                projection_source="application_read_model",
+                correlation_id=command.correlation_id,
+                causation_id=command.command_id,
+            ),
+            transaction,
+        )
+        if not projection_result.success:
+            raise RuntimeError(projection_result.message)
+
+    def _sld_endpoint_for_reference(self, reference: EndpointReference) -> dict[str, str]:
+        """Resolve an immutable Core endpoint reference to semantic SLD identity only."""
+        if self._sld_service is None:
+            raise RuntimeError("SLD service is required for endpoint presentation coordination.")
+
+        node = self._sld_service.document.model.get_node_by_equipment_id_optional(reference.object_id)
+        if node is None:
+            raise ValueError(
+                f"No SLD presentation node exists for endpoint object {reference.object_id!r}."
+            )
+
+        if reference.is_bus:
+            attachment_id = getattr(reference, "attachment_id", None)
+            if not isinstance(attachment_id, str) or not attachment_id:
+                raise ValueError("Bus connection endpoints require attachment_id.")
+            return {
+                "kind": "bus",
+                "node_id": str(node.node_id),
+                "bus_id": str(reference.object_id),
+                "attachment_id": attachment_id,
+            }
+
+        return {
+            "kind": "equipment",
+            "node_id": str(node.node_id),
+            "equipment_id": str(reference.object_id),
+            "terminal_role": str(reference.terminal_role),
+        }
 
     def mark_project_persisted(self) -> ProjectRevision: return self._revision_service.mark_persisted()
     def record_presentation_change(self) -> ProjectRevision: return self._revision_service.record_presentation_change()
