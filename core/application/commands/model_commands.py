@@ -197,12 +197,13 @@ class DeleteLineCommand(Command):
         super().__init__(**_command(DELETE_LINE, {"line_id": line_id}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateTransformerCommand(Command):
-    def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference, endpoint_to: EndpointReference,
+    def __init__(self, *, transformer_id: str, endpoint_from: EndpointReference | None = None, endpoint_to: EndpointReference | None = None,
                  r: float, x: float, b: float = 0.0, impedance_basis: ImpedanceBasis | str = ImpedanceBasis.ENGINEERING, tap: float = 1.0, shift: float = 0.0,
-                 name: str = "", rate_mva: float = 100.0,
+                 name: str = "", rate_mva: float | None = None, impedance_base_mva: float | None = None,
+                 impedance_base_voltage_kv: float | None = None,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        if not isinstance(endpoint_from, EndpointReference) or not isinstance(endpoint_to, EndpointReference):
-            raise TypeError("Transformer endpoints must be EndpointReference values.")
+        _endpoint(endpoint_from, "endpoint_from")
+        _endpoint(endpoint_to, "endpoint_to")
         try:
             normalized_basis = (
                 impedance_basis
@@ -219,6 +220,8 @@ class CreateTransformerCommand(Command):
             "x": x,
             "b": b,
             "impedance_basis": normalized_basis,
+            "impedance_base_mva": impedance_base_mva,
+            "impedance_base_voltage_kv": impedance_base_voltage_kv,
             "tap": tap,
             "shift": shift,
             "name": name,

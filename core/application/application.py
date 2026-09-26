@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any, Mapping
+from uuid import uuid4
 
 from core.control.context import ControlExecutionContext
 from core.control.engine import ControlEngine
@@ -519,7 +520,7 @@ class Application:
         presentation_properties["position_owner"] = "engineer"
         projection_result = self._sld_service.execute(
             AddSLDNodeCommand(
-                node_id=f"sld-node-{element_id}",
+                node_id=self._new_sld_node_id(),
                 equipment_id=element_id,
                 x=float(x),
                 y=float(y),
@@ -534,6 +535,21 @@ class Application:
         )
         if not projection_result.success:
             raise RuntimeError(projection_result.message)
+
+    def _new_sld_node_id(self) -> str:
+        """Generate an independent persistent SLD identity.
+
+        SLD node identity is presentation/document identity and must never be
+        derived from authoritative Core equipment identity. The generated ID
+        is persisted by SLDService and therefore remains stable across reloads.
+        """
+        if self._sld_service is None:
+            raise RuntimeError("SLD service is required for SLD node identity generation.")
+        model = self._sld_service.document.model
+        while True:
+            node_id = f"sld-node-{uuid4()}"
+            if not model.has_node(node_id):
+                return node_id
 
     def _coordinate_connection_pre_commit(self, command: Command, transaction: Any) -> None:
         """Create the semantic SLD connection companion before Core commit."""
@@ -898,7 +914,7 @@ class Application:
     def _element_id(command: Command) -> str | None:
         payload = command.payload; value = payload.get("element_id") or payload.get("equipment_id") or payload.get("id")
         if value is None:
-            for key in ("bus_id", "breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
+            for key in ("bus_id", "grid_id", "generator_id", "synchronous_machine_id", "load_id", "motor_id", "shunt_id", "reactor_id", "solar_id", "battery_id", "capacitor_id", "breaker_id", "switch_id", "disconnector_id", "fuse_id", "line_id", "transformer_id", "cable_id"):
                 if key in payload: value = payload[key]; break
         return str(value) if value is not None else None
 

@@ -3,28 +3,31 @@
 # GridForge V2 — Model Placement Tool
 # Author: Subhendu Mishra
 # ============================================================
-"""Shared UI-only placement behavior for concrete model tools."""
+"""Shared position-first placement behavior for concrete model tools."""
 
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple
 from uuid import uuid4
 
-from .endpoint_identity_adapter import EndpointIdentityAdapter
-
 from .tool_base import ToolBase
+from ui.canvas.symbol_preview_item import SymbolPreviewItem
 
 
 class ModelPlacementTool(ToolBase):
-    """Reusable placement interaction for concrete SLD model tools."""
+    """Reusable UI-only placement interaction for concrete SLD model tools.
+
+    Placement captures a canvas position and creates the immutable Application
+    command. Electrical endpoint references are deliberately not acquired by
+    this interaction; connectivity is a separate workflow.
+    """
 
     MODEL_NAME = "Model"
     TOOL_ID = "model"
+    SYMBOL_ID = ""
     COMMAND_CLASS = None
     ID_FIELD = "equipment_id"
-    ENDPOINT_FIELDS: tuple[str, ...] = ()
     COMMAND_DEFAULTS: dict[str, Any] = {}
-    ENDPOINT_ROLE_MAP: dict[str, str] = {}
 
     def __init__(
         self,
@@ -33,6 +36,7 @@ class ModelPlacementTool(ToolBase):
         selection_manager: Any,
         snap_system: Any,
         preview_layer: Any = None,
+        symbol_registry: Any = None,
     ) -> None:
         super().__init__(
             controller=controller,
@@ -43,8 +47,7 @@ class ModelPlacementTool(ToolBase):
         self._position: Optional[Tuple[float, float]] = None
         self._preview_active = False
         self._preview_layer = preview_layer
-        self._endpoints: list[Any] = []
-        self._endpoint_by_field: dict[str, Any] = {}
+        self._symbol_registry = symbol_registry
 
     @property
     def tool_id(self) -> str:
@@ -66,29 +69,12 @@ class ModelPlacementTool(ToolBase):
 
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
-        snap_result = self._snap_result(event)
-        if snap_result is None:
+        position = self._snap_position(event)
+        if position is None:
             return False
-        self._position = self._position_tuple(snap_result.position)
+        self._position = position
         self._preview_active = True
-        self._show_preview(self._position)
-        if self.ENDPOINT_FIELDS:
-            endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
-            terminal_name = getattr(snap_result, "terminal_name", None)
-            if self.ENDPOINT_ROLE_MAP:
-                if not isinstance(terminal_name, str) or terminal_name not in self.ENDPOINT_ROLE_MAP:
-                    raise ValueError(f"{self.MODEL_NAME} requires an explicit supported terminal role.")
-                field = self.ENDPOINT_ROLE_MAP[terminal_name]
-                if field in self._endpoint_by_field:
-                    raise ValueError(f"{self.MODEL_NAME} terminal role {terminal_name!r} was already selected.")
-                self._endpoint_by_field[field] = endpoint
-                self._endpoints = list(self._endpoint_by_field.values())
-            else:
-                if endpoint in self._endpoints:
-                    raise ValueError(f"{self.MODEL_NAME} requires distinct endpoint references.")
-                self._endpoints.append(endpoint)
-            if len(self._endpoints) < len(self.ENDPOINT_FIELDS):
-                return True
+        self._show_preview(position)
         command = self._build_command()
         self.execute_command(command)
         self._clear_state()
@@ -111,6 +97,8 @@ class ModelPlacementTool(ToolBase):
             self._clear_state()
             return False
         self._position = position
+        self._preview_active = True
+        self._show_preview(position)
         return False
 
     def on_mouse_double_click(self, event: Any) -> bool:
@@ -150,32 +138,34 @@ class ModelPlacementTool(ToolBase):
         return self._position_tuple(position)
 
     def _show_preview(self, position: Tuple[float, float]) -> None:
-        """Show transient placement geometry only; never create Core state."""
+        """Show a transient SymbolDefinition-driven equipment preview."""
         if self._preview_layer is None:
             return
-        show_segment = getattr(self._preview_layer, "show_segment", None)
-        if not callable(show_segment):
-            raise TypeError("PreviewLayer must provide show_segment().")
-        x, y = position
-        half_length = 12.0
-        show_segment((x - half_length, y), (x + half_length, y))
+        if self._symbol_registry is None:
+            raise RuntimeError("Model placement requires the canonical SymbolRegistry for preview.")
+        if not self.SYMBOL_ID:
+            raise RuntimeError(f"{self.MODEL_NAME} has no canonical SYMBOL_ID.")
+        definition = self._symbol_registry.require(self.SYMBOL_ID)
+        item = SymbolPreviewItem(
+            definition,
+            position=position,
+            rotation=0.0,
+        )
+        replace = getattr(self._preview_layer, "replace", None)
+        if not callable(replace):
+            raise TypeError("PreviewLayer must provide replace().")
+        replace((item,))
 
     def _build_command(self) -> Any:
         command_class = self.COMMAND_CLASS
         if command_class is None:
             raise RuntimeError(f"{self.MODEL_NAME} tool has no Application command constructor.")
-        if len(self.ENDPOINT_FIELDS) != len(self._endpoints):
-            raise RuntimeError(f"{self.MODEL_NAME} placement is missing required endpoint references.")
         payload = dict(self.COMMAND_DEFAULTS)
         payload[self.ID_FIELD] = f"{self.TOOL_ID}-{uuid4().hex}"
         if self._position is None:
             raise RuntimeError(f"{self.MODEL_NAME} placement has no committed position.")
         payload["presentation_x"] = float(self._position[0])
         payload["presentation_y"] = float(self._position[1])
-        if self.ENDPOINT_ROLE_MAP:
-            payload.update(self._endpoint_by_field)
-        else:
-            payload.update(dict(zip(self.ENDPOINT_FIELDS, self._endpoints)))
         return command_class(**payload)
 
     @staticmethod
@@ -204,12 +194,13 @@ class ModelPlacementTool(ToolBase):
             clear = getattr(self._preview_layer, "clear", None)
             if callable(clear):
                 clear()
-        self._endpoints.clear()
-        self._endpoint_by_field.clear()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
-        state.update({"position": self._position, "preview_active": self._preview_active})
+        state.update({
+            "position": self._position,
+            "preview_active": self._preview_active,
+        })
         return state
 
 

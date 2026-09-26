@@ -3,5 +3,5 @@ from core.application.commands.battery_commands import CreateBatteryCommand
 from .model_placement_tool import ModelPlacementTool
 class BatteryTool(ModelPlacementTool):
     TOOL_ID="battery"; MODEL_NAME="Battery"; COMMAND_CLASS=CreateBatteryCommand
-    ID_FIELD="battery_id"; ENDPOINT_FIELDS=("endpoint",)
+    ID_FIELD="battery_id"; SYMBOL_ID="battery"
 __all__=["BatteryTool"]

@@ -2,10 +2,10 @@
 
 Author: Subhendu Mishra
 
-Transformer impedance entered through the existing application contract is
-explicitly referred to the FROM-side nominal voltage. This is a contract,
-not an inferred electrical value, and is persisted on the Transformer as
-``impedance_base_voltage_kv`` for deterministic study preparation.
+Transformer impedance reference voltage is explicit engineering input.
+It is never derived from endpoint connectivity and is persisted on the
+Transformer as ``impedance_base_voltage_kv`` for deterministic study
+preparation.
 """
 
 from __future__ import annotations
@@ -33,24 +33,12 @@ class TransformerModelService(ModelServiceSupport):
     def network(self) -> Network:
         return self._network
 
-    @staticmethod
-    def _endpoint_nominal_voltage_kv(endpoint: Bus | Terminal, parameter_name: str) -> float:
-        bus = endpoint if isinstance(endpoint, Bus) else endpoint.endpoint
-        if not isinstance(bus, Bus):
-            raise ValueError(
-                f"{parameter_name} must resolve to a Bus with nominal_voltage_kv before a Transformer can declare its impedance basis."
-            )
-        voltage_kv = float(bus.nominal_voltage_kv)
-        if voltage_kv <= 0.0:
-            raise ValueError(f"{parameter_name} bus nominal_voltage_kv must be greater than zero.")
-        return voltage_kv
-
     def create_transformer(
         self,
         *,
         transformer_id: str,
-        endpoint_from: Bus | Terminal,
-        endpoint_to: Bus | Terminal,
+        endpoint_from: Bus | Terminal | None = None,
+        endpoint_to: Bus | Terminal | None = None,
         r: float = 0.0,
         x: float = 0.0,
         b: float = 0.0,
@@ -59,19 +47,32 @@ class TransformerModelService(ModelServiceSupport):
         shift: float = 0.0,
         name: str | None = None,
         rate_mva: float | None = None,
+        impedance_base_mva: float | None = None,
+        impedance_base_voltage_kv: float | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
         self._require_id(transformer_id, "transformer_id")
-        self._validate_endpoint(endpoint_from, "endpoint_from")
-        self._validate_endpoint(endpoint_to, "endpoint_to")
-        self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_TRANSFORMER_ENDPOINTS", "Transformer", transformer_id)
+        if endpoint_from is not None:
+            self._validate_endpoint(endpoint_from, "endpoint_from")
+        if endpoint_to is not None:
+            self._validate_endpoint(endpoint_to, "endpoint_to")
+        if endpoint_from is not None and endpoint_to is not None:
+            self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_TRANSFORMER_ENDPOINTS", "Transformer", transformer_id)
         self._ensure_not_exists("transformer", transformer_id, "Transformer")
 
-        # Frozen application contract: transformer r/x/b is referred to the
-        # explicitly named FROM side. The value is captured in the Core model
-        # so preparation never has to infer which voltage base was intended.
-        impedance_base_voltage_kv = self._endpoint_nominal_voltage_kv(endpoint_from, "endpoint_from")
+        # Transformer impedance reference voltage is engineering input, never
+        # inferred from an absent endpoint. A connected transformer may still
+        # be created with explicit endpoint references, but placement does not
+        # require them.
+        if impedance_base_voltage_kv is None:
+            raise ValueError(
+                "Transformer impedance_base_voltage_kv must be explicitly declared; "
+                "it cannot be inferred from endpoint connectivity."
+            )
+        impedance_base_voltage_kv = float(impedance_base_voltage_kv)
+        if impedance_base_voltage_kv <= 0.0:
+            raise ValueError("Transformer impedance_base_voltage_kv must be greater than zero.")
 
         transformer = Transformer(
             id=transformer_id,
@@ -86,6 +87,8 @@ class TransformerModelService(ModelServiceSupport):
             shift=shift,
             name="" if name is None else name,
             rate_mva=rate_mva,
+            impedance_base_mva=impedance_base_mva,
+            impedance_base_voltage_kv=impedance_base_voltage_kv,
         )
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))

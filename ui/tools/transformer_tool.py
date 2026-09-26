@@ -1,27 +1,34 @@
 # ============================================================
 # File: ui/tools/transformer_tool.py
-# GridForge V2 — Transformer Tool
+# GridForge V2 — Transformer Placement Tool
 # Author: Subhendu Mishra
 # ============================================================
-"""SLD transformer-placement interaction tool."""
+"""SLD transformer placement as a position-first equipment workflow."""
 
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
-
-from core.model.transformer import ImpedanceBasis
+from typing import Any
 from uuid import uuid4
 
 from core.application.commands.model_commands import CreateTransformerCommand
+from core.model.transformer import ImpedanceBasis
 
-from .endpoint_identity_adapter import EndpointIdentityAdapter
-from .tool_base import ToolBase
+from .model_placement_tool import ModelPlacementTool
 
 
-class TransformerTool(ToolBase):
-    """Capture two endpoint identities and execute CreateTransformerCommand."""
+class TransformerTool(ModelPlacementTool):
+    """Place a Transformer first; establish electrical connectivity separately.
+
+    Transformer impedance reference data remains explicit engineering input.
+    Endpoint references are intentionally absent from the placement interaction
+    and may be supplied later by the dedicated connection workflow.
+    """
 
     TOOL_ID = "transformer"
+    MODEL_NAME = "Transformer"
+    SYMBOL_ID = "transformer"
+    COMMAND_CLASS = CreateTransformerCommand
+    ID_FIELD = "transformer_id"
 
     def __init__(
         self,
@@ -30,142 +37,81 @@ class TransformerTool(ToolBase):
         selection_manager: Any,
         snap_system: Any,
         preview_layer: Any = None,
+        symbol_registry: Any = None,
     ) -> None:
         super().__init__(
             controller=controller,
             application=application,
             selection_manager=selection_manager,
             snap_system=snap_system,
+            preview_layer=preview_layer,
+            symbol_registry=symbol_registry,
         )
-        self._start_endpoint: Any = None
-        self._start_position: Optional[Tuple[float, float]] = None
-        self._current_endpoint: Any = None
-        self._current_position: Optional[Tuple[float, float]] = None
-        self._preview_active = False
-        self._preview_layer = preview_layer
         self._engineering_parameters: dict[str, Any] = {}
 
-    @property
-    def tool_id(self) -> str:
-        return self.TOOL_ID
-
-    @property
-    def name(self) -> str:
-        return "Transformer"
-
-    @property
-    def description(self) -> str:
-        return "Create a transformer connection between two SLD endpoints."
-
     def set_engineering_parameters(self, **parameters: Any) -> None:
-        """Store UI-entered transformer configuration until command creation."""
+        """Store explicit Transformer engineering input for the next placement."""
         if not parameters:
             raise ValueError("Transformer engineering parameters must not be empty.")
         self._engineering_parameters = dict(parameters)
 
-    def on_activate(self) -> None:
-        self._clear_state()
-
-    def on_deactivate(self) -> None:
-        self._clear_state()
-
-    def on_mouse_press(self, event: Any) -> bool:
-        self._ensure_active()
-        snap_result = self._snap(event)
-        if snap_result is None:
-            return False
-        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
-            return False
-        position = self._position_tuple(snap_result.position)
-        endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
-
-        if self._start_endpoint is None:
-            self._start_endpoint = endpoint
-            self._start_position = position
-            self._current_endpoint = endpoint
-            self._current_position = position
-            self._preview_active = True
-            self._update_preview()
-            return True
-
-        self._current_endpoint = endpoint
-        self._current_position = position
-        self._execute_transformer_command(self._start_endpoint, self._current_endpoint)
-        self._clear_state()
-        return True
-
-    def on_mouse_move(self, event: Any) -> bool:
-        self._ensure_active()
-        if self._start_endpoint is None:
-            return False
-        snap_result = self._snap(event)
-        if snap_result is None:
-            return False
-        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
-            return False
-        self._current_position = self._position_tuple(snap_result.position)
-        self._current_endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
-        self._preview_active = True
-        self._update_preview()
-        return True
-
-    def on_mouse_release(self, event: Any) -> bool:
-        self._ensure_active()
-        return self._start_endpoint is not None
-
-    def on_mouse_double_click(self, event: Any) -> bool:
-        return self.on_mouse_press(event)
-
-    def on_key_press(self, event: Any) -> bool:
-        self._ensure_active()
-        if self._is_escape_event(event):
-            return self.on_cancel()
-        return False
-
-    def on_cancel(self) -> bool:
-        self._ensure_active()
-        had_state = self._start_endpoint is not None or self._preview_active
-        self._clear_state()
-        return had_state
-
-    def on_reset(self) -> None:
-        self._ensure_active()
-        self._clear_state()
-
-    def _snap(self, event: Any) -> Any:
-        scene_position = self.event_position(event)
-        snap = getattr(self.get_snap_system(), "snap", None)
-        if not callable(snap):
-            raise TypeError("SnapSystem must provide snap().")
-        result = snap(scene_position, allow_grid=True, allow_object=True)
-        if getattr(result, "position", None) is None:
-            return None
-        return result
-
-    def _execute_transformer_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
+    def _build_command(self) -> Any:
+        """Build a position-first Transformer command with explicit engineering basis."""
         parameters = self._engineering_parameters
-        required = ("r", "x", "impedance_basis")
+        required = (
+            "r",
+            "x",
+            "impedance_basis",
+            "impedance_base_voltage_kv",
+        )
         missing = [name for name in required if name not in parameters]
         if missing:
             raise RuntimeError(
-                "Transformer engineering parameters are incomplete: " + ", ".join(missing)
+                "Transformer engineering parameters are incomplete: "
+                + ", ".join(missing)
             )
-        command = CreateTransformerCommand(
-            transformer_id=f"transformer-{uuid4().hex}",
-            presentation_x=float(self._current_position[0]),
-            presentation_y=float(self._current_position[1]),
-            endpoint_from=endpoint_from,
-            endpoint_to=endpoint_to,
+
+        if (
+            parameters.get("impedance_base_mva") is None
+            and parameters.get("rate_mva") is None
+        ):
+            raise RuntimeError(
+                "Transformer engineering parameters require an explicit "
+                "impedance_base_mva or rate_mva."
+            )
+
+        if self._position is None:
+            raise RuntimeError("Transformer placement has no committed position.")
+
+        return CreateTransformerCommand(
+            transformer_id=f"{self.TOOL_ID}-{uuid4().hex}",
+            presentation_x=float(self._position[0]),
+            presentation_y=float(self._position[1]),
+            endpoint_from=None,
+            endpoint_to=None,
             r=float(parameters["r"]),
             x=float(parameters["x"]),
             b=float(parameters.get("b", 0.0)),
-            impedance_basis=self._normalize_impedance_basis(parameters["impedance_basis"]),
+            impedance_basis=self._normalize_impedance_basis(
+                parameters["impedance_basis"]
+            ),
+            impedance_base_mva=(
+                None
+                if parameters.get("impedance_base_mva") is None
+                else float(parameters["impedance_base_mva"])
+            ),
+            impedance_base_voltage_kv=float(
+                parameters["impedance_base_voltage_kv"]
+            ),
             tap=float(parameters.get("tap", 1.0)),
             shift=float(parameters.get("shift", 0.0)),
             name=str(parameters.get("name", "")),
-            rate_mva=float(parameters.get("rate_mva", 100.0)),
+            rate_mva=(
+                None
+                if parameters.get("rate_mva") is None
+                else float(parameters["rate_mva"])
+            ),
         )
-        return self.execute_command(command)
 
     @staticmethod
     def _normalize_impedance_basis(value: Any) -> ImpedanceBasis:
@@ -174,64 +120,9 @@ class TransformerTool(ToolBase):
         try:
             return ImpedanceBasis(str(value).strip().lower())
         except (TypeError, ValueError) as exc:
-            raise ValueError("Transformer impedance_basis must be 'pu' or 'engineering'.") from exc
-
-    def _update_preview(self) -> None:
-        if self._preview_layer is None:
-            return
-        if self._start_position is None or self._current_position is None:
-            self._preview_layer.clear()
-            return
-        show_segment = getattr(self._preview_layer, "show_segment", None)
-        if not callable(show_segment):
-            raise TypeError("PreviewLayer must provide show_segment().")
-        show_segment(self._start_position, self._current_position)
-
-    @staticmethod
-    def _optional_float(value: Any) -> float | None:
-        return None if value is None else float(value)
-
-    @staticmethod
-    def _position_tuple(position: Any) -> Tuple[float, float]:
-        if hasattr(position, "x") and hasattr(position, "y"):
-            return float(position.x()), float(position.y())
-        if isinstance(position, (tuple, list)) and len(position) >= 2:
-            return float(position[0]), float(position[1])
-        raise TypeError("SnapResult.position must provide x/y coordinates or a two-element position.")
-
-    @staticmethod
-    def _is_escape_event(event: Any) -> bool:
-        if event is None:
-            return False
-        key = getattr(event, "key", None)
-        if callable(key):
-            key = key()
-        if isinstance(event, dict):
-            key = event.get("key", key)
-        return key in ("Escape", "escape", 0x01000000)
-
-    def _clear_state(self) -> None:
-        self._start_endpoint = None
-        self._start_position = None
-        self._current_endpoint = None
-        self._current_position = None
-        self._preview_active = False
-        if self._preview_layer is not None:
-            clear = getattr(self._preview_layer, "clear", None)
-            if callable(clear):
-                clear()
-
-    def get_state(self) -> dict[str, Any]:
-        state = super().get_state()
-        state.update({
-            "start_endpoint": self._start_endpoint,
-            "current_endpoint": self._current_endpoint,
-            "start_position": self._start_position,
-            "current_position": self._current_position,
-            "preview_active": self._preview_active,
-            "has_engineering_parameters": bool(self._engineering_parameters),
-        })
-        return state
+            raise ValueError(
+                "Transformer impedance_basis must be 'pu' or 'engineering'."
+            ) from exc
 
 
 __all__ = ["TransformerTool"]

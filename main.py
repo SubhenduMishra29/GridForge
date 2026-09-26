@@ -110,6 +110,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         selection_manager=canvas_preparation.selection_manager,
         snap_system=canvas_preparation.snap_system,
         preview_layer=canvas_preparation.preview_layer,
+        symbol_registry=presentation_bootstrap.symbol_registry,
     )
     tool_manager = ToolManager(
         controller=controller,
