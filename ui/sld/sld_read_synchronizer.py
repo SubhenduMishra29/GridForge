@@ -14,7 +14,7 @@ from core.application.read_models import ElementReadModel, NetworkReadModel, Pro
 
 from ui.projection.projection_registry import ProjectionDomain
 from .sld_projection import SLDProjection
-from .sld_vocabulary import semantic_type
+from .sld_vocabulary import SLD_TOPOLOGY_BRANCH_TYPES, semantic_type
 from .sld_projection_manager import SLDProjectionManager
 from .sld_document import SLDDocument
 from .sld_model import SLDConnection, SLDNode, SLDEndpoint, SLDEndpointKind
@@ -495,7 +495,7 @@ class SLDReadSynchronizer:
                 semantic = semantic_type(element.element_type)
             except ValueError:
                 continue
-            if semantic not in _BRANCH_TYPES:
+            if semantic not in SLD_TOPOLOGY_BRANCH_TYPES:
                 continue
             source_id = element.attributes.get("endpoint_from_id")
             target_id = element.attributes.get("endpoint_to_id")
