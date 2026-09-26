@@ -82,7 +82,6 @@ class TransformerModelService(ModelServiceSupport):
             x=x,
             b=b,
             impedance_basis=impedance_basis,
-            impedance_base_voltage_kv=impedance_base_voltage_kv,
             tap=tap,
             shift=shift,
             name="" if name is None else name,
