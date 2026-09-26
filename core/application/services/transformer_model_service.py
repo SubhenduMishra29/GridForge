@@ -2,10 +2,10 @@
 
 Author: Subhendu Mishra
 
-Transformer impedance entered through the existing application contract is
-explicitly referred to the FROM-side nominal voltage. This is a contract,
-not an inferred electrical value, and is persisted on the Transformer as
-``impedance_base_voltage_kv`` for deterministic study preparation.
+Transformer impedance reference voltage is explicit engineering input.
+It is never derived from endpoint connectivity and is persisted on the
+Transformer as ``impedance_base_voltage_kv`` for deterministic study
+preparation.
 """
 
 from __future__ import annotations
@@ -32,18 +32,6 @@ class TransformerModelService(ModelServiceSupport):
     @property
     def network(self) -> Network:
         return self._network
-
-    @staticmethod
-    def _endpoint_nominal_voltage_kv(endpoint: Bus | Terminal, parameter_name: str) -> float:
-        bus = endpoint if isinstance(endpoint, Bus) else endpoint.endpoint
-        if not isinstance(bus, Bus):
-            raise ValueError(
-                f"{parameter_name} must resolve to a Bus with nominal_voltage_kv before a Transformer can declare its impedance basis."
-            )
-        voltage_kv = float(bus.nominal_voltage_kv)
-        if voltage_kv <= 0.0:
-            raise ValueError(f"{parameter_name} bus nominal_voltage_kv must be greater than zero.")
-        return voltage_kv
 
     def create_transformer(
         self,
