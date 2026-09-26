@@ -8,10 +8,26 @@ instantiate Core logic objects, evaluate logic, or mutate Application/Core.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional
 
 from ui.core.qt import QFont, QPainter, QPen, QRectF
 from .base_item import BaseItem
+
+
+class ControlPortDirection(str, Enum):
+    INPUT = "INPUT"
+    OUTPUT = "OUTPUT"
+
+
+@dataclass(frozen=True, slots=True)
+class ControlPortPresentation:
+    component_id: str
+    port_name: str
+    direction: ControlPortDirection
+    signal_type: str
+    scene_position: tuple[float, float]
 
 
 class ControlLogicItem(BaseItem):
@@ -24,6 +40,36 @@ class ControlLogicItem(BaseItem):
         super().__init__(object_id, parent)
         self._component_type = str(component_type)
         self._state = bool(state)
+        self._inputs: tuple[tuple[str, str], ...] = ()
+        self._outputs: tuple[tuple[str, str], ...] = ()
+
+    def set_ports(self, *, inputs: tuple[tuple[str, str], ...], outputs: tuple[tuple[str, str], ...]) -> None:
+        self._inputs = tuple(inputs)
+        self._outputs = tuple(outputs)
+        self.update()
+
+    @staticmethod
+    def _port_local_y(index: int, count: int) -> float:
+        if count <= 0:
+            return ControlLogicItem.HEIGHT / 2.0
+        return ControlLogicItem.HEIGHT * (index + 1) / (count + 1)
+
+    def port_presentations(self) -> tuple[ControlPortPresentation, ...]:
+        scene = self.scenePos()
+        result: list[ControlPortPresentation] = []
+        for index, (name, signal_type) in enumerate(self._inputs):
+            result.append(ControlPortPresentation(
+                component_id=str(self.object_id), port_name=name,
+                direction=ControlPortDirection.INPUT, signal_type=signal_type,
+                scene_position=(float(scene.x()), float(scene.y() + self._port_local_y(index, len(self._inputs)))),
+            ))
+        for index, (name, signal_type) in enumerate(self._outputs):
+            result.append(ControlPortPresentation(
+                component_id=str(self.object_id), port_name=name,
+                direction=ControlPortDirection.OUTPUT, signal_type=signal_type,
+                scene_position=(float(scene.x() + self.WIDTH), float(scene.y() + self._port_local_y(index, len(self._outputs)))),
+            ))
+        return tuple(result)
 
     @property
     def component_type(self) -> str:
@@ -50,6 +96,12 @@ class ControlLogicItem(BaseItem):
         painter.setFont(QFont("Sans", 9))
         painter.drawText(self.boundingRect(), 0x84, self._component_type)
         painter.drawText(QRectF(4.0, 4.0, self.WIDTH - 8.0, 16.0), 0x82, str(self.object_id))
+        for index, _port in enumerate(self._inputs):
+            y = self._port_local_y(index, len(self._inputs))
+            painter.drawEllipse(0.0 - 3.0, y - 3.0, 6.0, 6.0)
+        for index, _port in enumerate(self._outputs):
+            y = self._port_local_y(index, len(self._outputs))
+            painter.drawEllipse(self.WIDTH - 3.0, y - 3.0, 6.0, 6.0)
 
 
 class NOContactItem(ControlLogicItem):
@@ -115,5 +167,5 @@ class InterlockItem(ControlLogicItem):
 __all__ = [
     "ControlLogicItem", "NOContactItem", "NCContactItem", "ANDGateItem", "ORGateItem",
     "NOTGateItem", "XORGateItem", "CoilItem", "SetCoilItem", "ResetCoilItem",
-    "TimerItem", "LatchItem", "InterlockItem",
+    "TimerItem", "LatchItem", "InterlockItem", "ControlPortDirection", "ControlPortPresentation",
 ]
