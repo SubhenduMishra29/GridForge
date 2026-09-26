@@ -16,8 +16,8 @@ from collections.abc import Callable
 from typing import Any
 
 from core.application.application import Application
-from core.application.events import (
-    ApplicationEvent,
+from core.application.events import ApplicationEvent, ProjectClosed, ProjectLoaded
+from core.application.control_events import (
     ControlComponentCreated,
     ControlComponentRemoved,
     ControlComponentUpdated,
@@ -48,11 +48,15 @@ _CONTROL_EVENTS = (
     ControlExecutionStarted,
     ControlExecutionCompleted,
     ControlExecutionFailed,
+    ProjectLoaded,
+    ProjectClosed,
 )
 
 
 class ControlUpdateCoordinator:
     """Apply authoritative Application Control changes to the open canvas."""
+
+    event_types = _CONTROL_EVENTS
 
     def __init__(
         self,

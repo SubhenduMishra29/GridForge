@@ -170,16 +170,25 @@ class ControlConfiguration:
         for item in sorted(program_data.get("components", ()), key=lambda item: (int(item.get("order", 0)), str(item["component_id"]))):
             component_id = str(item["component_id"])
             component_type = str(item["component_type"])
-            factory = _component_factory(component_type)
-            if factory is None:
-                raise ValueError(f"Unsupported persisted Control component type {component_type!r}.")
             configuration = dict(item.get("configuration") or {})
-            if factory in (LogicTONTimer, LogicTOFTimer, LogicTPTimer):
-                component = factory(component_id, preset=float(configuration.get("preset", 1.0)))
-            elif factory is LogicInterlock:
-                component = factory(component_id, condition_count=int(configuration.get("condition_count", 1)))
+            if component_type in {"timer", "ton_timer", "tof_timer", "tp_timer"}:
+                mode = str(configuration.get("mode", "ton")).lower()
+                timer_factory = {
+                    "ton": LogicTONTimer,
+                    "tof": LogicTOFTimer,
+                    "tp": LogicTPTimer,
+                }.get(mode)
+                if timer_factory is None:
+                    raise ValueError(f"Unsupported persisted timer mode {mode!r}.")
+                component = timer_factory(component_id, preset=float(configuration.get("preset", 1.0)))
             else:
-                component = factory(component_id)
+                factory = _component_factory(component_type)
+                if factory is None:
+                    raise ValueError(f"Unsupported persisted Control component type {component_type!r}.")
+                if factory is LogicInterlock:
+                    component = factory(component_id, condition_count=int(configuration.get("condition_count", 1)))
+                else:
+                    component = factory(component_id)
             rung = next((r for r in rung_data if any(str(e["component_id"]) == component_id for e in r.get("elements", ()))), None)
             if rung is None:
                 raise ValueError(f"Persisted Control component {component_id!r} is not placed in a rung.")

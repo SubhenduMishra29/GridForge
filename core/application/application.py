@@ -52,6 +52,7 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
+from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
 from .study import StudyExecutionContext, StudyRequest, StudyResult, StudyService
 from .validation import ValidationResult

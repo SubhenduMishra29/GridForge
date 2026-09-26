@@ -38,3 +38,41 @@ Contactor execution remains future scope.
 ## Static verification conclusion
 
 The implemented portion is **CORRECTED — STATIC VERIFICATION COMPLETE** for the configuration/application/persistence/Ladder/event contracts. Dynamic solver integration remains **REMEDIATED — VERIFICATION DEFERRED** until the solver-level combined state contract is reconciled without creating a second state-layout authority.
+
+
+## Control UI Register — GF-CTRL-UI-001..005
+
+| ID | Finding | Disposition | Static evidence |
+|---|---|---|---|
+| GF-CTRL-UI-001 | No first-class Control/Ladder engineering workspace was composed into the active UI/workspace path. | **REMEDIATED — VERIFICATION DEFERRED** | `ui/control/control_workspace.py`, `ui/control/control_surface_host.py`, `main.py`, `ui/workspace/workspace_defaults.py`, `ui/plugins/menu_plugin.py` |
+| GF-CTRL-UI-002 | Existing Control update coordinator was not registered as a routable UI projection and imported Control event types from the wrong module. | **REMEDIATED — VERIFICATION DEFERRED** | `ui/events/control_update_coordinator.py` now declares `event_types`, consumes `core.application.control_events`, and refreshes on project load/close plus Control semantic events. |
+| GF-CTRL-UI-003 | Existing Control command handler registry exposed action-binding/interlock/dynamic-association commands whose Application service lifecycle methods were absent. | **REMEDIATED — VERIFICATION DEFERRED** | `core/application/control_command_handlers.py` and `core/application/services/control_service.py` now provide the complete command-to-service path with transaction undo records. |
+| GF-CTRL-UI-004 | Timer configuration could be changed through the new Inspector path but persisted reconstruction ignored the stored timer mode. | **REMEDIATED — VERIFICATION DEFERRED** | `core/control/configuration.py` reconstructs TON/TOF/TP from persisted `configuration.mode`. |
+| GF-CTRL-UI-005 | Ladder presentation previously relied on a non-canonical graphics-position method and did not render rung rails/connection geometry from the read model. | **REMEDIATED — VERIFICATION DEFERRED** | `ui/canvas/control_canvas.py` uses `BaseItem.set_scene_position()` and derives rails, rung identifiers, disabled opacity, and signal lines from `ControlProgramReadModel`. |
+
+### Static chain disposition
+
+The affected source now contains the following intended chain:
+
+```
+Control Workspace
+  -> ControlToolRegistry
+  -> ControlToolPalette
+  -> transient LadderInteraction
+  -> immutable Control command
+  -> Application.execute()
+  -> CommandManager
+  -> ControlCommandHandlers
+  -> ControlApplicationService
+  -> LadderProgram / LogicEngine / ControlConfiguration
+  -> Control semantic event
+  -> UIUpdateBoundary
+  -> UIProjectionCoordinator
+  -> ControlUpdateCoordinator
+  -> ControlProgramReadModel
+  -> ControlCanvas / Inspector
+```
+
+Project persistence remains owned by the existing `ControlConfiguration` project persistence path; the UI does not serialize Qt objects or maintain a second Ladder database.
+
+No runtime, GUI, startup, test, pytest, unittest, CI, or integration verification was performed.

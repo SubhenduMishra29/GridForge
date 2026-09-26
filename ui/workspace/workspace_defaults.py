@@ -10,6 +10,7 @@ from .panel_area import PanelArea
 from .workspace_definition import WorkspaceDefinition, WorkspacePlacement
 
 SLD_WORKSPACE_ID = "sld"
+CONTROL_WORKSPACE_ID = "control"
 PROJECT_PANEL_ID = "project"
 EQUIPMENT_PANEL_ID = "equipment"
 PROPERTIES_PANEL_ID = "properties"
@@ -42,7 +43,15 @@ SLD_WORKSPACE = WorkspaceDefinition(
     metadata={"kind": "sld", "description": "Initial GridForge engineering workspace.", "central_surface": "sld"},
 )
 
-DEFAULT_WORKSPACES: tuple[WorkspaceDefinition, ...] = (SLD_WORKSPACE,)
+
+CONTROL_WORKSPACE = WorkspaceDefinition(
+    workspace_id=CONTROL_WORKSPACE_ID,
+    title="Control Workspace",
+    placements=SLD_WORKSPACE_PLACEMENTS,
+    metadata={"kind": "control", "description": "Ladder/control engineering workspace.", "central_surface": "control"},
+)
+
+DEFAULT_WORKSPACES: tuple[WorkspaceDefinition, ...] = (SLD_WORKSPACE, CONTROL_WORKSPACE)
 
 
 def default_workspaces() -> tuple[WorkspaceDefinition, ...]:
@@ -75,8 +84,8 @@ def validate_default_workspace() -> None:
 validate_default_workspace()
 
 __all__ = [
-    "SLD_WORKSPACE_ID", "PROJECT_PANEL_ID", "EQUIPMENT_PANEL_ID", "PROPERTIES_PANEL_ID",
+    "SLD_WORKSPACE_ID", "CONTROL_WORKSPACE_ID", "PROJECT_PANEL_ID", "EQUIPMENT_PANEL_ID", "PROPERTIES_PANEL_ID",
     "ELEMENT_LIST_PANEL_ID", "MESSAGES_PANEL_ID", "STUDY_CASES_PANEL_ID", "CANONICAL_PANEL_IDS",
-    "SLD_WORKSPACE_PLACEMENTS", "SLD_WORKSPACE", "DEFAULT_WORKSPACES", "default_workspaces",
+    "SLD_WORKSPACE_PLACEMENTS", "SLD_WORKSPACE", "CONTROL_WORKSPACE", "DEFAULT_WORKSPACES", "default_workspaces",
     "default_workspace_ids", "get_default_workspace", "get_initial_workspace", "validate_default_workspace",
 ]

@@ -49,6 +49,7 @@ class CanvasPlugin:
         self._composition: Optional[CanvasComposition] = None
         self._initialized = False
         self._sld_canvas_snapshot: Optional[SLDCanvasSnapshot] = None
+        self._workspace_surface: Optional[QWidget] = None
         self._sld_canvas_render_system: Optional[SLDCanvasRenderSystem] = None
 
     @property
@@ -61,6 +62,14 @@ class CanvasPlugin:
         if self._initialized:
             raise RuntimeError("CanvasPlugin context cannot be changed after initialization.")
         self._context = context
+
+    def set_workspace_surface(self, surface: QWidget) -> None:
+        """Bind an existing presentation surface host for workspace switching."""
+        if not isinstance(surface, QWidget):
+            raise TypeError("surface must be QWidget.")
+        if self._initialized:
+            raise RuntimeError("Workspace surface cannot change after CanvasPlugin initialization.")
+        self._workspace_surface = surface
 
     @property
     def composition(self) -> Optional[CanvasComposition]:
@@ -182,6 +191,8 @@ class CanvasPlugin:
 
     @property
     def widget(self) -> Optional[QWidget]:
+        if self._workspace_surface is not None:
+            return self._workspace_surface
         return self._composition.widget if self._composition is not None else None
 
     def require_view(self) -> GraphicsView:
