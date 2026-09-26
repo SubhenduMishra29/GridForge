@@ -14,7 +14,7 @@ from typing import Any
 from .grid_scene import GridScene
 from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QFont, QRectF, QPointF, QPen
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
-from ui.control.ladder.control_port import ControlPortDirection, ControlPortPresentation
+from ..items.control_items import ControlPortDirection, ControlPortPresentation
 from ..items.control_items import (
     ANDGateItem, CoilItem, ControlLogicItem, InterlockItem, LatchItem,
     NCContactItem, NOContactItem, NOTGateItem, ORGateItem, ResetCoilItem,
@@ -146,11 +146,7 @@ class ControlCanvas(GridScene):
                 LadderGeometryPolicy.component_x(position),
                 LadderGeometryPolicy.rung_y(rung.order),
             )
-            item.set_ports(
-                inputs=tuple(component.input_signal_types.get(name, "unknown") for name in component.inputs),
-                outputs=tuple(component.output_signal_types.get(name, "unknown") for name in component.outputs),
-            )
-            # set_ports expects names as well; normalize the tuple here.
+            # Ports are derived directly from the immutable Application read model.
             item.set_ports(
                 inputs=tuple((name, component.input_signal_types.get(name, "unknown")) for name in component.inputs),
                 outputs=tuple((name, component.output_signal_types.get(name, "unknown")) for name in component.outputs),
