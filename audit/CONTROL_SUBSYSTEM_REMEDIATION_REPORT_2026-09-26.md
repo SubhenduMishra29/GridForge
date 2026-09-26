@@ -8,7 +8,7 @@ Static source inspection only. No pytest, tests, CI, startup, GUI, smoke, or run
 
 ## Canonical reconciliation
 
-The Control subsystem now uses one Application-owned `ControlApplicationService` whose active `ControlConfiguration` is replaced during project activation. The configuration owns the Ladder program, ActionBindings, Interlocks, and Dynamic Control associations. Persistence serializes this aggregate under `project.json.control`.
+The Control subsystem now reuses the existing canonical `core/control/configuration.py` `ControlConfiguration` as the project-owned aggregate. `ControlApplicationService` is the explicit Application owner of that aggregate and replaces its active configuration during project activation. Persistence serializes this aggregate under `project.json.control`.
 
 ## Remediated root-cause groups
 
