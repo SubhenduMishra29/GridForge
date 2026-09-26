@@ -21,6 +21,7 @@ REMOVE_LADDER_RUNG = "control.remove_rung"
 MOVE_LADDER_ELEMENT = "control.move_element"
 UPDATE_CONTROL_COMPONENT = "control.update_component"
 SET_LADDER_RUNG_ENABLED = "control.set_rung_enabled"
+MOVE_LADDER_RUNG = "control.move_rung"
 ADD_CONTROL_ACTION_BINDING = "control.add_action_binding"
 REMOVE_CONTROL_ACTION_BINDING = "control.remove_action_binding"
 ADD_CONTROL_INTERLOCK = "control.add_interlock"
@@ -151,6 +152,16 @@ class SetLadderRungEnabled(Command):
                                      causation_id=causation_id))
 
 
+class MoveLadderRung(Command):
+    def __init__(self, *, rung_id: str, order: int,
+                 command_id: UUID | None = None, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None) -> None:
+        super().__init__(**_envelope(MOVE_LADDER_RUNG,
+                                     {"rung_id": str(rung_id), "order": int(order)},
+                                     command_id=command_id, correlation_id=correlation_id,
+                                     causation_id=causation_id))
+
+
 class AddControlActionBinding(Command):
     def __init__(self, *, binding: Mapping[str, Any], command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         super().__init__(**_envelope(ADD_CONTROL_ACTION_BINDING, {"binding": dict(binding)}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
@@ -179,5 +190,5 @@ __all__ = [name for name in globals() if name.isupper() or name in {
     "AddControlComponent", "RemoveControlComponent", "ConnectControlSignals",
     "DisconnectControlSignals", "AddLogicDependency", "RemoveLogicDependency",
     "AddLadderRung", "RemoveLadderRung", "MoveLadderElement",
-    "UpdateControlComponent", "SetLadderRungEnabled",
+    "UpdateControlComponent", "SetLadderRungEnabled", "MoveLadderRung",
 }]
