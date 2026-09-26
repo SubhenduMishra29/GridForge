@@ -279,6 +279,14 @@ class SLDConnection:
             object.__setattr__(self, "route", SLDRoute.from_dict(self.route))
         elif not isinstance(self.route, SLDRoute):
             raise TypeError("route must be an SLDRoute or mapping")
+        if self.source_endpoint is not None and self.source_endpoint.node_id != self.source_node_id:
+            raise ValueError(
+                "source_endpoint.node_id must match source_node_id"
+            )
+        if self.target_endpoint is not None and self.target_endpoint.node_id != self.target_node_id:
+            raise ValueError(
+                "target_endpoint.node_id must match target_node_id"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -443,7 +451,7 @@ class SLDModel:
         self,
         connection: SLDConnection,
     ) -> SLDConnection:
-        """Add a connection to the model."""
+        """Add a complete SLD connection state to the model."""
         if not isinstance(connection, SLDConnection):
             raise TypeError("connection must be an SLDConnection")
 
@@ -473,13 +481,19 @@ class SLDModel:
         connection_id: str,
         source_node_id: str,
         target_node_id: str,
+        source_endpoint: SLDEndpoint | Mapping[str, Any] | None = None,
+        target_endpoint: SLDEndpoint | Mapping[str, Any] | None = None,
+        route: SLDRoute | Mapping[str, Any] | None = None,
         properties: Optional[Mapping[str, Any]] = None,
     ) -> SLDConnection:
-        """Create and add an SLD connection."""
+        """Create and add one complete canonical SLD connection state."""
         connection = SLDConnection(
             connection_id=connection_id,
             source_node_id=source_node_id,
             target_node_id=target_node_id,
+            source_endpoint=source_endpoint,
+            target_endpoint=target_endpoint,
+            route=SLDRoute.from_dict(route) if isinstance(route, Mapping) else (route or SLDRoute()),
             properties=dict(properties or {}),
         )
         return self.add_connection(connection)
