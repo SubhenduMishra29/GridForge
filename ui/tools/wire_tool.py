@@ -11,6 +11,8 @@ from typing import Any, Optional, Tuple
 
 from core.application.commands.simple_wire_commands import CreateSimpleWireConnectionCommand
 
+from ui.connections.connection_preview import ConnectionPreview
+
 from .endpoint_identity_adapter import EndpointIdentityAdapter
 from .tool_base import ToolBase
 
@@ -24,9 +26,7 @@ class WireTool(ToolBase):
         super().__init__(controller=controller, application=application, selection_manager=selection_manager, snap_system=snap_system)
         self._start_position: Optional[Tuple[float, float]] = None
         self._current_position: Optional[Tuple[float, float]] = None
-        self._start_endpoint: Any = None
-        self._current_endpoint: Any = None
-        self._preview_active = False
+        self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
 
     @property
@@ -54,17 +54,17 @@ class WireTool(ToolBase):
             return False
         position = self._position_tuple(snap_result.position)
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
-        if self._start_endpoint is None:
-            self._start_endpoint = endpoint
+        if self._preview.source_endpoint is None:
+            self._preview.begin(endpoint)
             self._start_position = position
-            self._current_endpoint = endpoint
             self._current_position = position
-            self._preview_active = True
+            self._preview.update_cursor(position)
             self._show_preview()
             return True
-        self._current_endpoint = endpoint
         self._current_position = position
-        self._execute_connection(self._start_endpoint, self._current_endpoint)
+        self._preview.update_target(endpoint, valid=True)
+        self._preview.update_cursor(position)
+        self._execute_connection(*self._preview.get_endpoint_pair())
         self._clear_state()
         return True
 
@@ -76,14 +76,15 @@ class WireTool(ToolBase):
         if snap_result is None:
             return False
         self._current_position = self._position_tuple(snap_result.position)
-        self._current_endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
-        self._preview_active = True
+        endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
+        self._preview.update_target(endpoint, valid=True)
+        self._preview.update_cursor(self._current_position)
         self._show_preview()
         return True
 
     def on_mouse_release(self, event: Any) -> bool:
         self._ensure_active()
-        return self._start_endpoint is not None
+        return self._preview.source_endpoint is not None
 
     def on_mouse_double_click(self, event: Any) -> bool:
         return self.on_mouse_press(event)
@@ -96,7 +97,7 @@ class WireTool(ToolBase):
 
     def on_cancel(self) -> bool:
         self._ensure_active()
-        had_state = self._start_endpoint is not None or self._preview_active
+        had_state = self._preview.source_endpoint is not None
         self._clear_state()
         return had_state
 
@@ -154,18 +155,14 @@ class WireTool(ToolBase):
             self._preview_layer.clear()
         self._start_position = None
         self._current_position = None
-        self._start_endpoint = None
-        self._current_endpoint = None
-        self._preview_active = False
+        self._preview.reset()
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
         state.update({
             "start_position": self._start_position,
             "current_position": self._current_position,
-            "start_endpoint": self._start_endpoint,
-            "current_endpoint": self._current_endpoint,
-            "preview_active": self._preview_active,
+            "preview": self._preview.get_state(),
         })
         return state
 
