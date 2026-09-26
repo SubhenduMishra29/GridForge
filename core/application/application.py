@@ -93,6 +93,15 @@ class Application:
         self._revision_service = RevisionService()
         self._study_service = StudyService(self._event_bus)
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
+        self._control_engine: ControlEngine | None = None
+        self._control_cycle: ControlCycleService | None = None
+        if control_service is not None:
+            self._control_engine = ControlEngine(control_service.program.engine, control_service.configuration)
+            self._control_cycle = ControlCycleService(
+                self._control_engine,
+                self._control_execution,
+                read_service=read_service,
+            )
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._sld_service is not None:
             self._register_sld_handlers(self._sld_service)
@@ -101,6 +110,19 @@ class Application:
     def event_bus(self) -> ApplicationEventBus: return self._event_bus
     @property
     def control_execution(self) -> ControlExecutionService: return self._control_execution
+
+    @property
+    def control_engine(self) -> ControlEngine:
+        if self._control_engine is None:
+            raise RuntimeError("Application Control runtime is not configured.")
+        return self._control_engine
+
+    @property
+    def control_cycle(self) -> ControlCycleService:
+        if self._control_cycle is None:
+            raise RuntimeError("Application Control-cycle runtime is not configured.")
+        return self._control_cycle
+
     @property
     def control_service(self) -> ControlApplicationService:
         if self._control_service is None: raise RuntimeError("Application Control service is not configured.")
@@ -389,7 +411,15 @@ class Application:
             for command_type, handler in SLDCommandHandlers(self._sld_service).handlers().items():
                 command_manager.register_handler(command_type, handler)
         next_control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
+        previous_control_cycle = self._control_cycle
         self._command_manager, self._read_service, self._validation_service, self._control_execution = command_manager, read_service, validation_service, next_control_execution
+        if self._control_engine is not None:
+            self._control_cycle = ControlCycleService(
+                self._control_engine,
+                next_control_execution,
+                signal_mapping=previous_control_cycle.signal_mapping if previous_control_cycle is not None else None,
+                read_service=read_service,
+            )
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
 
     def _coordinate_pre_commit(self, command: Command, result: ApplicationResult, transaction: Any) -> None:
@@ -466,14 +496,54 @@ class Application:
         if context is None: return None
         return replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
 
-    def execute_control_cycle(self, control_engine: ControlEngine, *, simulation_time: float | None = None, external_inputs: Mapping[str, Mapping[str, Any]] | None = None, context: ControlExecutionContext | None = None, interlock_inputs: Mapping[str, Mapping[str, Any]] | None = None) -> ControlCycleResult:
-        t=context.simulation_time if context is not None else simulation_time; scope=self._project_scope_metadata()
-        self._event_bus.publish(ControlExecutionStarted(metadata={**scope,"simulation_time":t}))
-        try: result=ControlCycleService(control_engine,self._control_execution,read_service=self._read_service).execute(simulation_time=simulation_time,external_inputs=external_inputs,context=context,interlock_inputs=interlock_inputs)
+    def execute_control_cycle(
+        self,
+        *,
+        simulation_time: float | None = None,
+        external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
+        context: ControlExecutionContext | None = None,
+        interlock_inputs: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> ControlCycleResult:
+        """Execute one Control cycle through the canonical Application-owned runtime."""
+        lifecycle = self.project_lifecycle
+        active_context = lifecycle.context
+        if active_context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Control cycle execution requires an active project.")
+        configuration = self.control_service.configuration
+        if configuration.project_id != active_context.project_id:
+            raise RuntimeError("Control configuration project_id does not match the active project.")
+        engine = self.control_engine
+        if engine.configuration is not configuration:
+            raise RuntimeError("ControlEngine configuration is not the active Application Control configuration.")
+        if engine.logic_engine is not self.control_service.program.engine:
+            raise RuntimeError("ControlEngine LogicEngine is not the active LadderProgram.engine.")
+        if engine.activation_generation != lifecycle.activation_generation:
+            raise RuntimeError("ControlEngine activation generation is stale for the active project.")
+        t = context.simulation_time if context is not None else simulation_time
+        scope = self._project_scope_metadata()
+        self._event_bus.publish(ControlExecutionStarted(metadata={**scope, "simulation_time": t}))
+        try:
+            result = self.control_cycle.execute(
+                simulation_time=simulation_time,
+                external_inputs=external_inputs,
+                context=context,
+                interlock_inputs=interlock_inputs,
+            )
         except Exception as exc:
-            self._event_bus.publish(ControlExecutionFailed(metadata={**scope,"simulation_time":t,"error":str(exc)})); raise
-        self._event_bus.publish(ControlExecutionCompleted(metadata={**scope,"simulation_time":result.simulation_time,"executed_count":len(result.execution.executed_decisions),"blocked_count":len(result.execution.blocked_decisions),"failed_count":len(result.execution.failed_decisions)}))
-        self._event_bus.publish(ControlStateChanged(metadata={**scope,"simulation_time":result.simulation_time,"state":"completed" if not result.execution.failed_decisions else "completed_with_failures"}))
+            self._event_bus.publish(ControlExecutionFailed(metadata={**scope, "simulation_time": t, "error": str(exc)}))
+            raise
+        self._event_bus.publish(ControlExecutionCompleted(metadata={
+            **scope,
+            "simulation_time": result.simulation_time,
+            "executed_count": len(result.execution.executed_decisions),
+            "blocked_count": len(result.execution.blocked_decisions),
+            "failed_count": len(result.execution.failed_decisions),
+        }))
+        self._event_bus.publish(ControlStateChanged(metadata={
+            **scope,
+            "simulation_time": result.simulation_time,
+            "state": "completed" if not result.execution.failed_decisions else "completed_with_failures",
+        }))
         return result
 
     def execute(self, command: Command) -> ApplicationResult:

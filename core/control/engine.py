@@ -55,27 +55,82 @@ class ControlEngine:
     """Coordinate logic evaluation, interlocks, and equipment-action intents.
 
     Control remains intent-only: this class does not mutate Core, access
-    Network, execute commands, or touch UI. Simulation supplies time and
-    interlock permissives as inputs.
+    Network, execute commands, or touch UI. Project/runtime ownership stays in
+    the Application layer; this object only holds the currently committed
+    Control runtime binding.
     """
 
-    def __init__(self, logic_engine: LogicEngine, configuration: ControlConfiguration | None = None) -> None:
-        if not isinstance(logic_engine, LogicEngine): raise TypeError("logic_engine must be a LogicEngine.")
-        self._logic_engine=logic_engine; self._bindings=(); self._interlocks={}; self._configuration=configuration
-        if configuration is not None: self.configure(configuration)
+    def __init__(self, logic_engine: LogicEngine | None = None, configuration: ControlConfiguration | None = None) -> None:
+        if logic_engine is not None and not isinstance(logic_engine, LogicEngine):
+            raise TypeError("logic_engine must be a LogicEngine or None.")
+        self._logic_engine = logic_engine
+        self._bindings: tuple[ControlActionBinding, ...] = ()
+        self._interlocks: dict[str, ControlInterlock] = {}
+        self._configuration = None
+        self._activation_generation = 0
+        if configuration is not None:
+            self.configure(configuration)
 
     @property
-    def configuration(self) -> ControlConfiguration | None: return self._configuration
-
-    def configure(self, configuration: ControlConfiguration) -> None:
-        if not isinstance(configuration, ControlConfiguration): raise TypeError("configuration must be a ControlConfiguration.")
-        configuration.validate(); self._bindings=(); self._interlocks={}
-        for item in configuration.interlocks: self.bind_interlock(item.runtime())
-        for item in configuration.action_bindings: self.bind_action(item)
-        self._configuration=configuration
+    def configuration(self) -> ControlConfiguration | None:
+        return self._configuration
 
     @property
-    def logic_engine(self) -> LogicEngine:
+    def activation_generation(self) -> int:
+        return self._activation_generation
+
+    def configure(self, configuration: ControlConfiguration, *, activation_generation: int | None = None) -> None:
+        """Atomically commit a validated configuration and its canonical LogicEngine.
+
+        Candidate bindings/interlocks are built entirely off to the side. The
+        current runtime is not changed unless every validation step succeeds.
+        """
+        if not isinstance(configuration, ControlConfiguration):
+            raise TypeError("configuration must be a ControlConfiguration.")
+        if activation_generation is not None and int(activation_generation) < 1:
+            raise ValueError("activation_generation must be positive when provided.")
+        configuration.validate()
+        logic_engine = configuration.program.engine
+        bindings: list[ControlActionBinding] = []
+        interlocks: dict[str, ControlInterlock] = {}
+
+        for item in configuration.interlocks:
+            interlock = item.runtime()
+            if interlock.interlock_id in interlocks and interlocks[interlock.interlock_id] != interlock:
+                raise ValueError(f"Interlock '{interlock.interlock_id}' is already bound.")
+            interlocks[interlock.interlock_id] = interlock
+
+        for binding in configuration.action_bindings:
+            if not isinstance(binding, ControlActionBinding):
+                raise TypeError("configuration action_bindings must contain ControlActionBinding values.")
+            if binding in bindings:
+                continue
+            component = logic_engine.get(binding.source_component)
+            if binding.source_output not in set(component.output_names):
+                raise ValueError(
+                    f"Unknown Control output '{binding.source_component}.{binding.source_output}'."
+                )
+            if binding.interlock_id is not None and binding.interlock_id not in interlocks:
+                raise ValueError(f"Unknown Control interlock '{binding.interlock_id}'.")
+            bindings.append(binding)
+
+        self._logic_engine = logic_engine
+        self._bindings = tuple(bindings)
+        self._interlocks = interlocks
+        self._configuration = configuration
+        if activation_generation is not None:
+            self._activation_generation = int(activation_generation)
+
+    def deactivate(self) -> None:
+        """Clear the committed runtime so a closed project cannot execute it."""
+        self._logic_engine = None
+        self._bindings = ()
+        self._interlocks = {}
+        self._configuration = None
+        self._activation_generation = 0
+
+    @property
+    def logic_engine(self) -> LogicEngine | None:
         return self._logic_engine
 
     @property
@@ -115,6 +170,8 @@ class ControlEngine:
         interlock_inputs: Mapping[str, Mapping[str, bool]] | None = None,
     ) -> ControlEvaluationResult:
         """Evaluate logic, gate asserted actions, and emit deterministic intents."""
+        if self._configuration is None or self._logic_engine is None:
+            raise RuntimeError("Control runtime is inactive; no project Control configuration is committed.")
         if context is not None:
             if simulation_time is not None or external_inputs is not None:
                 raise ValueError("context cannot be combined with simulation_time or external_inputs.")
