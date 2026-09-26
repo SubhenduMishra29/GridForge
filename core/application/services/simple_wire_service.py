@@ -58,6 +58,13 @@ class SimpleWireConnectionService:
                 message="Simple Wire requires EndpointReference values.",
                 details={},
             )
+
+        if endpoint_a == endpoint_b:
+            raise ValidationError(
+                code="INVALID_SIMPLE_WIRE_ENDPOINTS",
+                message="Simple Wire endpoints must be distinct.",
+                details={},
+            )
         try:
             EndpointCompatibility.validate_pair(endpoint_a, endpoint_b, network)
         except EndpointCompatibilityError as exc:
