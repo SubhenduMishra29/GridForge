@@ -989,3 +989,25 @@ Core
 
 Production construction audit found the canonical runtime construction confined to `core/application/application.py` and `core/application/bootstrap.py`. No ControlEngine/ControlCycleService/ControlExecutionService construction was found in the Control UI workspace, Control tools, Control plugins, or Control update coordinator inspected for this remediation.
 
+## Control Ladder Interaction Remediation — 2026-09-26
+
+Static source re-audit of the Control/Ladder interaction boundary on `madhuri196mishra-cpu/GridForge/main` recorded the requested findings below. Historical records remain unchanged; these entries use the master IDs added in the CSV register.
+
+| Master ID | Finding ID | Status | Static disposition |
+|---|---|---|---|
+| GF-MASTER-0076 | GF-CTRL-CON-001 | REMEDIATED — VERIFICATION DEFERRED | LadderInteraction now resolves ControlPortPresentation identities and ConnectControlSignals carries the selected source_output and target_input through Application.execute(). |
+| GF-MASTER-0077 | GF-CTRL-CON-002 | REMEDIATED — VERIFICATION DEFERRED | ControlCanvas owns transient connection preview geometry; no Core/Application state is changed until the second port selection executes the command. |
+| GF-MASTER-0078 | GF-CTRL-CON-003 | REMEDIATED — VERIFICATION DEFERRED | Rendered connections retain the authoritative endpoint tuple as presentation identity and DisconnectControlSignals is built from that selected connection. |
+| GF-MASTER-0079 | GF-CTRL-CON-004 | REMEDIATED — VERIFICATION DEFERRED | ControlCanvas projects ControlConnectionReadModel endpoints through the corresponding presentation ports. |
+| GF-MASTER-0080 | GF-CTRL-CON-010 | REMEDIATED — VERIFICATION DEFERRED | LadderGeometryPolicy.snap_rung() resolves the target rung and snap_position() supplies the persisted position to AddControlComponent. |
+| GF-MASTER-0081 | GF-CTRL-CON-011 | REMEDIATED — VERIFICATION DEFERRED | ControlCanvas consumes ControlComponentReadModel.position or LadderRungReadModel.positions and no longer reconstructs position from component_ids.index(). |
+| GF-MASTER-0082 | GF-CTRL-UI-004 | REMEDIATED — VERIFICATION DEFERRED | Inspector reads immutable Control read models and routes persistent configuration through Application commands; Action Binding now requires explicit output selection. |
+| GF-MASTER-0083 | GF-CTRL-UI-008 | REMEDIATED — VERIFICATION DEFERRED | LadderInteraction maintains selected_rung_id, updates it from rung/component interaction, and toolbar actions resolve only that selected rung. |
+| GF-MASTER-0084 | GF-CTRL-UI-010 | REMEDIATED — VERIFICATION DEFERRED | ControlCanvas creates transient symbol-specific Control item previews instead of generic QGraphicsRectItem previews. |
+| GF-MASTER-0085 | GF-CTRL-UI-011 | REMEDIATED — VERIFICATION DEFERRED | Application.supports_control_component() combines registered command support with the Application Control service's authoritative component factory capability. |
+| GF-MASTER-0086 | GF-CTRL-UI-013 | REMEDIATED — VERIFICATION DEFERRED | ControlUpdateCoordinator handles ProjectClosed without read_control(), resets the canvas, and workspace lifecycle handling clears tool, preview, component, and rung selection. |
+| GF-MASTER-0087 | GF-CTRL-UI-014 | REMEDIATED — VERIFICATION DEFERRED | ControlUpdateCoordinator is the projection owner; workspace refresh delegates to coordinator.refresh_current() and event subscriptions use the same coordinator path. |
+| GF-MASTER-0088 | GF-CTRL-UI-015 | REMEDIATED — VERIFICATION DEFERRED | Palette entries distinguish Logic Interlock from Control Interlock; Control Interlock and Action Binding enter Inspector configuration workflows rather than AddControlComponent. |
+
+**Verification state:** STATICALLY VERIFIED for source structure and call-site disposition; **RUNTIME VERIFICATION — DEFERRED**. No tests, CI, application startup, or GUI execution were performed.
+
