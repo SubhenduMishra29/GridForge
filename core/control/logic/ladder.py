@@ -109,12 +109,6 @@ class LadderProgram:
         del self._rungs[rung_id]
         return rung
 
-    def set_rung_enabled(self, rung_id: str, enabled: bool) -> LadderRung:
-        rung = self.rung(rung_id)
-        replacement = LadderRung(rung_id=rung.rung_id, order=rung.order, elements=rung.elements, enabled=bool(enabled))
-        self._rungs[rung_id] = replacement
-        return replacement
-
     def rung(self, rung_id: str) -> LadderRung:
         try:
             return self._rungs[str(rung_id).strip()]
@@ -177,7 +171,7 @@ class LadderProgram:
 
     def set_rung_enabled(self, rung_id: str, enabled: bool) -> LadderRung:
         rung = self.rung(rung_id)
-        updated = LadderRung(rung_id=rung.rung_id, order=rung.order, elements=rung.elements, enabled=enabled)
+        updated = LadderRung(rung_id=rung.rung_id, order=rung.order, elements=rung.elements, enabled=bool(enabled))
         self._rungs[rung_id] = updated
         for element in updated.elements:
             self._engine.set_component_enabled(element.component_id, updated.enabled)
