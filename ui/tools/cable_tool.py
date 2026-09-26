@@ -15,6 +15,7 @@ from core.application.commands.model_commands import CreateCableCommand
 from ui.connections.connection_preview import ConnectionPreview
 
 from .endpoint_identity_adapter import EndpointIdentityAdapter
+from .sld_connection_presentation_adapter import SLDConnectionPresentationAdapter
 from .tool_base import ToolBase
 
 
@@ -37,6 +38,7 @@ class CableTool(ToolBase):
             snap_system=snap_system,
         )
         self._start_position: Optional[Tuple[float, float]] = None
+        self._start_snap: Any = None
         self._current_position: Optional[Tuple[float, float]] = None
         self._preview = ConnectionPreview()
         self._engineering_parameters: dict[str, Any] = {}
@@ -75,6 +77,7 @@ class CableTool(ToolBase):
 
         if self._preview.source_endpoint is None:
             self._preview.begin(endpoint)
+            self._start_snap = snap_result
             self._start_position = position
             self._current_position = position
             self._preview.update_cursor(position)
@@ -83,7 +86,7 @@ class CableTool(ToolBase):
         self._current_position = position
         self._preview.update_target(endpoint, valid=True)
         self._preview.update_cursor(position)
-        self._execute_cable_command(*self._preview.get_endpoint_pair())
+        self._execute_cable_command(*self._preview.get_endpoint_pair(), source_snap=self._start_snap, target_snap=snap_result)
         self._clear_state()
         return True
 
@@ -133,7 +136,7 @@ class CableTool(ToolBase):
             return None
         return result
 
-    def _execute_cable_command(self, endpoint_from: Any, endpoint_to: Any) -> Any:
+    def _execute_cable_command(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
         parameters = self._engineering_parameters
         required = ("length_km", "r1_ohm_per_km", "x1_ohm_per_km")
         missing = [name for name in required if name not in parameters]
@@ -142,8 +145,9 @@ class CableTool(ToolBase):
                 "Cable engineering parameters are incomplete: " + ", ".join(missing)
             )
 
+        cable_id = f"cable-{uuid4().hex}"
         command = CreateCableCommand(
-            cable_id=f"cable-{uuid4().hex}",
+            cable_id=cable_id,
             presentation_x=float(self._current_position[0]),
             presentation_y=float(self._current_position[1]),
             endpoint_from=endpoint_from,
@@ -160,7 +164,9 @@ class CableTool(ToolBase):
             b0_us_per_km=self._optional_float(parameters.get("b0_us_per_km")),
             in_service=bool(parameters.get("in_service", True)),
         )
-        return self.execute_command(command)
+        result = self.execute_command(command)
+        SLDConnectionPresentationAdapter.execute(self._application, self.execute_command, connection_id=cable_id, source_snap=source_snap, target_snap=target_snap)
+        return result
 
     @staticmethod
     def _optional_float(value: Any) -> float | None:
@@ -187,6 +193,7 @@ class CableTool(ToolBase):
 
     def _clear_state(self) -> None:
         self._start_position = None
+        self._start_snap = None
         self._current_position = None
         self._preview.reset()
 
