@@ -18,7 +18,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from ui.equipment.symbol.symbol_base import SymbolBase
-from ui.sld.sld_model import SLDConnection, SLDModel, SLDNode
+from ui.sld.sld_model import SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,11 +35,14 @@ class SLDCanvasNode:
 
 @dataclass(frozen=True, slots=True)
 class SLDCanvasConnection:
-    """Renderer-neutral visual input for one SLD connection."""
+    """Renderer-neutral visual input for one semantic SLD connection."""
 
     connection_id: str
     source_node_id: str
     target_node_id: str
+    source_endpoint: SLDEndpoint | None
+    target_endpoint: SLDEndpoint | None
+    route: SLDRoute
     properties: Mapping[str, Any]
 
 
@@ -87,6 +90,9 @@ class SLDCanvasProjection:
             connection_id=connection.connection_id,
             source_node_id=connection.source_node_id,
             target_node_id=connection.target_node_id,
+            source_endpoint=connection.source_endpoint,
+            target_endpoint=connection.target_endpoint,
+            route=connection.route,
             properties=MappingProxyType(dict(connection.properties)),
         )
 
