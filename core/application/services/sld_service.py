@@ -247,6 +247,9 @@ class SLDService:
                     connection_id=snapshot["connection_id"],
                     source_node_id=snapshot["source_node_id"],
                     target_node_id=snapshot["target_node_id"],
+                    source_endpoint=snapshot.get("source_endpoint"),
+                    target_endpoint=snapshot.get("target_endpoint"),
+                    route=snapshot.get("route"),
                     properties=snapshot.get("properties", {}),
                 )
 
@@ -372,6 +375,9 @@ class SLDService:
                     connection_id=snapshot["connection_id"],
                     source_node_id=snapshot["source_node_id"],
                     target_node_id=snapshot["target_node_id"],
+                    source_endpoint=snapshot.get("source_endpoint"),
+                    target_endpoint=snapshot.get("target_endpoint"),
+                    route=snapshot.get("route"),
                     properties=snapshot.get("properties", {}),
                 )
 
@@ -394,6 +400,9 @@ class SLDService:
                 connection_id=snapshot["connection_id"],
                 source_node_id=snapshot["source_node_id"],
                 target_node_id=snapshot["target_node_id"],
+                source_endpoint=snapshot.get("source_endpoint"),
+                target_endpoint=snapshot.get("target_endpoint"),
+                route=snapshot.get("route"),
                 properties=snapshot.get("properties", {}),
             )
 
