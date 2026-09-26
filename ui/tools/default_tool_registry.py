@@ -39,6 +39,7 @@ from ui.tools.switch_tool import SwitchTool
 from ui.tools.synchronous_machine_tool import SynchronousMachineTool
 from ui.tools.transformer_tool import TransformerTool
 from ui.tools.model_placement_tool import ModelPlacementTool
+from ui.equipment.symbol.symbol_registry import SymbolRegistry
 
 
 ToolFactory = Callable[..., Any]
@@ -51,6 +52,7 @@ def create_default_tool_factories(
     selection_manager: Any,
     snap_system: Any,
     preview_layer: Any = None,
+    symbol_registry: SymbolRegistry | None = None,
 ) -> dict[str, ToolFactory]:
     """Return the standard concrete-tool factory mapping.
 
@@ -60,12 +62,17 @@ def create_default_tool_factories(
 
     def factory(tool_class: type[Any]) -> ToolFactory:
         if issubclass(tool_class, ModelPlacementTool):
+            if symbol_registry is None:
+                raise ValueError(
+                    "symbol_registry is required for ModelPlacementTool factories."
+                )
             return lambda **_ignored: tool_class(
                 controller=controller,
                 application=application,
                 selection_manager=selection_manager,
                 snap_system=snap_system,
                 preview_layer=preview_layer,
+                symbol_registry=symbol_registry,
             )
         return lambda **_ignored: tool_class(
             controller=controller,
@@ -84,12 +91,17 @@ def create_default_tool_factories(
         )
 
     def transformer_factory(**_ignored: Any) -> TransformerTool:
+        if symbol_registry is None:
+            raise ValueError(
+                "symbol_registry is required for TransformerTool."
+            )
         return TransformerTool(
             controller=controller,
             application=application,
             selection_manager=selection_manager,
             snap_system=snap_system,
             preview_layer=preview_layer,
+            symbol_registry=symbol_registry,
         )
 
     return {
