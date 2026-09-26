@@ -87,7 +87,7 @@ class LineTool(ToolBase):
 
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
-        if self._start_endpoint is None:
+        if self._preview.source_endpoint is None:
             return False
         snap_result = self._snap(event)
         if snap_result is None:
