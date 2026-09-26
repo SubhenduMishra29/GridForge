@@ -7,7 +7,7 @@ from ui.core.qt import QHBoxLayout, QPushButton, QLabel, QWidget
 
 
 class ControlToolbar(QWidget):
-    def __init__(self, *, application: Any, on_add_rung, on_remove_rung, on_toggle_rung, on_cancel_tool, parent: QWidget | None = None) -> None:
+    def __init__(self, *, application: Any, on_add_rung, on_remove_rung, on_toggle_rung, on_move_rung_up, on_cancel_tool, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._application = application
         layout = QHBoxLayout(self)
@@ -21,6 +21,9 @@ class ControlToolbar(QWidget):
         toggle = QPushButton("Enable/Disable Rung", self)
         toggle.clicked.connect(on_toggle_rung)
         layout.addWidget(toggle)
+        move = QPushButton("Move Rung Up", self)
+        move.clicked.connect(on_move_rung_up)
+        layout.addWidget(move)
         undo = QPushButton("Undo", self)
         undo.clicked.connect(lambda _checked=False: application.undo())
         layout.addWidget(undo)
