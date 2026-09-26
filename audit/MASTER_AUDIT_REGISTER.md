@@ -1029,4 +1029,6 @@ Static source correction and second static re-audit only. No pytest, CI, startup
 | Model placement symbol preview | **OPEN — NOT CLOSED IN THIS PASS** | ModelPlacementTool still uses PreviewLayer.show_segment(); actual SymbolDefinition-driven transient symbol/anchor preview remains to be implemented and re-audited. |
 | CT/PT/CVT and Relay protection relationship integration | **OPEN / DEFERRED** | Existing specialized role paths remain in source, but this consolidated pass did not claim complete end-to-end protection relationship proof. |
 
+**Master register:** GF-MASTER-0089 = **REMEDIATED — VERIFICATION DEFERRED** (consolidated Batches 1–30 correction cluster).
+
 **Re-audit result:** Batches 1–30 = **VERIFIED WITH DEFERRED ITEMS**. Runtime execution remains unverified by instruction.
