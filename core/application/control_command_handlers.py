@@ -14,7 +14,7 @@ from .commands.control_commands import (
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
     ADD_LOGIC_DEPENDENCY, REMOVE_LOGIC_DEPENDENCY,
     ADD_LADDER_RUNG, REMOVE_LADDER_RUNG, MOVE_LADDER_ELEMENT,
-    UPDATE_CONTROL_COMPONENT, SET_LADDER_RUNG_ENABLED,
+    UPDATE_CONTROL_COMPONENT, SET_LADDER_RUNG_ENABLED, MOVE_LADDER_RUNG,
     ADD_CONTROL_ACTION_BINDING, REMOVE_CONTROL_ACTION_BINDING, ADD_CONTROL_INTERLOCK, REMOVE_CONTROL_INTERLOCK,
     ADD_DYNAMIC_CONTROL_ASSOCIATION, REMOVE_DYNAMIC_CONTROL_ASSOCIATION,
 )
@@ -45,6 +45,7 @@ class ControlCommandHandlers:
             MOVE_LADDER_ELEMENT: self.move_element,
             UPDATE_CONTROL_COMPONENT: self.update_component,
             SET_LADDER_RUNG_ENABLED: self.set_rung_enabled,
+            MOVE_LADDER_RUNG: self.move_rung,
             ADD_CONTROL_ACTION_BINDING: self.add_action_binding, REMOVE_CONTROL_ACTION_BINDING: self.remove_action_binding,
             ADD_CONTROL_INTERLOCK: self.add_interlock, REMOVE_CONTROL_INTERLOCK: self.remove_interlock,
             ADD_DYNAMIC_CONTROL_ASSOCIATION: self.add_dynamic_association, REMOVE_DYNAMIC_CONTROL_ASSOCIATION: self.remove_dynamic_association,
@@ -82,6 +83,9 @@ class ControlCommandHandlers:
 
     def set_rung_enabled(self, command, context, transaction):
         return self._service.set_rung_enabled(transaction, **dict(command.payload))
+
+    def move_rung(self, command, context, transaction):
+        return self._service.move_rung(transaction, **dict(command.payload))
 
     def add_action_binding(self, command, context, transaction): return self._service.add_action_binding(transaction, **dict(command.payload))
     def remove_action_binding(self, command, context, transaction): return self._service.remove_action_binding(transaction, **dict(command.payload))
