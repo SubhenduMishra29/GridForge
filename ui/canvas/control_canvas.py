@@ -11,12 +11,26 @@ from __future__ import annotations
 from typing import Any
 
 from .grid_scene import GridScene
-from ui.core.qt import QGraphicsLineItem, QGraphicsTextItem
+from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QFont, QRectF
 from ..items.control_items import (
     ANDGateItem, CoilItem, ControlLogicItem, InterlockItem, LatchItem,
     NCContactItem, NOContactItem, NOTGateItem, ORGateItem, ResetCoilItem,
     SetCoilItem, TimerItem, XORGateItem,
 )
+
+
+class _RungLabelItem(QGraphicsObject):
+    def __init__(self, text: str) -> None:
+        super().__init__()
+        self._text = str(text)
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(0.0, 0.0, 70.0, 24.0)
+
+    def paint(self, painter: QPainter, option: Any, widget: Any = None) -> None:
+        del option, widget
+        painter.setFont(QFont("Sans", 9))
+        painter.drawText(self.boundingRect(), 0x84, self._text)
 
 
 _ITEM_TYPES = {
@@ -62,7 +76,7 @@ class ControlCanvas(GridScene):
         for rung in read_model.rungs:
             y = float(rung.order * 80.0 + 24.0)
             self.addItem(QGraphicsLineItem(0.0, y, 900.0, y))
-            label = QGraphicsTextItem(f"Rung {rung.order + 1:03d}")
+            label = _RungLabelItem(f"Rung {rung.order + 1:03d}")
             label.setPos(-80.0, y - 14.0)
             self.addItem(label)
 
