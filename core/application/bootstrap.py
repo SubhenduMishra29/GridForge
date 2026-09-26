@@ -246,7 +246,6 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             dynamic_models.replace(previous_dynamic_models)
-            application.revision_service.restore_state(previous_revision)
 
         return rollback
 
