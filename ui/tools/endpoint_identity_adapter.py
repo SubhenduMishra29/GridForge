@@ -85,12 +85,37 @@ class EndpointIdentityAdapter:
             # terminal role for a Bus snap.
             return EndpointReference.bus(str(object_id))
 
-        endpoint_reference = getattr(source, "endpoint_reference", None)
-        if isinstance(endpoint_reference, EndpointReference):
-            return endpoint_reference
-
         terminal_id = getattr(result, "terminal_id", None)
         terminal_name = getattr(result, "terminal_name", None)
+
+        endpoint_reference = getattr(source, "endpoint_reference", None)
+        if endpoint_reference is not None:
+            # A presentation source may already carry the canonical immutable
+            # reference. Reuse it, but never trust it blindly: the snap result
+            # must still agree with the snapped object kind and, for terminals,
+            # with the presentation terminal role/equipment identity.
+            if not isinstance(endpoint_reference, EndpointReference):
+                raise TypeError(
+                    "Presentation endpoint_reference must be an EndpointReference."
+                )
+            if endpoint_reference.is_bus:
+                if terminal_id is not None or terminal_name is not None:
+                    raise ValueError(
+                        "A Bus endpoint reference cannot be combined with terminal snap identity."
+                    )
+                return endpoint_reference
+            if not endpoint_reference.is_terminal:
+                raise ValueError("Unsupported endpoint reference kind on presentation source.")
+            if str(endpoint_reference.equipment_id) != str(object_id):
+                raise ValueError(
+                    "Presentation EndpointReference equipment identity does not match the snap object."
+                )
+            if terminal_name is not None and str(endpoint_reference.terminal_role) != str(terminal_name):
+                raise ValueError(
+                    "Presentation EndpointReference terminal role does not match the snap result."
+                )
+            return endpoint_reference
+
         if terminal_name is None:
             raise ValueError("Terminal snap is missing its canonical terminal role.")
 
@@ -101,8 +126,8 @@ class EndpointIdentityAdapter:
 
         # The presentation terminal role is valid only when it resolves to
         # exactly one terminal owned by the snapped presentation equipment.
-        # terminal_id remains diagnostic/presentation identity; role is the
-        # canonical Application/Core identity component.
+        # terminal_id is only a presentation/registry identity and is never
+        # promoted into EndpointReference.
         terminals = tuple(getattr(equipment, "terminals", ()) or ())
         matches = [
             terminal

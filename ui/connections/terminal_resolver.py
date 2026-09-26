@@ -9,8 +9,10 @@
 #     interaction.
 #
 # Architectural Role:
-#     TerminalResolver is the logical lookup boundary between
-#     spatial/UI interaction and logical terminal identity.
+#     TerminalResolver is a presentation-only lookup registry for
+#     externally owned EquipmentTerminal objects. It is not part of
+#     the canonical Core endpoint-identity or connection-mutation path.
+#     Canonical terminal intent is produced by EndpointIdentityAdapter.
 #
 # Responsibilities:
 #     - register logical EquipmentTerminal objects;
@@ -87,11 +89,19 @@ class TerminalResolver:
     Registry and lookup service for logical SLD terminals.
 
     TerminalResolver is intentionally a small, deterministic
-    service. It translates stable terminal identifiers into
-    externally owned EquipmentTerminal objects and provides
+    presentation lookup service. It translates presentation
+    terminal registry identifiers into externally owned
+    EquipmentTerminal objects and provides presentation-side
     equipment ownership lookup.
 
-    It does not perform spatial or graphical operations.
+    Its terminal_id is never a Core terminal identity and its
+    results must not be passed to Core mutation services as an
+    endpoint. Canonical endpoint intent is produced by
+    EndpointIdentityAdapter.
+
+    It does not perform spatial or graphical operations, endpoint
+    resolution, connection management, topology validation, or
+    persistence.
     """
 
     # ========================================================

@@ -748,7 +748,7 @@ This is the single latest-effective-status index for the **75 active Master IDs*
 | GF-MASTER-0052 | SLD | Presentation integration | Canvas rendering consumes the reconciled SLD document through renderer-neutral projection | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
 | GF-MASTER-0053 | Application | Command authority | Legacy application.place_bus compound path reconciled to canonical model.create_bus | HIGH | **STATICALLY VERIFIED** | Runtime verification deferred |
 | GF-MASTER-0054 | Application | Result contract | ApplicationResult.value remains a Core-object-capable contract and UI consumer audit is incomplete | HIGH | **OPEN** | Consumer/runtime proof required |
-| GF-MASTER-0055 | SLD | Endpoint identity | Generic multi-terminal presentation identity is not yet statically proven end-to-end | HIGH | **OPEN** | End-to-end terminal workflow verification required |
+| GF-MASTER-0055 | SLD | Endpoint identity | Generic multi-terminal presentation identity is statically reconciled through SnapResult → EndpointIdentityAdapter → EndpointReference → immutable Application command intent; runtime remains deferred | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | EndpointIdentityAdapter now validates/reuses canonical EndpointReference, resolves presentation terminal role deterministically without promoting terminal_id, and canonical connection/line commands carry EndpointReference only |
 | GF-MASTER-0056 | SLD | Reconciliation runtime integrity | Reconciliation modules had unresolved runtime symbol/import references and event/document contract mismatches | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | Static source correction only; no tests or CI |
 | GF-MASTER-0057 | SLD | Authority-integration | SLDUpdateCoordinator reuses canonical synchronizer projection manager | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
 | GF-MASTER-0058 | UI | Document authority | SLDController is downstream to Application presentation | HIGH | **REMEDIATED — VERIFICATION DEFERRED** | No runtime verification |
@@ -844,3 +844,20 @@ The affected path was re-read after correction:
 
 This does not constitute runtime closure. Runtime consumer behavior remains deferred.
 
+
+### 2026-09-26 — Batch 1B Terminal Identity Integration Correction
+
+Static source correction and re-audit only. No tests, CI, startup, GUI execution, or runtime verification were performed.
+
+| Master ID | Batch 1B evidence / disposition |
+|---|---|
+| GF-MASTER-0038 | **EVIDENCE RECONCILED — broader finding remains open.** `ui/equipment/terminal.py` and `ui/equipment/equipment_base.py` are presentation-only; Core `Terminal` remains authoritative. `ui/tools/endpoint_identity_adapter.py` is the inspected presentation→EndpointReference conversion boundary. |
+| GF-MASTER-0039 | **EVIDENCE RECONCILED — broader finding remains open.** `ConnectTerminalCommand`, `ReconnectTerminalCommand`, and `DisconnectTerminalCommand` accept only `EndpointReference`; Application bootstrap registers `ElectricalConnectionCommandHandlers`; Application publishes `TopologyChanged`/`NetworkChanged` for these commands. |
+| GF-MASTER-0055 | **REMEDIATED — VERIFICATION DEFERRED.** SnapResult carries presentation terminal identity; EndpointIdentityAdapter deterministically resolves the presentation terminal role/equipment identity, canonicalizes `EquipmentType`, reuses an existing EndpointReference only after consistency validation, and never promotes `terminal_id` into Core identity. |
+| GF-MASTER-0059 | **NO STATUS CONFLATION.** The current effective GF-MASTER-0059 entry remains the separate SLD document-lifecycle finding. Its identifier is not reused for terminal identity; Batch 1B terminal evidence is recorded under GF-MASTER-0055 and cross-related historical SLD identity/topology findings. |
+
+**TerminalResolver disposition:** retained. Static inspection of the active `ui.connections` package shows it is a presentation lookup registry used by the UI structural-validator contract, not by `LineTool`, `EndpointIdentityAdapter`, Core endpoint resolution, or Core mutation. It does not own topology, connection management, persistence, or Core identity. No speculative deletion was performed.
+
+**Canonical static chain:** SLD snap → SnapResult → presentation terminal identity → EndpointIdentityAdapter → EndpointReference → immutable command → Application.execute()/CommandManager → Core terminal/topology service → semantic event → SLD/read projection boundary.
+
+**Batch gate:** **STATICALLY VERIFIED — Batch 1B complete.** Runtime verification remains separately deferred.
