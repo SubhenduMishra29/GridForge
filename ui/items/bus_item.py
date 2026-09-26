@@ -160,7 +160,7 @@ class BusItem(BaseItem):
         if length_sq <= 0.0:
             return QPointF(self._start)
         # Deterministic attachment locations are encoded by normalized span fractions.
-        fraction = min(1.0, index / max(1.0, float(index + 1)))
+        fraction = min(1.0, index / float(DEFAULT_SLD_BUS_PRESENTATION.attachment_count - 1))
         local = QPointF(self._start.x() + span.x() * fraction, self._start.y() + span.y() * fraction)
         return self.mapToScene(local)
 
