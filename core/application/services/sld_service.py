@@ -300,7 +300,7 @@ class SLDService:
         if owner not in (None, "engineer", "projection"):
             raise ValueError("SLD connection ownership is unknown; route edit is rejected.")
         previous = connection.route
-        previous_dict = previous.to_dict()
+        previous_properties = dict(connection.properties)
         updated = self.document.model.get_connection(p["connection_id"]).route.__class__.from_dict(p["route"])
         if updated.ownership != "engineer":
             updated = updated.__class__(routing_mode=updated.routing_mode, ownership="engineer", points=updated.points)
@@ -308,7 +308,7 @@ class SLDService:
         connection.properties.pop("projection_source", None)
         connection.properties["presentation_owner"] = "engineer"
         self.document.mark_modified()
-        transaction.record_undo(lambda connection=connection, route=previous: setattr(connection, "route", route))
+        transaction.record_undo(lambda connection=connection, route=previous, properties=previous_properties: (setattr(connection, "route", route), connection.properties.clear(), connection.properties.update(properties)))
         return ApplicationResult.success_result(
             message="SLD connection route updated.",
             metadata={"presentation_operation": "set_connection_route", "connection_id": p["connection_id"]},
