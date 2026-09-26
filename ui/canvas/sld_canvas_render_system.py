@@ -59,8 +59,9 @@ class SLDCanvasRenderSystem:
         self._route_edit_controller = controller
         for items in tuple(self._items.values()):
             for item in items:
-                if callable(getattr(item, "route_edit_requested", None)):
-                    item.route_edit_requested.connect(controller.handle_route_edit_request)
+                signal = getattr(item, "route_edit_requested", None)
+                if signal is not None and callable(getattr(signal, "connect", None)):
+                    signal.connect(controller.handle_route_edit_request)
 
     @staticmethod
     def _pen(width: float) -> QPen:
