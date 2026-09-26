@@ -216,9 +216,42 @@ class Application:
             self.save_project()
             return True
         if normalized is ProjectTransitionDecision.DISCARD:
-            self.project_lifecycle.discard_project_changes()
+            self._run_project_transition(self.project_lifecycle.discard_project_changes)
             return True
         raise RuntimeError(f"Unhandled transition decision: {normalized!r}")
+
+    def _run_project_transition(self, transition: Any) -> Any:
+        """Coordinate revision/validation state around one lifecycle activation transaction."""
+        if not callable(transition):
+            raise TypeError("transition must be callable.")
+        revision_state = self._revision_service.snapshot_state()
+        try:
+            result = transition()
+        except Exception:
+            self._revision_service.restore_state(revision_state)
+            raise
+
+        # Lifecycle activation has committed successfully; only now establish
+        # the clean baseline for the newly authoritative project state.
+        self._revision_service.reset_for_project()
+        if self._validation_service is not None:
+            self._validation_service.invalidate()
+            self._event_bus.publish(
+                ValidationChanged(
+                    metadata={
+                        "valid": False,
+                        "invalidated": True,
+                        "reason": "project_transition",
+                        **self._project_scope_metadata(),
+                    }
+                )
+            )
+        return result
+
+    def discard_project_changes(self) -> ProjectContext:
+        """Discard active-project changes through the existing lifecycle transaction."""
+        self._study_service.ensure_no_active_studies()
+        return self._run_project_transition(self.project_lifecycle.discard_project_changes)
 
     def new_project(self, name: str = "Untitled Project", *, project_id: str | None = None,
                     decision: ProjectTransitionDecision | str | None = None) -> ProjectContext:
@@ -227,7 +260,9 @@ class Application:
             current = self.project_lifecycle.context
             if current is None: raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
-        context = self.project_lifecycle.new_project(name, project_id=project_id)
+        context = self._run_project_transition(
+            lambda: self.project_lifecycle.new_project(name, project_id=project_id)
+        )
         self._event_bus.publish(ProjectLoaded(metadata={
             "project_id": context.project_id, "name": context.name, "operation": "new",
             "activation_generation": self.project_lifecycle.activation_generation,
@@ -241,7 +276,7 @@ class Application:
             current = self.project_lifecycle.context
             if current is None: raise RuntimeError("Cancel cannot leave the Application without an active project.")
             return current
-        context = self.project_lifecycle.open_project(path)
+        context = self._run_project_transition(lambda: self.project_lifecycle.open_project(path))
         self._event_bus.publish(ProjectLoaded(metadata={
             "project_id": context.project_id, "name": context.name,
             "path": str(context.path) if context.path else None, "operation": "open",
@@ -272,7 +307,7 @@ class Application:
         self._study_service.ensure_no_active_studies()
         if not self._prepare_project_transition(decision): return self.project_lifecycle.context
         previous_generation = self.project_lifecycle.activation_generation
-        context = self.project_lifecycle.close_project()
+        context = self._run_project_transition(self.project_lifecycle.close_project)
         if context is not None:
             self._event_bus.publish(ProjectClosed(metadata={
                 "project_id": context.project_id, "name": context.name,
