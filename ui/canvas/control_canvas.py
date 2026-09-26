@@ -85,7 +85,7 @@ class ControlCanvas(GridScene):
                              for e in [r.component_ids.index(component.component_id)]), 0)
             x = float(position * 120.0 + 8.0)
             y = float(rung_order * 80.0)
-            item.set_graphical_position(x, y)
+            item.set_scene_position(x, y)
             item.setOpacity(1.0 if enabled_by_component.get(component.component_id, True) else 0.45)
             self.addItem(item)
             positions[component.component_id] = (x + 45.0, y + 23.0)
