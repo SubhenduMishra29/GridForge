@@ -74,6 +74,8 @@ class TransformerTool(ToolBase):
         snap_result = self._snap(event)
         if snap_result is None:
             return False
+        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
+            return False
         position = self._position_tuple(snap_result.position)
         endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
 
@@ -98,6 +100,8 @@ class TransformerTool(ToolBase):
             return False
         snap_result = self._snap(event)
         if snap_result is None:
+            return False
+        if getattr(getattr(snap_result, "snap_type", None), "name", None) != "OBJECT":
             return False
         self._current_position = self._position_tuple(snap_result.position)
         self._current_endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
