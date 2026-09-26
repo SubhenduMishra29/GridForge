@@ -89,7 +89,7 @@ class CableTool(ToolBase):
 
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
-        if self._start_endpoint is None:
+        if self._preview.source_endpoint is None:
             return False
         snap_result = self._snap(event)
         if snap_result is None:
@@ -193,11 +193,9 @@ class CableTool(ToolBase):
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
         state.update({
-            "start_endpoint": self._start_endpoint,
-            "current_endpoint": self._current_endpoint,
             "start_position": self._start_position,
             "current_position": self._current_position,
-            "preview_active": self._preview_active,
+            "preview": self._preview.get_state(),
             "has_engineering_parameters": bool(self._engineering_parameters),
         })
         return state
