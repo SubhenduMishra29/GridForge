@@ -273,16 +273,18 @@ class PreviewLayer:
             )
         )
 
-    def show_bus(self, center: Any, *, half_length: float = 20.0) -> None:
-        """Show a transient bus-placement preview using canonical Bus geometry."""
+    def show_bus(self, center: Any, *, presentation: Any = None) -> None:
+        """Show transient Bus geometry from the same canonical definition as commit."""
         from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
+        definition = DEFAULT_SLD_BUS_PRESENTATION if presentation is None else presentation
+        if not hasattr(definition, "start") or not hasattr(definition, "end"):
+            raise TypeError("presentation must provide canonical Bus start/end geometry")
         point = self._point(center)
-        length = float(DEFAULT_SLD_BUS_PRESENTATION.half_length if half_length == 20.0 else half_length)
-        if length <= 0:
-            raise ValueError("half_length must be positive.")
+        start = definition.start
+        end = definition.end
         self.show_segment(
-            (point.x() - length, point.y()),
-            (point.x() + length, point.y()),
+            (point.x() + float(start[0]), point.y() + float(start[1])),
+            (point.x() + float(end[0]), point.y() + float(end[1])),
         )
 
     @staticmethod
