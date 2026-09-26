@@ -28,7 +28,6 @@ from .commands.control_commands import (
 from .control_cycle import ControlCycleResult, ControlCycleService
 from .control_dispatch import ControlCommandDispatcher
 from .control_execution import ControlExecutionService
-from .control_signal_mapping import ControlSignalMapping
 from .control_events import (
     ControlComponentCreated, ControlComponentRemoved,
     ControlConnectionCreated, ControlConnectionRemoved,
@@ -101,7 +100,6 @@ class Application:
             self._control_cycle = ControlCycleService(
                 self._control_engine,
                 self._control_execution,
-                signal_mapping=ControlSignalMapping(),
                 read_service=read_service,
             )
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
@@ -419,7 +417,7 @@ class Application:
             self._control_cycle = ControlCycleService(
                 self._control_engine,
                 next_control_execution,
-                signal_mapping=previous_control_cycle.signal_mapping if previous_control_cycle is not None else ControlSignalMapping(),
+                signal_mapping=previous_control_cycle.signal_mapping if previous_control_cycle is not None else None,
                 read_service=read_service,
             )
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
