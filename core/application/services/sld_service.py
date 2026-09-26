@@ -231,6 +231,7 @@ class SLDService:
                 equipment_id=node_snapshot.get("equipment_id"),
                 x=node_snapshot.get("x", 0.0),
                 y=node_snapshot.get("y", 0.0),
+                presentation=node_snapshot.get("presentation"),
                 properties=node_snapshot.get("properties", {}),
             )
             for snapshot in connection_snapshots:
