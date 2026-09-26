@@ -227,6 +227,42 @@ class SLDService:
             f"SLD node equipment reference {equipment_id!r} does not resolve to current Application read state."
         )
 
+    @staticmethod
+    def has_engineer_presentation_overrides(node: Any) -> bool:
+        """Return whether a node contains authored presentation state."""
+        properties = getattr(node, "properties", {}) or {}
+        if properties.get("position_owner") == "engineer": return True
+        if properties.get("symbol_owner") == "engineer": return True
+        for key in ("labels_owner", "visual_properties_owner", "manual_geometry_owner", "presentation_fields_owner"):
+            if properties.get(key) == "engineer": return True
+        overrides = properties.get("engineer_presentation_overrides")
+        if isinstance(overrides, Mapping) and bool(overrides): return True
+        if properties.get("presentation_owner") == "engineer": return True
+        return False
+
+    @staticmethod
+    def has_engineer_presentation_overrides_for_connection(connection: Any) -> bool:
+        """Return whether a connection contains authored route/presentation state."""
+        properties = getattr(connection, "properties", {}) or {}
+        if properties.get("route_owner") == "engineer": return True
+        route = getattr(connection, "route", None)
+        if route is not None and getattr(route, "ownership", None) == "engineer": return True
+        for key in ("labels_owner", "visual_properties_owner", "manual_geometry_owner", "presentation_fields_owner"):
+            if properties.get(key) == "engineer": return True
+        overrides = properties.get("engineer_presentation_overrides")
+        if isinstance(overrides, Mapping) and bool(overrides): return True
+        if properties.get("presentation_owner") == "engineer": return True
+        return False
+
+    @staticmethod
+    def _set_node_lifecycle_state(node: Any, state: str) -> None:
+        if state not in {"BOUND", "ORPHANED", "REMOVED"}: raise ValueError(f"Unsupported SLD node lifecycle state: {state!r}")
+        node.properties["lifecycle_state"] = state
+
+    @staticmethod
+    def _set_connection_lifecycle_state(connection: Any, state: str) -> None:
+        if state not in {"BOUND", "ORPHANED", "REMOVED"}: raise ValueError(f"Unsupported SLD connection lifecycle state: {state!r}")
+        connection.properties["lifecycle_state"] = state
     def reconcile_element_update(
         self,
         *,
@@ -256,8 +292,8 @@ class SLDService:
             "attributes": attributes,
             "terminal_ids": connectivity,
             "terminal_connectivity": tuple(attributes.get("terminal_connectivity", ())),
-            "lifecycle_state": "BOUND",
         })
+        self._set_node_lifecycle_state(node, "BOUND")
         node.equipment_id = equipment_id
         transaction.record_undo(
             lambda snapshot=previous: self._restore_node_snapshot(snapshot)
@@ -270,77 +306,52 @@ class SLDService:
         equipment_id: str,
         transaction: Transaction,
     ) -> str:
-        """Apply the explicit BOUND/ORPHANED/REMOVED presentation policy.
-
-        Projection-owned bindings are REMOVED with their projection-owned
-        connections. Engineer-authored presentation is retained as ORPHANED;
-        semantic binding is cleared while geometry, symbols, labels, and manual
-        route state remain intact.
-        """
+        """Remove or orphan a Core-bound SLD node using field-level ownership."""
         node = self.document.model.get_node_by_equipment_id_optional(equipment_id)
         if node is None:
             return "REMOVED"
         snapshot = node.to_dict()
-        owner = node.properties.get("presentation_owner")
-        source = node.properties.get("projection_source")
         attached = tuple(
             connection for connection in self.document.model.connections
-            if connection.source_node_id == node.node_id
-            or connection.target_node_id == node.node_id
+            if connection.source_node_id == node.node_id or connection.target_node_id == node.node_id
         )
         connection_snapshots = tuple(connection.to_dict() for connection in attached)
-        if owner == "projection" and source in {"application_read_model", "protection_read_model"}:
+
+        if not self.has_engineer_presentation_overrides(node):
             self.document.model.remove_node(node.node_id)
             self.document.mark_modified()
-
-            def restore_projection(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
+            def restore(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
                 self._restore_node_snapshot(snapshot)
                 for item in connection_snapshots:
                     if self.document.model.get_connection_optional(item["connection_id"]) is None:
                         self._restore_connection_snapshot(item)
-
-            transaction.record_undo(restore_projection)
+            transaction.record_undo(restore)
             return "REMOVED"
-
-        attached = tuple(
-            connection for connection in self.document.model.connections
-            if connection.source_node_id == node.node_id
-            or connection.target_node_id == node.node_id
-        )
-        for connection in attached:
-            if connection.properties.get("presentation_owner") == "projection":
-                self.document.model.remove_connection(connection.connection_id)
-            else:
-                connection.source_endpoint = None if connection.source_node_id == node.node_id else connection.source_endpoint
-                connection.target_endpoint = None if connection.target_node_id == node.node_id else connection.target_endpoint
-                connection.properties.pop("projection_source", None)
-                connection.properties["lifecycle_state"] = "ORPHANED"
-                connection.properties["presentation_owner"] = "engineer"
 
         node.equipment_id = None
         node.properties.pop("projection_source", None)
         node.properties["lifecycle_state"] = "ORPHANED"
         node.properties["orphaned_equipment_id"] = equipment_id
-        node.properties["presentation_owner"] = "engineer"
-        self.document.mark_modified()
 
+        for connection in attached:
+            if self.has_engineer_presentation_overrides_for_connection(connection):
+                if connection.source_node_id == node.node_id:
+                    connection.source_endpoint = None
+                if connection.target_node_id == node.node_id:
+                    connection.target_endpoint = None
+                connection.properties.pop("projection_source", None)
+                self._set_connection_lifecycle_state(connection, "ORPHANED")
+            else:
+                self.document.model.remove_connection(connection.connection_id)
+
+        self.document.mark_modified()
         def restore(snapshot=snapshot, connection_snapshots=connection_snapshots) -> None:
             self._restore_node_snapshot(snapshot)
             for connection in tuple(self.document.model.connections):
                 if connection.connection_id in {item["connection_id"] for item in connection_snapshots}:
                     self.document.model.remove_connection(connection.connection_id)
             for item in connection_snapshots:
-                self.document.model.create_connection(
-                    connection_id=item["connection_id"],
-                    source_node_id=item["source_node_id"],
-                    target_node_id=item["target_node_id"],
-                    source_endpoint=item.get("source_endpoint"),
-                    target_endpoint=item.get("target_endpoint"),
-                    route=item.get("route"),
-                    properties=item.get("properties", {}),
-                )
-            self.document.mark_modified()
-
+                self._restore_connection_snapshot(item)
         transaction.record_undo(restore)
         return "ORPHANED"
 
@@ -350,28 +361,22 @@ class SLDService:
         connection_id: str,
         transaction: Transaction,
     ) -> str:
-        """Remove or orphan an SLD connection in the originating transaction."""
+        """Remove or orphan a Core-bound SLD connection by route ownership."""
         connection = self.document.model.get_connection_optional(connection_id)
         if connection is None:
             return "REMOVED"
         snapshot = connection.to_dict()
-        owner = connection.properties.get("presentation_owner")
-        if owner == "projection":
+        if not self.has_engineer_presentation_overrides_for_connection(connection):
             self.document.model.remove_connection(connection_id)
             self.document.mark_modified()
-            transaction.record_undo(
-                lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot)
-            )
+            transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
             return "REMOVED"
         connection.source_endpoint = None
         connection.target_endpoint = None
         connection.properties.pop("projection_source", None)
-        connection.properties["presentation_owner"] = "engineer"
         connection.properties["lifecycle_state"] = "ORPHANED"
         self.document.mark_modified()
-        transaction.record_undo(
-            lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot)
-        )
+        transaction.record_undo(lambda snapshot=snapshot: self._restore_connection_snapshot(snapshot))
         return "ORPHANED"
 
     def _restore_node_snapshot(self, snapshot: Mapping[str, Any]) -> None:
@@ -460,6 +465,10 @@ class SLDService:
             properties["connection_kind"] = str(connection_kind)
         if projection_source is not None:
             properties["projection_source"] = str(projection_source)
+        if connection_kind is not None:
+            properties["lifecycle_state"] = "BOUND"
+        if isinstance(route, Mapping) and route.get("ownership") == "engineer":
+            properties["route_owner"] = "engineer"
         self.document.model.create_connection(
             connection_id=p["connection_id"],
             source_node_id=p["source_node_id"],
