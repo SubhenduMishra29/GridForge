@@ -143,6 +143,7 @@ def create_application(network: Any) -> Application:
         previous_validation_service = application._validation_service
         previous_protection_read_service = application._protection_read_service
         previous_control_execution = application._control_execution
+        previous_control_cycle = application._control_cycle
 
         try:
             next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
@@ -154,6 +155,7 @@ def create_application(network: Any) -> Application:
             application._validation_service = previous_validation_service
             application._protection_read_service = previous_protection_read_service
             application._control_execution = previous_control_execution
+            application._control_cycle = previous_control_cycle
             raise
 
         def rollback() -> None:
@@ -162,6 +164,7 @@ def create_application(network: Any) -> Application:
             application._validation_service = previous_validation_service
             application._protection_read_service = previous_protection_read_service
             application._control_execution = previous_control_execution
+            application._control_cycle = previous_control_cycle
 
         return rollback
 
@@ -177,10 +180,22 @@ def create_application(network: Any) -> Application:
         previous_measurement_generation = measurement_channel_service.activation_generation
         previous_dynamic_models = dynamic_models.snapshot()
         previous_control_configuration = control_service.configuration
+        previous_control_generation = application.control_engine.activation_generation
+
+        def restore_control_runtime() -> None:
+            if previous_control_configuration is None:
+                application.control_engine.deactivate()
+            else:
+                application.control_engine.configure(
+                    previous_control_configuration,
+                    activation_generation=previous_control_generation or generation,
+                )
+            control_service.activate(previous_control_configuration)
 
         try:
             if context is None:
                 control_service.activate(ControlConfiguration.empty("closed-project"))
+                application.control_engine.deactivate()
                 measurement_channel_service.activate(None, network, (), 0)
                 protection_configuration_service.deactivate()
                 application.protection_runtime = None
@@ -205,13 +220,19 @@ def create_application(network: Any) -> Application:
                     relay = network.get_by_id("relay", item.relay_id)
                     for input_name, channel_id in item.input_channel_ids.items():
                         relay.bind_input(input_name, measurement_channel_service.require(channel_id))
-                control_configuration = loaded.control_configuration if loaded is not None and loaded.control_configuration is not None else ControlConfiguration.empty(context.project_id)
-                if control_configuration.project_id != context.project_id: raise ValueError("Control configuration project_id does not match the active project.")
-                control_configuration.validate(); control_service.activate(control_configuration)
                 control_configuration = (
                     loaded.control_configuration
                     if loaded is not None and loaded.control_configuration is not None
                     else ControlConfiguration.empty(context.project_id)
+                )
+                if control_configuration.project_id != context.project_id:
+                    raise ValueError(
+                        "Control configuration project_id does not match the active project."
+                    )
+                control_configuration.validate()
+                application.control_engine.configure(
+                    control_configuration,
+                    activation_generation=generation,
                 )
                 control_service.activate(control_configuration)
                 if loaded is None:
@@ -242,7 +263,7 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             dynamic_models.replace(previous_dynamic_models)
-            control_service.activate(previous_control_configuration)
+            restore_control_runtime()
             raise
 
         def rollback() -> None:
@@ -261,7 +282,7 @@ def create_application(network: Any) -> Application:
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             dynamic_models.replace(previous_dynamic_models)
-            control_service.activate(previous_control_configuration)
+            restore_control_runtime()
 
         return rollback
 
@@ -328,6 +349,12 @@ def create_application(network: Any) -> Application:
         project_state_validator=validate_project_candidate,
     )
     application.attach_project_lifecycle(lifecycle)
+    # The initial project already owns generation 1; establish the same
+    # generation-aware runtime invariant used by every later activation.
+    application.control_engine.configure(
+        control_service.configuration,
+        activation_generation=lifecycle.activation_generation,
+    )
 
     def study_configuration(request: StudyRequest, expected_type: type[Any]) -> Any:
         configuration = request.configuration.get("configuration", request.configuration)
