@@ -11,12 +11,12 @@ The recorded placement/connection remediation scope **GF-SLD-WF-031 through GF-S
 
 ## Files modified
 
-- `ui/tools/model_placement_tool.py` — existing position-first placement path was retained as the canonical implementation; static re-audit confirms no endpoint-first acquisition and no `ENDPOINT_FIELDS`.
-- `ui/tools/transformer_tool.py` — converted from two-endpoint interaction to position-first Transformer placement with explicit engineering-basis validation.
-- `ui/tools/default_tool_registry.py` — injects the canonical Presentation SymbolRegistry into placement tools.
-- `main.py` — passes `PresentationBootstrap.symbol_registry` into the default tool registry.
-- `core/application/application.py` — completes model-ID extraction used by position-first SLD projection.
-- `core/application/services/transformer_model_service.py` — removes the obsolete endpoint-voltage helper and documents/retains explicit impedance reference voltage semantics.
+- `ui/tools/model_placement_tool.py` — **preserved**, not modified in this pass; static re-audit confirms it already provides the required position-first placement path, with no endpoint-first acquisition and no `ENDPOINT_FIELDS`.
+- `ui/tools/transformer_tool.py` — modified from two-endpoint interaction to position-first Transformer placement with explicit engineering-basis validation.
+- `ui/tools/default_tool_registry.py` — modified to inject the canonical Presentation SymbolRegistry into placement tools.
+- `main.py` — modified to pass `PresentationBootstrap.symbol_registry` into the default tool registry.
+- `core/application/application.py` — modified to complete model-ID extraction used by position-first SLD projection.
+- `core/application/services/transformer_model_service.py` — modified to remove the obsolete endpoint-voltage helper and document/retain explicit impedance reference voltage semantics.
 
 ## Recorded finding mapping
 
@@ -140,5 +140,6 @@ No new audit scope was opened. The correction is limited to the recorded SLD pla
 - `d933099e5feab84206b899e160c56e02f8bbdbc9` — position-first Transformer placement.
 - `d4231a37068579877941569b57ba3314572f6078` — complete Application placement identity extraction.
 - `998b7e6ecb222b31bb53e784bfa6bdd8c70ffac0` — explicit Transformer impedance-basis service correction.
+- `9df7c24297938f57467fe4ffb963ec76b2dc90c4` — this static remediation report.
 
 **Final engineering principle:** Place first. Connect separately. Preserve electrical semantics.
